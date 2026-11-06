@@ -26,7 +26,7 @@
   let preview = $state<ApplyPreview | null>(null), previewStale = $state(false);
   $effect(() => { if (initial !== snapshot) { snapshot = initial; templates = initial; chosen = null; preview = null; } });
   beforeNavigate(({ cancel }) => {
-    if (editing !== undefined && !window.confirm(t('config.discard-draft', 'Leave this page and discard your unsaved changes?'))) cancel();
+    if ((editing !== undefined || ruleIndex !== null || pending) && !window.confirm(pending ? t('config.leave-pending', 'An operation is still running. Leave this page? Leaving does not cancel it.') : t('config.discard-draft', 'Leave this page and discard your unsaved changes?'))) cancel();
   });
   $effect(() => { if (editing !== undefined && nameInput?.isConnected) nameInput.focus(); });
   const writable = $derived(canManage && !readOnly);
@@ -63,7 +63,13 @@
   async function remove(template: Template) {
     if (!writable || pending || !window.confirm(t('config.template-delete-confirm', 'Delete template “{name}”? Rules already copied into memories remain.', { name: template.name }))) return;
     pending = true; failure = null;
-    try { await configCall({ kind: 'templates', op: 'delete', ownerType, ownerRef, ref: template.id, revision: template.revision }); notice = t('config.deleted', 'Deleted.'); await reload(); }
+    try {
+      await configCall({ kind: 'templates', op: 'delete', ownerType, ownerRef, ref: template.id, revision: template.revision });
+      templates = templates.filter(t => t.id !== template.id);
+      notice = t('config.deleted', 'Deleted.');
+      try { await reload(); }
+      catch { failure = { error: t('config.deleted-reload-failed', 'Deleted, but the templates could not be reloaded. Reload before another change.') }; }
+    }
     catch (e) { failure = e as ConfigFailure; }
     finally { pending = false; }
   }
@@ -80,7 +86,8 @@
     if (value === 'APPLIED') return preview?.dryRun ? t('config.will-add', 'Will be added') : t('config.added', 'Added');
     if (value === 'REPLACED') return preview?.dryRun ? t('config.will-replace', 'Will be replaced') : t('config.replaced', 'Replaced');
     if (value === 'SKIPPED_LOCKED') return t('config.skipped-locked', 'Skipped: locked');
-    return t('config.skipped-existing', 'Skipped: a rule already exists');
+    if (value === 'SKIPPED_CONFLICT') return t('config.skipped-conflict', 'Skipped: conflict with an existing rule');
+    return t('config.skipped-unknown', 'Skipped: outcome unavailable');
   }
 </script>
 <section class="space-y-4">

@@ -38,9 +38,9 @@
     try {
       await configCall({ kind: 'rules', op: editing ? 'update' : 'create', memoryRef, ref: editing?.id, revision: editing?.revision, input });
     } catch (e) { return e as ConfigFailure; }
-    editing = undefined;
     notice = t('config.saved', 'Saved.');
     try { await reload(); } catch { failure = { error: t('config.reload-failed', 'Saved, but the rules could not be reloaded. Reload before another change.') }; }
+    editing = undefined;
     return null;
   }
   async function rowAction(rule: Rule, op: 'delete' | 'unlock') {
