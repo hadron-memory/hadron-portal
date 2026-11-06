@@ -104,7 +104,49 @@ describe('loadHistory', () => {
     const r = await loadHistory(client, 'app-1', 't1');
     expect(r).toMatchObject({ kind: 'ok', value: { capped: true } });
     expect(r.kind === 'ok' && r.value.events).toHaveLength(HISTORY_LIMIT);
-    expect(request).toHaveBeenCalledTimes(HISTORY_LIMIT / 200);
+    expect(request).toHaveBeenCalledTimes(6);
+  });
+
+  // portal#1713: `agentTeamEvents` has no count or hasMore, so only a sixth page can tell 1000 from more.
+  // A fixed fixture stream: this proves the walk's arithmetic, not a snapshot of a stream being written to.
+  describe('the bound (portal#1713)', () => {
+    const serve = (total: number) =>
+      request.mockImplementation(async (_q: string, v: { after?: string }) => {
+        const from = v.after ? Number(v.after.slice(1)) + 1 : 0;
+        return { agentTeamEvents: page(Math.min(200, Math.max(0, total - from)), from) };
+      });
+
+    it.each([
+      [999, 999, false, 5],
+      [1000, 1000, false, 6],
+      [1001, 1000, true, 6],
+    ])('a stream of %i shows %i, capped %s, in %i reads', async (total, shown, capped, reads) => {
+      serve(total);
+      const r = await loadHistory(client, 'app-1', 't1');
+      expect(r).toMatchObject({ kind: 'ok', value: { capped } });
+      expect(r.kind === 'ok' && r.value.events).toHaveLength(shown);
+      expect(request).toHaveBeenCalledTimes(reads);
+    });
+
+    const sixthThrows = (e: Error) => {
+      let n = 0;
+      request.mockImplementation(async () => {
+        if (n === 5) { n++; throw e; }
+        return { agentTeamEvents: page(200, (n++) * 200) };
+      });
+    };
+
+    it('APP_NOT_FOUND on the sixth read is the not-participant state', async () => {
+      sixthThrows(gqlError('APP_NOT_FOUND'));
+      expect(await loadHistory(client, 'app-1', 't1')).toEqual({ kind: 'not-participant' });
+      expect(request).toHaveBeenCalledTimes(6);
+    });
+
+    it('any other error on the sixth read fails, the 1000 rows dropped: it can’t tell complete from capped', async () => {
+      sixthThrows(new Error('boom'));
+      expect(await loadHistory(client, 'app-1', 't1')).toEqual({ kind: 'failed' });
+      expect(request).toHaveBeenCalledTimes(6);
+    });
   });
 });
 
@@ -328,11 +370,99 @@ describe('loadReview (portal#1697)', () => {
     expect(readinessCalls()[0][1]).toEqual({ taskRef: 't1', head: H });
   });
 
-  it('a stream past the bound is a failure, never an old head called current', async () => {
-    const page = Array.from({ length: 200 }, (_, i) => ({ id: `e${i}`, type: 'pr.frozen', payload: { head: H } }));
-    request.mockImplementation(async () => ({ agentTeamEvents: page }));
-    expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'failed' });
-    expect(readinessCalls()).toEqual([]);
+  // portal#1713: a fixed fixture stream, oldest first, whose LAST event carries the newest head.
+  describe('the bound (portal#1713)', () => {
+    const OLD = 'b'.repeat(40);
+    const reads = () => request.mock.calls.filter((c) => c[0] === TASK_REVIEW_EVENTS_QUERY);
+    const event = (i: number, total: number) => ({ id: `e${i}`, type: 'pr.frozen', payload: { head: i === total - 1 ? H : OLD } });
+    const serve = (total: number) =>
+      request.mockImplementation(async (q: string, v: { after?: string }) => {
+        if (q !== TASK_REVIEW_EVENTS_QUERY) return { pullRequestReadiness: readiness };
+        const from = v.after ? Number(v.after.slice(1)) + 1 : 0;
+        return { agentTeamEvents: Array.from({ length: Math.min(200, Math.max(0, total - from)) }, (_, i) => event(from + i, total)) };
+      });
+    const sixthThrows = (e: Error) => {
+      let n = 0;
+      request.mockImplementation(async () => {
+        if (n === 5) { n++; throw e; }
+        const from = (n++) * 200;
+        return { agentTeamEvents: Array.from({ length: 200 }, (_, i) => event(from + i, Infinity)) };
+      });
+    };
+
+    it.each([[999, 5], [1000, 6]])('a stream of %i is complete: the newest head, in %i reads', async (total, count) => {
+      serve(total);
+      expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'ok', value: { readiness, seat: null } });
+      expect(reads()).toHaveLength(count);
+      expect(readinessCalls()).toEqual([[PULL_REQUEST_READINESS_QUERY, { taskRef: 't1', head: H }]]);
+    });
+
+    it('1001 events are unreadable, never an old head called current, with no seventh read', async () => {
+      serve(1001);
+      expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'unreadable' });
+      expect(reads()).toHaveLength(6);
+      expect(readinessCalls()).toEqual([]);
+    });
+
+    it('an endless stream is unreadable at six reads', async () => {
+      serve(Infinity);
+      expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'unreadable' });
+      expect(reads()).toHaveLength(6);
+      expect(readinessCalls()).toEqual([]);
+    });
+
+    it('APP_NOT_FOUND on the sixth read is the not-participant state', async () => {
+      sixthThrows(gqlError('APP_NOT_FOUND'));
+      expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'not-participant' });
+      expect(request).toHaveBeenCalledTimes(6);
+    });
+
+    it('any other error on the sixth read stays a failure, which a reload can pass', async () => {
+      sixthThrows(new Error('boom'));
+      expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'failed' });
+      expect(request).toHaveBeenCalledTimes(6);
+    });
+  });
+
+  // portal#1713: synthetic stored rows; the freeze writer refuses these today.
+  describe('a malformed newest event (portal#1713)', () => {
+    const OLD = 'b'.repeat(40);
+    const SECRET = 'payload-text-that-must-not-be-logged';
+    const seat = { id: 'e2', type: 'review.seat.assigned', payload: { slot: 'local', head: OLD } };
+
+    it('a malformed freeze after a valid one is unreadable, and readiness is never asked', async () => {
+      answer([frozen, { id: 'e2', type: 'pr.frozen', payload: { head: SECRET } }]);
+      expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'unreadable' });
+      expect(readinessCalls()).toEqual([]);
+    });
+
+    it('a malformed seat after a valid one is unreadable, a valid head with no slot included', async () => {
+      answer([seat, { id: 'e3', type: 'review.seat.assigned', payload: { head: H } }]);
+      expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'unreadable' });
+      expect(readinessCalls()).toEqual([]);
+    });
+
+    it('a valid newest freeze with a malformed newest seat is unreadable', async () => {
+      answer([frozen, { id: 'e2', type: 'review.seat.assigned', payload: { slot: 'local' } }]);
+      expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'unreadable' });
+      expect(readinessCalls()).toEqual([]);
+    });
+
+    it('a valid event after a malformed one is used', async () => {
+      answer([{ id: 'e0', type: 'pr.frozen', payload: { head: 'nope' } }, frozen]);
+      expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'ok', value: { readiness, seat: null } });
+      expect(readinessCalls()).toEqual([[PULL_REQUEST_READINESS_QUERY, { taskRef: 't1', head: H }]]);
+    });
+
+    it('logs the task id and the reason, never the payload', async () => {
+      answer([{ id: 'e2', type: 'pr.frozen', payload: { head: SECRET } }]);
+      vi.mocked(console.warn).mockClear();
+      await loadReview(client, 'app-1', 't1');
+      const logged = JSON.stringify(vi.mocked(console.warn).mock.calls);
+      expect(logged).toContain('t1');
+      expect(logged).toContain('pr.frozen');
+      expect(logged).not.toContain(SECRET);
+    });
   });
 
   it('a null answer is the not-participant state', async () => {

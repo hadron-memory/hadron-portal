@@ -10,21 +10,57 @@ describe('reviewFacts', () => {
     expect(reviewFacts([
       { type: 'pr.frozen', payload: { head: H1, pullRequest: 'x' } },
       { type: 'pr.frozen', payload: { head: H2, pullRequest: 'x' } },
-    ])).toEqual({ head: H2, seat: null });
+    ])).toEqual({ kind: 'facts', head: H2, seat: null });
     expect(reviewFacts([
       { type: 'review.seat.assigned', payload: { slot: 'local', head: H1, supersedes: null } },
       { type: 'review.seat.assigned', payload: { slot: 'blind', head: H2, supersedes: null } },
-    ])).toEqual({ head: null, seat: { slot: 'blind', head: H2 } });
+    ])).toEqual({ kind: 'facts', head: null, seat: { slot: 'blind', head: H2 } });
   });
 
   it('no events is no head and no seat', () => {
-    expect(reviewFacts([])).toEqual({ head: null, seat: null });
+    expect(reviewFacts([])).toEqual({ kind: 'facts', head: null, seat: null });
   });
 
-  it('a payload that is not the producer’s shape is not a fact', () => {
-    expect(reviewFacts([{ type: 'pr.frozen', payload: { head: 'nope' } }]).head).toBeNull();
-    expect(reviewFacts([{ type: 'pr.frozen', payload: null }]).head).toBeNull();
-    expect(reviewFacts([{ type: 'review.seat.assigned', payload: { head: H1 } }]).seat).toBeNull();
+  // portal#1713: synthetic stored rows. The freeze writer refuses these today
+  // (cor:agt:130:04 covers the writer); they stand for a legacy row or a later
+  // payload shape, not for something the writer can produce.
+  describe('a newest event that is not the producer’s shape', () => {
+    const frozen = (head: unknown) => ({ type: 'pr.frozen', payload: { head, pullRequest: 'x' } });
+    const seat = (payload: unknown) => ({ type: 'review.seat.assigned', payload });
+    const MALFORMED_FROZEN = { kind: 'malformed', eventType: 'pr.frozen' };
+    const MALFORMED_SEAT = { kind: 'malformed', eventType: 'review.seat.assigned' };
+
+    it('a malformed freeze is reported, never an absent one', () => {
+      expect(reviewFacts([frozen('nope')])).toEqual(MALFORMED_FROZEN);
+      expect(reviewFacts([{ type: 'pr.frozen', payload: null }])).toEqual(MALFORMED_FROZEN);
+      expect(reviewFacts([frozen(H1.slice(1))])).toEqual(MALFORMED_FROZEN);
+    });
+
+    it('a malformed freeze after a valid one hides the older head', () => {
+      expect(reviewFacts([frozen(H1), frozen('nope')])).toEqual(MALFORMED_FROZEN);
+    });
+
+    it('a malformed seat after a valid one hides the older seat, including a valid head with no slot', () => {
+      const valid = seat({ slot: 'local', head: H1 });
+      expect(reviewFacts([valid, seat({ head: H2 })])).toEqual(MALFORMED_SEAT);
+      expect(reviewFacts([valid, seat({ slot: '', head: H2 })])).toEqual(MALFORMED_SEAT);
+      expect(reviewFacts([valid, seat({ slot: 'blind', head: 'nope' })])).toEqual(MALFORMED_SEAT);
+      expect(reviewFacts([valid, seat(null)])).toEqual(MALFORMED_SEAT);
+    });
+
+    it('a valid newest freeze does not rescue a malformed newest seat, in either order', () => {
+      expect(reviewFacts([frozen(H1), seat({ head: H2 })])).toEqual(MALFORMED_SEAT);
+      expect(reviewFacts([seat({ head: H2 }), frozen(H1)])).toEqual(MALFORMED_SEAT);
+    });
+
+    it('a valid event after a malformed one is used', () => {
+      expect(reviewFacts([frozen('nope'), frozen(H2)])).toEqual({ kind: 'facts', head: H2, seat: null });
+      expect(reviewFacts([seat({ head: H1 }), seat({ slot: 'blind', head: H2 })])).toEqual({ kind: 'facts', head: null, seat: { slot: 'blind', head: H2 } });
+    });
+
+    it('an event of another type decides nothing', () => {
+      expect(reviewFacts([frozen(H1), { type: 'review.verdict', payload: null }])).toEqual({ kind: 'facts', head: H1, seat: null });
+    });
   });
 });
 

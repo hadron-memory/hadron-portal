@@ -164,4 +164,28 @@ describe('TaskReview read outcomes', () => {
     const m = await mountWith({ kind: 'failed' });
     expect(m.target.querySelector('[role="alert"]')!.textContent).toContain('Couldn’t load the review');
   });
+
+  describe('portal#1713: unreadable and failed tell a reader different things', () => {
+    const UNREADABLE = 'This task’s review can’t be shown, because its review history is too long or can’t be read here.';
+    const FAILED = 'Couldn’t load the review. Reload to try again.';
+    const alert = (m: { target: HTMLElement }) => m.target.querySelector('[role="alert"]')!.textContent?.trim();
+    const controls = (m: { target: HTMLElement }) => m.target.querySelectorAll('a, button, form, [role="button"], [role="link"]');
+
+    it('unreadable says exactly its own line, in the alert block, with no retry control', async () => {
+      const m = await mountWith({ kind: 'unreadable' } as never);
+      expect(alert(m)).toBe(UNREADABLE);
+      expect(controls(m)).toHaveLength(0);
+    });
+
+    it('unreadable shows no readiness, no seat, no head and no not-participant state', async () => {
+      const m = await mountWith({ kind: 'unreadable' } as never, { build: { id: 'build-1', handle: 'AT1', title: 'Build it' } });
+      for (const id of ['task-review-overall', 'task-review-seat', 'task-review-head', 'task-review-pr', 'tasks-not-participant']) expect(q(m, id)).toBeNull();
+      expect(m.target.querySelector('table')).toBeNull();
+    });
+
+    it('failed keeps its own reload line, the control for the pin above', async () => {
+      const m = await mountWith({ kind: 'failed' });
+      expect(alert(m)).toBe(FAILED);
+    });
+  });
 });
