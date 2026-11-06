@@ -1,5 +1,6 @@
 import { t } from '$lib/i18n/t';
 import { taskStateLabel, type TaskDisplayState } from './status';
+import type { TaskRead } from './types';
 
 /**
  * portal#1697 — what the task page's Review section shows of a pull request's
@@ -42,7 +43,17 @@ export interface TaskReview {
   seat: SeatFact | null;
 }
 
-export const REVIEW_EVENT_TYPES = ['pr.frozen', 'review.seat.assigned'];
+/**
+ * portal#1713 — `unreadable` is the outcome a reload can't change while the data
+ * and the bound stay as they are: a malformed newest event, or a stream past the
+ * bound. `failed` stays for what can pass, and its copy says to reload.
+ */
+export type TaskReviewOutcome = TaskRead<TaskReview> | { kind: 'unreadable' };
+
+const FROZEN_EVENT = 'pr.frozen';
+const SEAT_EVENT = 'review.seat.assigned';
+
+export const REVIEW_EVENT_TYPES = [FROZEN_EVENT, SEAT_EVENT];
 
 const FULL_SHA = /^[0-9a-f]{40}$/i;
 
@@ -50,19 +61,36 @@ function record(payload: unknown): Record<string, unknown> {
   return payload && typeof payload === 'object' && !Array.isArray(payload) ? (payload as Record<string, unknown>) : {};
 }
 
-/** The frozen head and the seat fact in events read oldest first, so the last of each type is the newest. */
-export function reviewFacts(events: { type: string; payload: unknown }[]): { head: string | null; seat: SeatFact | null } {
+export type ReviewFacts =
+  | { kind: 'facts'; head: string | null; seat: SeatFact | null }
+  | { kind: 'malformed'; eventType: string };
+
+/**
+ * The frozen head and the seat fact in events read oldest first, so the last of
+ * each type is the newest. A malformed newest event is reported as such, apart
+ * from "no event": an earlier valid one is not current
+ * (hrn:node:hadronmemory.com:specs:cor:agt:130:01), so nothing may fall back to it.
+ */
+export function reviewFacts(events: { type: string; payload: unknown }[]): ReviewFacts {
   let head: string | null = null;
   let seat: SeatFact | null = null;
+  let frozenMalformed = false;
+  let seatMalformed = false;
   for (const event of events) {
     const payload = record(event.payload);
     const eventHead = typeof payload.head === 'string' && FULL_SHA.test(payload.head) ? payload.head : null;
-    if (event.type === 'pr.frozen') head = eventHead;
-    if (event.type === 'review.seat.assigned') {
-      seat = eventHead && typeof payload.slot === 'string' ? { slot: payload.slot, head: eventHead } : null;
+    if (event.type === FROZEN_EVENT) {
+      head = eventHead;
+      frozenMalformed = eventHead === null;
+    }
+    if (event.type === SEAT_EVENT) {
+      seat = eventHead && typeof payload.slot === 'string' && payload.slot !== '' ? { slot: payload.slot, head: eventHead } : null;
+      seatMalformed = seat === null;
     }
   }
-  return { head, seat };
+  if (frozenMalformed) return { kind: 'malformed', eventType: FROZEN_EVENT };
+  if (seatMalformed) return { kind: 'malformed', eventType: SEAT_EVENT };
+  return { kind: 'facts', head, seat };
 }
 
 export const shortHead = (head: string): string => head.slice(0, 8);

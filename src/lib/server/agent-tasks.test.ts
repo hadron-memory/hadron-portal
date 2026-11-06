@@ -128,7 +128,7 @@ describe('loadHistory', () => {
       expect(request).toHaveBeenCalledTimes(reads);
     });
 
-    const sixthThrows = (e: Error) => {
+    const sixthThrows = (e: unknown) => {
       let n = 0;
       request.mockImplementation(async () => {
         if (n === 5) { n++; throw e; }
@@ -381,7 +381,7 @@ describe('loadReview (portal#1697)', () => {
         const from = v.after ? Number(v.after.slice(1)) + 1 : 0;
         return { agentTeamEvents: Array.from({ length: Math.min(200, Math.max(0, total - from)) }, (_, i) => event(from + i, total)) };
       });
-    const sixthThrows = (e: Error) => {
+    const sixthThrows = (e: unknown) => {
       let n = 0;
       request.mockImplementation(async () => {
         if (n === 5) { n++; throw e; }

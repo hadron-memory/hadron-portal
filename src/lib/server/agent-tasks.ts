@@ -17,7 +17,7 @@ import {
   TEAM_ROSTER_QUERY,
 } from '$lib/server/queries';
 import { rosterOf } from '$lib/withheld';
-import { REVIEW_EVENT_TYPES, reviewFacts, type PullRequestReadiness, type TaskReview } from '$lib/agent-tasks/review';
+import { REVIEW_EVENT_TYPES, reviewFacts, type PullRequestReadiness, type TaskReview, type TaskReviewOutcome } from '$lib/agent-tasks/review';
 import { boardFilterArgs, type BoardFilter } from '$lib/agent-tasks/status';
 import { NO_NARROW, narrowArgs, type BoardNarrow } from '$lib/agent-tasks/narrow';
 import type { AgentAlarm, AgentTaskRow, AgentTeamEvent, TaskRead, TaskRefs, TeamComposition, TeamRoster, WriteCandidates } from '$lib/agent-tasks/types';
@@ -95,31 +95,51 @@ const EVENTS_PAGE = 200;
 export const HISTORY_LIMIT = 1000;
 
 /**
- * One task's history, oldest first. `agentTeamEvents` pages forward only, by
- * `after`, so this walks until a short page or the bound. A short page is the
+ * Walks one task's events forward by `after`, oldest first. A short page is the
  * end here because the walk continues from the last id it read, not from an
  * offset that concurrent writes could shift.
+ *
+ * `agentTeamEvents` gives no count or `hasMore`, so a stream that reaches the
+ * bound on a full page takes one more page to tell "exactly the bound" from
+ * "more": at most six reads (portal#1713). `over` has to be judged before the
+ * short-page exit, or a short sixth page reads as complete. This reports what
+ * those reads returned; it promises no snapshot of a stream still being written.
+ */
+async function readEvents<T extends { id: string }>(
+  read: (after: string | undefined) => Promise<T[]>,
+): Promise<{ events: T[]; over: boolean }> {
+  const events: T[] = [];
+  let after: string | undefined;
+  for (;;) {
+    const page = await read(after);
+    events.push(...page);
+    if (events.length > HISTORY_LIMIT) return { events: events.slice(0, HISTORY_LIMIT), over: true };
+    if (page.length < EVENTS_PAGE) return { events, over: false };
+    after = page[page.length - 1].id;
+  }
+}
+
+/**
+ * One task's history, oldest first. A failure on any page, the sixth included,
+ * is a failure: without that page the view can't tell complete from capped, so
+ * it shows neither rather than the rows it holds (the gate on portal#1713).
  */
 export async function loadHistory(
   client: GraphQLClient,
   appRef: string,
   taskId: string,
 ): Promise<TaskRead<{ events: AgentTeamEvent[]; capped: boolean }>> {
-  const events: AgentTeamEvent[] = [];
-  let after: string | undefined;
   try {
-    while (events.length < HISTORY_LIMIT) {
+    const { events, over } = await readEvents(async (after) => {
       const r = await client.request<{ agentTeamEvents: AgentTeamEvent[] }>(AGENT_TASK_EVENTS_QUERY, {
         appRef,
         taskId,
         after,
         limit: EVENTS_PAGE,
       });
-      events.push(...r.agentTeamEvents);
-      if (r.agentTeamEvents.length < EVENTS_PAGE) return { kind: 'ok', value: { events, capped: false } };
-      after = r.agentTeamEvents[r.agentTeamEvents.length - 1].id;
-    }
-    return { kind: 'ok', value: { events: events.slice(0, HISTORY_LIMIT), capped: true } };
+      return r.agentTeamEvents;
+    });
+    return { kind: 'ok', value: { events, capped: over } };
   } catch (e) {
     return classify(e, `history read for ${taskId}`);
   }
@@ -132,38 +152,45 @@ export async function loadHistory(
  * the task's own `pr.frozen` events and never from the `pr.head` property
  * mirror, which any writer may change and which decides nothing
  * (hrn:node:hadronmemory.com:specs:cor:agt:130:03). The events read oldest
- * first, so the whole stream is read to reach the newest; past the bound the
- * newest is unknown, which is a failure and never an old head called current.
+ * first, so the whole stream is read to reach the newest.
+ *
+ * portal#1713: past the bound the newest is unknown, and a malformed newest
+ * event is not a fact. Both are `unreadable`, with no readiness read, so no old
+ * head is ever called current. The log gets the task id and the reason, never
+ * the payload.
  *
  * No freeze, or REVIEW_SCHEDULE_MISSING, is a task with no schedule: no section
  * and no error. A null answer is the server's concealment, the not-participant
  * state. PR_HEAD_NOT_FROZEN (another freeze landed between the two reads) stays
  * a failure, whose line says to reload.
  */
-export async function loadReview(client: GraphQLClient, appRef: string, taskId: string): Promise<TaskRead<TaskReview>> {
-  const events: { id: string; type: string; payload: unknown }[] = [];
-  let after: string | undefined;
+export async function loadReview(client: GraphQLClient, appRef: string, taskId: string): Promise<TaskReviewOutcome> {
+  type ReviewEvent = { id: string; type: string; payload: unknown };
+  let stream: { events: ReviewEvent[]; over: boolean };
   try {
-    for (;;) {
-      const r = await client.request<{ agentTeamEvents: typeof events }>(TASK_REVIEW_EVENTS_QUERY, {
+    stream = await readEvents(async (after) => {
+      const r = await client.request<{ agentTeamEvents: ReviewEvent[] }>(TASK_REVIEW_EVENTS_QUERY, {
         appRef,
         taskId,
         types: REVIEW_EVENT_TYPES,
         after,
         limit: EVENTS_PAGE,
       });
-      events.push(...r.agentTeamEvents);
-      if (r.agentTeamEvents.length < EVENTS_PAGE) break;
-      if (events.length >= HISTORY_LIMIT) {
-        console.warn(`[agent-tasks] review events for ${taskId} passed the bound`);
-        return { kind: 'failed' };
-      }
-      after = r.agentTeamEvents[r.agentTeamEvents.length - 1].id;
-    }
+      return r.agentTeamEvents;
+    });
   } catch (e) {
     return classify(e, `review events for ${taskId}`);
   }
-  const { head, seat } = reviewFacts(events);
+  if (stream.over) {
+    console.warn(`[agent-tasks] review events for ${taskId} passed the bound`);
+    return { kind: 'unreadable' };
+  }
+  const facts = reviewFacts(stream.events);
+  if (facts.kind === 'malformed') {
+    console.warn(`[agent-tasks] review events for ${taskId}: newest ${facts.eventType} is malformed`);
+    return { kind: 'unreadable' };
+  }
+  const { head, seat } = facts;
   if (!head) return { kind: 'ok', value: { readiness: null, seat } };
   try {
     const r = await client.request<{ pullRequestReadiness: PullRequestReadiness | null }>(PULL_REQUEST_READINESS_QUERY, { taskRef: taskId, head });

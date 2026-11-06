@@ -22,7 +22,7 @@ describe('reviewFacts', () => {
   });
 
   // portal#1713: synthetic stored rows. The freeze writer refuses these today
-  // (cor:agt:130:04 covers the writer); they stand for a legacy row or a later
+  // (hrn:node:hadronmemory.com:specs:cor:agt:130:04 covers the writer); they stand for a legacy row or a later
   // payload shape, not for something the writer can produce.
   describe('a newest event that is not the producer’s shape', () => {
     const frozen = (head: unknown) => ({ type: 'pr.frozen', payload: { head, pullRequest: 'x' } });

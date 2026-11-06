@@ -20,8 +20,8 @@
   import PartyLabel from '$lib/components/agent-tasks/PartyLabel.svelte';
   import { taskHref } from '$lib/agent-tasks/handle';
   import { neutralizeFormatChars, neutralizeTargetChars, referenceLink, type TaskReference } from '$lib/agent-tasks/references';
-  import { atOlderHead, seatStateLabel, shortHead, slotsNotCounting, verdictLabel, type ReviewSlot, type TaskReview } from '$lib/agent-tasks/review';
-  import type { AgentTaskParty, TaskRead } from '$lib/agent-tasks/types';
+  import { atOlderHead, seatStateLabel, shortHead, slotsNotCounting, verdictLabel, type ReviewSlot, type TaskReviewOutcome } from '$lib/agent-tasks/review';
+  import type { AgentTaskParty } from '$lib/agent-tasks/types';
   import { t } from '$lib/i18n/t';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -37,7 +37,7 @@
     basePath,
     build,
   }: {
-    review: TaskRead<TaskReview>;
+    review: TaskReviewOutcome;
     /** The loaded subtask tree, where a seat's handle and assignee come from. */
     rows: SeatRow[];
     references: TaskReference[];
@@ -101,6 +101,11 @@
     {:else if review.kind === 'failed'}
       <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
         {t('app.tasks.review.failed', 'Couldn’t load the review. Reload to try again.')}
+      </div>
+    {:else if review.kind === 'unreadable'}
+      <!-- portal#1713: a reload gives the same answer, so this offers no retry and promises no permanence. -->
+      <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+        {t('app.tasks.review.unreadable', 'This task’s review can’t be shown, because its review history is too long or can’t be read here.')}
       </div>
     {/if}
 
