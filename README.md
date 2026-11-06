@@ -1,0 +1,2 @@
+# Coco portal#1737 browser evidence
+Portal 79f3fbfc6e894dd9ab0fa01e814bd838280226ee; private server 1b11972be01edb91c2a51e9c482d800e0bf23b35, Incus coco1737. Synthetic e2e-alpha only. Chromium, 1440px. Dev login; Theme menu Light/Dark; give/stop and ended history. Final selected trigger: four ended plus one live, App total nine across three schedules. Images inspected for secrets; synthetic identities only. Codex/OpenAI own execution, no delegate.
