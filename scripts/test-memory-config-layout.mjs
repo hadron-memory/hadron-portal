@@ -11,12 +11,17 @@ try {
  for (const width of [320, 390, 1280]) for (const dark of [false, true]) {
   const page = await browser.newPage({ viewport: { width, height: 900 } });
   await page.route('**/__blank', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>fixture</title>' }));
-  await page.route('**/api/memory-config', r => r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ code: 'CONFLICT', error: 'Fixture revision changed.' }) }));
+  let writes = 0;
+  await page.route('**/api/memory-config', r => { writes++; return r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ code: 'CONFLICT', error: 'Fixture revision changed.' }) }); });
   await page.goto(new URL('/__blank', origin).href);
   await page.evaluate(({ css, dark }) => { document.head.innerHTML = `<style>${css}</style>`; document.body.innerHTML = '<main style="max-width:1100px;margin:16px" id="fixture"></main>'; document.documentElement.classList.toggle('dark', dark); }, { css, dark });
   await page.evaluate(async () => { const { mountTemplates } = await import('/src/lib/test/fixtures/memory-config-layout-harness.ts'); mountTemplates(document.getElementById('fixture')); });
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByRole('heading', { name: 'Edit template', exact: true }).waitFor();
+  await page.locator('fieldset').getByTestId('table-header-toggle').click();
+  await page.getByRole('textbox', { name: 'Search rules…', exact: true }).press('Enter');
+  await page.waitForTimeout(50);
+  assert.equal(writes, 0, 'Search Enter must not save a template draft');
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   assert.ok(overflow <= 0, `${width}/${dark}: template editor overflows ${overflow}px`);
   const edit = page.locator('form').getByRole('button', { name: 'Edit', exact: true });
