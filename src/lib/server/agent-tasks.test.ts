@@ -100,7 +100,10 @@ describe('loadHistory', () => {
 
   it('stops at the bound and says so', async () => {
     let n = 0;
-    request.mockImplementation(async () => ({ agentTeamEvents: page(200, (n++) * 200) }));
+    request.mockImplementation(async () => {
+      if (n === 6) throw new Error('a seventh read'); // An unbounded walk fails this pin instead of hanging the run.
+      return { agentTeamEvents: page(200, (n++) * 200) };
+    });
     const r = await loadHistory(client, 'app-1', 't1');
     expect(r).toMatchObject({ kind: 'ok', value: { capped: true } });
     expect(r.kind === 'ok' && r.value.events).toHaveLength(HISTORY_LIMIT);
@@ -378,6 +381,7 @@ describe('loadReview (portal#1697)', () => {
     const serve = (total: number) =>
       request.mockImplementation(async (q: string, v: { after?: string }) => {
         if (q !== TASK_REVIEW_EVENTS_QUERY) return { pullRequestReadiness: readiness };
+        if (reads().length > 6) throw new Error('a seventh read'); // An unbounded walk fails these pins instead of hanging the run.
         const from = v.after ? Number(v.after.slice(1)) + 1 : 0;
         return { agentTeamEvents: Array.from({ length: Math.min(200, Math.max(0, total - from)) }, (_, i) => event(from + i, total)) };
       });
