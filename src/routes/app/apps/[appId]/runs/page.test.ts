@@ -13,6 +13,7 @@ import { runAppFlowSchema } from './schema';
 vi.mock('$app/forms', () => ({ enhance: () => ({}) }));
 vi.mock('$app/navigation', () => ({
   beforeNavigate: () => {},
+  afterNavigate: () => {},
   goto: vi.fn(),
   invalidateAll: vi.fn(),
 }));
@@ -32,7 +33,7 @@ vi.mock('$app/stores', async () => {
   };
 });
 
-import Page from './+page.svelte';
+import Page from './AppRunsPanel.svelte';
 
 const app = { id: 'app-1', name: 'Digest', organizationId: 'org-1' };
 
@@ -77,7 +78,7 @@ async function renderPage(runs: unknown[], status: string | null = null, flows: 
   const runForm = await superValidate(zod4(runAppFlowSchema));
   return render(Page, {
     props: {
-      data: { app, runs, total: runs.length, page: 1, pageSize: 25, status, flows, runForm, ...extra } as never,
+      data: { app, runs, total: runs.length, page: 1, pageSize: 20, statuses: status ? [status] : [], sort: 'createdAt', dir: 'desc', failed: false, status, flows, runForm, ...extra } as never,
       form: null,
     },
   }).body;
@@ -123,7 +124,7 @@ describe('runs list (#478)', () => {
     expect(body).toContain('Flow One');
     expect(body).toContain('3 steps');
     expect(body).toContain('2 branches');
-    expect(body).toContain('action="?/run"');
+    expect(body).toContain('action="?tab=runs&amp;/run"');
     expect(body).toContain('value="hrn:node:acme.com::flows::flows:flow1"');
     expect(body).toContain('/app/memories/m1/nodes/n1');
     // The empty state points at the Run button when flows exist.
@@ -132,7 +133,7 @@ describe('runs list (#478)', () => {
 
   it('hides the Flows section when none are derivable', async () => {
     const body = await renderPage([]);
-    expect(body).not.toContain('action="?/run"');
+    expect(body).not.toContain('action="?tab=runs&amp;/run"');
   });
 
   it('#1226: says some flows may be missing when the node window came back full', async () => {
@@ -144,7 +145,7 @@ describe('runs list (#478)', () => {
   it('#1226: zero derived flows from a FULL window still shows the notice (Chip, browser QA)', async () => {
     const body = await renderPage([], null, [], { flowsCapped: true, flowsScanned: 500 });
     expect(body).toContain('Showing the first 500 app nodes');
-    expect(body).not.toContain('action="?/run"');
+    expect(body).not.toContain('action="?tab=runs&amp;/run"');
   });
 
   it('#1226: zero flows from a short window shows nothing', async () => {
