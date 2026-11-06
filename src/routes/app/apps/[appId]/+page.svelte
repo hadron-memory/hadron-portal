@@ -278,7 +278,7 @@
   const installedAgents = $derived(app.agents ?? []);
   const castableAgents = $derived(castableAgentOptions(installedAgents));
   // #1684: how the App installs each agent, as the server states it (see app-install-marks.ts).
-  const installMarks = $derived<InstallMarks>((data as { installMarks?: InstallMarks }).installMarks ?? {});
+  const installMarks = $derived<InstallMarks>(data.installMarks ?? {});
   const castAgentGroups = $derived(castGroups(castableAgents, installMarks));
   // R222: role is a fact, never a cast-time input. Preserve a restored
   // selection's identity even if that Agent no longer has a castable role.
@@ -1912,11 +1912,16 @@
       {settingsActionSuccess ?? addAgentActionSuccess ?? installAgentActionSuccess ?? removeAgentActionSuccess ?? updateAgentToolsActionSuccess ?? revokeKeyActionSuccess}
     </div>
   {/if}
-  {#if installRefreshFailed}
-    <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-      {t('app.agents.install.refresh-failed', 'The agent was installed, but the roster could not be refreshed. Reload the page to see it.')}
-    </div>
-  {/if}
+  <!-- portal#1715: the region stays mounted (empty) so a notice arriving later is announced; a live
+       region mounted already populated is not reliably read. The parent's space-y gap sits on the
+       notice, not the region, so the empty region adds no gap. -->
+  <div role="status" data-testid="install-refresh-status" class="mb-0">
+    {#if installRefreshFailed}
+      <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+        {t('app.agents.install.refresh-failed', 'The agent was installed, but the roster could not be refreshed. Reload the page to see it.')}
+      </div>
+    {/if}
+  </div>
 
   {#if newRawKey}
     <div class="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 dark:border-amber-500 dark:bg-amber-950/30">
@@ -2478,11 +2483,14 @@
           {castWorkerActionSuccess}
         </div>
       {/if}
-      {#if castRefreshFailed}
-        <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-          {t('app.staff.cast.refresh-failed', 'The worker was cast, but the roster could not be refreshed. Reload the page to see it. Do not cast again.')}
-        </div>
-      {/if}
+      <!-- portal#1715: mounted empty, as the install notice above; the gap sits on the notice. -->
+      <div role="status" data-testid="cast-refresh-status" class="mb-0">
+        {#if castRefreshFailed}
+          <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+            {t('app.staff.cast.refresh-failed', 'The worker was cast, but the roster could not be refreshed. Reload the page to see it. Do not cast again.')}
+          </div>
+        {/if}
+      </div>
       {#if retireWorkerActionError}
         <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
           {retireWorkerActionError}
@@ -2568,18 +2576,20 @@
               aria-describedby={castWorkerAgentError ? 'castAgentIdError' : 'castAgentIdHelp'}
               class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
             >
-              <option value="">{t('app.staff.field.agent.placeholder', '— Select an installed agent —')}</option>
+              <option value="">{t('app.staff.field.agent.placeholder', '— Select an agent —')}</option>
               {#snippet castOption(candidate: (typeof castableAgents)[number])}
                 <option value={candidate.id}>
                   {candidate.name}{candidate.personaRole ? ` (${candidate.personaRole})` : ''}
                 </option>
               {/snippet}
               {#if castAgentGroups.derived.length > 0}
-                <optgroup label={t('app.staff.field.agent.installed', 'Installed')}>
-                  {#each castAgentGroups.installed as candidate (candidate.id)}
-                    {@render castOption(candidate)}
-                  {/each}
-                </optgroup>
+                {#if castAgentGroups.installed.length > 0}
+                  <optgroup label={t('app.staff.field.agent.installed', 'Installed')}>
+                    {#each castAgentGroups.installed as candidate (candidate.id)}
+                      {@render castOption(candidate)}
+                    {/each}
+                  </optgroup>
+                {/if}
                 <optgroup label={t('app.staff.field.agent.derived', 'Derived')}>
                   {#each castAgentGroups.derived as { agent: candidate, importer } (candidate.id)}
                     <option value={candidate.id}>
