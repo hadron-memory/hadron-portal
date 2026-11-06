@@ -17,13 +17,20 @@ async function setup() {
   const m = mountComponent(TaskPlanning as never, props as never); mounts.push(m); await tick(3);
   const filter = m.target.querySelector<HTMLInputElement>('input[aria-label="Filter loaded relations…"]')!;
   const more = (name: string) => Array.from(m.target.querySelectorAll('button')).find((b) => b.textContent === name)!;
-  return { ...m, props, filter, more, settle: (hasMore = false) => resolve({ ok: true, json: async () => ({ kind: 'ok', value: { items: [choice('new')], hasMore } }) } as Response) };
+  return { ...m, props, filter, more, fail: () => resolve({ ok: false } as Response), settle: (hasMore = false) => resolve({ ok: true, json: async () => ({ kind: 'ok', value: { items: [choice('new')], hasMore } }) } as Response) };
 }
 // jsdom does not synthesize native button activation from a key. Dispatch the key
 // and its resulting click here; the real Chromium lane drives Enter/Space itself.
 function activate(button: HTMLButtonElement, key: string) {
   button.focus(); button.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
   button.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true })); button.click();
+}
+
+function focusBody() {
+  const previous = document.body.getAttribute('tabindex');
+  document.body.tabIndex = -1; document.body.focus();
+  if (previous === null) document.body.removeAttribute('tabindex');
+  else document.body.setAttribute('tabindex', previous);
 }
 
 describe('exhausted relation control focus', () => {
@@ -84,14 +91,51 @@ describe('exhausted relation control focus', () => {
     expect(trigger.isConnected).toBe(true); expect(document.activeElement).not.toBe(m.filter);
     expect(m.target.textContent).toContain('Task new');
   });
+  it.each(['Load more Waits for', 'Load more Holds up'].flatMap(name => ['Enter', ' '].map(key => [name, key])))('%s %s stays focusable while paging and suppresses repeated activation', async (name, key) => {
+    const m = await setup(); const trigger = m.more(name); activate(trigger, key); await tick(3);
+    expect(trigger.disabled).toBe(false); expect(trigger.getAttribute('aria-disabled')).toBe('true');
+    expect(trigger.getAttribute('aria-busy')).toBe('true'); expect(document.activeElement).toBe(trigger);
+    trigger.click(); trigger.click(); expect(fetch).toHaveBeenCalledTimes(1);
+    m.settle(true); await tick(12);
+    expect(trigger.isConnected).toBe(true); expect(trigger.disabled).toBe(false);
+    expect(trigger.getAttribute('aria-busy')).toBe('false'); expect(document.activeElement).toBe(trigger);
+    expect(m.filter.closest<HTMLElement>('[data-testid="table-header"]')?.hidden).toBe(true);
+  });
+  it.each(['Load more Waits for', 'Load more Holds up'])('%s does not reclaim BODY after a newer click on blank space', async name => {
+    const m = await setup(); const trigger = m.more(name); activate(trigger, 'Enter'); await tick(3);
+    // Chromium clicking a non-focusable heading leaves BODY; no focusin on a
+    // different control occurs. Native reproduction is kept separate.
+    focusBody(); m.settle(true); await tick(12); expect(document.activeElement).toBe(document.body);
+  });
+  it.each([false, true])('does not reclaim a non-final control after newer focus (blur=%s)', async blur => {
+    const m = await setup(); const trigger = m.more('Load more Waits for'); activate(trigger, 'Enter'); await tick(3);
+    focusBody(); const newer = m.more('Choose a task'); newer.focus(); if (blur) newer.blur();
+    m.settle(true); await tick(12);
+    expect(document.activeElement).toBe(blur ? document.body : newer);
+  });
+  it('does not claim a surviving non-final control when activation never owned focus', async () => {
+    const m = await setup(); m.more('Load more Waits for').click(); await tick(3);
+    m.settle(true); await tick(12); expect(document.activeElement).toBe(document.body);
+  });
+  it('keeps the retryable control focused after a failed read without moving to the final-page filter', async () => {
+    const m = await setup(); const trigger = m.more('Load more Holds up'); activate(trigger, 'Enter'); await tick(3);
+    m.fail(); await tick(12); expect(document.activeElement).toBe(trigger); expect(trigger.disabled).toBe(false);
+    expect(m.target.textContent).toContain('Couldn’t load more Holds up. Try again.');
+    expect(m.filter.closest<HTMLElement>('[data-testid="table-header"]')?.hidden).toBe(true);
+  });
+  it('does not restore a non-final control across a newer relation snapshot', async () => {
+    const m = await setup(); const trigger = m.more('Load more Waits for'); activate(trigger, 'Enter'); await tick(3); focusBody();
+    m.props.dependencies = initial(); await tick(3); m.settle(true); await tick(12);
+    expect(document.activeElement).toBe(document.body); expect(m.target.textContent).not.toContain('Task new');
+  });
   it('does not focus a new task after a pending page is invalidated', async () => {
     const m = await setup(); activate(m.more('Load more Waits for'), 'Enter'); await tick(3);
     m.props.task = { ...m.props.task, id: 'B' }; m.props.dependencies = initial(); await tick(3);
     const newer = m.more('Choose a task'); newer.focus(); m.settle(); await tick(12);
     expect(document.activeElement).toBe(newer); expect(m.target.textContent).not.toContain('Task new');
   });
-  it('does not run a pending focus handoff after unmount', async () => {
+  it.each([false, true])('does not run a pending focus handoff after unmount (hasMore=%s)', async hasMore => {
     const m = await setup(); activate(m.more('Load more Waits for'), 'Enter'); await tick(3); m.unmount();
-    m.settle(); await tick(12); expect(document.activeElement).toBe(document.body);
+    m.settle(hasMore); await tick(12); expect(document.activeElement).toBe(document.body);
   });
 });
