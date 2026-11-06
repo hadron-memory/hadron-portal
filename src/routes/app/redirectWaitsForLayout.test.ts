@@ -5,6 +5,12 @@
 // `cookies.set` is still to come. #1725 fixed the memory index; this pins the
 // other entry redirects the audit found. Defensive: the root cause of #1394 is
 // unconfirmed, so each route's verdict lives in the audit table on the PR.
+//
+// Deliberate trade-off (pinned below): a parent() that rejects now propagates
+// instead of redirecting. Routes that forward unconditionally used to survive a
+// failing ancestor layout; they no longer do, because forwarding without the
+// layout's cookie write is the bug. Catching the rejection would restore the old
+// behaviour and silently drop the cookie fix whenever the layout dies mid-flight.
 import { describe, it, expect, vi } from 'vitest';
 
 // `apps/[appId]/members` shares helpers that build a GraphQL client at import.
@@ -32,6 +38,9 @@ const ROWS: Row[] = [
   { route: 'orgs/[id]/apps/[appId]/runs/[runId]', mod: () => import('./orgs/[id]/apps/[appId]/runs/[runId]/+page.server'), params: { id: 'org-1', appId: 'app-1', runId: 'run-1' }, status: 303, location: '/app/apps/app-1/runs/run-1' },
 ];
 
+// Assumes the loads under test await nothing but parent(): a missing
+// `await parent()` then settles within a tick or two, well inside 10 microtasks.
+// A load that awaits a timer or I/O before redirecting would need a different probe.
 async function flush() {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 }
@@ -59,11 +68,37 @@ describe('entry redirects wait for the parent layout (#1732, Refs #1394)', () =>
     expect(error).toMatchObject({ status: row.status, location: row.location });
   });
 
-  it('a parent() that rejects (layout redirected or failed) propagates instead of redirecting', async () => {
-    const { load } = await ROWS[1].mod();
+  it.each(ROWS)('$route: the layout cookie write lands before the redirect settles', async (row) => {
+    const { load } = await row.mod();
+    const jar = new Map<string, string>();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    // Stand-in for the app layout: awaits, THEN writes the active-org cookie,
+    // like `src/routes/app/+layout.server.ts` does after its GraphQL awaits.
+    const layout = (async () => { await gate; jar.set('hadron_active_org_u1', 'org-1'); return {}; })();
+    let cookieAtRedirect: string | undefined;
+    const run = (async () => (load as Load)({
+      params: row.params,
+      url: new URL(`http://localhost/app/${row.route}${row.search ?? ''}`),
+      locals: { token: 't' },
+      parent: () => layout,
+    }))().catch(() => { cookieAtRedirect = jar.get('hadron_active_org_u1'); });
+    await flush();
+    release();
+    await run;
+    expect(cookieAtRedirect).toBe('org-1');
+  });
+
+  it.each(ROWS)('$route: a parent() that rejects (layout redirected or failed) propagates instead of redirecting', async (row) => {
+    const { load } = await row.mod();
     const boom = new Error('layout failed');
     await expect(
-      (async () => (load as Load)({ params: {}, url: new URL('http://localhost/app/dashboard/customize'), locals: {}, parent: () => Promise.reject(boom) }))(),
+      (async () => (load as Load)({
+        params: row.params,
+        url: new URL(`http://localhost/app/${row.route}${row.search ?? ''}`),
+        locals: {},
+        parent: () => Promise.reject(boom),
+      }))(),
     ).rejects.toBe(boom);
   });
 });

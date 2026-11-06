@@ -11,6 +11,7 @@ const humanTeam = (appId: string) => `/app/apps/${appId}?tab=members`;
  * reader expects the people list.
  */
 export const load: PageServerLoad = async ({ params, parent }) => {
+  // #1732: wait for the app layout (it writes the active-org cookie) first.
   await parent();
   redirect(307, humanTeam(params.appId));
 };
