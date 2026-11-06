@@ -385,6 +385,17 @@ function castReportingArm(data: { reporting: string; reportsTo: string }): { rep
  * X"), and the codes are a documented contract, so branching on the code is
  * both stabler and more actionable than echoing the message.
  */
+/**
+ * portal#1715: the grant refusals an install into this App can meet, as portal
+ * copy. `lookupOwn` reads it, as CAST_WORKER_ERRORS. Everything else, an unknown
+ * code included, keeps `extractGqlError`'s handling: a generic error is not an
+ * unknown outcome, and neither is ever retried.
+ */
+const ADD_AGENT_ERRORS: Record<string, () => string> = {
+  AGENT_ORG_GRANT_INACTIVE: () => t('app.agent.add.grant-inactive', 'This App’s organization has an inactive grant for that agent, so it can’t be installed. Ask the organization to restore the grant.'),
+  AGENT_ORG_GRANT_REQUIRED: () => t('app.agent.add.grant-required', 'This App’s organization needs a grant for that agent before it can be installed.'),
+};
+
 const CAST_WORKER_ERRORS: Record<string, () => string> = {
   FORBIDDEN: STAFFING_FORBIDDEN,
   WORKER_NAME_TAKEN: () => t(
@@ -1147,7 +1158,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to add agent') },
+        { type: 'error', text: lookupOwn(ADD_AGENT_ERRORS, gqlErrorCode(e))?.() ?? extractGqlError(e, 'Failed to add agent') },
         { status: 500 },
       );
     }

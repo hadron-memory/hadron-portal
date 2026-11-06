@@ -2567,8 +2567,7 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
       castButton(m.target).click();
       flushSync();
       expect(m.target.querySelector('form[action="?/castWorker"]')).toBeNull();
-      m.target.querySelector<HTMLElement>('#tab-agents, [data-tab="agents"]')?.click();
-      [...m.target.querySelectorAll<HTMLElement>('[role="tab"], nav button, nav a')].find((x) => x.textContent?.trim() === 'Agents')?.click();
+      m.target.querySelector<HTMLElement>('[role="tab"]:not(#tab-staff)')!.click();
       flushSync();
       expect(m.target.textContent).not.toContain('Cast a worker');
     }

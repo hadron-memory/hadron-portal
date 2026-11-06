@@ -1250,13 +1250,15 @@
   });
 
   // ── Casting (#974) ───────────────────────────────────────────────────
-  const castFormId = `castWorker:${Math.random().toString(36).slice(2, 10)}`;
+  const newCastFormId = () => `castWorker:${Math.random().toString(36).slice(2, 10)}`;
+  const castFormId = newCastFormId();
   const initialCastWorkerForm = untrack(() => submittedForm<CastWorkerForm>(form, 'castWorker') as CastWorkerSuperform | null ?? data.castWorkerForm);
   const {
     form: castWorkerForm,
     errors: castWorkerErrors,
     message: castWorkerMessage,
     submitting: castWorkerSubmitting,
+    formId: castWorkerFormId,
     enhance: castWorkerEnhance,
   } = superForm<CastWorkerForm, App.Superforms.Message, CastWorkerForm>(initialCastWorkerForm, {
     // Instance-bound id: Superforms applies an action result only to the live form whose id
@@ -1277,14 +1279,37 @@
       castAttemptGeneration = castGeneration;
       castRefreshFailed = false;
     },
-    onResult: ({ cancel }) => {
+    // portal#1715: as on Install, and for the same reason. Superforms awaits between
+    // its hooks, so with applyAction on A's answer could cross onResult and then be
+    // applied by Kit on B, with no hook left to stop it: B's draft emptied or
+    // overwritten, its focus reset and A's receipt printed there. Off, the form takes
+    // the result itself and only a redirect still needs Kit. Kit also fed the `form`
+    // prop effects, so onUpdated below does their two jobs for an enhanced result.
+    // Past onResult no hook runs before the write into the form store, which B owns
+    // by then, so the App change below also gives the form a new id: Superforms drops
+    // a result whose id isn't the live one, right at that write.
+    applyAction: false,
+    onResult: async ({ result, cancel }) => {
       if (castAttemptGeneration !== castGeneration) cancel();
+      else if (result.type === 'redirect') await applyAction(result);
+    },
+    // Superforms' default rethrows, leaving the form on "Casting…". The request failed,
+    // so whether the cast landed isn't known and this claims neither. Never retried.
+    onError: () => {
+      if (castAttemptGeneration !== castGeneration) return;
+      activeTab = 'staff';
+      castWorkerMessage.set({
+        type: 'error',
+        text: t('app.staff.cast.unconfirmed', 'The cast could not be confirmed. Reload the page to check before casting again.'),
+      });
     },
     // The refresh is ours (not Superforms'), so a rejection after a CONFIRMED
     // cast is caught here and told truthfully instead of stranding the form.
     invalidateAll: false,
     onUpdated: async ({ form: f }) => {
       if (castAttemptGeneration !== castGeneration) return;
+      activeTab = 'staff';
+      if (!f.valid || f.message?.type === 'error') castOpen = true;
       // Clear the composer only on a clean cast, so a WORKER_NAME_TAKEN
       // refusal leaves the rejected name in the box to edit.
       if (f.valid && f.message?.type === 'success') {
@@ -1311,6 +1336,7 @@
     if (id === castContextApp) return;
     castContextApp = id;
     castGeneration += 1;
+    castWorkerFormId.set(newCastFormId());
     untrack(() => {
       castWorkerForm.update(
         (current) => ({ ...current, agentId: '', name: '', reporting: '', reportsTo: '' }),
@@ -1628,14 +1654,19 @@
   let removeAgentFormEl = $state<HTMLFormElement | null>(null);
   let installAgentFormEl = $state<HTMLFormElement | null>(null);
   let revokeKeyFormEl = $state<HTMLFormElement | null>(null);
+  // portal#1715: Link, row Install and row Unlink are three forms, and
+  // `multipleSubmits: 'prevent'` holds per form, so this is what keeps them to one
+  // write at a time. Client UX only: the server's write policy is unchanged. The
+  // guards below need it too, because requestSubmit() ignores a disabled control.
+  const agentWriteBusy = $derived($addAgentSubmitting || $installAgentSubmitting || $removeAgentSubmitting);
   async function unlinkAgent(agent: { id: string; name: string }) {
-    if ($removeAgentSubmitting) return;
+    if (agentWriteBusy) return;
     setRemoveAgent(agent.id);
     await tick();
     removeAgentFormEl?.requestSubmit();
   }
   async function installDerivedAgent(agent: { id: string }) {
-    if ($installAgentSubmitting) return;
+    if (agentWriteBusy) return;
     installAgentForm.update((current) => ({ ...current, agentId: agent.id }), { taint: false });
     await tick();
     installAgentFormEl?.requestSubmit();
@@ -2523,7 +2554,7 @@
           class="max-w-lg space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
         >
           <input type="hidden" name="_kind" value={$castWorkerForm._kind} />
-          <input type="hidden" name="__superform_id" value={castFormId} />
+          <input type="hidden" name="__superform_id" value={$castWorkerFormId} />
           <div>
             <label for="castAgentId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               {t('app.staff.field.agent', 'Agent')}
@@ -3039,7 +3070,7 @@
                 actions={agentRowActions(agent)}
                 onselect={(id) => onAgentAction(id, agent)}
                 label={t('app.agents.actions.label', 'Actions for {name}', { name: agent.name })}
-                disabled={$removeAgentSubmitting || $installAgentSubmitting}
+                disabled={agentWriteBusy}
                 fixed
                 compact
               />
@@ -3133,7 +3164,7 @@
                 <p role="alert" class="mt-2 text-xs text-red-600 dark:text-red-400">{addAgentActionError}</p>
               {/if}
             </div>
-            <button type="submit" disabled={!$addAgentForm.agentId || $addAgentSubmitting}
+            <button type="submit" disabled={!$addAgentForm.agentId || agentWriteBusy}
               class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
               style="background: #219ebc;">
               {$addAgentSubmitting ? 'Linking...' : 'Link'}
