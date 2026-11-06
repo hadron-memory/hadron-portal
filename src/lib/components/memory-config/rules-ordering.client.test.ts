@@ -80,11 +80,12 @@ describe('same-instance rulebook response ownership', () => {
     reads[0].reject(new Error('old network failure')); await settle();
     expect(m.target.textContent).toContain('current-B'); expect(m.target.querySelector('[role=alert]')).toBeNull();
   });
-  it.each(['create', 'update'] as const)('old %s save refresh cannot close a newer editor', async op => {
+  it.each(['create', 'update'] as const)('defensive programmatic %s reopen is not closed by the old save refresh', async op => {
     const m = mount(); mutate = async () => reply({}); click(m.target, op === 'create' ? 'Create rule' : 'Edit');
     if (op === 'create') { const input = m.target.querySelector<HTMLInputElement>('dialog input:not([type])')!; input.value = 'created'; input.dispatchEvent(new Event('input', { bubbles: true })); }
     click(m.target.querySelector('dialog')!, 'Save'); await settle(); expect(reads).toHaveLength(1);
-    // Create is outside the disabled pending editor fieldset and is reachable while the read is held.
+    // Programmatic callback-boundary probe only: native modal inertness blocks this
+    // background Create click in a browser. Do not claim a reachable user interleaving.
     click(m.target, 'Create rule'); const newer = m.target.querySelector('dialog'); expect(newer).not.toBeNull();
     release(0, book('older-refresh')); await settle(); expect(m.target.querySelector('dialog')).toBe(newer);
     expect(calls.map(c => c.op)).toEqual([op, 'read']);
@@ -105,6 +106,8 @@ describe('same-instance rulebook response ownership', () => {
     const m = mount(); click(m.target, 'Edit'); click(m.target.querySelector('dialog')!, 'Save'); await settle();
     click(m.target.querySelector('dialog')!, 'Reload the rule (discards your changes)'); expect(reads).toHaveLength(1);
     m.props.initial = null; flushSync(); concealed(m); m.props.initial = book('new-view'); flushSync();
+    // The replacement view remounted an idle editor; Cancel it before using background Create.
+    click(m.target.querySelector('dialog')!, 'Cancel');
     click(m.target, 'Create rule'); const newer = m.target.querySelector('dialog');
     release(0, book()); await settle(); expect(m.target.querySelector('dialog')).toBe(newer); expect(m.target.textContent).toContain('new-view');
   });
@@ -146,7 +149,9 @@ describe('same-instance rulebook response ownership', () => {
   it('late failed conflict Reload does not overwrite replacement-view feedback or a newer editor', async () => {
     const m = mount(); click(m.target, 'Edit'); click(m.target.querySelector('dialog')!, 'Save'); await settle();
     click(m.target.querySelector('dialog')!, 'Reload the rule (discards your changes)');
-    m.props.initial = book('replacement'); flushSync(); click(m.target, 'Create rule'); const current = m.target.querySelector('dialog');
+    m.props.initial = null; flushSync(); concealed(m); m.props.initial = book('replacement'); flushSync();
+    click(m.target.querySelector('dialog')!, 'Cancel');
+    click(m.target, 'Create rule'); const current = m.target.querySelector('dialog');
     reads[0].reject(new Error('obsolete conflict reload')); await settle();
     expect(m.target.querySelector('dialog')).toBe(current); expect(m.target.textContent).not.toContain('Could not reload. Your input is kept.');
   });
