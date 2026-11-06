@@ -10,6 +10,7 @@ try {
  browser = await chromium.launch({ headless: true });
  for (const width of [320, 390, 1280]) for (const dark of [false, true]) {
   const page = await browser.newPage({ viewport: { width, height: 900 } });
+  page.setDefaultTimeout(10000);
   await page.route('**/__blank', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>fixture</title>' }));
   let writes = 0;
   await page.route('**/api/memory-config', r => { writes++; return r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ code: 'CONFLICT', error: 'Fixture revision changed.' }) }); });
@@ -25,7 +26,12 @@ try {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   assert.ok(overflow <= 0, `${width}/${dark}: template editor overflows ${overflow}px`);
   await page.locator('fieldset').getByTestId('table-header-hide').click();
-  const edit = page.locator('[aria-label="Template editor"]').getByRole('button', { name: 'Edit', exact: true });
+  const editor = page.locator('[aria-label="Template editor"]');
+  await editor.getByRole('button', { name: 'Next', exact: true }).click();
+  await page.waitForTimeout(50);
+  assert.equal(writes, 0, 'Pagination must not save a template draft');
+  await editor.getByRole('button', { name: 'Previous', exact: true }).click();
+  const edit = editor.getByRole('button', { name: 'Edit', exact: true }).first();
   await edit.click();
   const ruleDialog = page.getByRole('dialog', { name: 'Edit rule', exact: true });
   await ruleDialog.getByRole('button', { name: 'Change…', exact: true }).first().click();
