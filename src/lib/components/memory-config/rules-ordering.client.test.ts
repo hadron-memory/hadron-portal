@@ -121,11 +121,13 @@ describe('same-instance rulebook response ownership', () => {
     click(m.target, 'Delete'); m.props.initial = book('replacement'); flushSync();
     if (kind === 'success') write.resolve(reply({})); else write.resolve(reply({ error: 'obsolete refusal' }, false));
     await settle(); expect(reads).toHaveLength(0); expect(m.target.textContent).toContain('replacement');
-    expect(m.target.querySelector('[role=alert]')).toBeNull(); expect(calls.map(c => c.op)).toEqual(['delete']);
+    expect(m.target.querySelector('[role=alert]')).toBeNull(); expect(m.target.textContent).not.toContain('Deleted.'); expect(calls.map(c => c.op)).toEqual(['delete']);
   });
   it('current conflict Reload updates the revision and failure keeps the draft with the existing parent feedback', async () => {
     const m = mount(); click(m.target, 'Edit'); click(m.target.querySelector('dialog')!, 'Save'); await settle();
-    click(m.target.querySelector('dialog')!, 'Reload the rule (discards your changes)'); release(0, book('fresh-rule', 2)); await settle();
+    const originalEditor = m.target.querySelector('dialog')!;
+    click(originalEditor, 'Reload the rule (discards your changes)'); release(0, book('fresh-rule', 2)); await settle();
+    expect(m.target.querySelector('dialog')).not.toBe(originalEditor);
     const fresh = m.target.querySelector('dialog')!; expect(fresh.textContent).toContain('Edit rule');
     click(fresh, 'Save'); await settle(); expect(calls.at(-1)?.revision).toBe(2);
     click(fresh, 'Reload the rule (discards your changes)'); reads[1].reject(new Error('current failure')); await settle();
@@ -154,6 +156,28 @@ describe('same-instance rulebook response ownership', () => {
     click(m.target, 'Create rule'); const current = m.target.querySelector('dialog');
     reads[0].reject(new Error('obsolete conflict reload')); await settle();
     expect(m.target.querySelector('dialog')).toBe(current); expect(m.target.textContent).not.toContain('Could not reload. Your input is kept.');
+  });
+  it.each(['refusal', 'success', 'refresh-held'] as const)('refused Save does not discard an earlier row %s in the same view', async kind => {
+    const m = mount(); const row = deferred<Response>();
+    mutate = request => request.op === 'delete' ? row.promise : Promise.resolve(reply({ error: 'Save refused' }, false));
+    click(m.target, 'Delete');
+    if (kind === 'refresh-held') { row.resolve(reply({})); await settle(); expect(reads).toHaveLength(1); }
+    click(m.target, 'Create rule'); const dialog = m.target.querySelector('dialog')!;
+    const input = dialog.querySelector<HTMLInputElement>('input:not([type])')!;
+    input.value = 'draft'; input.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
+    click(dialog, 'Save'); await settle(); expect(dialog.textContent).toContain('Save refused');
+    if (kind !== 'refresh-held') { row.resolve(kind === 'refusal' ? reply({ error: 'Delete refused' }, false) : reply({})); await settle(); }
+    if (kind === 'refusal') { expect(m.target.textContent).toContain('Delete refused'); expect(reads).toHaveLength(0); }
+    else { expect(reads).toHaveLength(1); release(0, { id: 'config', rules: [] }); await settle(); if (kind === 'success') expect(m.target.textContent).toContain('Deleted.'); expect(m.target.textContent).not.toContain('old-role'); }
+    expect(m.target.querySelector('dialog')).toBe(dialog); expect(dialog.textContent).toContain('Save refused');
+    expect(button(dialog, 'Save')!.disabled).toBe(false);
+    expect(calls.map(c => c.op)).toEqual(kind === 'refusal' ? ['delete', 'create'] : kind === 'success' ? ['delete', 'create', 'read'] : ['delete', 'read', 'create']);
+  });
+  it('a row write completing after teardown issues no read', async () => {
+    const old = mount(); const write = deferred<Response>(); mutate = () => write.promise;
+    click(old.target, 'Delete'); old.unmount(); const fresh = mount(null);
+    write.resolve(reply({})); await settle(); concealed(fresh);
+    expect(calls.map(c => c.op)).toEqual(['delete']);
   });
   it('pending Save stays single-flight and current completion releases its own editor', async () => {
     const m = mount(); const write = deferred<Response>(); mutate = () => write.promise; click(m.target, 'Edit');
