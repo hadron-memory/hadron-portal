@@ -45,7 +45,7 @@ try {
   const css = await (await fetch(new URL('src/app.css?direct', origin))).text();
   browser = await chromium.launch({ headless: true });
   for (const hasMore of [true, false]) for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
-    for (const direction of ['Waits for', 'Holds up']) for (const key of ['Enter', 'Space']) for (const interaction of ['stay', 'newer', ...(hasMore ? ['blank', 'failed'] : [])]) {
+    for (const direction of ['Waits for', 'Holds up']) for (const key of ['Enter', 'Space']) for (const interaction of ['stay', 'newer', 'blank', ...(hasMore ? ['failed'] : [])]) {
       const focusMovedElsewhere = interaction === 'newer';
       const label = `${hasMore ? 'intermediate' : 'final'}-${width}-${theme}-${direction.replaceAll(' ', '-')}-${key}-${interaction}`;
       const page = await browser.newPage({ viewport: { width, height: 900 } });

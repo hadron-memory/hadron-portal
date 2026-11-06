@@ -176,9 +176,14 @@
     };
   };
 </script>
-<!-- Body focus can be a platform consequence of disabling/removing the trigger,
-     not a new user target. A real newer control still advances the epoch. -->
-<svelte:window onfocusin={(event) => { if (event.target !== document.body) focusEpoch++; }} />
+<!-- BODY focus alone is ambiguous. Observe pointer intent before bubbling can
+     hide a blank click, but a repeat inside the focused control is still ours. -->
+<svelte:window
+  onfocusin={(event) => { if (event.target !== document.body) focusEpoch++; }}
+  onpointerdowncapture={(event) => {
+    if (document.activeElement === document.body || !(event.target instanceof Node) || !document.activeElement?.contains(event.target)) focusEpoch++;
+  }}
+/>
 <section class="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="task-planning">
   <h2 id="task-planning" class="font-semibold text-zinc-900 dark:text-white">{t('app.tasks.planning', 'Priority and blockers')}</h2>
   {#if canPriority}
