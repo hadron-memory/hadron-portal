@@ -18,6 +18,36 @@ const find = (root: HTMLElement, label: string) => [...root.querySelectorAll('bu
 beforeEach(() => { localStorage.clear(); resetNavigationCalls(); resetNavigationGuards(); });
 afterEach(() => { cleanup.forEach(f => f()); cleanup = []; resetNavigationGuards(); document.body.removeAttribute('tabindex'); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe('App Runs manual server table', () => {
+  it('does not navigate or flash busy when the initial saved query already matches', async () => {
+    const v = await localStorageViewStore.create('app-runs-server', 'Default', normalizeView({ sorting: [{ id: 'createdAt', desc: true }], columnVisibility: { failure: false } }));
+    await localStorageViewStore.setDefault('app-runs-server', v.id);
+    const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
+    const m = mount(section({ page: 1, explicitState: false })); await tick(32);
+    expect(navigationCalls).toEqual([]);
+    expect(m.target.querySelector('[aria-busy]')?.getAttribute('aria-busy')).toBe('false');
+    expect([...m.target.querySelectorAll('th')].some(x => x.textContent?.trim() === 'Failure')).toBe(false);
+    held.resolve(); await tick(8);
+  });
+  it('replaces history for initial saved-query sync but pushes a deliberate view selection', async () => {
+    const v = await localStorageViewStore.create('app-runs-server', 'Default', normalizeView({ sorting: [{ id: 'status', desc: false }], columnFilters: [{ id: 'status', value: ['FAILED'] }] }));
+    await localStorageViewStore.setDefault('app-runs-server', v.id);
+    await localStorageViewStore.create('app-runs-server', 'Another', normalizeView({ sorting: [{ id: 'finishedAt', desc: true }] }));
+    const m = mount(section({ page: 1, explicitState: false })); await tick(32);
+    const initial = navigationCalls.filter(x => x.fn === 'goto');
+    expect(initial).toHaveLength(1);
+    expect(initial[0].args[1]).toMatchObject({ replaceState: true, keepFocus: true, noScroll: true });
+    expect(new URL(initial[0].args[0] as string, 'https://test').searchParams.get('status')).toBe('FAILED');
+    m.props.initial = section({ page: 1, explicitState: true, sort: 'status', dir: 'asc', statuses: ['FAILED'] }); flushSync(); await tick(8);
+    find(m.target, 'Another').click(); await tick(16);
+    const selected = navigationCalls.filter(x => x.fn === 'goto');
+    expect(selected).toHaveLength(2);
+    expect(selected[1].args[1]).toMatchObject({ replaceState: false });
+    expect(new URL(selected[1].args[0] as string, 'https://test').searchParams.get('sort')).toBe('finishedAt');
+  });
+  it('renders the accepted SPAWN trigger as a named cell', async () => {
+    const m = mount(section({ runs: [{ ...run('spawn'), triggerKind: 'SPAWN' }] })); await tick(8);
+    expect(m.target.querySelector('tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('Spawn');
+  });
   it('renders all20 served rows on page3 without local re-page or re-sort, and changes only the URL on sort', async () => {
     const rows = Array.from({ length: 20 }, (_, i) => ({ ...run(`row-${20 - i}`), startedAt: `2026-11-01T00:00:${String(i).padStart(2, '0')}Z` }));
     const m = mount(section({ runs: rows, sort: 'startedAt' })); await tick(8);
