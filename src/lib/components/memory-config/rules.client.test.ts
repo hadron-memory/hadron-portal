@@ -92,4 +92,14 @@ describe('rendered memory rule management', () => {
     finally { other.remove(); }
   });
 
+  it('uses the surviving heading if the invoking row disappears during reload', async () => {
+    let finishRead!: (value: unknown) => void;
+    fetcher.mockResolvedValueOnce({ ok: true, json: async () => ({}) }).mockReturnValueOnce(new Promise(resolve => { finishRead = resolve; }));
+    const m = mount(book); const edit = button(m.target, 'Edit'); edit.focus(); edit.click(); flushSync();
+    const save = button(m.target.querySelector('dialog')!, 'Save'); save.focus(); save.click();
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+    finishRead({ ok: true, json: async () => ({ value: { ...book, rules: [] } }) });
+    await vi.waitFor(() => { flushSync(); expect(m.target.querySelector('dialog')).toBeNull(); expect(document.activeElement).toBe(m.target.querySelector('h1')); });
+  });
+
 });
