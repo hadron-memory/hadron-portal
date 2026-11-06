@@ -16,7 +16,7 @@
   let heading = $state<HTMLHeadingElement>();
   let notice = $state(''), failure = $state<ConfigFailure | null>(null), busy = $state(false);
   // Plain counters are ownership tokens, never deep-proxied response state.
-  let alive = true, viewEpoch = 0, intentSequence = 0;
+  let alive = true, viewEpoch = 0, readSequence = 0, feedbackSequence = 0;
   let busyOwner: object | null = null;
   $effect(() => {
     if (initial !== snapshot) {
@@ -27,10 +27,9 @@
   });
   onDestroy(() => { alive = false; });
   type Owner = { current: () => boolean };
-  function beginIntent(editor?: number): Owner {
-    const view = viewEpoch, basedOn = initial, intent = ++intentSequence;
-    // Every reload caller claims an intent, so later-issued reads (even null/errors) win.
-    return { current: () => alive && view === viewEpoch && basedOn === initial && intent === intentSequence && (editor === undefined || editor === editorVersion) };
+  function ownView(editor?: number): Owner {
+    const view = viewEpoch, basedOn = initial;
+    return { current: () => alive && view === viewEpoch && basedOn === initial && (editor === undefined || editor === editorVersion) };
   }
   function edit(next: Rule | null | undefined) { editorVersion++; editing = next; }
   type ReadResult = { kind: 'stale' } | { kind: 'applied'; current: () => boolean } | { kind: 'error'; error: ConfigFailure; current: () => boolean };
@@ -48,7 +47,10 @@
   const table = createSvelteTable<Rule>({ get data() { return book?.rules ?? []; }, columns, getRowId: r => r.id ?? r.role, initialState: { sorting: [{ id: 'role', desc: false }] } });
   async function reload(owner: Owner): Promise<ReadResult> {
     if (!owner.current()) return { kind: 'stale' };
-    const current = owner.current;
+    // Only an issued read supersedes an earlier read. A refused mutation has
+    // no read outcome and must not retire another operation in this view.
+    const read = ++readSequence;
+    const current = () => owner.current() && read === readSequence;
     try {
       const result = await configCall<{ value: Rulebook | null }>({ kind: 'rules', op: 'read', memoryRef });
       if (!current()) return { kind: 'stale' };
@@ -61,17 +63,19 @@
   }
   async function save(input: Record<string, unknown>): Promise<ConfigFailure | null> {
     if (readOnly) return { error: t('config.impersonation', 'This page is read-only while impersonating.') };
-    const owner = beginIntent(editorVersion);
+    const owner = ownView(editorVersion);
+    feedbackSequence++;
     failure = null; notice = '';
     try {
       await configCall({ kind: 'rules', op: editing ? 'update' : 'create', memoryRef, ref: editing?.id, revision: editing?.revision, input });
     } catch (e) { return owner.current() ? e as ConfigFailure : null; }
     if (!owner.current()) return null;
-    notice = t('config.saved', 'Saved.');
+    feedbackSequence++; notice = t('config.saved', 'Saved.');
     const result = await reload(owner);
-    // Even an accepted read can lose ownership before this continuation resumes.
-    if (result.kind === 'stale' || !result.current()) return null;
-    if (result.kind === 'error') failure = { error: t('config.reload-failed', 'Saved, but the rules could not be reloaded. Reload before another change.') };
+    // Read ordering owns the book; this confirmed write still owns its editor.
+    // A newer read cannot strand that editor, while a newer view/session can.
+    if (!owner.current()) return null;
+    if (result.kind === 'error' && result.current()) failure = { error: t('config.reload-failed', 'Saved, but the rules could not be reloaded. Reload before another change.') };
     edit(undefined);
     return null;
   }
@@ -79,28 +83,30 @@
     if (readOnly || busy) return;
     const prompt = op === 'delete' ? t('config.delete-confirm', 'Delete the rule “{role}”?', { role: rule.role }) : t('config.unlock-confirm', 'Unlock “{role}” so it can be edited or deleted? On an org memory only an org admin can unlock it; the server may refuse this action.', { role: rule.role });
     if (!window.confirm(prompt)) return;
-    const owner = beginIntent(), token = {};
+    const owner = ownView(), token = {};
+    feedbackSequence++;
     busyOwner = token; busy = true; failure = null; notice = '';
     try {
       await configCall({ kind: 'rules', op, memoryRef, ref: rule.id, revision: rule.revision });
       if (!owner.current()) return;
-      notice = op === 'delete' ? t('config.deleted', 'Deleted.') : t('config.unlocked', 'Unlocked.');
+      feedbackSequence++; notice = op === 'delete' ? t('config.deleted', 'Deleted.') : t('config.unlocked', 'Unlocked.');
       const result = await reload(owner);
-      if (result.kind === 'error' && result.current()) failure = { error: t('config.changed-reload-failed', 'The change succeeded, but the rules could not be reloaded. Reload before another change.') };
-    } catch (e) { if (owner.current()) failure = e as ConfigFailure; }
+      if (result.kind === 'error' && result.current()) { feedbackSequence++; failure = { error: t('config.changed-reload-failed', 'The change succeeded, but the rules could not be reloaded. Reload before another change.') }; }
+    } catch (e) { if (owner.current()) { feedbackSequence++; failure = e as ConfigFailure; } }
     finally { if (busyOwner === token) { busyOwner = null; busy = false; } }
   }
   async function reloadFailure() {
-    const result = await reload(beginIntent());
-    if (result.kind === 'applied' && result.current()) failure = null;
+    const feedback = feedbackSequence;
+    const result = await reload(ownView());
+    if (result.kind === 'applied' && result.current() && feedback === feedbackSequence) failure = null;
     // A current error preserves the existing truthful failure; a stale result does nothing.
   }
   async function reloadEditor() {
-    const owner = beginIntent(editorVersion), id = editing?.id;
+    const owner = ownView(editorVersion), id = editing?.id;
     const result = await reload(owner);
     if (result.kind === 'stale' || !result.current()) return;
     if (result.kind === 'applied') edit(book?.rules.find(r => r.id === id));
-    else failure = { error: t('config.reload-kept', 'Could not reload. Your input is kept.') };
+    else { feedbackSequence++; failure = { error: t('config.reload-kept', 'Could not reload. Your input is kept.') }; }
   }
 </script>
 {#if book !== null}
