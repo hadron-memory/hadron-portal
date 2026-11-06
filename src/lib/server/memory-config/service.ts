@@ -203,6 +203,7 @@ query MemoryRoleConfigAvailable($ref: ID!) {
 }
 `;
 import type { ApplyPreview, Rulebook } from '$lib/memory-config/types';
+import type { BulkResult } from '$lib/memory-config/bulk';
 // Request-scoped clients only. No config/template cache, including under impersonation.
 type Client = { request: (query: string, variables: Record<string, unknown>) => Promise<unknown> };
 export const CONFIG_QUERY = /* GraphQL */ `
@@ -293,6 +294,55 @@ export async function applyTemplate(client: Client, templateRef: string, memoryR
   writable(impersonating);
   if (!Number.isSafeInteger(expectedTemplateRevision) || expectedTemplateRevision < 1) throw new Error('Preview the template again.');
   return (await client.request(APPLY, { templateRef, memoryRef, dryRun: false, expectedTemplateRevision }) as { applyMemoryConfigTemplate: ApplyPreview }).applyMemoryConfigTemplate;
+}
+
+const BULK_APPLY = /* GraphQL */ `
+mutation BulkApplyRoleTemplate($templateRef: ID!, $memoryRefs: [ID!]!, $dryRun: Boolean!, $expectedTemplateRevision: Int) {
+  applyMemoryConfigTemplateToMemories(
+    templateRef: $templateRef
+    memoryRefs: $memoryRefs
+    dryRun: $dryRun
+    expectedTemplateRevision: $expectedTemplateRevision
+  ) {
+    dryRun
+    succeeded
+    failed
+    results {
+      index
+      memoryRef
+      ok
+      result {
+        memoryId
+        templateRevision
+        required
+        dryRun
+        entries {
+          role
+          outcome
+        }
+        warnings {
+          code
+          role
+          field
+        }
+      }
+      error {
+        code
+        message
+        currentRevision
+        requestId
+      }
+    }
+  }
+}
+`;
+export async function previewBulkTemplate(client: Client, templateRef: string, memoryRefs: string[], impersonating: boolean): Promise<BulkResult> {
+  writable(impersonating);
+  return (await client.request(BULK_APPLY, { templateRef, memoryRefs, dryRun: true }) as { applyMemoryConfigTemplateToMemories: BulkResult }).applyMemoryConfigTemplateToMemories;
+}
+export async function applyBulkTemplate(client: Client, templateRef: string, memoryRefs: string[], expectedTemplateRevision: number, impersonating: boolean): Promise<BulkResult> {
+  writable(impersonating);
+  return (await client.request(BULK_APPLY, { templateRef, memoryRefs, dryRun: false, expectedTemplateRevision }) as { applyMemoryConfigTemplateToMemories: BulkResult }).applyMemoryConfigTemplateToMemories;
 }
 
 export const TEMPLATES_QUERY = /* GraphQL */ `

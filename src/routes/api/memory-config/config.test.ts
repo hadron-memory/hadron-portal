@@ -49,6 +49,45 @@ describe('config endpoint', () => {
     expect(await response.json()).toMatchObject({ code: 'NODE_NOT_FOUND', field: 'descriptionNode' });
     expect(request).toHaveBeenCalledTimes(1);
   });
+  describe('bulk apply', () => {
+    const preview = { kind: 'bulk', op: 'preview', ref: 't', memoryRefs: ['m1', 'm2'] };
+    const apply = { ...preview, op: 'apply', revision: 9 };
+    const refused = (code: string, message: string, extra = {}) => ({ response: { errors: [{ message, extensions: { code, ...extra } }] } });
+    it('passes every chosen ref through and never truncates a list over the cap', async () => {
+      const memoryRefs = Array.from({ length: 51 }, (_, i) => `m${i}`);
+      request.mockRejectedValue(refused('BULK_TARGETS_TOO_MANY', 'At most 50 targets, got 51.', { max: 50, count: 51 }));
+      const response = await POST(event({ ...preview, memoryRefs }));
+      expect(request.mock.calls[0][1].memoryRefs).toEqual(memoryRefs);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ code: 'BULK_TARGETS_TOO_MANY', max: 50, count: 51 });
+    });
+    it('impersonation refuses before any provider call', async () => {
+      for (const body of [preview, apply]) expect((await POST(event(body, { sessionId: 'imp' }))).status).toBe(403);
+      expect(request).not.toHaveBeenCalled();
+    });
+    it('needs a revision to apply: a real apply is never sent unbound', async () => {
+      expect((await POST(event({ ...preview, op: 'apply' }))).status).toBe(400);
+      expect(request).not.toHaveBeenCalled();
+    });
+    it.each([['UNAUTHENTICATED', 400], ['FORBIDDEN', 400], ['BAD_USER_INPUT', 400], ['MEMORY_CONFIG_TEMPLATE_NOT_FOUND', 400], ['CONFLICT', 409]])('reports whole-call %s as a refusal', async (code, status) => {
+      request.mockRejectedValue(refused(code, `refused ${code}`, code === 'CONFLICT' ? { currentRevision: 10 } : {}));
+      const response = await POST(event(apply));
+      expect(response.status).toBe(status);
+      expect(await response.json()).toMatchObject({ code, error: `refused ${code}` });
+    });
+    it.each([
+      ['a transport loss', new TypeError('fetch failed')],
+      ['a 5xx with no result body', { response: { status: 503 } }],
+      ['a whole-call internal fault', refused('INTERNAL_SERVER_ERROR', 'private SQL detail', { requestId: 'x' })],
+      ['a code that does not prove nothing was written', refused('SOME_NEW_CODE', 'private detail')],
+    ])('never reports %s as a refusal, because targets may have committed', async (_name, failure) => {
+      request.mockRejectedValue(failure);
+      const response = await POST(event(apply));
+      expect(response.status).toBe(502);
+      const text = JSON.stringify(await response.json());
+      expect(text).not.toMatch(/"code"/); expect(text).not.toContain('private');
+    });
+  });
   it('rejects malformed rule input before GraphQL', async () => {
     expect((await POST(event({ kind: 'rules', op: 'create', memoryRef: 'm', input: [] }))).status).toBe(400);
     expect(request).not.toHaveBeenCalled();

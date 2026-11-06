@@ -22,3 +22,5 @@ jobs:
         run: node scripts/test-memory-config-layout.mjs
       - name: Check native dialog survives Escape during a pending write or reload
         run: node scripts/test-memory-config-pending-escape.mjs
+      - name: Check bulk apply layout, cap, row truth and unknown outcome
+        run: node scripts/test-memory-config-bulk-layout.mjs
