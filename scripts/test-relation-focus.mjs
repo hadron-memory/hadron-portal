@@ -44,16 +44,16 @@ try {
   await server.listen(); const origin = server.resolvedUrls.local[0];
   const css = await (await fetch(new URL('src/app.css?direct', origin))).text();
   browser = await chromium.launch({ headless: true });
-  for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
+  for (const hasMore of [true, false]) for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
     for (const direction of ['Waits for', 'Holds up']) for (const key of ['Enter', 'Space']) for (const focusMovedElsewhere of [false, true]) {
-      const label = `${width}-${theme}-${direction.replaceAll(' ', '-')}-${key}-${focusMovedElsewhere ? 'newer' : 'handoff'}`;
+      const label = `${hasMore ? 'intermediate' : 'final'}-${width}-${theme}-${direction.replaceAll(' ', '-')}-${key}-${focusMovedElsewhere ? 'newer' : 'handoff'}`;
       const page = await browser.newPage({ viewport: { width, height: 900 } });
       let release; let requested;
       const held = new Promise(r => release = r); const requestStarted = new Promise(r => requested = r);
       await page.route('**/relations?*', async route => {
         requested(route.request().url()); await held;
         await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ kind: 'ok', value: {
-          items: [{ id: 'appended', appId: 'app', title: 'Task appended', handle: 'AT1.appended', status: 'PENDING' }], hasMore: false,
+          items: [{ id: 'appended', appId: 'app', title: 'Task appended', handle: 'AT1.appended', status: 'PENDING' }], hasMore,
         } }) });
       });
       await page.route('**/__relation_focus', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Relation focus</title>' }));
@@ -64,10 +64,18 @@ try {
       if (focusMovedElsewhere) await page.locator('#newer').focus();
       release(); // Release the route before assertions so a failed assertion cannot strand it.
       assert.equal(new URL(requestedUrl).searchParams.get('offset'), String(pageSize), label);
-      await trigger.waitFor({ state: 'detached' });
+      if (hasMore) {
+        await page.waitForFunction(label => {
+          const button = Array.from(document.querySelectorAll('button')).find(b => b.textContent === label);
+          return button && !button.disabled;
+        }, `Load more ${direction}`);
+        await page.evaluate(() => new Promise(requestAnimationFrame));
+      } else await trigger.waitFor({ state: 'detached' });
       const filter = page.getByRole('textbox', { name: 'Filter loaded relations…', exact: true });
       if (focusMovedElsewhere) {
         await page.waitForFunction(() => document.activeElement?.id === 'newer'); assert.equal(await page.locator('#newer').evaluate(el => el === document.activeElement), true, label);
+      } else if (hasMore) {
+        assert.equal(await trigger.evaluate(el => el === document.activeElement), true, `${label}: surviving Load more owns focus`);
       } else {
         await filter.waitFor({ state: 'visible' });
         await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Filter loaded relations…');
@@ -86,7 +94,7 @@ try {
         await filter.focus();
       }
       if (output) await page.screenshot({ path: `${output}/${label}.png`, fullPage: true });
-      console.log(`ok ${label}: final page appended, exhausted; ${focusMovedElsewhere ? 'newer focus preserved' : 'filter focused; old/new rows keyboard reachable'}`);
+      console.log(`ok ${label}: ${hasMore ? 'intermediate page appended' : 'final page appended, exhausted'}; ${focusMovedElsewhere ? 'newer focus preserved' : (hasMore ? 'surviving Load more focused' : 'filter focused; old/new rows keyboard reachable')}`);
       await page.close();
     }
   }

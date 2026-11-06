@@ -26,6 +26,13 @@ function activate(button: HTMLButtonElement, key: string) {
   button.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true })); button.click();
 }
 
+function nativeDisabledBlur() {
+  const previous = document.body.getAttribute('tabindex');
+  document.body.tabIndex = -1; document.body.focus();
+  if (previous === null) document.body.removeAttribute('tabindex');
+  else document.body.setAttribute('tabindex', previous);
+}
+
 describe('exhausted relation control focus', () => {
   it.each(['Load more Waits for', 'Load more Holds up'].flatMap((name) => ['Enter', ' '].map((key) => [name, key])))('%s %s hands focus to the surviving filter after appending and exhausting', async (name, key) => {
     const m = await setup(); const trigger = m.more(name); activate(trigger, key); await tick(3);
@@ -83,6 +90,27 @@ describe('exhausted relation control focus', () => {
     m.settle(true); await tick(12);
     expect(trigger.isConnected).toBe(true); expect(document.activeElement).not.toBe(m.filter);
     expect(m.target.textContent).toContain('Task new');
+  });
+  it.each(['Load more Waits for', 'Load more Holds up'].flatMap(name => ['Enter', ' '].map(key => [name, key])))('%s %s restores the surviving non-final control after native disabled blur', async (name, key) => {
+    const m = await setup(); const trigger = m.more(name); activate(trigger, key); await tick(3);
+    expect(trigger.disabled).toBe(true);
+    // jsdom keeps disabled-button focus; explicitly model Chromium's BODY blur.
+    nativeDisabledBlur(); expect(document.activeElement).toBe(document.body);
+    m.settle(true); await tick(12);
+    expect(trigger.isConnected).toBe(true); expect(trigger.disabled).toBe(false);
+    expect(document.activeElement).toBe(trigger);
+    expect(m.filter.closest<HTMLElement>('[data-testid="table-header"]')?.hidden).toBe(true);
+  });
+  it.each([false, true])('does not reclaim a non-final control after newer focus (blur=%s)', async blur => {
+    const m = await setup(); const trigger = m.more('Load more Waits for'); activate(trigger, 'Enter'); await tick(3);
+    nativeDisabledBlur(); const newer = m.more('Choose a task'); newer.focus(); if (blur) newer.blur();
+    m.settle(true); await tick(12);
+    expect(document.activeElement).toBe(blur ? document.body : newer);
+  });
+  it('does not restore a non-final control across a newer relation snapshot', async () => {
+    const m = await setup(); const trigger = m.more('Load more Waits for'); activate(trigger, 'Enter'); await tick(3); nativeDisabledBlur();
+    m.props.dependencies = initial(); await tick(3); m.settle(true); await tick(12);
+    expect(document.activeElement).toBe(document.body); expect(m.target.textContent).not.toContain('Task new');
   });
   it('does not focus a new task after a pending page is invalidated', async () => {
     const m = await setup(); activate(m.more('Load more Waits for'), 'Enter'); await tick(3);
