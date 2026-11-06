@@ -71,16 +71,19 @@ describe('startBoundMagicLink', () => {
     const { cookies, sets } = cookieStub();
     await startBoundMagicLink(cookies, 'user@example.test');
     const cookie = sets.find((c) => c.name === 'hadron_login_state')!;
-    expect(cookie.opts.maxAge).toBe((15 + 30 + 5) * 60);
-    expect(cookie.opts.maxAge).toBe(3000);
+    expect(cookie.opts.maxAge).toBe((15 + 30 + 5) * 60); // 15 link + max(10, 30) pending + 5 slack
   });
 
   it('only the lifetime moved: the other nonce cookie attributes are unchanged', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) }));
     const { cookies, sets } = cookieStub();
     await startBoundMagicLink(cookies, 'user@example.test');
-    const { maxAge: _maxAge, ...rest } = sets[0].opts;
-    expect(rest).toEqual({ path: '/auth', httpOnly: true, sameSite: 'lax', secure: false });
+    // Find the nonce by name (a future second cookies.set must not redirect
+    // this assertion), and compute `secure` the way the module does so the
+    // test still passes when the suite runs with NODE_ENV=production.
+    const nonce = sets.find((c) => c.name === 'hadron_login_state')!;
+    const { maxAge: _maxAge, ...rest } = nonce.opts;
+    expect(rest).toEqual({ path: '/auth', httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' });
   });
 
   it('propagates a server error with its status', async () => {
