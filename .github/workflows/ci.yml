@@ -95,6 +95,10 @@ jobs:
       - name: Check Task integrations focus ring
         run: pnpm test:task-integrations-focus
 
+      # portal#1675: the ApplyAgentTickers result region paints a focus ring after a keyboard apply.
+      - name: Check ApplyAgentTickers focus ring
+        run: pnpm test:apply-agent-tickers-focus
+
       # portal#1676: Task integrations' touch targets and overflow at 390px and 1280px.
       - name: Check Task integrations layout
         run: pnpm test:task-integrations-layout
