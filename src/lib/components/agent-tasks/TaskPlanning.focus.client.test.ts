@@ -53,6 +53,25 @@ describe('exhausted relation control focus', () => {
     expect(document.activeElement).toBe(m.filter);
     expect(m.target.textContent).toContain('Task new');
   });
+  it.each(['Load more Waits for', 'Load more Holds up'].flatMap(name => ['Enter', ' '].flatMap(key => ['heading', 'outside'].map(where => [name, key, where]))))('%s %s preserves newer blank pointer intent at %s during a final read', async (name, key, where) => {
+    const m = await setup(); const trigger = m.more(name); activate(trigger, key); await tick(3);
+    const blank = where === 'heading' ? m.target.querySelector('h2')! : document.body;
+    // A native blank click emits pointerdown but may not focus a new element.
+    // A child stopping bubble propagation must not hide that newer attention.
+    const stop = (event: Event) => event.stopPropagation(); blank.addEventListener('pointerdown', stop, { once: true });
+    blank.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); focusBody();
+    m.settle(); await tick(12);
+    expect(trigger.isConnected).toBe(false); expect(document.activeElement).toBe(document.body);
+    expect(m.filter.closest<HTMLElement>('[data-testid="table-header"]')?.hidden).toBe(true);
+    expect(m.target.textContent).toContain('Task new'); expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it.each(['Load more Waits for', 'Load more Holds up'])('%s keeps the default handoff when a pointer repeats on the still-focused trigger', async name => {
+    const m = await setup(); const trigger = m.more(name); activate(trigger, 'Enter'); await tick(3);
+    const child = document.createElement('span'); child.textContent = 'busy'; trigger.append(child);
+    child.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); trigger.click();
+    expect(fetch).toHaveBeenCalledTimes(1); m.settle(); await tick(12);
+    expect(document.activeElement).toBe(m.filter); expect(trigger.isConnected).toBe(false);
+  });
   it('does not reveal the filter for an activation that never owned focus', async () => {
     const m = await setup(); m.more('Load more Waits for').click(); await tick(3);
     m.settle(); await tick(12);
