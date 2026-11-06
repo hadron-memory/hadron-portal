@@ -8,7 +8,7 @@ import { error, redirect } from '@sveltejs/kit';
 import { withQuery } from '$lib/safeRedirect';
 import { runAppFlow } from '$lib/server/run-app-flow';
 import type { Actions, PageServerLoad } from './$types';
-export const load: PageServerLoad = async ({ params, url, request, locals }) => {
+export const load: PageServerLoad = async ({ params, url, request, locals, parent }) => {
   // A failed native action is followed by load with the original POST.
   // 308 here would replay that POST. Keep its refusal/draft render instead;
   // successful writes already leave through the action's existing 303.
@@ -22,6 +22,7 @@ export const load: PageServerLoad = async ({ params, url, request, locals }) => 
     ]);
     return { legacyPanel: { ...section, ...extras, app: { ...app, organizationId: app.organizationId ?? null }, flows: flowRoots(nodes.appNodes), flowsCapped: isCapped(nodes.appNodes.length, 500), flowsScanned: nodes.appNodes.length } };
   }
+  await parent(); // The layout must finish its active-organisation cookie write first.
   const query = new URLSearchParams(url.search); query.set('tab', 'runs');
   redirect(308, withQuery(`/app/apps/${encodeURIComponent(params.appId)}`, query.toString()));
 };
