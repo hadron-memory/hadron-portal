@@ -17,7 +17,7 @@ import {
   TEAM_ROSTER_QUERY,
 } from '$lib/server/queries';
 import { rosterOf } from '$lib/withheld';
-import { REVIEW_EVENT_TYPES, reviewFacts, type PullRequestReadiness, type TaskReview, type TaskReviewOutcome } from '$lib/agent-tasks/review';
+import { REVIEW_EVENT_TYPES, reviewFacts, type PullRequestReadiness, type TaskReviewOutcome } from '$lib/agent-tasks/review';
 import { boardFilterArgs, type BoardFilter } from '$lib/agent-tasks/status';
 import { NO_NARROW, narrowArgs, type BoardNarrow } from '$lib/agent-tasks/narrow';
 import type { AgentAlarm, AgentTaskRow, AgentTeamEvent, TaskRead, TaskRefs, TeamComposition, TeamRoster, WriteCandidates } from '$lib/agent-tasks/types';

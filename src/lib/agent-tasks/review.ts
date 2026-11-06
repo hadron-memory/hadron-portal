@@ -38,7 +38,7 @@ export interface SeatFact {
 }
 
 /** What a task's page reads: readiness on a build task, the seat fact on a seat task. */
-export interface TaskReview {
+export interface TaskReviewRead {
   readiness: PullRequestReadiness | null;
   seat: SeatFact | null;
 }
@@ -48,7 +48,7 @@ export interface TaskReview {
  * and the bound stay as they are: a malformed newest event, or a stream past the
  * bound. `failed` stays for what can pass, and its copy says to reload.
  */
-export type TaskReviewOutcome = TaskRead<TaskReview> | { kind: 'unreadable' };
+export type TaskReviewOutcome = TaskRead<TaskReviewRead> | { kind: 'unreadable' };
 
 const FROZEN_EVENT = 'pr.frozen';
 const SEAT_EVENT = 'review.seat.assigned';

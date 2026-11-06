@@ -4,7 +4,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick } from '$lib/test/mountComponent';
-import type { PullRequestReadiness, ReviewSlot, TaskReview as Review } from '$lib/agent-tasks/review';
+import type { PullRequestReadiness, ReviewSlot, TaskReviewOutcome, TaskReviewRead } from '$lib/agent-tasks/review';
 import type { TaskRead } from '$lib/agent-tasks/types';
 import TaskReview from './TaskReview.svelte';
 
@@ -18,12 +18,17 @@ const seats = [
 const slot = (over: Partial<ReviewSlot> = {}): ReviewSlot => ({ slot: 'local', currentTaskId: 'seat-1', state: 'FINISHED', verdict: 'APPROVE', head: H, counts: true, ...over });
 const blind = (over: Partial<ReviewSlot> = {}) => slot({ slot: 'blind', currentTaskId: 'seat-2', verdict: 'PASS', ...over });
 const answer = (slots: ReviewSlot[], ready = slots.every((s) => s.counts)): PullRequestReadiness => ({ ready, head: H, slots });
-const ok = (readiness: PullRequestReadiness | null, seat: Review['seat'] = null): TaskRead<Review> => ({ kind: 'ok', value: { readiness, seat } });
+const ok = (readiness: PullRequestReadiness | null, seat: TaskReviewRead['seat'] = null): TaskRead<TaskReviewRead> => ({ kind: 'ok', value: { readiness, seat } });
 
 const mounted: { unmount: () => void }[] = [];
-afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); });
+const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+afterEach(() => {
+  while (mounted.length) mounted.pop()!.unmount();
+  if (clipboard) Object.defineProperty(navigator, 'clipboard', clipboard);
+  else delete (navigator as { clipboard?: unknown }).clipboard;
+});
 
-async function mountWith(review: TaskRead<Review>, over: Record<string, unknown> = {}) {
+async function mountWith(review: TaskReviewOutcome, over: Record<string, unknown> = {}) {
   const m = mountComponent(TaskReview as never, {
     review,
     rows: seats,
@@ -43,7 +48,11 @@ const overall = (m: { target: HTMLElement }) => q(m, 'task-review-overall')?.tex
 const row = (m: { target: HTMLElement }, name: string) => m.target.querySelector(`tr[data-review-slot="${name}"]`) as HTMLElement | null;
 const headers = (m: { target: HTMLElement }) => [...m.target.querySelectorAll('thead th')].map((th) => th.querySelector('span')?.textContent);
 /** A row's cell under a column, found through the header, so it can't pass on another column's text. */
-const cellUnder = (m: { target: HTMLElement }, name: string, header: string) => row(m, name)!.querySelectorAll('td')[headers(m).indexOf(header)]?.textContent?.trim();
+const cellUnder = (m: { target: HTMLElement }, name: string, header: string) => {
+  const index = headers(m).indexOf(header);
+  if (index < 0) throw new Error(`no column headed ${header}`);
+  return row(m, name)!.querySelectorAll('td')[index]?.textContent?.trim();
+};
 
 describe('TaskReview on a build task', () => {
   it('every slot counting says Ready at the head, and lists each slot', async () => {
@@ -83,7 +92,7 @@ describe('TaskReview on a build task', () => {
     expect(row(m, 'local')!.textContent).not.toContain('Older head');
   });
 
-  it('puts the answer first: at 390 only the leading columns are on screen', async () => {
+  it('puts the answer first: the headers lead with Slot and Verdict', async () => {
     const m = await mountWith(ok(answer([slot()])));
     expect(headers(m)).toEqual(['Slot', 'Verdict', 'Counts', 'Seat', 'State', 'Head']);
   });
@@ -172,13 +181,13 @@ describe('TaskReview read outcomes', () => {
     const controls = (m: { target: HTMLElement }) => m.target.querySelectorAll('a, button, form, [role="button"], [role="link"]');
 
     it('unreadable says exactly its own line, in the alert block, with no retry control', async () => {
-      const m = await mountWith({ kind: 'unreadable' } as never);
+      const m = await mountWith({ kind: 'unreadable' });
       expect(alert(m)).toBe(UNREADABLE);
       expect(controls(m)).toHaveLength(0);
     });
 
     it('unreadable shows no readiness, no seat, no head and no not-participant state', async () => {
-      const m = await mountWith({ kind: 'unreadable' } as never, { build: { id: 'build-1', handle: 'AT1', title: 'Build it' } });
+      const m = await mountWith({ kind: 'unreadable' }, { build: { id: 'build-1', handle: 'AT1', title: 'Build it' } });
       for (const id of ['task-review-overall', 'task-review-seat', 'task-review-head', 'task-review-pr', 'tasks-not-participant']) expect(q(m, id)).toBeNull();
       expect(m.target.querySelector('table')).toBeNull();
     });
