@@ -27,6 +27,7 @@ type Row = {
 };
 
 const ROWS: Row[] = [
+  { route: 'apps/[appId]/runs', mod: () => import('./apps/[appId]/runs/+page.server'), params: { appId: 'app-1' }, status: 308, location: '/app/apps/app-1?tab=runs' },
   { route: 'apps/[appId]/members', mod: () => import('./apps/[appId]/members/+page.server'), params: { appId: 'app-1' }, status: 307, location: '/app/apps/app-1?tab=members' },
   { route: 'dashboard/customize', mod: () => import('./dashboard/customize/+page.server'), params: {}, status: 301, location: '/app/dashboard' },
   { route: 'memories/[id]/browse', mod: () => import('./memories/[id]/browse/+page.server'), params: { id: 'mem-1' }, search: '?focus=n1', status: 308, location: '/app/memories/mem-1/graph?focus=n1' },
