@@ -26,7 +26,7 @@ try {
   const css = await (await fetch(new URL('src/app.css?direct', origin))).text();
   browser = await chromium.launch({ headless: true });
   for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
-    for (const mode of ['missing', 'rejected', 'resolved', 'replacement', 'destroyed']) {
+    for (const mode of ['missing', 'rejected', 'resolved', 'replacement', 'roundtrip', 'destroyed']) {
       const label = `${width}-${theme}-${mode}`;
       const page = await browser.newPage({ viewport: { width, height: 900 } });
       page.setDefaultTimeout(2500);
@@ -63,12 +63,20 @@ try {
         else {
           await page.waitForFunction(() => window.writes.length === 1);
           assert.equal(await page.getByText('Link copied.', { exact: true }).count(), 0, `${label}: pending is not success`);
+          await copy.evaluate(el => el.click());
+          assert.equal(await page.evaluate(() => window.writes.length), 1, `${label}: no duplicate pending write`);
           if (mode === 'replacement') await page.evaluate(() => window.fixture.replace('https://example.test/invite/new-link'));
+          if (mode === 'roundtrip') {
+            await page.evaluate(() => window.fixture.replace('https://example.test/invite/new-link'));
+            await page.evaluate(url => window.fixture.replace(url), URL_VALUE);
+          }
           if (mode === 'destroyed') await page.evaluate(() => window.fixture.destroy());
           await page.evaluate(() => window.releaseCopy());
           if (mode === 'resolved') {
             await page.getByText('Link copied.', { exact: true }).waitFor();
-            assert.equal(await page.getByText('Link copied.', { exact: true }).getAttribute('role'), 'status');
+            assert.match(await page.getByRole('status').textContent(), /Link copied\./);
+            assert.equal(await page.getByRole('status').getAttribute('aria-live'), 'polite');
+            if (shots) await page.screenshot({ path: `${shots}/${label}-success.png`, fullPage: true });
             await page.evaluate(() => { window.rejectNext = true; });
             await copy.click();
             await page.getByText(rejected, { exact: true }).waitFor();
@@ -83,11 +91,10 @@ try {
           await link.focus();
           assert.equal(await link.evaluate(el => el === document.activeElement), true);
           const expected = mode === 'replacement' ? 'https://example.test/invite/new-link' : URL_VALUE;
-          assert.equal(await link.textContent(), expected);
+          assert.equal(await link.inputValue(), expected);
           assert.equal(await link.evaluate(el => {
-            const range = document.createRange(); range.selectNodeContents(el);
-            const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
-            return selection.toString();
+            el.select();
+            return el.value.slice(el.selectionStart, el.selectionEnd);
           }), expected, `${label}: full link remains selectable`);
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${label}: no horizontal overflow`);
         }
@@ -108,4 +115,4 @@ try {
   }
 } finally { await browser?.close(); await server.close(); }
 assert.deepEqual(failures, [], `${count} passed; ${failures.length} failed`);
-console.log(`${count}/20 Invite clipboard browser cases passed; real component, controlled clipboard, zero writes to server.`);
+console.log(`${count}/24 Invite clipboard browser cases passed; real component, controlled clipboard, zero writes to server.`);

@@ -1,7 +1,8 @@
 <script lang="ts">
   // #327 follow-up: the invite form moved off the Account tab into its own
   // "Invite" tab (shown directly — no collapse). Posts to the local ?/invite.
-  import { untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
+  import { t } from '$lib/i18n/t';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { ActionData, PageData } from './$types';
@@ -44,6 +45,36 @@
   const inviteEmailError = $derived($inviteErrors.inviteEmail?.[0] ?? null);
   const actionError = $derived($inviteMessage?.type === 'error' ? $inviteMessage.text : null);
 
+  const inviteUrl = $derived(form && 'invited' in form && form.invited ? form.inviteUrl : null);
+  let copyState = $state<'idle' | 'pending' | 'unavailable' | 'failed' | 'copied'>('idle');
+  // A clipboard promise belongs to the link displayed when it was issued.
+  // Invalidate on replacement (including A -> B -> A) and teardown.
+  let copyAttempt = 0;
+  $effect(() => {
+    void inviteUrl;
+    copyAttempt++;
+    copyState = 'idle';
+  });
+  onDestroy(() => { copyAttempt++; });
+
+  async function copyInviteLink() {
+    const url = inviteUrl;
+    if (!url || copyState === 'pending') return;
+    const attempt = ++copyAttempt;
+    copyState = 'pending';
+    try {
+      const clipboard = navigator.clipboard;
+      if (typeof clipboard?.writeText !== 'function') {
+        copyState = 'unavailable';
+        return;
+      }
+      await clipboard.writeText(url);
+      if (attempt === copyAttempt && inviteUrl === url) copyState = 'copied';
+    } catch {
+      if (attempt === copyAttempt && inviteUrl === url) copyState = 'failed';
+    }
+  }
+
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 </script>
 
@@ -57,12 +88,21 @@
   {/if}
 
   {#if form && 'invited' in form && form.invited}
-    <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+    <div role="status" aria-live="polite" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
       <p class="mb-1">Invitation created! Share this link:</p>
       <div class="flex items-center gap-2">
-        <code class="flex-1 rounded bg-zinc-100 px-3 py-1.5 font-mono text-xs text-green-800 dark:bg-zinc-800 dark:text-green-200 select-all break-all">{form.inviteUrl}</code>
-        <button onclick={() => navigator.clipboard?.writeText(form.inviteUrl)} class="shrink-0 rounded-md border border-green-300 px-2 py-1 text-xs text-green-700 hover:bg-green-100 dark:border-green-700 dark:text-green-300 dark:hover:bg-green-900">Copy</button>
+        <textarea readonly rows="2" value={form.inviteUrl} aria-label={t('account.invite.link', 'Invitation link')} class="min-w-0 flex-1 resize-none overflow-hidden [field-sizing:content] rounded bg-zinc-100 px-3 py-1.5 font-mono text-xs text-green-800 dark:bg-zinc-800 dark:text-green-200 select-all break-all focus:outline-2 focus:outline-offset-2 focus:outline-indigo-500"></textarea>
+        <button type="button" onclick={copyInviteLink} disabled={copyState === 'pending'} class="shrink-0 rounded-md border border-green-300 px-2 py-1 text-xs text-green-700 hover:bg-green-100 disabled:opacity-50 dark:border-green-700 dark:text-green-300 dark:hover:bg-green-900">Copy</button>
       </div>
+      <p class="mt-2 text-xs text-green-700 dark:text-green-400">
+        {#if copyState === 'unavailable'}
+          {t('account.invite.copy-unavailable', 'Copy is unavailable. Select the link and copy it manually.')}
+        {:else if copyState === 'failed'}
+          {t('account.invite.copy-failed', 'Could not copy the link. Select the link and copy it manually.')}
+        {:else if copyState === 'copied'}
+          {t('account.invite.copy-success', 'Link copied.')}
+        {/if}
+      </p>
       <p class="mt-2 text-xs text-green-700 dark:text-green-400">{describeInviteLimits(form)}</p>
     </div>
   {/if}

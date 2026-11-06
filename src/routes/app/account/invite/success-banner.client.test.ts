@@ -31,12 +31,14 @@ describe('invite success feedback (#1545)', () => {
     expect(statuses[0].textContent).toContain('can be used 2 times');
     expect(statuses[0].textContent).toContain('Expires Nov 12, 2026');
     expect(statuses[0].textContent).not.toMatch(/single use|30 days/i);
-    expect(root.querySelector('code')?.textContent).toBe('https://example.test/invite/synthetic');
+    const link = root.querySelector('textarea');
+    expect(link?.value).toBe('https://example.test/invite/synthetic');
+    expect(link?.readOnly).toBe(true);
     expect(root.querySelector('[role="alert"]')).toBeNull();
   });
   it('pairs exact light/dark tokens on all four success elements', async () => {
     const root = await renderSuccess();
-    const code = root.querySelector('code');
+    const code = root.querySelector('textarea');
     const box = code?.parentElement?.parentElement ?? null;
     pairs(box, ['border-green-300', 'bg-green-50', 'text-green-700', 'dark:border-green-800', 'dark:bg-green-950', 'dark:text-green-300'], ['border-green-800', 'bg-green-950', 'text-green-300']);
     pairs(code, ['bg-zinc-100', 'text-green-800', 'dark:bg-zinc-800', 'dark:text-green-200'], ['bg-zinc-800', 'text-green-200']);
