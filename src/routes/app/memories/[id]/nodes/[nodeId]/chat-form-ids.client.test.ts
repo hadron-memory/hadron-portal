@@ -40,7 +40,7 @@ import {
 } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { beginEnhanced, submitEnhanced } from '$lib/test/stubs/app-forms';
+import { beginEnhanced } from '$lib/test/stubs/app-forms';
 import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import {
   LEGACY_THREAD_PROBE_QUERY,
@@ -616,7 +616,11 @@ describe('#1522 chat send form identity', () => {
       expect(area(second).value).toBe(''); // red on main: reset restores refused seed
       await vi.waitFor(() => { flushSync(); expect(area(second).disabled).toBe(false); });
       expect(area(second).form!.querySelector<HTMLButtonElement>('[type="submit"]')!.disabled).toBe(true);
-      expect((await submitEnhanced(area(second).form!)).cancelled).toBe(true); // no stale repeat submission
+      const emptySubmit = vi.fn();
+      area(second).form!.addEventListener('submit', emptySubmit);
+      area(second).form!.querySelector<HTMLButtonElement>('[type="submit"]')!.click();
+      expect(emptySubmit).not.toHaveBeenCalled(); // an empty composer cannot repeat the stale send
+      area(second).form!.removeEventListener('submit', emptySubmit);
 
       await type(second, 'a later fresh message'); await send(second, 'a later fresh message', true);
       expect(area(second).value).toBe(''); // the reset target itself remains clean
