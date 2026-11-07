@@ -2276,6 +2276,36 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     return { type: 'success' as const, status: 200, data: { form: f } };
   };
 
+  it.each(['success', 'refusal'] as const)('#1777 cast %s remains in the same mounted region after held Runs navigation', async outcome => {
+    const { m, form } = await openCast();
+    const region = m.target.querySelector(`[data-testid="cast-answer-${outcome === 'success' ? 'status' : 'alert'}"]`);
+    if (region) expect(region.textContent?.trim()).toBe('');
+    await fill(form(), 'agent-a', 'Iris');
+    const sent = idOf(form());
+    const delayed = await submitEnhancedDeferred(form());
+    let release!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>(r => { release = r; });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    expect(release).toBeTypeOf('function');
+    const result = await success(sent);
+    if (outcome === 'refusal') {
+      result.data.form.valid = false;
+      result.data.form.message = { type: 'error', text: 'Name already taken.' };
+    }
+    await delayed.finish(outcome === 'success' ? result : { ...result, type: 'failure', status: 400 } as never);
+    await tick(3);
+    expect(m.target.textContent).toContain(outcome === 'success' ? 'Worker cast.' : 'Name already taken.');
+    release();
+    await tick(3);
+    expect(m.target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
+    expect(m.target.textContent).toContain(outcome === 'success' ? 'Worker cast.' : 'Name already taken.');
+    expect(region).not.toBeNull();
+    expect(m.target.contains(region)).toBe(true);
+    expect(region!.textContent).toContain(outcome === 'success' ? 'Worker cast.' : 'Name already taken.');
+    expect([...m.target.querySelectorAll('[role="status"], [role="alert"]')].filter(el => el.textContent?.includes(outcome === 'success' ? 'Worker cast.' : 'Name already taken.'))).toHaveLength(1);
+  });
+
   it('a No team choice made for App A is not carried to App B', async () => {
     const { m, props, open, form } = await openCast();
     await fill(form(), 'agent-a', 'Iris');
@@ -3300,6 +3330,22 @@ describe('Link and Unlink answers belong to their App visit (#1776)', () => {
     expect(new FormData(form).get('agentId')).toBe(kind === 'link' ? GAMMA.id : DELTA.id);
     return { id, delayed: await submitEnhancedDeferred(form), form };
   }
+  it('#1777 shared success region is mounted empty, filled, then cleared without replacement', async () => {
+    const { m, props } = await mountAgents();
+    const region = m.target.querySelector('[data-testid="app-success-status"]');
+    expect(region).not.toBeNull();
+    expect(region!.textContent?.trim()).toBe('');
+    const a = await begin(m.target, 'link');
+    await a.delayed.finish(await answer('link', 'success', a.id, 'A') as never);
+    await tick(3);
+    expect(m.target.querySelector('[data-testid="app-success-status"]')).toBe(region);
+    expect(region!.textContent).toContain('A link success');
+    props.data = await dataFor('a2');
+    await tick(3);
+    expect(m.target.querySelector('[data-testid="app-success-status"]')).toBe(region);
+    expect(region!.textContent?.trim()).toBe('');
+  });
+
   async function answer(kind: Kind, outcome: Outcome, id: string, owner: string) {
     if (outcome === 'error') return { type: 'error', status: 500, error: { message: `${owner} failed request` } };
     if (outcome === 'redirect') return { type: 'redirect', status: 303, location: `/${owner}-redirect` };
