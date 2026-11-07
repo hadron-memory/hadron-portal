@@ -3249,3 +3249,112 @@ describe('one agent write at a time on the Agents tab (portal#1715)', () => {
     expect(writes).toEqual(['link', 'install']);
   });
 });
+
+// #1776: real Superforms callbacks, held across a reused Page's App change.
+describe('Link and Unlink answers belong to their App visit (#1776)', () => {
+  const DELTA = { id: 'ag3', urn: 'hrn:agent:acme.com:delta', name: 'Delta', personaRole: null };
+  const GAMMA = { id: 'ag2', urn: 'hrn:agent:acme.com:gamma', name: 'Gamma' };
+  type Kind = 'link' | 'unlink';
+  type Outcome = 'success' | 'refusal' | 'error' | 'redirect';
+  async function dataFor(appId: string) {
+    setStubPage(`https://example.test/app/apps/${appId}?tab=agents`, { appId });
+    const data = await pageData();
+    Object.assign(data.app, { id: appId, agents: [DELTA] });
+    return { ...data, initialTab: 'agents', availableAgents: [GAMMA], bootPointerAppKey: appId,
+      installMarks: { ag3: { kind: 'installed' } } };
+  }
+  async function mountAgents() {
+    vi.stubGlobal('fetch', vi.fn(async url => ({ ok: true, json: async () => String(url).includes('/customisation?')
+      ? { list: { state: 'not-shown' }, original: { state: 'not-shown' }, replacement: { state: 'not-shown' } } : {} }) as Response));
+    const props = reactiveProps({ data: await dataFor('a1'), form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(3);
+    return { m, props };
+  }
+  const formOf = (target: HTMLElement, kind: Kind) => kind === 'unlink'
+    ? target.querySelector<HTMLFormElement>('form[action="?/removeAgent"]')!
+    : [...target.querySelectorAll<HTMLFormElement>('form[action="?/addAgent"]')].find(f => !f.classList.contains('hidden'))!;
+  async function begin(target: HTMLElement, kind: Kind) {
+    if (kind === 'link') {
+      const select = formOf(target, kind).querySelector<HTMLSelectElement>('[name="agentId"]')!;
+      select.value = GAMMA.id;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      await tick(2);
+    } else {
+      const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+      target.querySelector<HTMLButtonElement>('button[aria-label="Actions for Delta"]')!.click();
+      flushSync();
+      [...target.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(el => el.textContent?.trim() === 'Unlink')!.click();
+      await tick(2);
+      expect(requestSubmit).toHaveBeenCalledTimes(1);
+      expect(requestSubmit.mock.instances[0]).toBe(formOf(target, kind));
+      requestSubmit.mockRestore();
+    }
+    const form = formOf(target, kind);
+    // Main uses the loader's schema id without an explicit hidden field;
+    // the fenced form exposes its live instance id. Derive the old id from
+    // the same loader schema, never from an invented constant.
+    const id = form.querySelector<HTMLInputElement>('[name="__superform_id"]')?.value
+      ?? (await superValidate(zod4((kind === 'link' ? addAgentSchema : removeAppAgentSchema) as typeof addAgentSchema), { errors: false })).id;
+    expect(new FormData(form).get('agentId')).toBe(kind === 'link' ? GAMMA.id : DELTA.id);
+    return { id, delayed: await submitEnhancedDeferred(form), form };
+  }
+  async function answer(kind: Kind, outcome: Outcome, id: string, owner: string) {
+    if (outcome === 'error') return { type: 'error', status: 500, error: { message: `${owner} failed request` } };
+    if (outcome === 'redirect') return { type: 'redirect', status: 303, location: `/${owner}-redirect` };
+    const f = await superValidate({ agentId: kind === 'link' ? GAMMA.id : DELTA.id },
+      zod4((kind === 'link' ? addAgentSchema : removeAppAgentSchema) as typeof addAgentSchema), { errors: false, id });
+    f.valid = outcome === 'success';
+    f.message = { type: outcome === 'success' ? 'success' : 'error', text: `${owner} ${kind} ${outcome}` };
+    return { type: outcome === 'success' ? 'success' : 'failure', status: outcome === 'success' ? 200 : 400, data: { form: f } };
+  }
+  async function move(props: { data: Awaited<ReturnType<typeof dataFor>> }, appId: string) {
+    props.data = await dataFor(appId);
+    await tick(3);
+    // Superforms makes B available after a real router navigation; without
+    // this hook a pending A request can vacuously keep B from submitting.
+    for (const g of navigationGuards.filter(g => g.fn === 'afterNavigate'))
+      (g.callback as (nav: unknown) => void)({ type: 'link' });
+    await tick(3);
+  }
+  for (const kind of ['link', 'unlink'] as const) {
+    for (const bSubmitted of [false, true]) {
+      it.each(['success', 'refusal', 'error', 'redirect'] as const)(`${kind}: late %s stays off B (B submitted=${bSubmitted})`, async outcome => {
+        const { m, props } = await mountAgents();
+        const a = await begin(m.target, kind);
+        await move(props, 'a2');
+        const b = bSubmitted ? await begin(m.target, kind) : null;
+        resetNavigationCalls();
+        resetKitAppliedResults();
+        const focus = m.target.querySelector<HTMLSelectElement>('#agentId')!;
+        focus.focus();
+        await a.delayed.finish(await answer(kind, outcome, a.id, 'A') as never);
+        await tick(4);
+        expect(m.target.textContent).not.toContain(`A ${kind}`);
+        expect(kitAppliedResults).toEqual([]);
+        expect(navigationCalls.filter(c => c.fn === 'invalidateAll')).toHaveLength(0);
+        expect(document.activeElement).toBe(focus);
+        if (b) {
+          // Same post-navigation lifecycle position: a dead delivery wire must
+          // fail this control even if every stale-answer negative passes.
+          await b.delayed.finish(await answer(kind, 'refusal', b.id, 'B') as never);
+          await tick(4);
+          expect(m.target.textContent).toContain(`B ${kind} refusal`);
+        }
+      });
+    }
+    it.each(['success', 'refusal', 'redirect'] as const)(`${kind}: B own %s still lands after navigation`, async outcome => {
+      const { m, props } = await mountAgents();
+      await begin(m.target, kind);
+      await move(props, 'a2');
+      const b = await begin(m.target, kind);
+      resetKitAppliedResults();
+      resetNavigationCalls();
+      await b.delayed.finish(await answer(kind, outcome, b.id, 'B') as never);
+      await tick(4);
+      if (outcome === 'redirect') expect(kitAppliedResults).toEqual([{ type: 'redirect', status: 303, location: '/B-redirect' }]);
+      else expect(m.target.textContent).toContain(`B ${kind} ${outcome}`);
+    });
+  }
+});
