@@ -45,7 +45,7 @@ try {
   const css = await (await fetch(new URL('src/app.css?direct', origin))).text();
   browser = await chromium.launch({ headless: true });
   for (const hasMore of [true, false]) for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
-    for (const direction of ['Waits for', 'Holds up']) for (const key of ['Enter', 'Space']) for (const interaction of ['stay', 'newer', 'blank', ...(hasMore ? ['failed'] : [])]) {
+    for (const direction of ['Waits for', 'Holds up']) for (const key of ['Enter', 'Space', 'Mouse']) for (const interaction of ['stay', 'newer', 'blank', ...(hasMore ? ['failed'] : [])]) {
       const focusMovedElsewhere = interaction === 'newer';
       const label = `${hasMore ? 'intermediate' : 'final'}-${width}-${theme}-${direction.replaceAll(' ', '-')}-${key}-${interaction}`;
       const page = await browser.newPage({ viewport: { width, height: 900 } });
@@ -60,7 +60,8 @@ try {
       await page.route('**/__relation_focus', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Relation focus</title>' }));
       const pageSize = await mountFixture(page, origin, css, theme);
       const trigger = page.getByRole('button', { name: `Load more ${direction}`, exact: true });
-      await trigger.focus(); await page.keyboard.press(key);
+      // #1775: a real mouse click focuses the button natively, then activates it.
+      if (key === 'Mouse') await trigger.click(); else { await trigger.focus(); await page.keyboard.press(key); }
       const requestedUrl = await withDeadline(requestStarted, label);
       if (focusMovedElsewhere) await page.locator('#newer').focus();
       if (interaction === 'blank') await page.locator('h2').click();
@@ -80,6 +81,22 @@ try {
       } else if (hasMore) {
         await page.waitForFunction(el => el === document.activeElement, await trigger.elementHandle());
         assert.equal(await trigger.evaluate(el => el === document.activeElement), true, `${label}: surviving Load more owns focus`);
+        // #1775: the page really was appended. The filter header stays hidden after a
+        // non-final page, so the unconditional witness is the caveat the component
+        // shows only once rows were merged (`loadedMore`), plus a retrying visibility wait.
+        const caveat = page.getByText('Relations can change while you load pages.');
+        if (interaction === 'failed') assert.equal(await caveat.count(), 0, `${label}: a failed page appends nothing`);
+        else {
+          await caveat.waitFor({ state: 'visible', timeout: 5000 });
+          // Reach the appended row through the table's own filter: the header is collapsed
+          // after a non-final page, so open it with its toggle, then require the row.
+          const searchBox = page.getByRole('textbox', { name: 'Filter loaded relations…', exact: true });
+          if (!(await searchBox.isVisible())) await page.locator('[data-testid="table-header-toggle"]').click();
+          await searchBox.waitFor({ state: 'visible', timeout: 5000 });
+          await searchBox.fill('Task appended');
+          await page.getByRole('link', { name: 'Task appended', exact: true }).waitFor({ state: 'visible', timeout: 5000 });
+          await searchBox.fill('');
+        }
       } else {
         await filter.waitFor({ state: 'visible' });
         await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Filter loaded relations…');

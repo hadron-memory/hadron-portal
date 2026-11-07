@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
 import TaskPlanning from './TaskPlanning.svelte';
 
 const mounts: { unmount: () => void }[] = [];
@@ -71,6 +72,9 @@ describe('exhausted relation control focus', () => {
     m.target.querySelector('h2')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
     m.settle(); await tick(12); expect(document.activeElement).toBe(document.body);
     expect(m.filter.closest<HTMLElement>('[data-testid="table-header"]')?.hidden).toBe(true);
+    // #1775: the read ran once, resolved, removed its exhausted trigger and appended the row.
+    expect(fetch).toHaveBeenCalledTimes(1); expect(trigger.isConnected).toBe(false);
+    expect(m.target.textContent).toContain('Task new');
   });
   it.each(['Load more Waits for', 'Load more Holds up'])('%s keeps the default handoff when a pointer repeats on the still-focused trigger', async name => {
     const m = await setup(); const trigger = m.more(name); activate(trigger, 'Enter'); await tick(3);
@@ -159,6 +163,75 @@ describe('exhausted relation control focus', () => {
     m.props.task = { ...m.props.task, id: 'B' }; m.props.dependencies = initial(); await tick(3);
     const newer = m.more('Choose a task'); newer.focus(); m.settle(); await tick(12);
     expect(document.activeElement).toBe(newer); expect(m.target.textContent).not.toContain('Task new');
+  });
+  // #1775: the recheck after `await tick()` is the only guard between the final
+  // append and the focus call. Replace the snapshot (or destroy the view) exactly
+  // inside that tick, i.e. when the appended row first reaches the DOM.
+  const duringHandoffTick = (m: Awaited<ReturnType<typeof setup>>, act: () => void) => {
+    const seen = new MutationObserver(() => {
+      if (!m.target.textContent?.includes('Task new')) return;
+      seen.disconnect(); act();
+    });
+    seen.observe(m.target, { childList: true, subtree: true, characterData: true });
+    return seen;
+  };
+  it('does not focus the filter when the task is replaced inside the final render tick', async () => {
+    const m = await setup(); activate(m.more('Load more Waits for'), 'Enter'); await tick(3);
+    duringHandoffTick(m, () => { m.props.task = { ...m.props.task, id: 'B' }; m.props.dependencies = initial(); });
+    m.settle(); await tick(12);
+    expect(m.target.textContent).not.toContain('Task new');
+    expect(document.activeElement).toBe(document.body);
+  });
+  it('does not focus the filter when the view is destroyed inside the final render tick', async () => {
+    const m = await setup(); activate(m.more('Load more Holds up'), 'Enter'); await tick(3);
+    duringHandoffTick(m, () => m.unmount());
+    m.settle(); await tick(12);
+    expect(document.activeElement).toBe(document.body);
+  });
+  it('control: an unchanged owner still hands focus to the filter through the same tick', async () => {
+    const m = await setup(); activate(m.more('Load more Waits for'), 'Enter'); await tick(3);
+    let fired = false; duringHandoffTick(m, () => { fired = true; });
+    m.settle(); await tick(12);
+    expect(fired).toBe(true); expect(document.activeElement).toBe(m.filter);
+  });
+  // #1775: a mouse press focuses the button (browsers do; jsdom does not), then clicks.
+  function press(button: HTMLButtonElement) {
+    button.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    button.focus(); button.dispatchEvent(new MouseEvent('pointerup', { bubbles: true })); button.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })); button.click();
+  }
+  it.each(['Load more Waits for', 'Load more Holds up'])('%s mouse activation hands focus to the surviving filter after exhausting', async name => {
+    const m = await setup(); const trigger = m.more(name); press(trigger); await tick(3);
+    expect(document.activeElement).toBe(trigger); expect(trigger.getAttribute('aria-busy')).toBe('true');
+    m.settle(); await tick(12);
+    expect(trigger.isConnected).toBe(false); expect(document.activeElement).toBe(m.filter);
+    expect(m.filter.closest<HTMLElement>('[data-testid="table-header"]')?.hidden).toBe(false);
+    expect(m.target.textContent).toContain('Task new');
+  });
+  it.each(['Load more Waits for', 'Load more Holds up'])('%s mouse activation keeps focus on the surviving trigger after a non-final page', async name => {
+    const m = await setup(); const trigger = m.more(name); press(trigger); await tick(3);
+    m.settle(true); await tick(12);
+    expect(trigger.isConnected).toBe(true); expect(trigger.disabled).toBe(false); expect(document.activeElement).toBe(trigger);
+    expect(m.filter.closest<HTMLElement>('[data-testid="table-header"]')?.hidden).toBe(true);
+  });
+  // Another page-level write (here Save priority) discards the read in flight, so
+  // the Load more control is natively disabled at settlement. Expected ownership
+  // from existing behavior: the stale page is dropped, nothing is appended, the
+  // filter is neither revealed nor focused, and the component never moves focus
+  // onto the disabled button; it is usable again once the write ends.
+  it.each(['Load more Waits for', 'Load more Holds up'].flatMap(name => [false, true].map(hasMore => [name, hasMore] as const)))('%s keeps the disabled control alone when another write is pending at settlement (hasMore=%s)', async (name, hasMore) => {
+    const m = await setup(); const trigger = m.more(name); press(trigger); await tick(3);
+    const priority = m.target.querySelector<HTMLFormElement>('form:has(#task-priority)')!;
+    const write = await submitEnhancedDeferred(priority); await tick(3);
+    expect(trigger.disabled).toBe(true); expect(m.target.textContent).toContain('Saving…');
+    m.settle(hasMore); await tick(12);
+    expect(trigger.isConnected).toBe(true); expect(trigger.disabled).toBe(true);
+    expect(m.target.textContent).not.toContain('Task new');
+    expect(document.activeElement).not.toBe(m.filter);
+    expect(m.filter.closest<HTMLElement>('[data-testid="table-header"]')?.hidden).toBe(true);
+    await write.finish({ type: 'failure', status: 400, data: {} }); await tick(5);
+    expect(trigger.disabled).toBe(false); expect(document.activeElement).not.toBe(m.filter);
+    expect(m.filter.closest<HTMLElement>('[data-testid="table-header"]')?.hidden).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
   it.each([false, true])('does not run a pending focus handoff after unmount (hasMore=%s)', async hasMore => {
     const m = await setup(); activate(m.more('Load more Waits for'), 'Enter'); await tick(3); m.unmount();
