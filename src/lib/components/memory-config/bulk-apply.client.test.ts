@@ -357,6 +357,20 @@ describe('search', () => {
     expect(panel.textContent).toContain('Current rules');
     expect(await search(panel, 'Current rules')).toBe(2);
   });
+
+  // Blind P3 on 041f5e9fd: with earlier (settled) rows beside unknown rows,
+  // the link text must match only the rows that render it.
+  it('matches the Current rules link only on unknown rows, not earlier rows', async () => {
+    const m = mount(); const panel = await applied(m.target, [0, 1]);
+    await apply(panel, answer([ok(0, { dryRun: false }), bad(1, 'CONFLICT')], false), 'Apply finished');
+    fetcher.mockResolvedValueOnce(answer([{ ...ok(0), memoryRef: 'm1' }]));
+    button(panel, 'Retry failed')!.click();
+    await settle(() => expect(panel.textContent).toContain('Preview: nothing has been changed'));
+    await apply(panel, Promise.reject(new TypeError('offline')), 'We don’t know');
+    expect(panel.textContent).toContain('Current rules');
+    expect(await search(panel, 'Current rules')).toBe(1);
+    expect(await search(panel, 'earlier apply')).toBe(1);
+  });
 });
 
 describe('retry failed', () => {
