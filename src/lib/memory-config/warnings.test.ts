@@ -104,4 +104,10 @@ describe('#1764 warning normalization', () => {
     const text = warningSearchText({ ...base, taskState: 'OK', taskUrn: urn });
     expect(text).toContain(urn); expect(text).toContain('author task'); expect(text).not.toContain('TASK_LESS_VISIBLE');
   });
+  it.each(['UNREADABLE', 'BROKEN', 'NONE', 'SURPRISE', null])('search text never exposes a hidden reference for state %s', taskState => {
+    const text = warningSearchText({ ...base, taskState, taskUrn: urn });
+    expect(text).not.toContain(urn);
+    expect(text).not.toContain('TASK_LESS_VISIBLE');
+    expect(text).not.toContain('authorTask');
+  });
 });
