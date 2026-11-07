@@ -3,6 +3,7 @@ import { flushSync } from 'svelte';
 import { mountComponent, tick } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import type { Rule } from '$lib/memory-config/types';
+import type { ConfigFailure } from '$lib/memory-config/client';
 vi.mock('$lib/components/SelectNode.svelte', async () => ({ default: (await import('$lib/test/fixtures/RuleEditorPickerStub.svelte')).default }));
 import RuleEditor from './RuleEditor.svelte';
 
@@ -19,10 +20,11 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup.splice(0).forEach(f => f()); vi.restoreAllMocks(); });
 function mount(rule: Rule | null = null) {
-  const onsave = vi.fn(async (_input: Record<string, unknown>) => null);
-  const props = reactiveProps({ rule, memories: [], memoriesFailed: false, oncancel: vi.fn(), onsave });
+  const onsave = vi.fn(async (_input: Record<string, unknown>): Promise<ConfigFailure | null> => null);
+  const onreload = vi.fn(async () => undefined);
+  const props = reactiveProps({ rule, memories: [], memoriesFailed: false, oncancel: vi.fn(), onsave, onreload });
   const m = mountComponent(RuleEditor, props); cleanup.push(m.unmount);
-  return { ...m, props, onsave };
+  return { ...m, props, onsave, onreload };
 }
 function click(root: HTMLElement, name: string) {
   const b = [...root.querySelectorAll('button')].find(b => b.textContent?.trim() === name);
@@ -71,6 +73,16 @@ describe('portal#1804 RuleEditor reference overrides (callback stub)', () => {
     const m = mount(seed); expect(row(m.target, 0).textContent?.replace(/\s/g, '')).toContain(first);
     expect(row(m.target, 1).textContent).toContain('UNREADABLE'); expect(row(m.target, 2).textContent).toContain('BROKEN');
     submit(m.target); for (const field of fields) expect(m.onsave.mock.calls[0][0]).not.toHaveProperty(`${field}Ref`);
+  });
+  it('keeps an unresolved conflict when its reload became stale', async () => {
+    const m = mount(); m.onsave.mockResolvedValueOnce({ code: 'CONFLICT', error: 'Seed conflict' });
+    submit(m.target);
+    await vi.waitFor(() => { flushSync(); expect(m.target.textContent).toContain('Seed conflict'); });
+    click(m.target, 'Reload the rule (discards your changes)');
+    await vi.waitFor(() => { flushSync(); expect(m.onreload).toHaveBeenCalledOnce(); });
+    await vi.waitFor(() => { flushSync(); expect([...m.target.querySelectorAll('button')].some(b => b.textContent?.trim() === 'Save')).toBe(true); });
+    expect(m.target.textContent).toContain('Seed conflict');
+    expect([...m.target.querySelectorAll('button')].some(b => b.textContent?.trim() === 'Reload the rule (discards your changes)')).toBe(true);
   });
   it('Clear replaces a seeded reference immediately and reopen has no prior override', async () => {
     const m = mount(seed); click(row(m.target, 0), 'Clear'); await tick();

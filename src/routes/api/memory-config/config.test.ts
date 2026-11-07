@@ -93,3 +93,23 @@ describe('config endpoint', () => {
     expect(request).not.toHaveBeenCalled();
   });
 });
+
+describe('#1764 rule save carries the advisory warnings', () => {
+  const warning = { code: 'TASK_LESS_VISIBLE', role: 'review', field: 'authorTask', taskUrn: 'hrn:node:acme.com:tasks:t', taskState: 'OK' };
+  it.each([['create', 'createNodeRoleRule'], ['update', 'updateNodeRoleRule']])('%s answers saved with the warnings and stays a success', async (op, key) => {
+    request.mockResolvedValue({ [key]: { rule: { id: 'r' }, warnings: [warning] } });
+    const response = await POST(event({ kind: 'rules', op, memoryRef: 'm', ref: 'r', revision: 3, input: { role: 'review' } }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ saved: true, warnings: [warning] });
+  });
+  it('a save answering no warnings sends an empty list', async () => {
+    request.mockResolvedValue({ createNodeRoleRule: { rule: { id: 'r' }, warnings: [] } });
+    expect(await (await POST(event({ kind: 'rules', op: 'create', memoryRef: 'm', input: { role: 'review' } }))).json()).toEqual({ saved: true, warnings: [] });
+  });
+  it('a refusal stays a refusal and carries no warnings', async () => {
+    request.mockRejectedValue({ response: { errors: [{ message: 'Choose a runnable task.', extensions: { code: 'NOT_A_TASK', field: 'authorTask' } }] } });
+    const response = await POST(event({ kind: 'rules', op: 'create', memoryRef: 'm', input: { role: 'review', authorTaskRef: 'n' } }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).not.toHaveProperty('warnings');
+  });
+});

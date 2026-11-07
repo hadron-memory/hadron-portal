@@ -9,6 +9,8 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { BULK_CAP, bulkCall, changeSplit, retryPositions, rowErrorCopy, sharedRevision, wholeCallCopy, type BulkEntry, type BulkResult, type BulkTarget } from '$lib/memory-config/bulk';
   import { outcomeCopy } from '$lib/memory-config/outcome';
+  import { warningSearchText } from '$lib/memory-config/warnings';
+  import TaskWarnings from './TaskWarnings.svelte';
   import type { Template } from '$lib/memory-config/types';
   let { template, memories, memoriesFailed, pending = $bindable(false), onclose }: { template: Template; memories: BulkTarget[]; memoriesFailed: boolean; pending?: boolean; onclose: () => void } = $props();
   type Row = { memory: BulkTarget; entry: BulkEntry | null; earlier: boolean };
@@ -31,13 +33,13 @@
     if (unknown && !row.earlier) return `${t('config.bulk.row-unknown', 'Not known')} ${t('config.bulk.current-rules', 'Current rules')}`;
     if (!row.entry) return '';
     const earlier = row.earlier ? t('config.bulk.earlier', 'From the earlier apply, not sent again') : '';
-    if (row.entry.error) return `${rowErrorCopy(row.entry.error)} ${earlier}`;
+    if (row.entry.error) return [earlier, rowErrorCopy(row.entry.error)].filter(Boolean).join(' ');
     const result = row.entry.result;
     const entries = result?.entries ?? [];
     const entryText = entries.map(e => `${e.role}: ${outcomeCopy(e.outcome, !!result?.dryRun)}`);
-    const warnings = (result?.warnings ?? []).map(w => `${w.role}: ${w.field ?? ''} — ${w.code}`);
+    const warnings = (result?.warnings ?? []).map(warningSearchText);
     const noRules = result && !entries.length ? t('config.bulk.no-rules', 'This template has no rules.') : '';
-    return [earlier, noRules, ...entryText, ...warnings].join(' ');
+    return [earlier, noRules, ...entryText, ...warnings].filter(Boolean).join(' ');
   }
   const columns: PortalColumnDef<Row>[] = [{ id: 'memory', accessorFn: row => row.memory.name, header: t('config.bulk.memory-outcome', 'Memory and outcome'), size: 280, enableHiding: false }];
   let search = $state('');
@@ -83,14 +85,16 @@
     <p class="font-medium">{t('config.bulk.row-unknown', 'Not known')}</p>
     <a href={`/app/memories/${encodeURIComponent(row.memory.id)}/settings/node-roles`} target="_blank" rel="noopener noreferrer" aria-label={t('config.bulk.current-rules-named', 'Current rules of {name}', { name: row.memory.name })} class="text-indigo-700 underline dark:text-indigo-300">{t('config.bulk.current-rules', 'Current rules')}</a>
   {:else if row.entry?.error}
-    <p class="break-words text-red-700 select-text dark:text-red-300">{rowErrorCopy(row.entry.error)}</p>
+    {#if row.earlier}<p class="text-zinc-600 dark:text-zinc-400">{t('config.bulk.earlier', 'From the earlier apply, not sent again')}</p>{/if}
   {:else if row.entry?.result}
     {#if row.earlier}<p class="text-zinc-600 dark:text-zinc-400">{t('config.bulk.earlier', 'From the earlier apply, not sent again')}</p>{/if}
     {#if !row.entry.result.entries.length}<p>{t('config.bulk.no-rules', 'This template has no rules.')}</p>{/if}
     <ul>{#each row.entry.result.entries as entry}<li class="break-words">{entry.role}: {outcomeCopy(entry.outcome, row.entry.result.dryRun)}</li>{/each}</ul>
-    {#each row.entry.result.warnings as warning}<p class="break-words">{warning.role}: {warning.field ?? ''} — {warning.code}</p>{/each}
   {/if}
-  {#if row.earlier && row.entry?.error}<p class="text-zinc-600 dark:text-zinc-400">{t('config.bulk.earlier', 'From the earlier apply, not sent again')}</p>{/if}
+  <div role="status" data-bulk-row-status>
+    {#if row.entry?.error}<p class="break-words text-red-700 select-text dark:text-red-300">{rowErrorCopy(row.entry.error)}</p>{/if}
+    {#if row.entry?.result && (!unknown || row.earlier)}<TaskWarnings warnings={row.entry.result.warnings} />{/if}
+  </div>
 {/snippet}
 <section aria-label={t('config.bulk.panel', 'Apply to several memories')} class="min-w-0 space-y-4 rounded-xl border p-5 dark:border-zinc-700">
   <h2 bind:this={panelHeading} tabindex="-1" class="text-xl font-semibold">{t('config.apply-name', 'Apply “{name}”', { name: template.name })}</h2>

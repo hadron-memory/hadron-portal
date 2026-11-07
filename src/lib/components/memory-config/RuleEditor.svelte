@@ -8,7 +8,7 @@
   import type { ConfigFailure } from '$lib/memory-config/client';
   let { rule = null, templateDraft = false, memories, memoriesFailed = false, oncancel, onsave, onreload, fallbackFocus }: {
     rule?: Rule | null; templateDraft?: boolean; memories: { id: string; name: string; urn: string }[]; memoriesFailed?: boolean;
-    oncancel: () => void; onsave: (input: Record<string, unknown>) => Promise<ConfigFailure | null>; onreload?: () => Promise<void>; fallbackFocus?: HTMLElement;
+    oncancel: () => void; onsave: (input: Record<string, unknown>) => Promise<ConfigFailure | null>; onreload?: () => Promise<ConfigFailure | null | undefined>; fallbackFocus?: HTMLElement;
   } = $props();
   const uid = $props.id();
   const seed = untrack(() => rule);
@@ -82,7 +82,7 @@
       <p role="note" class="rounded border border-amber-400 bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">{templateDraft ? t('config.template-write-warning', 'When applied as an enabled rule, OWNER refuses every write touching the role; strict sub-roles refuse undeclared sub-roles. Saving this template draft does not change a memory.') : writers === 'OWNER' ? t('config.owner-warning', 'Saving this enabled OWNER rule will refuse every write touching this role, including writes that work now.') : t('config.strict-warning', 'Saving strict sub-roles will refuse writes to undeclared sub-roles that work now.')}</p>
     {/if}
     {#if failure && failure.field !== 'role'}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}
-    {#if failure?.code === 'CONFLICT' && onreload}<button type="button" disabled={pending} onclick={async () => { if (pending) return; pending = true; try { await onreload?.(); } finally { pending = false; } }} class="min-h-11 rounded border px-3">{t('config.reload-rule', 'Reload the rule (discards your changes)')}</button>{/if}
+    {#if failure?.code === 'CONFLICT' && onreload}<button type="button" disabled={pending} onclick={async () => { if (pending) return; pending = true; try { const result = await onreload?.(); if (result !== undefined) failure = result; } finally { pending = false; } }} class="min-h-11 rounded border px-3">{t('config.reload-rule', 'Reload the rule (discards your changes)')}</button>{/if}
     <div class="flex flex-wrap gap-3">
       <button type="submit" aria-disabled={pending} class="min-h-11 rounded bg-indigo-600 px-4 text-white">{pending ? t('config.saving', 'Saving…') : t('config.save', 'Save')}</button>
       <button type="button" disabled={pending} onclick={oncancel} class="min-h-11 rounded border px-4">{t('config.cancel', 'Cancel')}</button>
