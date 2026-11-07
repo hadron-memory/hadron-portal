@@ -10,7 +10,7 @@
 import { vi } from 'vitest';
 import { KEY_LIST_ENDPOINT } from '../../../routes/app/account/api-keys/key-list';
 
-export type Answer = { keys: unknown[] } | { failed: true } | { status: number } | { reject: Error } | { body: unknown };
+export type Answer = { keys: unknown[] } | { failed: true } | { status: number; body?: unknown } | { reject: Error } | { body: unknown };
 
 export function stubKeyList(initial: Answer) {
   const calls: string[] = [];
@@ -35,7 +35,8 @@ export function stubKeyList(initial: Answer) {
     if ('reject' in mine) throw mine.reject;
     if ('status' in mine) {
       const nullBody = mine.status === 204 || mine.status === 205 || mine.status === 304;
-      return new Response(nullBody ? null : '{"error":"x"}', { status: mine.status, headers: { 'content-type': 'application/json' } });
+      const body = 'body' in mine ? mine.body : { error: 'x' };
+      return new Response(nullBody ? null : JSON.stringify(body), { status: mine.status, headers: { 'content-type': 'application/json' } });
     }
     const body = 'body' in mine ? mine.body : mine;
     return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });

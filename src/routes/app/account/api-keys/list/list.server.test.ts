@@ -51,6 +51,7 @@ describe('api-keys list endpoint (#1653 QA P2)', () => {
     const response = await GET(event('', null));
     expect(response.status).toBe(401);
     expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({ error: 'Unauthorized' });
     expect(request).not.toHaveBeenCalled();
   });
 });

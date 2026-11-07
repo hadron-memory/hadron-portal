@@ -387,6 +387,7 @@ describe('#1653 QA P2: a confirmed delete re-reads the list itself, never throug
     ['a network failure', { reject: new TypeError('Failed to fetch') }],
     ['an HTTP 500', { status: 500 }],
     ['an HTTP 401', { status: 401 }],
+    ['an HTTP 500 with a well-formed key list', { status: 500, body: { keys: [key('live', null)] } }],
     ['a failed read', { failed: true }],
     ['a malformed payload', { body: { keys: 'nope' } }],
     ['a malformed key', { body: { keys: [{ id: 7 }] } }],
