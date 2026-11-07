@@ -19,14 +19,14 @@
   let heading = $state<HTMLHeadingElement>(), feedbackFocus = $state<HTMLElement>();
   let notice = $state(''), warnings = $state<MemoryConfigWarning[]>([]), failure = $state<ConfigFailure | null>(null), busy = $state(false);
   // Plain counters are ownership tokens, never deep-proxied response state.
-  let alive = true, viewEpoch = 0, readSequence = 0, feedbackSequence = 0;
+  let alive = true, viewEpoch = 0, readSequence = 0, feedbackSequence = 0, warningSequence = 0;
   let busyOwner: object | null = null;
   const currentFailure = (): ConfigFailure | null => failure;
   const announcement = $derived([failure?.error ?? '', notice, ...warnings.map(warningSearchText)].filter(Boolean).join(' '));
   const liveAnnouncement = $derived(editing === undefined ? announcement : '');
   $effect(() => {
     if (initial !== snapshot) {
-      viewEpoch++;
+      viewEpoch++; warningSequence++;
       snapshot = initial; book = initial; warnings = []; notice = ''; failure = null;
       busyOwner = null; busy = false;
     }
@@ -71,6 +71,7 @@
   async function save(input: Record<string, unknown>): Promise<ConfigFailure | null> {
     if (readOnly) return { error: t('config.impersonation', 'This page is read-only while impersonating.') };
     const owner = ownView(editorVersion);
+    const warning = ++warningSequence;
     feedbackSequence++;
     failure = null; notice = ''; warnings = [];
     let answer: { warnings?: unknown };
