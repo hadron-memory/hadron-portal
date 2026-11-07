@@ -4,6 +4,8 @@
   import { t } from '$lib/i18n/t';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { makeGlobalFilterFn } from '$lib/table/global-filter';
+  import { ruleGlobalFilterFn } from '$lib/memory-config/rule-search';
   import type { PortalColumnDef } from '$lib/table/features';
   import Urn from '$lib/components/Urn.svelte';
   import SelectMemory from '$lib/components/SelectMemory.svelte';
@@ -35,13 +37,15 @@
   const writable = $derived(canManage && !readOnly);
   const columns: PortalColumnDef<Template>[] = [{ accessorKey: 'name', header: t('config.name', 'Name'), size: 220 }, { accessorKey: 'description', header: t('config.description', 'Description'), size: 260 }, { accessorKey: 'required', header: t('config.required', 'Required'), size: 100 }, { id: 'actions', header: t('config.actions', 'Actions'), size: 240 }];
   let templateFilter = $state('');
-  const table = createSvelteTable<Template>({ get data() { return templates; }, columns, getRowId: r => r.id, state: { get globalFilter() { return templateFilter; } }, onGlobalFilterChange: value => { templateFilter = typeof value === 'function' ? value(templateFilter) : value; } });
+  // Boolean accessors are not reliably eligible for global filtering, so the
+  // name column also carries the rendered Required text.
+  const table = createSvelteTable<Template>({ get data() { return templates; }, columns, getRowId: r => r.id, state: { get globalFilter() { return templateFilter; } }, onGlobalFilterChange: value => { templateFilter = typeof value === 'function' ? value(templateFilter) : value; }, globalFilterFn: makeGlobalFilterFn<Template>({ required: value => value ? t('config.yes', 'Yes') : t('config.no', 'No') }, { name: row => row.required ? t('config.yes', 'Yes') : t('config.no', 'No') }) });
   const ruleColumns: PortalColumnDef<Rule>[] = [{ accessorKey: 'role', header: t('config.role', 'Role / sub-role'), size: 160 }, { id: 'settings', header: t('config.settings', 'Settings'), size: 220 }, { id: 'references', header: t('config.references', 'References'), size: 300 }, { id: 'actions', header: t('config.actions', 'Actions'), size: 160 }];
   let draftRuleFilter = $state('');
-  const ruleTable = createSvelteTable<Rule>({ get data() { return rules; }, columns: ruleColumns, getRowId: r => r.role, state: { get globalFilter() { return draftRuleFilter; } }, onGlobalFilterChange: value => { draftRuleFilter = typeof value === 'function' ? value(draftRuleFilter) : value; }, initialState: { sorting: [{ id: 'role', desc: false }] } });
+  const ruleTable = createSvelteTable<Rule>({ get data() { return rules; }, columns: ruleColumns, getRowId: r => r.role, state: { get globalFilter() { return draftRuleFilter; } }, onGlobalFilterChange: value => { draftRuleFilter = typeof value === 'function' ? value(draftRuleFilter) : value; }, globalFilterFn: ruleGlobalFilterFn, initialState: { sorting: [{ id: 'role', desc: false }] } });
   const previewColumns: PortalColumnDef<ApplyPreview['entries'][number]>[] = [{ accessorKey: 'role', header: t('config.role', 'Role / sub-role'), size: 120 }, { accessorKey: 'outcome', header: t('config.outcome', 'Outcome'), size: 140 }];
   let previewFilter = $state('');
-  const previewTable = createSvelteTable<ApplyPreview['entries'][number]>({ get data() { return preview?.entries ?? []; }, columns: previewColumns, state: { get globalFilter() { return previewFilter; } }, onGlobalFilterChange: value => { previewFilter = typeof value === 'function' ? value(previewFilter) : value; } });
+  const previewTable = createSvelteTable<ApplyPreview['entries'][number]>({ get data() { return preview?.entries ?? []; }, columns: previewColumns, state: { get globalFilter() { return previewFilter; } }, onGlobalFilterChange: value => { previewFilter = typeof value === 'function' ? value(previewFilter) : value; }, globalFilterFn: makeGlobalFilterFn<ApplyPreview['entries'][number]>({ outcome: value => outcomeCopy(String(value), !!preview?.dryRun) }) });
   function edit(template: Template | null) {
     editing = template; name = template?.name ?? ''; description = template?.description ?? ''; required = template?.required ?? false;
     rules = (template?.rules ?? []).map(rule => ({ ...rule })); rulesChanged = false; failure = null; notice = ''; chosen = null; preview = null;

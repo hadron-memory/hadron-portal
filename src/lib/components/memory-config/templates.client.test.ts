@@ -110,7 +110,7 @@ describe('template management states', () => {
 
 describe('portal#1761 grid search', () => {
   it('filters template rows and restores them when cleared', () => {
-    const other = { ...template, id: 't2', name: 'other', description: 'Other template' };
+    const other = { ...template, id: 't2', name: 'other', description: 'Other template', required: false };
     const m = mount(false, true, [template, other]);
     expect(m.target.querySelectorAll('tbody tr')).toHaveLength(2);
     const input = search(m.target, 'Search templates…', 'baseline');
@@ -119,11 +119,15 @@ describe('portal#1761 grid search', () => {
     expect(m.target.querySelector('tbody')?.textContent).not.toContain('other');
     input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
     expect(m.target.querySelectorAll('tbody tr')).toHaveLength(2);
+    search(m.target, 'Search templates…', 'Yes');
+    expect(m.target.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(m.target.querySelector('tbody')?.textContent).toContain('baseline');
+    expect(m.target.querySelector('tbody')?.textContent).not.toContain('other');
   });
 
   it('filters draft rule rows and restores them when cleared', () => {
     const review = { role: 'review', enabled: true, strictSubRoles: false, writers: 'ADMIN', validateBy: 'AGENT', authorTask: null, authorTaskState: 'NONE', validationTask: null, validationTaskState: 'NONE', descriptionNode: null, descriptionNodeState: 'NONE' } as Rule;
-    const publish = { ...review, role: 'publish' };
+    const publish: Rule = { ...review, role: 'publish', enabled: false, writers: 'OWNER' };
     const m = mount(false, true, [{ ...template, rules: [review, publish] }]);
     button(m.target, 'Edit').click(); flushSync();
     const form = m.target.querySelector<HTMLElement>('[aria-label="Template editor"]')!;
@@ -134,10 +138,14 @@ describe('portal#1761 grid search', () => {
     expect(form.querySelector('tbody')?.textContent).not.toContain('publish');
     input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
     expect(form.querySelectorAll('tbody tr')).toHaveLength(2);
+    search(form, 'Search rules…', 'OWNER');
+    expect(form.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(form.querySelector('tbody')?.textContent).toContain('publish');
+    expect(form.querySelector('tbody')?.textContent).not.toContain('review');
   });
 
   it('filters preview rows and restores them when cleared', async () => {
-    const preview = { memoryId: 'm1', templateRevision: 9, required: false, dryRun: true, entries: [{ role: 'review', outcome: 'APPLIED' }, { role: 'publish', outcome: 'APPLIED' }], warnings: [] };
+    const preview = { memoryId: 'm1', templateRevision: 9, required: false, dryRun: true, entries: [{ role: 'review', outcome: 'APPLIED' }, { role: 'publish', outcome: 'SKIPPED_CONFLICT' }], warnings: [] };
     fetcher.mockResolvedValueOnce({ ok: true, json: async () => ({ value: preview }) });
     const m = mount(); button(m.target, 'Apply to a memory…').click(); flushSync();
     button(m.target, 'Choose memory…').click(); flushSync();
@@ -153,5 +161,9 @@ describe('portal#1761 grid search', () => {
     expect(panel.querySelector('tbody')?.textContent).not.toContain('publish');
     input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
     expect(panel.querySelectorAll('tbody tr')).toHaveLength(2);
+    input.value = 'Will be added'; input.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
+    expect(panel.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(panel.querySelector('tbody')?.textContent).toContain('review');
+    expect(panel.querySelector('tbody')?.textContent).not.toContain('publish');
   });
 });

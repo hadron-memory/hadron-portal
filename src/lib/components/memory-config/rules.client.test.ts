@@ -118,7 +118,7 @@ describe('rendered memory rule management', () => {
 
 describe('portal#1761 grid search', () => {
   it('filters rulebook rows and restores them when cleared', () => {
-    const m = mount({ rules: [rule, { ...rule, id: 'r2', role: 'publish' }] });
+    const m = mount({ rules: [{ ...rule, authorTask: 'hrn:node:acme.com:private:secret-reference' }, { ...rule, id: 'r2', role: 'publish', enabled: false, writers: 'ADMIN', authorTask: null, authorTaskState: 'NONE' }] });
     expect(m.target.querySelectorAll('tbody tr')).toHaveLength(2);
     search(m.target, 'review');
     expect(m.target.querySelectorAll('tbody tr')).toHaveLength(1);
@@ -126,5 +126,15 @@ describe('portal#1761 grid search', () => {
     expect(m.target.querySelector('tbody')?.textContent).not.toContain('publish');
     search(m.target, '');
     expect(m.target.querySelectorAll('tbody tr')).toHaveLength(2);
+    search(m.target, 'ADMIN');
+    expect(m.target.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(m.target.querySelector('tbody')?.textContent).toContain('publish');
+    expect(m.target.querySelector('tbody')?.textContent).not.toContain('review');
+    search(m.target, 'UNREADABLE');
+    expect(m.target.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(m.target.querySelector('tbody')?.textContent).toContain('review');
+    expect(m.target.querySelector('tbody')?.textContent).not.toContain('publish');
+    search(m.target, 'secret-reference');
+    expect(m.target.querySelectorAll('tbody tr')).toHaveLength(0);
   });
 });

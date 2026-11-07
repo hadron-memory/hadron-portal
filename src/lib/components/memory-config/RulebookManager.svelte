@@ -4,6 +4,7 @@
   import { t } from '$lib/i18n/t';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { ruleGlobalFilterFn } from '$lib/memory-config/rule-search';
   import type { PortalColumnDef } from '$lib/table/features';
   import RuleReference from './RuleReference.svelte';
   import RuleEditor from './RuleEditor.svelte';
@@ -45,7 +46,7 @@
     { id: 'actions', header: t('config.actions', 'Actions'), size: 220 },
   ];
   let ruleFilter = $state('');
-  const table = createSvelteTable<Rule>({ get data() { return book?.rules ?? []; }, columns, getRowId: r => r.id ?? r.role, state: { get globalFilter() { return ruleFilter; } }, onGlobalFilterChange: value => { ruleFilter = typeof value === 'function' ? value(ruleFilter) : value; }, initialState: { sorting: [{ id: 'role', desc: false }] } });
+  const table = createSvelteTable<Rule>({ get data() { return book?.rules ?? []; }, columns, getRowId: r => r.id ?? r.role, state: { get globalFilter() { return ruleFilter; } }, onGlobalFilterChange: value => { ruleFilter = typeof value === 'function' ? value(ruleFilter) : value; }, globalFilterFn: ruleGlobalFilterFn, initialState: { sorting: [{ id: 'role', desc: false }] } });
   async function reload(owner: Owner): Promise<ReadResult> {
     if (!owner.current()) return { kind: 'stale' };
     // Only an issued read supersedes an earlier read. A refused mutation has
