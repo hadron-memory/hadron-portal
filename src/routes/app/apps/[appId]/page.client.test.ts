@@ -1464,7 +1464,7 @@ describe('Client tab: a refused key mint (#1068)', () => {
     const target = await mountClient(async () =>
       new Response(JSON.stringify({ error: MANAGERS_ONLY }), { status: 403, headers: { 'Content-Type': 'application/json' } }));
     downloadButton(target).click();
-    await vi.waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
+    await vi.waitFor(() => expect(target.textContent).toContain(MANAGERS_ONLY));
     expect(alertSpy).not.toHaveBeenCalled();
     const alertEl = [...target.querySelectorAll('[role="alert"]')].find((el) => el.textContent?.includes(MANAGERS_ONLY));
     expect(alertEl).toBeTruthy();
@@ -1475,7 +1475,7 @@ describe('Client tab: a refused key mint (#1068)', () => {
     vi.spyOn(window, 'alert').mockImplementation(() => {});
     const target = await mountClient(async () => new Response('gateway', { status: 502 }));
     downloadButton(target).click();
-    await vi.waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
+    await vi.waitFor(() => expect(target.textContent).toContain('Failed to create client key.'));
     const alertEl = [...target.querySelectorAll('[role="alert"]')].find((el) => el.textContent?.includes('Failed to create client key.'));
     expect(alertEl).toBeTruthy();
   });
@@ -1919,7 +1919,7 @@ describe('App memory scope inventory (#1043)', () => {
     expect(m.target.textContent).toContain('Agent link');
   });
   it('renders failed scope as an error, never as an empty inventory', async () => {
-    const m=await showSettings(null);expect(m.target.querySelector('[role="alert"]')?.textContent).toContain('Could not load');expect(m.target.textContent).not.toContain('No accessible memories');
+    const m=await showSettings(null);expect([...m.target.querySelectorAll('[role="alert"]')].some(el => el.textContent?.includes('Could not load'))).toBe(true);expect(m.target.textContent).not.toContain('No accessible memories');
   });
   it('renders successful empty scope distinctly', async () => {
     const m=await showSettings([]);expect(m.target.textContent).toContain('No accessible memories');expect(m.target.textContent).not.toContain('OLD FIRST ONLY');
@@ -2302,6 +2302,7 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     expect(m.target.textContent).toContain(outcome === 'success' ? 'Worker cast.' : 'Name already taken.');
     expect(region).not.toBeNull();
     expect(m.target.contains(region)).toBe(true);
+    expect(region!.getAttribute('role')).toBe(outcome === 'success' ? 'status' : 'alert');
     expect(region!.textContent).toContain(outcome === 'success' ? 'Worker cast.' : 'Name already taken.');
     expect([...m.target.querySelectorAll('[role="status"], [role="alert"]')].filter(el => el.textContent?.includes(outcome === 'success' ? 'Worker cast.' : 'Name already taken.'))).toHaveLength(1);
   });
@@ -3117,7 +3118,7 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
     await again.finish(await confirmed(next) as never);
     await tick(4);
     const status = [...m.target.querySelectorAll('[role="status"]')].find((x) => x.textContent?.includes(LINKED))!;
-    expect(status.className.split(' ')).toEqual(expect.arrayContaining(['bg-green-50', 'text-green-700', 'dark:bg-green-950', 'dark:text-green-300']));
+    expect(status.firstElementChild!.className.split(' ')).toEqual(expect.arrayContaining(['bg-green-50', 'text-green-700', 'dark:bg-green-950', 'dark:text-green-300']));
   });
 
   it('the stale-list notice leaves with the App', async () => {
@@ -3335,6 +3336,7 @@ describe('Link and Unlink answers belong to their App visit (#1776)', () => {
     const region = m.target.querySelector('[data-testid="app-success-status"]');
     expect(region).not.toBeNull();
     expect(region!.textContent?.trim()).toBe('');
+    expect(region!.getAttribute('role')).toBe('status');
     const a = await begin(m.target, 'link');
     await a.delayed.finish(await answer('link', 'success', a.id, 'A') as never);
     await tick(3);
