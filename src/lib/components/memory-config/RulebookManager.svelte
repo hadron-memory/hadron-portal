@@ -44,7 +44,8 @@
     { id: 'references', header: t('config.references', 'References'), size: 340 },
     { id: 'actions', header: t('config.actions', 'Actions'), size: 220 },
   ];
-  const table = createSvelteTable<Rule>({ get data() { return book?.rules ?? []; }, columns, getRowId: r => r.id ?? r.role, initialState: { sorting: [{ id: 'role', desc: false }] } });
+  let ruleFilter = $state('');
+  const table = createSvelteTable<Rule>({ get data() { return book?.rules ?? []; }, columns, getRowId: r => r.id ?? r.role, state: { get globalFilter() { return ruleFilter; } }, onGlobalFilterChange: value => { ruleFilter = typeof value === 'function' ? value(ruleFilter) : value; }, initialState: { sorting: [{ id: 'role', desc: false }] } });
   async function reload(owner: Owner): Promise<ReadResult> {
     if (!owner.current()) return { kind: 'stale' };
     // Only an issued read supersedes an earlier read. A refused mutation has
@@ -116,7 +117,7 @@
     {:else}<button type="button" onclick={() => edit(null)} class="min-h-11 rounded bg-indigo-600 px-4 text-white">{t('config.create-rule', 'Create rule')}</button>{/if}
     {#if notice}<p role="status" class="text-green-700 dark:text-green-300">{notice}</p>{/if}
     {#if failure}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p><button type="button" onclick={reloadFailure} class="min-h-11 rounded border px-3">{t('config.reload', 'Reload')}</button>{/if}
-    <DataTable {table} listKey="memory-node-role-rules" searchPlaceholder={t('config.search-rules', 'Search rules…')} searchAriaLabel={t('config.search-rules', 'Search rules…')}>
+    <DataTable {table} listKey="memory-node-role-rules" bind:globalFilter={ruleFilter} searchPlaceholder={t('config.search-rules', 'Search rules…')} searchAriaLabel={t('config.search-rules', 'Search rules…')}>
       {#snippet cell(cell, r)}
         {#if cell.column.id === 'role'}<span class="font-mono">{r.role}</span>
         {:else if cell.column.id === 'settings'}
