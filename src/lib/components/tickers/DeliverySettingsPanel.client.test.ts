@@ -61,7 +61,8 @@ describe('DeliverySettingsPanel', () => {
       expect(root.querySelector('input[name="standbyEnabled"]')).toBeNull();
       expect(root.querySelector('[data-testid="delivery-standby"]')).toBeNull();
       expect(root.textContent).not.toMatch(/standby/i);
-      expect(root.textContent).toContain('120');
+      // The panel still renders the stored values (an input in the form, text in the support-session view).
+      expect(root.querySelector<HTMLInputElement>('input[name="batchWindowSeconds"]')?.value ?? root.textContent).toContain('120');
     }
   });
 

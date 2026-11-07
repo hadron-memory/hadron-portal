@@ -134,16 +134,13 @@ export type TickerRosterRead =
 
 /**
  * portal#1141 slice A — the App's delivery settings (hadron-server S9,
- * `appDeliverySettings`). `standbyEnabled` is the stored switch and
- * `standbyEffective` is the server's word on whether it does anything; the
- * portal shows both as read and never sends the switch.
+ * `appDeliverySettings`). Standby is retired (server#3606, portal#1759): its
+ * deprecated fields are not selected.
  */
 export interface AppDeliverySettings {
   batchWindowSeconds: number;
   busyDelaySeconds: number;
   stuckWindowSeconds: number;
-  standbyEnabled: boolean;
-  standbyEffective: boolean;
 }
 
 /**
