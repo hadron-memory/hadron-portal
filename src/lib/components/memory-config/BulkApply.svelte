@@ -37,7 +37,7 @@
     const warnings = (result?.warnings ?? []).map(w => `${w.role} ${w.field ?? ''} ${w.code}`);
     return [earlier, ...entries, ...warnings].join(' ');
   }
-  const columns: PortalColumnDef<Row>[] = [{ id: 'memory', accessorFn: row => row.memory.name, header: t('config.bulk.memory-outcome', 'Memory and outcome'), size: 280, enableHiding: false }];
+  const columns: PortalColumnDef<Row>[] = [{ id: 'memory', accessorFn: row => row.memory.name, header: t('config.bulk.memory-outcome', 'Memory and outcome'), size: 200, enableHiding: false }];
   let search = $state('');
   const table = createSvelteTable<Row>({ get data() { return rows; }, columns, getRowId: row => row.memory.id, state: { get globalFilter() { return search; } }, onGlobalFilterChange: value => { search = typeof value === 'function' ? value(search) : value; }, globalFilterFn: makeGlobalFilterFn<Row>({}, { memory: row => `${row.memory.urn} ${rowText(row)}` }), initialState: { pagination: { pageIndex: 0, pageSize: BULK_CAP } } });
   function changed() { report = null; mustPreview = false; refusal = ''; previewFailed = false; }
@@ -133,7 +133,7 @@
     </div>
   </div>
   {#if rows.length}
-    <DataTable {table} listKey="node-role-template-bulk-apply" bind:globalFilter={search} maxHeight="max(240px, calc(100vh - 16rem))" searchPlaceholder={t('config.bulk.search', 'Search memories…')} searchAriaLabel={t('config.bulk.search', 'Search memories…')}>
+    <DataTable {table} listKey="node-role-template-bulk-apply" bind:globalFilter={search} maxHeight="max(240px, calc(100vh - 16rem))" fitOnPhone searchPlaceholder={t('config.bulk.search', 'Search memories…')} searchAriaLabel={t('config.bulk.search', 'Search memories…')}>
       {#snippet cell(_cell, row)}
         <div class="flex min-w-0 flex-col gap-2 whitespace-normal sm:flex-row sm:justify-between sm:gap-4">
           <div class="min-w-0 sm:w-1/2">

@@ -39,6 +39,7 @@
     initialColumnsOnly = false,
     sortButtons = false,
     maxHeight = 'max(200px, calc(100vh - 23rem))',
+    fitOnPhone = false,
     rowClass,
     rowAttrs,
     cell,
@@ -60,6 +61,8 @@
     /** Scroll-container max-height. The rem offset is tuned per page to
      *  its chrome height; keep the 200px floor (short-viewport guard). */
     maxHeight?: string;
+    /** Fit a SINGLE-column table and its header to the scroller on phones; desktop saved widths stay live. */
+    fitOnPhone?: boolean;
     /** Extra classes for a body row (e.g. dim revoked rows). */
     rowClass?: (item: T) => string;
     /** Extra attributes for a body row (e.g. data-testid hooks). */
@@ -70,6 +73,17 @@
   } = $props();
 
   const active = $derived(globalFilter.trim() !== '');
+
+  let phone = $state(false);
+  $effect(() => {
+    if (!fitOnPhone || typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia('(max-width: 639px)');
+    const follow = (event: MediaQueryListEvent) => { phone = event.matches; };
+    phone = query.matches;
+    query.addEventListener('change', follow);
+    return () => query.removeEventListener('change', follow);
+  });
+  const responsiveWidth = $derived(fitOnPhone && phone ? '100%' : `max(100%, ${table.getCenterTotalSize()}px)`);
 
   const pageSize = $derived(table.atoms.pagination.get().pageSize);
   const pageIndex = $derived(table.atoms.pagination.get().pageIndex);
@@ -109,14 +123,14 @@
      scroll and the pagination footer below stays visible. The `<thead>`
      is sticky so column headers remain while the body scrolls. -->
 <div class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: {maxHeight};">
-  <table class="text-sm" style="table-layout: fixed; width: max(100%, {table.getCenterTotalSize()}px);">
+  <table class="text-sm" style="table-layout: fixed; width: {responsiveWidth};">
     <thead>
       {#each table.getHeaderGroups() as headerGroup (headerGroup.id)}
         <tr class="text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
           {#each headerGroup.headers as header (header.id)}
             <th
               class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''}"
-              style="width: {header.getSize()}px;"
+              style="width: {fitOnPhone && phone ? '100%' : `${header.getSize()}px`};"
               tabindex={!sortButtons && header.column.getCanSort() ? 0 : undefined}
               aria-sort={header.column.getIsSorted() === 'asc' ? 'ascending' : header.column.getIsSorted() === 'desc' ? 'descending' : undefined}
               onclick={sortButtons ? undefined : header.column.getToggleSortingHandler()}
