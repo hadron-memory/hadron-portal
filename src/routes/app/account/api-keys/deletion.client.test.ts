@@ -10,7 +10,7 @@ import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { submitEnhanced, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
-import { stubKeyList } from '$lib/test/stubs/key-list-fetch';
+import { stubKeyList, type Answer } from '$lib/test/stubs/key-list-fetch';
 import Page from './+page.svelte';
 import { createUserApiKeySchema, revokeUserApiKeySchema } from './schema';
 
@@ -366,6 +366,7 @@ describe('#1653 QA P2: a confirmed delete re-reads the list itself, never throug
     const d = await submitEnhancedDeferred(deleteForm()!); flushSync(); await tick(1);
     await d.finish(success('API key deleted.')); await tick(4);
     expect(list.calls).toEqual(['/app/account/api-keys/list?includeHidden=true']);
+    expect(list.inits).toEqual([{ headers: { accept: 'application/json' }, cache: 'no-store' }]);
     expect(invalidations()).toHaveLength(0);
     expect(rowIds(root)).toEqual(['revoked', 'hidden']);
     expect(status(root).textContent).toBe('API key deleted.');
@@ -378,18 +379,20 @@ describe('#1653 QA P2: a confirmed delete re-reads the list itself, never throug
     const d = await submitEnhancedDeferred(deleteForm()!); flushSync(); await tick(1);
     await d.finish(success('API key deleted.')); await tick(4);
     expect(list.calls).toEqual(['/app/account/api-keys/list']);
+    expect(list.inits).toEqual([{ headers: { accept: 'application/json' }, cache: 'no-store' }]);
     expect(rowIds(root)).toEqual(['revoked']);
   });
 
-  it.each([
+  const failureAnswers: [string, Answer][] = [
     ['a network failure', { reject: new TypeError('Failed to fetch') }],
     ['an HTTP 500', { status: 500 }],
     ['an HTTP 401', { status: 401 }],
-    ['a failed read', { failed: true as const }],
+    ['a failed read', { failed: true }],
     ['a malformed payload', { body: { keys: 'nope' } }],
     ['a malformed key', { body: { keys: [{ id: 7 }] } }],
-  ] as const)('%s keeps the page, the confirmed deletion and one Reload, in the attention tone', async (_, answer) => {
-    const list = stubKeyList(answer as never);
+  ];
+  it.each(failureAnswers)('%s keeps the page, the confirmed deletion and one Reload, in the attention tone', async (_, answer) => {
+    const list = stubKeyList(answer);
     const { root } = await mount();
     await openDelete(root, 'live');
     const update = vi.fn().mockResolvedValue(undefined);
@@ -456,5 +459,24 @@ describe('#1653 QA P2: a confirmed delete re-reads the list itself, never throug
     expect(list.calls).toHaveLength(0);
     expect(invalidations()).toHaveLength(1);
     expect(fresh.root.textContent).not.toContain('DESTROYED PAGE RESULT');
+  });
+
+  it('the key-list fetch stub refuses an unrelated endpoint', async () => {
+    stubKeyList({ keys: [] });
+    await expect(fetch('/app/account/api-keys/not-the-list')).rejects.toThrow('unexpected fetch: /app/account/api-keys/not-the-list');
+  });
+
+  it('the key-list fetch stub accepts Request objects and absolute URLs', async () => {
+    const list = stubKeyList({ keys: [] });
+    await fetch(new Request('http://localhost/app/account/api-keys/list'));
+    await fetch(new URL('http://localhost/app/account/api-keys/list'));
+    expect(list.calls).toEqual(['/app/account/api-keys/list', '/app/account/api-keys/list']);
+  });
+
+  it.each([204, 205, 304])('the key-list fetch stub supports null-body HTTP %i answers', async (status) => {
+    stubKeyList({ status });
+    const response = await fetch('/app/account/api-keys/list');
+    expect(response.status).toBe(status);
+    expect(await response.text()).toBe('');
   });
 });
