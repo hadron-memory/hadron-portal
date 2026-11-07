@@ -2307,6 +2307,40 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     expect([...m.target.querySelectorAll('[role="status"], [role="alert"]')].filter(el => el.textContent?.includes(outcome === 'success' ? 'Worker cast.' : 'Name already taken.'))).toHaveLength(1);
   });
 
+  it.each([
+    ['above', -80, -20, false, true],
+    ['below', 800, 860, false, true],
+    ['reduced motion', -80, -20, true, true],
+    ['visible', 10, 70, false, false],
+  ] as const)('#1777 refusal reveal: %s, without moving focus', async (_case, top, bottom, reduced, shouldScroll) => {
+    const { m, form } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    const region = m.target.querySelector<HTMLElement>('[data-testid="cast-answer-alert"]')!;
+    const scroll = vi.fn();
+    region.scrollIntoView = scroll;
+    vi.spyOn(region, 'getBoundingClientRect').mockReturnValue({ top, bottom } as DOMRect);
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: reduced })));
+    const input = form().querySelector<HTMLInputElement>('[name="name"]')!;
+    input.focus();
+    const refused = async () => {
+      const f = (await success(idOf(form()))).data.form;
+      f.valid = false;
+      f.message = { type: 'error', text: 'Name already taken.' };
+      const pending = await submitEnhancedDeferred(form());
+      await pending.finish({ type: 'failure', status: 400, data: { form: f } });
+      await tick(3);
+    };
+    await refused();
+    expect(region.textContent).toContain('Name already taken.');
+    if (shouldScroll) expect(scroll).toHaveBeenCalledWith({ block: 'nearest', behavior: reduced ? 'instant' : 'smooth' });
+    else expect(scroll).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(input);
+    scroll.mockClear();
+    await refused();
+    // An identical refusal from another current submission still needs revealing.
+    expect(scroll).toHaveBeenCalledTimes(shouldScroll ? 1 : 0);
+  });
+
   it('a No team choice made for App A is not carried to App B', async () => {
     const { m, props, open, form } = await openCast();
     await fill(form(), 'agent-a', 'Iris');
