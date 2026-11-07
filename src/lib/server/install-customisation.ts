@@ -184,7 +184,7 @@ export async function writeCustomisation(
     return fail(
       code === 'FORBIDDEN'
         ? 403
-        : code === 'NODE_WRITE_CONFLICT'
+        : code === 'NODE_WRITE_CONFLICT' || code === 'AGENT_ORG_GRANT_REQUIRED'
           ? 409
           : known
             ? 400
