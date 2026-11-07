@@ -33,13 +33,13 @@
     if (unknown && !row.earlier) return `${t('config.bulk.row-unknown', 'Not known')} ${t('config.bulk.current-rules', 'Current rules')}`;
     if (!row.entry) return '';
     const earlier = row.earlier ? t('config.bulk.earlier', 'From the earlier apply, not sent again') : '';
-    if (row.entry.error) return `${rowErrorCopy(row.entry.error)} ${earlier}`;
+    if (row.entry.error) return [earlier, rowErrorCopy(row.entry.error)].filter(Boolean).join(' ');
     const result = row.entry.result;
     const entries = result?.entries ?? [];
     const entryText = entries.map(e => `${e.role}: ${outcomeCopy(e.outcome, !!result?.dryRun)}`);
     const warnings = (result?.warnings ?? []).map(warningSearchText);
     const noRules = result && !entries.length ? t('config.bulk.no-rules', 'This template has no rules.') : '';
-    return [earlier, noRules, ...entryText, ...warnings].join(' ');
+    return [earlier, noRules, ...entryText, ...warnings].filter(Boolean).join(' ');
   }
   const columns: PortalColumnDef<Row>[] = [{ id: 'memory', accessorFn: row => row.memory.name, header: t('config.bulk.memory-outcome', 'Memory and outcome'), size: 280, enableHiding: false }];
   let search = $state('');

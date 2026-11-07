@@ -376,6 +376,25 @@ describe('search', () => {
     expect(await search(panel, 'Current rules')).toBe(1);
     expect(await search(panel, 'earlier apply')).toBe(1);
   });
+
+  async function panelWithEarlierRows() {
+    const m = mount(); const panel = await applied(m.target, [0, 1, 2]);
+    await apply(panel, answer([ok(0, { dryRun: false }), bad(1, 'CONFLICT'), bad(2, 'DUPLICATE_TARGET')], false), 'Apply finished');
+    fetcher.mockResolvedValueOnce(answer([{ ...ok(0), memoryRef: 'm1' }]));
+    button(panel, 'Retry failed')!.click();
+    await settle(() => expect(panel.textContent).toContain('Preview: nothing has been changed'));
+    return panel;
+  }
+
+  it('matches the normally spaced sequence across an earlier marker and a nonempty outcome', async () => {
+    const panel = await panelWithEarlierRows();
+    expect(await search(panel, 'From the earlier apply, not sent again review: Added')).toBe(1);
+  });
+
+  it('matches an earlier error and its marker in the cell’s reading order', async () => {
+    const panel = await panelWithEarlierRows();
+    expect(await search(panel, 'From the earlier apply, not sent again Already in the list. The earlier row took this memory.')).toBe(1);
+  });
 });
 
 describe('retry failed', () => {
