@@ -138,6 +138,7 @@ describe('customisation refusal and revision safety', () => {
     'NodeLocConflictError',
     'FORBIDDEN',
     'APP_UNINSTALLED',
+    'AGENT_ORG_GRANT_REQUIRED',
     'UNKNOWN_REFUSAL',
   ])(
     'preserves the own server text for %s without exposing request credentials',
@@ -315,7 +316,10 @@ describe('fixed refusal lead per mapped code (#1368)', () => {
       'Another edit was saved. Your draft is kept; reload to start from the current version.',
     FORBIDDEN: 'This change was refused. Your draft is kept.',
     URN_NOT_QUALIFIED: 'Use a bare loc for this customisation.',
+    AGENT_ORG_GRANT_REQUIRED:
+      'This App’s organization needs an active grant to customise this Agent. Your draft is kept.',
   };
+  const conflicts = new Set(['NODE_WRITE_CONFLICT', 'AGENT_ORG_GRANT_REQUIRED']);
   const refuse = async (code: string) => {
     const error = Object.assign(new Error('request credential=secret'), {
       response: {
@@ -341,7 +345,42 @@ describe('fixed refusal lead per mapped code (#1368)', () => {
       code,
       detail: `${lead} Own server prose <b>verbatim</b>`,
     });
-    expect(r.status).toBe(code === 'FORBIDDEN' ? 403 : code === 'NODE_WRITE_CONFLICT' ? 409 : 400);
+    expect(r.status).toBe(code === 'FORBIDDEN' ? 403 : conflicts.has(code) ? 409 : 400);
+    expect(JSON.stringify(r)).not.toContain('secret');
+  });
+  // #1785: update reach is Proposed in hrn:mem:hadronmemory.com:specs until
+  // hadron-server#3628 ships, so this refusal is a mock of what it will send.
+  it('leads an update refused for a missing grant the same way as a create', async () => {
+    const code = 'AGENT_ORG_GRANT_REQUIRED';
+    const error = Object.assign(new Error('request credential=secret'), {
+      response: {
+        errors: [{ message: 'Own server prose <b>verbatim</b>', extensions: { code } }],
+      },
+    });
+    const fd = new FormData();
+    for (const [k, v] of Object.entries({
+      agentRef: 'agent-a',
+      loc: 'x',
+      content: 'new',
+      baseContent: 'old',
+      expectedRevision: '7',
+    }))
+      fd.set(k, v);
+    const c = client([
+      { installMemory: { id: 'i' } },
+      { node: { role: null, isRunnable: false, revision: 7 } },
+      error,
+    ]);
+    const r = (await writeCustomisation(c as never, 'app-a', fd, false)) as {
+      status: number;
+      data: { customisationFailed: { code: string; detail: string } };
+    };
+    expect(r.status).toBe(409);
+    expect(r.data.customisationFailed).toEqual({
+      code,
+      detail: `${leads[code]} Own server prose <b>verbatim</b>`,
+    });
+    expect(c.request).toHaveBeenCalledTimes(3);
     expect(JSON.stringify(r)).not.toContain('secret');
   });
   it('adds no lead for an unmapped code', async () => {
