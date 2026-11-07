@@ -6,8 +6,8 @@ const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, plug
 const shots = process.env.MEMORY_CONFIG_SHOTS;
 const row = (i, dryRun, outcome) => ({ index: i, memoryRef: `m${i}`, ok: true, error: null, result: { memoryId: `m${i}`, templateRevision: 3, required: true, dryRun, entries: [{ role: 'review', outcome }, { role: 'author', outcome: 'SKIPPED_LOCKED' }], warnings: [] } });
 const bad = (i, code, message, extra = {}) => ({ index: i, memoryRef: `m${i}`, ok: false, result: null, error: { code, message, currentRevision: null, requestId: null, ...extra } });
-const previewRows = [row(0, true, 'APPLIED'), row(1, true, 'REPLACED'), row(2, true, 'APPLIED'), row(3, true, 'APPLIED'), bad(4, 'MEMORY_NOT_FOUND', 'Memory not found.'), row(5, true, 'APPLIED')];
-const applyRows = [row(0, false, 'APPLIED'), row(1, false, 'REPLACED'), bad(2, 'CONFLICT', 'Template changed.', { currentRevision: 4 }), bad(3, 'CONFLICT', 'Retry.'), bad(4, 'MEMORY_NOT_FOUND', 'Memory not found.'), bad(5, 'INTERNAL_SERVER_ERROR', 'Internal error.', { requestId: '6f1b4c3e-8a2d-4e5f-9b0c-1d2e3f4a5b6c' })];
+const previewRows = [row(0, true, 'APPLIED'), row(1, true, 'REPLACED'), row(2, true, 'APPLIED'), row(3, true, 'APPLIED'), bad(4, 'MEMORY_NOT_FOUND', 'Memory not found.'), row(5, true, 'SKIPPED_LOCKED')];
+const applyRows = [row(0, false, 'APPLIED'), row(1, false, 'SKIPPED_LOCKED'), bad(2, 'CONFLICT', 'Template changed.', { currentRevision: 4 }), bad(3, 'CONFLICT', 'Retry.'), bad(4, 'MEMORY_NOT_FOUND', 'Memory not found.'), bad(5, 'INTERNAL_SERVER_ERROR', 'Internal error.', { requestId: '6f1b4c3e-8a2d-4e5f-9b0c-1d2e3f4a5b6c' })];
 const result = (rows, dryRun) => ({ value: { dryRun, results: rows, succeeded: rows.filter(r => r.ok).length, failed: rows.filter(r => !r.ok).length } });
 let browser;
 try {
@@ -54,10 +54,10 @@ try {
    await noOverflow('fifty chosen');
    const previewButton = panel.getByRole('button', { name: 'Preview', exact: true });
    await previewButton.scrollIntoViewIfNeeded(); await inViewport(previewButton, 'Preview at the cap'); await previewButton.click();
-   await panel.getByText('50 can take the template, 0 can’t').waitFor();
+   await panel.getByText('50 will change, 0 will be skipped, 0 can’t be applied').waitFor();
    const applyButton = panel.getByRole('button', { name: 'Apply and lock rules', exact: true });
    await applyButton.scrollIntoViewIfNeeded(); await inViewport(applyButton, 'Apply at the cap'); await applyButton.click();
-   await panel.getByText('50 succeeded, 0 failed').waitFor();
+   await panel.getByText('50 changed, 0 changed nothing, 0 failed').waitFor();
    assert.equal(bodies.at(-1).memoryRefs.length, 50, `${label}: fifty refs sent`);
    await noOverflow('fifty applied');
    console.log(`${label} PASS: fifty chosen, a 51st refused, fifty previewed and applied, controls reachable`);
@@ -78,13 +78,13 @@ try {
   await inViewport(panel.getByRole('button', { name: 'Remove Fixture memory 0', exact: true }), 'Remove');
   await noOverflow('selection');
   await panel.getByRole('button', { name: 'Preview', exact: true }).click();
-  await panel.getByText('5 can take the template, 1 can’t').waitFor();
+  await panel.getByText('4 will change, 1 will be skipped, 1 can’t be applied').waitFor();
   for (const name of ['Create template', 'Edit', 'Delete', 'Apply to a memory…', 'Apply to several memories…']) await dimmed(name);
   await noOverflow('preview');
   await inViewport(panel.getByText('Will be replaced').first().or(panel.getByText('review: Will be replaced')).first(), 'row outcome');
   await shot('preview');
   await panel.getByRole('button', { name: 'Apply and lock rules', exact: true }).click();
-  await panel.getByText('2 succeeded, 4 failed').waitFor();
+  await panel.getByText('1 changed, 1 changed nothing, 4 failed').waitFor();
   await noOverflow('report');
   await inViewport(panel.getByText(/Request ID:/), 'request id');
   await shot('report');
