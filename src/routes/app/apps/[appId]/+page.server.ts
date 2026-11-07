@@ -1129,7 +1129,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to update app') },
+        { type: 'error', text: extractGqlError(e, 'Failed to update app', [], { transport: 'fallback' }) },
         { status: 500 },
       );
     }
@@ -1165,7 +1165,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return message(
         form,
-        { type: 'error', text: lookupOwn(ADD_AGENT_ERRORS, gqlErrorCode(e))?.() ?? extractGqlError(e, 'Failed to add agent') },
+        { type: 'error', text: lookupOwn(ADD_AGENT_ERRORS, gqlErrorCode(e))?.() ?? extractGqlError(e, 'Failed to add agent', [], { transport: 'fallback' }) },
         { status: 500 },
       );
     }
@@ -1187,7 +1187,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to remove agent') },
+        { type: 'error', text: extractGqlError(e, 'Failed to remove agent', [], { transport: 'fallback' }) },
         { status: 500 },
       );
     }
@@ -1249,10 +1249,9 @@ export const actions: Actions = {
         text: t('app.staff.cast.success', 'Worker cast.'),
       });
     } catch (e: unknown) {
-      // Known refusals get copy that says what to do next; anything else —
-      // including a transport failure with no GraphQL payload — falls through
-      // to the server's own message rather than being relabelled as a user
-      // mistake (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
+      // Known refusals keep actionable copy. Other GraphQL faults retain the
+      // shared envelope; transport failures use this action's fallback, not
+      // raw exception text (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
       // #835 — `lookupOwn`: the key is the server's `extensions.code`, so an
       // inherited one returns a callable that `known()` below would invoke,
       // putting `{}` into a user-facing error slot instead of the server's own
@@ -1262,7 +1261,7 @@ export const actions: Actions = {
         form,
         {
           type: 'error',
-          text: known ? known() : extractGqlError(e, t('app.staff.cast.error', 'Failed to cast the worker.')),
+          text: known ? known() : extractGqlError(e, t('app.staff.cast.error', 'Failed to cast the worker.'), [], { transport: 'fallback' }),
         },
         { status: 500 },
       );
@@ -1317,7 +1316,7 @@ export const actions: Actions = {
           type: 'error',
           text: known
             ? known()
-            : extractGqlError(e, t('app.team-chat.post.error', 'Failed to post to the team chat.')),
+            : extractGqlError(e, t('app.team-chat.post.error', 'Failed to post to the team chat.'), [], { transport: 'fallback' }),
         },
         { status: 500 },
       );
@@ -1441,7 +1440,7 @@ export const actions: Actions = {
           type: 'error',
           text: forbidden
             ? STAFFING_FORBIDDEN()
-            : extractGqlError(e, t('app.staff.retire.error', 'Failed to retire the worker.')),
+            : extractGqlError(e, t('app.staff.retire.error', 'Failed to retire the worker.'), [], { transport: 'fallback' }),
         },
         { status: 500 },
       );
@@ -1487,7 +1486,7 @@ export const actions: Actions = {
           type: 'error',
           text: forbidden
             ? RELEASE_FORBIDDEN()
-            : extractGqlError(e, t('app.staff.release.error', 'Failed to release the name.')),
+            : extractGqlError(e, t('app.staff.release.error', 'Failed to release the name.'), [], { transport: 'fallback' }),
         },
         { status: 500 },
       );
@@ -1562,7 +1561,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to delete app') },
+        { type: 'error', text: extractGqlError(e, 'Failed to delete app', [], { transport: 'fallback' }) },
         { status: 500 },
       );
     }
