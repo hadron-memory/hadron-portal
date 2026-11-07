@@ -27,6 +27,7 @@ type Row = {
 };
 
 const ROWS: Row[] = [
+  { route: 'apps/[appId]/runs', mod: () => import('./apps/[appId]/runs/+page.server'), params: { appId: 'app-1' }, status: 308, location: '/app/apps/app-1?tab=runs' },
   { route: 'apps/[appId]/members', mod: () => import('./apps/[appId]/members/+page.server'), params: { appId: 'app-1' }, status: 307, location: '/app/apps/app-1?tab=members' },
   { route: 'dashboard/customize', mod: () => import('./dashboard/customize/+page.server'), params: {}, status: 301, location: '/app/dashboard' },
   { route: 'memories/[id]/browse', mod: () => import('./memories/[id]/browse/+page.server'), params: { id: 'mem-1' }, search: '?focus=n1', status: 308, location: '/app/memories/mem-1/graph?focus=n1' },
@@ -34,7 +35,7 @@ const ROWS: Row[] = [
   { route: 'orgs/[id]/ai-configs', mod: () => import('./orgs/[id]/ai-configs/+page.server'), params: { id: 'org-1' }, status: 308, location: '/app/orgs/org-1/integrations' },
   { route: 'orgs/[id]/apps/[appId]', mod: () => import('./orgs/[id]/apps/[appId]/+page.server'), params: { id: 'org-1', appId: 'app-1' }, status: 303, location: '/app/apps/app-1' },
   { route: 'orgs/[id]/apps/[appId]/members', mod: () => import('./orgs/[id]/apps/[appId]/members/+page.server'), params: { id: 'org-1', appId: 'app-1' }, status: 303, location: '/app/apps/app-1/members' },
-  { route: 'orgs/[id]/apps/[appId]/runs', mod: () => import('./orgs/[id]/apps/[appId]/runs/+page.server'), params: { id: 'org-1', appId: 'app-1' }, status: 303, location: '/app/apps/app-1/runs' },
+  { route: 'orgs/[id]/apps/[appId]/runs', mod: () => import('./orgs/[id]/apps/[appId]/runs/+page.server'), params: { id: 'org-1', appId: 'app-1' }, status: 308, location: '/app/apps/app-1?tab=runs' },
   { route: 'orgs/[id]/apps/[appId]/runs/[runId]', mod: () => import('./orgs/[id]/apps/[appId]/runs/[runId]/+page.server'), params: { id: 'org-1', appId: 'app-1', runId: 'run-1' }, status: 303, location: '/app/apps/app-1/runs/run-1' },
 ];
 

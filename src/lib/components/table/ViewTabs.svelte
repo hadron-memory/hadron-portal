@@ -17,6 +17,7 @@
     table,
     listKey,
     store = localStorageViewStore,
+    initialColumnsOnly = false,
     bordered = true,
     class: klass = '',
   }: {
@@ -25,6 +26,7 @@
     table: PortalTable<T>;
     listKey: string;
     store?: ViewStore;
+    initialColumnsOnly?: boolean;
     /** Draw the bottom rule under the strip. Off when the strip shares a row
      *  with other toolbar controls (e.g. NodeList merges it with Columns). */
     bordered?: boolean;
@@ -32,7 +34,7 @@
     class?: string;
   } = $props();
 
-  const ctrl = untrack(() => createViewController({ table, listKey, store }));
+  const ctrl = untrack(() => createViewController({ table, listKey, store, initialColumnsOnly }));
 
   // Default view first (GitHub puts the default leftmost); sort is stable for the rest.
   const sortedViews = $derived([...ctrl.views].sort((a, b) => Number(b.isDefault) - Number(a.isDefault)));

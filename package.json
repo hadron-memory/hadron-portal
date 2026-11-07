@@ -17,6 +17,7 @@
     "test:apply-agent-tickers-focus": "node scripts/test-apply-agent-tickers-focus.mjs",
     "test:nodes-tab-lazy": "node scripts/test-nodes-tab-lazy.mjs",
     "test:task-integrations-layout": "node scripts/test-task-integrations-layout.mjs",
+    "test:urn-compact-layout": "node scripts/test-urn-compact-layout.mjs",
     "test:tickers-layout": "node scripts/test-tickers-layout.mjs",
     "test:select-node-layout": "node scripts/test-select-node-layout.mjs",
     "test:stacked-memory-layout": "node scripts/test-stacked-memory-layout.mjs",
@@ -29,7 +30,8 @@
     "check:hook-teardown": "node scripts/check-hook-teardown.mjs",
     "test:api-key-chain": "node scripts/test-api-key-chain.mjs",
     "test:relation-focus": "node scripts/test-relation-focus.mjs",
-    "test:invite-copy": "node scripts/test-invite-copy.mjs"
+    "test:invite-copy": "node scripts/test-invite-copy.mjs",
+    "test:app-runs-layout": "node scripts/test-app-runs-layout.mjs"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.5.4",

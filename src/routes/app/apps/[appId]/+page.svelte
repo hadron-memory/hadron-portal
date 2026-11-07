@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AppRunsPanel from './runs/AppRunsPanel.svelte';
   import TaskIntegrations from './TaskIntegrations.svelte';
   import { taskHref } from '$lib/agent-tasks/handle';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
@@ -6,7 +7,7 @@
   import StopBanner from '$lib/components/stops/StopBanner.svelte';
   import { rosterOf } from '$lib/withheld';
   import { env } from '$env/dynamic/public';
-  import { tick, untrack } from 'svelte';
+  import { tick, untrack, onDestroy } from 'svelte';
   import { applyAction } from '$app/forms';
   import { beforeNavigate, goto, afterNavigate, invalidateAll, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -278,7 +279,7 @@
   const installedAgents = $derived(app.agents ?? []);
   const castableAgents = $derived(castableAgentOptions(installedAgents));
   // #1684: how the App installs each agent, as the server states it (see app-install-marks.ts).
-  const installMarks = $derived<InstallMarks>((data as { installMarks?: InstallMarks }).installMarks ?? {});
+  const installMarks = $derived<InstallMarks>(data.installMarks ?? {});
   const castAgentGroups = $derived(castGroups(castableAgents, installMarks));
   // R222: role is a fact, never a cast-time input. Preserve a restored
   // selection's identity even if that Agent no longer has a castable role.
@@ -296,6 +297,11 @@
   // that began in an earlier visit to the same App (A -> B -> A) is as stale as one from B.
   let castGeneration = 0;
   let castAttemptGeneration = -1;
+  // castAttemptGeneration is overwritten by the next submit, so on its own it would pass a pending
+  // answer from A once B has submitted. Superforms gives a hook no request identity, but it does
+  // give onResult the form element, the composer gets a new one for each opening and that element
+  // sends one request at a time (multipleSubmits: 'prevent'), so the element stands for the request.
+  const castRequestGeneration = new WeakMap<HTMLFormElement, number>();
   let castRefreshFailed = $state(false);
 
   // #719 — App Keys as the shared TanStack grid, replacing a hand-rolled
@@ -891,6 +897,7 @@
     ) {
       return 'members';
     }
+    if (submittedForm(result, 'runFlow')) return 'runs';
     if (submittedForm(result, 'createAppMemory')) return 'memory';
     if (submittedForm<DeleteAppForm>(result, 'deleteApp')) {
       return 'settings';
@@ -940,6 +947,7 @@
     // is the problem this tab exists to fix, and an empty worklog is
     // information too.
     { id: 'worklog', label: t('app.tabs.worklog', 'Worklog') },
+    { id: 'runs', label: t('app.tabs.runs', 'Runs') },
     { id: 'memory', label: 'Memory' },
     // #1007/#1008: App Keys and AI Service Configs were sections at the foot of
     // Settings, below the App form, its agents and its memories. Each is a list
@@ -1034,11 +1042,24 @@
   // `tabindex="-1"` button is still POINTER-focusable, so pressing on an
   // unselected tab and dragging away before release diverges focus from
   // selection, and arrows would then move relative to a tab the user is not on.
+  let tabNavigation = 0, tabNavigationPending = false, tabAlive = true;
+  onDestroy(() => { tabAlive = false; tabNavigation++; });
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
-    activeTab = id;
-    await tick();
-    document.getElementById(`tab-${id}`)?.focus();
+    const mine = ++tabNavigation, appId = app.id;
+    try {
+      // A second choice supersedes an in-flight Runs navigation, including
+      // a choice of a normally local tab. Its loader URL must agree as well.
+      if (id === 'runs' || tabNavigationPending) {
+        tabNavigationPending = true;
+        await goto(`/app/apps/${encodeURIComponent(appId)}?tab=${id}`, { keepFocus: true, noScroll: true });
+      }
+      if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
+      activeTab = id;
+      await tick();
+      if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id}`)?.focus();
+    } catch { /* A failed navigation keeps the current tab; the router owns its error. */ }
+    finally { if (mine === tabNavigation) tabNavigationPending = false; }
   }
   function onTabKeydown(e: KeyboardEvent) {
     const order = tabs.map((tt) => tt.id);
@@ -1088,19 +1109,40 @@
     },
   });
 
+  // #1776: reuse the cast/Install per-element fence. A shared latest-attempt
+  // variable would accept A's pending answer once B submits. Each App visit
+  // gets new form elements and ids; the generation also distinguishes A -> B -> A.
+  let agentLinkGeneration = 0;
+  const linkRequestGeneration = new WeakMap<HTMLFormElement, number>();
+  const unlinkRequestGeneration = new WeakMap<HTMLFormElement, number>();
+  const newLinkFormId = () => `linkAgent:${Math.random().toString(36).slice(2, 10)}`;
+  const newUnlinkFormId = () => `unlinkAgent:${Math.random().toString(36).slice(2, 10)}`;
   const initialAddAgentForm = untrack(() => submittedForm<AddAgentForm>(form, 'addAgent') as AddAgentSuperform | null ?? data.addAgentForm);
   const {
     form: addAgentForm,
+    formId: addAgentFormId,
     errors: addAgentErrors,
     message: addAgentMessage,
     submitting: addAgentSubmitting,
     enhance: addAgentEnhance,
   } = superForm<AddAgentForm, App.Superforms.Message, AddAgentForm>(initialAddAgentForm, {
+    id: newLinkFormId(),
     validators: zod4Client(addAgentSchema),
     validationMethod: 'oninput',
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    onSubmit: ({ formElement }) => {
+      linkRequestGeneration.set(formElement, agentLinkGeneration);
+    },
+    // The form consumes success/refusal itself, so Kit cannot apply an old
+    // page.form or reset B's focus after this hook. Only a current redirect
+    // needs Kit; rotating the id also fences an App change during a reload.
+    applyAction: false,
+    onResult: async ({ result, formElement, cancel }) => {
+      if (linkRequestGeneration.get(formElement) !== agentLinkGeneration) cancel();
+      else if (result.type === 'redirect') await applyAction(result);
+    },
   });
 
   // #1684: Install on a derived agent's row. It posts addAgent like the picker
@@ -1109,6 +1151,9 @@
   // form is: the Page is reused across Apps, so the id alone can't place a result.
   let installGeneration = 0;
   let installAttemptGeneration = -1;
+  // Per request, as castRequestGeneration is. This form has no composer to reopen, so the
+  // {#key app.id} around it is what gives each App its own element.
+  const installRequestGeneration = new WeakMap<HTMLFormElement, number>();
   let installRefreshFailed = $state(false);
   const installFormId = `installAgent:${Math.random().toString(36).slice(2, 10)}`;
   const {
@@ -1120,8 +1165,9 @@
     id: installFormId,
     validators: zod4Client(addAgentSchema),
     clearOnSubmit: 'none',
-    onSubmit: () => {
+    onSubmit: ({ formElement }) => {
       installAttemptGeneration = installGeneration;
+      installRequestGeneration.set(formElement, installGeneration);
       installRefreshFailed = false;
     },
     // Superforms awaits between its hooks, and the App can change during any of those
@@ -1129,8 +1175,8 @@
     // no hook left to stop it. Off, the form takes the result itself, onUpdated below
     // drops one that went stale, and only a redirect still needs Kit.
     applyAction: false,
-    onResult: async ({ result, cancel }) => {
-      if (installAttemptGeneration !== installGeneration) cancel();
+    onResult: async ({ result, formElement, cancel }) => {
+      if (installRequestGeneration.get(formElement) !== installGeneration) cancel();
       else if (result.type === 'redirect') await applyAction(result);
     },
     // Superforms' default rethrows, leaving the row's Actions disabled. The request
@@ -1193,16 +1239,45 @@
   const initialRemoveAgentForm = untrack(() => submittedForm<RemoveAppAgentForm>(form, 'removeAgent') as RemoveAppAgentSuperform | null ?? data.removeAgentForm);
   const {
     form: removeAgentForm,
+    formId: removeAgentFormId,
     errors: removeAgentErrors,
     message: removeAgentMessage,
     submitting: removeAgentSubmitting,
     enhance: removeAgentEnhance,
   } = superForm<RemoveAppAgentForm, App.Superforms.Message, RemoveAppAgentForm>(initialRemoveAgentForm, {
+    id: newUnlinkFormId(),
     validators: zod4Client(removeAppAgentSchema),
     validationMethod: 'oninput',
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    onSubmit: ({ formElement }) => {
+      unlinkRequestGeneration.set(formElement, agentLinkGeneration);
+    },
+    applyAction: false,
+    onResult: async ({ result, formElement, cancel }) => {
+      if (unlinkRequestGeneration.get(formElement) !== agentLinkGeneration) cancel();
+      else if (result.type === 'redirect') await applyAction(result);
+    },
+  });
+
+  let agentLinkContextApp = untrack(() => data.app.id);
+  $effect(() => {
+    if (app.id === agentLinkContextApp) return;
+    agentLinkContextApp = app.id;
+    agentLinkGeneration += 1;
+    // Discard the departed App's selected targets, validation and outcomes
+    // together. Keep this reset list aligned if either form gains fields.
+    untrack(() => {
+      addAgentFormId.set(newLinkFormId());
+      removeAgentFormId.set(newUnlinkFormId());
+      addAgentForm.update(current => ({ ...current, agentId: '' }), { taint: false });
+      removeAgentForm.update(current => ({ ...current, agentId: '' }), { taint: false });
+      addAgentErrors.set({});
+      removeAgentErrors.set({});
+      addAgentMessage.set(undefined);
+      removeAgentMessage.set(undefined);
+    });
   });
 
   const initialUpdateAgentToolsForm = untrack(() => submittedForm<UpdateAppAgentToolsForm>(form, 'updateAgentTools') as UpdateAppAgentToolsSuperform | null ?? data.updateAgentToolsForm);
@@ -1250,13 +1325,26 @@
   });
 
   // ── Casting (#974) ───────────────────────────────────────────────────
-  const castFormId = `castWorker:${Math.random().toString(36).slice(2, 10)}`;
+  let castAnswerAlert: HTMLDivElement | undefined = $state();
+  // The persistent alert is above the tabs; reveal a current refusal without
+  // moving keyboard focus. Re-check ownership after the DOM update.
+  async function revealCastRefusal(generation: number) {
+    await tick();
+    if (generation !== castGeneration || !castAnswerAlert?.isConnected || !castWorkerActionError) return;
+    const rect = castAnswerAlert.getBoundingClientRect();
+    if (rect.top >= 0 && rect.bottom <= window.innerHeight) return;
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    castAnswerAlert.scrollIntoView({ block: 'nearest', behavior: reduced ? 'instant' : 'smooth' });
+  }
+  const newCastFormId = () => `castWorker:${Math.random().toString(36).slice(2, 10)}`;
+  const castFormId = newCastFormId();
   const initialCastWorkerForm = untrack(() => submittedForm<CastWorkerForm>(form, 'castWorker') as CastWorkerSuperform | null ?? data.castWorkerForm);
   const {
     form: castWorkerForm,
     errors: castWorkerErrors,
     message: castWorkerMessage,
     submitting: castWorkerSubmitting,
+    formId: castWorkerFormId,
     enhance: castWorkerEnhance,
   } = superForm<CastWorkerForm, App.Superforms.Message, CastWorkerForm>(initialCastWorkerForm, {
     // Instance-bound id: Superforms applies an action result only to the live form whose id
@@ -1273,18 +1361,48 @@
     // must not close B's composer, empty B's draft or print "Worker cast." on B.
     // The cast itself is already committed server-side; only its application to
     // the screen is dropped (never replayed).
-    onSubmit: () => {
+    onSubmit: ({ formElement }) => {
       castAttemptGeneration = castGeneration;
+      castRequestGeneration.set(formElement, castGeneration);
       castRefreshFailed = false;
     },
-    onResult: ({ cancel }) => {
-      if (castAttemptGeneration !== castGeneration) cancel();
+    // portal#1715: as on Install, and for the same reason. Superforms awaits between
+    // its hooks, so with applyAction on A's answer could cross onResult and then be
+    // applied by Kit on B, with no hook left to stop it: B's draft emptied or
+    // overwritten, its focus reset and A's receipt printed there. Off, the form takes
+    // the result itself and only a redirect still needs Kit. Kit also fed the `form`
+    // prop effects, so onUpdated below does their two jobs for an enhanced result.
+    // Past onResult no hook runs before the write into the form store, which B owns
+    // by then, so the App change below also gives the form a new id: Superforms drops
+    // a result whose id isn't the live one, right at that write.
+    applyAction: false,
+    onResult: async ({ result, formElement, cancel }) => {
+      if (castRequestGeneration.get(formElement) !== castGeneration) cancel();
+      else if (result.type === 'redirect') await applyAction(result);
+    },
+    // Superforms' default rethrows, leaving the form on "Casting…". The request failed,
+    // so whether the cast landed isn't known and this claims neither. Never retried.
+    // A stale answer stops at onResult above, which also skips this hook; the check
+    // here is for an App change during the hooks of an answer that passed it.
+    onError: async () => {
+      if (castAttemptGeneration !== castGeneration) return;
+      activeTab = 'staff';
+      castWorkerMessage.set({
+        type: 'error',
+        text: t('app.staff.cast.unconfirmed', 'The cast could not be confirmed. Reload the page to check before casting again.'),
+      });
+      await revealCastRefusal(castAttemptGeneration);
     },
     // The refresh is ours (not Superforms'), so a rejection after a CONFIRMED
     // cast is caught here and told truthfully instead of stranding the form.
     invalidateAll: false,
     onUpdated: async ({ form: f }) => {
       if (castAttemptGeneration !== castGeneration) return;
+      activeTab = 'staff';
+      if (!f.valid || f.message?.type === 'error') {
+        castOpen = true;
+        await revealCastRefusal(castAttemptGeneration);
+      }
       // Clear the composer only on a clean cast, so a WORKER_NAME_TAKEN
       // refusal leaves the rejected name in the box to edit.
       if (f.valid && f.message?.type === 'success') {
@@ -1311,6 +1429,7 @@
     if (id === castContextApp) return;
     castContextApp = id;
     castGeneration += 1;
+    castWorkerFormId.set(newCastFormId());
     untrack(() => {
       castWorkerForm.update(
         (current) => ({ ...current, agentId: '', name: '', reporting: '', reportsTo: '' }),
@@ -1628,14 +1747,19 @@
   let removeAgentFormEl = $state<HTMLFormElement | null>(null);
   let installAgentFormEl = $state<HTMLFormElement | null>(null);
   let revokeKeyFormEl = $state<HTMLFormElement | null>(null);
+  // portal#1715: Link, row Install and row Unlink are three forms, and
+  // `multipleSubmits: 'prevent'` holds per form, so this is what keeps them to one
+  // write at a time. Client UX only: the server's write policy is unchanged. The
+  // guards below need it too, because requestSubmit() ignores a disabled control.
+  const agentWriteBusy = $derived($addAgentSubmitting || $installAgentSubmitting || $removeAgentSubmitting);
   async function unlinkAgent(agent: { id: string; name: string }) {
-    if ($removeAgentSubmitting) return;
+    if (agentWriteBusy) return;
     setRemoveAgent(agent.id);
     await tick();
     removeAgentFormEl?.requestSubmit();
   }
   async function installDerivedAgent(agent: { id: string }) {
-    if ($installAgentSubmitting) return;
+    if (agentWriteBusy) return;
     installAgentForm.update((current) => ({ ...current, agentId: agent.id }), { taint: false });
     await tick();
     installAgentFormEl?.requestSubmit();
@@ -1872,20 +1996,44 @@
   </div>
 
   {#if installAgentActionError || removeAgentActionError || updateAgentToolsActionError || revokeKeyActionError || deleteAppActionError}
-    <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
+    <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
       {installAgentActionError ?? removeAgentActionError ?? updateAgentToolsActionError ?? revokeKeyActionError ?? deleteAppActionError}
     </div>
   {/if}
-  {#if settingsActionSuccess || addAgentActionSuccess || installAgentActionSuccess || removeAgentActionSuccess || updateAgentToolsActionSuccess || revokeKeyActionSuccess}
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
-      {settingsActionSuccess ?? addAgentActionSuccess ?? installAgentActionSuccess ?? removeAgentActionSuccess ?? updateAgentToolsActionSuccess ?? revokeKeyActionSuccess}
-    </div>
-  {/if}
-  {#if installRefreshFailed}
-    <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-      {t('app.agents.install.refresh-failed', 'The agent was installed, but the roster could not be refreshed. Reload the page to see it.')}
-    </div>
-  {/if}
+  <!-- #1777: keep the region mounted; only its content changes. -->
+  <div role="status" data-testid="app-success-status" class="mb-0">
+    {#if settingsActionSuccess || addAgentActionSuccess || installAgentActionSuccess || removeAgentActionSuccess || updateAgentToolsActionSuccess || revokeKeyActionSuccess}
+      <div class="mb-4 rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
+        {settingsActionSuccess ?? addAgentActionSuccess ?? installAgentActionSuccess ?? removeAgentActionSuccess ?? updateAgentToolsActionSuccess ?? revokeKeyActionSuccess}
+      </div>
+    {/if}
+  </div>
+  <!-- portal#1715: the region stays mounted (empty) so a notice arriving later is announced; a live
+       region mounted already populated is not reliably read. The parent's space-y gap sits on the
+       notice, not the region, so the empty region adds no gap. -->
+  <div role="status" data-testid="install-refresh-status" class="mb-0">
+    {#if installRefreshFailed}
+      <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+        {t('app.agents.install.refresh-failed', 'The agent was installed, but the roster could not be refreshed. Reload the page to see it.')}
+      </div>
+    {/if}
+  </div>
+
+  <!-- #1777: cast outcomes survive a later tab choice, without changing focusTab's policy. -->
+  <div role="alert" data-testid="cast-answer-alert" bind:this={castAnswerAlert} class="mb-0">
+    {#if castWorkerActionError}
+      <div class="mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+        {castWorkerActionError}
+      </div>
+    {/if}
+  </div>
+  <div role="status" data-testid="cast-answer-status" class="mb-0">
+    {#if castWorkerActionSuccess}
+      <div class="mb-4 rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
+        {castWorkerActionSuccess}
+      </div>
+    {/if}
+  </div>
 
   {#if newRawKey}
     <div class="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 dark:border-amber-500 dark:bg-amber-950/30">
@@ -1923,7 +2071,7 @@
          programmatically unrelated to the strip.
 
          The tablist is an inner flex box rather than this container, because
-         the "Runs" entry below is a real LINK to a subroute and must not sit
+         the other subroute links below must not sit
          inside a tablist. -->
     <div role="tablist" aria-label={t('app.tabs-label', 'App sections')} class="flex shrink-0">
       {#each tabs as tab (tab.id)}
@@ -1934,7 +2082,7 @@
           aria-selected={activeTab === tab.id}
           aria-controls="panel-{tab.id}"
           tabindex={activeTab === tab.id ? 0 : -1}
-          onclick={() => { if (!channelPostBusy) activeTab = tab.id; }}
+          onclick={() => { void focusTab(tab.id); }}
           onkeydown={onTabKeydown}
           class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
             {activeTab === tab.id
@@ -1945,14 +2093,6 @@
         </button>
       {/each}
     </div>
-    <!-- Runs is a real subroute (deep-linkable from "Test flow" and run
-         records), so it's a link styled as a tab, not an activeTab state. -->
-    <a
-      href="/app/apps/{app.id}/runs"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.runs', 'Runs')}
-    </a>
     <!-- #942: Channels is a subroute too (its own forms and table), linked like Runs. -->
     <a
       href="/app/apps/{app.id}/channels"
@@ -2380,6 +2520,12 @@
        it. Read through `teamWorkItems`, not appNodes.
 
        Append-only: no delete, no edit, no rename. -->
+  {#if activeTab === 'runs'}
+    <div role="tabpanel" id="panel-runs" aria-labelledby="tab-runs" tabindex="0" class="min-w-0 focus-visible:outline-2 focus-visible:outline-indigo-500">
+      {#if data.runsPanel}<AppRunsPanel data={data.runsPanel} {form} />{:else}<p role="status">{t('runs.loading', 'Loading runs…')}</p>{/if}
+    </div>
+  {/if}
+
   {#if activeTab === 'worklog'}
     <div id="panel-worklog" role="tabpanel" aria-labelledby="tab-worklog" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-4">
@@ -2437,21 +2583,14 @@
         </div>
       </div>
 
-      {#if castWorkerActionError}
-        <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-          {castWorkerActionError}
-        </div>
-      {/if}
-      {#if castWorkerActionSuccess}
-        <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
-          {castWorkerActionSuccess}
-        </div>
-      {/if}
-      {#if castRefreshFailed}
-        <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-          {t('app.staff.cast.refresh-failed', 'The worker was cast, but the roster could not be refreshed. Reload the page to see it. Do not cast again.')}
-        </div>
-      {/if}
+      <!-- portal#1715: mounted empty, as the install notice above; the gap sits on the notice. -->
+      <div role="status" data-testid="cast-refresh-status" class="mb-0">
+        {#if castRefreshFailed}
+          <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+            {t('app.staff.cast.refresh-failed', 'The worker was cast, but the roster could not be refreshed. Reload the page to see it. Do not cast again.')}
+          </div>
+        {/if}
+      </div>
       {#if retireWorkerActionError}
         <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
           {retireWorkerActionError}
@@ -2523,7 +2662,7 @@
           class="max-w-lg space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
         >
           <input type="hidden" name="_kind" value={$castWorkerForm._kind} />
-          <input type="hidden" name="__superform_id" value={castFormId} />
+          <input type="hidden" name="__superform_id" value={$castWorkerFormId} />
           <div>
             <label for="castAgentId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               {t('app.staff.field.agent', 'Agent')}
@@ -2537,18 +2676,20 @@
               aria-describedby={castWorkerAgentError ? 'castAgentIdError' : 'castAgentIdHelp'}
               class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
             >
-              <option value="">{t('app.staff.field.agent.placeholder', '— Select an installed agent —')}</option>
+              <option value="">{t('app.staff.field.agent.placeholder', '— Select an agent —')}</option>
               {#snippet castOption(candidate: (typeof castableAgents)[number])}
                 <option value={candidate.id}>
                   {candidate.name}{candidate.personaRole ? ` (${candidate.personaRole})` : ''}
                 </option>
               {/snippet}
               {#if castAgentGroups.derived.length > 0}
-                <optgroup label={t('app.staff.field.agent.installed', 'Installed')}>
-                  {#each castAgentGroups.installed as candidate (candidate.id)}
-                    {@render castOption(candidate)}
-                  {/each}
-                </optgroup>
+                {#if castAgentGroups.installed.length > 0}
+                  <optgroup label={t('app.staff.field.agent.installed', 'Installed')}>
+                    {#each castAgentGroups.installed as candidate (candidate.id)}
+                      {@render castOption(candidate)}
+                    {/each}
+                  </optgroup>
+                {/if}
                 <optgroup label={t('app.staff.field.agent.derived', 'Derived')}>
                   {#each castAgentGroups.derived as { agent: candidate, importer } (candidate.id)}
                     <option value={candidate.id}>
@@ -3039,7 +3180,7 @@
                 actions={agentRowActions(agent)}
                 onselect={(id) => onAgentAction(id, agent)}
                 label={t('app.agents.actions.label', 'Actions for {name}', { name: agent.name })}
-                disabled={$removeAgentSubmitting || $installAgentSubmitting}
+                disabled={agentWriteBusy}
                 fixed
                 compact
               />
@@ -3083,10 +3224,13 @@
       {/if}
 
       <!-- #1020: Unlink's submit target — one hidden form for every row. -->
-      <form bind:this={removeAgentFormEl} method="POST" action="?/removeAgent" use:removeAgentEnhance class="hidden">
-        <input type="hidden" name="_kind" value="removeAgent" />
-        <input type="hidden" name="agentId" value={$removeAgentForm.agentId} />
-      </form>
+      {#key app.id}
+        <form bind:this={removeAgentFormEl} method="POST" action="?/removeAgent" use:removeAgentEnhance class="hidden">
+          <input type="hidden" name="__superform_id" value={$removeAgentFormId} />
+          <input type="hidden" name="_kind" value="removeAgent" />
+          <input type="hidden" name="agentId" value={$removeAgentForm.agentId} />
+        </form>
+      {/key}
 
       <!-- Add an agent: the install picker that used to appear only while the
            App had no agent. -->
@@ -3109,7 +3253,9 @@
             {t('app.agents.add.unavailable', 'The list of agents you can add could not be loaded. Reload to try again.')}
           </p>
         {:else if addableAgents.length > 0}
+          {#key app.id}
           <form method="POST" action="?/addAgent" use:addAgentEnhance class="flex flex-wrap items-start gap-3" novalidate>
+            <input type="hidden" name="__superform_id" value={$addAgentFormId} />
             <input type="hidden" name="_kind" value={$addAgentForm._kind} />
             <div class="flex-1 min-w-[200px]">
               <label for="agentId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.agents.add.label', 'Agent')}</label>
@@ -3133,25 +3279,29 @@
                 <p role="alert" class="mt-2 text-xs text-red-600 dark:text-red-400">{addAgentActionError}</p>
               {/if}
             </div>
-            <button type="submit" disabled={!$addAgentForm.agentId || $addAgentSubmitting}
+            <button type="submit" disabled={!$addAgentForm.agentId || agentWriteBusy}
               class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
               style="background: #219ebc;">
               {$addAgentSubmitting ? 'Linking...' : 'Link'}
             </button>
           </form>
+          {/key}
         {:else}
           <p class="text-sm text-zinc-500">{t('app.agents.add.none', 'There is no other agent to add.')}</p>
         {/if}
       </section>
       <!-- #1684: Install's submit target, one hidden form for every derived row. A
            withheld roster offers no add, this one included. It stays mounted across
-           the install: the reload that follows drops the row that asked. -->
+           the install: the reload that follows drops the row that asked. Keyed by App
+           so a late answer can be told from B's own (installRequestGeneration). -->
       {#if !agentsWithheld}
-        <form bind:this={installAgentFormEl} method="POST" action="?/addAgent" use:installAgentEnhance class="hidden">
-          <input type="hidden" name="_kind" value="addAgent" />
-          <input type="hidden" name="__superform_id" value={installFormId} />
-          <input type="hidden" name="agentId" value={$installAgentForm.agentId} />
-        </form>
+        {#key app.id}
+          <form bind:this={installAgentFormEl} method="POST" action="?/addAgent" use:installAgentEnhance class="hidden">
+            <input type="hidden" name="_kind" value="addAgent" />
+            <input type="hidden" name="__superform_id" value={installFormId} />
+            <input type="hidden" name="agentId" value={$installAgentForm.agentId} />
+          </form>
+        {/key}
       {/if}
     </div>
     </div>
@@ -3321,7 +3471,7 @@
           <form method="POST" action="?/update" use:appSettingsEnhance class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
             <input type="hidden" name="_kind" value={$appSettingsForm._kind} />
             {#if settingsActionError}
-              <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{settingsActionError}</div>
+              <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{settingsActionError}</div>
             {/if}
             <div>
               <label for="name" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>

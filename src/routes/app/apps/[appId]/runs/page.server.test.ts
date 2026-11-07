@@ -80,47 +80,14 @@ function superFormFrom(result: unknown) {
   } | undefined)?.form;
 }
 
-describe('app runs load()', () => {
-  it('returns runs, flows, and a seeded run Superform', async () => {
-    mockRequest.mockImplementation(async (query: string) => {
-      if (query === APP_QUERY || query === AGENT_TASKS_APP_QUERY) return { app };
-      if (query === APP_RUNS_QUERY) return { appRuns: { items: [], total: 0 } };
-      if (query === APP_NODES_QUERY) return { appNodes: [flowNode] };
-      throw new Error(`unexpected query: ${query.slice(0, 60)}`);
-    });
-    const { load } = await importServer();
-
-    const result = await load({
-      params: { id: 'org-1', appId: 'app-1' },
-      locals: { token: 'tok' },
-      parent: async () => ({}),
-      url: new URL('https://example.test/app/orgs/org-1/apps/app-1/runs'),
-    } as unknown as Parameters<typeof load>[0]) as {
-      runForm: { data: { _kind: string; entryUrn: string } };
-      page: number;
-      total: number;
-    };
-
-    expect(result.page).toBe(1);
-    expect(result.total).toBe(0);
-    expect(result.runForm.data).toMatchObject({
-      _kind: 'runFlow',
-      entryUrn: '',
-    });
-  });
-});
-
-// portal#1130: a viewer with no access gets the App page's 404, not a 500.
-// The server conceals the App (FORBIDDEN on app(ref:)) and its runs (NOT_FOUND
-// on appRuns); only those codes become a 404, and any other failure stays a
-// failure (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
 describe('app runs load(): a no-access viewer (#1130)', () => {
   const gqlError = (code: string) => ({ response: { errors: [{ message: code, extensions: { code } }] } });
 
   async function loadWith(answer: (query: string) => unknown) {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     mockRequest.mockImplementation(async (query: string) => answer(query));
-    const { load } = await importServer();
+    const { loadAppRunsPage } = await import('$lib/server/app-runs-page');
+    const load = (event: { url: URL }) => loadAppRunsPage({ request: mockRequest } as never, 'app-1', event.url.searchParams);
     return load({
       params: { id: 'org-1', appId: 'app-1' },
       locals: { token: 'tok' },
@@ -150,12 +117,12 @@ describe('app runs load(): a no-access viewer (#1130)', () => {
       if (q === APP_QUERY || q === AGENT_TASKS_APP_QUERY) return { app };
       if (q === APP_RUNS_QUERY) throw gqlError('INTERNAL_SERVER_ERROR');
       return { appNodes: [] };
-    })).rejects.not.toMatchObject({ status: 404 });
+    })).resolves.toMatchObject({ failed: true });
     await expect(loadWith((q) => {
       if (q === APP_QUERY || q === AGENT_TASKS_APP_QUERY) return { app };
       if (q === APP_RUNS_QUERY) throw new Error('ECONNREFUSED');
       return { appNodes: [] };
-    })).rejects.toThrow('ECONNREFUSED');
+    })).resolves.toMatchObject({ failed: true });
   });
 
   it('an App read failing with a server fault stays a failure, not a 404', async () => {
@@ -234,13 +201,8 @@ describe('app runs: choosing the Agent (#1444)', () => {
       if (query === APP_INSTALLED_AGENTS_QUERY) return agentsRead ? agentsRead() : { app: { id: 'app-1', appAgents } };
       throw new Error(`unexpected query: ${query.slice(0, 60)}`);
     });
-    const { load } = await importServer();
-    return (await load({
-      params: { id: 'org-1', appId: 'app-1' },
-      locals: { token: 'tok' },
-      parent: async () => ({}),
-      url: new URL('https://example.test/app/apps/app-1/runs'),
-    } as unknown as Parameters<typeof load>[0])) as { runAgents: unknown; runForm: { data: Record<string, unknown> } };
+    const { loadAppRunsExtras } = await import('$lib/server/app-runs-page');
+    return loadAppRunsExtras({ request: mockRequest } as never, 'app-1');
   }
 
   it('several installed Agents: the loader hands the picker their names', async () => {

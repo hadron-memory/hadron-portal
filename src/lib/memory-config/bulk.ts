@@ -70,6 +70,20 @@ export function retryPositions(results: BulkEntry[]): number[] {
   return results.flatMap((entry, index) => !entry.ok && entry.error?.code !== 'DUPLICATE_TARGET' ? [index] : []);
 }
 
+/**
+ * How many ok rows the call actually changes. A row whose every rule is skipped
+ * is ok (hrn:node:hadronmemory.com:specs:cor:api:290:01: skips are outcomes of a successful apply) but changes
+ * nothing, so the summary splits succeeded into change and skipped. A row with
+ * any APPLIED or REPLACED entry counts as changing, skips alongside it or not.
+ */
+export function changeSplit(results: BulkEntry[]): { change: number; skipped: number } {
+  let change = 0;
+  for (const entry of results) {
+    if (entry.ok && (entry.result?.entries ?? []).some(e => e.outcome === 'APPLIED' || e.outcome === 'REPLACED')) change++;
+  }
+  return { change, skipped: results.filter(entry => entry.ok).length - change };
+}
+
 export function wholeCallCopy(refusal: BulkRefusal): string {
   if (refusal.code === 'CONFLICT') return t('config.bulk.template-changed', 'This template changed, so nothing was applied. Preview again before applying.');
   if (refusal.code === 'BULK_TARGETS_TOO_MANY' && refusal.max !== undefined && refusal.count !== undefined) return t('config.bulk.too-many', 'Too many memories: {count} chosen, and one apply takes at most {max}. Nothing was changed.', { count: refusal.count, max: refusal.max });

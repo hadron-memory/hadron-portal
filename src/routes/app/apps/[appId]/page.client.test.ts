@@ -6,7 +6,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { page, setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationCalls, navigationHooks, navigationGuards, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { kitAppliedResults, submitEnhanced, submitEnhancedWithResult, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
+import { kitAppliedResults, resetKitAppliedResults, submitEnhanced, submitEnhancedWithResult, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatFilter } from '$lib/team-chat-filter';
@@ -29,6 +29,7 @@ afterEach(() => {
   Reflect.deleteProperty(document, 'hidden');
   resetNavigationCalls();
   resetNavigationGuards();
+  resetKitAppliedResults();
   window.history.replaceState({}, '', '/');
 });
 
@@ -1463,7 +1464,7 @@ describe('Client tab: a refused key mint (#1068)', () => {
     const target = await mountClient(async () =>
       new Response(JSON.stringify({ error: MANAGERS_ONLY }), { status: 403, headers: { 'Content-Type': 'application/json' } }));
     downloadButton(target).click();
-    await vi.waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
+    await vi.waitFor(() => expect(target.textContent).toContain(MANAGERS_ONLY));
     expect(alertSpy).not.toHaveBeenCalled();
     const alertEl = [...target.querySelectorAll('[role="alert"]')].find((el) => el.textContent?.includes(MANAGERS_ONLY));
     expect(alertEl).toBeTruthy();
@@ -1474,7 +1475,7 @@ describe('Client tab: a refused key mint (#1068)', () => {
     vi.spyOn(window, 'alert').mockImplementation(() => {});
     const target = await mountClient(async () => new Response('gateway', { status: 502 }));
     downloadButton(target).click();
-    await vi.waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
+    await vi.waitFor(() => expect(target.textContent).toContain('Failed to create client key.'));
     const alertEl = [...target.querySelectorAll('[role="alert"]')].find((el) => el.textContent?.includes('Failed to create client key.'));
     expect(alertEl).toBeTruthy();
   });
@@ -1918,7 +1919,7 @@ describe('App memory scope inventory (#1043)', () => {
     expect(m.target.textContent).toContain('Agent link');
   });
   it('renders failed scope as an error, never as an empty inventory', async () => {
-    const m=await showSettings(null);expect(m.target.querySelector('[role="alert"]')?.textContent).toContain('Could not load');expect(m.target.textContent).not.toContain('No accessible memories');
+    const m=await showSettings(null);expect([...m.target.querySelectorAll('[role="alert"]')].some(el => el.textContent?.includes('Could not load'))).toBe(true);expect(m.target.textContent).not.toContain('No accessible memories');
   });
   it('renders successful empty scope distinctly', async () => {
     const m=await showSettings([]);expect(m.target.textContent).toContain('No accessible memories');expect(m.target.textContent).not.toContain('OLD FIRST ONLY');
@@ -2275,6 +2276,72 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     return { type: 'success' as const, status: 200, data: { form: f } };
   };
 
+  it.each(['success', 'refusal'] as const)('#1777 cast %s remains in the same mounted region after held Runs navigation', async outcome => {
+    const { m, form } = await openCast();
+    const region = m.target.querySelector(`[data-testid="cast-answer-${outcome === 'success' ? 'status' : 'alert'}"]`);
+    expect(region).not.toBeNull();
+    expect(region!.textContent?.trim()).toBe('');
+    await fill(form(), 'agent-a', 'Iris');
+    const sent = idOf(form());
+    const delayed = await submitEnhancedDeferred(form());
+    let release!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>(r => { release = r; });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    expect(release).toBeTypeOf('function');
+    const result = await success(sent);
+    if (outcome === 'refusal') {
+      result.data.form.valid = false;
+      result.data.form.message = { type: 'error', text: 'Name already taken.' };
+    }
+    await delayed.finish(outcome === 'success' ? result : { ...result, type: 'failure', status: 400 });
+    await tick(3);
+    expect(m.target.textContent).toContain(outcome === 'success' ? 'Worker cast.' : 'Name already taken.');
+    release();
+    await tick(3);
+    expect(m.target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
+    expect(m.target.textContent).toContain(outcome === 'success' ? 'Worker cast.' : 'Name already taken.');
+    expect(region).not.toBeNull();
+    expect(m.target.contains(region)).toBe(true);
+    expect(region!.getAttribute('role')).toBe(outcome === 'success' ? 'status' : 'alert');
+    expect(region!.textContent).toContain(outcome === 'success' ? 'Worker cast.' : 'Name already taken.');
+    expect([...m.target.querySelectorAll('[role="status"], [role="alert"]')].filter(el => el.textContent?.includes(outcome === 'success' ? 'Worker cast.' : 'Name already taken.'))).toHaveLength(1);
+  });
+
+  it.each([
+    ['above', -80, -20, false, true],
+    ['below', 800, 860, false, true],
+    ['reduced motion', -80, -20, true, true],
+    ['visible', 10, 70, false, false],
+  ] as const)('#1777 refusal reveal: %s, without moving focus', async (_case, top, bottom, reduced, shouldScroll) => {
+    const { m, form } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    const region = m.target.querySelector<HTMLElement>('[data-testid="cast-answer-alert"]')!;
+    const scroll = vi.fn();
+    region.scrollIntoView = scroll;
+    vi.spyOn(region, 'getBoundingClientRect').mockReturnValue({ top, bottom } as DOMRect);
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: reduced })));
+    const input = form().querySelector<HTMLInputElement>('[name="name"]')!;
+    input.focus();
+    const refused = async () => {
+      const f = (await success(idOf(form()))).data.form;
+      f.valid = false;
+      f.message = { type: 'error', text: 'Name already taken.' };
+      const pending = await submitEnhancedDeferred(form());
+      await pending.finish({ type: 'failure', status: 400, data: { form: f } });
+      await tick(3);
+    };
+    await refused();
+    expect(region.textContent).toContain('Name already taken.');
+    if (shouldScroll) expect(scroll).toHaveBeenCalledWith({ block: 'nearest', behavior: reduced ? 'instant' : 'smooth' });
+    else expect(scroll).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(input);
+    scroll.mockClear();
+    await refused();
+    // An identical refusal from another current submission still needs revealing.
+    expect(scroll).toHaveBeenCalledTimes(shouldScroll ? 1 : 0);
+  });
+
   it('a No team choice made for App A is not carried to App B', async () => {
     const { m, props, open, form } = await openCast();
     await fill(form(), 'agent-a', 'Iris');
@@ -2427,6 +2494,296 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     const cast = [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cast a worker') as HTMLButtonElement;
     expect(cast.disabled).toBe(false);
   });
+
+  // portal#1715 S1. Walks the App change across every await between Superforms
+  // entering its result handler and finishing with it, for each outcome. This
+  // sweep is what reproduced the defect on main: at 0 turns A's success emptied
+  // B's draft, took focus and printed its receipt on B, and A's refusal wrote
+  // A's draft over B's. `regimes` proves the walk reached both sides of the
+  // result landing on A; a pass that never got there would say nothing.
+  describe('leaving A at any point while its answer is applied (portal#1715)', () => {
+    const NAME_TAKEN = 'That name is taken.';
+    const UNCONFIRMED = 'The cast could not be confirmed. Reload the page to check before casting again.';
+    const refused = async (id: string) => {
+      const bad = await superValidate({ agentId: 'agent-a', name: 'Iris', reporting: 'none', reportsTo: '' }, zod4(castWorkerSchema), { errors: false, id });
+      bad.valid = false;
+      bad.message = { type: 'error', text: NAME_TAKEN };
+      return { type: 'failure' as const, status: 500, data: { form: bad } };
+    };
+    const FAILED = { type: 'error', status: 500, error: { message: 'boom' } } as const;
+    const REDIRECT = { type: 'redirect', status: 303, location: '/signin' } as const;
+    const refreshes = () => navigationCalls.filter((c) => c.fn === 'invalidateAll').length;
+    const castButton = (target: HTMLElement) => [...target.querySelectorAll('button')].find((x) => x.textContent?.trim() === 'Cast a worker')!;
+    const submitButton = (target: HTMLElement) => [...target.querySelectorAll<HTMLButtonElement>('form[action="?/castWorker"] button[type="submit"]')].at(-1)!;
+    async function typeOnB(m: Mounted<Record<string, unknown>>, form: () => HTMLFormElement) {
+      castButton(m.target).click();
+      flushSync();
+      const name = form().querySelector<HTMLInputElement>('[name="name"]')!;
+      name.value = 'NewB';
+      name.dispatchEvent(new Event('input', { bubbles: true }));
+      name.focus();
+      flushSync();
+      return name;
+    }
+
+    it.each([
+      ['success', success, 'Worker cast.'],
+      ['refusal', refused, NAME_TAKEN],
+      ['a failed request', async () => FAILED, UNCONFIRMED],
+    ] as const)('%s leaves B’s message, focus, composer and refreshes untouched', async (_name, answer, text) => {
+      const regimes = new Set<string>();
+      for (let turns = 0; turns <= 24; turns += 1) {
+        const { m, props, form } = await openCast();
+        await fill(form(), 'agent-a', 'Iris');
+        const sent = idOf(form());
+        const delayed = await submitEnhancedDeferred(form());
+        const result = await answer(sent);
+        const b = await dataFor('a2');
+        resetNavigationCalls();
+        const finishing = delayed.finish(result as never);
+        for (let i = 0; i < turns; i += 1) await Promise.resolve();
+        flushSync();
+        regimes.add(m.target.textContent?.includes(text) ? 'shown-on-A' : 'not-yet-shown');
+        const refreshedOnA = refreshes();
+        props.data = b;
+        flushSync();
+        const name = await typeOnB(m, form);
+        await finishing;
+        await tick(4);
+        const at = `${text} after ${turns} turns`;
+        expect(m.target.textContent, at).not.toContain(text);
+        expect(m.target.querySelector('form[action="?/castWorker"]'), at).not.toBeNull();
+        expect(name.value, at).toBe('NewB');
+        expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value, at).toBe('NewB');
+        expect(document.activeElement, at).toBe(name);
+        expect(refreshes(), at).toBe(refreshedOnA);
+        expect(submitButton(m.target).disabled, at).toBe(false);
+        expect(kitAppliedResults, at).toEqual([]);
+        m.unmount();
+        mounted.pop();
+      }
+      expect([...regimes].sort()).toEqual(['not-yet-shown', 'shown-on-A']);
+    });
+
+    it('a failed request says the cast is unconfirmed, claims neither outcome and frees the form', async () => {
+      const { m, form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit');
+      const delayed = await submitEnhancedDeferred(form());
+      await delayed.finish(FAILED as never);
+      await tick(4);
+      expect([...m.target.querySelectorAll('[role="alert"]')].map((x) => x.textContent?.trim())).toEqual([UNCONFIRMED]);
+      expect(m.target.textContent).not.toContain('Worker cast.');
+      expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('Iris');
+      expect(submitButton(m.target).disabled).toBe(false);
+      expect(refreshes()).toBe(0);
+      expect(requestSubmit).not.toHaveBeenCalled();
+    });
+
+    it('a redirect still reaches Kit in the current App (applyAction is off for this form)', async () => {
+      const { form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const delayed = await submitEnhancedDeferred(form());
+      await delayed.finish(REDIRECT as never);
+      await tick(4);
+      expect(kitAppliedResults).toEqual([REDIRECT]);
+    });
+
+    it('A’s late redirect does not reach Kit on B', async () => {
+      const { props, form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const delayed = await submitEnhancedDeferred(form());
+      props.data = await dataFor('a2');
+      await tick(3);
+      await delayed.finish(REDIRECT as never);
+      await tick(4);
+      expect(kitAppliedResults).toEqual([]);
+    });
+
+    // Jane's BLIND on #1771: the fence read one variable that every submit overwrites, so a
+    // submit on B made A's still-pending answer look current. B can submit by then: the
+    // composer is a new element, and afterNavigate has cleared the form's submitting state.
+    it.each([
+      ['a failed request', async () => FAILED, UNCONFIRMED],
+      ['a refusal', refused, NAME_TAKEN],
+      ['a success', success, 'Worker cast.'],
+      ['a redirect', async () => REDIRECT, null],
+    ] as const)('%s for A, arriving after B submitted, stays off B', async (_name, answer, text) => {
+      const { m, props, form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const sent = idOf(form());
+      const first = await submitEnhancedDeferred(form());
+      props.data = await dataFor('a2');
+      await tick(3);
+      await typeOnB(m, form);
+      await submitEnhancedDeferred(form());
+      const tabs = () => m.target.querySelector('[role="tab"][aria-selected="true"]')?.textContent;
+      const tab = tabs();
+      resetNavigationCalls();
+      await first.finish(await answer(sent) as never);
+      await tick(4);
+      if (text) expect(m.target.textContent).not.toContain(text);
+      expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('NewB');
+      expect(tabs()).toBe(tab);
+      expect(refreshes()).toBe(0);
+      expect(kitAppliedResults).toEqual([]);
+    });
+
+    it('B’s own answer still lands after A’s stale one', async () => {
+      const { m, props, form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const first = await submitEnhancedDeferred(form());
+      props.data = await dataFor('a2');
+      await tick(3);
+      await typeOnB(m, form);
+      const sentB = idOf(form());
+      const second = await submitEnhancedDeferred(form());
+      await first.finish(FAILED as never);
+      await tick(2);
+      await second.finish(await refused(sentB) as never);
+      await tick(4);
+      expect(m.target.textContent).toContain(NAME_TAKEN);
+      expect(m.target.textContent).not.toContain(UNCONFIRMED);
+    });
+
+    it('a success or refusal never goes through Kit, so focus stays where the reader put it', async () => {
+      for (const answer of [success, refused]) {
+        const { m, form } = await openCast();
+        await fill(form(), 'agent-a', 'Iris');
+        const sent = idOf(form());
+        const delayed = await submitEnhancedDeferred(form());
+        const outside = castButton(m.target);
+        outside.focus();
+        await delayed.finish(await answer(sent) as never);
+        await tick(4);
+        expect(kitAppliedResults).toEqual([]);
+        expect(document.activeElement).toBe(outside);
+        m.unmount();
+        mounted.pop();
+      }
+    });
+
+    it('a refusal keeps the composer: open, with the rejected draft, on the AI Team tab', async () => {
+      const { m, form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const sent = idOf(form());
+      const delayed = await submitEnhancedDeferred(form());
+      await delayed.finish(await refused(sent) as never);
+      await tick(4);
+      expect(m.target.textContent).toContain(NAME_TAKEN);
+      expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('Iris');
+    });
+
+    // With applyAction off, the `form` prop effects that used to do this never see a cast.
+    async function closeAndLeave(m: Mounted<Record<string, unknown>>) {
+      castButton(m.target).click();
+      flushSync();
+      expect(m.target.querySelector('form[action="?/castWorker"]')).toBeNull();
+      m.target.querySelector<HTMLElement>('[role="tab"]:not(#tab-staff)')!.click();
+      flushSync();
+      expect(m.target.textContent).not.toContain('Cast a worker');
+    }
+
+    it('a refusal lands back on the AI Team tab and reopens a composer closed meanwhile', async () => {
+      const { m, form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const sent = idOf(form());
+      const delayed = await submitEnhancedDeferred(form());
+      await closeAndLeave(m);
+      await delayed.finish(await refused(sent) as never);
+      await tick(4);
+      expect(m.target.textContent).toContain(NAME_TAKEN);
+      expect(m.target.querySelector('form[action="?/castWorker"]')).not.toBeNull();
+    });
+
+    it('a success lands back on the AI Team tab, where its receipt is', async () => {
+      const { m, form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const sent = idOf(form());
+      const delayed = await submitEnhancedDeferred(form());
+      await closeAndLeave(m);
+      await delayed.finish(await success(sent));
+      await tick(4);
+      expect(m.target.textContent).toContain('Worker cast.');
+    });
+
+    it('a failed request lands back on the AI Team tab and doesn’t reopen the composer: it claims nothing to retry', async () => {
+      const { m, form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const delayed = await submitEnhancedDeferred(form());
+      await closeAndLeave(m);
+      await delayed.finish(FAILED as never);
+      await tick(4);
+      expect(m.target.textContent).toContain(UNCONFIRMED);
+      expect(m.target.querySelector('form[action="?/castWorker"]')).toBeNull();
+    });
+
+    it('control: a clean success still closes the composer, says so and refreshes once', async () => {
+      const { m, form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const sent = idOf(form());
+      const delayed = await submitEnhancedDeferred(form());
+      await delayed.finish(await success(sent));
+      await tick(4);
+      expect(m.target.querySelector('form[action="?/castWorker"]')).toBeNull();
+      expect(m.target.textContent).toContain('Worker cast.');
+      expect(refreshes()).toBe(1);
+    });
+
+    // portal#1715 S3: a live region mounted already holding its text isn't reliably
+    // announced, so the region stays mounted and the notice arrives inside it. This
+    // pins the DOM only: it says nothing about what a screen reader announced.
+    it('the stale-list notice arrives inside a status region already mounted, and clears on the next submit', async () => {
+      const { m, form, open } = await openCast();
+      const region = m.target.querySelector('[data-testid="cast-refresh-status"]')!;
+      expect(region.getAttribute('role')).toBe('status');
+      expect(region.textContent?.trim()).toBe('');
+      await fill(form(), 'agent-a', 'Iris');
+      navigationHooks.onInvalidateAll = () => { throw new Error('refresh failed after committed cast'); };
+      const sent = idOf(form());
+      const delayed = await submitEnhancedDeferred(form());
+      await delayed.finish(await success(sent));
+      await tick(4);
+      expect(m.target.querySelector('[data-testid="cast-refresh-status"]')).toBe(region);
+      expect(region.textContent).toContain('Do not cast again.');
+      expect(region.querySelector('[role="status"], [role="alert"], button')).toBeNull();
+      open();
+      await tick(2);
+      await fill(form(), 'agent-a', 'Iris');
+      await submitEnhancedDeferred(form());
+      await tick(2);
+      expect(region.textContent?.trim()).toBe('');
+    });
+  });
+
+  // portal#1715 S3.
+  describe('the agent list in the composer', () => {
+    const IMPORTER = { id: 'ag0', name: 'Alpha', urn: 'hrn:agent:acme.com:alpha' };
+    async function selectOf(installMarks: Record<string, unknown>) {
+      const data = await dataFor('a1');
+      const m = mountComponent(Page as never, reactiveProps({ data: { ...data, installMarks }, form: null }) as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(2);
+      [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cast a worker')!.click();
+      await tick(2);
+      return m.target.querySelector<HTMLSelectElement>('[name="agentId"]')!;
+    }
+    const groups = (select: HTMLSelectElement) => [...select.querySelectorAll('optgroup')].map((g) => g.label);
+
+    it('the placeholder doesn’t say installed: the list can hold derived agents', async () => {
+      expect((await selectOf({})).querySelector('option')!.textContent).toBe('— Select an agent —');
+    });
+
+    it('hides an empty Installed group', async () => {
+      const select = await selectOf({ 'agent-a': { kind: 'derived', importer: IMPORTER }, 'agent-b': { kind: 'derived', importer: IMPORTER } });
+      expect(groups(select)).toEqual(['Derived']);
+    });
+
+    it('control: both groups show when each has an agent', async () => {
+      const select = await selectOf({ 'agent-a': { kind: 'installed' }, 'agent-b': { kind: 'derived', importer: IMPORTER } });
+      expect(groups(select)).toEqual(['Installed', 'Derived']);
+    });
+  });
 });
 
 describe('Roster placement readback (#1149)', () => {
@@ -2512,6 +2869,53 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
     expect(m.target.textContent).not.toContain(LINKED);
     expect(refreshes()).toBe(0);
     expect(actions(m.target).disabled).toBe(false);
+  });
+
+  // Same race as the cast's (Jane's BLIND on #1771, Xabat's ruling 6692838145). After a
+  // navigation afterNavigate clears the form's submitting state, so B's row can Install while
+  // A's request is out, and the fence read the variable that B's submit had just overwritten.
+  describe('A’s answer arriving after B installed (portal#1715)', () => {
+    const FAILED = { type: 'error', status: 500, error: { message: 'boom' } } as const;
+    const REDIRECT = { type: 'redirect', status: 303, location: '/signin' } as const;
+    const UNCONFIRMED = 'could not be confirmed';
+    const navigated = async () => {
+      for (const guard of navigationGuards.filter((g) => g.fn === 'afterNavigate')) (guard.callback as (nav: unknown) => void)({ type: 'link' });
+      await tick(3);
+    };
+    async function pendingOnBoth() {
+      const { m, props } = await mountAgents();
+      const a = await beginInstall(m.target);
+      props.data = await dataFor('a2');
+      await tick(3);
+      await navigated();
+      const b = await beginInstall(m.target);
+      resetNavigationCalls();
+      return { m, a, b };
+    }
+
+    it.each([
+      ['a failed request', async () => FAILED, UNCONFIRMED],
+      ['a refusal', refused, REFUSED],
+      ['a success', confirmed, LINKED],
+      ['a redirect', async () => REDIRECT, null],
+    ] as const)('%s stays off B', async (_name, answer, text) => {
+      const { m, a } = await pendingOnBoth();
+      await a.delayed.finish(await answer(a.id) as never);
+      await tick(4);
+      if (text) expect(m.target.textContent).not.toContain(text);
+      expect(refreshes()).toBe(0);
+      expect(kitAppliedResults).toEqual([]);
+    });
+
+    it('B’s own answer still lands after A’s stale one', async () => {
+      const { m, a, b } = await pendingOnBoth();
+      await a.delayed.finish(FAILED as never);
+      await tick(2);
+      await b.delayed.finish(await refused(b.id) as never);
+      await tick(4);
+      expect(m.target.textContent).toContain(REFUSED);
+      expect(m.target.textContent).not.toContain(UNCONFIRMED);
+    });
   });
 
   it('A’s late refusal says nothing on B', async () => {
@@ -2610,6 +3014,7 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
   it('leaving A at any point while its answer is applied leaves B untouched (success, refusal, failed request)', async () => {
     const failed = async () => ({ type: 'error', status: 500, error: { message: 'boom' } });
     for (const [answer, text] of [[confirmed, LINKED], [refused, REFUSED], [failed, 'could not be confirmed']] as const) {
+      const regimes = new Set<string>();
       for (let turns = 0; turns <= 12; turns += 1) {
         const { m, props } = await mountAgents();
         const { id, delayed } = await beginInstall(m.target);
@@ -2618,6 +3023,8 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
         resetNavigationCalls();
         const finishing = delayed.finish(result as never);
         for (let i = 0; i < turns; i += 1) await Promise.resolve();
+        flushSync();
+        regimes.add(m.target.textContent?.includes(text) ? 'shown-on-A' : 'not-yet-shown');
         const refreshedWhileOnA = refreshes();
         props.data = b;
         flushSync();
@@ -2633,6 +3040,8 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
         m.unmount();
         mounted.pop();
       }
+      // The walk only counts if it reached both sides of the result landing on A.
+      expect([...regimes].sort(), text).toEqual(['not-yet-shown', 'shown-on-A']);
     }
   });
 
@@ -2642,7 +3051,6 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
 
   it('a redirect still reaches Kit in the current App (applyAction is off for this form)', async () => {
     const { m } = await mountAgents();
-    kitAppliedResults.length = 0;
     const { delayed } = await beginInstall(m.target);
     await delayed.finish(REDIRECT as never);
     await tick(4);
@@ -2651,7 +3059,6 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
 
   it('A’s late redirect does not reach Kit on B', async () => {
     const { m, props } = await mountAgents();
-    kitAppliedResults.length = 0;
     const { delayed } = await beginInstall(m.target);
     props.data = await dataFor('a2');
     await tick(3);
@@ -2685,8 +3092,8 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
 
   it('a success or refusal never goes through Kit, so focus stays where the reader put it', async () => {
     for (const answer of [confirmed, refused]) {
+      resetKitAppliedResults();
       const { m } = await mountAgents();
-      kitAppliedResults.length = 0;
       const { id, delayed } = await beginInstall(m.target);
       const search = m.target.querySelector<HTMLInputElement>('input[aria-label="Search agents"]')!;
       search.focus();
@@ -2713,4 +3120,426 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
     expect(m.target.textContent).not.toContain('could not be refreshed');
     expect(actions(m.target).disabled).toBe(false);
   });
+
+  // portal#1715 S3: DOM only, not a claim about what a screen reader announced.
+  it('the stale-list notice arrives inside a status region already mounted, and clears on the next submit', async () => {
+    const { m } = await mountAgents();
+    const region = m.target.querySelector('[data-testid="install-refresh-status"]')!;
+    expect(region.getAttribute('role')).toBe('status');
+    expect(region.textContent?.trim()).toBe('');
+    navigationHooks.onInvalidateAll = () => { throw new Error('refresh failed after a confirmed install'); };
+    const { id, delayed } = await beginInstall(m.target);
+    await delayed.finish(await confirmed(id) as never);
+    await tick(4);
+    expect(m.target.querySelector('[data-testid="install-refresh-status"]')).toBe(region);
+    expect(region.textContent).toContain('could not be refreshed');
+    expect(region.textContent).not.toContain('Do not install again');
+    expect(region.querySelector('[role="status"], [role="alert"], button')).toBeNull();
+    navigationHooks.onInvalidateAll = undefined;
+    await beginInstall(m.target);
+    await tick(2);
+    expect(region.textContent?.trim()).toBe('');
+  });
+
+  // portal#1715 S2: these banners had dark classes only, so a refusal was a dark block on a light page.
+  it('the shared banners have a light and a dark look', async () => {
+    const { m } = await mountAgents();
+    const { id, delayed } = await beginInstall(m.target);
+    await delayed.finish(await refused(id) as never);
+    await tick(4);
+    const alert = [...m.target.querySelectorAll('[role="alert"]')].find((x) => x.textContent?.includes(REFUSED))!;
+    expect(alert.className.split(' ')).toEqual(expect.arrayContaining(['bg-red-50', 'text-red-700', 'dark:bg-red-950', 'dark:text-red-300']));
+    const { id: next, delayed: again } = await beginInstall(m.target);
+    await again.finish(await confirmed(next) as never);
+    await tick(4);
+    const status = [...m.target.querySelectorAll('[role="status"]')].find((x) => x.textContent?.includes(LINKED))!;
+    expect(status.firstElementChild).not.toBeNull();
+    expect(status.firstElementChild!.className.split(' ')).toEqual(expect.arrayContaining(['bg-green-50', 'text-green-700', 'dark:bg-green-950', 'dark:text-green-300']));
+  });
+
+  it('the stale-list notice leaves with the App', async () => {
+    const { m, props } = await mountAgents();
+    navigationHooks.onInvalidateAll = () => { throw new Error('refresh failed after a confirmed install'); };
+    const { id, delayed } = await beginInstall(m.target);
+    await delayed.finish(await confirmed(id) as never);
+    await tick(4);
+    const region = m.target.querySelector('[data-testid="install-refresh-status"]')!;
+    expect(region.textContent).toContain('could not be refreshed');
+    props.data = await dataFor('a2');
+    await tick(4);
+    expect(m.target.querySelector('[data-testid="install-refresh-status"]')!.textContent?.trim()).toBe('');
+  });
+});
+
+// portal#1715 S1. Picker Link, row Install and row Unlink are three forms, and
+// `multipleSubmits: 'prevent'` holds per form, so nothing but this invariant stops
+// two writes at once. Each pin counts the submit events that left the page: a
+// disabled attribute alone wouldn't show a write didn't go out, because the row's
+// actions reach `requestSubmit()`, which ignores disabled controls.
+describe('one agent write at a time on the Agents tab (portal#1715)', () => {
+  const BETA = { id: 'ag1', urn: 'hrn:agent:acme.com:beta', name: 'Beta', personaRole: null };
+  const DELTA = { id: 'ag3', urn: 'hrn:agent:acme.com:delta', name: 'Delta', personaRole: null };
+  const GAMMA = { id: 'ag2', urn: 'hrn:agent:acme.com:gamma', name: 'Gamma' };
+  const IMPORTER = { id: 'ag0', name: 'Alpha', urn: 'hrn:agent:acme.com:alpha' };
+  async function mountAgents() {
+    vi.stubGlobal('fetch', vi.fn(async (url) => ({ ok: true, json: async () => String(url).includes('/customisation?') ? { list: { state: 'not-shown' }, original: { state: 'not-shown' }, replacement: { state: 'not-shown' } } : {} }) as Response));
+    setStubPage('https://example.test/app/apps/a1?tab=agents', { appId: 'a1' });
+    const data = await pageData();
+    Object.assign(data.app, { agents: [BETA, DELTA] });
+    data.initialTab = 'agents';
+    const props = reactiveProps({
+      data: { ...data, availableAgents: [GAMMA], bootPointerAppKey: 'a1', installMarks: { ag1: { kind: 'derived', importer: IMPORTER }, ag3: { kind: 'installed' } } },
+      form: null,
+    });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const writes: string[] = [];
+    m.target.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const form = e.target as HTMLFormElement;
+      const id = form.querySelector<HTMLInputElement>('[name="__superform_id"]')?.value ?? '';
+      writes.push(id.startsWith('installAgent:') ? 'install' : form.getAttribute('action') === '?/removeAgent' ? 'unlink' : 'link');
+    }, { capture: true });
+    return { m, writes };
+  }
+  const forms = (target: HTMLElement) => [...target.querySelectorAll<HTMLFormElement>('form')];
+  const installForm = (target: HTMLElement) => forms(target).find((f) => f.querySelector<HTMLInputElement>('[name="__superform_id"]')?.value.startsWith('installAgent:'))!;
+  const linkForm = (target: HTMLElement) => forms(target).find((f) => f.getAttribute('action') === '?/addAgent' && !f.classList.contains('hidden'))!;
+  const unlinkForm = (target: HTMLElement) => target.querySelector<HTMLFormElement>('form[action="?/removeAgent"]')!;
+  const linkButton = (target: HTMLElement) => linkForm(target).querySelector<HTMLButtonElement>('button[type="submit"]')!;
+  const menu = (target: HTMLElement, name: string) => target.querySelector<HTMLButtonElement>(`button[aria-label="Actions for ${name}"]`)!;
+  const item = (target: HTMLElement, label: string) => [...target.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find((i) => i.textContent?.trim() === label)!;
+  async function pick(target: HTMLElement) {
+    const select = linkForm(target).querySelector<HTMLSelectElement>('[name="agentId"]')!;
+    select.value = 'ag2';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(2);
+  }
+  async function openItem(target: HTMLElement, name: string, label: string) {
+    menu(target, name).click();
+    flushSync();
+    return item(target, label);
+  }
+  const answer = async (schema: typeof addAgentSchema | typeof removeAppAgentSchema, id: string) => {
+    const f = await superValidate({ agentId: 'ag1' } as never, zod4(schema as typeof addAgentSchema), { errors: false, id });
+    f.message = { type: 'success', text: 'Done.' };
+    return { type: 'success' as const, status: 200, data: { form: f } };
+  };
+  const idOf = (form: HTMLFormElement) => form.querySelector<HTMLInputElement>('[name="__superform_id"]')?.value ?? 'x';
+
+  // The menu closes on an outside click, so a first write started by clicking would
+  // leave these clicks on a detached item, passing without ever reaching a guard.
+  // `reached` proves the item is live; the first write starts with no outside click.
+  const reached = (target: HTMLElement, el: HTMLElement) => expect(target.contains(el)).toBe(true);
+  async function start(form: HTMLFormElement) {
+    form.requestSubmit();
+    const begun = await submitEnhancedDeferred(form);
+    await tick(2);
+    return begun;
+  }
+
+  it('picker to row: while Link is submitting, row Install can’t post', async () => {
+    const { m, writes } = await mountAgents();
+    await pick(m.target);
+    const install = await openItem(m.target, 'Beta', 'Install');
+    await start(linkForm(m.target));
+    reached(m.target, install);
+    install.click();
+    await tick(3);
+    expect(writes).toEqual(['link']);
+    expect(menu(m.target, 'Beta').disabled).toBe(true);
+    expect(linkButton(m.target).textContent?.trim()).toBe('Linking...');
+  });
+
+  it('picker to row: while Link is submitting, row Unlink can’t post', async () => {
+    const { m, writes } = await mountAgents();
+    await pick(m.target);
+    const unlink = await openItem(m.target, 'Delta', 'Unlink');
+    await start(linkForm(m.target));
+    reached(m.target, unlink);
+    unlink.click();
+    await tick(3);
+    expect(writes).toEqual(['link']);
+  });
+
+  it('row to picker: while row Install is submitting, Link can’t post', async () => {
+    const { m, writes } = await mountAgents();
+    await pick(m.target);
+    (await openItem(m.target, 'Beta', 'Install')).click();
+    await tick(2);
+    expect(writes).toEqual(['install']);
+    await submitEnhancedDeferred(installForm(m.target));
+    await tick(2);
+    linkButton(m.target).click();
+    await tick(2);
+    expect(writes).toEqual(['install']);
+    expect(linkButton(m.target).disabled).toBe(true);
+    expect(linkButton(m.target).textContent?.trim()).toBe('Link');
+  });
+
+  it('row to row: while row Install is submitting, row Unlink can’t post', async () => {
+    const { m, writes } = await mountAgents();
+    const unlink = await openItem(m.target, 'Delta', 'Unlink');
+    await start(installForm(m.target));
+    reached(m.target, unlink);
+    unlink.click();
+    await tick(3);
+    expect(writes).toEqual(['install']);
+  });
+
+  it('while Unlink is submitting, neither Link nor row Install posts', async () => {
+    const { m, writes } = await mountAgents();
+    await pick(m.target);
+    const install = await openItem(m.target, 'Beta', 'Install');
+    await start(unlinkForm(m.target));
+    reached(m.target, install);
+    install.click();
+    await tick(3);
+    expect(writes).toEqual(['unlink']);
+    linkButton(m.target).click();
+    await tick(2);
+    expect(writes).toEqual(['unlink']);
+    expect(linkButton(m.target).disabled).toBe(true);
+  });
+
+  it('control: one write after another goes through once the first has answered', async () => {
+    const { m, writes } = await mountAgents();
+    await pick(m.target);
+    const link = await start(linkForm(m.target));
+    expect(linkButton(m.target).disabled).toBe(true);
+    await link.finish(await answer(addAgentSchema, idOf(linkForm(m.target))) as never);
+    await tick(4);
+    expect(menu(m.target, 'Beta').disabled).toBe(false);
+    (await openItem(m.target, 'Beta', 'Install')).click();
+    await tick(2);
+    expect(writes).toEqual(['link', 'install']);
+  });
+});
+
+// #1776: real Superforms callbacks, held across a reused Page's App change.
+describe('Link and Unlink answers belong to their App visit (#1776)', () => {
+  const DELTA = { id: 'ag3', urn: 'hrn:agent:acme.com:delta', name: 'Delta', personaRole: null };
+  const GAMMA = { id: 'ag2', urn: 'hrn:agent:acme.com:gamma', name: 'Gamma' };
+  type Kind = 'link' | 'unlink';
+  type Outcome = 'success' | 'refusal' | 'error' | 'redirect';
+  async function dataFor(appId: string) {
+    setStubPage(`https://example.test/app/apps/${appId}?tab=agents`, { appId });
+    const data = await pageData();
+    Object.assign(data.app, { id: appId, agents: [DELTA] });
+    return { ...data, initialTab: 'agents', availableAgents: [GAMMA], bootPointerAppKey: appId,
+      installMarks: { ag3: { kind: 'installed' } } };
+  }
+  async function mountAgents() {
+    vi.stubGlobal('fetch', vi.fn(async url => ({ ok: true, json: async () => String(url).includes('/customisation?')
+      ? { list: { state: 'not-shown' }, original: { state: 'not-shown' }, replacement: { state: 'not-shown' } } : {} }) as Response));
+    const props = reactiveProps({ data: await dataFor('a1'), form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(3);
+    return { m, props };
+  }
+  const formOf = (target: HTMLElement, kind: Kind) => kind === 'unlink'
+    ? target.querySelector<HTMLFormElement>('form[action="?/removeAgent"]')!
+    : [...target.querySelectorAll<HTMLFormElement>('form[action="?/addAgent"]')].find(f => !f.classList.contains('hidden'))!;
+  async function begin(target: HTMLElement, kind: Kind) {
+    if (kind === 'link') {
+      const select = formOf(target, kind).querySelector<HTMLSelectElement>('[name="agentId"]')!;
+      select.value = GAMMA.id;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      await tick(2);
+    } else {
+      const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+      target.querySelector<HTMLButtonElement>('button[aria-label="Actions for Delta"]')!.click();
+      flushSync();
+      [...target.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(el => el.textContent?.trim() === 'Unlink')!.click();
+      await tick(2);
+      expect(requestSubmit).toHaveBeenCalledTimes(1);
+      expect(requestSubmit.mock.instances[0]).toBe(formOf(target, kind));
+      requestSubmit.mockRestore();
+    }
+    const form = formOf(target, kind);
+    // Main uses the loader's schema id without an explicit hidden field;
+    // the fenced form exposes its live instance id. Derive the old id from
+    // the same loader schema, never from an invented constant.
+    const id = form.querySelector<HTMLInputElement>('[name="__superform_id"]')?.value
+      ?? (await superValidate(zod4((kind === 'link' ? addAgentSchema : removeAppAgentSchema) as typeof addAgentSchema), { errors: false })).id;
+    expect(new FormData(form).get('agentId')).toBe(kind === 'link' ? GAMMA.id : DELTA.id);
+    return { id, delayed: await submitEnhancedDeferred(form), form };
+  }
+  it('#1777 shared success region is mounted empty, filled, then cleared without replacement', async () => {
+    const { m, props } = await mountAgents();
+    const region = m.target.querySelector('[data-testid="app-success-status"]');
+    expect(region).not.toBeNull();
+    expect(region!.textContent?.trim()).toBe('');
+    expect(region!.getAttribute('role')).toBe('status');
+    const a = await begin(m.target, 'link');
+    await a.delayed.finish(await answer('link', 'success', a.id, 'A') as never);
+    await tick(3);
+    expect(m.target.querySelector('[data-testid="app-success-status"]')).toBe(region);
+    expect(region!.textContent).toContain('A link success');
+    props.data = await dataFor('a2');
+    await tick(3);
+    expect(m.target.querySelector('[data-testid="app-success-status"]')).toBe(region);
+    expect(region!.textContent?.trim()).toBe('');
+  });
+
+  async function answer(kind: Kind, outcome: Outcome, id: string, owner: string) {
+    if (outcome === 'error') return { type: 'error', status: 500, error: { message: `${owner} failed request` } };
+    if (outcome === 'redirect') return { type: 'redirect', status: 303, location: `/${owner}-redirect` };
+    const f = await superValidate({ agentId: kind === 'link' ? GAMMA.id : DELTA.id },
+      zod4((kind === 'link' ? addAgentSchema : removeAppAgentSchema) as typeof addAgentSchema), { errors: false, id });
+    f.valid = outcome === 'success';
+    f.message = { type: outcome === 'success' ? 'success' : 'error', text: `${owner} ${kind} ${outcome}` };
+    return { type: outcome === 'success' ? 'success' : 'failure', status: outcome === 'success' ? 200 : 400, data: { form: f } };
+  }
+  async function move(props: { data: Awaited<ReturnType<typeof dataFor>> }, appId: string) {
+    props.data = await dataFor(appId);
+    await tick(3);
+    // Superforms makes B available after a real router navigation; without
+    // this hook a pending A request can vacuously keep B from submitting.
+    for (const g of navigationGuards.filter(g => g.fn === 'afterNavigate'))
+      (g.callback as (nav: unknown) => void)({ type: 'link' });
+    await tick(3);
+  }
+  for (const kind of ['link', 'unlink'] as const) {
+    for (const bSubmitted of [false, true]) {
+      it.each(['success', 'refusal', 'error', 'redirect'] as const)(`${kind}: late %s stays off B (B submitted=${bSubmitted})`, async outcome => {
+        const { m, props } = await mountAgents();
+        const a = await begin(m.target, kind);
+        await move(props, 'a2');
+        const b = bSubmitted ? await begin(m.target, kind) : null;
+        resetNavigationCalls();
+        resetKitAppliedResults();
+        const focus = m.target.querySelector<HTMLSelectElement>('#agentId')!;
+        focus.focus();
+        await a.delayed.finish(await answer(kind, outcome, a.id, 'A') as never);
+        await tick(4);
+        expect(m.target.textContent).not.toContain(`A ${kind}`);
+        expect(kitAppliedResults).toEqual([]);
+        expect(navigationCalls.filter(c => c.fn === 'invalidateAll')).toHaveLength(0);
+        expect(document.activeElement).toBe(focus);
+        if (b) {
+          // Same post-navigation lifecycle position: a dead delivery wire must
+          // fail this control even if every stale-answer negative passes.
+          await b.delayed.finish(await answer(kind, 'refusal', b.id, 'B') as never);
+          await tick(4);
+          expect(m.target.textContent).toContain(`B ${kind} refusal`);
+        }
+      });
+    }
+    it.each(['message', 'fields'] as const)(`${kind}: completed A %s and selection clear on App change`, async state => {
+      const { m, props } = await mountAgents();
+      const selection = () => kind === 'link'
+        ? formOf(m.target, kind).querySelector<HTMLSelectElement>('[name="agentId"]')!.value
+        : formOf(m.target, kind).querySelector<HTMLInputElement>('[name="agentId"]')!.value;
+      async function completed(owner: string) {
+        if (state === 'fields') {
+          const form = formOf(m.target, kind);
+          if (kind === 'link') {
+            // Link has novalidate: reproduce the action's validation of the
+            // exact empty submitted FormData, including its live form id.
+            const body = new FormData(form);
+            const delayed = await submitEnhancedDeferred(form);
+            const f = await superValidate(body, zod4(addAgentSchema));
+            expect(f.valid).toBe(false);
+            await delayed.finish({ type: 'failure', status: 400, data: { form: f } });
+          } else {
+            // Unlink validates its empty target on the client before sending.
+            expect((await submitEnhanced(form)).cancelled).toBe(true);
+          }
+          await vi.waitFor(() => expect(m.target.textContent).toContain('Agent is required'));
+        } else {
+          const sent = await begin(m.target, kind);
+          const f = await superValidate({ agentId: kind === 'link' ? GAMMA.id : DELTA.id },
+            zod4((kind === 'link' ? addAgentSchema : removeAppAgentSchema) as typeof addAgentSchema), { id: sent.id });
+          f.message = { type: 'error', text: `${owner} completed ${kind} answer` };
+          await sent.delayed.finish({ type: 'failure', status: 500, data: { form: f } });
+          await tick(3);
+        }
+      }
+      const expected = state === 'fields' ? 'Agent is required' : `A completed ${kind} answer`;
+      await completed('A');
+      expect(m.target.textContent).toContain(expected);
+      expect(selection()).toBe(state === 'fields' ? '' : kind === 'link' ? GAMMA.id : DELTA.id);
+      await move(props, 'a2');
+      expect(m.target.textContent).not.toContain(expected);
+      expect(selection()).toBe('');
+      await completed('B');
+      expect(m.target.textContent).toContain(state === 'fields' ? 'Agent is required' : `B completed ${kind} answer`);
+    });
+    it(`${kind}: returning A is a new visit, not the old pending request`, async () => {
+      const { m, props } = await mountAgents();
+      const a = await begin(m.target, kind);
+      await move(props, 'a2');
+      await move(props, 'a1');
+      const current = await begin(m.target, kind);
+      resetKitAppliedResults();
+      await a.delayed.finish(await answer(kind, 'refusal', a.id, 'OLD') as never);
+      await tick(3);
+      expect(m.target.textContent).not.toContain(`OLD ${kind}`);
+      expect(kitAppliedResults).toEqual([]);
+      await current.delayed.finish(await answer(kind, 'refusal', current.id, 'CURRENT') as never);
+      await tick(3);
+      expect(m.target.textContent).toContain(`CURRENT ${kind} refusal`);
+    });
+    it(`${kind}: an App change during the successful refresh cannot rebind B`, async () => {
+      const { m, props } = await mountAgents();
+      const a = await begin(m.target, kind);
+      let reached = false;
+      navigationHooks.onInvalidateAll = async () => {
+        reached = true;
+        await move(props, 'a2');
+        const select = formOf(m.target, 'link').querySelector<HTMLSelectElement>('[name="agentId"]')!;
+        select.value = GAMMA.id;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        await tick(2);
+        select.focus();
+      };
+      await a.delayed.finish(await answer(kind, 'success', a.id, 'A') as never);
+      await tick(4);
+      expect(reached).toBe(true);
+      expect(m.target.textContent).not.toContain(`A ${kind}`);
+      const select = formOf(m.target, 'link').querySelector<HTMLSelectElement>('[name="agentId"]')!;
+      expect(select.value).toBe(GAMMA.id);
+      expect(document.activeElement).toBe(select);
+      expect(kitAppliedResults).toEqual([]);
+    });
+    it(`${kind}: a fresh mount cannot receive the destroyed page's answer`, async () => {
+      const first = await mountAgents();
+      const a = await begin(first.m.target, kind);
+      first.m.unmount();
+      mounted.splice(mounted.indexOf(first.m), 1);
+      const fresh = await mountAgents();
+      const current = await begin(fresh.m.target, kind);
+      resetKitAppliedResults();
+      await a.delayed.finish(await answer(kind, 'refusal', a.id, 'OLD') as never);
+      await tick(3);
+      expect(fresh.m.target.textContent).not.toContain(`OLD ${kind}`);
+      expect(kitAppliedResults).toEqual([]);
+      await current.delayed.finish(await answer(kind, 'refusal', current.id, 'CURRENT') as never);
+      await tick(3);
+      expect(fresh.m.target.textContent).toContain(`CURRENT ${kind} refusal`);
+    });
+    it(`${kind}: B own failed request keeps its existing error handling`, async () => {
+      const { m, props } = await mountAgents();
+      await begin(m.target, kind);
+      await move(props, 'a2');
+      const b = await begin(m.target, kind);
+      await expect(b.delayed.finish(await answer(kind, 'error', b.id, 'B') as never))
+        .rejects.toMatchObject({ message: 'B failed request' });
+    });
+    it.each(['success', 'refusal', 'redirect'] as const)(`${kind}: B own %s still lands after navigation`, async outcome => {
+      const { m, props } = await mountAgents();
+      await begin(m.target, kind);
+      await move(props, 'a2');
+      const b = await begin(m.target, kind);
+      resetKitAppliedResults();
+      resetNavigationCalls();
+      await b.delayed.finish(await answer(kind, outcome, b.id, 'B') as never);
+      await tick(4);
+      if (outcome === 'redirect') expect(kitAppliedResults).toEqual([{ type: 'redirect', status: 303, location: '/B-redirect' }]);
+      else expect(m.target.textContent).toContain(`B ${kind} ${outcome}`);
+    });
+  }
 });

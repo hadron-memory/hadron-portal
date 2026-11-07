@@ -193,10 +193,11 @@ try {
           assert.ok(geo.ref.top >= geo.ann.bottom - 1, `${label}: the two caveats join into one line (refresh top ${geo.ref.top.toFixed(1)}, announcement bottom ${geo.ann.bottom.toFixed(1)})`);
           if (width === 390) {
             // Prove the pin can see the defect: force the caveats back inline
-            // (the markup this head replaced) and the lines MUST join again.
-            const mutant = await page.addStyleTag({ content: '[data-testid="ticker-remove-outcome-mounted"] [data-testid="ticker-remove-outcome-announcement"], [data-testid="ticker-remove-outcome-mounted"] [data-testid="ticker-remove-outcome-refresh-failed"] { display: inline !important; }' });
+            // and hide #1686's new linked reveal (the old chip had no 24px
+            // sibling making the line taller), so this reproduces the old markup.
+            const mutant = await page.addStyleTag({ content: '[data-testid="ticker-remove-outcome-mounted"] [data-testid="ticker-remove-outcome-announcement"], [data-testid="ticker-remove-outcome-mounted"] [data-testid="ticker-remove-outcome-refresh-failed"] { display: inline !important; } [data-testid="ticker-remove-outcome-mounted"] button[aria-expanded] { display: none !important; }' });
             const runIn = await stacked();
-            assert.ok(runIn.ann.top < runIn.chip.bottom - 1, `${label}: the inline mutant must run the caveat into the chip, or this pin proves nothing`);
+            assert.ok(runIn.ann.top < runIn.chip.bottom - 1, `${label}: the inline mutant must run the caveat into the chip, or this pin proves nothing ${JSON.stringify(runIn)}`);
             await mutant.evaluate((el) => el.remove());
             const again = await stacked();
             assert.ok(again.ann.top >= again.chip.bottom - 1, `${label}: the caveat must return to its own line after the mutant`);

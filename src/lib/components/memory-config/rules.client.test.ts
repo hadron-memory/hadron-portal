@@ -13,6 +13,10 @@ function mount(initial: Rulebook | null, readOnly = false) {
   const m = mountComponent(RulebookManager, props); cleanup.push(m.unmount); return { ...m, props };
 }
 const button = (root: HTMLElement, text: string) => [...root.querySelectorAll('button')].find(b => b.textContent?.trim() === text)!;
+function search(root: HTMLElement, value: string) {
+  const input = root.querySelector<HTMLInputElement>('input[aria-label="Search rules…"]')!;
+  input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
+}
 beforeEach(() => {
   localStorage.clear(); fetcher.mockReset(); vi.stubGlobal('fetch', fetcher);
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
@@ -174,5 +178,29 @@ describe('#1764 less-visible task warning on rule save', () => {
     button(m.target, 'Delete').click();
     await vi.waitFor(() => { flushSync(); expect(m.target.textContent).toContain('Deleted.'); });
     expect(m.target.textContent).not.toContain('author task');
+  });
+
+});
+
+describe('portal#1761 grid search', () => {
+  it('filters rulebook rows and restores them when cleared', () => {
+    const m = mount({ rules: [{ ...rule, authorTask: 'hrn:node:acme.com:private:secret-reference' }, { ...rule, id: 'r2', role: 'publish', enabled: false, writers: 'ADMIN', authorTask: null, authorTaskState: 'NONE' }] });
+    expect(m.target.querySelectorAll('tbody tr')).toHaveLength(2);
+    search(m.target, 'review');
+    expect(m.target.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(m.target.querySelector('tbody')?.textContent).toContain('review');
+    expect(m.target.querySelector('tbody')?.textContent).not.toContain('publish');
+    search(m.target, '');
+    expect(m.target.querySelectorAll('tbody tr')).toHaveLength(2);
+    search(m.target, 'ADMIN');
+    expect(m.target.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(m.target.querySelector('tbody')?.textContent).toContain('publish');
+    expect(m.target.querySelector('tbody')?.textContent).not.toContain('review');
+    search(m.target, 'UNREADABLE');
+    expect(m.target.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(m.target.querySelector('tbody')?.textContent).toContain('review');
+    expect(m.target.querySelector('tbody')?.textContent).not.toContain('publish');
+    search(m.target, 'secret-reference');
+    expect(m.target.querySelectorAll('tbody tr')).toHaveLength(0);
   });
 });

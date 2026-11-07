@@ -1,3 +1,6 @@
+import { loadAppRunsPage, loadAppRunsExtras } from '$lib/server/app-runs-page';
+import { flowRoots } from '$lib/flow/flows';
+import { runAppFlow } from '$lib/server/run-app-flow';
 import { readChannelPage, postToChannel } from '$lib/server/channel-chat';
 import { withRegisteredChannels } from '$lib/app-chats';
 
@@ -65,7 +68,7 @@ import {
 } from '$lib/app-chats';
 import { loadTeamChatTail, teamChatRefusalOf } from '$lib/server/team-chat';
 import { NO_TEAM_FILTER, parseTeamParam } from '$lib/team-chat-filter';
-import { loadChatMessages } from '$lib/server/team-chat';
+import { chatMessageNodeTypes, loadChatMessages } from '$lib/server/team-chat';
 import { resolveTabIntent } from './tab-intent';
 import {
   addMember,
@@ -385,6 +388,17 @@ function castReportingArm(data: { reporting: string; reportsTo: string }): { rep
  * X"), and the codes are a documented contract, so branching on the code is
  * both stabler and more actionable than echoing the message.
  */
+/**
+ * portal#1715: the grant refusals an install into this App can meet, as portal
+ * copy. `lookupOwn` reads it, as CAST_WORKER_ERRORS. Everything else, an unknown
+ * code included, keeps `extractGqlError`'s handling: a generic error is not an
+ * unknown outcome, and neither is ever retried.
+ */
+const ADD_AGENT_ERRORS: Record<string, () => string> = {
+  AGENT_ORG_GRANT_INACTIVE: () => t('app.agent.add.grant-inactive', 'This App’s organization has an inactive grant for that agent, so it can’t be installed. Ask the organization to restore the grant.'),
+  AGENT_ORG_GRANT_REQUIRED: () => t('app.agent.add.grant-required', 'This App’s organization needs a grant for that agent before it can be installed.'),
+};
+
 const CAST_WORKER_ERRORS: Record<string, () => string> = {
   FORBIDDEN: STAFFING_FORBIDDEN,
   WORKER_NAME_TAKEN: () => t(
@@ -942,7 +956,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       { errors: false, id: `channel:${selectedChat.channelId}` }) : null;
   const selectedChatMessages =
     selectedChat?.kind === 'other' && selectedChat.memoryId
-      ? await loadChatMessages(client, selectedChat.memoryId, selectedChat.key)
+      ? await loadChatMessages(client, selectedChat.memoryId, selectedChat.key, {
+          messageNodeTypes: chatMessageNodeTypes(selectedChat),
+        })
           .catch((e) => {
             console.warn(`[app-chats] messages fetch failed for ${selectedChat.key}:`, e);
             return null;
@@ -955,7 +971,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     superValidate(zod4(createAppMemorySchema), { id: `createAppMemory:${app.id}`, errors: false }),
   ]);
 
+  const runsSection = initialTab === 'runs' ? await loadAppRunsPage(client, params.appId, url.searchParams) : null;
+  const runsExtras = initialTab === 'runs' ? await loadAppRunsExtras(client, params.appId) : null;
   return {
+    runsPanel: runsSection && runsExtras ? { ...runsSection, app, flows: flowRoots(nodesData.appNodes), flowsCapped: isCapped(nodesData.appNodes?.length ?? 0, APP_NODES_LIMIT), flowsScanned: nodesData.appNodes?.length ?? 0, ...runsExtras } : null,
     appMemoryScope,
     appMemories: app.organizationId ? orgAppMemories : appMemoriesFromScope(appMemoryScope, app.id),
     createMemoryForm,
@@ -1064,6 +1083,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 };
 
 export const actions: Actions = {
+  run: runAppFlow,
   createMemory,
   createCustomisation: async ({ request, params, locals }) =>
     writeCustomisation(gqlClient(locals.token), params.appId, await request.formData(), true),
@@ -1109,7 +1129,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to update app') },
+        { type: 'error', text: extractGqlError(e, 'Failed to update app', [], { transport: 'fallback' }) },
         { status: 500 },
       );
     }
@@ -1145,7 +1165,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to add agent') },
+        { type: 'error', text: lookupOwn(ADD_AGENT_ERRORS, gqlErrorCode(e))?.() ?? extractGqlError(e, 'Failed to add agent', [], { transport: 'fallback' }) },
         { status: 500 },
       );
     }
@@ -1167,7 +1187,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to remove agent') },
+        { type: 'error', text: extractGqlError(e, 'Failed to remove agent', [], { transport: 'fallback' }) },
         { status: 500 },
       );
     }
@@ -1229,10 +1249,9 @@ export const actions: Actions = {
         text: t('app.staff.cast.success', 'Worker cast.'),
       });
     } catch (e: unknown) {
-      // Known refusals get copy that says what to do next; anything else —
-      // including a transport failure with no GraphQL payload — falls through
-      // to the server's own message rather than being relabelled as a user
-      // mistake (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
+      // Known refusals keep actionable copy. Other GraphQL faults retain the
+      // shared envelope; transport failures use this action's fallback, not
+      // raw exception text (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
       // #835 — `lookupOwn`: the key is the server's `extensions.code`, so an
       // inherited one returns a callable that `known()` below would invoke,
       // putting `{}` into a user-facing error slot instead of the server's own
@@ -1242,7 +1261,7 @@ export const actions: Actions = {
         form,
         {
           type: 'error',
-          text: known ? known() : extractGqlError(e, t('app.staff.cast.error', 'Failed to cast the worker.')),
+          text: known ? known() : extractGqlError(e, t('app.staff.cast.error', 'Failed to cast the worker.'), [], { transport: 'fallback' }),
         },
         { status: 500 },
       );
@@ -1297,7 +1316,7 @@ export const actions: Actions = {
           type: 'error',
           text: known
             ? known()
-            : extractGqlError(e, t('app.team-chat.post.error', 'Failed to post to the team chat.')),
+            : extractGqlError(e, t('app.team-chat.post.error', 'Failed to post to the team chat.'), [], { transport: 'fallback' }),
         },
         { status: 500 },
       );
@@ -1421,7 +1440,7 @@ export const actions: Actions = {
           type: 'error',
           text: forbidden
             ? STAFFING_FORBIDDEN()
-            : extractGqlError(e, t('app.staff.retire.error', 'Failed to retire the worker.')),
+            : extractGqlError(e, t('app.staff.retire.error', 'Failed to retire the worker.'), [], { transport: 'fallback' }),
         },
         { status: 500 },
       );
@@ -1467,7 +1486,7 @@ export const actions: Actions = {
           type: 'error',
           text: forbidden
             ? RELEASE_FORBIDDEN()
-            : extractGqlError(e, t('app.staff.release.error', 'Failed to release the name.')),
+            : extractGqlError(e, t('app.staff.release.error', 'Failed to release the name.'), [], { transport: 'fallback' }),
         },
         { status: 500 },
       );
@@ -1542,7 +1561,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to delete app') },
+        { type: 'error', text: extractGqlError(e, 'Failed to delete app', [], { transport: 'fallback' }) },
         { status: 500 },
       );
     }

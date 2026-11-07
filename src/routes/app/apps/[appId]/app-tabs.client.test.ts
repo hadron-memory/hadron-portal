@@ -95,6 +95,15 @@ describe('App page tab strip (#1005, #1006)', () => {
     expect(labels).not.toContain('Worker agents');
   });
 
+  it('mounts Runs as a real App tab with its own panel', async () => {
+    const target = await mountTab('runs');
+    const tab = target.querySelector('#tab-runs');
+    expect(tab?.getAttribute('role')).toBe('tab');
+    expect(tab?.getAttribute('aria-selected')).toBe('true');
+    expect(target.querySelector('#panel-runs')?.getAttribute('role')).toBe('tabpanel');
+    expect(target.querySelector('a[href="/app/apps/a1/runs"]')).toBeNull();
+  });
+
   it('keeps the `staff` id behind the renamed worker tab: a label is not an address', async () => {
     const target = await mountTab('chats');
     expect(target.querySelector('#tab-staff')?.textContent?.trim()).toBe('AI Team');
@@ -102,7 +111,7 @@ describe('App page tab strip (#1005, #1006)', () => {
     expect(target.querySelector('#tab-agents')?.textContent?.trim()).toBe('Agents');
   });
 
-  // #1052: Tasks is a sub-route like Runs and Channels: a link styled as a
+  // #1052: Tasks is a sub-route like Channels: a link styled as a
   // tab, not an in-page panel, so a task read's refusal never reaches this page.
   it('links to the Tasks sub-route', async () => {
     const target = await mountTab('chats');

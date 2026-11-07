@@ -11,6 +11,7 @@ import {
   APP_CHAT_TARGET_QUERY,
   CHANNEL_CHAT_TARGET_QUERY,
   CREATE_CHANNEL_MESSAGE_MUTATION,
+  CREATE_TEAM_CHAT_MESSAGE_MUTATION,
   APP_KEYS_QUERY,
   APP_VIEWER_MANAGES_QUERY,
   APP_MEMBERS_QUERY,
@@ -585,14 +586,14 @@ describe('update action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns a typed error when app update fails', async () => {
+  it('returns fallback copy when app update transport fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('update', validSettings)) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to update app' });
   });
 });
 
@@ -620,6 +621,46 @@ describe('addAgent action', () => {
     mockRequest.mockResolvedValueOnce({});
     await runAction('addAgent', { agentId: 'agent-1' });
     expect(mockRequest.mock.calls[0][1]).toEqual({ appRef: 'app-1', agentRef: 'agent-1' });
+  });
+
+  // portal#1715 S2. Stubbed refusals: these prove the mapping, not that a real
+  // server reaches each code on this path.
+  describe('a refused install', () => {
+    const GENERIC = 'Something went wrong on our side.';
+    const refusal = (code: string, text = 'internal server text') => Object.assign(new Error(text), { response: { errors: [{ message: text, extensions: { code } }] } });
+    const refuse = async (error: unknown) => {
+      mockRequest.mockRejectedValueOnce(error);
+      return (await runAction('addAgent', { agentId: 'agent-1' })) as { status: number; data: { form: { message: { type: string; text: string } } } };
+    };
+
+    it.each([
+      ['AGENT_ORG_GRANT_INACTIVE', 'This App’s organization has an inactive grant for that agent, so it can’t be installed. Ask the organization to restore the grant.'],
+      ['AGENT_ORG_GRANT_REQUIRED', 'This App’s organization needs a grant for that agent before it can be installed.'],
+    ])('%s shows portal copy, never the server’s, at status 500', async (code, text) => {
+      const result = await refuse(refusal(code));
+      expect(result.status).toBe(500);
+      expect(result.data.form.message).toEqual({ type: 'error', text });
+      expect(mockRequest).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([['AGENT_NOT_FOUND'], ['SOME_NEW_DOMAIN_CODE'], ['AGENT_DEPENDENCY_UNAVAILABLE']])('%s keeps today’s handling', async (code) => {
+      const result = await refuse(refusal(code));
+      expect(result.status).toBe(500);
+      expect(result.data.form.message).toEqual({ type: 'error', text: GENERIC });
+    });
+
+    it('a prototype key as a code is not a map entry', async () => {
+      const result = await refuse(refusal('constructor'));
+      expect(result.data.form.message.text).toBe(GENERIC);
+    });
+
+    it('a transport failure uses fallback copy and is not read as a typed unknown outcome', async () => {
+      const failure = new Error('socket hang up');
+      const result = await refuse(failure);
+      expect(result.status).toBe(500);
+      expect(result.data.form.message.text).toBe('Failed to add agent');
+      expect(result.data.form.message.text).not.toContain('could not be confirmed');
+    });
   });
 
   it('rejects missing agent ids before mutation', async () => {
@@ -764,14 +805,14 @@ describe('removeAgent action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns typed removeAgent errors', async () => {
+  it('returns fallback copy for removeAgent transport errors', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('removeAgent', { agentId: 'agent-1' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to remove agent' });
   });
 });
 
@@ -965,7 +1006,7 @@ describe('deleteApp action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns typed deleteApp errors', async () => {
+  it('returns fallback copy for deleteApp transport errors', async () => {
     mockRequest
       .mockResolvedValueOnce({ app: { organizationId: 'org-1' } }) // org lookup ok
       .mockRejectedValueOnce(new Error('nope')); // delete fails
@@ -974,7 +1015,7 @@ describe('deleteApp action', () => {
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to delete app' });
   });
 });
 
@@ -1144,14 +1185,14 @@ describe('castWorker action', () => {
     expect(result.data.form.message.text).toBe('Something went wrong on our side.');
   });
 
-  it('falls back to the server message for a payload-less transport failure', async () => {
+  it('uses action fallback copy for a payload-less transport failure', async () => {
     // No `response.errors` at all — reading extensions.code off it would yield
     // undefined and, with a catch-all, mislabel an outage.
     mockRequest.mockRejectedValueOnce(new Error('bad gateway'));
     const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', reporting: 'none' })) as {
       data: { form: { message: { text: string } } };
     };
-    expect(result.data.form.message.text).toBe('bad gateway');
+    expect(result.data.form.message.text).toBe('Failed to cast the worker.');
   });
 });
 
@@ -1176,14 +1217,14 @@ describe('retireWorker action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns a typed error when retiring fails', async () => {
+  it('returns fallback copy when retiring transport fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('retireWorker', { workerId: 'worker-1' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to retire the worker.' });
   });
 
   // Retiring shares castWorker's gate, so it must share its refusal copy —
@@ -1426,14 +1467,14 @@ describe('releaseWorker action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns a typed error when releasing fails', async () => {
+  it('returns fallback copy when releasing transport fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('releaseWorker', { workerId: 'worker-1', expectedHolderUserId: 'user-9' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to release the name.' });
   });
 
   // releaseWorker does NOT share the staffing gate: it admits the HOLDER or an
@@ -2378,7 +2419,51 @@ describe('castWorker reporting choice (#1149)', () => {
     const result = (await runAction('castWorker', { ...base, reporting: 'head', reportsTo: 'worker-ada' })) as {
       data: { form: { message: { text: string } } };
     };
-    expect(result.data.form.message.text).toBe('bad gateway');
+    expect(result.data.form.message.text).toBe('Failed to cast the worker.');
     expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+});
+
+// #1778: exercise each actual action catch, not just the shared extractor.
+describe('App action transport copy', () => {
+  const cases = [
+    ['update', validSettings, UPDATE_APP_MUTATION, 'Failed to update app'],
+    ['addAgent', { agentId: 'agent-1' }, INSTALL_AGENT_INTO_APP_MUTATION, 'Failed to add agent'],
+    ['removeAgent', { agentId: 'agent-1' }, UNINSTALL_AGENT_FROM_APP_MUTATION, 'Failed to remove agent'],
+    ['castWorker', { agentId: 'agent-1', name: 'Aster', reporting: 'none' }, CAST_WORKER_MUTATION, 'Failed to cast the worker.'],
+    ['postTeamChatMessage', { body: 'hello' }, CREATE_TEAM_CHAT_MESSAGE_MUTATION, 'Failed to post to the team chat.'],
+    ['retireWorker', { workerId: 'worker-1' }, RETIRE_WORKER_MUTATION, 'Failed to retire the worker.'],
+    ['releaseWorker', { workerId: 'worker-1', expectedHolderUserId: 'user-1' }, RELEASE_WORKER_MUTATION, 'Failed to release the name.'],
+    ['deleteApp', {}, DELETE_APP_MUTATION, 'Failed to delete app'],
+  ] as const;
+
+  it.each(cases)('%s uses its fallback for a plain transport Error', async (name, fields, mutation, fallback) => {
+    // deleteApp reads ownership first; fail the mutation itself, not that
+    // non-fatal lookup. Every case must reach exactly one attempted write.
+    mockRequest.mockImplementation(async query => {
+      if (query === mutation) throw new Error('fetch failed PRIVATE_TRANSPORT_DETAIL');
+      return { app: { organizationId: null } };
+    });
+    const result = await runAction(name, fields) as {
+      status: number; data: { form: { message: { type: string; text: string } } };
+    };
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(mockRequest).toHaveBeenCalledTimes(name === 'deleteApp' ? 2 : 1);
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: fallback });
+    expect(JSON.stringify(result)).not.toContain('PRIVATE_TRANSPORT_DETAIL');
+  });
+
+  it.each(cases)('%s preserves an existing typed validation refusal', async (name, fields, mutation) => {
+    mockRequest.mockImplementation(async query => {
+      if (query === mutation) throw { response: { errors: [{ message: 'Correct the submitted value.', extensions: { code: 'BAD_USER_INPUT' } }] } };
+      return { app: { organizationId: null } };
+    });
+    const result = await runAction(name, fields) as {
+      status: number; data: { form: { message: { type: string; text: string } } };
+    };
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Correct the submitted value.' });
+    expect(result.status).toBe(500);
   });
 });

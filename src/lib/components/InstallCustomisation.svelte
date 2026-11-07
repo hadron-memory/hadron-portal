@@ -85,11 +85,14 @@
       size: 240,
     },
   ];
+  let customisationFilter = $state('');
   const table = createSvelteTable({
     get data() {
       return rows;
     },
     columns,
+    state: { get globalFilter() { return customisationFilter; } },
+    onGlobalFilterChange: value => { customisationFilter = typeof value === 'function' ? value(customisationFilter) : value; },
   });
   async function load(nextOffset = offset, nextLoc = loc, discard = false) {
     pendingSave++;
@@ -249,7 +252,7 @@
     <p role="status" data-testid="customisation-list-unavailable" class="mt-2 text-sm text-zinc-500">{t('customisation.list-unavailable','Nothing is listed here. The node list is temporarily limited, so this may not be the full set.')}</p>
   {:else}
     {#if read.list.value.urn}<div class="mt-2"><Urn value={read.list.value.urn} compact /></div>{/if}
-    <DataTable {table} searchPlaceholder={t('customisation.search','Search customisations…')} searchAriaLabel={t('customisation.search-label','Search customisations')} listKey={`install-customisation:${appRef}:${agent.id}`}>
+    <DataTable {table} bind:globalFilter={customisationFilter} searchPlaceholder={t('customisation.search','Search customisations…')} searchAriaLabel={t('customisation.search-label','Search customisations')} listKey={`install-customisation:${appRef}:${agent.id}`}>
       {#snippet cell(cell)}
         <div class="min-w-0 whitespace-normal break-words font-medium">{cell.row.original.name}</div>
         <div class="mt-1 whitespace-normal break-all font-mono text-xs text-zinc-500">{cell.row.original.loc}</div>

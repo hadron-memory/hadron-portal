@@ -3056,9 +3056,10 @@ export const NODES_BY_LOC_PREFIX_QUERY = /* GraphQL */ `
     $limit: Int
     $offset: Int
     $sort: NodeSort
+    $nodeTypes: [String!]
   ) {
     findNodes(
-      filter: { memoryIds: [$memoryId], locPrefix: $locPrefix }
+      filter: { memoryIds: [$memoryId], locPrefix: $locPrefix, nodeTypes: $nodeTypes }
       limit: $limit
       offset: $offset
       sort: $sort
@@ -4186,8 +4187,8 @@ export const APP_RUN_FIELDS = /* GraphQL */ `
 // The runs audit list (org-READER gated server-side; limit hard-capped 200).
 export const APP_RUNS_QUERY = /* GraphQL */ `
   ${APP_RUN_FIELDS}
-  query AppRuns($appRef: String, $status: AppRunStatus, $limit: Int, $offset: Int) {
-    appRuns(appRef: $appRef, status: $status, limit: $limit, offset: $offset) {
+  query AppRuns($appRef: String, $statuses: [AppRunStatus!], $sortBy: AppRunSortField, $sortDir: SortDirection, $limit: Int, $offset: Int) {
+    appRuns(appRef: $appRef, statuses: $statuses, sortBy: $sortBy, sortDir: $sortDir, limit: $limit, offset: $offset) {
       items { ...AppRunFields }
       total
     }
