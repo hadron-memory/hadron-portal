@@ -17,7 +17,13 @@
   const fields = ['authorTask', 'validationTask', 'descriptionNode'] as const;
   type Field = typeof fields[number];
   const labels = { authorTask: t('config.author', 'Author task'), validationTask: t('config.validator', 'Validation task'), descriptionNode: t('config.description-node', 'Description node') };
-  let refs = $state<Partial<Record<Field, string | null>>>({});
+  // Replace this sparse override map as a value: Object.hasOwn on an absent
+  // proxy key does not subscribe the display to that key being added. Keep
+  // absence distinct from an explicit null (Clear) for inherited/edit values.
+  let refs = $state.raw<Partial<Record<Field, string | null>>>({});
+  function setReference(field: Field, value: string | null) {
+    refs = { ...refs, [field]: value };
+  }
   let choosing = $state<Field | null>(null), pickerOpen = $state(false);
   let pending = $state(false), failure = $state<ConfigFailure | null>(null);
   // A pending save still owns Escape: declining it lets Chromium close the native dialog.
@@ -66,7 +72,7 @@
         {:else}<RuleReference state="NONE" urn={null} />{/if}
         <div class="flex flex-wrap gap-2">
           <button type="button" onclick={() => { choosing = field; pickerOpen = true; }} class="min-h-11 rounded border px-3">{t('config.change', 'Change…')}</button>
-          <button type="button" onclick={() => refs[field] = null} class="min-h-11 rounded border px-3">{t('config.clear', 'Clear')}</button>
+          <button type="button" onclick={() => setReference(field, null)} class="min-h-11 rounded border px-3">{t('config.clear', 'Clear')}</button>
         </div>
         {#if failure?.field === field || failure?.field === `${field}Ref`}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}
       </div>
@@ -83,5 +89,5 @@
     </div>
     </fieldset>
   </form>
-  {#if pickerOpen}<SelectNode {memories} {memoriesFailed} bind:open={pickerOpen} onselect={(node) => { if (choosing) refs[choosing] = node.urn; pickerOpen = false; }} />{/if}
+  {#if pickerOpen}<SelectNode {memories} {memoriesFailed} bind:open={pickerOpen} onselect={(node) => { if (choosing) setReference(choosing, node.urn); pickerOpen = false; }} />{/if}
 </dialog>

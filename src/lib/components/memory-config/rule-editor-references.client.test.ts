@@ -57,6 +57,16 @@ describe('portal#1804 RuleEditor reference overrides (callback stub)', () => {
     submit(m.target); expect(m.onsave).toHaveBeenCalledWith(expect.objectContaining({ [`${field}Ref`]: null }));
     for (const other of fields.filter(f => f !== field)) expect(m.onsave.mock.calls[0][0]).not.toHaveProperty(`${other}Ref`);
   });
+  it.each(fields.flatMap(field => [false, true].map(edit => ({ field, edit }))))('$field select twice sends the latest value (edit=$edit)', async ({ field, edit }) => {
+    const i = fields.indexOf(field); const m = mount(edit ? seed : null);
+    pick(m.target, i); pick(m.target, i, 'second');
+    m.props.memoriesFailed = true; flushSync();
+    click(row(m.target, i), 'Change…'); click(m.target, 'Cancel picker'); await tick();
+    expect(row(m.target, i).textContent?.replace(/\s/g, '')).toContain(second);
+    submit(m.target);
+    expect(m.onsave).toHaveBeenCalledWith(expect.objectContaining({ [`${field}Ref`]: second }));
+    for (const other of fields.filter(f => f !== field)) expect(m.onsave.mock.calls[0][0]).not.toHaveProperty(`${other}Ref`);
+  });
   it('preserves seeded states and omits all unchanged references', () => {
     const m = mount(seed); expect(row(m.target, 0).textContent?.replace(/\s/g, '')).toContain(first);
     expect(row(m.target, 1).textContent).toContain('UNREADABLE'); expect(row(m.target, 2).textContent).toContain('BROKEN');
