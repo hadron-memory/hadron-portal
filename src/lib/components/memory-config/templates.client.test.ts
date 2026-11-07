@@ -12,6 +12,11 @@ function mount(readOnly = false, canManage = true, initial = [template]) {
   cleanup.push(m.unmount); return m;
 }
 function button(root: HTMLElement, text: string) { return [...root.querySelectorAll('button')].find(b => b.textContent?.trim() === text)!; }
+function search(root: HTMLElement, label: string, value: string) {
+  const input = root.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
+  input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
+  return input;
+}
 beforeEach(() => { localStorage.clear(); resetNavigationGuards(); fetcher.mockReset(); vi.stubGlobal('fetch', fetcher); vi.spyOn(window, 'confirm').mockReturnValue(true); });
 afterEach(() => { cleanup.splice(0).forEach(f => f()); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe('template management states', () => {
@@ -101,4 +106,52 @@ describe('template management states', () => {
     finally { settle({ ok: true, json: async () => ({ value: { memoryId: 'm1', templateRevision: 9, required: false, dryRun: true, entries: [], warnings: [] } }) }); await vi.waitFor(() => { flushSync(); expect(button(m.target, 'Preview').disabled).toBe(false); }); }
   });
 
+});
+
+describe('portal#1761 grid search', () => {
+  it('filters template rows and restores them when cleared', () => {
+    const other = { ...template, id: 't2', name: 'other', description: 'Other template' };
+    const m = mount(false, true, [template, other]);
+    expect(m.target.querySelectorAll('tbody tr')).toHaveLength(2);
+    const input = search(m.target, 'Search templates…', 'baseline');
+    expect(m.target.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(m.target.querySelector('tbody')?.textContent).toContain('baseline');
+    expect(m.target.querySelector('tbody')?.textContent).not.toContain('other');
+    input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
+    expect(m.target.querySelectorAll('tbody tr')).toHaveLength(2);
+  });
+
+  it('filters draft rule rows and restores them when cleared', () => {
+    const review = { role: 'review', enabled: true, strictSubRoles: false, writers: 'ADMIN', validateBy: 'AGENT', authorTask: null, authorTaskState: 'NONE', validationTask: null, validationTaskState: 'NONE', descriptionNode: null, descriptionNodeState: 'NONE' } as Rule;
+    const publish = { ...review, role: 'publish' };
+    const m = mount(false, true, [{ ...template, rules: [review, publish] }]);
+    button(m.target, 'Edit').click(); flushSync();
+    const form = m.target.querySelector<HTMLElement>('[aria-label="Template editor"]')!;
+    expect(form.querySelectorAll('tbody tr')).toHaveLength(2);
+    const input = search(form, 'Search rules…', 'review');
+    expect(form.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(form.querySelector('tbody')?.textContent).toContain('review');
+    expect(form.querySelector('tbody')?.textContent).not.toContain('publish');
+    input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
+    expect(form.querySelectorAll('tbody tr')).toHaveLength(2);
+  });
+
+  it('filters preview rows and restores them when cleared', async () => {
+    const preview = { memoryId: 'm1', templateRevision: 9, required: false, dryRun: true, entries: [{ role: 'review', outcome: 'APPLIED' }, { role: 'publish', outcome: 'APPLIED' }], warnings: [] };
+    fetcher.mockResolvedValueOnce({ ok: true, json: async () => ({ value: preview }) });
+    const m = mount(); button(m.target, 'Apply to a memory…').click(); flushSync();
+    button(m.target, 'Choose memory…').click(); flushSync();
+    m.target.querySelector<HTMLButtonElement>('button[aria-label="Select My memory"]')!.click(); flushSync();
+    button(m.target, 'Preview').click();
+    await vi.waitFor(() => { flushSync(); expect(m.target.textContent).toContain('Preview: nothing has been changed'); });
+    const input = m.target.querySelector<HTMLInputElement>('input[aria-label="Search preview…"]')!;
+    const panel = input.closest('section')!;
+    expect(panel.querySelectorAll('tbody tr')).toHaveLength(2);
+    input.value = 'review'; input.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
+    expect(panel.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(panel.querySelector('tbody')?.textContent).toContain('review');
+    expect(panel.querySelector('tbody')?.textContent).not.toContain('publish');
+    input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
+    expect(panel.querySelectorAll('tbody tr')).toHaveLength(2);
+  });
 });

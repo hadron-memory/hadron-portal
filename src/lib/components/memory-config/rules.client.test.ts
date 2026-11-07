@@ -13,6 +13,10 @@ function mount(initial: Rulebook | null, readOnly = false) {
   const m = mountComponent(RulebookManager, props); cleanup.push(m.unmount); return { ...m, props };
 }
 const button = (root: HTMLElement, text: string) => [...root.querySelectorAll('button')].find(b => b.textContent?.trim() === text)!;
+function search(root: HTMLElement, value: string) {
+  const input = root.querySelector<HTMLInputElement>('input[aria-label="Search rules…"]')!;
+  input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
+}
 beforeEach(() => {
   localStorage.clear(); fetcher.mockReset(); vi.stubGlobal('fetch', fetcher);
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
@@ -110,4 +114,17 @@ describe('rendered memory rule management', () => {
     } finally { document.body.removeAttribute('tabindex'); }
   });
 
+});
+
+describe('portal#1761 grid search', () => {
+  it('filters rulebook rows and restores them when cleared', () => {
+    const m = mount({ rules: [rule, { ...rule, id: 'r2', role: 'publish' }] });
+    expect(m.target.querySelectorAll('tbody tr')).toHaveLength(2);
+    search(m.target, 'review');
+    expect(m.target.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(m.target.querySelector('tbody')?.textContent).toContain('review');
+    expect(m.target.querySelector('tbody')?.textContent).not.toContain('publish');
+    search(m.target, '');
+    expect(m.target.querySelectorAll('tbody tr')).toHaveLength(2);
+  });
 });
