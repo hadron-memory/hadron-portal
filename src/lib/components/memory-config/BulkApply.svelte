@@ -28,14 +28,15 @@
   const rows = $derived<Row[]>([...selection.map((memory, index) => ({ memory, entry: report?.results[index] ?? null, earlier: false })), ...settled]);
   // Everything the cell renders, so a search finds what the reader sees.
   function rowText(row: Row): string {
-    if (unknown && !row.earlier) return t('config.bulk.row-unknown', 'Not known');
+    if (unknown && !row.earlier) return `${t('config.bulk.row-unknown', 'Not known')} ${t('config.bulk.current-rules', 'Current rules')}`;
     if (!row.entry) return '';
     const earlier = row.earlier ? t('config.bulk.earlier', 'From the earlier apply, not sent again') : '';
     if (row.entry.error) return `${rowErrorCopy(row.entry.error)} ${earlier}`;
     const result = row.entry.result;
     const entries = (result?.entries ?? []).map(e => `${e.role} ${outcomeCopy(e.outcome, !!result?.dryRun)}`);
     const warnings = (result?.warnings ?? []).map(w => `${w.role} ${w.field ?? ''} ${w.code}`);
-    return [earlier, ...entries, ...warnings].join(' ');
+    const noRules = result && !result.entries.length ? t('config.bulk.no-rules', 'This template has no rules.') : '';
+    return [earlier, noRules, ...entries, ...warnings].join(' ');
   }
   const columns: PortalColumnDef<Row>[] = [{ id: 'memory', accessorFn: row => row.memory.name, header: t('config.bulk.memory-outcome', 'Memory and outcome'), size: 280, enableHiding: false }];
   let search = $state('');
