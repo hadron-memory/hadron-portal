@@ -12,7 +12,7 @@ import { holdInvalidateAll, navigationCalls, resetNavigationCalls } from '$lib/t
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import DeliverySettingsPanel from './DeliverySettingsPanel.svelte';
 
-const stored = { batchWindowSeconds: 120, busyDelaySeconds: 600, stuckWindowSeconds: 900, standbyEnabled: false, standbyEffective: false };
+const stored = { batchWindowSeconds: 120, busyDelaySeconds: 600, stuckWindowSeconds: 900 };
 const ok = (over: Record<string, unknown> = {}) => ({ kind: 'ok' as const, value: { ...stored, ...over } });
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -50,14 +50,19 @@ describe('DeliverySettingsPanel', () => {
     expect(root.textContent).toContain('server currently accepts');
   });
 
-  it('never offers or carries a standby switch, and states the stored and effective values as read', async () => {
-    const root = await mountPanel();
-    expect(root.querySelector('input[name="standbyEnabled"]')).toBeNull();
-    expect(root.textContent).toContain('Standby: off');
-    expect(root.textContent).not.toMatch(/not in effect/);
-    const on = await mountPanel({ settings: ok({ standbyEnabled: true, standbyEffective: false }) });
-    expect(on.textContent).toContain('Standby: configured, not in effect yet.');
-    expect(on.textContent).not.toMatch(/standby (works|is active)/i);
+  // portal#1759 (server#3606): standby is retired. No switch and no Standby line in either view, even if an older
+  // server still returns the deprecated fields.
+  it.each([
+    ['the form', {}],
+    ['the support-session view', { impersonating: 'Rae' }],
+  ])('%s shows no standby switch or line, whatever the server returns', async (_view, props) => {
+    for (const legacy of [{}, { standbyEnabled: true, standbyEffective: false }, { standbyEnabled: false, standbyEffective: false }]) {
+      const root = await mountPanel({ ...props, settings: ok(legacy) });
+      expect(root.querySelector('input[name="standbyEnabled"]')).toBeNull();
+      expect(root.querySelector('[data-testid="delivery-standby"]')).toBeNull();
+      expect(root.textContent).not.toMatch(/standby/i);
+      expect(root.textContent).toContain('120');
+    }
   });
 
   // Rodolfo's §10 P2 on #1152: no client rights check, so no one the server admits is hidden.
