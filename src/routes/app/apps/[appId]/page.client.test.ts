@@ -3344,6 +3344,67 @@ describe('Link and Unlink answers belong to their App visit (#1776)', () => {
         }
       });
     }
+    it(`${kind}: returning A is a new visit, not the old pending request`, async () => {
+      const { m, props } = await mountAgents();
+      const a = await begin(m.target, kind);
+      await move(props, 'a2');
+      await move(props, 'a1');
+      const current = await begin(m.target, kind);
+      resetKitAppliedResults();
+      await a.delayed.finish(await answer(kind, 'refusal', a.id, 'OLD') as never);
+      await tick(3);
+      expect(m.target.textContent).not.toContain(`OLD ${kind}`);
+      expect(kitAppliedResults).toEqual([]);
+      await current.delayed.finish(await answer(kind, 'refusal', current.id, 'CURRENT') as never);
+      await tick(3);
+      expect(m.target.textContent).toContain(`CURRENT ${kind} refusal`);
+    });
+    it(`${kind}: an App change during the successful refresh cannot rebind B`, async () => {
+      const { m, props } = await mountAgents();
+      const a = await begin(m.target, kind);
+      let reached = false;
+      navigationHooks.onInvalidateAll = async () => {
+        reached = true;
+        await move(props, 'a2');
+        const select = formOf(m.target, 'link').querySelector<HTMLSelectElement>('[name="agentId"]')!;
+        select.value = GAMMA.id;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        await tick(2);
+        select.focus();
+      };
+      await a.delayed.finish(await answer(kind, 'success', a.id, 'A') as never);
+      await tick(4);
+      expect(reached).toBe(true);
+      expect(m.target.textContent).not.toContain(`A ${kind}`);
+      const select = formOf(m.target, 'link').querySelector<HTMLSelectElement>('[name="agentId"]')!;
+      expect(select.value).toBe(GAMMA.id);
+      expect(document.activeElement).toBe(select);
+      expect(kitAppliedResults).toEqual([]);
+    });
+    it(`${kind}: a fresh mount cannot receive the destroyed page's answer`, async () => {
+      const first = await mountAgents();
+      const a = await begin(first.m.target, kind);
+      first.m.unmount();
+      mounted.splice(mounted.indexOf(first.m), 1);
+      const fresh = await mountAgents();
+      const current = await begin(fresh.m.target, kind);
+      resetKitAppliedResults();
+      await a.delayed.finish(await answer(kind, 'refusal', a.id, 'OLD') as never);
+      await tick(3);
+      expect(fresh.m.target.textContent).not.toContain(`OLD ${kind}`);
+      expect(kitAppliedResults).toEqual([]);
+      await current.delayed.finish(await answer(kind, 'refusal', current.id, 'CURRENT') as never);
+      await tick(3);
+      expect(fresh.m.target.textContent).toContain(`CURRENT ${kind} refusal`);
+    });
+    it(`${kind}: B own failed request keeps its existing error handling`, async () => {
+      const { m, props } = await mountAgents();
+      await begin(m.target, kind);
+      await move(props, 'a2');
+      const b = await begin(m.target, kind);
+      await expect(b.delayed.finish(await answer(kind, 'error', b.id, 'B') as never))
+        .rejects.toMatchObject({ message: 'B failed request' });
+    });
     it.each(['success', 'refusal', 'redirect'] as const)(`${kind}: B own %s still lands after navigation`, async outcome => {
       const { m, props } = await mountAgents();
       await begin(m.target, kind);

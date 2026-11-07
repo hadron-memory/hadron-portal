@@ -74,3 +74,27 @@ describe('App page loader', () => {
     expect(result.data.form.id).toBe(formIdsOf(data).find((f) => f.key === formName)?.id);
   });
 });
+
+// #1776: a visit-bound client id must survive the real action so that the
+// form's final id check can accept its own answer and reject an earlier visit.
+describe('Link/Unlink submitted form identity', () => {
+  for (const name of ['addAgent', 'removeAgent'] as const) {
+    it.each(['success', 'refusal', 'transport'] as const)(`${name} echoes the submitted visit id on %s`, async outcome => {
+      const { actions } = await import('./+page.server');
+      const id = `${name === 'addAgent' ? 'linkAgent' : 'unlinkAgent'}:current-visit`;
+      const body = new FormData();
+      body.set('_kind', name);
+      body.set('agentId', 'agent-1');
+      body.set('__superform_id', id);
+      if (outcome === 'success') mockRequest.mockResolvedValueOnce({});
+      else if (outcome === 'transport') mockRequest.mockRejectedValueOnce(new Error('fetch failed'));
+      else mockRequest.mockRejectedValueOnce({ response: { errors: [{ message: 'Typed refusal.', extensions: { code: 'BAD_USER_INPUT' } }] } });
+      const result = await actions[name]({ request: new Request('http://localhost/', { method: 'POST', body }),
+        params: { appId: 'app-1' }, locals: { token: 'tok' } } as never) as unknown as {
+          form?: { id: string }; data?: { form: { id: string } };
+        };
+      expect(mockRequest).toHaveBeenCalledTimes(1);
+      expect((result.form ?? result.data?.form)?.id).toBe(id);
+    });
+  }
+});
