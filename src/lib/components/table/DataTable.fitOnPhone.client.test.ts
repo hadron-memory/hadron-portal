@@ -4,11 +4,11 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
-import { mountComponent, type Mounted } from '$lib/test/mountComponent';
+import { mountComponent } from '$lib/test/mountComponent';
 import Harness from '$lib/test/DataTableFitOnPhoneHarness.svelte';
 
 type Listener = (event: { matches: boolean }) => void;
-const mounted: Array<Mounted<Record<string, unknown>>> = [];
+const mounted: Array<{ unmount: () => void }> = [];
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
   vi.unstubAllGlobals();
@@ -33,8 +33,8 @@ function stubNarrow(initial: boolean) {
   };
 }
 
-function mount(fitOnPhone: boolean) {
-  const m = mountComponent(Harness as never, { fitOnPhone } as never) as Mounted<Record<string, unknown>>;
+function mount(fitOnPhone: boolean, multiColumn = false) {
+  const m = mountComponent(Harness, { fitOnPhone, multiColumn });
   mounted.push(m);
   flushSync();
   return {
@@ -69,6 +69,16 @@ describe('DataTable fitOnPhone', () => {
     expect(header.style.width).toBe('1600px');
     expect(m.target.querySelector('[role="separator"]')).not.toBeNull();
     expect(media.listeners.size).toBe(0);
+  });
+
+  it('keeps TanStack sizing and resize controls for a multi-column table on a phone', () => {
+    const media = stubNarrow(true);
+    const { m, table } = mount(true, true);
+    const headers = [...m.target.querySelectorAll<HTMLElement>('th')];
+    expect(table.style.width).toBe('max(100%, 2000px)');
+    expect(headers.map(header => header.style.width)).toEqual(['1600px', '400px']);
+    expect(m.target.querySelectorAll('[role="separator"]')).toHaveLength(2);
+    expect(media.listeners.size).toBe(1);
   });
 
   it('uses the initial match once without throwing when only legacy MediaQueryList APIs could exist', () => {

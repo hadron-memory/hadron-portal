@@ -37,14 +37,15 @@ try {
   }, width);
   await page.evaluate(async count => { const { mountBulkTemplates } = await import('/src/lib/test/fixtures/memory-config-layout-harness.ts'); mountBulkTemplates(document.getElementById('fixture'), true, count); }, cap ? 51 : 6);
   const shot = name => shots ? page.screenshot({ path: `${shots}/${width}-${dark ? 'dark' : 'light'}-${name}.png`, fullPage: true }) : null;
+  const panel = page.getByRole('region', { name: 'Apply to several memories', exact: true });
   const inViewport = async (locator, name) => { const box = await locator.boundingBox(); assert.ok(box && box.x >= 0 && box.x + box.width <= width + 0.5, `${label}: ${name} leaves the viewport: ${JSON.stringify(box)}`); };
   const noOverflow = async name => { const over = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth); assert.ok(over <= 0, `${label}: ${name} overflows ${over}px`); };
   const clipboardText = async expected => {
    await page.waitForFunction(async value => (await navigator.clipboard.readText()) === value, expected);
   };
   const tableGeometry = async (state, expectedRows) => {
-   const tableScroller = panel.locator('table').first().locator('..');
-   if (width === 320) {
+   const tableScroller = panel.getByTestId('data-table-scroller');
+   if (width < 640) {
     const table = await tableScroller.locator('table').elementHandle();
     await page.waitForFunction(el => el.style.width === '100%', table);
     await table.dispose();
@@ -73,7 +74,7 @@ try {
      assert.ok(await controls.first().evaluate(el => el === document.activeElement), `${label}: ${name} accepts focus`);
     }
    }
-   const outcomeTexts = tableScroller.locator('tbody td > div > div:last-child :is(li, p)');
+   const outcomeTexts = tableScroller.locator('.bulk-apply-outcome :is(li, p)');
    const outcomeCount = await outcomeTexts.count();
    assert.ok(outcomeCount > 0, `${label}: ${state} has outcome text to measure`);
    for (let i = 0; i < outcomeCount; i++) {
@@ -92,7 +93,6 @@ try {
    }
   };
   await page.getByRole('button', { name: 'Apply to several memories…', exact: true }).click();
-  const panel = page.getByRole('region', { name: 'Apply to several memories', exact: true });
   await panel.getByRole('button', { name: 'Add memories…', exact: true }).click();
   const picker = page.getByRole('dialog', { name: 'Choose a memory', exact: true });
   const dimmed = async name => { const button = page.getByRole('button', { name, exact: true }).first(); assert.ok(await button.isDisabled(), `${label}: ${name} is disabled`); assert.equal(await button.evaluate(b => getComputedStyle(b).opacity), '0.5', `${label}: ${name} looks disabled`); };

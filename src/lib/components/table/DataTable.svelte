@@ -87,7 +87,8 @@
       };
     }
   });
-  const responsiveWidth = $derived(fitOnPhone && phone ? '100%' : `max(100%, ${table.getCenterTotalSize()}px)`);
+  const phoneFit = $derived(fitOnPhone && phone && table.getVisibleLeafColumns().length === 1);
+  const responsiveWidth = $derived(phoneFit ? '100%' : `max(100%, ${table.getCenterTotalSize()}px)`);
 
   const pageSize = $derived(table.atoms.pagination.get().pageSize);
   const pageIndex = $derived(table.atoms.pagination.get().pageIndex);
@@ -126,7 +127,7 @@
 <!-- Bounded, internally-scrolling container so the page itself doesn't
      scroll and the pagination footer below stays visible. The `<thead>`
      is sticky so column headers remain while the body scrolls. -->
-<div class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: {maxHeight};">
+<div data-testid="data-table-scroller" class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: {maxHeight};">
   <table class="text-sm" style="table-layout: fixed; width: {responsiveWidth};">
     <thead>
       {#each table.getHeaderGroups() as headerGroup (headerGroup.id)}
@@ -134,7 +135,7 @@
           {#each headerGroup.headers as header (header.id)}
             <th
               class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''}"
-              style="width: {fitOnPhone && phone ? '100%' : `${header.getSize()}px`};"
+              style="width: {phoneFit ? '100%' : `${header.getSize()}px`};"
               tabindex={!sortButtons && header.column.getCanSort() ? 0 : undefined}
               aria-sort={header.column.getIsSorted() === 'asc' ? 'ascending' : header.column.getIsSorted() === 'desc' ? 'descending' : undefined}
               onclick={sortButtons ? undefined : header.column.getToggleSortingHandler()}
@@ -153,7 +154,7 @@
                   <span class={header.column.getIsSorted() ? 'text-indigo-500' : 'text-zinc-300 dark:text-zinc-700'}>{sortIndicator(header.column.getIsSorted())}</span>
                 {/if}
               </div>
-              {#if header.column.getCanResize() && !(fitOnPhone && phone)}
+              {#if header.column.getCanResize() && !phoneFit}
                 <!-- A focusable separator is the canonical ARIA "window
                      splitter" widget (role=separator + tabindex + arrow
                      keys); Svelte's linter doesn't model it and flags the

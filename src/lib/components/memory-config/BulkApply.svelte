@@ -141,7 +141,7 @@
             <div class="mt-1"><Urn value={row.memory.urn} linked /></div>
             {#if !locked}<button type="button" disabled={pending} onclick={() => remove(row.memory)} aria-label={t('config.bulk.remove-named', 'Remove {name}', { name: row.memory.name })} class="mt-1 min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.remove', 'Remove')}</button>{/if}
           </div>
-          <div class="min-w-0 sm:w-1/2">{@render outcome(row)}</div>
+          <div class="bulk-apply-outcome min-w-0 sm:w-1/2">{@render outcome(row)}</div>
         </div>
       {/snippet}
     </DataTable>
