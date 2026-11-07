@@ -40,7 +40,7 @@ import {
 } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { beginEnhanced } from '$lib/test/stubs/app-forms';
+import { beginEnhanced, submitEnhanced } from '$lib/test/stubs/app-forms';
 import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import {
   LEGACY_THREAD_PROBE_QUERY,
@@ -572,6 +572,60 @@ describe('#1522 chat send form identity', () => {
     expect(reSeeded!.value).toBe('');
     expect(second.target.querySelector('[role="alert"]')).toBeNull();
   });
+
+  // #1567: retaining a refused draft on remount must not make that draft
+  // the target of every later successful reset. Drive the installed Superforms
+  // handler; the kit stub only delivers results and records action data.
+  it.each(['node', 'standalone'].flatMap(surface => [false, true].map(valid => ({ surface, valid }))))(
+    '#1567 $surface: success after a preserved failure empties current and later composers (failed valid=$valid)',
+    async ({ surface, valid }) => {
+      serveNode(teamChatNode());
+      const loaded = surface === 'node'
+        ? await loadNodePage(teamChatNode(), new URL(`http://localhost/app/memories/${MEM}/nodes/chat-pk`))
+        : await loadChatPageData('chat-pk');
+      const Component = surface === 'node' ? Page : ChatPage;
+      const formId = (surface === 'node' ? loaded.sendChatMessageForm : loaded.form) as { id: string };
+      const props = reactiveProps<Record<string, unknown>>({ data: { ...PARENT, ...loaded }, form: null });
+      const mountAgain = async () => {
+        const m = mountComponent(Component as never, props as never) as Mounted<Record<string, unknown>>;
+        mounted.push(m); await tick(4); return m;
+      };
+      const result = (content: string, success: boolean) => ({
+        type: success ? 'success' as const : 'failure' as const, status: success ? 200 : 400,
+        data: { form: { id: formId.id, valid: success || valid, posted: true, errors: {},
+          data: { _kind: 'sendChatMessage', content },
+          message: { type: success ? 'success' : 'error', text: success ? 'Message sent.' : 'Send refused.' } } },
+      });
+      const area = (m: Mounted<Record<string, unknown>>) => m.target.querySelector<HTMLTextAreaElement>('textarea[name="content"]')!;
+      const type = async (m: Mounted<Record<string, unknown>>, content: string) => {
+        area(m).value = content; area(m).dispatchEvent(new Event('input', { bubbles: true })); await tick(2);
+      };
+      const send = async (m: Mounted<Record<string, unknown>>, content: string, success: boolean) => {
+        const finish = await beginEnhanced(area(m).form!); const answer = result(content, success);
+        await finish(answer); props.form = answer.data; await tick(4);
+      };
+      const close = (m: Mounted<Record<string, unknown>>) => { m.unmount(); mounted.splice(mounted.indexOf(m), 1); };
+
+      const first = await mountAgain();
+      await type(first, 'refused seed draft'); await send(first, 'refused seed draft', false);
+      expect(first.target.querySelector('[role="alert"]')?.textContent).toContain('Send refused.');
+      close(first); // tab away; action data remains on the page
+      const second = await mountAgain();
+      expect(area(second).value).toBe('refused seed draft'); // failure preservation is still live
+      await type(second, 'edited retry'); await send(second, 'edited retry', true);
+      expect(area(second).value).toBe(''); // red on main: reset restores refused seed
+      await vi.waitFor(() => { flushSync(); expect(area(second).disabled).toBe(false); });
+      expect(area(second).form!.querySelector<HTMLButtonElement>('[type="submit"]')!.disabled).toBe(true);
+      expect((await submitEnhanced(area(second).form!)).cancelled).toBe(true); // no stale repeat submission
+
+      await type(second, 'a later fresh message'); await send(second, 'a later fresh message', true);
+      expect(area(second).value).toBe(''); // the reset target itself remains clean
+      close(second);
+      const third = await mountAgain();
+      expect(area(third).value).toBe(''); // successful action data must never reseed
+      expect(third.target.querySelector('[role="alert"]')).toBeNull();
+    },
+  );
 
   // Gaia's LOCAL P2: the {#key} remount guard is load-bearing on a
   // SAME-INSTANCE data swap — the real shape of a same-route A→B hop, where
