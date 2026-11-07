@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { bulkCall, retryPositions, rowErrorCopy, sharedRevision, type BulkEntry } from './bulk';
+import { bulkCall, changeSplit, retryPositions, rowErrorCopy, sharedRevision, type BulkEntry } from './bulk';
 
 const ok = (index: number, templateRevision: number): BulkEntry => ({ index, memoryRef: `m${index}`, ok: true, error: null, result: { memoryId: `m${index}`, templateRevision, required: false, dryRun: true, entries: [], warnings: [] } });
 const failed = (index: number, code: string): BulkEntry => ({ index, memoryRef: `m${index}`, ok: false, result: null, error: { code, message: 'server text', currentRevision: null, requestId: null } });
@@ -13,6 +13,24 @@ describe('sharedRevision', () => {
 describe('retryPositions', () => {
   it('excludes succeeded and DUPLICATE_TARGET rows, keeping every other failure', () => {
     expect(retryPositions([ok(0, 1), failed(1, 'CONFLICT'), failed(2, 'DUPLICATE_TARGET'), failed(3, 'MEMORY_NOT_FOUND')])).toEqual([1, 3]);
+  });
+});
+describe('changeSplit', () => {
+  const applied = (index: number, outcomes: Array<'APPLIED' | 'REPLACED' | 'SKIPPED_LOCKED' | 'SKIPPED_CONFLICT'>): BulkEntry => {
+    const base = ok(index, 4);
+    return { ...base, result: { ...base.result!, entries: outcomes.map(outcome => ({ role: 'review', outcome })) } };
+  };
+  it('counts an all-skipped ok row as one that changes nothing (#1763)', () => {
+    expect(changeSplit([applied(0, ['SKIPPED_LOCKED']), applied(1, ['SKIPPED_LOCKED', 'SKIPPED_CONFLICT'])])).toEqual({ change: 0, skipped: 2 });
+  });
+  it('counts a row with any applied or replaced entry as changing, even alongside skips', () => {
+    expect(changeSplit([applied(0, ['SKIPPED_LOCKED', 'APPLIED']), applied(1, ['REPLACED'])])).toEqual({ change: 2, skipped: 0 });
+  });
+  it('counts an ok row with no entries (a template with no rules) as changing nothing', () => {
+    expect(changeSplit([ok(0, 4)])).toEqual({ change: 0, skipped: 1 });
+  });
+  it('leaves failed rows to the report’s failed count', () => {
+    expect(changeSplit([applied(0, ['APPLIED']), failed(1, 'CONFLICT')])).toEqual({ change: 1, skipped: 0 });
   });
 });
 describe('rowErrorCopy', () => {
