@@ -54,7 +54,7 @@ try {
     await page.getByRole('dialog', { name: 'Edit rule', exact: true }).waitFor();
     await page.keyboard.press('Escape'); await page.getByRole('dialog', { name: 'Edit rule', exact: true }).waitFor({ state: 'detached' });
    } else {
-    await page.getByRole('alert').filter({ hasText: 'Saved, but the rules could not be reloaded.' }).waitFor();
+    await page.locator('[data-rule-feedback-visual]').filter({ hasText: 'Saved, but the rules could not be reloaded.' }).waitFor();
     assert.equal(await page.locator('dialog').count(), 0, 'Successful save closes only after reload settles');
     await page.getByRole('button', { name: 'Create rule', exact: true }).click(); await page.getByRole('dialog', { name: 'Create rule', exact: true }).waitFor();
    }
