@@ -51,10 +51,12 @@ describe('DataTable fitOnPhone', () => {
     expect(media.listeners.size).toBe(1);
     expect(table.style.width).toBe('100%');
     expect(header.style.width).toBe('100%');
+    expect(m.target.querySelector('[role="separator"]')).toBeNull();
 
     media.set(false);
     expect(table.style.width).toBe('max(100%, 1600px)');
     expect(header.style.width).toBe('1600px');
+    expect(m.target.querySelector('[role="separator"]')?.getAttribute('aria-valuenow')).toBe('1600');
 
     m.unmount();
     expect(media.listeners.size).toBe(0);
@@ -62,9 +64,17 @@ describe('DataTable fitOnPhone', () => {
 
   it('leaves a wide table on the TanStack sizing path when fitOnPhone is off', () => {
     const media = stubNarrow(true);
-    const { table, header } = mount(false);
+    const { m, table, header } = mount(false);
     expect(table.style.width).toBe('max(100%, 1600px)');
     expect(header.style.width).toBe('1600px');
+    expect(m.target.querySelector('[role="separator"]')).not.toBeNull();
     expect(media.listeners.size).toBe(0);
+  });
+
+  it('uses the initial match once without throwing when only legacy MediaQueryList APIs could exist', () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, media: '(max-width: 639px)' })));
+    const { table, header } = mount(true);
+    expect(table.style.width).toBe('100%');
+    expect(header.style.width).toBe('100%');
   });
 });

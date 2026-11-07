@@ -39,12 +39,16 @@ try {
   const shot = name => shots ? page.screenshot({ path: `${shots}/${width}-${dark ? 'dark' : 'light'}-${name}.png`, fullPage: true }) : null;
   const inViewport = async (locator, name) => { const box = await locator.boundingBox(); assert.ok(box && box.x >= 0 && box.x + box.width <= width + 0.5, `${label}: ${name} leaves the viewport: ${JSON.stringify(box)}`); };
   const noOverflow = async name => { const over = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth); assert.ok(over <= 0, `${label}: ${name} overflows ${over}px`); };
+  const clipboardText = async expected => {
+   await page.waitForFunction(async value => (await navigator.clipboard.readText()) === value, expected);
+  };
   const tableGeometry = async (state, expectedRows) => {
    const tableScroller = panel.locator('table').first().locator('..');
    if (width === 320) {
     const table = await tableScroller.locator('table').elementHandle();
     await page.waitForFunction(el => el.style.width === '100%', table);
     await table.dispose();
+    assert.equal(await tableScroller.getByRole('separator').count(), 0, `${label}: ${state} hides the resize separator while phone fitting is active`);
    }
    const scrollerBox = await tableScroller.boundingBox();
    assert.ok(scrollerBox, `${label}: ${state} table scroller is visible`);
@@ -82,9 +86,9 @@ try {
    if (state === 'preview') {
     const urn = 'hrn:mem:acme.example:fixture-memory-with-a-long-slug-0';
     await tableScroller.getByRole('button', { name: 'Copy URN', exact: true }).first().click();
-    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), urn, `${label}: Copy URN writes the URN`);
+    await clipboardText(urn);
     await tableScroller.getByRole('button', { name: 'Copy URL', exact: true }).first().click();
-    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), `${new URL(origin).origin}/app/u/${urn}`, `${label}: Copy URL writes the resolver URL`);
+    await clipboardText(`${new URL(origin).origin}/app/u/${urn}`);
    }
   };
   await page.getByRole('button', { name: 'Apply to several memories…', exact: true }).click();

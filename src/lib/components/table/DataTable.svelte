@@ -80,8 +80,12 @@
     const query = window.matchMedia('(max-width: 639px)');
     const follow = (event: MediaQueryListEvent) => { phone = event.matches; };
     phone = query.matches;
-    query.addEventListener('change', follow);
-    return () => query.removeEventListener('change', follow);
+    if (typeof query.addEventListener === 'function') {
+      query.addEventListener('change', follow);
+      return () => {
+        if (typeof query.removeEventListener === 'function') query.removeEventListener('change', follow);
+      };
+    }
   });
   const responsiveWidth = $derived(fitOnPhone && phone ? '100%' : `max(100%, ${table.getCenterTotalSize()}px)`);
 
@@ -149,7 +153,7 @@
                   <span class={header.column.getIsSorted() ? 'text-indigo-500' : 'text-zinc-300 dark:text-zinc-700'}>{sortIndicator(header.column.getIsSorted())}</span>
                 {/if}
               </div>
-              {#if header.column.getCanResize()}
+              {#if header.column.getCanResize() && !(fitOnPhone && phone)}
                 <!-- A focusable separator is the canonical ARIA "window
                      splitter" widget (role=separator + tabindex + arrow
                      keys); Svelte's linter doesn't model it and flags the
