@@ -33,10 +33,11 @@
     const earlier = row.earlier ? t('config.bulk.earlier', 'From the earlier apply, not sent again') : '';
     if (row.entry.error) return `${rowErrorCopy(row.entry.error)} ${earlier}`;
     const result = row.entry.result;
-    const entries = (result?.entries ?? []).map(e => `${e.role}: ${outcomeCopy(e.outcome, !!result?.dryRun)}`);
+    const entries = result?.entries ?? [];
+    const entryText = entries.map(e => `${e.role}: ${outcomeCopy(e.outcome, !!result?.dryRun)}`);
     const warnings = (result?.warnings ?? []).map(w => `${w.role}: ${w.field ?? ''} — ${w.code}`);
-    const noRules = result && !result.entries.length ? t('config.bulk.no-rules', 'This template has no rules.') : '';
-    return [earlier, noRules, ...entries, ...warnings].join(' ');
+    const noRules = result && !entries.length ? t('config.bulk.no-rules', 'This template has no rules.') : '';
+    return [earlier, noRules, ...entryText, ...warnings].join(' ');
   }
   const columns: PortalColumnDef<Row>[] = [{ id: 'memory', accessorFn: row => row.memory.name, header: t('config.bulk.memory-outcome', 'Memory and outcome'), size: 280, enableHiding: false }];
   let search = $state('');
