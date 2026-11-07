@@ -70,35 +70,49 @@
   // #1604: a compact chip truncates, and its full URN is only in a `title`
   // tooltip, which a touch device cannot show. On a coarse pointer a compact,
   // UNLINKED chip becomes a toggle between the truncated bare value and the
-  // whole fully-qualified URN (hrn:<type>: included), wrapped. A
-  // linked chip is left alone (a tap there navigates), and a fine pointer
-  // keeps the plain chip, with no extra tab stop.
+  // whole fully-qualified URN (hrn:<type>: included), wrapped. #1686 extends
+  // reveal below the sm breakpoint so a keyboard-only user can read the value
+  // too. A linked chip stays an anchor and gets a SEPARATE reveal button;
+  // activation still navigates. A wide, fine-pointer chip keeps its plain
+  // text, with no extra tab stop.
   //
-  // The pointer is read here, on the client, not by a CSS variant: the toggle
-  // changes the element (a <button> with aria-expanded), which CSS cannot do.
-  // The server render is the fine-pointer chip; on a phone the toggle's cue
-  // (a chevron) appears on hydration. matchMedia is absent in some test
-  // environments, and an old engine may lack addEventListener on it; the chip
-  // then stays plain or stops following pointer changes, never throws.
+  // The media queries are read here, on the client, not by CSS variants: the
+  // toggle changes the element or adds a button with aria-expanded, which CSS
+  // cannot do. The server render is the plain chip; on a phone or narrow
+  // viewport the toggle's cue (a chevron) appears on hydration. matchMedia is
+  // absent in some test environments, and an old engine may lack
+  // addEventListener on it; the chip then stays plain or stops following
+  // media changes, never throws.
   let coarsePointer = $state(false);
+  let narrowViewport = $state(false);
   let expanded = $state(false);
-  const revealable = $derived(compact && !linked && coarsePointer);
+  let previousLinked: boolean | undefined;
+  const revealable = $derived(compact && (coarsePointer || narrowViewport));
+  const chipToggle = $derived(revealable && !linked);
   const showFull = $derived(revealable && expanded);
 
-  // A chip that stops being a toggle (linked, non-compact, or a fine pointer)
-  // forgets it was open, so it never comes back expanded (#1642 LOCAL/BLIND P3).
+  // A chip that stops being revealable (non-compact, or a wide fine pointer),
+  // or swaps between link and plain chip, forgets it was open (#1642
+  // LOCAL/BLIND P3). The linked state change swaps the toggle's DOM position.
   $effect(() => {
-    if (!revealable) expanded = false;
+    if (!revealable || (previousLinked !== undefined && linked !== previousLinked)) expanded = false;
+    previousLinked = linked;
   });
 
   $effect(() => {
-    if (!compact || linked || typeof window.matchMedia !== 'function') return;
-    const mq = window.matchMedia('(pointer: coarse)');
-    coarsePointer = mq.matches;
-    if (typeof mq.addEventListener !== 'function') return;
-    const follow = (e: { matches: boolean }) => (coarsePointer = e.matches);
-    mq.addEventListener('change', follow);
-    return () => mq.removeEventListener('change', follow);
+    if (!compact || typeof window.matchMedia !== 'function') return;
+    const pointerMq = window.matchMedia('(pointer: coarse)');
+    const narrowMq = window.matchMedia('(max-width: 639px)');
+    coarsePointer = pointerMq.matches;
+    narrowViewport = narrowMq.matches;
+    const followPointer = (e: { matches: boolean }) => (coarsePointer = e.matches);
+    const followNarrow = (e: { matches: boolean }) => (narrowViewport = e.matches);
+    if (typeof pointerMq.addEventListener === 'function') pointerMq.addEventListener('change', followPointer);
+    if (typeof narrowMq.addEventListener === 'function') narrowMq.addEventListener('change', followNarrow);
+    return () => {
+      if (typeof pointerMq.removeEventListener === 'function') pointerMq.removeEventListener('change', followPointer);
+      if (typeof narrowMq.removeEventListener === 'function') narrowMq.removeEventListener('change', followNarrow);
+    };
   });
 
   function v2TypeHint(typeHint: UrnTypeHint | undefined): string | undefined {
@@ -199,25 +213,26 @@
 
 <span class="inline-flex min-w-0 max-w-full items-center gap-1">
   <!-- The chip is an <a> when `linked`, a plain <code> otherwise. The anchor wraps
-       ONLY the chip: the copy buttons below are siblings, because a <button> inside
+       ONLY the chip: the reveal/copy buttons are siblings, because a <button> inside
        an <a> is invalid and the anchor would swallow their clicks.
        #1604: on a coarse pointer an unlinked compact chip is a <button>. Its
        role="button" is redundant there, but svelte's a11y check cannot see the
-       dynamic tag and flags the click handler without it. -->
+       dynamic tag and flags the click handler without it. #1686 gives linked
+       chips a sibling reveal button instead of changing the anchor. -->
   <svelte:element
-    this={linked ? 'a' : revealable ? 'button' : 'code'}
+    this={linked ? 'a' : chipToggle ? 'button' : 'code'}
     href={linked ? `/app/u/${displayFullUrn}` : undefined}
-    type={revealable ? 'button' : undefined}
-    role={revealable ? 'button' : undefined}
-    aria-expanded={revealable ? expanded : undefined}
-    aria-label={revealable ? revealName : undefined}
-    onclick={revealable ? () => (expanded = !expanded) : undefined}
-    class="inline-flex min-w-0 items-center overflow-hidden rounded font-mono leading-tight {linked ? 'hover:opacity-80' : ''} {revealable ? 'min-h-6 bg-zinc-100 pr-1 text-left text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400' : ''}"
+    type={chipToggle ? 'button' : undefined}
+    role={chipToggle ? 'button' : undefined}
+    aria-expanded={chipToggle ? expanded : undefined}
+    aria-label={chipToggle ? revealName : undefined}
+    onclick={chipToggle ? () => (expanded = !expanded) : undefined}
+    class="inline-flex min-w-0 items-center overflow-hidden rounded font-mono leading-tight {linked ? 'hover:opacity-80' : ''} {chipToggle ? 'pointer-coarse:min-h-11 pointer-coarse:min-w-11 bg-zinc-100 pr-1 text-left text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400' : ''}"
     style="font-size: 0.6rem;"
   >
     {#if compact}
       <span class="min-w-0 {showFull ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate'} bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title={displayFullUrn}>{#if showFull}{#each fullSegments as segment, i}{#if i > 0}:<wbr />{/if}{segment}{/each}{:else}{bareValue}{/if}</span>
-      {#if revealable}
+      {#if chipToggle}
         <!-- The cue that this chip opens (#1642 UX P2): a chevron that turns
              down while the whole URN shows. -->
         <svg aria-hidden="true" data-reveal-cue width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" class="shrink-0 transition-transform {expanded ? 'rotate-90' : ''}"><polyline points="9 6 15 12 9 18"></polyline></svg>
@@ -228,8 +243,21 @@
       <span class="min-w-0 truncate bg-zinc-200 pl-0.5 pr-1.5 py-0.5 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200" title={displayFullUrn}>{bareValue}</span>
     {/if}
   </svelte:element>
+  {#if linked && revealable}
+    <!-- A linked chip keeps its navigation action. This sibling supplies the
+         same full-URN reveal without nesting a button in the anchor. -->
+    <button
+      type="button"
+      aria-expanded={expanded}
+      aria-label={revealName}
+      onclick={() => (expanded = !expanded)}
+      class="ml-1 inline-flex shrink-0 items-center justify-center rounded text-zinc-400 hover:text-zinc-600 pointer-coarse:min-h-11 pointer-coarse:min-w-11 dark:hover:text-zinc-300"
+    >
+      <svg aria-hidden="true" data-reveal-cue width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" class="shrink-0 transition-transform {expanded ? 'rotate-90' : ''}"><polyline points="9 6 15 12 9 18"></polyline></svg>
+    </button>
+  {/if}
   <!-- type="button": a chip inside a <form> must never submit it (portal#945). -->
-  <button type="button" onclick={copy} class="ml-1 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={copyUrnName} aria-label={copyUrnName}>
+  <button type="button" onclick={copy} class="ml-1 shrink-0 text-zinc-400 hover:text-zinc-600 pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:items-center pointer-coarse:justify-center dark:hover:text-zinc-300" title={copyUrnName} aria-label={copyUrnName}>
     {#if copied}
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
     {:else}
@@ -237,7 +265,7 @@
     {/if}
   </button>
   {#if showCopyUrl}
-  <button type="button" onclick={copyUrl} class="ml-1 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={copyUrlName} aria-label={copyUrlName}>
+  <button type="button" onclick={copyUrl} class="ml-1 shrink-0 text-zinc-400 hover:text-zinc-600 pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:items-center pointer-coarse:justify-center dark:hover:text-zinc-300" title={copyUrlName} aria-label={copyUrlName}>
     {#if urlCopied}
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
     {:else}
