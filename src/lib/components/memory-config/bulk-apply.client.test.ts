@@ -325,6 +325,12 @@ describe('search', () => {
     await apply(panel, answer([ok(0, { dryRun: false, warnings: [{ code: 'TASK_LESS_VISIBLE', role: 'review', field: 'authorTask' }] }), bad(1, 'CONFLICT')], false), 'Apply finished');
     expect(await search(panel, 'TASK_LESS_VISIBLE')).toBe(1);
     expect(await search(panel, 'authorTask')).toBe(1);
+    // #1808 follow-up (same class, found by code-review): the snippet renders the
+    // separators too, so a pasted exact phrase must find the row.
+    expect(panel.textContent).toContain('review: Added');
+    expect(panel.textContent).toContain('review: authorTask — TASK_LESS_VISIBLE');
+    expect(await search(panel, 'review: Added')).toBe(1);
+    expect(await search(panel, 'review: authorTask — TASK_LESS_VISIBLE')).toBe(1);
     fetcher.mockResolvedValueOnce(answer([{ ...ok(0), memoryRef: 'm1' }]));
     expect(await search(panel, '')).toBe(2);
     button(panel, 'Retry failed')!.click();
