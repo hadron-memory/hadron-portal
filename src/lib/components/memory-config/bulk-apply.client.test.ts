@@ -331,6 +331,26 @@ describe('search', () => {
     await settle(() => expect(panel.textContent).toContain('Preview: nothing has been changed'));
     expect(await search(panel, 'earlier apply')).toBe(1);
   });
+
+  // #1808: two phrases the row visibly renders but rowText omitted, so a
+  // reader searching on-screen text lost the row. Negatives per
+  // hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable:
+  // a phrase must match only the rows that render it.
+  it('finds the visible empty-template copy after an ok apply, only on the row that renders it', async () => {
+    const m = mount(); const panel = open(m.target); pick(panel, 2);
+    await preview(panel, [ok(0, { entries: [] }), ok(1)]);
+    await apply(panel, answer([ok(0, { dryRun: false, entries: [] }), ok(1, { dryRun: false })], false), 'Apply finished');
+    expect(panel.textContent).toContain('This template has no rules.');
+    expect(await search(panel, 'This template has no rules.')).toBe(1);
+    expect(await search(panel, 'Current rules')).toBe(0);
+  });
+
+  it('finds the visible Current rules link after an unknown outcome', async () => {
+    const m = mount(); const panel = await applied(m.target, [0, 1]);
+    await apply(panel, Promise.reject(new TypeError('offline')), 'We don’t know');
+    expect(panel.textContent).toContain('Current rules');
+    expect(await search(panel, 'Current rules')).toBe(2);
+  });
 });
 
 describe('retry failed', () => {
