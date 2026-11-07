@@ -1266,6 +1266,8 @@
     if (app.id === agentLinkContextApp) return;
     agentLinkContextApp = app.id;
     agentLinkGeneration += 1;
+    // Discard the departed App's selected targets, validation and outcomes
+    // together. Keep this reset list aligned if either form gains fields.
     untrack(() => {
       addAgentFormId.set(newLinkFormId());
       removeAgentFormId.set(newUnlinkFormId());

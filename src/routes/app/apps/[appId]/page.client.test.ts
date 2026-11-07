@@ -3344,6 +3344,46 @@ describe('Link and Unlink answers belong to their App visit (#1776)', () => {
         }
       });
     }
+    it.each(['message', 'fields'] as const)(`${kind}: completed A %s and selection clear on App change`, async state => {
+      const { m, props } = await mountAgents();
+      const selection = () => kind === 'link'
+        ? formOf(m.target, kind).querySelector<HTMLSelectElement>('[name="agentId"]')!.value
+        : formOf(m.target, kind).querySelector<HTMLInputElement>('[name="agentId"]')!.value;
+      async function completed(owner: string) {
+        if (state === 'fields') {
+          const form = formOf(m.target, kind);
+          if (kind === 'link') {
+            // Link has novalidate: reproduce the action's validation of the
+            // exact empty submitted FormData, including its live form id.
+            const body = new FormData(form);
+            const delayed = await submitEnhancedDeferred(form);
+            const f = await superValidate(body, zod4(addAgentSchema));
+            expect(f.valid).toBe(false);
+            await delayed.finish({ type: 'failure', status: 400, data: { form: f } });
+          } else {
+            // Unlink validates its empty target on the client before sending.
+            expect((await submitEnhanced(form)).cancelled).toBe(true);
+          }
+          await vi.waitFor(() => expect(m.target.textContent).toContain('Agent is required'));
+        } else {
+          const sent = await begin(m.target, kind);
+          const f = await superValidate({ agentId: kind === 'link' ? GAMMA.id : DELTA.id },
+            zod4((kind === 'link' ? addAgentSchema : removeAppAgentSchema) as typeof addAgentSchema), { id: sent.id });
+          f.message = { type: 'error', text: `${owner} completed ${kind} answer` };
+          await sent.delayed.finish({ type: 'failure', status: 500, data: { form: f } });
+          await tick(3);
+        }
+      }
+      const expected = state === 'fields' ? 'Agent is required' : `A completed ${kind} answer`;
+      await completed('A');
+      expect(m.target.textContent).toContain(expected);
+      expect(selection()).toBe(state === 'fields' ? '' : kind === 'link' ? GAMMA.id : DELTA.id);
+      await move(props, 'a2');
+      expect(m.target.textContent).not.toContain(expected);
+      expect(selection()).toBe('');
+      await completed('B');
+      expect(m.target.textContent).toContain(state === 'fields' ? 'Agent is required' : `B completed ${kind} answer`);
+    });
     it(`${kind}: returning A is a new visit, not the old pending request`, async () => {
       const { m, props } = await mountAgents();
       const a = await begin(m.target, kind);
