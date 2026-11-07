@@ -2580,7 +2580,15 @@ describe('App action transport diagnostics (#1789)', () => {
       if (query === mutation) return successValues[mutation];
       return { app: { organizationId: null } };
     });
-    await runAction(name, fields).catch(() => undefined); // deleteApp: 303
+    // The success control must prove success, not swallow any rejection:
+    // deleteApp's success IS the 303 redirect; the other seven return a
+    // success message. A silently-failing mock cannot pass this green.
+    if (name === 'deleteApp') {
+      await expect(runAction(name, fields)).rejects.toMatchObject({ status: 303 });
+    } else {
+      const result = await runAction(name, fields) as { form: { message: { type: string } } };
+      expect(result.form.message.type).toBe('success');
+    }
     expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
     expect(warned).toHaveLength(0);
   });
@@ -2591,6 +2599,9 @@ describe('App action transport diagnostics (#1789)', () => {
       return { app: { organizationId: null } };
     });
     await runAction(name, fields);
+    // The rejection reached the catch (mutation ran once), so the silence
+    // below is the classifier's, not a mock that never fired.
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
     expect(warned).toHaveLength(0);
   });
 
@@ -2600,7 +2611,38 @@ describe('App action transport diagnostics (#1789)', () => {
       return { app: { organizationId: null } };
     });
     await runAction(name, fields);
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
     expect(warned).toHaveLength(0);
     expect(warned.join(' ')).not.toContain(CANARY_REQID);
+  });
+
+  // Greer's LOCAL P2 (hrn:node:hadronmemory.com:hadron-dev-team-shared:sprints:sprint-3:reviews:hadron-portal-1803:greer-local-ed805e33):
+  // a mutant that logs every GraphQL code EXCEPT the two covered above
+  // survived the original matrix. Ruling 0247's silence rule is "none for a
+  // GraphQL error" — ANY GraphQL error — so the matrix must pin the codes it
+  // does not name, with canaries, exactly as it pins the ones it does.
+  const CANARY_UNKNOWN_CODE = 'CANARY_unknown_gql_code_4e19';
+
+  it.each(cases)('%s emits nothing for an unknown coded GraphQL error', async (name, _label, fields, mutation) => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === mutation) throw { response: { errors: [{ message: CANARY_MSG, extensions: { code: CANARY_UNKNOWN_CODE } }] } };
+      return { app: { organizationId: null } };
+    });
+    await runAction(name, fields);
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(warned).toHaveLength(0);
+    expect(warned.join(' ')).not.toContain(CANARY_UNKNOWN_CODE);
+    expect(warned.join(' ')).not.toContain(CANARY_MSG);
+  });
+
+  it.each(cases)('%s emits nothing for a GraphQL error with a message but no code', async (name, _label, fields, mutation) => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === mutation) throw { response: { errors: [{ message: CANARY_MSG }] } };
+      return { app: { organizationId: null } };
+    });
+    await runAction(name, fields);
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(warned).toHaveLength(0);
+    expect(warned.join(' ')).not.toContain(CANARY_MSG);
   });
 });
