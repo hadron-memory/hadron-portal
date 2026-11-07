@@ -2279,7 +2279,8 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
   it.each(['success', 'refusal'] as const)('#1777 cast %s remains in the same mounted region after held Runs navigation', async outcome => {
     const { m, form } = await openCast();
     const region = m.target.querySelector(`[data-testid="cast-answer-${outcome === 'success' ? 'status' : 'alert'}"]`);
-    if (region) expect(region.textContent?.trim()).toBe('');
+    expect(region).not.toBeNull();
+    expect(region!.textContent?.trim()).toBe('');
     await fill(form(), 'agent-a', 'Iris');
     const sent = idOf(form());
     const delayed = await submitEnhancedDeferred(form());
@@ -2293,7 +2294,7 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
       result.data.form.valid = false;
       result.data.form.message = { type: 'error', text: 'Name already taken.' };
     }
-    await delayed.finish(outcome === 'success' ? result : { ...result, type: 'failure', status: 400 } as never);
+    await delayed.finish(outcome === 'success' ? result : { ...result, type: 'failure', status: 400 });
     await tick(3);
     expect(m.target.textContent).toContain(outcome === 'success' ? 'Worker cast.' : 'Name already taken.');
     release();
@@ -3152,6 +3153,7 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
     await again.finish(await confirmed(next) as never);
     await tick(4);
     const status = [...m.target.querySelectorAll('[role="status"]')].find((x) => x.textContent?.includes(LINKED))!;
+    expect(status.firstElementChild).not.toBeNull();
     expect(status.firstElementChild!.className.split(' ')).toEqual(expect.arrayContaining(['bg-green-50', 'text-green-700', 'dark:bg-green-950', 'dark:text-green-300']));
   });
 
