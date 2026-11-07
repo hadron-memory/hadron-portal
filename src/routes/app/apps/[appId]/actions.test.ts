@@ -1,6 +1,6 @@
 import { pageOf } from '$lib/test/pagedFixture';
 import { castWorkerSchema } from './schema';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import { APP_KEY_IMPERSONATION_READ_ONLY, APP_KEY_MANAGERS_ONLY } from '$lib/server/app-key-refusal';
 import { AGENT_TOOLS_IMPERSONATION_READ_ONLY, AGENT_TOOLS_MANAGERS_ONLY } from './agent-tools-refusal';
@@ -2465,5 +2465,184 @@ describe('App action transport copy', () => {
     expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
     expect(result.data.form.message).toEqual({ type: 'error', text: 'Correct the submitted value.' });
     expect(result.status).toBe(500);
+  });
+});
+
+// #1789 (ruling hrn:node:hadronmemory.com:hadron-dev-team-shared:rulings:0247):
+// one fixed, identifier-free diagnostic record per transport-failed attempt at
+// each of the eight App actions, on the existing portal container log. GraphQL
+// errors and successes emit nothing. The record is CLOSED — exactly
+// event/action/classification — so every test below also seeds canaries in
+// every forbidden field the ruling names and asserts none reaches the sink.
+describe('App action transport diagnostics (#1789)', () => {
+  const CANARY_MSG = 'CANARY_transport_message_6f2a';
+  const CANARY_NESTED = 'CANARY_nested_response_body_91bd';
+  const CANARY_VARS = 'CANARY_query_variables_c30d';
+  const CANARY_REQID = 'CANARY_request_id_77aa';
+
+  // [action name, ruling-0247 diagnostic label, form fields, mutation]
+  const cases = [
+    ['update', 'update', validSettings, UPDATE_APP_MUTATION],
+    ['addAgent', 'install_link', { agentId: 'agent-1' }, INSTALL_AGENT_INTO_APP_MUTATION],
+    ['removeAgent', 'unlink', { agentId: 'agent-1' }, UNINSTALL_AGENT_FROM_APP_MUTATION],
+    ['castWorker', 'cast', { agentId: 'agent-1', name: 'Aster', reporting: 'none' }, CAST_WORKER_MUTATION],
+    ['postTeamChatMessage', 'team_chat_post', { body: 'hello' }, CREATE_TEAM_CHAT_MESSAGE_MUTATION],
+    ['retireWorker', 'retire', { workerId: 'worker-1' }, RETIRE_WORKER_MUTATION],
+    ['releaseWorker', 'release', { workerId: 'worker-1', expectedHolderUserId: 'user-1' }, RELEASE_WORKER_MUTATION],
+    ['deleteApp', 'delete', {}, DELETE_APP_MUTATION],
+  ] as const;
+
+  let warned: string[];
+  beforeEach(() => {
+    warned = [];
+    vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      warned.push(args.map((a) => String(a)).join(' '));
+    });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** A plain transport failure seeded with canaries in every forbidden field
+   * the ruling names: message, stack, URL, headers/cookies, query, variables
+   * and nested response-body properties. If any of it can reach the sink, the
+   * canary assertions fail. */
+  function canaryTransportError(): Error {
+    const e = new Error(`fetch failed ${CANARY_MSG}`);
+    Object.assign(e, {
+      stack: `Error: fetch failed ${CANARY_MSG}\n    at CANARY_stack_frame`,
+      request: {
+        url: `https://CANARY_url.example/${CANARY_VARS}`,
+        headers: { cookie: `CANARY_cookie=${CANARY_VARS}` },
+      },
+      query: `mutation { CANARY_query_${CANARY_VARS} }`,
+      variables: { appRef: CANARY_VARS, nested: { deep: CANARY_NESTED } },
+      response: { body: CANARY_NESTED, errors: undefined, data: { secret: CANARY_NESTED } },
+    });
+    return e;
+  }
+
+  /** Succeeds every non-mutation query (deleteApp's non-fatal org lookup) and
+   * fails the named mutation with the seeded transport error. */
+  function failMutationWithTransport(mutation: unknown) {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === mutation) throw canaryTransportError();
+      return { app: { organizationId: null } };
+    });
+  }
+
+  it.each(cases)('%s emits exactly one fixed record for a transport failure', async (name, label, fields, mutation) => {
+    failMutationWithTransport(mutation);
+    await runAction(name, fields);
+    // One attempted write, one record — and no retry or replay between them.
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(warned).toHaveLength(1);
+    // The exact fixed record: key set, key order, no whitespace, nothing else
+    // on the line. Any fourth field or error-derived text breaks this string.
+    expect(warned[0]).toBe(`{"event":"app_action_transport_failure","action":"${label}","classification":"transport"}`);
+    expect(Object.keys(JSON.parse(warned[0])).sort()).toEqual(['action', 'classification', 'event']);
+    // No canary from any forbidden field reached the sink.
+    expect(warned.join(' ')).not.toContain(CANARY_MSG);
+    expect(warned.join(' ')).not.toContain(CANARY_NESTED);
+    expect(warned.join(' ')).not.toContain(CANARY_VARS);
+  });
+
+  it.each(cases)('%s emits one record per independent failed attempt', async (name, _label, fields, mutation) => {
+    failMutationWithTransport(mutation);
+    await runAction(name, fields);
+    await runAction(name, fields);
+    await runAction(name, fields);
+    // Each attempt tried its write exactly once and produced exactly one
+    // record — no duplicates within an attempt, no replay between attempts.
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(3);
+    expect(warned).toHaveLength(3);
+    for (const line of warned) {
+      expect(JSON.parse(line)).toMatchObject({ event: 'app_action_transport_failure' });
+    }
+  });
+
+  // Success shapes mirror the existing per-action success tests; deleteApp's
+  // success legitimately rejects with the 303 redirect, swallowed here because
+  // the assertion under test is the ABSENCE of a diagnostic.
+  const successValues = {
+    [UPDATE_APP_MUTATION]: {},
+    [INSTALL_AGENT_INTO_APP_MUTATION]: {},
+    [UNINSTALL_AGENT_FROM_APP_MUTATION]: {},
+    [CAST_WORKER_MUTATION]: {},
+    [CREATE_TEAM_CHAT_MESSAGE_MUTATION]: { createTeamChatMessage: { nodeId: 'n1', seq: 36 } },
+    [RETIRE_WORKER_MUTATION]: {},
+    [RELEASE_WORKER_MUTATION]: { releaseWorker: { worker: { id: 'worker-1' }, forced: false, releasedFrom: null, notified: null } },
+    [DELETE_APP_MUTATION]: {},
+  } as Record<string, unknown>;
+
+  it.each(cases)('%s emits nothing on success', async (name, _label, fields, mutation) => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === mutation) return successValues[mutation];
+      return { app: { organizationId: null } };
+    });
+    // The success control must prove success, not swallow any rejection:
+    // deleteApp's success IS the 303 redirect; the other seven return a
+    // success message. A silently-failing mock cannot pass this green.
+    if (name === 'deleteApp') {
+      await expect(runAction(name, fields)).rejects.toMatchObject({ status: 303 });
+    } else {
+      const result = await runAction(name, fields) as { form: { message: { type: string } } };
+      expect(result.form.message.type).toBe('success');
+    }
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(warned).toHaveLength(0);
+  });
+
+  it.each(cases)('%s emits nothing for a typed validation refusal', async (name, _label, fields, mutation) => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === mutation) throw { response: { errors: [{ message: 'Correct the submitted value.', extensions: { code: 'BAD_USER_INPUT' } }] } };
+      return { app: { organizationId: null } };
+    });
+    await runAction(name, fields);
+    // The rejection reached the catch (mutation ran once), so the silence
+    // below is the classifier's, not a mock that never fired.
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(warned).toHaveLength(0);
+  });
+
+  it.each(cases)('%s emits nothing for an internal GraphQL error', async (name, _label, fields, mutation) => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === mutation) throw { response: { errors: [{ message: CANARY_MSG, extensions: { code: 'INTERNAL_SERVER_ERROR', requestId: CANARY_REQID } }] } };
+      return { app: { organizationId: null } };
+    });
+    await runAction(name, fields);
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(warned).toHaveLength(0);
+    expect(warned.join(' ')).not.toContain(CANARY_REQID);
+  });
+
+  // Greer's LOCAL P2 (hrn:node:hadronmemory.com:hadron-dev-team-shared:sprints:sprint-3:reviews:hadron-portal-1803:greer-local-ed805e33):
+  // a mutant that logs every GraphQL code EXCEPT the two covered above
+  // survived the original matrix. Ruling 0247's silence rule is "none for a
+  // GraphQL error" — ANY GraphQL error — so the matrix must pin the codes it
+  // does not name, with canaries, exactly as it pins the ones it does.
+  const CANARY_UNKNOWN_CODE = 'CANARY_unknown_gql_code_4e19';
+
+  it.each(cases)('%s emits nothing for an unknown coded GraphQL error', async (name, _label, fields, mutation) => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === mutation) throw { response: { errors: [{ message: CANARY_MSG, extensions: { code: CANARY_UNKNOWN_CODE } }] } };
+      return { app: { organizationId: null } };
+    });
+    await runAction(name, fields);
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(warned).toHaveLength(0);
+    expect(warned.join(' ')).not.toContain(CANARY_UNKNOWN_CODE);
+    expect(warned.join(' ')).not.toContain(CANARY_MSG);
+  });
+
+  it.each(cases)('%s emits nothing for a GraphQL error with a message but no code', async (name, _label, fields, mutation) => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === mutation) throw { response: { errors: [{ message: CANARY_MSG }] } };
+      return { app: { organizationId: null } };
+    });
+    await runAction(name, fields);
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(warned).toHaveLength(0);
+    expect(warned.join(' ')).not.toContain(CANARY_MSG);
   });
 });
