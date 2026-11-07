@@ -1464,7 +1464,7 @@ describe('Client tab: a refused key mint (#1068)', () => {
     const target = await mountClient(async () =>
       new Response(JSON.stringify({ error: MANAGERS_ONLY }), { status: 403, headers: { 'Content-Type': 'application/json' } }));
     downloadButton(target).click();
-    await vi.waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
+    await vi.waitFor(() => expect(target.textContent).toContain(MANAGERS_ONLY));
     expect(alertSpy).not.toHaveBeenCalled();
     const alertEl = [...target.querySelectorAll('[role="alert"]')].find((el) => el.textContent?.includes(MANAGERS_ONLY));
     expect(alertEl).toBeTruthy();
@@ -1475,7 +1475,7 @@ describe('Client tab: a refused key mint (#1068)', () => {
     vi.spyOn(window, 'alert').mockImplementation(() => {});
     const target = await mountClient(async () => new Response('gateway', { status: 502 }));
     downloadButton(target).click();
-    await vi.waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
+    await vi.waitFor(() => expect(target.textContent).toContain('Failed to create client key.'));
     const alertEl = [...target.querySelectorAll('[role="alert"]')].find((el) => el.textContent?.includes('Failed to create client key.'));
     expect(alertEl).toBeTruthy();
   });
@@ -1919,7 +1919,7 @@ describe('App memory scope inventory (#1043)', () => {
     expect(m.target.textContent).toContain('Agent link');
   });
   it('renders failed scope as an error, never as an empty inventory', async () => {
-    const m=await showSettings(null);expect(m.target.querySelector('[role="alert"]')?.textContent).toContain('Could not load');expect(m.target.textContent).not.toContain('No accessible memories');
+    const m=await showSettings(null);expect([...m.target.querySelectorAll('[role="alert"]')].some(el => el.textContent?.includes('Could not load'))).toBe(true);expect(m.target.textContent).not.toContain('No accessible memories');
   });
   it('renders successful empty scope distinctly', async () => {
     const m=await showSettings([]);expect(m.target.textContent).toContain('No accessible memories');expect(m.target.textContent).not.toContain('OLD FIRST ONLY');
@@ -2275,6 +2275,72 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     f.message = { type: 'success', text: 'Worker cast.' };
     return { type: 'success' as const, status: 200, data: { form: f } };
   };
+
+  it.each(['success', 'refusal'] as const)('#1777 cast %s remains in the same mounted region after held Runs navigation', async outcome => {
+    const { m, form } = await openCast();
+    const region = m.target.querySelector(`[data-testid="cast-answer-${outcome === 'success' ? 'status' : 'alert'}"]`);
+    expect(region).not.toBeNull();
+    expect(region!.textContent?.trim()).toBe('');
+    await fill(form(), 'agent-a', 'Iris');
+    const sent = idOf(form());
+    const delayed = await submitEnhancedDeferred(form());
+    let release!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>(r => { release = r; });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    expect(release).toBeTypeOf('function');
+    const result = await success(sent);
+    if (outcome === 'refusal') {
+      result.data.form.valid = false;
+      result.data.form.message = { type: 'error', text: 'Name already taken.' };
+    }
+    await delayed.finish(outcome === 'success' ? result : { ...result, type: 'failure', status: 400 });
+    await tick(3);
+    expect(m.target.textContent).toContain(outcome === 'success' ? 'Worker cast.' : 'Name already taken.');
+    release();
+    await tick(3);
+    expect(m.target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
+    expect(m.target.textContent).toContain(outcome === 'success' ? 'Worker cast.' : 'Name already taken.');
+    expect(region).not.toBeNull();
+    expect(m.target.contains(region)).toBe(true);
+    expect(region!.getAttribute('role')).toBe(outcome === 'success' ? 'status' : 'alert');
+    expect(region!.textContent).toContain(outcome === 'success' ? 'Worker cast.' : 'Name already taken.');
+    expect([...m.target.querySelectorAll('[role="status"], [role="alert"]')].filter(el => el.textContent?.includes(outcome === 'success' ? 'Worker cast.' : 'Name already taken.'))).toHaveLength(1);
+  });
+
+  it.each([
+    ['above', -80, -20, false, true],
+    ['below', 800, 860, false, true],
+    ['reduced motion', -80, -20, true, true],
+    ['visible', 10, 70, false, false],
+  ] as const)('#1777 refusal reveal: %s, without moving focus', async (_case, top, bottom, reduced, shouldScroll) => {
+    const { m, form } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    const region = m.target.querySelector<HTMLElement>('[data-testid="cast-answer-alert"]')!;
+    const scroll = vi.fn();
+    region.scrollIntoView = scroll;
+    vi.spyOn(region, 'getBoundingClientRect').mockReturnValue({ top, bottom } as DOMRect);
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: reduced })));
+    const input = form().querySelector<HTMLInputElement>('[name="name"]')!;
+    input.focus();
+    const refused = async () => {
+      const f = (await success(idOf(form()))).data.form;
+      f.valid = false;
+      f.message = { type: 'error', text: 'Name already taken.' };
+      const pending = await submitEnhancedDeferred(form());
+      await pending.finish({ type: 'failure', status: 400, data: { form: f } });
+      await tick(3);
+    };
+    await refused();
+    expect(region.textContent).toContain('Name already taken.');
+    if (shouldScroll) expect(scroll).toHaveBeenCalledWith({ block: 'nearest', behavior: reduced ? 'instant' : 'smooth' });
+    else expect(scroll).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(input);
+    scroll.mockClear();
+    await refused();
+    // An identical refusal from another current submission still needs revealing.
+    expect(scroll).toHaveBeenCalledTimes(shouldScroll ? 1 : 0);
+  });
 
   it('a No team choice made for App A is not carried to App B', async () => {
     const { m, props, open, form } = await openCast();
@@ -3087,7 +3153,8 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
     await again.finish(await confirmed(next) as never);
     await tick(4);
     const status = [...m.target.querySelectorAll('[role="status"]')].find((x) => x.textContent?.includes(LINKED))!;
-    expect(status.className.split(' ')).toEqual(expect.arrayContaining(['bg-green-50', 'text-green-700', 'dark:bg-green-950', 'dark:text-green-300']));
+    expect(status.firstElementChild).not.toBeNull();
+    expect(status.firstElementChild!.className.split(' ')).toEqual(expect.arrayContaining(['bg-green-50', 'text-green-700', 'dark:bg-green-950', 'dark:text-green-300']));
   });
 
   it('the stale-list notice leaves with the App', async () => {
@@ -3300,6 +3367,23 @@ describe('Link and Unlink answers belong to their App visit (#1776)', () => {
     expect(new FormData(form).get('agentId')).toBe(kind === 'link' ? GAMMA.id : DELTA.id);
     return { id, delayed: await submitEnhancedDeferred(form), form };
   }
+  it('#1777 shared success region is mounted empty, filled, then cleared without replacement', async () => {
+    const { m, props } = await mountAgents();
+    const region = m.target.querySelector('[data-testid="app-success-status"]');
+    expect(region).not.toBeNull();
+    expect(region!.textContent?.trim()).toBe('');
+    expect(region!.getAttribute('role')).toBe('status');
+    const a = await begin(m.target, 'link');
+    await a.delayed.finish(await answer('link', 'success', a.id, 'A') as never);
+    await tick(3);
+    expect(m.target.querySelector('[data-testid="app-success-status"]')).toBe(region);
+    expect(region!.textContent).toContain('A link success');
+    props.data = await dataFor('a2');
+    await tick(3);
+    expect(m.target.querySelector('[data-testid="app-success-status"]')).toBe(region);
+    expect(region!.textContent?.trim()).toBe('');
+  });
+
   async function answer(kind: Kind, outcome: Outcome, id: string, owner: string) {
     if (outcome === 'error') return { type: 'error', status: 500, error: { message: `${owner} failed request` } };
     if (outcome === 'redirect') return { type: 'redirect', status: 303, location: `/${owner}-redirect` };

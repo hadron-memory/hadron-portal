@@ -1325,6 +1325,17 @@
   });
 
   // ── Casting (#974) ───────────────────────────────────────────────────
+  let castAnswerAlert: HTMLDivElement | undefined = $state();
+  // The persistent alert is above the tabs; reveal a current refusal without
+  // moving keyboard focus. Re-check ownership after the DOM update.
+  async function revealCastRefusal(generation: number) {
+    await tick();
+    if (generation !== castGeneration || !castAnswerAlert?.isConnected || !castWorkerActionError) return;
+    const rect = castAnswerAlert.getBoundingClientRect();
+    if (rect.top >= 0 && rect.bottom <= window.innerHeight) return;
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    castAnswerAlert.scrollIntoView({ block: 'nearest', behavior: reduced ? 'instant' : 'smooth' });
+  }
   const newCastFormId = () => `castWorker:${Math.random().toString(36).slice(2, 10)}`;
   const castFormId = newCastFormId();
   const initialCastWorkerForm = untrack(() => submittedForm<CastWorkerForm>(form, 'castWorker') as CastWorkerSuperform | null ?? data.castWorkerForm);
@@ -1373,13 +1384,14 @@
     // so whether the cast landed isn't known and this claims neither. Never retried.
     // A stale answer stops at onResult above, which also skips this hook; the check
     // here is for an App change during the hooks of an answer that passed it.
-    onError: () => {
+    onError: async () => {
       if (castAttemptGeneration !== castGeneration) return;
       activeTab = 'staff';
       castWorkerMessage.set({
         type: 'error',
         text: t('app.staff.cast.unconfirmed', 'The cast could not be confirmed. Reload the page to check before casting again.'),
       });
+      await revealCastRefusal(castAttemptGeneration);
     },
     // The refresh is ours (not Superforms'), so a rejection after a CONFIRMED
     // cast is caught here and told truthfully instead of stranding the form.
@@ -1387,7 +1399,10 @@
     onUpdated: async ({ form: f }) => {
       if (castAttemptGeneration !== castGeneration) return;
       activeTab = 'staff';
-      if (!f.valid || f.message?.type === 'error') castOpen = true;
+      if (!f.valid || f.message?.type === 'error') {
+        castOpen = true;
+        await revealCastRefusal(castAttemptGeneration);
+      }
       // Clear the composer only on a clean cast, so a WORKER_NAME_TAKEN
       // refusal leaves the rejected name in the box to edit.
       if (f.valid && f.message?.type === 'success') {
@@ -1985,11 +2000,14 @@
       {installAgentActionError ?? removeAgentActionError ?? updateAgentToolsActionError ?? revokeKeyActionError ?? deleteAppActionError}
     </div>
   {/if}
-  {#if settingsActionSuccess || addAgentActionSuccess || installAgentActionSuccess || removeAgentActionSuccess || updateAgentToolsActionSuccess || revokeKeyActionSuccess}
-    <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
-      {settingsActionSuccess ?? addAgentActionSuccess ?? installAgentActionSuccess ?? removeAgentActionSuccess ?? updateAgentToolsActionSuccess ?? revokeKeyActionSuccess}
-    </div>
-  {/if}
+  <!-- #1777: keep the region mounted; only its content changes. -->
+  <div role="status" data-testid="app-success-status" class="mb-0">
+    {#if settingsActionSuccess || addAgentActionSuccess || installAgentActionSuccess || removeAgentActionSuccess || updateAgentToolsActionSuccess || revokeKeyActionSuccess}
+      <div class="mb-4 rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
+        {settingsActionSuccess ?? addAgentActionSuccess ?? installAgentActionSuccess ?? removeAgentActionSuccess ?? updateAgentToolsActionSuccess ?? revokeKeyActionSuccess}
+      </div>
+    {/if}
+  </div>
   <!-- portal#1715: the region stays mounted (empty) so a notice arriving later is announced; a live
        region mounted already populated is not reliably read. The parent's space-y gap sits on the
        notice, not the region, so the empty region adds no gap. -->
@@ -1997,6 +2015,22 @@
     {#if installRefreshFailed}
       <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
         {t('app.agents.install.refresh-failed', 'The agent was installed, but the roster could not be refreshed. Reload the page to see it.')}
+      </div>
+    {/if}
+  </div>
+
+  <!-- #1777: cast outcomes survive a later tab choice, without changing focusTab's policy. -->
+  <div role="alert" data-testid="cast-answer-alert" bind:this={castAnswerAlert} class="mb-0">
+    {#if castWorkerActionError}
+      <div class="mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+        {castWorkerActionError}
+      </div>
+    {/if}
+  </div>
+  <div role="status" data-testid="cast-answer-status" class="mb-0">
+    {#if castWorkerActionSuccess}
+      <div class="mb-4 rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
+        {castWorkerActionSuccess}
       </div>
     {/if}
   </div>
@@ -2549,16 +2583,6 @@
         </div>
       </div>
 
-      {#if castWorkerActionError}
-        <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-          {castWorkerActionError}
-        </div>
-      {/if}
-      {#if castWorkerActionSuccess}
-        <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
-          {castWorkerActionSuccess}
-        </div>
-      {/if}
       <!-- portal#1715: mounted empty, as the install notice above; the gap sits on the notice. -->
       <div role="status" data-testid="cast-refresh-status" class="mb-0">
         {#if castRefreshFailed}
