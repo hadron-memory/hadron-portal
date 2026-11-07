@@ -155,6 +155,20 @@ describe('install customisation panel', () => {
     await tick(4);
     expect(root.textContent).toBe('');
   });
+  it('portal#1761: filters customisation rows by the search box and restores them when cleared', async () => {
+    const twoRows = payload();
+    twoRows.list.value!.nodes = [node, { ...node, id: 'n2', loc: 'other', name: 'Other' }];
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(twoRows))));
+    const root = await panel();
+    const input = root.querySelector<HTMLInputElement>('input[aria-label="Search customisations"]')!;
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(2);
+    input.value = 'note'; input.dispatchEvent(new Event('input', { bubbles: true })); await tick();
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(root.querySelector('tbody')?.textContent).toContain('Note');
+    expect(root.querySelector('tbody')?.textContent).not.toContain('Other');
+    input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); await tick();
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(2);
+  });
 });
 
 async function settle() {
