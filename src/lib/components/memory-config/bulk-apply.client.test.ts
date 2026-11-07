@@ -445,7 +445,11 @@ describe('#1764 less-visible task warning on bulk apply', () => {
   const warn = { code: 'TASK_LESS_VISIBLE', role: 'review', field: 'authorTask', taskUrn: urn, taskState: 'OK' };
   it('preview and real apply show the same copy per row, the preview does not block Apply, and the raw code never shows', async () => {
     const m = mount(); const panel = open(m.target); pick(panel, 2);
+    const rowStatus = panel.querySelector('[data-bulk-row-status]');
+    expect(rowStatus).not.toBeNull(); expect(rowStatus?.textContent).not.toContain('author task');
     await preview(panel, [ok(0, { warnings: [warn] }), ok(1)]);
+    expect(rowStatus?.textContent).toContain('author task');
+    expect(rowStatus?.textContent).not.toContain('Will be added');
     const rowWarnings = [...panel.querySelectorAll('[data-task-warning]')].map(n => n.textContent);
     expect(rowWarnings.length).toBe(1); expect(rowWarnings[0]).toContain('author task'); expect(rowWarnings[0]!.replace(/\s/g, '')).toContain(urn);
     expect(panel.textContent).not.toContain('TASK_LESS_VISIBLE');

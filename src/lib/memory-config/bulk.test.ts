@@ -98,6 +98,8 @@ describe('bulkCall', () => {
     ['a warning with no code', nested({ warnings: [{ role: 'review', field: null }] })],
     ['a warning with no role', nested({ warnings: [{ code: 'X', field: null }] })],
     ['a warning field that is not text', nested({ warnings: [{ code: 'X', role: 'review', field: 7 }] })],
+    ['a warning task URN that is not text or null', nested({ warnings: [{ code: 'X', role: 'review', field: null, taskUrn: 7 }] })],
+    ['a warning task state that is not text or null', nested({ warnings: [{ code: 'X', role: 'review', field: null, taskState: 7 }] })],
     ['a string revision', nested({ templateRevision: '7' })],
     ['a fractional revision', nested({ templateRevision: 1.5 })],
     ['a required flag that is not boolean', nested({ required: 'yes' })],

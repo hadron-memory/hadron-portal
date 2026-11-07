@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
   import { beforeNavigate } from '$app/navigation';
   import { t } from '$lib/i18n/t';
   import DataTable from '$lib/components/table/DataTable.svelte';
@@ -10,21 +10,24 @@
   import RuleEditor from './RuleEditor.svelte';
   import { configCall, type ConfigFailure } from '$lib/memory-config/client';
   import type { MemoryConfigWarning, Rule, Rulebook } from '$lib/memory-config/types';
-  import { normalizeWarnings } from '$lib/memory-config/warnings';
+  import { normalizeWarnings, warningSearchText } from '$lib/memory-config/warnings';
   import TaskWarnings from './TaskWarnings.svelte';
   let { initial, memoryRef, readOnly, memories, memoriesFailed = false }: { initial: Rulebook | null; memoryRef: string; readOnly: boolean; memories: { id: string; name: string; urn: string }[]; memoriesFailed?: boolean } = $props();
   let snapshot = untrack(() => initial);
   let book = $state(untrack(() => initial)), editing = $state<Rule | null | undefined>(undefined);
   let editorVersion = $state(0);
-  let heading = $state<HTMLHeadingElement>();
+  let heading = $state<HTMLHeadingElement>(), feedbackFocus = $state<HTMLElement>();
   let notice = $state(''), warnings = $state<MemoryConfigWarning[]>([]), failure = $state<ConfigFailure | null>(null), busy = $state(false);
   // Plain counters are ownership tokens, never deep-proxied response state.
   let alive = true, viewEpoch = 0, readSequence = 0, feedbackSequence = 0;
   let busyOwner: object | null = null;
+  const currentFailure = (): ConfigFailure | null => failure;
+  const announcement = $derived([failure?.error ?? '', notice, ...warnings.map(warningSearchText)].filter(Boolean).join(' '));
+  const liveAnnouncement = $derived(editing === undefined ? announcement : '');
   $effect(() => {
     if (initial !== snapshot) {
       viewEpoch++;
-      snapshot = initial; book = initial; warnings = [];
+      snapshot = initial; book = initial; warnings = []; notice = ''; failure = null;
       busyOwner = null; busy = false;
     }
   });
@@ -75,14 +78,29 @@
       answer = await configCall({ kind: 'rules', op: editing ? 'update' : 'create', memoryRef, ref: editing?.id, revision: editing?.revision, input });
     } catch (e) { return owner.current() ? e as ConfigFailure : null; }
     if (!owner.current()) return null;
-    // An advisory rides along with a saved rule: it is shown beside the notice and never makes the save a failure.
-    feedbackSequence++; notice = t('config.saved', 'Saved.'); warnings = normalizeWarnings(answer?.warnings);
+    // Close the native modal before changing the external live region; while it
+    // is open, content outside the dialog is inert and will not be announced.
+    const normalizedWarnings = normalizeWarnings(answer?.warnings);
     const result = await reload(owner);
     // Read ordering owns the book; this confirmed write still owns its editor.
     // A newer read cannot strand that editor, while a newer view/session can.
     if (!owner.current()) return null;
-    if (result.kind === 'error' && result.current()) failure = { error: t('config.reload-failed', 'Saved, but the rules could not be reloaded. Reload before another change.') };
+    const saveReadFailure = result.kind === 'error' && result.current()
+      ? { error: t('config.reload-failed', 'Saved, but the rules could not be reloaded. Reload before another change.') }
+      : null;
+    const feedback = feedbackSequence;
     edit(undefined);
+    const completedView = ownView();
+    await tick();
+    if (!completedView.current()) return null;
+    if (book === null) feedbackFocus?.focus();
+    const existingFailure = currentFailure();
+    if (saveReadFailure) failure = existingFailure
+      ? { error: `${existingFailure.error} ${saveReadFailure.error}` }
+      : saveReadFailure;
+    if (feedback !== feedbackSequence) return null;
+    feedbackSequence++;
+    notice = t('config.saved', 'Saved.'); warnings = normalizedWarnings;
     return null;
   }
   async function rowAction(rule: Rule, op: 'delete' | 'unlock') {
@@ -110,19 +128,33 @@
   async function reloadEditor() {
     const owner = ownView(editorVersion), id = editing?.id;
     const result = await reload(owner);
-    if (result.kind === 'stale' || !result.current()) return;
-    if (result.kind === 'applied') edit(book?.rules.find(r => r.id === id));
-    else { feedbackSequence++; failure = { error: t('config.reload-kept', 'Could not reload. Your input is kept.') }; }
+    if (result.kind === 'stale' || !result.current()) return undefined;
+    if (result.kind === 'applied') {
+      edit(book?.rules.find(r => r.id === id));
+      if (book === null) { const completedView = ownView(); await tick(); if (completedView.current()) feedbackFocus?.focus(); }
+      return null;
+    }
+    feedbackSequence++;
+    return { error: t('config.reload-kept', 'Could not reload. Your input is kept.') };
   }
 </script>
+{#snippet feedback()}
+  {#if failure}<p class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}
+  {#if notice}<p class="text-green-700 dark:text-green-300">{notice}</p>{/if}
+  {#if warnings.length}<div class="space-y-2"><TaskWarnings {warnings} /></div>{/if}
+{/snippet}
+<!-- Announce text only: interactive copy controls stay in the shared visual snippet. -->
+<div class="sr-only" role="status" data-rule-feedback>{#if !failure}{liveAnnouncement}{/if}</div>
+<div class="sr-only" aria-live="assertive" aria-atomic="true" data-rule-failure>{#if failure}{liveAnnouncement}{/if}</div>
+<div bind:this={feedbackFocus} data-rule-feedback-visual tabindex="-1" class="space-y-4">
+  {@render feedback()}
+  {#if failure}<button type="button" onclick={reloadFailure} class="min-h-11 rounded border px-3">{t('config.reload', 'Reload')}</button>{/if}
+</div>
 {#if book !== null}
   <section class="space-y-4" aria-label={t('config.node-roles', 'Node roles')}>
     <h1 bind:this={heading} tabindex="-1" class="text-2xl font-semibold text-zinc-900 dark:text-white">{t('config.node-roles', 'Node roles')}</h1>
     {#if readOnly}<p>{t('config.impersonation', 'This page is read-only while impersonating.')}</p>
     {:else}<button type="button" onclick={() => edit(null)} class="min-h-11 rounded bg-indigo-600 px-4 text-white">{t('config.create-rule', 'Create rule')}</button>{/if}
-    {#if notice}<p role="status" class="text-green-700 dark:text-green-300">{notice}</p>{/if}
-    {#if warnings.length}<div class="space-y-2"><TaskWarnings {warnings} /></div>{/if}
-    {#if failure}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p><button type="button" onclick={reloadFailure} class="min-h-11 rounded border px-3">{t('config.reload', 'Reload')}</button>{/if}
     <DataTable {table} listKey="memory-node-role-rules" bind:globalFilter={ruleFilter} searchPlaceholder={t('config.search-rules', 'Search rules…')} searchAriaLabel={t('config.search-rules', 'Search rules…')}>
       {#snippet cell(cell, r)}
         {#if cell.column.id === 'role'}<span class="font-mono">{r.role}</span>

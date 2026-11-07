@@ -73,7 +73,9 @@ describe('#1764 less-visible task warning boundary', () => {
     const key = op === 'create' ? 'createNodeRoleRule' : 'updateNodeRoleRule';
     const c = client(vi.fn().mockResolvedValue({ [key]: { rule, warnings: [warning] } }));
     const out = await mutateRule(c, { impersonating: false, memoryRef: 'm', op, ref: 'r1', revision: 7, input: { role: 'review' } });
-    for (const fields of warningSelection(c.request.mock.calls[0][0])) expect(fields).toEqual(expect.arrayContaining(['code', 'role', 'field', 'taskUrn', 'taskState']));
+    const sets = warningSelection(c.request.mock.calls[0][0]);
+    expect(sets.length).toBeGreaterThan(0);
+    for (const fields of sets) expect(fields).toEqual(expect.arrayContaining(['code', 'role', 'field', 'taskUrn', 'taskState']));
     expect(out).toEqual({ warnings: [warning] });
   });
   it('a save answering no warnings returns an empty list; a delete returns no warnings', async () => {

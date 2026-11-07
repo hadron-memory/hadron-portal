@@ -10,14 +10,14 @@ const text = (value: unknown): string | null => typeof value === 'string' ? valu
  */
 export function normalizeWarnings(raw: unknown): MemoryConfigWarning[] {
   if (!Array.isArray(raw)) return [];
-  return raw.map(row => {
+  return Array.from(raw, row => {
     const w = row && typeof row === 'object' ? row as Record<string, unknown> : {};
     return { code: text(w.code) ?? '', role: text(w.role) ?? '', field: text(w.field), taskUrn: text(w.taskUrn), taskState: text(w.taskState) };
   });
 }
 
 /** Rule settings that name a task, in the words a manager uses. Anything else is described generically. */
-function fieldWords(field: string | null): string | null {
+export function fieldWords(field: string | null): string | null {
   if (field === 'authorTask') return t('config.warning.field.author', 'author task');
   if (field === 'validationTask') return t('config.warning.field.validation', 'validation task');
   return null;
@@ -35,7 +35,7 @@ function fieldWords(field: string | null): string | null {
  */
 export function describeWarning(w: MemoryConfigWarning): { text: string; urn: string | null } {
   const role = w.role;
-  const field = w.code === 'TASK_LESS_VISIBLE' ? fieldWords(w.field ?? null) : null;
+  const field = w.code === 'TASK_LESS_VISIBLE' && role ? fieldWords(w.field ?? null) : null;
   if (!field) {
     return { urn: null, text: role
       ? t('config.warning.generic', 'The server returned a notice about the “{role}” rule that this page does not describe.', { role })
@@ -45,10 +45,10 @@ export function describeWarning(w: MemoryConfigWarning): { text: string; urn: st
   if (state === 'UNREADABLE' || state === 'BROKEN') {
     return { urn: null, text: t('config.warning.unreadable', 'The {field} of the “{role}” rule may not be readable by everyone who can read this memory. You can’t read that task yourself, or its reference is broken, so it isn’t named here.', { field, role }) };
   }
-  const urn = w.taskUrn && (state === 'OK' || state === 'NONE' || state === null) ? w.taskUrn : null;
+  const urn = w.taskUrn && state === 'OK' ? w.taskUrn : null;
   if (urn) return { urn, text: t('config.warning.named', 'The {field} of the “{role}” rule may not be readable by everyone who can read this memory:', { field, role }) };
   if (state === 'OK') return { urn: null, text: t('config.warning.no-ref', 'The {field} of the “{role}” rule may not be readable by everyone who can read this memory.', { field, role }) };
-  return { urn: null, text: t('config.warning.unchecked', 'After the save, the check of who can read the {field} of the “{role}” rule could not be completed, so it is not known whether everyone who can read this memory can read it.', { field, role }) };
+  return { urn: null, text: t('config.warning.unchecked', 'The check of who can read the {field} of the “{role}” rule could not be completed, so it is not known whether everyone who can read this memory can read it.', { field, role }) };
 }
 
 /** Everything the warning renders, so a grid's search finds what the reader sees. */

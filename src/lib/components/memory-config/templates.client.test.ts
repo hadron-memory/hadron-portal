@@ -120,9 +120,12 @@ describe('#1764 less-visible task warning on single apply', () => {
   it('preview and real apply show the same plain copy, with the URN, and never the raw code', async () => {
     fetcher.mockResolvedValueOnce(answer(true, [warn])).mockResolvedValueOnce(answer(false, [warn]));
     const m = mount(false, true, [{ ...template, required: false }]); pickMemory(m.target);
+    const feedback = m.target.querySelector('[data-apply-feedback]');
+    expect(feedback).not.toBeNull(); expect(feedback?.textContent).not.toContain('author task');
     button(m.target, 'Preview').click();
     await vi.waitFor(() => { flushSync(); expect(m.target.textContent).toContain('Preview: nothing has been changed'); });
     const previewText = [...m.target.querySelectorAll('[data-task-warning]')].map(n => n.textContent);
+    expect(feedback?.textContent).toContain('author task');
     expect(previewText.length).toBe(1); expect(previewText[0]).toContain('author task'); expect(previewText[0]!.replace(/\s/g, '')).toContain(urn);
     expect(m.target.textContent).not.toContain('TASK_LESS_VISIBLE');
     // A warning on the preview does not block the apply.
@@ -135,6 +138,21 @@ describe('#1764 less-visible task warning on single apply', () => {
   });
   it('shows nothing for an empty list', async () => {
     fetcher.mockResolvedValueOnce(answer(true, []));
+    const m = mount(false, true, [{ ...template, required: false }]); pickMemory(m.target);
+    button(m.target, 'Preview').click();
+    await vi.waitFor(() => { flushSync(); expect(m.target.textContent).toContain('Preview: nothing has been changed'); });
+    expect(m.target.querySelectorAll('[data-task-warning]').length).toBe(0);
+  });
+  it('normalizes malformed task references before rendering a single-apply warning', async () => {
+    fetcher.mockResolvedValueOnce(answer(true, [{ ...warn, taskUrn: 7 }]));
+    const m = mount(false, true, [{ ...template, required: false }]); pickMemory(m.target);
+    button(m.target, 'Preview').click();
+    await vi.waitFor(() => { flushSync(); expect(m.target.querySelectorAll('[data-task-warning]').length).toBe(1); });
+    expect(m.target.querySelector('[data-task-warning] code')).toBeNull();
+    expect(m.target.textContent).not.toContain('>7<');
+  });
+  it('treats a non-array warnings answer as no renderable warnings instead of throwing', async () => {
+    fetcher.mockResolvedValueOnce({ ok: true, json: async () => ({ value: { memoryId: 'm1', templateRevision: 9, required: false, dryRun: true, entries: [], warnings: 'bad' } }) });
     const m = mount(false, true, [{ ...template, required: false }]); pickMemory(m.target);
     button(m.target, 'Preview').click();
     await vi.waitFor(() => { flushSync(); expect(m.target.textContent).toContain('Preview: nothing has been changed'); });

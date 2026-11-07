@@ -18,10 +18,11 @@ export type BulkRefusal = { kind: 'refused'; error: string; code: string | null;
 export type BulkOutcome = { kind: 'result'; value: BulkResult } | BulkRefusal | { kind: 'unknown' };
 
 const isOptionalText = (value: unknown) => value === null || typeof value === 'string';
+const isOptionalTextOrMissing = (value: unknown) => value === undefined || isOptionalText(value);
 function previewIsLegal(result: ApplyPreview | null, dryRun: boolean): boolean {
   return !!result && result.dryRun === dryRun && Number.isInteger(result.templateRevision) && typeof result.required === 'boolean'
     && Array.isArray(result.entries) && result.entries.every(entry => typeof entry?.role === 'string' && typeof entry.outcome === 'string')
-    && Array.isArray(result.warnings) && result.warnings.every(warning => typeof warning?.code === 'string' && typeof warning.role === 'string' && isOptionalText(warning.field));
+    && Array.isArray(result.warnings) && result.warnings.every(warning => typeof warning?.code === 'string' && typeof warning.role === 'string' && isOptionalText(warning.field) && isOptionalTextOrMissing(warning.taskUrn) && isOptionalTextOrMissing(warning.taskState));
 }
 function errorIsLegal(error: BulkError | null): boolean {
   return !!error && typeof error.code === 'string' && typeof error.message === 'string'

@@ -16,6 +16,7 @@
   import { configCall, type ConfigFailure } from '$lib/memory-config/client';
   import type { Rule, Template, OwnerType, ApplyPreview } from '$lib/memory-config/types';
   import TaskWarnings from './TaskWarnings.svelte';
+  import { normalizeWarnings } from '$lib/memory-config/warnings';
   let { initial, ownerType, ownerRef, readOnly, canManage, memories, memoriesFailed }: { initial: Template[]; ownerType: OwnerType; ownerRef: string; readOnly: boolean; canManage: boolean; memories: { id: string; name: string; urn: string }[]; memoriesFailed: boolean } = $props();
   let snapshot = untrack(() => initial);
   let templates = $state(untrack(() => initial)), editing = $state<Template | null | undefined>(undefined);
@@ -88,7 +89,8 @@
     if (!chosen || !memory || !writable || pending || (!dryRun && (!preview || previewStale))) return;
     pending = true; failure = null; notice = '';
     try {
-      preview = (await configCall<{ value: ApplyPreview }>({ kind: 'apply', op: dryRun ? 'preview' : 'apply', ref: chosen.id, memoryRef: memory.id, ...(!dryRun ? { revision: preview!.templateRevision } : {}) })).value;
+      const value = (await configCall<{ value: ApplyPreview }>({ kind: 'apply', op: dryRun ? 'preview' : 'apply', ref: chosen.id, memoryRef: memory.id, ...(!dryRun ? { revision: preview!.templateRevision } : {}) })).value;
+      preview = { ...value, warnings: normalizeWarnings(value.warnings) };
       previewStale = false;
     } catch (e) { failure = e as ConfigFailure; if (failure.code === 'CONFLICT') { previewStale = true; failure.error = t('config.template-changed', 'This template changed since the preview. Preview again before applying.'); } }
     finally { pending = false; }
@@ -162,8 +164,8 @@
           {#snippet cell(cell, row)}<span class="block whitespace-normal break-words">{cell.column.id === 'outcome' ? outcomeCopy(row.outcome, !!preview?.dryRun) : row.role}</span>{/snippet}
         </DataTable>
         {#if preview.dryRun}<button type="button" disabled={pending || previewStale} onclick={() => apply(false)} class="min-h-11 rounded bg-indigo-600 px-4 text-white disabled:cursor-not-allowed disabled:opacity-50">{preview.required ? t('config.apply-lock', 'Apply and lock rules') : t('config.apply', 'Apply')}</button>{/if}
-        <TaskWarnings warnings={preview.warnings} />
       {/if}
+      <div role="status" data-apply-feedback><TaskWarnings warnings={preview?.warnings ?? []} /></div>
     </section>
   {/if}
 </section>

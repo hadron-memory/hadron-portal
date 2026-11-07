@@ -83,14 +83,16 @@
     <p class="font-medium">{t('config.bulk.row-unknown', 'Not known')}</p>
     <a href={`/app/memories/${encodeURIComponent(row.memory.id)}/settings/node-roles`} target="_blank" rel="noopener noreferrer" aria-label={t('config.bulk.current-rules-named', 'Current rules of {name}', { name: row.memory.name })} class="text-indigo-700 underline dark:text-indigo-300">{t('config.bulk.current-rules', 'Current rules')}</a>
   {:else if row.entry?.error}
-    <p class="break-words text-red-700 select-text dark:text-red-300">{rowErrorCopy(row.entry.error)}</p>
+    {#if row.earlier}<p class="text-zinc-600 dark:text-zinc-400">{t('config.bulk.earlier', 'From the earlier apply, not sent again')}</p>{/if}
   {:else if row.entry?.result}
     {#if row.earlier}<p class="text-zinc-600 dark:text-zinc-400">{t('config.bulk.earlier', 'From the earlier apply, not sent again')}</p>{/if}
     {#if !row.entry.result.entries.length}<p>{t('config.bulk.no-rules', 'This template has no rules.')}</p>{/if}
     <ul>{#each row.entry.result.entries as entry}<li class="break-words">{entry.role}: {outcomeCopy(entry.outcome, row.entry.result.dryRun)}</li>{/each}</ul>
-    <TaskWarnings warnings={row.entry.result.warnings} />
   {/if}
-  {#if row.earlier && row.entry?.error}<p class="text-zinc-600 dark:text-zinc-400">{t('config.bulk.earlier', 'From the earlier apply, not sent again')}</p>{/if}
+  <div role="status" data-bulk-row-status>
+    {#if row.entry?.error}<p class="break-words text-red-700 select-text dark:text-red-300">{rowErrorCopy(row.entry.error)}</p>{/if}
+    {#if row.entry?.result && (!unknown || row.earlier)}<TaskWarnings warnings={row.entry.result.warnings} />{/if}
+  </div>
 {/snippet}
 <section aria-label={t('config.bulk.panel', 'Apply to several memories')} class="min-w-0 space-y-4 rounded-xl border p-5 dark:border-zinc-700">
   <h2 bind:this={panelHeading} tabindex="-1" class="text-xl font-semibold">{t('config.apply-name', 'Apply “{name}”', { name: template.name })}</h2>
