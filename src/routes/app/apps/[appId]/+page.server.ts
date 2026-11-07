@@ -17,6 +17,7 @@ import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout'
 import { appKeyRefusal } from '$lib/server/app-key-refusal';
 import { agentToolsRefusal } from './agent-tools-refusal';
 import { gqlClient } from '$lib/server/api';
+import { logAppActionTransportFailure } from '$lib/server/app-action-transport-diagnostic';
 import { readAppInstallMarks } from '$lib/server/app-install-marks';
 import { pointerAction, readAppPointers } from '$lib/server/boot-prompt-pointer';
 import { appAgentPointerKey } from '$lib/boot-prompt-pointer';
@@ -1127,6 +1128,7 @@ export const actions: Actions = {
       });
       return message(form, { type: 'success', text: t('app.settings.saved', 'Saved.') });
     } catch (e: unknown) {
+      logAppActionTransportFailure('update', e);
       return message(
         form,
         { type: 'error', text: extractGqlError(e, 'Failed to update app', [], { transport: 'fallback' }) },
@@ -1163,6 +1165,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(INSTALL_AGENT_INTO_APP_MUTATION, variables);
       return message(form, { type: 'success', text: t('app.agent.linked', 'Agent linked.') });
     } catch (e: unknown) {
+      logAppActionTransportFailure('install_link', e);
       return message(
         form,
         { type: 'error', text: lookupOwn(ADD_AGENT_ERRORS, gqlErrorCode(e))?.() ?? extractGqlError(e, 'Failed to add agent', [], { transport: 'fallback' }) },
@@ -1185,6 +1188,7 @@ export const actions: Actions = {
       });
       return message(form, { type: 'success', text: t('app.agent.unlinked', 'Agent unlinked.') });
     } catch (e: unknown) {
+      logAppActionTransportFailure('unlink', e);
       return message(
         form,
         { type: 'error', text: extractGqlError(e, 'Failed to remove agent', [], { transport: 'fallback' }) },
@@ -1249,6 +1253,7 @@ export const actions: Actions = {
         text: t('app.staff.cast.success', 'Worker cast.'),
       });
     } catch (e: unknown) {
+      logAppActionTransportFailure('cast', e);
       // Known refusals keep actionable copy. Other GraphQL faults retain the
       // shared envelope; transport failures use this action's fallback, not
       // raw exception text (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
@@ -1308,6 +1313,7 @@ export const actions: Actions = {
         text: t('app.team-chat.post.success', 'Posted to the team chat.'),
       });
     } catch (e: unknown) {
+      logAppActionTransportFailure('team_chat_post', e);
       // #835 — as above: wire-supplied key, so guard the lookup.
       const known = lookupOwn(TEAM_CHAT_POST_ERRORS, gqlErrorCode(e));
       return message(
@@ -1432,6 +1438,7 @@ export const actions: Actions = {
         text: t('app.staff.retire.success', 'Worker retired. Its name stays reserved.'),
       });
     } catch (e: unknown) {
+      logAppActionTransportFailure('retire', e);
       // Same staffing gate as castWorker, so the same legible refusal.
       const forbidden = gqlErrorCode(e) === 'FORBIDDEN';
       return message(
@@ -1470,6 +1477,7 @@ export const actions: Actions = {
       });
       return message(form, releaseOutcomeMessage(result.releaseWorker));
     } catch (e: unknown) {
+      logAppActionTransportFailure('release', e);
       // #825 — the guarded write refused because the hold is not what the
       // roster showed. Handled BEFORE the generic branches: it is not a server
       // fault and not a permission problem, and reporting it as either would
@@ -1559,6 +1567,7 @@ export const actions: Actions = {
     try {
       await client.request(DELETE_APP_MUTATION, { ref: params.appId });
     } catch (e: unknown) {
+      logAppActionTransportFailure('delete', e);
       return message(
         form,
         { type: 'error', text: extractGqlError(e, 'Failed to delete app', [], { transport: 'fallback' }) },
