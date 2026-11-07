@@ -81,9 +81,22 @@ try {
       } else if (hasMore) {
         await page.waitForFunction(el => el === document.activeElement, await trigger.elementHandle());
         assert.equal(await trigger.evaluate(el => el === document.activeElement), true, `${label}: surviving Load more owns focus`);
-        // #1775: the appended row is really in the table, found through its own filter.
-        const search = page.getByRole('textbox', { name: 'Filter loaded relations…', exact: true });
-        if (await search.isVisible()) { await search.fill('Task appended'); await page.getByText('Task appended', { exact: true }).first().waitFor({ state: 'visible' }); await search.fill(''); }
+        // #1775: the page really was appended. The filter header stays hidden after a
+        // non-final page, so the unconditional witness is the caveat the component
+        // shows only once rows were merged (`loadedMore`), plus a retrying visibility wait.
+        const caveat = page.getByText('Relations can change while you load pages.');
+        if (interaction === 'failed') assert.equal(await caveat.count(), 0, `${label}: a failed page appends nothing`);
+        else {
+          await caveat.waitFor({ state: 'visible', timeout: 5000 });
+          // Reach the appended row through the table's own filter: the header is collapsed
+          // after a non-final page, so open it with its toggle, then require the row.
+          const searchBox = page.getByRole('textbox', { name: 'Filter loaded relations…', exact: true });
+          if (!(await searchBox.isVisible())) await page.locator('[data-testid="table-header-toggle"]').click();
+          await searchBox.waitFor({ state: 'visible', timeout: 5000 });
+          await searchBox.fill('Task appended');
+          await page.getByRole('link', { name: 'Task appended', exact: true }).waitFor({ state: 'visible', timeout: 5000 });
+          await searchBox.fill('');
+        }
       } else {
         await filter.waitFor({ state: 'visible' });
         await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Filter loaded relations…');
