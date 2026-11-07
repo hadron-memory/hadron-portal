@@ -586,14 +586,14 @@ describe('update action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns a typed error when app update fails', async () => {
+  it('returns fallback copy when app update transport fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('update', validSettings)) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to update app' });
   });
 });
 
@@ -654,11 +654,11 @@ describe('addAgent action', () => {
       expect(result.data.form.message.text).toBe(GENERIC);
     });
 
-    it('a failure with no GraphQL code keeps today’s handling and isn’t read as an unknown outcome', async () => {
+    it('a transport failure uses fallback copy and is not read as a typed unknown outcome', async () => {
       const failure = new Error('socket hang up');
       const result = await refuse(failure);
       expect(result.status).toBe(500);
-      expect(result.data.form.message.text).toBe('socket hang up');
+      expect(result.data.form.message.text).toBe('Failed to add agent');
       expect(result.data.form.message.text).not.toContain('could not be confirmed');
     });
   });
@@ -805,14 +805,14 @@ describe('removeAgent action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns typed removeAgent errors', async () => {
+  it('returns fallback copy for removeAgent transport errors', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('removeAgent', { agentId: 'agent-1' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to remove agent' });
   });
 });
 
@@ -1006,7 +1006,7 @@ describe('deleteApp action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns typed deleteApp errors', async () => {
+  it('returns fallback copy for deleteApp transport errors', async () => {
     mockRequest
       .mockResolvedValueOnce({ app: { organizationId: 'org-1' } }) // org lookup ok
       .mockRejectedValueOnce(new Error('nope')); // delete fails
@@ -1015,7 +1015,7 @@ describe('deleteApp action', () => {
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to delete app' });
   });
 });
 
@@ -1217,14 +1217,14 @@ describe('retireWorker action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns a typed error when retiring fails', async () => {
+  it('returns fallback copy when retiring transport fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('retireWorker', { workerId: 'worker-1' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to retire the worker.' });
   });
 
   // Retiring shares castWorker's gate, so it must share its refusal copy —
@@ -1467,14 +1467,14 @@ describe('releaseWorker action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns a typed error when releasing fails', async () => {
+  it('returns fallback copy when releasing transport fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('releaseWorker', { workerId: 'worker-1', expectedHolderUserId: 'user-9' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to release the name.' });
   });
 
   // releaseWorker does NOT share the staffing gate: it admits the HOLDER or an
