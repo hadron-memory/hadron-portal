@@ -321,15 +321,59 @@ describe('search', () => {
     await new Promise(r => setTimeout(r, 300)); flushSync();
     return panel.querySelectorAll('tbody tr').length;
   };
-  it('finds what a row renders: a warning, and the earlier-apply mark', async () => {
+  it('finds what a row renders: the final warning copy and URN, outcome punctuation, and the earlier-apply mark', async () => {
+    const urn = 'hrn:node:acme.com:tasks:review-author';
+    const warningText = 'The author task of the “review” rule may not be readable by everyone who can read this memory:';
     const m = mount(); const panel = await applied(m.target, [0, 1]);
-    await apply(panel, answer([ok(0, { dryRun: false, warnings: [{ code: 'TASK_LESS_VISIBLE', role: 'review', field: 'authorTask' }] }), bad(1, 'CONFLICT')], false), 'Apply finished');
-    expect(await search(panel, 'author task')).toBe(1);
+    await apply(panel, answer([ok(0, { dryRun: false, warnings: [{ code: 'TASK_LESS_VISIBLE', role: 'review', field: 'authorTask', taskUrn: urn, taskState: 'OK' }] }), bad(1, 'CONFLICT')], false), 'Apply finished');
+    expect(panel.textContent).toContain(warningText);
+    expect(panel.textContent!.replace(/\s/g, '')).toContain(urn);
+    expect(panel.textContent).toContain('review: Added');
+    expect(panel.textContent).not.toContain('TASK_LESS_VISIBLE');
+    expect(panel.textContent).not.toContain('authorTask');
+    expect(await search(panel, warningText)).toBe(1);
+    expect(await search(panel, urn)).toBe(1);
+    expect(await search(panel, 'review: Added')).toBe(1);
     expect(await search(panel, 'TASK_LESS_VISIBLE')).toBe(0);
+    expect(await search(panel, 'authorTask')).toBe(0);
     fetcher.mockResolvedValueOnce(answer([{ ...ok(0), memoryRef: 'm1' }]));
     expect(await search(panel, '')).toBe(2);
     button(panel, 'Retry failed')!.click();
     await settle(() => expect(panel.textContent).toContain('Preview: nothing has been changed'));
+    expect(await search(panel, 'earlier apply')).toBe(1);
+  });
+
+  // #1808: two phrases the row visibly renders but rowText omitted, so a
+  // reader searching on-screen text lost the row. Negatives per
+  // hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable:
+  // a phrase must match only the rows that render it.
+  it('finds the visible empty-template copy after an ok apply, only on the row that renders it', async () => {
+    const m = mount(); const panel = open(m.target); pick(panel, 2);
+    await preview(panel, [ok(0, { entries: [] }), ok(1)]);
+    await apply(panel, answer([ok(0, { dryRun: false, entries: [] }), ok(1, { dryRun: false })], false), 'Apply finished');
+    expect(panel.textContent).toContain('This template has no rules.');
+    expect(await search(panel, 'This template has no rules.')).toBe(1);
+    expect(await search(panel, 'Current rules')).toBe(0);
+  });
+
+  it('finds the visible Current rules link after an unknown outcome', async () => {
+    const m = mount(); const panel = await applied(m.target, [0, 1]);
+    await apply(panel, Promise.reject(new TypeError('offline')), 'We don’t know');
+    expect(panel.textContent).toContain('Current rules');
+    expect(await search(panel, 'Current rules')).toBe(2);
+  });
+
+  // Blind P3 on 041f5e9fd: with earlier (settled) rows beside unknown rows,
+  // the link text must match only the rows that render it.
+  it('matches the Current rules link only on unknown rows, not earlier rows', async () => {
+    const m = mount(); const panel = await applied(m.target, [0, 1]);
+    await apply(panel, answer([ok(0, { dryRun: false }), bad(1, 'CONFLICT')], false), 'Apply finished');
+    fetcher.mockResolvedValueOnce(answer([{ ...ok(0), memoryRef: 'm1' }]));
+    button(panel, 'Retry failed')!.click();
+    await settle(() => expect(panel.textContent).toContain('Preview: nothing has been changed'));
+    await apply(panel, Promise.reject(new TypeError('offline')), 'We don’t know');
+    expect(panel.textContent).toContain('Current rules');
+    expect(await search(panel, 'Current rules')).toBe(1);
     expect(await search(panel, 'earlier apply')).toBe(1);
   });
 });
