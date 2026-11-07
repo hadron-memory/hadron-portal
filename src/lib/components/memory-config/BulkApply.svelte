@@ -7,7 +7,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
-  import { BULK_CAP, bulkCall, retryPositions, rowErrorCopy, sharedRevision, wholeCallCopy, type BulkEntry, type BulkResult, type BulkTarget } from '$lib/memory-config/bulk';
+  import { BULK_CAP, bulkCall, changeSplit, retryPositions, rowErrorCopy, sharedRevision, wholeCallCopy, type BulkEntry, type BulkResult, type BulkTarget } from '$lib/memory-config/bulk';
   import { outcomeCopy } from '$lib/memory-config/outcome';
   import type { Template } from '$lib/memory-config/types';
   let { template, memories, memoriesFailed, pending = $bindable(false), onclose }: { template: Template; memories: BulkTarget[]; memoriesFailed: boolean; pending?: boolean; onclose: () => void } = $props();
@@ -121,11 +121,13 @@
       {#if report}
         <h3 class="font-semibold">{report.dryRun ? t('config.preview-heading', 'Preview: nothing has been changed') : t('config.bulk.applied-heading', 'Apply finished')}</h3>
         {#if report.dryRun}
-          <p>{t('config.bulk.preview-summary', '{succeeded} can take the template, {failed} can’t', { succeeded: report.succeeded, failed: report.failed })}</p>
+          {@const split = changeSplit(report.results)}
+          <p>{t('config.bulk.preview-summary', '{change} will change, {skipped} will be skipped, {failed} can’t be applied', { change: split.change, skipped: split.skipped, failed: report.failed })}</p>
           {#if settled.length}<p>{t('config.bulk.retry-preview', 'These memories have not been retried yet. Check the preview, then apply.')}</p>{/if}
           {#if revision === null}<p>{!report.results.some(entry => entry.ok) ? t('config.bulk.no-ok', 'No memory in this preview can take the template. Change the list and preview again.') : t('config.bulk.revisions-disagree', 'This preview saw different versions of the template. Preview again before applying.')}</p>{/if}
         {:else}
-          <p>{t('config.bulk.summary', '{succeeded} succeeded, {failed} failed', { succeeded: report.succeeded, failed: report.failed })}</p>
+          {@const split = changeSplit(report.results)}
+          <p>{t('config.bulk.summary', '{change} changed, {skipped} changed nothing, {failed} failed', { change: split.change, skipped: split.skipped, failed: report.failed })}</p>
         {/if}
       {/if}
     </div>

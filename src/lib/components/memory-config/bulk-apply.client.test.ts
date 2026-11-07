@@ -14,7 +14,7 @@ function mount(props: Partial<{ readOnly: boolean; canManage: boolean; initial: 
   cleanup.push(m.unmount); return m;
 }
 const button = (root: Element, text: string) => [...root.querySelectorAll('button')].find(b => b.textContent?.trim() === text);
-const ok = (i: number, opts: { revision?: number; dryRun?: boolean; required?: boolean; outcome?: string; warnings?: unknown[] } = {}) => ({ index: i, memoryRef: `m${i}`, ok: true, error: null, result: { memoryId: `m${i}`, templateRevision: opts.revision ?? 9, required: opts.required ?? false, dryRun: opts.dryRun ?? true, entries: [{ role: 'review', outcome: opts.outcome ?? 'APPLIED' }], warnings: opts.warnings ?? [] } });
+const ok = (i: number, opts: { revision?: number; dryRun?: boolean; required?: boolean; outcome?: string; entries?: { role: string; outcome: string }[]; warnings?: unknown[] } = {}) => ({ index: i, memoryRef: `m${i}`, ok: true, error: null, result: { memoryId: `m${i}`, templateRevision: opts.revision ?? 9, required: opts.required ?? false, dryRun: opts.dryRun ?? true, entries: opts.entries ?? [{ role: 'review', outcome: opts.outcome ?? 'APPLIED' }], warnings: opts.warnings ?? [] } });
 const bad = (i: number, code: string, extra: Record<string, unknown> = {}) => ({ index: i, memoryRef: `m${i}`, ok: false, result: null, error: { code, message: `server says ${code}`, currentRevision: null, requestId: null, ...extra } });
 const answer = (results: unknown[], dryRun = true, counts?: { succeeded: number; failed: number }) => {
   const rows = results as { ok: boolean }[];
@@ -68,7 +68,7 @@ describe('entry and boundary', () => {
     (navigationGuards.find(g => g.fn === 'beforeNavigate')!.callback as (e: { cancel: () => void }) => void)({ cancel });
     expect(cancel).toHaveBeenCalledOnce();
     settleIt(answer([ok(0)]));
-    await settle(() => expect(panel.textContent).toContain('1 can take the template, 0 can’t'));
+    await settle(() => expect(panel.textContent).toContain('1 will change, 0 will be skipped, 0 can’t be applied'));
   });
   it('dims every control it disables, in the panel and behind it', async () => {
     let settleIt!: (v: unknown) => void;
@@ -152,7 +152,7 @@ describe('dry run first', () => {
     expect(sent(0)).toEqual({ kind: 'bulk', op: 'preview', ref: 't1', memoryRefs: ['m0', 'm1'] });
     expect(panel.querySelectorAll('tbody tr').length).toBe(2);
     expect(panel.textContent).toContain('Will be replaced');
-    expect(panel.textContent).toContain('1 can take the template, 1 can’t');
+    expect(panel.textContent).toContain('1 will change, 0 will be skipped, 1 can’t be applied');
     expect(panel.textContent).not.toMatch(/succeeded|failed/);
     expect(panel.textContent).toContain('This preview may differ from the apply if memories change in between.');
   });
@@ -217,17 +217,34 @@ describe('apply', () => {
   });
 });
 
+describe('summary counts what actually changes (#1763)', () => {
+  it('a preview with an all-skipped row shows it apart from rows that change', async () => {
+    const m = mount(); const panel = open(m.target); pick(panel, 3);
+    await preview(panel, [ok(0, { outcome: 'SKIPPED_LOCKED' }), ok(1), bad(2, 'MEMORY_NOT_FOUND')]);
+    expect(panel.textContent).toContain('1 will change, 1 will be skipped, 1 can’t be applied');
+  });
+  it('a row with some rules skipped and some applied counts as changing', async () => {
+    const m = mount(); const panel = open(m.target); pick(panel, 1);
+    await preview(panel, [ok(0, { entries: [{ role: 'review', outcome: 'SKIPPED_LOCKED' }, { role: 'author', outcome: 'APPLIED' }] })]);
+    expect(panel.textContent).toContain('1 will change, 0 will be skipped, 0 can’t be applied');
+  });
+  it('the applied report carries the same split', async () => {
+    const m = mount(); const panel = await applied(m.target, [0, 1, 2]);
+    await apply(panel, answer([ok(0, { dryRun: false, outcome: 'SKIPPED_CONFLICT' }), ok(1, { dryRun: false }), bad(2, 'NOT_A_TASK')], false), 'Apply finished');
+    expect(panel.textContent).toContain('1 changed, 1 changed nothing, 1 failed');
+  });
+});
 describe('per-target truth', () => {
   it('takes header counts from the answer, never from the number selected', async () => {
     const m = mount(); const panel = await applied(m.target, [0, 1, 2]);
     await apply(panel, answer([ok(0, { dryRun: false }), bad(1, 'NOT_A_TASK'), ok(2, { dryRun: false })], false), 'Apply finished');
-    expect(panel.textContent).toContain('2 succeeded, 1 failed');
+    expect(panel.textContent).toContain('2 changed, 0 changed nothing, 1 failed');
   });
   it('shows a skip as an outcome of a successful apply, not a failure', async () => {
     const m = mount(); const panel = await applied(m.target, [0]);
     await apply(panel, answer([ok(0, { dryRun: false, outcome: 'SKIPPED_LOCKED' })], false), 'Apply finished');
     expect(panel.textContent).toContain('Skipped: locked');
-    expect(panel.textContent).toContain('1 succeeded, 0 failed');
+    expect(panel.textContent).toContain('0 changed, 1 changed nothing, 0 failed');
     expect(button(panel, 'Retry failed')).toBeUndefined();
   });
   it('a mid-call CONFLICT (injected at the boundary) leaves earlier rows applied and each later row its own code', async () => {
