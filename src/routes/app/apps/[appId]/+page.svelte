@@ -1109,19 +1109,40 @@
     },
   });
 
+  // #1776: reuse the cast/Install per-element fence. A shared latest-attempt
+  // variable would accept A's pending answer once B submits. Each App visit
+  // gets new form elements and ids; the generation also distinguishes A -> B -> A.
+  let agentLinkGeneration = 0;
+  const linkRequestGeneration = new WeakMap<HTMLFormElement, number>();
+  const unlinkRequestGeneration = new WeakMap<HTMLFormElement, number>();
+  const newLinkFormId = () => `linkAgent:${Math.random().toString(36).slice(2, 10)}`;
+  const newUnlinkFormId = () => `unlinkAgent:${Math.random().toString(36).slice(2, 10)}`;
   const initialAddAgentForm = untrack(() => submittedForm<AddAgentForm>(form, 'addAgent') as AddAgentSuperform | null ?? data.addAgentForm);
   const {
     form: addAgentForm,
+    formId: addAgentFormId,
     errors: addAgentErrors,
     message: addAgentMessage,
     submitting: addAgentSubmitting,
     enhance: addAgentEnhance,
   } = superForm<AddAgentForm, App.Superforms.Message, AddAgentForm>(initialAddAgentForm, {
+    id: newLinkFormId(),
     validators: zod4Client(addAgentSchema),
     validationMethod: 'oninput',
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    onSubmit: ({ formElement }) => {
+      linkRequestGeneration.set(formElement, agentLinkGeneration);
+    },
+    // The form consumes success/refusal itself, so Kit cannot apply an old
+    // page.form or reset B's focus after this hook. Only a current redirect
+    // needs Kit; rotating the id also fences an App change during a reload.
+    applyAction: false,
+    onResult: async ({ result, formElement, cancel }) => {
+      if (linkRequestGeneration.get(formElement) !== agentLinkGeneration) cancel();
+      else if (result.type === 'redirect') await applyAction(result);
+    },
   });
 
   // #1684: Install on a derived agent's row. It posts addAgent like the picker
@@ -1218,16 +1239,45 @@
   const initialRemoveAgentForm = untrack(() => submittedForm<RemoveAppAgentForm>(form, 'removeAgent') as RemoveAppAgentSuperform | null ?? data.removeAgentForm);
   const {
     form: removeAgentForm,
+    formId: removeAgentFormId,
     errors: removeAgentErrors,
     message: removeAgentMessage,
     submitting: removeAgentSubmitting,
     enhance: removeAgentEnhance,
   } = superForm<RemoveAppAgentForm, App.Superforms.Message, RemoveAppAgentForm>(initialRemoveAgentForm, {
+    id: newUnlinkFormId(),
     validators: zod4Client(removeAppAgentSchema),
     validationMethod: 'oninput',
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    onSubmit: ({ formElement }) => {
+      unlinkRequestGeneration.set(formElement, agentLinkGeneration);
+    },
+    applyAction: false,
+    onResult: async ({ result, formElement, cancel }) => {
+      if (unlinkRequestGeneration.get(formElement) !== agentLinkGeneration) cancel();
+      else if (result.type === 'redirect') await applyAction(result);
+    },
+  });
+
+  let agentLinkContextApp = untrack(() => data.app.id);
+  $effect(() => {
+    if (app.id === agentLinkContextApp) return;
+    agentLinkContextApp = app.id;
+    agentLinkGeneration += 1;
+    // Discard the departed App's selected targets, validation and outcomes
+    // together. Keep this reset list aligned if either form gains fields.
+    untrack(() => {
+      addAgentFormId.set(newLinkFormId());
+      removeAgentFormId.set(newUnlinkFormId());
+      addAgentForm.update(current => ({ ...current, agentId: '' }), { taint: false });
+      removeAgentForm.update(current => ({ ...current, agentId: '' }), { taint: false });
+      addAgentErrors.set({});
+      removeAgentErrors.set({});
+      addAgentMessage.set(undefined);
+      removeAgentMessage.set(undefined);
+    });
   });
 
   const initialUpdateAgentToolsForm = untrack(() => submittedForm<UpdateAppAgentToolsForm>(form, 'updateAgentTools') as UpdateAppAgentToolsSuperform | null ?? data.updateAgentToolsForm);
@@ -3150,10 +3200,13 @@
       {/if}
 
       <!-- #1020: Unlink's submit target — one hidden form for every row. -->
-      <form bind:this={removeAgentFormEl} method="POST" action="?/removeAgent" use:removeAgentEnhance class="hidden">
-        <input type="hidden" name="_kind" value="removeAgent" />
-        <input type="hidden" name="agentId" value={$removeAgentForm.agentId} />
-      </form>
+      {#key app.id}
+        <form bind:this={removeAgentFormEl} method="POST" action="?/removeAgent" use:removeAgentEnhance class="hidden">
+          <input type="hidden" name="__superform_id" value={$removeAgentFormId} />
+          <input type="hidden" name="_kind" value="removeAgent" />
+          <input type="hidden" name="agentId" value={$removeAgentForm.agentId} />
+        </form>
+      {/key}
 
       <!-- Add an agent: the install picker that used to appear only while the
            App had no agent. -->
@@ -3176,7 +3229,9 @@
             {t('app.agents.add.unavailable', 'The list of agents you can add could not be loaded. Reload to try again.')}
           </p>
         {:else if addableAgents.length > 0}
+          {#key app.id}
           <form method="POST" action="?/addAgent" use:addAgentEnhance class="flex flex-wrap items-start gap-3" novalidate>
+            <input type="hidden" name="__superform_id" value={$addAgentFormId} />
             <input type="hidden" name="_kind" value={$addAgentForm._kind} />
             <div class="flex-1 min-w-[200px]">
               <label for="agentId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.agents.add.label', 'Agent')}</label>
@@ -3206,6 +3261,7 @@
               {$addAgentSubmitting ? 'Linking...' : 'Link'}
             </button>
           </form>
+          {/key}
         {:else}
           <p class="text-sm text-zinc-500">{t('app.agents.add.none', 'There is no other agent to add.')}</p>
         {/if}
