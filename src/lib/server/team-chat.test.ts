@@ -241,6 +241,122 @@ describe('loadChatMessages', () => {
     ]);
   });
 
+  // #1581. The plain findNodes browse returns `total: null` (the count flag is
+  // an internal object-store argument, not a public one), so the tail must be
+  // located without a count. A mockResolvedValue client cannot answer a probe
+  // at offset 150 faithfully — these tests need a client that windows by
+  // offset+limit exactly like the server.
+  function windowingClient(nodes: MemoryNode[], total: number | null = null) {
+    const calls: { offset: number; limit: number }[] = [];
+    const client = {
+      request: vi.fn(async (_query: unknown, vars: { offset?: number; limit?: number }) => {
+        const offset = Math.max(0, vars.offset ?? 0);
+        const readCount = vars.limit ?? 0;
+        calls.push({ offset, limit: readCount });
+        return {
+          findNodes: {
+            total,
+            hits: nodes.slice(offset, offset + readCount).map((node) => ({ node })),
+          },
+        };
+      }),
+    } as any;
+    return { client, calls };
+  }
+
+  function platformThread(count: number): MemoryNode[] {
+    return Array.from({ length: count }, (_, i) => {
+      const n = i + 1;
+      return msg(`chats:team:messages:${String(n).padStart(3, '0')}-x`, { seq: n });
+    });
+  }
+
+  it('#1581: locates the NEWEST window when the browse total is null (271-node thread)', async () => {
+    // The issue's exact fixture: 271 message nodes, `total: null`. On main the
+    // null collapses to hits.length (150), the first page is taken for the
+    // whole thread, and the reader gets the OLDEST 100 — the tail-correction
+    // request is never even sent.
+    const { client, calls } = windowingClient(platformThread(271), null);
+    const page = await loadChatMessages(client, 'mem-1', 'chats:team');
+
+    expect(page.messages).toHaveLength(CHAT_PAGE_SIZE);
+    expect(page.messages[0].seq).toBe(172);
+    expect(page.messages[CHAT_PAGE_SIZE - 1].seq).toBe(271);
+    expect(page.total).toBe(271);
+    expect(page.hasOlder).toBe(true);
+    expect(page.offset).toBe(171);
+    // Bounded: the optimistic read, at most a few locating reads, the window.
+    // No request may exceed the fetch count — no drain.
+    expect(calls.length).toBeLessThanOrEqual(6);
+    for (const c of calls) {
+      expect(c.limit).toBeLessThanOrEqual(Math.ceil(CHAT_PAGE_SIZE * 1.5));
+    }
+  });
+
+  it('#1581: a thread that fits one page makes no locating read when total is null', async () => {
+    // 120 nodes fit inside the 150-node fetch, so the null total's collapse and
+    // the located end AGREE — one request, exactly today's rendering (trimmed
+    // to the page size, cursor at the first shown message).
+    const { client, calls } = windowingClient(platformThread(120), null);
+    const page = await loadChatMessages(client, 'mem-1', 'chats:team');
+
+    expect(page.messages).toHaveLength(CHAT_PAGE_SIZE);
+    expect(page.messages[0].seq).toBe(21);
+    expect(page.messages[CHAT_PAGE_SIZE - 1].seq).toBe(120);
+    expect(page.total).toBe(120);
+    expect(page.hasOlder).toBe(true);
+    expect(page.offset).toBe(20);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('#1581: an exact page-multiple thread (the empty-probe branch) still finds the true end', async () => {
+    // 300 nodes: the gallop reads two full pages and then an EMPTY page at
+    // offset 300 — the end is a page boundary, the case a short read can never
+    // produce.
+    const { client } = windowingClient(platformThread(300), null);
+    const page = await loadChatMessages(client, 'mem-1', 'chats:team');
+
+    expect(page.messages[0].seq).toBe(201);
+    expect(page.messages[CHAT_PAGE_SIZE - 1].seq).toBe(300);
+    expect(page.total).toBe(300);
+  });
+
+  it('#1581: an end inside a doubling gap is found with single-node probes, never a drain', async () => {
+    // 450 nodes: full pages at 0/150/300, an empty read at 600 brackets the end
+    // into (449, 600], and single-node reads narrow it — logarithmically, with
+    // every request bounded by the page size.
+    const { client, calls } = windowingClient(platformThread(450), null);
+    const page = await loadChatMessages(client, 'mem-1', 'chats:team');
+
+    expect(page.messages[0].seq).toBe(351);
+    expect(page.messages[CHAT_PAGE_SIZE - 1].seq).toBe(450);
+    expect(page.total).toBe(450);
+    expect(calls.length).toBeLessThanOrEqual(14);
+    for (const c of calls) {
+      expect(c.limit).toBeLessThanOrEqual(Math.ceil(CHAT_PAGE_SIZE * 1.5));
+    }
+  });
+
+  it('#1581: a numeric total keeps today\'s two-request tail correction, same window', async () => {
+    const { client, calls } = windowingClient(platformThread(271), 271);
+    const page = await loadChatMessages(client, 'mem-1', 'chats:team');
+
+    expect(page.messages[0].seq).toBe(172);
+    expect(page.messages[CHAT_PAGE_SIZE - 1].seq).toBe(271);
+    expect(page.total).toBe(271);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('#1581: `before` keeps its one-request window when total is null', async () => {
+    const { client, calls } = windowingClient(platformThread(271), null);
+    const page = await loadChatMessages(client, 'mem-1', 'chats:team', { before: 200 });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].offset).toBe(200 - Math.ceil(CHAT_PAGE_SIZE * 1.5));
+    expect(page.messages[0].seq).toBe(101);
+    expect(page.messages[CHAT_PAGE_SIZE - 1].seq).toBe(200);
+  });
+
   it('reads the platform envelope (content + data.authorName) and the legacy one', async () => {
     const client = clientReturning([
       msg('chats:team:messages:001-x-iris', {
