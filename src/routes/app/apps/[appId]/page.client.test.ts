@@ -2402,6 +2402,29 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     expect(navigationCalls.filter((call) => call.fn === 'preloadData')).toHaveLength(1);
   });
 
+  it.each(['newer tab', 'teardown'] as const)('#1795 a completed stale preload does not navigate after %s', async (boundary) => {
+    const { m } = await openCast();
+    const preloaded = await runsPanel('stale-preloaded-run');
+    let releasePreload!: () => void;
+    navigationHooks.onPreloadData = () => new Promise((resolve) => {
+      releasePreload = () => resolve({ type: 'loaded', status: 200, data: { runsPanel: preloaded } });
+    });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    if (boundary === 'newer tab') {
+      m.target.querySelector<HTMLButtonElement>('#tab-staff')!.click();
+      await tick(5);
+      expect(m.target.querySelector('#tab-staff')?.getAttribute('aria-selected')).toBe('true');
+    } else {
+      m.unmount();
+    }
+
+    releasePreload();
+    await tick(20);
+    const destinations = navigationCalls.filter((call) => call.fn === 'goto').map((call) => String(call.args[0]));
+    expect(destinations).toEqual(boundary === 'newer tab' ? ['/app/apps/a1?tab=staff'] : []);
+  });
+
   it.each([false, true])('control: Runs renders with no action (navigation held=%s)', async (held) => {
     const { m, props } = await openCast();
     let releaseRuns: (() => void) | undefined;

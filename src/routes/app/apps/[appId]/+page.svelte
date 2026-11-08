@@ -1080,6 +1080,9 @@
             }
           } catch { /* The real navigation below owns and reports its own failure. */ }
         }
+        // preloadData cannot be cancelled by a newer choice or teardown. Do
+        // not let its completion navigate back to a stale tab or App.
+        if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
         await goto(href, { keepFocus: true, noScroll: true });
       }
       if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
