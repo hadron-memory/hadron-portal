@@ -19,14 +19,14 @@
   let heading = $state<HTMLHeadingElement>(), feedbackFocus = $state<HTMLElement>();
   let notice = $state(''), warnings = $state<MemoryConfigWarning[]>([]), failure = $state<ConfigFailure | null>(null), busy = $state(false);
   // Plain counters are ownership tokens, never deep-proxied response state.
-  let alive = true, viewEpoch = 0, readSequence = 0, feedbackSequence = 0;
+  let alive = true, viewEpoch = 0, readSequence = 0, feedbackSequence = 0, warningGeneration = 0;
   let busyOwner: object | null = null;
   const currentFailure = (): ConfigFailure | null => failure;
   const announcement = $derived([failure?.error ?? '', notice, ...warnings.map(warningSearchText)].filter(Boolean).join(' '));
   const liveAnnouncement = $derived(editing === undefined ? announcement : '');
   $effect(() => {
     if (initial !== snapshot) {
-      viewEpoch++;
+      viewEpoch++; warningGeneration++;
       snapshot = initial; book = initial; warnings = []; notice = ''; failure = null;
       busyOwner = null; busy = false;
     }
@@ -72,6 +72,10 @@
     if (readOnly) return { error: t('config.impersonation', 'This page is read-only while impersonating.') };
     const owner = ownView(editorVersion);
     feedbackSequence++;
+    // The advisory's own ownership token, captured before any await: operation
+    // starts and view resets advance it, another operation's completion never does.
+    warningGeneration++;
+    const warningEpoch = warningGeneration;
     failure = null; notice = ''; warnings = [];
     let answer: { warnings?: unknown };
     try {
@@ -98,9 +102,12 @@
     if (saveReadFailure) failure = existingFailure
       ? { error: `${existingFailure.error} ${saveReadFailure.error}` }
       : saveReadFailure;
-    if (feedback !== feedbackSequence) return null;
-    feedbackSequence++;
-    notice = t('config.saved', 'Saved.'); warnings = normalizedWarnings;
+    // Split ownership (#1815): the notice keeps the full outcome guard — a newer
+    // row outcome must own it — while the advisory describes a write that already
+    // persisted, so another operation's completion must not drop it. Only a newer
+    // operation's start or a view reset, which clear the warning slate, retires it.
+    if (feedback === feedbackSequence) { feedbackSequence++; notice = t('config.saved', 'Saved.'); }
+    if (warningEpoch === warningGeneration) warnings = normalizedWarnings;
     return null;
   }
   async function rowAction(rule: Rule, op: 'delete' | 'unlock') {
@@ -109,6 +116,7 @@
     if (!window.confirm(prompt)) return;
     const owner = ownView(), token = {};
     feedbackSequence++;
+    warningGeneration++;
     busyOwner = token; busy = true; failure = null; notice = ''; warnings = [];
     try {
       await configCall({ kind: 'rules', op, memoryRef, ref: rule.id, revision: rule.revision });
