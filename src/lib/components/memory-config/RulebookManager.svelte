@@ -82,7 +82,16 @@
   }
   async function save(input: Record<string, unknown>): Promise<ConfigFailure | null> {
     if (readOnly) return { error: t('config.impersonation', 'This page is read-only while impersonating.') };
-    const owner = ownView(editorVersion);
+    // Two separate ownership questions, deliberately not conflated: the
+    // view/session owner below governs the write→reload→publication chain, and
+    // startEditor — captured before any await — answers only who may close the
+    // modal at the end. An editor-epoch change during the chain (a cancel, or a
+    // newer editor taking the surface) therefore retires nothing. The modal
+    // discipline makes that unreachable in a real browser today (Cancel and
+    // Escape are pending-guarded, the open dialog inert); publication no longer
+    // depends on that staying true.
+    const startEditor = editorVersion;
+    const owner = ownView();
     // The advisory's own ownership token, captured before any await: operation
     // starts and view resets advance it, another operation's completion never
     // does. A newer operation that STARTS during this save's write retires the
@@ -105,12 +114,16 @@
       ? { error: t('config.reload-failed', 'Saved, but the rules could not be reloaded. Reload before another change.') }
       : null;
     const feedback = feedbackSequence;
-    edit(undefined);
+    // Close the modal only if this save still owns the editor surface: a newer
+    // editor — or a cancel — took it, and edit(undefined) would close THEIR
+    // modal. The publication itself is unaffected; it defers behind a newer
+    // editor or lands outright after a cancel.
+    if (startEditor === editorVersion) edit(undefined);
     const completedView = ownView();
     await tick();
     if (!completedView.current()) return null;
-    // Never move focus out of an open editor's modal dialog; the empty-book
-    // focus target waits for a view with no editor open.
+    // Never move focus out of an open editor's modal dialog; with an editor
+    // open the focus step is skipped, not deferred — nothing re-runs it later.
     if (book === null && editing === undefined) feedbackFocus?.focus();
     const existingFailure = currentFailure();
     if (saveReadFailure) failure = existingFailure
@@ -120,11 +133,12 @@
     // row outcome must own it — while the advisory describes a write that already
     // persisted, so another operation's completion must not drop it. Only a newer
     // operation's start or a view reset, which clear the warning slate, retires
-    // it. A newer editor merely OPENING retires nothing: the publication lands
-    // in state behind the modal and the derived live region announces it when
-    // the editor closes (liveAnnouncement is '' only while editing is set), so
-    // a persisted write's advisory — and a reload-failure instruction — is
-    // deferred, not lost.
+    // it — at any point in this chain, never an editor-epoch change. A newer
+    // editor merely OPENING retires nothing: the publication lands in state
+    // behind the modal and the derived live region announces it when the editor
+    // closes (liveAnnouncement is '' only while editing is set), so a persisted
+    // write's advisory — and a reload-failure instruction — is deferred, not
+    // lost; after a cancel, with no editor open, it lands outright.
     if (feedback === feedbackSequence) { feedbackSequence++; notice = t('config.saved', 'Saved.'); }
     if (warningEpoch === warningGeneration) warnings = normalizedWarnings;
     return null;
