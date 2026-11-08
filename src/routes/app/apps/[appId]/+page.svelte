@@ -1043,15 +1043,28 @@
   // unselected tab and dragging away before release diverges focus from
   // selection, and arrows would then move relative to a tab the user is not on.
   let tabNavigation = 0, tabNavigationPending = false, tabAlive = true;
+  let pendingTabNavigation: Promise<void> | null = null;
   onDestroy(() => { tabAlive = false; tabNavigation++; });
+  async function waitForTabNavigation() {
+    // #1795: invalidateAll reads Kit's internal URL. If an action refreshes
+    // while ?tab=runs is still navigating, that URL is the OLD tab and its
+    // response can replace the held navigation's runsPanel with null. Let the
+    // navigation settle first so the refresh reloads the tab now on screen.
+    // A newer choice replaces the promise; wait for quiescence, not a retry.
+    while (pendingTabNavigation) await pendingTabNavigation;
+  }
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
     const mine = ++tabNavigation, appId = app.id;
+    let navigation: Promise<void> | null = null;
+    let settleNavigation: (() => void) | undefined;
     try {
       // A second choice supersedes an in-flight Runs navigation, including
       // a choice of a normally local tab. Its loader URL must agree as well.
       if (id === 'runs' || tabNavigationPending) {
         tabNavigationPending = true;
+        navigation = new Promise<void>((resolve) => { settleNavigation = resolve; });
+        pendingTabNavigation = navigation;
         await goto(`/app/apps/${encodeURIComponent(appId)}?tab=${id}`, { keepFocus: true, noScroll: true });
       }
       if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
@@ -1059,7 +1072,13 @@
       await tick();
       if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id}`)?.focus();
     } catch { /* A failed navigation keeps the current tab; the router owns its error. */ }
-    finally { if (mine === tabNavigation) tabNavigationPending = false; }
+    finally {
+      if (navigation) {
+        if (pendingTabNavigation === navigation) pendingTabNavigation = null;
+        settleNavigation?.();
+      }
+      if (mine === tabNavigation) tabNavigationPending = false;
+    }
   }
   function onTabKeydown(e: KeyboardEvent) {
     const order = tabs.map((tt) => tt.id);
@@ -1142,6 +1161,10 @@
     onResult: async ({ result, formElement, cancel }) => {
       if (linkRequestGeneration.get(formElement) !== agentLinkGeneration) cancel();
       else if (result.type === 'redirect') await applyAction(result);
+      // Superforms performs its normal successful-result invalidation after
+      // this hook. Wait here rather than replacing that refresh or its result
+      // handling; with no pending navigation this adds no new await.
+      else if (result.type === 'success' && pendingTabNavigation) await waitForTabNavigation();
     },
   });
 
@@ -1199,6 +1222,7 @@
       }
       if (f.message?.type !== 'success') return;
       try {
+        if (pendingTabNavigation) await waitForTabNavigation();
         await invalidateAll();
       } catch {
         if (attempt === installGeneration) installRefreshFailed = true;
@@ -1413,6 +1437,7 @@
         );
         castOpen = false;
         try {
+          if (pendingTabNavigation) await waitForTabNavigation();
           await invalidateAll();
         } catch {
           // The worker WAS cast; only the roster read failed. Never retry the mint.
