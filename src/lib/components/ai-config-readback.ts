@@ -5,6 +5,12 @@ import type { AiConfigOwnerType, AiServiceConfig } from '$lib/types';
 export const AI_CONFIGS_ENDPOINT = '/api/ai-configs';
 export const AI_CONFIG_TIMEOUT_MS = 10_000;
 
+/** Explicit document readback must not degrade into same-fragment scrolling. */
+export function aiConfigReloadHref(): string {
+  if (typeof window === 'undefined') return '/';
+  return `${window.location.pathname}${window.location.search}`;
+}
+
 /** One abort + timer + race implementation for AI-config network work. */
 export function withAiConfigTimeout<T>(
   operation: (signal: AbortSignal) => Promise<T>,

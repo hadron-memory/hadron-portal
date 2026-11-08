@@ -38,6 +38,8 @@ export const aiConfigStrings = {
   testButton: (): string => t('ai-config.test', 'Test'),
   saveButton: (): string => t('ai-config.save', 'Save'),
   savingButton: (): string => t('ai-config.saving', 'Saving…'),
+  recoveryPending: (): string =>
+    t('ai-config.recovery-pending', 'Checking configurations before you can make another change…'),
   cancelButton: (): string => t('ai-config.cancel', 'Cancel'),
 
   noKey: (): string => t('ai-config.no-key', 'No key'),

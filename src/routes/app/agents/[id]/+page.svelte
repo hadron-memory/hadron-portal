@@ -1501,6 +1501,7 @@
         ownerType="AGENT"
         ownerId={agent.id}
         ownerLabel={agent.name}
+        ownerUrn={agent.urn}
         configs={data.agentConfigs ?? []}
         members={org?.members ?? []}
         currentUserId={data.currentUserId}

@@ -12,7 +12,8 @@
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import DataTable from './table/DataTable.svelte';
   import NodeActionsMenu from './NodeActionsMenu.svelte';
-  import { withAiConfigTimeout } from './ai-config-readback';
+  import Urn from './Urn.svelte';
+  import { aiConfigReloadHref, withAiConfigTimeout } from './ai-config-readback';
   import { getAiConfigRecoveryStore, nextAiConfigMutationId, nextAiConfigRecoveryId } from './ai-config-recovery';
   import {
     isValidConfigName,
@@ -36,6 +37,7 @@
     ownerType,
     ownerId,
     ownerLabel = null,
+    ownerUrn = null,
     configs,
     canManage = false,
     allowTest = false,
@@ -90,6 +92,8 @@
     ownerId: string;
     /** The caller's already-loaded owner name; null omits the caption. */
     ownerLabel?: string | null;
+    /** The same already-authorized owner's URN; null omits the chip. */
+    ownerUrn?: string | null;
     configs: AiServiceConfig[];
     canManage?: boolean;
     allowTest?: boolean;
@@ -158,7 +162,7 @@
   let actionGeneration = 0;
   let ownerKey = $state('');
   let ownerAtVisit: { ownerType: AiConfigOwnerType; ownerId: string } | null = null;
-  let ownerGeneration = $state(0);
+  let ownerGeneration = 0;
   let destroyed = false;
 
   type ActionToken = {
@@ -279,6 +283,11 @@
     clearNotice();
     resetEditor();
     confirmDeleteId = null;
+    if (!sharesStandaloneRecovery) {
+      uncertainMutation = false;
+      standaloneWarning = null;
+      standaloneRefreshWarning = null;
+    }
     standaloneRefreshGeneration++;
     busy = false;
     const active = activeStandalone.get(previousOwnerKey);
@@ -851,7 +860,7 @@
         class="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
       >
         {standaloneWarning}
-        <a href={typeof window === 'undefined' ? '/' : window.location.href} data-sveltekit-reload class="ml-1 underline">{s.reloadPage()}</a>
+        <a href={aiConfigReloadHref()} data-sveltekit-reload class="ml-1 underline">{s.reloadPage()}</a>
       </div>
     {/if}
     {#if standaloneRefreshWarning}
@@ -859,7 +868,7 @@
         class="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
       >
         {standaloneRefreshWarning}
-        <a href={typeof window === 'undefined' ? '/' : window.location.href} data-sveltekit-reload class="ml-1 underline">{s.reloadPage()}</a>
+        <a href={aiConfigReloadHref()} data-sveltekit-reload class="ml-1 underline">{s.reloadPage()}</a>
       </div>
     {/if}
   </div>
@@ -874,11 +883,19 @@
       </div>
     {/if}
   </div>
+  {#if mutationBlocked && !mutationLocked}
+    <p data-testid="ai-config-recovery-pending" class="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
+      {s.recoveryPending()}
+    </p>
+  {/if}
   <div class="mb-3 flex items-start justify-between gap-4">
     <div>
       <h2 class="font-semibold text-zinc-900 dark:text-white">{s.heading()}</h2>
       {#if ownerLabel}
         <p class="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">{s.ownerCaption(ownerLabel)}</p>
+        {#if ownerUrn}
+          <div class="mt-1 max-w-full"><Urn value={ownerUrn} size={10} compact label={ownerLabel} /></div>
+        {/if}
       {/if}
       <p class="mt-0.5 text-sm text-zinc-500">{s.subheading()}</p>
       {#if ownerType === 'AGENT'}

@@ -3525,6 +3525,7 @@
           ownerType="APP"
           ownerId={app.id}
           ownerLabel={app.name}
+          ownerUrn={app.urn}
           configs={data.appConfigs ?? []}
           members={org?.members ?? []}
           currentUserId={data.currentUserId}

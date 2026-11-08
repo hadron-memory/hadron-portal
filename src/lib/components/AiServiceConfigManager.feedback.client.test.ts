@@ -142,18 +142,18 @@ describe('AI configuration acknowledgement (#303)', () => {
     const manager = await open({ ownerLabel: 'Acme', ownerUrn: 'hrn:org:acme.com' });
     expect(manager.target.textContent).toContain('AI provider configurations');
     expect(manager.target.textContent).toContain('Owned by Acme');
-    expect(manager.target.textContent).toContain('hrn:org:');
+    expect(manager.target.querySelector('[title="hrn:org:acme.com"]')).not.toBeNull();
 
     const section = await open({
       ownerLabel: 'Acme', ownerUrn: 'hrn:org:acme.com', canManage: undefined,
       members: [{ user: { id: 'u1' }, role: 'ADMIN' }], currentUserId: 'u1',
     }, AiServiceConfigSection);
     expect(section.target.textContent).toContain('Owned by Acme');
-    expect(section.target.textContent).toContain('hrn:org:');
+    expect(section.target.querySelector('[title="hrn:org:acme.com"]')).not.toBeNull();
 
     const withoutOwner = await open({ ownerLabel: null });
     expect(withoutOwner.target.textContent).not.toContain('Owned by');
-    expect(withoutOwner.target.textContent).not.toContain('hrn:org:');
+    expect(withoutOwner.target.querySelector('[title="hrn:org:acme.com"]')).toBeNull();
   });
 
   it('titles an existing editor with the configuration name', async () => {
