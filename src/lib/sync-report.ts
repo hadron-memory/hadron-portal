@@ -1,9 +1,9 @@
 import { t } from '$lib/i18n/t';
 import { gitFailureMessage } from '$lib/sync-error';
 
-// Closed v1 public vocabulary, hrn:node:hadronmemory.com:specs:cor:int:010:01. Unknown values invalidate the
+// Closed v1/v2 public vocabulary, hrn:node:hadronmemory.com:specs:cor:int:010:01. Unknown values invalidate the
 // whole report. Never return the parsed object or arbitrary diagnostic fields.
-const codes = {
+const v1Codes = {
   protected: ['PROTECTED_LOC', 'PROTECTED_COMMENT', 'PROTECTED_BOOT_PROMPT', 'PROTECTED_DECISION'],
   object_type_rejected: ['OBJECT_TYPE_REJECTED'],
   undeclared_role: ['ROLE_NOT_DECLARED'],
@@ -11,7 +11,23 @@ const codes = {
   deferred: ['ROW_CHANGED'],
   held_move: ['MOVE_HELD', 'DESTINATION_PROTECTED'],
 } as const;
-export type SyncReportKind = keyof typeof codes;
+const v2Codes = {
+  ...v1Codes,
+  attestation_refused: ['AUTHORING_ATTESTATION_MISSING', 'AUTHORING_ATTESTATION_WRONG_TASK', 'AUTHORING_ATTESTATION_STALE', 'AUTHOR_TASK_BROKEN'],
+} as const;
+export type SyncReportKind = keyof typeof v2Codes;
+
+export function syncReportKindLabel(kind: SyncReportKind): string {
+  switch (kind) {
+    case 'protected': return t('sync-report.kind-label.protected', 'Protected');
+    case 'object_type_rejected': return t('sync-report.kind-label.object-type-rejected', 'Object type rejected');
+    case 'undeclared_role': return t('sync-report.kind-label.undeclared-role', 'Undeclared role');
+    case 'invalid_include': return t('sync-report.kind-label.invalid-include', 'Invalid include');
+    case 'deferred': return t('sync-report.kind-label.deferred', 'Deferred');
+    case 'held_move': return t('sync-report.kind-label.held-move', 'Move held');
+    case 'attestation_refused': return t('sync-report.kind-label.attestation-refused', 'Attestation refused');
+  }
+}
 export interface SyncReportEntry { kind: SyncReportKind; loc: string; fromLoc?: string; code: string }
 export type SyncReportState = 'partial' | 'unknown' | 'failed' | 'clean' | 'not_synced' | 'unavailable';
 export interface SyncReportView {
@@ -47,8 +63,9 @@ export function parseSyncReport(raw: unknown, status?: string | null, completedA
   if (typeof raw !== 'string') return unavailable;
   try {
     const value: unknown = JSON.parse(raw);
-    if (!object(value) || value.version !== 1 || typeof value.outcome !== 'string' || !['partial', 'unknown', 'failed'].includes(value.outcome) ||
+    if (!object(value) || (value.version !== 1 && value.version !== 2) || typeof value.outcome !== 'string' || !['partial', 'unknown', 'failed'].includes(value.outcome) ||
         !isSyncInstant(value.recordedAt) || !Array.isArray(value.entries)) return unavailable;
+    const codes: Partial<Record<SyncReportKind, readonly string[]>> = value.version === 1 ? v1Codes : v2Codes;
     if (value.outcome === 'failed') {
       if (value.entries.length !== 0 || (value.code !== 'SYNC_FAILED' && value.code !== 'BAD_USER_INPUT')) return unavailable;
       return { state: 'failed', recordedAt: value.recordedAt, code: value.code, entries: [] };
