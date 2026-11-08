@@ -1057,10 +1057,20 @@
   // unselected tab and dragging away before release diverges focus from
   // selection, and arrows would then move relative to a tab the user is not on.
   let tabNavigation = 0, tabNavigationPending = false, tabAlive = true;
+  let tabNavigationHref: string | null = null;
   onDestroy(() => { tabAlive = false; tabNavigation++; });
+  beforeNavigate((navigation) => {
+    // Any real navigation supersedes a pending tab choice, including chat
+    // selection and A → B → A (the final App id alone cannot fence those).
+    // The exact goto owned by focusTab is the one navigation not to reject.
+    // Loader invalidation does not pass through beforeNavigate.
+    if (navigation.to?.url.href === tabNavigationHref) return;
+    tabNavigation++;
+  });
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
     const mine = ++tabNavigation, appId = app.id;
+    let ownNavigationHref: string | null = null;
     try {
       // A second choice supersedes an in-flight Runs navigation, including
       // a choice of a normally local tab. Its loader URL must agree as well.
@@ -1083,6 +1093,8 @@
         // preloadData cannot be cancelled by a newer choice or teardown. Do
         // not let its completion navigate back to a stale tab or App.
         if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
+        ownNavigationHref = new URL(href, window.location.href).href;
+        tabNavigationHref = ownNavigationHref;
         await goto(href, { keepFocus: true, noScroll: true });
       }
       if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
@@ -1090,7 +1102,10 @@
       await tick();
       if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id}`)?.focus();
     } catch { /* A failed navigation keeps the current tab; the router owns its error. */ }
-    finally { if (mine === tabNavigation) tabNavigationPending = false; }
+    finally {
+      if (ownNavigationHref && tabNavigationHref === ownNavigationHref) tabNavigationHref = null;
+      if (mine === tabNavigation) tabNavigationPending = false;
+    }
   }
   function onTabKeydown(e: KeyboardEvent) {
     const order = tabs.map((tt) => tt.id);

@@ -2402,7 +2402,7 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     expect(navigationCalls.filter((call) => call.fn === 'preloadData')).toHaveLength(1);
   });
 
-  it.each(['newer tab', 'teardown'] as const)('#1795 a completed stale preload does not navigate after %s', async (boundary) => {
+  it.each(['newer tab', 'teardown', 'chat navigation', 'A-B-A navigation'] as const)('#1795 a completed stale preload does not navigate after %s', async (boundary) => {
     const { m } = await openCast();
     const preloaded = await runsPanel('stale-preloaded-run');
     let releasePreload!: () => void;
@@ -2415,8 +2415,23 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
       m.target.querySelector<HTMLButtonElement>('#tab-staff')!.click();
       await tick(5);
       expect(m.target.querySelector('#tab-staff')?.getAttribute('aria-selected')).toBe('true');
-    } else {
+    } else if (boundary === 'teardown') {
       m.unmount();
+    } else {
+      const destinations = boundary === 'chat navigation'
+        ? ['https://example.test/app/apps/a1?tab=chats&chat=other']
+        : ['https://example.test/app/apps/a2?tab=staff', 'https://example.test/app/apps/a1?tab=staff'];
+      for (const destination of destinations) {
+        const navigation = {
+          type: 'goto', to: { url: new URL(destination) },
+          from: { url: new URL('https://example.test/app/apps/a1?tab=staff') },
+          cancel: vi.fn(), willUnload: false,
+        };
+        for (const guard of navigationGuards.filter((entry) => entry.fn === 'beforeNavigate')) {
+          (guard.callback as (nav: unknown) => void)(navigation);
+        }
+      }
+      await tick(3);
     }
 
     releasePreload();
