@@ -106,6 +106,23 @@ describe('fetchAgentAIConfig refuses before handing out the key', () => {
     return fetchAgentAIConfig('tok', 'agent-1');
   }
 
+  it.each([
+    ['anthropic', 'https://api.anthropic.com/v1'],
+    ['openai', 'https://api.openai.com/v1'],
+    ['glm', 'https://api.z.ai/api/paas/v4'],
+    ['bedrock', null],
+  ])('withheld %s credentials never leave resolution', async (provider, effectiveEndpoint) => {
+    mockRequest.mockResolvedValue({ resolveAIConfig: {
+      provider, model: 'synthetic-model', apiKey: null, effectiveEndpoint,
+      params: { sentinel: 'synthetic-private-params' },
+    } });
+    const error = await fetchConfig().then(() => null, (e: unknown) => e as Error);
+    expect(error).toBeInstanceOf(Error);
+    expect(error!.message).toMatch(/credential.*not available/i);
+    expect(error!.message).not.toContain('synthetic-private-params');
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+
   it('asks the server where the config goes', () => {
     expect(RESOLVE_AI_CONFIG_QUERY).toMatch(/\beffectiveEndpoint\b/);
   });

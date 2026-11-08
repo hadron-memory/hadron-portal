@@ -53,7 +53,7 @@ function gqlRefusal(message: string, code: string) {
 }
 
 /** Where the runtime's resolution lands for this agent, or how it refuses. */
-type Resolution = { ownerType: string; provider?: string; model?: string; effectiveEndpoint?: string | null } | Error;
+type Resolution = { apiKey?: string | null; params?: unknown; ownerType: string; provider?: string; model?: string; effectiveEndpoint?: string | null } | Error;
 /** The server's default endpoint per provider (hadron-server aiEndpoint.ts), as ResolvedAiConfig reports it. */
 const SERVER_DEFAULT_ENDPOINT: Record<string, string | null> = {
   anthropic: 'https://api.anthropic.com/v1',
@@ -82,6 +82,8 @@ function routeMyOrgs(data: { organizations: unknown[]; ownedAgents?: unknown[] }
       return {
         resolveAIConfig: {
           name: 'default',
+          apiKey: 'apiKey' in resolution ? resolution.apiKey : 'synthetic-usable-key',
+          params: resolution.params,
           provider: resolution.provider ?? 'anthropic',
           model: resolution.model ?? 'claude-x',
           ownerType: resolution.ownerType,
@@ -344,12 +346,23 @@ describe('/app/agents/[id]/test loader', () => {
       expect(result.llm.detail).toMatch(/may be older than this portal/);
     });
 
-    it('never selects key material', () => {
-      expect(AI_CONFIG_READINESS_QUERY).not.toMatch(/\bapiKey\b/);
+    it('reads presence server-side but never returns credential-bearing fields', async () => {
+      expect(AI_CONFIG_READINESS_QUERY).toMatch(/\bapiKey\b/);
       expect(AI_CONFIG_READINESS_QUERY).not.toMatch(/\bparams\b/);
-      // The matcher can fail on a real document: the runtime's own query,
-      // which does need the key, trips it.
-      expect(RESOLVE_AI_CONFIG_QUERY).toMatch(/\bapiKey\b/);
+      routeMyOrgs({ organizations: [{ ...orgA, agents: [agentConfigured] }] }, {
+        ownerType: 'AGENT', apiKey: 'synthetic-key-must-not-serialize', params: { key: 'synthetic-param-must-not-serialize' },
+      });
+      const result = await (await importLoad())(ev({ agentId: 'agent-aaa' }));
+      expect(JSON.stringify(result)).not.toContain('synthetic-key-must-not-serialize');
+      expect(JSON.stringify(result)).not.toContain('synthetic-param-must-not-serialize');
+      expect((result as { llm: unknown }).llm).toEqual({ status: 'ready', name: 'default', ownerType: 'AGENT', provider: 'anthropic', model: 'claude-x' });
+    });
+
+    it.each(['anthropic', 'openai', 'glm', 'bedrock'])('identity-only %s is unavailable', async (provider) => {
+      routeMyOrgs({ organizations: [{ ...orgA, agents: [agentConfigured] }] }, { ownerType: 'HADRON_SERVER', provider, apiKey: null });
+      const result = await (await importLoad())(ev({ agentId: 'agent-aaa' }));
+      expect((result as { llm: unknown }).llm).toEqual({ status: 'unavailable', detail: expect.stringMatching(/credential.*not available/i) });
+      expect((result as { llmProviderConfigured: boolean }).llmProviderConfigured).toBe(false);
     });
   });
 
