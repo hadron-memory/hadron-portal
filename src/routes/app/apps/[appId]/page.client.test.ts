@@ -2383,6 +2383,71 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     expect(destinations).toEqual(boundary === 'newer tab' ? ['/app/apps/a1?tab=staff'] : []);
   });
 
+  // portal#1831: an external navigation supersedes a held Runs choice. The obsolete
+  // focusTab can no longer release the pending latch (mine !== tabNavigation), so
+  // the supersession itself must, or the next ordinary local tab click is forced
+  // through goto and a failing goto blocks the switch.
+  async function supersedeHeldRuns(m: { target: HTMLElement }) {
+    let releasePreload!: () => void;
+    navigationHooks.onPreloadData = () => new Promise((resolve) => {
+      releasePreload = () => resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    const navigation = {
+      type: 'goto', to: { url: new URL('https://example.test/app/apps/a1?tab=chats&chat=other') },
+      from: { url: new URL('https://example.test/app/apps/a1?tab=staff') },
+      cancel: vi.fn(), willUnload: false,
+    };
+    for (const guard of navigationGuards.filter((entry) => entry.fn === 'beforeNavigate')) {
+      (guard.callback as (nav: unknown) => void)(navigation);
+    }
+    await tick(3);
+    return releasePreload;
+  }
+
+  it('#1831 a local tab click after an external navigation superseded Runs stays local', async () => {
+    const { m } = await openCast();
+    const releasePreload = await supersedeHeldRuns(m);
+    releasePreload();
+    await tick(10);
+    navigationCalls.length = 0;
+    navigationHooks.onGoto = () => Promise.reject(new Error('loader failed'));
+    m.target.querySelector<HTMLButtonElement>('#tab-keys')!.click();
+    await tick(5);
+
+    expect(navigationCalls.filter((call) => call.fn === 'goto')).toHaveLength(0);
+    expect(m.target.querySelector('#tab-keys')?.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('#1831 control: a local click with no pending choice stays local even if goto would fail', async () => {
+    const { m } = await openCast();
+    navigationHooks.onGoto = () => Promise.reject(new Error('loader failed'));
+    m.target.querySelector<HTMLButtonElement>('#tab-keys')!.click();
+    await tick(5);
+
+    expect(navigationCalls.filter((call) => call.fn === 'goto')).toHaveLength(0);
+    expect(m.target.querySelector('#tab-keys')?.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('#1831 releasing on supersession does not clear a NEWER focusTab-owned navigation', async () => {
+    const { m } = await openCast();
+    await supersedeHeldRuns(m);
+    // A newer Runs choice after the external navigation owns the latch again.
+    let releaseNewer!: () => void;
+    navigationHooks.onPreloadData = () => new Promise((resolve) => {
+      releaseNewer = () => resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    });
+    navigationCalls.length = 0;
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    // Its own goto passes the guard (exact owned href) and must not release it.
+    releaseNewer();
+    await tick(2);
+    const owned = navigationCalls.filter((call) => call.fn === 'goto').map((call) => String(call.args[0]));
+    expect(owned).toEqual(['/app/apps/a1?tab=runs']);
+  });
+
   it.each([false, true])('control: Runs renders with no action (navigation held=%s)', async (held) => {
     const { m, props } = await openCast();
     let releaseRuns: (() => void) | undefined;
