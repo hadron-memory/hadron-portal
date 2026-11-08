@@ -7,6 +7,7 @@
   import { onDestroy } from 'svelte';
   import AiServiceConfigManager from './AiServiceConfigManager.svelte';
   import { readAiConfigs, withAiConfigTimeout } from './ai-config-readback';
+  import { getAiConfigRecoveryStore, nextAiConfigRecoveryId } from './ai-config-recovery';
   import { aiConfigStrings as s } from '$lib/i18n/ai-config-strings';
   import type { AiConfigCommitted, AiConfigMutationPending, AiConfigUncertain } from './ai-config-manager';
   import type { AiConfigOwnerType, AiServiceConfig, OrgMember } from '$lib/types';
@@ -57,19 +58,18 @@
   let destroyed = false;
   let relatedController: AbortController | null = null;
   let pendingMutations = $state<Array<Omit<AiConfigMutationPending, 'pending'>>>([]);
-  const deferredCommitted = new Map<string, AiConfigCommitted>();
-  let deferredRecoverySequence = 0;
+  let recoveryStore = getAiConfigRecoveryStore('');
+  let stopRecovery: (() => void) | undefined;
+  let syncingRecovery = false;
+  const activeCommitted = new Map<string, { outcome: AiConfigCommitted; readback: number }>();
   const mutationPending = $derived(
     pendingMutations.some((mutation) => mutation.ownerKey === currentOwnerKey()),
   );
 
   function onMutationPending(outcome: AiConfigMutationPending) {
-    const remaining = pendingMutations.filter(
-      (mutation) => !(mutation.ownerKey === outcome.ownerKey && mutation.mutationId === outcome.mutationId),
-    );
-    pendingMutations = outcome.pending
-      ? [...remaining, { ownerKey: outcome.ownerKey, mutationId: outcome.mutationId }]
-      : remaining;
+    // This callback can arrive after teardown. The shared registration is the
+    // lifecycle boundary, so a remounted Section sees settlement immediately.
+    recoveryStore.setPending(outcome);
   }
 
   // The endpoint answer is a working copy of the loader array it was read
@@ -120,61 +120,74 @@
     return { settled, completed };
   }
 
+  function finishActive(outcome: AiConfigCommitted, readback: number) {
+    const active = activeCommitted.get(outcome.ownerKey);
+    if (active?.outcome === outcome && active.readback === readback) {
+      activeCommitted.delete(outcome.ownerKey);
+    }
+  }
+
   async function onCommitted(outcome: AiConfigCommitted) {
-    if (destroyed) return;
-    if (outcome.ownerKey !== currentOwnerKey()) {
-      // A mutation may settle after its owner was hidden. Retain the outcome,
-      // not its pending network work, and recover when that owner is revisited.
-      deferredCommitted.set(outcome.ownerKey, outcome);
+    if (destroyed || outcome.ownerKey !== currentOwnerKey()) {
+      // Settlement after teardown or while another owner is visible still
+      // belongs to this user/owner. Ordered deferral preserves newer uncertainty.
+      recoveryStore.defer(outcome);
       return;
     }
-    deferredCommitted.delete(outcome.ownerKey);
+    recoveryStore.discardDeferred(outcome);
 
     // Acknowledge the committed write immediately. Readback is recovery for
-    // stale view state, not part of whether the mutation succeeded, and a slow
-    // or hung GET must never suppress this acknowledgement or hold Save busy.
+    // stale view state, not part of whether the mutation succeeded; the pending
+    // registration, rather than editor busy, prevents stale-row replay.
     if (!outcome.uncertainText && outcome.noticeGeneration === noticeGeneration) {
       showTransient(outcome.successText);
     }
 
     const against = configs;
     const mine = ++readbacks;
+    activeCommitted.set(outcome.ownerKey, { outcome, readback: mine });
     relatedController?.abort();
     const controller = new AbortController();
     relatedController = controller;
     const related = refreshRelated(controller);
     const fresh = await readAiConfigs(ownerType, ownerId);
-    if (destroyed) return;
-    if (outcome.ownerKey !== currentOwnerKey()) {
-      deferredCommitted.set(outcome.ownerKey, outcome);
+    if (mine !== readbacks) {
+      finishActive(outcome, mine);
+      return;
+    }
+    if (destroyed || outcome.ownerKey !== currentOwnerKey()) {
+      recoveryStore.defer(outcome);
+      finishActive(outcome, mine);
       return;
     }
 
     // The owner list is useful on its own. Do not let a slow or hung related
     // loader slice hold back fresh rows until the shared timeout expires.
-    if (mine === readbacks && fresh !== null) {
+    if (fresh !== null) {
       reread = { against, ownerKey: outcome.ownerKey, configs: fresh };
     }
 
     const relatedFresh = await related.settled;
-    if (destroyed) return;
-    if (outcome.ownerKey !== currentOwnerKey()) {
-      deferredCommitted.set(outcome.ownerKey, outcome);
+    if (mine !== readbacks) {
+      finishActive(outcome, mine);
+      return;
+    }
+    if (destroyed || outcome.ownerKey !== currentOwnerKey()) {
+      recoveryStore.defer(outcome);
+      finishActive(outcome, mine);
       return;
     }
     const failed = fresh === null || !relatedFresh || configsError;
-    if (mine === readbacks) {
-      if (outcome.uncertainText) {
-        // A stale uncertain visit reconciles silently when possible. Only a
-        // failed readback requires the persistent replay lock and reload.
-        if (failed) uncertainty = outcome.uncertainText;
-      } else {
-        // A later successful section read resolves only stale-readback guidance.
-        // An uncertain mutation still requires the explicit full-page readback.
-        refreshWarning = failed ? outcome.refreshFailedText : null;
-      }
+    if (outcome.uncertainText) {
+      // A stale uncertain visit reconciles silently when possible. Only a
+      // failed readback requires the persistent replay lock and reload.
+      if (failed) uncertainty = outcome.uncertainText;
+    } else {
+      // A later successful section read resolves only stale-readback guidance.
+      // An uncertain mutation still requires the explicit full-page readback.
+      refreshWarning = failed ? outcome.refreshFailedText : null;
     }
-    if (!relatedFresh && !outcome.uncertainText) {
+    if (!relatedFresh) {
       // The timeout is guidance, not proof that the related read stayed failed.
       // If its real callback later applies fresh data, retire our stale warning
       // — but only while this same owner/readback still owns the outcome.
@@ -183,15 +196,16 @@
           lateFresh && !destroyed && outcome.ownerKey === currentOwnerKey() &&
           mine === readbacks && fresh !== null && !configsError
         ) {
-          refreshWarning = null;
+          if (outcome.uncertainText) uncertainty = null;
+          else refreshWarning = null;
         }
       });
     }
+    finishActive(outcome, mine);
   }
 
   function onUncertain(outcome: AiConfigUncertain): void | Promise<void> {
-    if (destroyed) return;
-    if (outcome.reconcileOnly || outcome.ownerKey !== currentOwnerKey()) {
+    if (outcome.reconcileOnly || destroyed || outcome.ownerKey !== currentOwnerKey()) {
       return onCommitted({
         ownerKey: outcome.ownerKey,
         noticeGeneration: -1,
@@ -203,12 +217,51 @@
     uncertainty = outcome.text;
   }
 
+  function syncSharedRecovery() {
+    if (destroyed || syncingRecovery) return;
+    syncingRecovery = true;
+    try {
+      pendingMutations = recoveryStore.pending();
+      const ownerKey = currentOwnerKey();
+      const deferred = recoveryStore.takeDeferred(ownerKey);
+      if (deferred) {
+        // Every deferred write, confirmed or uncertain, keeps replay locked
+        // until fresh rows replace the stale list. IDs are document-unique so
+        // teardown/remount cannot settle another instance's registration.
+        const recoveryId = nextAiConfigRecoveryId();
+        recoveryStore.setPending({ ownerKey, mutationId: recoveryId, pending: true });
+        queueMicrotask(async () => {
+          try {
+            await onCommitted(deferred);
+          } finally {
+            recoveryStore.setPending({ ownerKey, mutationId: recoveryId, pending: false });
+          }
+        });
+      }
+    } finally {
+      syncingRecovery = false;
+    }
+  }
+
+  $effect(() => {
+    const nextStore = getAiConfigRecoveryStore(currentUserId ?? '');
+    if (nextStore !== recoveryStore) {
+      for (const active of activeCommitted.values()) recoveryStore.defer(active.outcome);
+      activeCommitted.clear();
+      recoveryStore = nextStore;
+    }
+    stopRecovery?.();
+    stopRecovery = recoveryStore.subscribe(syncSharedRecovery);
+    syncSharedRecovery();
+  });
+
   // The manager also fences its own requests, but it is absent on a loader
   // error or after management rights change. Owner identity must therefore be
   // fenced here too, where the outcome actually lives.
   $effect(() => {
     const nextOwnerKey = currentOwnerKey();
     if (nextOwnerKey === sectionOwnerKey) return;
+    const previousOwnerKey = sectionOwnerKey;
     sectionOwnerKey = nextOwnerKey;
     relatedController?.abort();
     noticeGeneration++;
@@ -218,31 +271,20 @@
     uncertainty = null;
     refreshWarning = null;
 
-    const deferred = deferredCommitted.get(nextOwnerKey);
-    if (deferred) {
-      deferredCommitted.delete(nextOwnerKey);
-      // The original mutation may already have settled while another owner was
-      // selected. Re-register an uncertain recovery so replay stays locked
-      // until this visit's bounded reconciliation has finished.
-      const recoveryId = deferred.uncertainText ? --deferredRecoverySequence : null;
-      if (recoveryId !== null) {
-        onMutationPending({ ownerKey: nextOwnerKey, mutationId: recoveryId, pending: true });
-      }
-      queueMicrotask(async () => {
-        try {
-          await onCommitted(deferred);
-        } finally {
-          if (recoveryId !== null) {
-            onMutationPending({ ownerKey: nextOwnerKey, mutationId: recoveryId, pending: false });
-          }
-        }
-      });
+    const active = activeCommitted.get(previousOwnerKey);
+    if (active) {
+      activeCommitted.delete(previousOwnerKey);
+      recoveryStore.defer(active.outcome);
     }
+    syncSharedRecovery();
   });
 
   onDestroy(() => {
     destroyed = true;
+    for (const active of activeCommitted.values()) recoveryStore.defer(active.outcome);
+    activeCommitted.clear();
     relatedController?.abort();
+    stopRecovery?.();
     if (noticeTimer !== null) clearTimeout(noticeTimer);
   });
 </script>

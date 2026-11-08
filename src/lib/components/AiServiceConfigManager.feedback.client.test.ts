@@ -9,6 +9,7 @@ import {
 } from '$lib/test/stubs/app-navigation';
 import AiServiceConfigSection from './AiServiceConfigSection.svelte';
 import AiServiceConfigManager from './AiServiceConfigManager.svelte';
+import { resetAiConfigRecoveryForTests } from './ai-config-recovery';
 import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 import type { AiServiceConfig } from '$lib/types';
 
@@ -47,6 +48,7 @@ function stubFetch(
 }
 
 beforeEach(() => {
+  resetAiConfigRecoveryForTests();
   posts = [];
   readbacks = [];
   resetNavigationCalls();
@@ -641,7 +643,11 @@ describe('AI configuration feedback lifecycle review controls', () => {
     let releaseFresh!: (reply: Reply) => void;
     const freshHeld = new Promise<Reply>((resolve) => { releaseFresh = resolve; });
     stubFetch(() => ({}), () => freshHeld);
-    const fresh = await open({ configs: [config()] });
+    const fresh = await open({
+      configs: [config()],
+      currentUserId: 'u2',
+      members: [{ user: { id: 'u2' }, role: 'ADMIN' }],
+    });
     editRow(fresh.target);
     button(fresh.target, 'Save').click();
     await settle();
@@ -1158,7 +1164,18 @@ describe('AI configuration code-review lifecycle pins', () => {
     await settle();
     expect(button(m.target, 'Save').disabled).toBe(true);
 
+    m.props.ownerId = 'o2';
+    await settle();
+    m.props.ownerId = 'o1';
+    await settle();
     releases[1]({ body: { configs: [] } });
+    await settle();
+    expect(readbacks).toHaveLength(3);
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(true);
+
+    releases[2]({ body: { configs: [] } });
     await settle();
     expect(button(m.target, 'Save').disabled).toBe(false);
     expect(feedback(m.target).textContent?.trim()).toBe('');
@@ -1249,7 +1266,18 @@ describe('AI configuration code-review lifecycle pins', () => {
     await settle();
     expect(button(m.target, 'Save').disabled).toBe(true);
 
-    refreshes[1].reject(new Error('refresh rejected'));
+    m.props.ownerId = 'o2';
+    await settle();
+    m.props.ownerId = 'o1';
+    await settle();
+    expect(refreshes).toHaveLength(3);
+    refreshes[1].resolve();
+    await settle();
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(true);
+
+    refreshes[2].reject(new Error('refresh rejected'));
     await settle();
     expect(button(m.target, 'Save').disabled).toBe(true);
     expect(m.target.textContent).toContain('couldn’t confirm the change went through');

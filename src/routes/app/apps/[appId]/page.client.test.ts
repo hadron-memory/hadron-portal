@@ -14,6 +14,7 @@ import type { TeamChatMessage, TeamChatRefusal } from '$lib/types';
 import { AGENT_CHAT_KEY } from '$lib/app-chats';
 import { runAppFlowSchema } from './runs/schema';
 import Page from './+page.svelte';
+import { resetAiConfigRecoveryForTests } from '$lib/components/ai-config-recovery';
 import {
   createAppMemorySchema, addAgentSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
   deleteAppSchema, releaseWorkerSchema, removeAppAgentSchema, retireWorkerSchema,
@@ -31,6 +32,7 @@ afterEach(() => {
   resetNavigationCalls();
   resetNavigationGuards();
   resetKitAppliedResults();
+  resetAiConfigRecoveryForTests();
   window.history.replaceState({}, '', '/');
 });
 

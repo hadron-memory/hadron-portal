@@ -51,6 +51,7 @@
       }
       deferredStandaloneCommitted.delete(outcome.ownerKey);
       const mine = ++standaloneRefreshGeneration;
+      activeStandaloneCommitted.set(outcome.ownerKey, { outcome, generation: mine });
       try {
         await withAiConfigTimeout(
           () => invalidateAll(),
@@ -63,6 +64,8 @@
         if (outcome.ownerKey === ownerKey && mine === standaloneRefreshGeneration) {
           standaloneRefreshWarning = outcome.refreshFailedText;
         }
+      } finally {
+        finishStandaloneCommitted(outcome, mine);
       }
     },
     onUncertain = (outcome) => {
@@ -76,6 +79,7 @@
         return;
       }
       const mine = ++standaloneRefreshGeneration;
+      activeStandaloneUncertain.set(outcome.ownerKey, { outcome, generation: mine });
       return withAiConfigTimeout(
         () => invalidateAll(),
         () => { throw new Error('AI configuration refresh timed out'); },
@@ -84,6 +88,8 @@
           uncertainMutation = true;
           standaloneWarning = outcome.text;
         }
+      }).finally(() => {
+        finishStandaloneUncertain(outcome, mine);
       });
     },
   }: {
@@ -142,6 +148,8 @@
   let standaloneRefreshGeneration = 0;
   const deferredStandaloneCommitted = new Map<string, AiConfigCommitted>();
   const deferredStandaloneUncertain = new Map<string, AiConfigUncertain>();
+  const activeStandaloneCommitted = new Map<string, { outcome: AiConfigCommitted; generation: number }>();
+  const activeStandaloneUncertain = new Map<string, { outcome: AiConfigUncertain; generation: number }>();
   let standaloneRecoverySequence = 0;
   const mutationLocked = $derived(uncertainMutation || mutationUncertain);
   let error = $state<string | null>(null);
@@ -224,11 +232,38 @@
     testResult = null;
   }
 
+  function finishStandaloneCommitted(outcome: AiConfigCommitted, generation: number) {
+    const active = activeStandaloneCommitted.get(outcome.ownerKey);
+    if (active?.outcome === outcome && active.generation === generation) {
+      activeStandaloneCommitted.delete(outcome.ownerKey);
+    }
+  }
+
+  function finishStandaloneUncertain(outcome: AiConfigUncertain, generation: number) {
+    const active = activeStandaloneUncertain.get(outcome.ownerKey);
+    if (active?.outcome === outcome && active.generation === generation) {
+      activeStandaloneUncertain.delete(outcome.ownerKey);
+    }
+  }
+
+  function scheduleStandaloneRecovery(ownerKey: string, recover: () => void | Promise<void>) {
+    const recoveryId = --standaloneRecoverySequence;
+    pendingMutations = [...pendingMutations, { id: recoveryId, ownerKey }];
+    queueMicrotask(async () => {
+      try {
+        await recover();
+      } finally {
+        pendingMutations = pendingMutations.filter((mutation) => mutation.id !== recoveryId);
+      }
+    });
+  }
+
   // Track the scalar owner identity, not a refreshed configs/loader object.
   // Same-owner invalidation must preserve a pending draft and its outcome.
   $effect(() => {
     const nextOwnerKey = `${ownerType}:${ownerId}`;
     if (nextOwnerKey === ownerKey) return;
+    const previousOwnerKey = ownerKey;
     ownerKey = nextOwnerKey;
     ownerAtVisit = { ownerType, ownerId };
     ownerGeneration++;
@@ -242,23 +277,26 @@
     standaloneRefreshGeneration++;
     busy = false;
 
+    const activeCommitted = activeStandaloneCommitted.get(previousOwnerKey);
+    if (activeCommitted) {
+      activeStandaloneCommitted.delete(previousOwnerKey);
+      deferredStandaloneCommitted.set(previousOwnerKey, activeCommitted.outcome);
+    }
+    const activeUncertain = activeStandaloneUncertain.get(previousOwnerKey);
+    if (activeUncertain) {
+      activeStandaloneUncertain.delete(previousOwnerKey);
+      deferredStandaloneUncertain.set(previousOwnerKey, activeUncertain.outcome);
+    }
+
     const committed = deferredStandaloneCommitted.get(nextOwnerKey);
     if (committed) {
       deferredStandaloneCommitted.delete(nextOwnerKey);
-      queueMicrotask(() => void onCommitted(committed));
+      scheduleStandaloneRecovery(nextOwnerKey, () => onCommitted(committed));
     }
     const uncertain = deferredStandaloneUncertain.get(nextOwnerKey);
     if (uncertain) {
       deferredStandaloneUncertain.delete(nextOwnerKey);
-      const recoveryId = --standaloneRecoverySequence;
-      pendingMutations = [...pendingMutations, { id: recoveryId, ownerKey: nextOwnerKey }];
-      queueMicrotask(async () => {
-        try {
-          await onUncertain(uncertain);
-        } finally {
-          pendingMutations = pendingMutations.filter((mutation) => mutation.id !== recoveryId);
-        }
-      });
+      scheduleStandaloneRecovery(nextOwnerKey, () => onUncertain(uncertain));
     }
   });
 
@@ -443,6 +481,9 @@
   }
 
   function openEdit(c: AiServiceConfig) {
+    // The row is stale while its committed readback is pending. Opening it now
+    // would seed a full-field update that could revert the just-saved values.
+    if (mutationBlocked || mutationLocked) return;
     beginAction();
     resetForm();
     editId = c.id;
@@ -572,8 +613,8 @@
     return onUncertain({ ownerKey: action.ownerKey, text, reconcileOnly: true });
   }
 
-  function publishCommitted(action: ActionToken, successText: string, refreshFailedText: string) {
-    void onCommitted({
+  function publishCommitted(action: ActionToken, successText: string, refreshFailedText: string): void | Promise<void> {
+    return onCommitted({
       ownerKey: action.ownerKey,
       // Stale visits recover owner data but never publish an old success notice.
       noticeGeneration: isOwnerVisitCurrent(action) ? action.noticeGeneration : -1,
@@ -599,7 +640,9 @@
         return;
       }
       options.onSuccess();
-      publishCommitted(action, options.successText, options.refreshFailedText);
+      // A confirmed write still has stale rows until recovery finishes. Keep
+      // the pending lock without delaying the Section's immediate success note.
+      await publishCommitted(action, options.successText, options.refreshFailedText);
     } finally {
       finishMutation(pendingMutation);
       if (isCurrent(action)) busy = false;
