@@ -8,19 +8,21 @@ import type { Rule, Rulebook } from '$lib/memory-config/types';
 // portal#1815 regression suite: split notice/warning ownership in
 // RulebookManager's save(). The advisory of a persisted write survives a
 // racing row action's completion (which still owns the notice), while a newer
-// operation's START — or a view reset — retires it. Design: the diagnosis
-// packet hrn:node:hadronmemory.com:hadron-portal:findings:1815-raced-save-drops-advisory,
-// Gaia's cross-family READ of it, and the build stamp (portal issue 1815
-// comment 6714139406). "Create rule" stays enabled while a row action is busy
-// on purpose: one change, not two — the race door remains reachable so these
-// pins keep proving the ownership repair.
+// operation's START — or a view reset — retires it. A newer editor merely
+// OPENING retires nothing: the publication is deferred behind the modal and
+// the derived live region announces it when the editor closes. Design: the
+// diagnosis packet
+// hrn:node:hadronmemory.com:hadron-portal:findings:1815-raced-save-drops-advisory
+// and the build stamp (portal issue 1815, comment 6714139406). "Create rule"
+// stays enabled while a row action is busy on purpose: one change, not two —
+// the race door remains reachable so these pins keep proving the repair.
 //
 // Defect (red on main a2174fe10): a raced save's advisory is dropped when a
-// row action's feedbackSequence bump lands between save()'s capture
-// (RulebookManager.svelte:91) and its guard (:101). Reproduced with REAL
-// mounted controls and a held transport — no scheduler hook, no modal bypass:
-// the Delete click happens BEFORE the editor opens ("Create rule" is not
-// disabled while a row action is busy, :157, unlike Edit, :176).
+// row action's feedbackSequence bump lands between save()'s feedback capture
+// and its publication guard. Reproduced with REAL mounted controls and a held
+// transport — no scheduler hook, no modal bypass: the Delete click happens
+// BEFORE the editor opens ("Create rule" is not disabled while a row action
+// is busy, unlike Edit).
 //
 // Ordering map (hops = awaited microtasks between releasing the save's reload
 // read and releasing the held delete):
@@ -30,29 +32,31 @@ import type { Rule, Rulebook } from '$lib/memory-config/types';
 //          flush spans many hops) — pre-fix the guard returned and dropped
 //          the advisory with the notice. THE DEFECT (PIN 1 uses k=2).
 //          Post-fix: the row outcome keeps the notice, the advisory survives.
-//   settle delete lands after the save showed — row outcome replaces the
-//          notice (:116 is unconditional) and the advisory remains.
+//   settle delete lands after the save showed — the row completion rewrites
+//          the notice unconditionally and the advisory remains.
 //   start  a NEW row action starting inside the same window bumps
 //          warningGeneration at its own start, clearing the slate — the older
 //          save's advisory is retired (PIN 5, the kill pin for an
 //          unconditional warning assignment: green on main only via the drop,
-//          green on the fix by retirement). A second SAVE starting in the
-//          window is unreachable through mounted controls: opening its editor
-//          bumps editorVersion, which retires the older save at its
-//          view/editor checks — before the window, and (since the completedView
-//          capture binds the editor epoch AFTER closing its own editor) also
-//          for a save already suspended inside the window's tick (PIN 6 holds
-//          that invariant, with mid-flight assertions).
+//          green on the fix by retirement). A second editor OPENING does not
+//          retire: before the save's post-read checks it retires via the
+//          start-epoch owner (SECOND SAVE A); at the completedView tick the
+//          publication lands deferred and the second save's START washes it
+//          (SECOND SAVE B, the deferral pin).
 //
 // The existing #1764 race pins pass under the drop only because their create
-// answers warnings:[] — they cannot see it (rules.client.test.ts:238).
+// answers warnings:[] — they cannot see it (the #1764 unraced pin in
+// rules.client.test.ts).
 //
-// Browser-reachability premise (retained, per the gate): the hop counts are
-// jsdom-lane specifics; in a real browser the same window is the save's
-// post-read Svelte flush (modal teardown included) during which the row
-// action's write response may resolve — and, once the editor has closed at
-// :92, a new row action or editor can start. The mounted lane proves the code
-// path, not native-dialog timing.
+// Browser reachability, precisely: the capture→guard span's only await is
+// Svelte's tick(), a microtask — a user CLICK (a task) cannot land inside it;
+// SECOND SAVE B's click-at-tick is therefore a jsdom-lane interleaving that
+// pins the code path's ordering, not a native-browser scenario. The
+// delete-in-window interleaving IS browser-reachable in substance: the
+// delete's write response (a task) resolves while the save is suspended at
+// its tick, and the delete chain's continuation microtasks then run before
+// the save's — the two chains interleave at await points. The mounted lane
+// proves the code path; native-dialog semantics stay with QA's browser leg.
 
 const rule: Rule = { id: 'r1', role: 'review', revision: 7, enabled: true, strictSubRoles: true, writers: 'OWNER', validateBy: 'AGENT', locked: false, authorTask: null, authorTaskId: null, authorTaskState: 'UNREADABLE', validationTask: null, validationTaskId: null, validationTaskState: 'BROKEN', descriptionNode: null, descriptionNodeId: 'description', descriptionNodeState: 'OK' };
 const book: Rulebook = { id: 'config', rules: [rule] };
@@ -64,13 +68,21 @@ function mount(initial: Rulebook | null, readOnly = false) {
 }
 const button = (root: HTMLElement, text: string) => [...root.querySelectorAll('button')].find(b => b.textContent?.trim() === text)!;
 
+const realShowModal = HTMLDialogElement.prototype.showModal, realClose = HTMLDialogElement.prototype.close;
 beforeEach(() => {
   localStorage.clear(); fetcher.mockReset(); vi.stubGlobal('fetch', fetcher);
+  // Minimal open-state stub: jsdom does not implement showModal, and its
+  // dispatchEvent-based clicks ignore `inert` regardless, so background
+  // clicks are guarded by dialog-state assertions in the pins below rather
+  // than by modeled inertness.
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
   HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
   vi.spyOn(window, 'confirm').mockReturnValue(true);
 });
-afterEach(() => { cleanup.splice(0).forEach(f => f()); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup.splice(0).forEach(f => f()); vi.unstubAllGlobals(); vi.restoreAllMocks();
+  HTMLDialogElement.prototype.showModal = realShowModal; HTMLDialogElement.prototype.close = realClose;
+});
 
 describe('portal#1815: raced save advisory versus row-action feedback bump', () => {
   const urn = 'hrn:node:acme.com:tasks:review-author';
@@ -79,13 +91,13 @@ describe('portal#1815: raced save advisory versus row-action feedback bump', () 
 
   // Held transport, real mounted controls: Delete first (write held), then
   // Create rule (allowed while busy), fill, Save (write answers warnings,
-  // reload read held). Same family as the #1764 race harness, with the create
-  // answering a warning so the drop is visible. Deliberately a sibling, not
-  // an extension of rules.client.test.ts's '#1764' describe: the differences
-  // (inline saved-answer carrying warnings, no rejectRead) are what make the
-  // #1815 interleavings reachable, and the shapes are certified together with
-  // the diagnosis packet this suite was checked against — a shared helper
-  // would re-open that provenance to keep two scenarios in one body.
+  // reload read held). Same family as the #1764 race harness in
+  // rules.client.test.ts, kept a sibling rather than a shared helper on an
+  // engineering basis: this harness holds the DELETE and releases the save's
+  // read (the #1764 harness holds the read and varies rejects), and its
+  // create answer carries warnings — coupling the two bodies would make every
+  // hop-count adjustment a cross-suite change for two scenarios that evolve
+  // independently.
   function startRace() {
     let finishDelete!: (value: unknown) => void, resolveRead!: (value: unknown) => void;
     let reads = 0;
@@ -117,10 +129,20 @@ describe('portal#1815: raced save advisory versus row-action feedback bump', () 
     r.resolveRead(reloaded);
     await hops(2);
     r.finishDelete({ ok: true, json: async () => ({}) });
+    // MID-FLIGHT, window position proved: the delete has COMPLETED (its row
+    // outcome is rendered) while the save is still suspended before its
+    // publication guard — no notice, no advisory from the save yet. The
+    // delete's feedback bump therefore lands between the save's capture and
+    // its guard, not before the capture (k=0 pin) or after publication
+    // (settle pin); those two neighbors bracket this window.
+    await hops(4);
+    expect(r.m.target.textContent).toContain('Deleted.');
+    expect(r.m.target.textContent).not.toContain('Saved.');
+    expect(r.m.target.textContent).not.toContain('may not be readable');
     await settle();
     // The save persisted…
     const ops = fetcher.mock.calls.map(c => JSON.parse(c[1].body).op);
-    expect(ops).toEqual(expect.arrayContaining(['delete', 'create', 'read']));
+    expect(ops).toEqual(['delete', 'create', 'read', 'read']);
     // …and the row outcome still owns the notice (the guard's purpose)…
     expect(r.m.target.textContent).toContain('Deleted.');
     // …but the advisory describing the persisted save must survive the race
@@ -144,8 +166,10 @@ describe('portal#1815: raced save advisory versus row-action feedback bump', () 
     await hops(2);
     r.finishDelete({ ok: false, json: async () => ({ error: 'Delete refused' }) });
     await settle();
+    // A refused delete never reloads: three calls, and the save's reload read
+    // still applied the persisted write.
     const ops = fetcher.mock.calls.map(c => JSON.parse(c[1].body).op);
-    expect(ops).toEqual(expect.arrayContaining(['delete', 'create', 'read']));
+    expect(ops).toEqual(['delete', 'create', 'read']);
     // The row failure owns the notice; the save's success notice is suppressed…
     expect(r.m.target.textContent).toContain('Delete refused');
     expect(r.m.target.textContent).not.toContain('Saved.');
@@ -174,7 +198,7 @@ describe('portal#1815: raced save advisory versus row-action feedback bump', () 
     expect(r.m.target.textContent).toContain('may not be readable');
   });
 
-  it('CONTROL: unraced warned save shows the advisory (unmoved #1764 pin)', async () => {
+  it('CONTROL: unraced warned save shows the advisory (same shape as the #1764 unraced pin)', async () => {
     fetcher.mockResolvedValueOnce({ ok: true, json: async () => ({ saved: true, warnings: [warn] }) })
       .mockResolvedValueOnce(reloaded);
     const m = mount(book);
@@ -186,12 +210,15 @@ describe('portal#1815: raced save advisory versus row-action feedback bump', () 
   });
 
   // The START-IN-WINDOW pin exercises the retirement half of the split: a NEW
-  // row action starting inside the save's post-read window bumps
-  // warningGeneration at its own start, and the older save's advisory must not
-  // land on that cleared slate. It is green on main only via the drop (the
-  // pre-fix guard returns before any assignment) and fails with the intended
-  // assertion against an unconditional warning assignment — the mutant it
-  // exists to kill.
+  // row action starting while the warned save is suspended at its publication
+  // tick bumps warningGeneration at its own start, and the older save's
+  // advisory must not land on that cleared slate. It is green on main only
+  // via the drop (the pre-fix guard returns before any assignment) and fails
+  // with the intended assertion against an unconditional warning assignment —
+  // the mutant it exists to kill. jsdom-lane note: a browser cannot deliver
+  // the click inside the tick's microtask window; the pin proves the
+  // retirement mechanism, and the browser-reachable retirement paths (view/
+  // editor checks, view resets) are pinned separately below.
   it('START-IN-WINDOW: a row action starting inside the save’s window retires the older advisory; its completion owns the notice', async () => {
     let finishDelete!: (value: unknown) => void, resolveRead!: (value: unknown) => void;
     let reads = 0;
@@ -210,33 +237,41 @@ describe('portal#1815: raced save advisory versus row-action feedback bump', () 
     button(m.target.querySelector('dialog')!, 'Save').click();
     await vi.waitFor(() => { flushSync(); expect(fetcher.mock.calls.length).toBe(2); });
     resolveRead(reloaded);
-    await hops(2); // the save is suspended in its post-read flush window
+    await hops(5); // past the reload check, the captures and edit(undefined): suspended at the tick
+    // No modal bypass: the save already closed and unmounted its own editor
+    // (flush the render to see it gone), so the Delete click reaches a
+    // background a browser could also reach, with the save past both its
+    // feedback capture and its advisory-token capture.
+    flushSync();
+    expect(m.target.querySelector('dialog')).toBe(null);
     button(m.target, 'Delete').click(); // a NEW row action starts inside the window
     flushSync();
     finishDelete({ ok: true, json: async () => ({}) });
     await settle();
     const ops = fetcher.mock.calls.map(c => JSON.parse(c[1].body).op);
-    expect(ops).toEqual(expect.arrayContaining(['update', 'delete']));
+    expect(ops).toEqual(['update', 'read', 'delete', 'read']);
     expect(m.target.textContent).toContain('Deleted.');
     expect(m.target.textContent).not.toContain('Saved.');
     expect(m.target.textContent).not.toContain('may not be readable');
   });
 
-  // The second-save door closes one epoch earlier than the row-action door:
-  // opening a second editor bumps editorVersion, and the older save's
-  // ownView checks retire it BEFORE its assignment — inside reload, again
-  // before the window, and (binding the editor epoch into the completedView
-  // captured after the save closed its own editor) even for a save already
-  // suspended at the window's tick. By construction, not timing. A
-  // start-in-window kill pin for a second SAVE is therefore not reachable
-  // through mounted controls; the row-action pin above carries the
-  // warning-generation kill, because a row action's start bumps the
-  // generation without touching the editor epoch. This pin holds the
-  // reachable invariant with MID-FLIGHT assertions taken after the second
-  // editor opened but BEFORE the second save's start clears the feedback
-  // slate: the older save must have published nothing by then (a wash cannot
-  // fake that), and the second save then owns the settled outcome.
-  it('SECOND SAVE: a save starting while an older warned save is in flight retires it — no notice, no advisory from the older save', async () => {
+  // The second-editor door, both orderings. Opening a second editor bumps
+  // editorVersion. If the older warned save is still inside its read chain,
+  // its START-epoch owner check retires it before any assignment (SECOND SAVE
+  // A — the browser-reachable path: canceling the save's own modal bumps the
+  // same epoch; the jsdom click below is that cancel's stand-in while the
+  // read is held). If the older save is already suspended at its publication
+  // tick, an editor merely OPENING retires nothing: the publication lands in
+  // state, deferred behind the modal — the derived live region announces it
+  // when the editor closes — and the SECOND save's start washes it (SECOND
+  // SAVE B). B is the deferral pin: binding an editor epoch into the
+  // publication guard (tried and reverted in review) drops a persisted
+  // write's advisory — and its reload-failure instruction — on
+  // open-then-cancel, the #1815 defect class, and makes exactly B's mid-flight
+  // assertions fail. B's click-at-tick is jsdom-lane (a click task cannot
+  // land inside the tick's microtask window); it encodes the semantics that
+  // apply if a task-spanning await ever enters that span.
+  const secondEditor = () => {
     let resolveRead!: (value: unknown) => void;
     let reads = 0;
     fetcher.mockImplementation((_url: string, options: { body: string }) => {
@@ -252,32 +287,55 @@ describe('portal#1815: raced save advisory versus row-action feedback bump', () 
     const m = mount(book);
     button(m.target, 'Edit').click(); flushSync();
     button(m.target.querySelector('dialog')!, 'Save').click(); // first save: warned, its read held
-    await vi.waitFor(() => { flushSync(); expect(fetcher.mock.calls.length).toBe(2); });
-    resolveRead(reloaded); // the first save heads for its window…
-    await hops(5); // …past its reload check, its captures and edit(undefined), suspended at the completedView tick when the second editor opens
-    button(m.target, 'Create rule').click(); flushSync(); // editorVersion++ — the tick-resumed save must fail its completedView here
-    // MID-FLIGHT (before the second save's start can clear the slate): the
-    // older save has already resumed past its completedView guard and retired.
-    // This is what makes the retirement BY CONSTRUCTION rather than a wash —
-    // if a regression dropped the editor epoch from that guard, the older save
-    // would publish 'Saved.' and its advisory right here, behind the open
-    // editor, where nothing has cleared the feedback area yet; these
-    // assertions catch it even though every post-settle assertion would still
-    // pass (verified: reverting the epoch binding makes exactly this pin red).
-    await settle();
-    expect(m.target.textContent).not.toContain('Saved.');
-    expect(m.target.textContent).not.toContain('may not be readable');
+    return { m, releaseFirstRead: (v: unknown) => resolveRead(v) };
+  };
+  const runSecondSave = async (m: { target: HTMLElement }) => {
     const dialog = m.target.querySelector('dialog')!;
     const role = dialog.querySelector<HTMLInputElement>('input:not([type])')!;
     role.value = 'later-rule'; role.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
     button(dialog, 'Save').click(); // the second save starts and completes
     await settle();
     const ops = fetcher.mock.calls.map(c => JSON.parse(c[1].body).op);
-    expect(ops).toEqual(expect.arrayContaining(['update', 'create']));
-    // The first save's write persisted, but its view/editor checks no longer
-    // admit publication: neither its notice nor its advisory may appear; the
-    // second save owns the outcome.
+    expect(ops).toEqual(['update', 'read', 'create', 'read']);
+    // The second save owns the settled outcome: the older save's advisory is
+    // gone (A: never published; B: washed by the second start) and the
+    // visible notice is the second save's.
     expect(m.target.textContent).toContain('Saved.');
     expect(m.target.textContent).not.toContain('may not be readable');
+  };
+
+  it('SECOND SAVE A: an editor opening while the older save is in its read chain retires it at its start-epoch checks — nothing published', async () => {
+    const { m, releaseFirstRead } = secondEditor();
+    await vi.waitFor(() => { flushSync(); expect(fetcher.mock.calls.length).toBe(2); });
+    releaseFirstRead(reloaded);
+    await hops(2); // still inside the read chain: the save's modal is up, its captures not yet taken
+    expect(m.target.querySelector('dialog')!.hasAttribute('open')).toBe(true);
+    button(m.target, 'Create rule').click(); flushSync(); // stand-in for cancel-then-create: editorVersion++ either way
+    // MID-FLIGHT, before any second save can clear the slate: the older save
+    // has run its owner check against the bumped editorVersion and retired.
+    // Retirement by construction, not by wash — a wash cannot fake absence at
+    // a moment when nothing has cleared the feedback area yet.
+    await settle();
+    expect(m.target.textContent).not.toContain('Saved.');
+    expect(m.target.textContent).not.toContain('may not be readable');
+    await runSecondSave(m);
+  });
+
+  it('SECOND SAVE B: an editor opening while the older save is at its publication tick DEFERS the publication; the second save\'s start washes it', async () => {
+    const { m, releaseFirstRead } = secondEditor();
+    await vi.waitFor(() => { flushSync(); expect(fetcher.mock.calls.length).toBe(2); });
+    releaseFirstRead(reloaded);
+    await hops(5); // past the checks, captures and edit(undefined): suspended at the tick, modal closed
+    flushSync();
+    expect(m.target.querySelector('dialog')).toBe(null);
+    button(m.target, 'Create rule').click(); flushSync(); // editorVersion++ — the older save's publication must survive this
+    // MID-FLIGHT: the older save published behind the open editor — deferred,
+    // not lost (the live region announces it when the editor closes). An
+    // editor epoch bound into the publication guard would drop exactly this:
+    // the persisted write's notice and advisory vanish on open-then-cancel.
+    await settle();
+    expect(m.target.textContent).toContain('Saved.');
+    expect(m.target.textContent).toContain('may not be readable');
+    await runSecondSave(m);
   });
 });

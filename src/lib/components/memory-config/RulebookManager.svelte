@@ -20,8 +20,9 @@
   let notice = $state(''), warnings = $state<MemoryConfigWarning[]>([]), failure = $state<ConfigFailure | null>(null), busy = $state(false);
   // Plain counters are ownership tokens, never deep-proxied response state.
   // feedbackSequence and warningGeneration bump TOGETHER at every operation
-  // start (and the view reset); they diverge only at completions, which bump
-  // feedbackSequence alone. A future operation kind must keep that pairing.
+  // start and at the view reset; they diverge only at completions, which bump
+  // feedbackSequence alone. beginOperation() makes the start half structural;
+  // the view-reset effect keeps the pairing by bumping both.
   let alive = true, viewEpoch = 0, readSequence = 0, feedbackSequence = 0, warningGeneration = 0;
   let busyOwner: object | null = null;
   const currentFailure = (): ConfigFailure | null => failure;
@@ -29,7 +30,7 @@
   const liveAnnouncement = $derived(editing === undefined ? announcement : '');
   $effect(() => {
     if (initial !== snapshot) {
-      viewEpoch++; warningGeneration++;
+      viewEpoch++; warningGeneration++; feedbackSequence++;
       snapshot = initial; book = initial; warnings = []; notice = ''; failure = null;
       busyOwner = null; busy = false;
     }
@@ -41,6 +42,14 @@
     return { current: () => alive && view === viewEpoch && basedOn === initial && (editor === undefined || editor === editorVersion) };
   }
   function edit(next: Rule | null | undefined) { editorVersion++; editing = next; }
+  // Every operation starts here: both counters advance together and the
+  // feedback slate is cleared. Completions bump feedbackSequence alone, so a
+  // completion can retire a notice but never a persisted write's advisory.
+  function beginOperation(): number {
+    feedbackSequence++; warningGeneration++;
+    failure = null; notice = ''; warnings = [];
+    return warningGeneration;
+  }
   type ReadResult = { kind: 'stale' } | { kind: 'applied'; current: () => boolean } | { kind: 'error'; error: ConfigFailure; current: () => boolean };
   beforeNavigate(({ cancel }) => {
     if (editing !== undefined && !window.confirm(t('config.discard-draft', 'Leave this page and discard your unsaved changes?'))) cancel();
@@ -74,12 +83,12 @@
   async function save(input: Record<string, unknown>): Promise<ConfigFailure | null> {
     if (readOnly) return { error: t('config.impersonation', 'This page is read-only while impersonating.') };
     const owner = ownView(editorVersion);
-    feedbackSequence++;
     // The advisory's own ownership token, captured before any await: operation
-    // starts and view resets advance it, another operation's completion never does.
-    warningGeneration++;
-    const warningEpoch = warningGeneration;
-    failure = null; notice = ''; warnings = [];
+    // starts and view resets advance it, another operation's completion never
+    // does. A newer operation that STARTS during this save's write retires the
+    // advisory even if its completion precedes this save's publication —
+    // retirement is ordered by starts, publication by completions.
+    const warningEpoch = beginOperation();
     let answer: { warnings?: unknown };
     try {
       answer = await configCall({ kind: 'rules', op: editing ? 'update' : 'create', memoryRef, ref: editing?.id, revision: editing?.revision, input });
@@ -97,14 +106,12 @@
       : null;
     const feedback = feedbackSequence;
     edit(undefined);
-    // Bind the editor epoch AFTER this save closed its own editor: a newer
-    // editor opened inside the tick window retires this save's publication
-    // (it would land behind the open modal, unannounced), alongside the
-    // view/memory checks ownView already carries.
-    const completedView = ownView(editorVersion);
+    const completedView = ownView();
     await tick();
     if (!completedView.current()) return null;
-    if (book === null) feedbackFocus?.focus();
+    // Never move focus out of an open editor's modal dialog; the empty-book
+    // focus target waits for a view with no editor open.
+    if (book === null && editing === undefined) feedbackFocus?.focus();
     const existingFailure = currentFailure();
     if (saveReadFailure) failure = existingFailure
       ? { error: `${existingFailure.error} ${saveReadFailure.error}` }
@@ -112,7 +119,12 @@
     // Split ownership (#1815): the notice keeps the full outcome guard — a newer
     // row outcome must own it — while the advisory describes a write that already
     // persisted, so another operation's completion must not drop it. Only a newer
-    // operation's start or a view reset, which clear the warning slate, retires it.
+    // operation's start or a view reset, which clear the warning slate, retires
+    // it. A newer editor merely OPENING retires nothing: the publication lands
+    // in state behind the modal and the derived live region announces it when
+    // the editor closes (liveAnnouncement is '' only while editing is set), so
+    // a persisted write's advisory — and a reload-failure instruction — is
+    // deferred, not lost.
     if (feedback === feedbackSequence) { feedbackSequence++; notice = t('config.saved', 'Saved.'); }
     if (warningEpoch === warningGeneration) warnings = normalizedWarnings;
     return null;
@@ -122,9 +134,8 @@
     const prompt = op === 'delete' ? t('config.delete-confirm', 'Delete the rule “{role}”?', { role: rule.role }) : t('config.unlock-confirm', 'Unlock “{role}” so it can be edited or deleted? On an org memory only an org admin can unlock it; the server may refuse this action.', { role: rule.role });
     if (!window.confirm(prompt)) return;
     const owner = ownView(), token = {};
-    feedbackSequence++;
-    warningGeneration++;
-    busyOwner = token; busy = true; failure = null; notice = ''; warnings = [];
+    beginOperation();
+    busyOwner = token; busy = true;
     try {
       await configCall({ kind: 'rules', op, memoryRef, ref: rule.id, revision: rule.revision });
       if (!owner.current()) return;
