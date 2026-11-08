@@ -8,8 +8,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockRequest = vi.fn();
+const mockGqlClient = vi.fn();
 vi.mock('$lib/server/api', () => ({
-  gqlClient: () => ({ request: mockRequest }),
+  gqlClient: mockGqlClient,
 }));
 
 const mockCallAgentChatLlm = vi.fn();
@@ -31,6 +32,8 @@ async function jsonOf(res: Response): Promise<any> {
 
 beforeEach(() => {
   mockRequest.mockReset();
+  mockGqlClient.mockReset();
+  mockGqlClient.mockReturnValue({ request: mockRequest });
   mockCallAgentChatLlm.mockReset();
 });
 
@@ -372,10 +375,14 @@ describe('GET /api/ai-configs section readback', () => {
     createdAt: '2026-09-26T00:00:00Z', updatedAt: null,
   };
 
-  it('requires auth and both owner arguments', async () => {
+  it('requires auth and both owner arguments, with no-store on every refusal', async () => {
     const { GET } = await import('./+server');
-    expect((await GET(ev({ token: null }))).status).toBe(401);
-    expect((await GET(ev({ url: 'http://localhost/api/ai-configs?ownerType=AGENT' }))).status).toBe(400);
+    const unauthenticated = await GET(ev({ token: null }));
+    expect(unauthenticated.status).toBe(401);
+    expect(unauthenticated.headers.get('cache-control')).toBe('no-store');
+    const missingOwner = await GET(ev({ url: 'http://localhost/api/ai-configs?ownerType=AGENT' }));
+    expect(missingOwner.status).toBe(400);
+    expect(missingOwner.headers.get('cache-control')).toBe('no-store');
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
@@ -387,6 +394,8 @@ describe('GET /api/ai-configs section readback', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(await jsonOf(res)).toEqual({ configs: [maskedConfig] });
+    expect(mockGqlClient).toHaveBeenCalledTimes(1);
+    expect(mockGqlClient).toHaveBeenCalledWith('test-token');
     expect(mockRequest.mock.calls[0][1]).toEqual({ ownerType: 'AGENT', ownerId: 'a1', limit: 200, offset: 0 });
   });
 
@@ -398,13 +407,19 @@ describe('GET /api/ai-configs section readback', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(await jsonOf(res)).toEqual({ configs: [maskedConfig] });
+    expect(mockGqlClient).toHaveBeenCalledTimes(1);
+    expect(mockGqlClient).toHaveBeenCalledWith('test-token');
     expect(mockRequest.mock.calls[0][1]).toEqual({ appRef: 'app1', agentRef: 'agent1' });
   });
 
   it('rejects incomplete or mixed readback arguments without querying', async () => {
     const { GET } = await import('./+server');
-    expect((await GET(ev({ url: 'http://localhost/api/ai-configs?appRef=app1' }))).status).toBe(400);
-    expect((await GET(ev({ url: 'http://localhost/api/ai-configs?appRef=app1&agentRef=agent1&ownerType=APP&ownerId=app1' }))).status).toBe(400);
+    const incomplete = await GET(ev({ url: 'http://localhost/api/ai-configs?appRef=app1' }));
+    expect(incomplete.status).toBe(400);
+    expect(incomplete.headers.get('cache-control')).toBe('no-store');
+    const mixed = await GET(ev({ url: 'http://localhost/api/ai-configs?appRef=app1&agentRef=agent1&ownerType=APP&ownerId=app1' }));
+    expect(mixed.status).toBe(400);
+    expect(mixed.headers.get('cache-control')).toBe('no-store');
     expect(mockRequest).not.toHaveBeenCalled();
   });
 

@@ -952,3 +952,74 @@ describe('AI configuration review fix pins', () => {
     expect(button(target, 'Save').disabled).toBe(false);
   });
 });
+
+describe('AI configuration code-review lifecycle pins', () => {
+  it('keeps the pending lock when configsError tears down and remounts the Manager', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    stubFetch(async (body) => {
+      if (body.action === 'create') await held;
+      return {};
+    });
+    const m = await open();
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await tick(2);
+
+    m.props.configsError = true;
+    await settle();
+    expect(m.target.textContent).toContain(aiConfigStrings.loadError());
+    m.props.configsError = false;
+    await settle();
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(true);
+
+    release();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(false);
+  });
+
+  it('turns a hung mutation POST into a visible uncertain outcome instead of a silent permanent lock', async () => {
+    vi.useFakeTimers();
+    stubFetch(async (body) => {
+      if (body.action === 'create') await new Promise<void>(() => {});
+      return {};
+    });
+    const { target } = await open();
+    await startCreate(target, 'fast');
+    button(target, 'Save').click();
+    await tick(2);
+
+    button(target, 'Cancel').click();
+    await settle();
+    button(target, 'Add configuration').click();
+    await settle();
+    expect(button(target, 'Save').disabled).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    flushSync();
+    expect(feedback(target).textContent).toContain('couldn’t confirm the change went through');
+    expect(feedback(target).querySelector('a[data-sveltekit-reload]')).not.toBeNull();
+    expect(button(target, 'Save').disabled).toBe(true);
+    expect(posts.filter((p) => p.action === 'create')).toHaveLength(1);
+  });
+
+  it('clears the timeout warning when a related refresh later succeeds', async () => {
+    vi.useFakeTimers();
+    let releaseRelated!: (fresh: boolean) => void;
+    const related = new Promise<boolean>((resolve) => { releaseRelated = resolve; });
+    const { target } = await open({ onRefreshed: () => related });
+    await startCreate(target, 'fast');
+    button(target, 'Save').click();
+    await settle();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    flushSync();
+    expect(feedback(target).textContent).toContain('couldn’t be refreshed');
+
+    releaseRelated(true);
+    await settle();
+    expect(feedback(target).textContent).not.toContain('couldn’t be refreshed');
+  });
+});
