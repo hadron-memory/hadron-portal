@@ -45,6 +45,11 @@
     // Standalone use predates the Section wrapper: keep its original refresh,
     // including the rejection path that used to reach the mutation catch.
     onCommitted = async (outcome) => {
+      if (outcome.ownerKey !== `${ownerType}:${ownerId}`) {
+        deferredStandaloneCommitted.set(outcome.ownerKey, outcome);
+        return;
+      }
+      deferredStandaloneCommitted.delete(outcome.ownerKey);
       const mine = ++standaloneRefreshGeneration;
       try {
         await withAiConfigTimeout(
@@ -61,17 +66,22 @@
       }
     },
     onUncertain = (outcome) => {
-      if (outcome.ownerKey !== `${ownerType}:${ownerId}`) return;
+      if (outcome.ownerKey !== `${ownerType}:${ownerId}`) {
+        deferredStandaloneUncertain.set(outcome.ownerKey, outcome);
+        return;
+      }
+      deferredStandaloneUncertain.delete(outcome.ownerKey);
       if (!outcome.reconcileOnly) {
         standaloneWarning = outcome.text;
         return;
       }
       const mine = ++standaloneRefreshGeneration;
-      void withAiConfigTimeout(
+      return withAiConfigTimeout(
         () => invalidateAll(),
         () => { throw new Error('AI configuration refresh timed out'); },
       ).catch(() => {
         if (outcome.ownerKey === ownerKey && mine === standaloneRefreshGeneration) {
+          uncertainMutation = true;
           standaloneWarning = outcome.text;
         }
       });
@@ -91,7 +101,7 @@
     onMutationPending?: (outcome: AiConfigMutationPending) => void;
     onAction?: () => number;
     onCommitted?: (outcome: AiConfigCommitted) => void | Promise<void>;
-    onUncertain?: (outcome: AiConfigUncertain) => void;
+    onUncertain?: (outcome: AiConfigUncertain) => void | Promise<void>;
   } = $props();
 
   const WELL_KNOWN = ['default', 'fast', 'frontier'];
@@ -130,6 +140,9 @@
   let standaloneWarning = $state<string | null>(null);
   let standaloneRefreshWarning = $state<string | null>(null);
   let standaloneRefreshGeneration = 0;
+  const deferredStandaloneCommitted = new Map<string, AiConfigCommitted>();
+  const deferredStandaloneUncertain = new Map<string, AiConfigUncertain>();
+  let standaloneRecoverySequence = 0;
   const mutationLocked = $derived(uncertainMutation || mutationUncertain);
   let error = $state<string | null>(null);
   // #937: one shape for both paths, so the result always reads the same way.
@@ -228,6 +241,25 @@
     standaloneRefreshWarning = null;
     standaloneRefreshGeneration++;
     busy = false;
+
+    const committed = deferredStandaloneCommitted.get(nextOwnerKey);
+    if (committed) {
+      deferredStandaloneCommitted.delete(nextOwnerKey);
+      queueMicrotask(() => void onCommitted(committed));
+    }
+    const uncertain = deferredStandaloneUncertain.get(nextOwnerKey);
+    if (uncertain) {
+      deferredStandaloneUncertain.delete(nextOwnerKey);
+      const recoveryId = --standaloneRecoverySequence;
+      pendingMutations = [...pendingMutations, { id: recoveryId, ownerKey: nextOwnerKey }];
+      queueMicrotask(async () => {
+        try {
+          await onUncertain(uncertain);
+        } finally {
+          pendingMutations = pendingMutations.filter((mutation) => mutation.id !== recoveryId);
+        }
+      });
+    }
   });
 
   onDestroy(() => {
@@ -528,21 +560,19 @@
     onSuccess: () => void;
   };
 
-  function publishUncertain(action: ActionToken, text: string) {
-    if (action.ownerKey !== `${ownerType}:${ownerId}`) return;
+  function publishUncertain(action: ActionToken, text: string): void | Promise<void> {
     if (isOwnerVisitCurrent(action)) {
       // Safety outcomes survive Cancel and newer actions in the same visit.
       uncertainMutation = true;
-      onUncertain({ ownerKey: action.ownerKey, text });
-    } else {
-      // A → B → A must not publish the old visit into the new editor, but the
-      // owner still needs reconciliation before replay can be safe.
-      onUncertain({ ownerKey: action.ownerKey, text, reconcileOnly: true });
+      return onUncertain({ ownerKey: action.ownerKey, text });
     }
+    // A → B → A must not publish the old visit into the new editor, but the
+    // owner still needs reconciliation before replay can be safe. If another
+    // owner is current, the callback defers that recovery until A is revisited.
+    return onUncertain({ ownerKey: action.ownerKey, text, reconcileOnly: true });
   }
 
   function publishCommitted(action: ActionToken, successText: string, refreshFailedText: string) {
-    if (action.ownerKey !== `${ownerType}:${ownerId}`) return;
     void onCommitted({
       ownerKey: action.ownerKey,
       // Stale visits recover owner data but never publish an old success notice.
@@ -560,7 +590,9 @@
         await options.request();
       } catch (e) {
         if (e instanceof UncertainMutationError) {
-          publishUncertain(action, s.mutationUnconfirmed());
+          // Reconcile-only recovery retains the pending registration until its
+          // bounded readback finishes; settlement must not open a replay gap.
+          await publishUncertain(action, s.mutationUnconfirmed());
         } else if (isCurrent(action)) {
           error = e instanceof Error ? e.message : options.refusalFallback;
         }

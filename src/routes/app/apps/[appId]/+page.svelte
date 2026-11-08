@@ -858,13 +858,13 @@
       ? chatConfigReread.configs
       : data.chatConfigs,
   );
-  async function refreshChatConfigs(): Promise<boolean> {
+  async function refreshChatConfigs(signal?: AbortSignal): Promise<boolean> {
     const agentRef = app.agentId;
     if (!agentRef) return true;
     const appRef = app.id;
     const against = data.chatConfigs;
     const mine = ++chatConfigReads;
-    const fresh = await readResolvedAiConfigs(appRef, agentRef);
+    const fresh = await readResolvedAiConfigs(appRef, agentRef, signal);
     if (fresh === null) return false;
     if (
       mine === chatConfigReads &&

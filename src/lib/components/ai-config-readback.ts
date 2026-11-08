@@ -1,3 +1,4 @@
+import { AI_CONFIG_PROVIDERS } from '$lib/ai-config';
 import type { AiConfigOwnerType, AiServiceConfig } from '$lib/types';
 
 /** The AI-config section's own re-read; never a router-wide invalidateAll(). */
@@ -9,21 +10,32 @@ export function withAiConfigTimeout<T>(
   operation: (signal: AbortSignal) => Promise<T>,
   onTimeout: () => T,
   controller = new AbortController(),
+  parentSignal?: AbortSignal,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | null = null;
-  const pending = Promise.resolve().then(() => operation(controller.signal));
-  const expired = new Promise<T>((resolve, reject) => {
-    timer = setTimeout(() => {
-      controller.abort();
-      try {
-        resolve(onTimeout());
-      } catch (error) {
-        reject(error);
-      }
-    }, AI_CONFIG_TIMEOUT_MS);
+  let onAbort: (() => void) | null = null;
+  let settled = false;
+  const abort = (resolve: (value: T) => void, reject: (error: unknown) => void) => {
+    if (settled) return;
+    settled = true;
+    controller.abort();
+    try {
+      resolve(onTimeout());
+    } catch (error) {
+      reject(error);
+    }
+  };
+  const bounded = new Promise<T>((resolve, reject) => {
+    onAbort = () => abort(resolve, reject);
+    timer = setTimeout(onAbort, AI_CONFIG_TIMEOUT_MS);
+    if (parentSignal?.aborted) onAbort();
+    else parentSignal?.addEventListener('abort', onAbort, { once: true });
   });
-  return Promise.race([pending, expired]).finally(() => {
+  const pending = Promise.resolve().then(() => operation(controller.signal));
+  return Promise.race([pending, bounded]).finally(() => {
+    settled = true;
     if (timer !== null) clearTimeout(timer);
+    if (onAbort) parentSignal?.removeEventListener('abort', onAbort);
   });
 }
 
@@ -32,6 +44,8 @@ const textOrNull = (value: unknown): value is string | null => value === null ||
 const bool = (value: unknown): value is boolean => typeof value === 'boolean';
 const ownerType = (value: unknown): value is AiConfigOwnerType =>
   value === 'HADRON_SERVER' || value === 'ORGANIZATION' || value === 'APP' || value === 'AGENT';
+const provider = (value: unknown): value is AiServiceConfig['provider'] =>
+  text(value) && AI_CONFIG_PROVIDERS.some((candidate) => candidate.value === value);
 const apiStyle = (value: unknown): value is AiServiceConfig['apiStyle'] =>
   value === null || value === 'CHAT_COMPLETIONS' || value === 'RESPONSES';
 const params = (value: unknown): value is AiServiceConfig['params'] =>
@@ -42,7 +56,7 @@ function parseConfig(raw: unknown): AiServiceConfig | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const c = raw as Record<string, unknown>;
   if (!text(c.id) || !c.id || !text(c.name) || !ownerType(c.ownerType) || !text(c.ownerId)) return null;
-  if (!text(c.provider) || !text(c.model) || !textOrNull(c.endpoint) || !textOrNull(c.effectiveEndpoint)) return null;
+  if (!provider(c.provider) || !text(c.model) || !textOrNull(c.endpoint) || !textOrNull(c.effectiveEndpoint)) return null;
   if (!apiStyle(c.apiStyle) || !apiStyle(c.effectiveApiStyle) || !bool(c.hasApiKey)) return null;
   if (!textOrNull(c.apiKeyPreview) || !params(c.params) || !bool(c.enabled)) return null;
   if (!text(c.createdAt) || !textOrNull(c.updatedAt)) return null;
@@ -51,7 +65,7 @@ function parseConfig(raw: unknown): AiServiceConfig | null {
     name: c.name,
     ownerType: c.ownerType,
     ownerId: c.ownerId,
-    provider: c.provider as AiServiceConfig['provider'],
+    provider: c.provider,
     model: c.model,
     endpoint: c.endpoint,
     effectiveEndpoint: c.effectiveEndpoint,
@@ -81,7 +95,7 @@ export function parseAiConfigList(body: unknown): AiServiceConfig[] | null {
 }
 
 /** Fetch and parse with a real time bound, even if a test/custom fetch ignores AbortSignal. */
-async function readPayload(url: string): Promise<unknown> {
+async function readPayload(url: string, parentSignal?: AbortSignal): Promise<unknown> {
   try {
     return await withAiConfigTimeout(async (signal) => {
       const response = await fetch(url, {
@@ -91,7 +105,7 @@ async function readPayload(url: string): Promise<unknown> {
       });
       if (!response.ok) return null;
       return await response.json();
-    }, () => null);
+    }, () => null, undefined, parentSignal);
   } catch {
     return null;
   }
@@ -110,7 +124,8 @@ export async function readAiConfigs(
 export async function readResolvedAiConfigs(
   appRef: string,
   agentRef: string,
+  signal?: AbortSignal,
 ): Promise<AiServiceConfig[] | null> {
   const query = new URLSearchParams({ appRef, agentRef });
-  return parseAiConfigList(await readPayload(`${AI_CONFIGS_ENDPOINT}?${query}`));
+  return parseAiConfigList(await readPayload(`${AI_CONFIGS_ENDPOINT}?${query}`, signal));
 }

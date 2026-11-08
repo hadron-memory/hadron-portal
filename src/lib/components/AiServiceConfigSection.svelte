@@ -57,6 +57,8 @@
   let destroyed = false;
   let relatedController: AbortController | null = null;
   let pendingMutations = $state<Array<Omit<AiConfigMutationPending, 'pending'>>>([]);
+  const deferredCommitted = new Map<string, AiConfigCommitted>();
+  let deferredRecoverySequence = 0;
   const mutationPending = $derived(
     pendingMutations.some((mutation) => mutation.ownerKey === currentOwnerKey()),
   );
@@ -119,7 +121,14 @@
   }
 
   async function onCommitted(outcome: AiConfigCommitted) {
-    if (destroyed || outcome.ownerKey !== currentOwnerKey()) return;
+    if (destroyed) return;
+    if (outcome.ownerKey !== currentOwnerKey()) {
+      // A mutation may settle after its owner was hidden. Retain the outcome,
+      // not its pending network work, and recover when that owner is revisited.
+      deferredCommitted.set(outcome.ownerKey, outcome);
+      return;
+    }
+    deferredCommitted.delete(outcome.ownerKey);
 
     // Acknowledge the committed write immediately. Readback is recovery for
     // stale view state, not part of whether the mutation succeeded, and a slow
@@ -135,7 +144,11 @@
     relatedController = controller;
     const related = refreshRelated(controller);
     const fresh = await readAiConfigs(ownerType, ownerId);
-    if (destroyed || outcome.ownerKey !== currentOwnerKey()) return;
+    if (destroyed) return;
+    if (outcome.ownerKey !== currentOwnerKey()) {
+      deferredCommitted.set(outcome.ownerKey, outcome);
+      return;
+    }
 
     // The owner list is useful on its own. Do not let a slow or hung related
     // loader slice hold back fresh rows until the shared timeout expires.
@@ -144,7 +157,11 @@
     }
 
     const relatedFresh = await related.settled;
-    if (destroyed || outcome.ownerKey !== currentOwnerKey()) return;
+    if (destroyed) return;
+    if (outcome.ownerKey !== currentOwnerKey()) {
+      deferredCommitted.set(outcome.ownerKey, outcome);
+      return;
+    }
     const failed = fresh === null || !relatedFresh || configsError;
     if (mine === readbacks) {
       if (outcome.uncertainText) {
@@ -172,19 +189,18 @@
     }
   }
 
-  function onUncertain(outcome: AiConfigUncertain) {
-    if (destroyed || outcome.ownerKey !== currentOwnerKey()) return;
-    if (outcome.reconcileOnly) {
-      void onCommitted({
+  function onUncertain(outcome: AiConfigUncertain): void | Promise<void> {
+    if (destroyed) return;
+    if (outcome.reconcileOnly || outcome.ownerKey !== currentOwnerKey()) {
+      return onCommitted({
         ownerKey: outcome.ownerKey,
         noticeGeneration: -1,
         successText: '',
         refreshFailedText: '',
         uncertainText: outcome.text,
       });
-    } else {
-      uncertainty = outcome.text;
     }
+    uncertainty = outcome.text;
   }
 
   // The manager also fences its own requests, but it is absent on a loader
@@ -201,6 +217,27 @@
     clearTransient();
     uncertainty = null;
     refreshWarning = null;
+
+    const deferred = deferredCommitted.get(nextOwnerKey);
+    if (deferred) {
+      deferredCommitted.delete(nextOwnerKey);
+      // The original mutation may already have settled while another owner was
+      // selected. Re-register an uncertain recovery so replay stays locked
+      // until this visit's bounded reconciliation has finished.
+      const recoveryId = deferred.uncertainText ? --deferredRecoverySequence : null;
+      if (recoveryId !== null) {
+        onMutationPending({ ownerKey: nextOwnerKey, mutationId: recoveryId, pending: true });
+      }
+      queueMicrotask(async () => {
+        try {
+          await onCommitted(deferred);
+        } finally {
+          if (recoveryId !== null) {
+            onMutationPending({ ownerKey: nextOwnerKey, mutationId: recoveryId, pending: false });
+          }
+        }
+      });
+    }
   });
 
   onDestroy(() => {
