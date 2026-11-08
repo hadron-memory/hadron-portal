@@ -249,24 +249,43 @@ describe('loadChatMessages', () => {
   function windowingClient(
     nodes: MemoryNode[],
     total: number | null = null,
-    opts: { clampFrom?: number; failFrom?: number; omitTotal?: boolean } = {},
+    opts: {
+      clampFrom?: number;
+      failFrom?: number;
+      omitTotal?: boolean;
+      /** Answer single-node reads at offset ≥ this with the LAST node instead of empty. */
+      clampSinglesFrom?: number;
+      /** Splice `node` into the list at `index` before serving 1-based call `call`. */
+      insertBeforeCall?: { call: number; index: number; node: MemoryNode };
+    } = {},
   ) {
     const calls: { offset: number; limit: number }[] = [];
     const client = {
       request: vi.fn(async (_query: unknown, vars: { offset?: number; limit?: number }) => {
         const offset = Math.max(0, vars.offset ?? 0);
         const readCount = vars.limit ?? 0;
+        if (opts.insertBeforeCall && calls.length + 1 === opts.insertBeforeCall.call) {
+          nodes.splice(opts.insertBeforeCall.index, 0, opts.insertBeforeCall.node);
+        }
         calls.push({ offset, limit: readCount });
         if (opts.failFrom !== undefined && offset >= opts.failFrom) {
+          // A generic transport failure at an offset — NOT a modeled offset
+          // cap (the server imposes none; the locator's cap is client-side).
           // The message this fixture throws is what the failed-probe test's
-          // /offset cap/ regex matches — change one, change the other.
-          throw new Error(`offset cap: ${offset}`);
+          // /probe failed/ regex matches — change one, change the other.
+          throw new Error(`probe failed at ${offset}`);
         }
         const hits =
           opts.clampFrom !== undefined && offset >= opts.clampFrom
             ? // A clamping server answers this offset with the LAST page, full.
               nodes.slice(Math.max(0, nodes.length - readCount))
-            : nodes.slice(offset, offset + readCount);
+            : opts.clampSinglesFrom !== undefined &&
+                readCount === 1 &&
+                offset >= opts.clampSinglesFrom
+              ? // ...and one that clamps only single-node reads answers with
+                // the last NODE rather than the truthful empty page.
+                nodes.slice(nodes.length - 1)
+              : nodes.slice(offset, offset + readCount);
         return {
           // omitTotal: a resolver that drops the count field entirely —
           // `total` is ABSENT (undefined), which is not `null`.
@@ -386,42 +405,193 @@ describe('loadChatMessages', () => {
     expect(calls).toHaveLength(2);
   });
 
-  it('#1581: a failed locating probe rejects the load — never a silent false tail', async () => {
+  it('#1581/#1820: a failed locating probe rejects the load — retried once, never a silent false tail', async () => {
     // The degradation this PR must not ship: one transient failure on the
     // probe at 150 of a 271-node thread, read as "empty", understates the
     // thread as 150 nodes and serves the OLDEST page with no scroll-up —
     // the original defect, silently. A locating failure rejects instead,
     // exactly as a failed tail-correction request always did (the issue's
-    // failed-read hold).
+    // failed-read hold). One retry (N5) absorbs a single blip; a server
+    // that keeps failing is still rejected, one attempt later.
     const { client, calls } = windowingClient(platformThread(271), null, { failFrom: 150 });
-    await expect(loadChatMessages(client, 'mem-1', 'chats:team')).rejects.toThrow(/offset cap/);
+    await expect(loadChatMessages(client, 'mem-1', 'chats:team')).rejects.toThrow(/probe failed/);
 
-    expect(calls).toHaveLength(2); // the first read, then the failed probe
+    // Attempt 1: the first read, then the failed probe at 150. Attempt 2
+    // (segments dropped, empty seed): the probe at 150 fails again.
+    expect(calls).toHaveLength(3);
+    // The count-pinned arithmetic below assumes the first read asked for the
+    // full over-fetch — pin the premise so a page-size change fails here,
+    // with a clear message, rather than as a bare count mismatch.
+    expect(calls[0].limit).toBe(Math.ceil(CHAT_PAGE_SIZE * 1.5));
   });
 
-  it('#1581: a clamping server (a full page for ANY offset) is detected and rejected', async () => {
+  it('#1820 (N5): one transient probe failure is absorbed by the retry', async () => {
+    // The same 271-node thread, but the failure is a ONE-SHOT blip: the first
+    // probe at 150 throws, the retry's probe at 150 succeeds, and the load
+    // completes at the true end. A single transport hiccup no longer blanks
+    // the chat.
+    const nodes = platformThread(271);
+    let failOnce = true;
+    const calls: { offset: number; limit: number }[] = [];
+    const client = {
+      request: vi.fn(async (_query: unknown, vars: { offset?: number; limit?: number }) => {
+        const offset = Math.max(0, vars.offset ?? 0);
+        const readCount = vars.limit ?? 0;
+        calls.push({ offset, limit: readCount });
+        if (failOnce && offset >= 150) {
+          failOnce = false;
+          throw new Error('probe failed: transient blip');
+        }
+        return {
+          findNodes: {
+            total: null,
+            hits: nodes.slice(offset, offset + readCount).map((node) => ({ node })),
+          },
+        };
+      }),
+    } as any;
+    const page = await loadChatMessages(client, 'mem-1', 'chats:team');
+
+    expect(page.total).toBe(271);
+    expect(page.messages[CHAT_PAGE_SIZE - 1].seq).toBe(271);
+    // Attempt 1: first read, then the failed probe at 150. Attempt 2: the
+    // probe at 150 succeeds — 121 rows, SHORT, so it is itself the exact end
+    // (no bisection). The segments were dropped with the retry, so the window
+    // is one fresh fetch: four requests.
+    expect(calls).toHaveLength(4);
+  });
+
+  it('#1581/#1820: a clamping server (a full page for ANY offset) is rejected — the retry cannot rescue it', async () => {
     // Offset clamping answers every offset with the same fixed full page, so
-    // the FIRST probe repeats the first read's ids — named immediately, no
-    // fabricated total, no gallop, no hang.
+    // the FIRST probe repeats the first read's ids. The retry re-runs the
+    // gallop with an empty seed; the clamp repeats its fixed page there too —
+    // on the retry's SECOND probe, when the page comes round again — so the
+    // liar is still named, one probe later, never rescued.
     const { client, calls } = windowingClient(platformThread(600), null, { clampFrom: 0 });
     await expect(loadChatMessages(client, 'mem-1', 'chats:team')).rejects.toThrow(/overlapping page/);
 
-    expect(calls).toHaveLength(2); // the first read, then the detected probe
+    // attempt 1: the first read, then the detected probe at 150. attempt 2:
+    // probes at 150 (the fixed page, fresh to the empty seed) and 300 (the
+    // same page — the repeat that names the server).
+    expect(calls[0].limit).toBe(Math.ceil(CHAT_PAGE_SIZE * 1.5));
+    expect(calls).toHaveLength(4);
   });
 
-  it('#1581: a server that clamps only OUT-OF-RANGE offsets is named on the repeat', async () => {
+  it('#1581/#1820: a server that clamps only OUT-OF-RANGE offsets is named on the repeat', async () => {
     // The subtler liar (Axel's delta N1): in-range offsets are answered
     // truthfully, only offsets past the end get the fixed last page. The first
     // out-of-range probe returns that page fresh, so a first-read-only id
     // check cannot see it — but the SECOND out-of-range probe repeats it, and
     // the detector tracks every id every locating read has returned, not just
-    // the first read's. Named at five requests, not after a gallop to the cap.
+    // the first read's. The retry's empty seed loses nothing here: the lie is
+    // fresh to it too, and its own second out-of-range probe repeats it again.
     const { client, calls } = windowingClient(platformThread(600), null, { clampFrom: 600 });
     await expect(loadChatMessages(client, 'mem-1', 'chats:team')).rejects.toThrow(/overlapping page/);
 
-    // first read, then probes at 150, 300 (truthful), 600 (the lie, fresh),
-    // 1200 (the lie again — the repeat that names it).
-    expect(calls).toHaveLength(5);
+    // Attempt 1: first read, then probes at 150, 300 (truthful), 600 (the
+    // lie, fresh), 1200 (the lie again — the repeat that names it). Attempt 2:
+    // probes at 150, 300, 600 (fresh to the empty seed), 1200 (the repeat).
+    // The count is gallop arithmetic on the over-fetch; pin the premise so a
+    // page-size change fails here, not as a bare count mismatch.
+    expect(calls[0].limit).toBe(Math.ceil(CHAT_PAGE_SIZE * 1.5));
+    expect(calls).toHaveLength(9);
+  });
+
+  it('#1820: a mid-locate insert below the read frontier retries once and succeeds', async () => {
+    // Axel's delta-2 conditional P2, the honest repeat: on a root no live
+    // Channel protects, restoreNode and cloneNode can insert a node below the
+    // tail WHILE the locate runs. The insert shifts every later row down one
+    // offset, so the probe at the read frontier returns the previous window's
+    // last row again — a repeat that is not a lying server. The locator
+    // retries once against the shifted list (empty repeat seed: the first
+    // read is a pre-shift snapshot whose ids would condemn any honest retry)
+    // and the load completes at the then-current end. Here a node lands at
+    // index 5 — below the first window [0,150) — just before the second probe.
+    const inserted = msg('chats:team:messages:005-restored', { seq: -1 });
+    const { client, calls } = windowingClient(platformThread(610), null, {
+      insertBeforeCall: { call: 3, index: 5, node: inserted },
+    });
+    const page = await loadChatMessages(client, 'mem-1', 'chats:team');
+
+    // The retry located the SHIFTED list exactly: 611 nodes, newest window.
+    expect(page.total).toBe(611);
+    expect(page.messages).toHaveLength(CHAT_PAGE_SIZE);
+    expect(page.messages[0].seq).toBe(511);
+    expect(page.messages[CHAT_PAGE_SIZE - 1].seq).toBe(610);
+    expect(page.hasOlder).toBe(true);
+    // Attempt 1: first read, probe 150 (full), probe 300 → old row 299 again
+    // (the honest repeat). Attempt 2: probes 150, 300 (full, disjoint on the
+    // shifted list), 600 (11 rows — short, the exact end). The recorded
+    // segments are dropped with the retry (their starts are offsets into the
+    // pre-shift list), so the window is one fresh fetch: seven requests.
+    expect(calls[0].limit).toBe(Math.ceil(CHAT_PAGE_SIZE * 1.5));
+    expect(calls).toHaveLength(7);
+    for (const c of calls) {
+      expect(c.limit).toBeLessThanOrEqual(Math.ceil(CHAT_PAGE_SIZE * 1.5));
+    }
+  });
+
+  it('#1820: the retry drops the recorded segments — the window is never stitched across the shift', async () => {
+    // The seam mutant: if the retry kept attempt 1's segments, the window
+    // would stitch the pre-shift first read and the rejected probe page into
+    // the post-shift tail — one row DUPLICATED at the seam and the restored
+    // row missing. A ~two-page thread pins it: the window reaches into the
+    // probed region, so only the cleared-segments path (one fresh fetch)
+    // produces a gapless sequence. The insert lands just before the first
+    // probe — the frontier-adjacent read that repeats honestly.
+    const inserted = msg('chats:team:messages:005-restored', { seq: -1 });
+    const { client, calls } = windowingClient(platformThread(290), null, {
+      insertBeforeCall: { call: 2, index: 5, node: inserted },
+    });
+    const page = await loadChatMessages(client, 'mem-1', 'chats:team');
+
+    expect(page.total).toBe(291);
+    // The newest 100 of the shifted 291-node list: seqs 191..290, strictly
+    // consecutive — a duplicated or dropped seam row breaks the run.
+    expect(page.messages.map((m) => m.seq)).toEqual(
+      Array.from({ length: CHAT_PAGE_SIZE }, (_, i) => 191 + i),
+    );
+    // Attempt 1: first read, probe 150 (old row 149 again — the honest
+    // repeat, its page RECORDED before the rejection). Attempt 2: probe 150
+    // (141 rows, short — the exact end of the shifted list); segments were
+    // dropped, so the window is one fresh fetch. Four requests.
+    expect(calls).toHaveLength(4);
+  });
+
+  it('#1820: a clamp whose fixed page OVERLAPS the last truthful page repeats on its first lie', async () => {
+    // The aligned-length variant (Axel's delta-2 P3): 500 nodes is not a page
+    // multiple, so the clamped last page [350,500) overlaps the truthful page
+    // [300,450) the probe at 300 already read — the repeat arrives on the
+    // clamp's FIRST answer, not its second. Both attempts see it (the
+    // retry's probe at 300 re-reads the overlapping region), so the liar is
+    // named without ever gallopping to the offset cap.
+    const { client, calls } = windowingClient(platformThread(500), null, { clampFrom: 500 });
+    await expect(loadChatMessages(client, 'mem-1', 'chats:team')).rejects.toThrow(/overlapping page/);
+
+    // Attempt 1: first read, 150, 300 (truthful), 600 (the lie, overlapping).
+    // Attempt 2: 150, 300 (truthful), 600 (the lie — the repeat).
+    expect(calls[0].limit).toBe(Math.ceil(CHAT_PAGE_SIZE * 1.5));
+    expect(calls).toHaveLength(7);
+  });
+
+  it('#1820: a repeat on a BISECTION read is named — single-node probes check ids too', async () => {
+    // The repeat detector guards the binary-search single-node reads, not
+    // just the gallop's pages: a server that clamps only single-node reads
+    // (here, from offset 500) answers the narrowing mid reads with the LAST
+    // node instead of the truthful empty. The mid lands past the clamp, the
+    // "existing" node is one the probe at 300 already read — a repeat on the
+    // bisection path. The retry re-runs the same arithmetic against the same
+    // liar and repeats again; named, not rescued.
+    const { client, calls } = windowingClient(platformThread(450), null, { clampSinglesFrom: 500 });
+    await expect(loadChatMessages(client, 'mem-1', 'chats:team')).rejects.toThrow(/overlapping page/);
+
+    // Attempt 1: first read, 150, 300 (full), 600 (truthfully EMPTY — a page
+    // read, not clamped), then the bisection mid 524 (the lie, a repeat).
+    // Attempt 2: 150, 300, 600, 524 (the repeat).
+    // The count below is gallop arithmetic on the over-fetch; pin the premise
+    // so a page-size change fails here, not as a bare count mismatch.
+    expect(calls[0].limit).toBe(Math.ceil(CHAT_PAGE_SIZE * 1.5));
+    expect(calls).toHaveLength(9);
   });
 
   it('#1581: a server that never runs short is cut off at the offset cap and rejected', async () => {
@@ -449,7 +619,9 @@ describe('loadChatMessages', () => {
     );
     // Exact: the first read, then 23 doubling probes (150·2^0 … 150·2^22,
     // the last below 2^30; 150·2^23 crosses it and throws). Every request is
-    // page-bounded.
+    // page-bounded. The cap rejection is NOT retried — no honest server
+    // reads full forever — so the count stays one gallop.
+    expect(calls[0].limit).toBe(Math.ceil(CHAT_PAGE_SIZE * 1.5));
     expect(calls).toHaveLength(24);
     for (const c of calls) {
       expect(c.limit).toBeLessThanOrEqual(Math.ceil(CHAT_PAGE_SIZE * 1.5));

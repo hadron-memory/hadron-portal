@@ -297,6 +297,24 @@ export type ChatPage = {
 };
 
 /**
+ * A locating read returned a node an earlier read of the same attempt already
+ * returned, for an offset the browse contract says is disjoint. The locator
+ * retries once (#1820: an insert below the read frontier shifts the frontier
+ * row into the next window honestly on roots no live Channel protects) and
+ * names the server a liar only when the repeat recurs — see the retry note in
+ * `loadChatMessages`.
+ */
+class OverlappingPageError extends Error {}
+
+/**
+ * The gallop ran to the offset cap without a short read: the server never ran
+ * short of a full page. Unlike a repeat or a failed request, this has no
+ * honest transient reading — a server that always answers full pages will do
+ * so again — so the locator does NOT spend a second gallop on it.
+ */
+class NeverShortError extends Error {}
+
+/**
  * Load a WINDOW of a chat's messages, newest-last, ending at the tail by default.
  *
  * #793. Ordering is the subtle part and it decides the paging key:
@@ -411,57 +429,93 @@ export async function loadChatMessages(
   const MAX_LOCATE_OFFSET = 2 ** 30;
 
   const locateThreadEnd = async (): Promise<number> => {
-    // Every node id any locating read has returned. Gallop windows are disjoint
-    // by construction (offsets double from fetchCount, so each window starts
-    // at or past the previous one's end) and a binary-search mid lands in the
-    // unread gap (lo, hi) — and the browse orders by seq (append-only, NULLS
-    // LAST, loc-broken ties), not by a volatile score — so an honest probe can
-    // never repeat an id. A repeat names a server clamping offsets to a fixed
-    // page: clamping EVERY offset is caught on the first probe, clamping only
-    // out-of-range ones on the second, when the fixed page comes round again.
-    const seenIds = new Set(first.findNodes.hits.map((h) => h.node.id));
-    const readOnce = async (offset: number, readCount: number) => {
-      const hits = await recordedRead(offset, readCount);
-      const repeat = hits.find((h) => seenIds.has(h.node.id));
-      if (repeat) {
-        throw new Error(
-          `findNodes returned an overlapping page (node ${repeat.node.id} already read) for the disjoint offset ${offset} under ${prefix}`,
-        );
+    // One locating attempt. Windows are disjoint against a stable list
+    // (offsets double from fetchCount, so each window starts at or past the
+    // previous one's end; a binary-search mid lands in the unread gap (lo,
+    // hi)) and the browse orders by seq (append-only, NULLS LAST, loc-broken
+    // ties), not by a volatile score. On a list that shifts UNDER the locate,
+    // though, a repeat is not yet a liar: see the retry below.
+    const attempt = async (seed: Set<string>): Promise<number> => {
+      // Every node id any locating read of THIS attempt has returned.
+      const seenIds = seed;
+      const readOnce = async (offset: number, readCount: number) => {
+        const hits = await recordedRead(offset, readCount);
+        const repeat = hits.find((h) => seenIds.has(h.node.id));
+        if (repeat) {
+          throw new OverlappingPageError(
+            `findNodes returned an overlapping page (node ${repeat.node.id} already read) for the disjoint offset ${offset} under ${prefix}`,
+          );
+        }
+        for (const h of hits) seenIds.add(h.node.id);
+        return hits;
+      };
+      // `lo` is the highest node index proven to exist. The first read came
+      // back full, so firstOffset..firstOffset+fetchCount-1 do (firstOffset is
+      // 0 here — the gallop only runs on an unpaged read — but say so, don't
+      // assume it).
+      let lo = firstOffset + fetchCount - 1;
+      let probeOffset = firstOffset + fetchCount;
+      for (;;) {
+        if (probeOffset > MAX_LOCATE_OFFSET) {
+          throw new NeverShortError(
+            `findNodes never ran short of a full page below offset ${MAX_LOCATE_OFFSET} under ${prefix}`,
+          );
+        }
+        const probe = await readOnce(probeOffset, fetchCount);
+        if (probe.length === fetchCount) {
+          lo = probeOffset + fetchCount - 1;
+          probeOffset *= 2;
+          continue;
+        }
+        if (probe.length > 0) {
+          return probeOffset + probe.length; // the end is inside this page: exact
+        }
+        // Empty: the end lies in (lo, probeOffset]. A message may land while the
+        // probes run; the search still terminates at the then-current end — the
+        // same staleness a numeric total already has.
+        let hi = probeOffset;
+        while (hi - lo > 1) {
+          const mid = Math.floor((lo + hi) / 2);
+          if ((await readOnce(mid, 1)).length > 0) lo = mid;
+          else hi = mid;
+        }
+        return lo + 1;
       }
-      for (const h of hits) seenIds.add(h.node.id);
-      return hits;
     };
-    // `lo` is the highest node index proven to exist. The first read came back
-    // full, so firstOffset..firstOffset+fetchCount-1 do (firstOffset is 0
-    // here — the gallop only runs on an unpaged read — but say so, don't
-    // assume it).
-    let lo = firstOffset + fetchCount - 1;
-    let probeOffset = firstOffset + fetchCount;
-    for (;;) {
-      if (probeOffset > MAX_LOCATE_OFFSET) {
-        throw new Error(
-          `findNodes never ran short of a full page below offset ${MAX_LOCATE_OFFSET} under ${prefix}`,
-        );
-      }
-      const probe = await readOnce(probeOffset, fetchCount);
-      if (probe.length === fetchCount) {
-        lo = probeOffset + fetchCount - 1;
-        probeOffset *= 2;
-        continue;
-      }
-      if (probe.length > 0) {
-        return probeOffset + probe.length; // the end is inside this page: exact
-      }
-      // Empty: the end lies in (lo, probeOffset]. A message may land while the
-      // probes run; the search still terminates at the then-current end — the
-      // same staleness a numeric total already has.
-      let hi = probeOffset;
-      while (hi - lo > 1) {
-        const mid = Math.floor((lo + hi) / 2);
-        if ((await readOnce(mid, 1)).length > 0) lo = mid;
-        else hi = mid;
-      }
-      return lo + 1;
+    // The first attempt seeds the repeat check with the first read's ids: a
+    // server clamping offsets to a fixed page is named at once — clamping
+    // EVERY offset on the first probe, clamping only out-of-range ones on the
+    // second, when the fixed page comes round again.
+    try {
+      return await attempt(new Set(first.findNodes.hits.map((h) => h.node.id)));
+    } catch (error) {
+      if (error instanceof NeverShortError) throw error;
+      // Two shapes get exactly one retry (Axel's delta-2: the conditional P2
+      // and N5).
+      //
+      // A REPEAT is not always a lying server. On a chat root no LIVE Channel
+      // protects — a legacy record thread, which this reader browses whenever
+      // the root's type says chat — the server admits writes that insert
+      // below the tail mid-locate: restoreNode puts a soft-deleted message
+      // back at its old seq position (it names no seq, so the SEQ_PROTECTED
+      // gate that otherwise makes seq insert-assigned and immutable does not
+      // refuse it), and cloneNode copies a source seq onto a new row at an
+      // existing position. Either shifts every later row down, and the window
+      // at the read frontier then repeats an already-read id HONESTLY.
+      //
+      // A FAILED REQUEST is not always a broken server either: one transient
+      // transport failure used to fail the whole load (N5).
+      //
+      // Retry the locate once against the current list, seeding the repeat
+      // check empty — the first read is a pre-shift snapshot, and its ids
+      // would condemn any honest retry — and dropping the recorded segments,
+      // whose starts are offsets into the pre-shift list (the window then
+      // falls back to one fresh fetch). A repeat or failure on the retry
+      // rejects exactly as before: clamping repeats deterministically (every
+      // offset on the retry's second probe, out-of-range-only on its fourth),
+      // while one concurrent insert or blip is absorbed.
+      segments.length = 0;
+      return await attempt(new Set());
     }
   };
 
