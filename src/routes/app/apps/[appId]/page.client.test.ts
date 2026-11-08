@@ -2368,6 +2368,40 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     expect(navigationCalls.filter((call) => call.fn === 'invalidateAll')).toHaveLength(1);
   });
 
+  it('#1795 QA: preloaded Runs survives an invalidated navigation payload', async () => {
+    const { m, props, form } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    const sent = idOf(form());
+    const delayed = await submitEnhancedDeferred(form());
+    const preloaded = await runsPanel('preloaded-run');
+    let releasePreload: (() => void) | undefined;
+    navigationHooks.onPreloadData = () => new Promise((resolve) => {
+      releasePreload = () => resolve({ type: 'loaded', status: 200, data: { runsPanel: preloaded } });
+    });
+    let releaseGoto!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { releaseGoto = resolve; });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+
+    // Cedar's real-browser ordering: the old-URL action refresh applies while
+    // the destination load is still held. Kit discards that destination's
+    // eventual navigation payload, so props NEVER receive the fresh panel.
+    navigationHooks.onInvalidateAll = async () => {
+      props.data = { ...props.data, initialTab: 'staff', runsPanel: null };
+    };
+    await delayed.finish(await success(sent));
+    await tick(4);
+    releasePreload?.();
+    await tick(2);
+    releaseGoto();
+    await tick(20);
+
+    expect(m.target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('preloaded-run');
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('Loading runs…');
+    expect(navigationCalls.filter((call) => call.fn === 'preloadData')).toHaveLength(1);
+  });
+
   it.each([false, true])('control: Runs renders with no action (navigation held=%s)', async (held) => {
     const { m, props } = await openCast();
     let releaseRuns: (() => void) | undefined;
@@ -2385,6 +2419,12 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
 
     // A real Runs response always supersedes the retained payload.
     props.data = { ...props.data, runsPanel: await runsPanel(`fresh-${held}-run`) };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain(`fresh-${held}-run`);
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain(`control-${held}-run`);
+
+    // R2, not R1, is what a still-later old-URL omission must retain.
+    props.data = { ...props.data, initialTab: 'staff', runsPanel: null };
     await tick(3);
     expect(m.target.querySelector('#panel-runs')?.textContent).toContain(`fresh-${held}-run`);
     expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain(`control-${held}-run`);
@@ -3492,7 +3532,7 @@ describe('Link and Unlink answers belong to their App visit (#1776)', () => {
     return { type: outcome === 'success' ? 'success' : 'failure', status: outcome === 'success' ? 200 : 400, data: { form: f } };
   }
 
-  it('#1795 Link also refreshes only after a held Runs navigation settles', async () => {
+  it('#1795 Link retains Runs through an overlapping old-URL refresh', async () => {
     const { m, props } = await mountAgents();
     const pending = await begin(m.target, 'link');
     let releaseRuns!: () => void;

@@ -9,7 +9,7 @@
   import { env } from '$env/dynamic/public';
   import { tick, untrack, onDestroy } from 'svelte';
   import { applyAction } from '$app/forms';
-  import { beforeNavigate, goto, afterNavigate, invalidateAll, replaceState } from '$app/navigation';
+  import { beforeNavigate, goto, afterNavigate, invalidateAll, preloadData, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import JSZip from 'jszip';
@@ -1066,7 +1066,21 @@
       // a choice of a normally local tab. Its loader URL must agree as well.
       if (id === 'runs' || tabNavigationPending) {
         tabNavigationPending = true;
-        await goto(`/app/apps/${encodeURIComponent(appId)}?tab=${id}`, { keepFocus: true, noScroll: true });
+        const href = `/app/apps/${encodeURIComponent(appId)}?tab=${id}`;
+        if (id === 'runs') {
+          try {
+            // #1795 QA: invalidateAll discards the pending navigation's load
+            // cache, so its fresh payload may never reach page.data at all.
+            // preloadData still resolves with that result; retain it before
+            // the real navigation, which reuses the preload when it can.
+            const result = await preloadData(href);
+            if (tabAlive && mine === tabNavigation && app.id === appId && result.type === 'loaded') {
+              const panel = result.data.runsPanel as PageData['runsPanel'];
+              if (panel) retainedRuns = { appId, panel };
+            }
+          } catch { /* The real navigation below owns and reports its own failure. */ }
+        }
+        await goto(href, { keepFocus: true, noScroll: true });
       }
       if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
       activeTab = id;
