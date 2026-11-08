@@ -279,7 +279,9 @@
         <p class="text-sm text-zinc-500">{t('worker.signature.trailer-not-shown', 'Trailer template: not shown.')}</p>
       {/if}
 
-      <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('worker.signature.lint.refresh-help', 'Saved-value advice refreshes after a successful save.')}</p>
+      {#if !retired}
+        <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('worker.signature.lint.refresh-help', 'Saved-value advice refreshes after a successful save.')}</p>
+      {/if}
       <!-- Advisory saved-state read, independent of form validity and save availability. -->
       <div bind:this={lintEl} data-signature-lint tabindex="-1" role="region" aria-label={t('worker.signature.lint.region', 'Saved worker link check')} aria-live="polite" aria-atomic="true" aria-busy={lintBusy} class="space-y-1 text-sm text-zinc-600 dark:text-zinc-300">
         {#if lintState === 'loading'}
@@ -288,7 +290,7 @@
           <p>{t('worker.signature.lint.unavailable', 'Couldn’t check the worker link.')}</p>
           <button type="button" aria-disabled={lintBusy} class="rounded border border-zinc-300 px-3 py-1.5 pointer-coarse:min-h-11 pointer-coarse:min-w-11 aria-disabled:opacity-60 dark:border-zinc-600" onclick={() => readLinkLint(true)}>{t('worker.signature.lint.retry', 'Retry')}</button>
         {:else if linkLint}
-          {#if readable.signature && readable.trailer && linkLint.total === 0 && linkLint.items.length === 0 && linkLint.nextCursor === null}
+          {#if !lintBusy && readable.signature && readable.trailer && linkLint.total === 0 && linkLint.items.length === 0 && linkLint.nextCursor === null}
             <p>{t('worker.signature.lint.zero', 'No worker-link warnings on the saved values.')}</p>
           {/if}
           {#each otherAdvice as _}<p>{t('worker.signature.lint.unknown', 'The worker link check found something to review.')}</p>{/each}
