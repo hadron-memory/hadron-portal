@@ -477,4 +477,3 @@ describe('AI configuration feedback lifecycle review controls', () => {
     expect(feedback(target).querySelector('a[data-sveltekit-reload]')).not.toBeNull();
   });
 });
-

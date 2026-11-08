@@ -21,6 +21,8 @@ const REFUSALS = [
   ['BOOT_PROMPT_NOT_APPROVED', 'bootPromptNotApproved', "No approved version of this Agent's boot prompt is available here, so the chat can't run until whoever manages it approves one. Trying again won't help until they do."],
   ['BOOT_PROMPT_NOT_SIGNED', 'bootPromptNotSigned', "No signed version of this Agent's boot prompt is available here, so the chat can't run until whoever manages it signs one. Trying again won't help until they do."],
   ['BOOT_PROMPT_RECORDED_REVISION_DELETED', 'bootPromptRecordedRevisionDeleted', "The boot prompt version this conversation was given has been deleted, so it can't continue. Start a new chat."],
+  // portal#1786 (hadron-server#3626): the owner of a personal App stopped qualifying for its organization Agent.
+  ['BOOT_PROMPT_INSTALL_LICENSE_INACTIVE', 'bootPromptInstallLicenseInactive', "The owner of this App no longer qualifies to use this organization Agent, so the chat can't run. Trying again won't help."],
 ] as const;
 
 function refusal(code: string) {

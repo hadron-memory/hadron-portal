@@ -179,3 +179,121 @@ it.each(['INTERNAL_SERVER_ERROR', 'FUTURE_UNKNOWN_CODE'])(
     expect(JSON.stringify(result)).not.toContain('private diagnostics');
   },
 );
+
+// ---------------------------------------------------------------------------
+// #1786 (hadron-server#3626, ruling 0235): a member may install an
+// ORGANIZATION-visible Agent of their organization into a personal App.
+// The documents are matched by content, not by name, so these pins are red on
+// a main that has neither document rather than failing at import.
+// ---------------------------------------------------------------------------
+const ORG = { id: 'a-org', urn: 'hrn:agent:acme.com:org-agent', name: 'Org Agent', description: null, organizationId: 'org-1' };
+const isMemberOrgsDoc = (doc: string) => /organizations\s*\(\s*filter:\s*\{\s*memberOnly:\s*true\s*\}/.test(doc);
+const isOrgAgentsDoc = (doc: string) => /agents\s*\(\s*filter:\s*\{\s*visibility:\s*ORGANIZATION\s*\}/.test(doc);
+
+function routeOrgFetch(opts: {
+  mine?: Agent[]; pub?: Agent[]; orgs?: string[] | Error; orgAgents?: Record<string, Agent[] | Error>;
+} = {}) {
+  mockFetchAll.mockImplementation(async (doc: string, _field: string, vars?: { orgId?: string }) => {
+    if (doc === MY_AGENTS_QUERY) return opts.mine ?? [];
+    if (doc === PUBLIC_AGENTS_QUERY) return opts.pub ?? [];
+    if (doc === MY_APPS_QUERY) return [];
+    if (isMemberOrgsDoc(doc)) {
+      if (opts.orgs instanceof Error) throw opts.orgs;
+      return (opts.orgs ?? []).map((id) => ({ id }));
+    }
+    if (isOrgAgentsDoc(doc)) {
+      const hit = opts.orgAgents?.[vars?.orgId ?? ''];
+      if (hit instanceof Error) throw hit;
+      return hit ?? [];
+    }
+    return [];
+  });
+}
+
+const orgAgentCalls = () => mockFetchAll.mock.calls.filter(([doc]) => isOrgAgentsDoc(doc as string));
+
+describe('#1786 organization Agents on /app/apps/new', () => {
+  beforeEach(() => { mockFetchAll.mockReset(); mockRequest.mockReset(); });
+
+  it('a member is offered their organization’s ORGANIZATION-visible Agent, after mine and public', async () => {
+    routeOrgFetch({ mine: [OWN], pub: [PUB], orgs: ['org-1'], orgAgents: { 'org-1': [ORG] } });
+    const { load } = await importMod();
+    const res = (await load(loadEv())) as { agents: Agent[]; loadFailed: boolean; form: { data: { agentId: string } } };
+    expect(res.agents.map((a) => a.id)).toEqual(['a-own', 'a-pub', 'a-org']);
+    expect(res.loadFailed).toBe(false);
+    expect(res.form.data.agentId).toBe('a-own');
+  });
+
+  it('a member’s POST naming the org Agent passes the pre-check and reaches createApp', async () => {
+    routeOrgFetch({ mine: [OWN], orgs: ['org-1'], orgAgents: { 'org-1': [ORG] } });
+    mockRequest.mockResolvedValueOnce({ createApp: { id: 'app-org' } });
+    const { actions } = await importMod();
+    await expect(
+      actions.default(actionEv({ agentId: 'a-org', name: 'Org App', urn: 'org-app', appType: 'WORKSTATION' })),
+    ).rejects.toMatchObject({ status: 303, location: '/app/apps/app-org' });
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ agentRef: 'a-org' });
+  });
+
+  it('a non-member (no member orgs) is not offered it, no org-Agent list is asked for, and a POST gets the local 400', async () => {
+    routeOrgFetch({ mine: [OWN], pub: [PUB], orgs: [], orgAgents: { 'org-1': [ORG] } });
+    const { load, actions } = await importMod();
+    const res = (await load(loadEv())) as { agents: Agent[] };
+    expect(res.agents.map((a) => a.id)).toEqual(['a-own', 'a-pub']);
+    const result = (await actions.default(
+      actionEv({ agentId: 'a-org', name: 'X', urn: 'x', appType: 'WORKSTATION' }),
+    )) as { status: number; data: { form: { errors: { agentId?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.agentId).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+    expect(orgAgentCalls()).toHaveLength(0);
+    // The membership list really was consulted (not skipped).
+    expect(mockFetchAll.mock.calls.some(([doc]) => isMemberOrgsDoc(doc as string))).toBe(true);
+  });
+
+  it('asks for org Agents once per member org, always with that org’s orgId (never an unscoped admin list)', async () => {
+    routeOrgFetch({ orgs: ['org-1', 'org-2'], orgAgents: { 'org-1': [ORG], 'org-2': [] } });
+    const { load } = await importMod();
+    await load(loadEv());
+    const calls = orgAgentCalls();
+    expect(calls.map(([, , vars]) => (vars as { orgId?: string } | undefined)?.orgId).sort()).toEqual(['org-1', 'org-2']);
+  });
+
+  it('dedupes an Agent found in two lists or two orgs; first source wins', async () => {
+    const pubAlsoOrg = { ...ORG, id: 'a-pub' };
+    routeOrgFetch({
+      mine: [OWN], pub: [PUB], orgs: ['org-1', 'org-2'],
+      orgAgents: { 'org-1': [pubAlsoOrg, ORG], 'org-2': [ORG] },
+    });
+    const { load } = await importMod();
+    const res = (await load(loadEv())) as { agents: Agent[] };
+    expect(res.agents.map((a) => a.id)).toEqual(['a-own', 'a-pub', 'a-org']);
+    expect(res.agents[1].name).toBe(PUB.name);
+  });
+
+  it.each([
+    ['the member-org lookup', { orgs: new Error('boom') }],
+    ['an org-Agent lookup', { orgs: ['org-1'], orgAgents: { 'org-1': new Error('boom') } }],
+  ] as const)('a failed %s shows loadFailed on GET and defers to the server on POST', async (_what, failing) => {
+    routeOrgFetch({ mine: [OWN], pub: [PUB], ...failing } as Parameters<typeof routeOrgFetch>[0]);
+    const { load, actions } = await importMod();
+    const res = (await load(loadEv())) as { loadFailed: boolean; agents: Agent[] };
+    expect(res.loadFailed).toBe(true);
+    expect(res.agents.map((a) => a.id)).toEqual(['a-own', 'a-pub']);
+    mockRequest.mockResolvedValueOnce({ createApp: { id: 'app-z' } });
+    await expect(
+      actions.default(actionEv({ agentId: 'a-org', name: 'Z', urn: 'z', appType: 'WORKSTATION' })),
+    ).rejects.toMatchObject({ status: 303, location: '/app/apps/app-z' });
+  });
+
+  it.each(['AGENT_NOT_FOUND', 'ORGANIZATION_MISMATCH', 'BAD_USER_INPUT'])(
+    'an ex-member whose list still shows the Agent gets createApp %s as a 400 with the server’s text, not a 500',
+    async (code) => {
+      routeOrgFetch({ orgs: ['org-1'], orgAgents: { 'org-1': [ORG] } });
+      mockRequest.mockRejectedValue({ response: { errors: [{ message: `Refused: ${code}.`, extensions: { code } }] } });
+      const { actions } = await importMod();
+      const result = await actions.default(actionEv({ agentId: 'a-org', name: 'O', urn: 'o', appType: 'WORKSTATION' }));
+      expect(result).toMatchObject({ status: 400 });
+      expect(JSON.stringify(result)).toContain(`Refused: ${code}.`);
+    },
+  );
+});
