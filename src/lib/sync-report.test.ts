@@ -31,12 +31,14 @@ describe('stored sync report', () => {
       ['an unknown kind', { kind: 'future_kind', loc: 'a', code: 'AUTHORING_ATTESTATION_MISSING' }],
       ['an unknown code', { kind: 'attestation_refused', loc: 'a', code: 'OTHER' }],
       ['a code from another kind', { kind: 'attestation_refused', loc: 'a', code: 'MOVE_HELD' }],
+      ['an attestation code on a v1 kind', { kind: 'protected', loc: 'a', code: 'AUTHORING_ATTESTATION_MISSING' }],
     ])('rejects v2 with %s', (_name, bad) => {
       expect(parseSyncReport(report({ version: 2, entries: [entry, bad] }), 'OK', at).state).toBe('unavailable');
     });
   });
 
-  it('only explicit null plus completed metadata is clean', () => {    expect(parseSyncReport(null, 'OK', at).state).toBe('clean');
+  it('only explicit null plus completed metadata is clean', () => {
+    expect(parseSyncReport(null, 'OK', at).state).toBe('clean');
     expect(parseSyncReport(null, 'PENDING', null).state).toBe('not_synced');
     expect(parseSyncReport(undefined, 'OK', at).state).toBe('unavailable');
     expect(parseSyncReport(null, 'OK', 'bad').state).toBe('unavailable');

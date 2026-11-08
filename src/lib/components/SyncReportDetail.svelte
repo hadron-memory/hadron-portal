@@ -11,7 +11,8 @@
   let globalFilter = $state('');
   const columnFormatters: ColumnFormatters = { kind: value => syncReportKindLabel(value as SyncReportKind) };
   const columns: PortalColumnDef<SyncReportEntry>[] = [
-    { accessorKey: 'kind', header: t('sync-report.kind', 'Kind'), size: 180 },
+    { accessorKey: 'kind', header: t('sync-report.kind', 'Kind'), size: 180,
+      sortFn: (a, b) => syncReportKindLabel(a.original.kind).localeCompare(syncReportKindLabel(b.original.kind)) },
     { accessorKey: 'loc', header: t('sync-report.loc', 'Source location'), size: 280 },
     { accessorKey: 'fromLoc', header: t('sync-report.from-loc', 'Moved from'), size: 240 },
     { accessorKey: 'code', header: t('sync-report.code', 'Code'), size: 230 },
