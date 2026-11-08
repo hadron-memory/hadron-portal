@@ -25,7 +25,7 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup.splice(0).forEach(f => f()); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe('rendered memory rule management', () => {
-  it.each(['ordinary reader', 'non-manager writer', 'org admin of personal memory'])('conceals section and rulebook for %s', () => {
+  it('conceals section and rulebook for a null presentation result (not a principal-authority probe)', () => {
     const m = mount(null); expect(m.target.textContent).not.toContain('Node roles'); expect(m.target.querySelector('table')).toBeNull();
   });
   it('strict owner sees settings and explicit reference states without invented links', () => {
