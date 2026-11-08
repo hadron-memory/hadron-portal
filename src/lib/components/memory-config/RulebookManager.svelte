@@ -19,6 +19,9 @@
   let heading = $state<HTMLHeadingElement>(), feedbackFocus = $state<HTMLElement>();
   let notice = $state(''), warnings = $state<MemoryConfigWarning[]>([]), failure = $state<ConfigFailure | null>(null), busy = $state(false);
   // Plain counters are ownership tokens, never deep-proxied response state.
+  // feedbackSequence and warningGeneration bump TOGETHER at every operation
+  // start (and the view reset); they diverge only at completions, which bump
+  // feedbackSequence alone. A future operation kind must keep that pairing.
   let alive = true, viewEpoch = 0, readSequence = 0, feedbackSequence = 0, warningGeneration = 0;
   let busyOwner: object | null = null;
   const currentFailure = (): ConfigFailure | null => failure;
@@ -94,7 +97,11 @@
       : null;
     const feedback = feedbackSequence;
     edit(undefined);
-    const completedView = ownView();
+    // Bind the editor epoch AFTER this save closed its own editor: a newer
+    // editor opened inside the tick window retires this save's publication
+    // (it would land behind the open modal, unannounced), alongside the
+    // view/memory checks ownView already carries.
+    const completedView = ownView(editorVersion);
     await tick();
     if (!completedView.current()) return null;
     if (book === null) feedbackFocus?.focus();

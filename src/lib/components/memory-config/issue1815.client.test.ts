@@ -39,7 +39,10 @@ import type { Rule, Rulebook } from '$lib/memory-config/types';
 //          green on the fix by retirement). A second SAVE starting in the
 //          window is unreachable through mounted controls: opening its editor
 //          bumps editorVersion, which retires the older save at its
-//          view/editor checks before the window (PIN 6 holds that invariant).
+//          view/editor checks — before the window, and (since the completedView
+//          capture binds the editor epoch AFTER closing its own editor) also
+//          for a save already suspended inside the window's tick (PIN 6 holds
+//          that invariant, with mid-flight assertions).
 //
 // The existing #1764 race pins pass under the drop only because their create
 // answers warnings:[] — they cannot see it (rules.client.test.ts:238).
@@ -77,7 +80,12 @@ describe('portal#1815: raced save advisory versus row-action feedback bump', () 
   // Held transport, real mounted controls: Delete first (write held), then
   // Create rule (allowed while busy), fill, Save (write answers warnings,
   // reload read held). Same family as the #1764 race harness, with the create
-  // answering a warning so the drop is visible.
+  // answering a warning so the drop is visible. Deliberately a sibling, not
+  // an extension of rules.client.test.ts's '#1764' describe: the differences
+  // (inline saved-answer carrying warnings, no rejectRead) are what make the
+  // #1815 interleavings reachable, and the shapes are certified together with
+  // the diagnosis packet this suite was checked against — a shared helper
+  // would re-open that provenance to keep two scenarios in one body.
   function startRace() {
     let finishDelete!: (value: unknown) => void, resolveRead!: (value: unknown) => void;
     let reads = 0;
@@ -119,6 +127,29 @@ describe('portal#1815: raced save advisory versus row-action feedback bump', () 
     // (#1815 Expected). Was RED on main a2174fe10: the pre-fix :101 guard
     // returned before the assignment. The split makes it survive while
     // 'Deleted.' keeps the notice.
+    expect(r.m.target.textContent).toContain('may not be readable');
+  });
+
+  // The failure twin of the discriminating pin (review finding: the designed
+  // semantics were unpinned). A row action's FAILURE also bumps only
+  // feedbackSequence (its catch), never warningGeneration: the save's notice
+  // is still suppressed — the newer row outcome owns the feedback area — while
+  // the advisory of the write that DID persist still lands beside the red
+  // failure. Red on main for the same reason as PIN 1 (the pre-fix guard
+  // returned before the assignment); green on the split.
+  it('FAILURE-IN-WINDOW (red on main): a delete FAILING in the window suppresses the save\'s notice but not its advisory', async () => {
+    const r = startRace();
+    await vi.waitFor(() => { flushSync(); expect(fetcher.mock.calls.length).toBe(3); });
+    r.resolveRead(reloaded);
+    await hops(2);
+    r.finishDelete({ ok: false, json: async () => ({ error: 'Delete refused' }) });
+    await settle();
+    const ops = fetcher.mock.calls.map(c => JSON.parse(c[1].body).op);
+    expect(ops).toEqual(expect.arrayContaining(['delete', 'create', 'read']));
+    // The row failure owns the notice; the save's success notice is suppressed…
+    expect(r.m.target.textContent).toContain('Delete refused');
+    expect(r.m.target.textContent).not.toContain('Saved.');
+    // …but the persisted write's advisory still describes it beside the failure.
     expect(r.m.target.textContent).toContain('may not be readable');
   });
 
@@ -193,15 +224,18 @@ describe('portal#1815: raced save advisory versus row-action feedback bump', () 
 
   // The second-save door closes one epoch earlier than the row-action door:
   // opening a second editor bumps editorVersion, and the older save's
-  // ownView checks (inside reload and again before the window) retire it
-  // BEFORE its assignment — by construction, not timing. A start-in-window
-  // kill pin for a second SAVE is therefore not reachable through mounted
-  // controls (an older save past those checks completes before another editor
-  // can open); the row-action pin above carries the warning-generation kill,
-  // because a row action's start bumps the generation without touching the
-  // editor epoch. This pin holds the reachable invariant: the older save's
-  // persisted write publishes neither notice nor advisory once a newer editor
-  // has taken over.
+  // ownView checks retire it BEFORE its assignment — inside reload, again
+  // before the window, and (binding the editor epoch into the completedView
+  // captured after the save closed its own editor) even for a save already
+  // suspended at the window's tick. By construction, not timing. A
+  // start-in-window kill pin for a second SAVE is therefore not reachable
+  // through mounted controls; the row-action pin above carries the
+  // warning-generation kill, because a row action's start bumps the
+  // generation without touching the editor epoch. This pin holds the
+  // reachable invariant with MID-FLIGHT assertions taken after the second
+  // editor opened but BEFORE the second save's start clears the feedback
+  // slate: the older save must have published nothing by then (a wash cannot
+  // fake that), and the second save then owns the settled outcome.
   it('SECOND SAVE: a save starting while an older warned save is in flight retires it — no notice, no advisory from the older save', async () => {
     let resolveRead!: (value: unknown) => void;
     let reads = 0;
@@ -220,8 +254,19 @@ describe('portal#1815: raced save advisory versus row-action feedback bump', () 
     button(m.target.querySelector('dialog')!, 'Save').click(); // first save: warned, its read held
     await vi.waitFor(() => { flushSync(); expect(fetcher.mock.calls.length).toBe(2); });
     resolveRead(reloaded); // the first save heads for its window…
-    await hops(2); // …and is still inside its read chain when the second editor opens
-    button(m.target, 'Create rule').click(); flushSync(); // editorVersion++ retires the first save
+    await hops(5); // …past its reload check, its captures and edit(undefined), suspended at the completedView tick when the second editor opens
+    button(m.target, 'Create rule').click(); flushSync(); // editorVersion++ — the tick-resumed save must fail its completedView here
+    // MID-FLIGHT (before the second save's start can clear the slate): the
+    // older save has already resumed past its completedView guard and retired.
+    // This is what makes the retirement BY CONSTRUCTION rather than a wash —
+    // if a regression dropped the editor epoch from that guard, the older save
+    // would publish 'Saved.' and its advisory right here, behind the open
+    // editor, where nothing has cleared the feedback area yet; these
+    // assertions catch it even though every post-settle assertion would still
+    // pass (verified: reverting the epoch binding makes exactly this pin red).
+    await settle();
+    expect(m.target.textContent).not.toContain('Saved.');
+    expect(m.target.textContent).not.toContain('may not be readable');
     const dialog = m.target.querySelector('dialog')!;
     const role = dialog.querySelector<HTMLInputElement>('input:not([type])')!;
     role.value = 'later-rule'; role.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
