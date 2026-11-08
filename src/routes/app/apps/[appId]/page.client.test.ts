@@ -12,6 +12,7 @@ import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatFilter } from '$lib/team-chat-filter';
 import type { TeamChatMessage, TeamChatRefusal } from '$lib/types';
 import { AGENT_CHAT_KEY } from '$lib/app-chats';
+import { runAppFlowSchema } from './runs/schema';
 import Page from './+page.svelte';
 import {
   createAppMemorySchema, addAgentSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
@@ -63,11 +64,28 @@ async function pageData() {
     teamChatMessages: [message(1, 'w1')], teamChatTotal: 1, teamChatError: false, teamFilter: { kind: 'none' }, teamFilterInvalid: false, teamChatRefusal: null,
     appChats: [{ key: 'chats:team', label: 'Team chat' }], chatsError: false,
     selectedChatKey: 'chats:team', initialTab: 'chats', initialChatFullView: false,
+    runsPanel: null as Awaited<ReturnType<typeof runsPanel>> | null,
     chatConfigs: [], appConfigs: [], worklog: [], worklogTotal: 0, worklogError: false,
     currentUserId: 'u1',
     appSettingsForm, addAgentForm, createKeyForm, removeAgentForm,
     updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm,
     retireWorkerForm, releaseWorkerForm, postTeamChatMessageForm,
+  };
+}
+
+async function runsPanel(runId: string) {
+  return {
+    app: { id: 'a1', name: 'Team', organizationId: null },
+    runs: [{
+      id: runId, appId: 'a1', organizationId: null, agentId: null, userId: null,
+      triggerKind: 'MANUAL', triggerId: null, entryNodeUrn: `hrn:node:acme.com:flows:${runId}`,
+      eventData: null, policy: null, budgetTokens: null, budgetActions: null, status: 'COMPLETED',
+      curNodeUrn: null, parentRunId: null, failure: null, timeoutMs: null, attempts: 1,
+      startedAt: null, finishedAt: null, createdAt: '2026-11-01T00:00:00Z', createdBy: null,
+    }],
+    total: 1, page: 1, statuses: [], sort: 'createdAt', dir: 'desc', failed: false, explicitState: true,
+    flows: [], flowsCapped: false, flowsScanned: 0, runAgents: null,
+    runForm: await superValidate(zod4(runAppFlowSchema), { errors: false }),
   };
 }
 
@@ -2308,6 +2326,70 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     expect([...m.target.querySelectorAll('[role="status"], [role="alert"]')].filter(el => el.textContent?.includes(outcome === 'success' ? 'Worker cast.' : 'Name already taken.'))).toHaveLength(1);
   });
 
+  it('#1795 keeps the Runs payload when the cast refresh used the pre-navigation URL', async () => {
+    const { m, props, form } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    const sent = idOf(form());
+    const delayed = await submitEnhancedDeferred(form());
+    let releaseRuns!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { releaseRuns = resolve; });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+
+    const order: string[] = [];
+    let releaseRefresh!: () => void;
+    navigationHooks.onInvalidateAll = () => {
+      order.push('refresh-requested');
+      return new Promise<void>((resolve) => { releaseRefresh = resolve; });
+    };
+    const finishing = delayed.finish(await success(sent));
+    await tick(4);
+
+    // The held Runs navigation supplies its panel. The action's invalidation
+    // response is deliberately held until afterwards, as in Cooper's repro.
+    order.push('runs-response');
+    props.data = { ...props.data, initialTab: 'runs', runsPanel: await runsPanel('held-run') };
+    await tick(3);
+    releaseRuns();
+    await tick(20);
+    expect(releaseRefresh).toBeTypeOf('function');
+
+    // invalidateAll uses Kit's internal URL. Before the fix that is still the
+    // staff URL, so this refresh has no Runs section; after awaiting the tab
+    // navigation it is tab=runs and returns a fresh section.
+    const refreshUsedRunsUrl = order.indexOf('refresh-requested') > order.indexOf('runs-response');
+    props.data = {
+      ...props.data,
+      initialTab: refreshUsedRunsUrl ? 'runs' : 'staff',
+      runsPanel: refreshUsedRunsUrl ? await runsPanel('refreshed-run') : null,
+    };
+    releaseRefresh();
+    await finishing;
+    await tick(6);
+
+    expect(m.target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('refreshed-run');
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('Loading runs…');
+    expect(order).toEqual(['runs-response', 'refresh-requested']);
+    expect(navigationCalls.filter((call) => call.fn === 'invalidateAll')).toHaveLength(1);
+  });
+
+  it.each([false, true])('control: Runs renders with no action (navigation held=%s)', async (held) => {
+    const { m, props } = await openCast();
+    let releaseRuns: (() => void) | undefined;
+    if (held) navigationHooks.onGoto = () => new Promise<void>((resolve) => { releaseRuns = resolve; });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    props.data = { ...props.data, initialTab: 'runs', runsPanel: await runsPanel(`control-${held}-run`) };
+    await tick(3);
+    releaseRuns?.();
+    await tick(20);
+
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain(`control-${held}-run`);
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('Loading runs…');
+    expect(navigationCalls.filter((call) => call.fn === 'invalidateAll')).toHaveLength(0);
+  });
+
   it.each([
     ['above', -80, -20, false, true],
     ['below', 800, 860, false, true],
@@ -3393,6 +3475,46 @@ describe('Link and Unlink answers belong to their App visit (#1776)', () => {
     f.message = { type: outcome === 'success' ? 'success' : 'error', text: `${owner} ${kind} ${outcome}` };
     return { type: outcome === 'success' ? 'success' : 'failure', status: outcome === 'success' ? 200 : 400, data: { form: f } };
   }
+
+  it('#1795 Link also refreshes only after a held Runs navigation settles', async () => {
+    const { m, props } = await mountAgents();
+    const pending = await begin(m.target, 'link');
+    let releaseRuns!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { releaseRuns = resolve; });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+
+    const order: string[] = [];
+    let releaseRefresh!: () => void;
+    navigationHooks.onInvalidateAll = () => {
+      order.push('refresh-requested');
+      return new Promise<void>((resolve) => { releaseRefresh = resolve; });
+    };
+    const finishing = pending.delayed.finish(await answer('link', 'success', pending.id, 'A') as never);
+    await tick(4);
+    order.push('runs-response');
+    props.data = { ...props.data, initialTab: 'runs', runsPanel: await runsPanel('held-link-run') };
+    await tick(3);
+    releaseRuns();
+    await tick(20);
+    expect(releaseRefresh).toBeTypeOf('function');
+
+    const refreshUsedRunsUrl = order.indexOf('refresh-requested') > order.indexOf('runs-response');
+    props.data = {
+      ...props.data,
+      initialTab: refreshUsedRunsUrl ? 'runs' : 'agents',
+      runsPanel: refreshUsedRunsUrl ? await runsPanel('refreshed-link-run') : null,
+    };
+    releaseRefresh();
+    await finishing;
+    await tick(6);
+
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('refreshed-link-run');
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('Loading runs…');
+    expect(order).toEqual(['runs-response', 'refresh-requested']);
+    expect(navigationCalls.filter((call) => call.fn === 'invalidateAll')).toHaveLength(1);
+  });
+
   async function move(props: { data: Awaited<ReturnType<typeof dataFor>> }, appId: string) {
     props.data = await dataFor(appId);
     await tick(3);
