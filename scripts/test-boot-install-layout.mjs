@@ -31,6 +31,13 @@ try {
     if (variant === 'source') await page.getByRole('button', { name: 'Start an empty source for this worker', exact: true }).click();
     else if (variant === 'failed') await page.getByRole('alert').filter({ hasText: 'Couldn’t load what this revision was built from' }).waitFor();
     else await page.getByText('Not available to you', { exact: true }).waitFor();
+    if (width === 1280 && (variant === 'app' || variant === 'worker')) {
+      for (const label of ['Depth', 'Revision']) {
+        const header = page.getByRole('columnheader').filter({ hasText: label });
+        const metrics = await header.locator('.truncate').evaluate(el => ({ visible: el.clientWidth, required: el.scrollWidth }));
+        assert.ok(metrics.visible >= metrics.required, `${variant}/${theme}/${width}: ${label} header truncated (${metrics.visible}/${metrics.required})`);
+      }
+    }
     if (variant === 'app') {
       await page.getByRole('button', { name: 'Update the prompt', exact: true }).click();
       await page.getByRole('region', { name: 'Confirm App prompt update' }).waitFor();
