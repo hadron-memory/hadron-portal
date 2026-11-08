@@ -277,6 +277,12 @@ describe('task page', () => {
     expect(html).not.toContain('No subtasks');
   });
 
+  it('hedges the capped tree notice, and shows no notice without the cap (#1770)', () => {
+    const capped = taskPage({ tree: { kind: 'ok', value: { rows: [detail()], capped: true } } });
+    expect(capped).toContain('Showing the first 1000 tasks in this tree; deeper or later subtasks may not be shown.');
+    expect(taskPage()).not.toContain('Showing the first 1000 tasks in this tree');
+  });
+
   it('an open alarm reads as an Alarm with the CLI acknowledge line, and no button', () => {
     const html = taskPage({
       history: { kind: 'ok', value: { capped: false, events: [
