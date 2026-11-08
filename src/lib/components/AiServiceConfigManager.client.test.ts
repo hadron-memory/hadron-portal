@@ -201,6 +201,8 @@ describe('a saved glm config', () => {
     await settle();
     button(root, 'Save').click();
     await settle();
+    await tick(60); // the committed update now retains pending until invalidateAll resolves
+    flushSync();
     expect('endpoint' in posts.find((p) => p.action === 'update')!).toBe(false);
 
     editRow(root);
