@@ -249,7 +249,7 @@ describe('loadChatMessages', () => {
   function windowingClient(
     nodes: MemoryNode[],
     total: number | null = null,
-    opts: { clamp?: boolean; failFrom?: number } = {},
+    opts: { clamp?: boolean; failFrom?: number; omitTotal?: boolean } = {},
   ) {
     const calls: { offset: number; limit: number }[] = [];
     const client = {
@@ -265,7 +265,12 @@ describe('loadChatMessages', () => {
             nodes.slice(Math.max(0, nodes.length - readCount))
           : nodes.slice(offset, offset + readCount);
         return {
-          findNodes: { total, hits: hits.map((node) => ({ node })) },
+          // omitTotal: a resolver that drops the count field entirely —
+          // `total` is ABSENT (undefined), which is not `null`.
+          findNodes: {
+            ...(opts.omitTotal ? {} : { total }),
+            hits: hits.map((node) => ({ node })),
+          },
         };
       }),
     } as any;
@@ -351,31 +356,84 @@ describe('loadChatMessages', () => {
     }
   });
 
-  it('#1581: a clamping server (a full page for ANY offset) cannot hang the load', async () => {
-    // Offset clamping is a common paging-API behavior: an out-of-range offset
-    // is answered with the last page, full — so every gallop probe "succeeds"
-    // and an unbudgeted gallop would grow probeOffset forever. The probe
-    // budget must cut it off and degrade to the best proven end.
-    const { client, calls } = windowingClient(platformThread(600), null, { clamp: true });
+  it('#1581: a thread of exactly one fetch page locates its end with one probe', async () => {
+    // 150 nodes = exactly fetchCount: the first read comes back FULL, so the
+    // short-read shortcut cannot apply — one empty probe at 150 brackets the
+    // end exactly, and the window is the reused first read.
+    const { client, calls } = windowingClient(platformThread(150), null);
     const page = await loadChatMessages(client, 'mem-1', 'chats:team');
 
-    // 1 first read + ≤ 64 budgeted probes + at most 1 window fetch.
-    expect(calls.length).toBeLessThanOrEqual(66);
-    expect(Number.isFinite(page.total)).toBe(true);
-    expect(page.messages).toHaveLength(CHAT_PAGE_SIZE);
+    expect(page.total).toBe(150);
+    expect(page.messages[0].seq).toBe(51);
+    expect(page.messages[CHAT_PAGE_SIZE - 1].seq).toBe(150);
+    expect(page.hasOlder).toBe(true);
+    expect(calls).toHaveLength(2);
   });
 
-  it('#1581: probes past a server offset cap read as empty, not as an error', async () => {
-    // A server that rejects very large offsets must not turn the gallop into a
-    // failed transcript: a failed probe reads as empty, the gap narrows past
-    // the cap, and the newest READABLE page is served.
-    const { client, calls } = windowingClient(platformThread(6000), null, { failFrom: 3000 });
+  it('#1581: an ABSENT total field (undefined, not null) locates like a null one', async () => {
+    // A resolver may drop `total` from the response entirely; undefined is
+    // not null, and a `!== null` test once turned it into NaN offsets. The
+    // numeric path is for real numbers only.
+    const { client, calls } = windowingClient(platformThread(271), null, { omitTotal: true });
     const page = await loadChatMessages(client, 'mem-1', 'chats:team');
 
-    expect(page.messages[0].seq).toBe(2901);
-    expect(page.messages[CHAT_PAGE_SIZE - 1].seq).toBe(3000);
-    expect(page.total).toBe(3000);
-    expect(calls.length).toBeLessThanOrEqual(25);
+    expect(page.messages[0].seq).toBe(172);
+    expect(page.messages[CHAT_PAGE_SIZE - 1].seq).toBe(271);
+    expect(page.total).toBe(271);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('#1581: a failed locating probe rejects the load — never a silent false tail', async () => {
+    // The degradation this PR must not ship: one transient failure on the
+    // probe at 150 of a 271-node thread, read as "empty", understates the
+    // thread as 150 nodes and serves the OLDEST page with no scroll-up —
+    // the original defect, silently. A locating failure rejects instead,
+    // exactly as a failed tail-correction request always did (the issue's
+    // failed-read hold).
+    const { client, calls } = windowingClient(platformThread(271), null, { failFrom: 150 });
+    await expect(loadChatMessages(client, 'mem-1', 'chats:team')).rejects.toThrow(/offset cap/);
+
+    expect(calls).toHaveLength(2); // the first read, then the failed probe
+  });
+
+  it('#1581: a clamping server (a full page for ANY offset) is detected and rejected', async () => {
+    // Offset clamping answers an out-of-range offset with a fixed full page.
+    // The probe's window is disjoint from the first read's by construction,
+    // so an id both return names the lie on the FIRST probe — no fabricated
+    // trillion-node total, no gallop to the offset cap, no hang.
+    const { client, calls } = windowingClient(platformThread(600), null, { clamp: true });
+    await expect(loadChatMessages(client, 'mem-1', 'chats:team')).rejects.toThrow(/overlapping page/);
+
+    expect(calls).toHaveLength(2); // the first read, then the detected probe
+  });
+
+  it('#1581: a server that never runs short is cut off at the offset cap and rejected', async () => {
+    // Fresh full pages forever (a server fabricating nodes, so the overlap
+    // detector cannot name it): the gallop stops at 2^40 — no thread holds a
+    // trillion nodes, and past float64's exact range the window math itself
+    // degenerates — and rejects rather than serving a fabricated end.
+    const calls: { offset: number; limit: number }[] = [];
+    const growing = {
+      request: vi.fn(async (_query: unknown, vars: { offset?: number; limit?: number }) => {
+        const offset = vars.offset ?? 0;
+        const readCount = vars.limit ?? 0;
+        calls.push({ offset, limit: readCount });
+        // A full page of plausible, never-before-seen nodes for ANY offset.
+        const hits = Array.from({ length: readCount }, (_, i) => ({
+          node: msg(`chats:team:messages:${offset + i}-cap`, { seq: offset + i + 1 }),
+        }));
+        return { findNodes: { total: null, hits } };
+      }),
+    } as any;
+
+    await expect(loadChatMessages(growing, 'mem-1', 'chats:team')).rejects.toThrow(
+      /never ran short/,
+    );
+    // ~34 doublings from 150 to past 2^40, every request page-bounded.
+    expect(calls.length).toBeLessThanOrEqual(40);
+    for (const c of calls) {
+      expect(c.limit).toBeLessThanOrEqual(Math.ceil(CHAT_PAGE_SIZE * 1.5));
+    }
   });
 
   it('#1581: a numeric total keeps today\'s two-request tail correction, same window', async () => {

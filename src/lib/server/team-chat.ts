@@ -350,7 +350,9 @@ export async function loadChatMessages(
   const messageFilter = opts.messageNodeTypes ? { nodeTypes: opts.messageNodeTypes } : {};
   const firstOffset = opts.before === undefined ? 0 : Math.max(0, opts.before - fetchCount);
   const first = await client.request<{
-    findNodes: { total: number | null; hits: Array<{ node: MemoryNode }> };
+    // `total` is absent (undefined), not null, when a resolver omits the
+    // count field entirely — GraphQL drops unselected/unknown fields.
+    findNodes: { total?: number | null; hits: Array<{ node: MemoryNode }> };
   }>(NODES_BY_LOC_PREFIX_QUERY, {
     memoryId,
     locPrefix: prefix,
@@ -373,82 +375,68 @@ export async function loadChatMessages(
   // Every request stays bounded by the fetch count — no drain — and the probe
   // count is logarithmic in the thread's length.
   //
-  // Two guarantees the probes keep under a misbehaving server. A probe that
-  // ERRORS reads as empty, not as a thrown failure — the first read already
-  // holds a renderable page, and a transient blip on a locating probe must not
-  // error the whole transcript; the located end is then stale by whatever the
-  // failures hid, the same staleness a numeric total already carries against a
-  // post that lands between the count and the fetch. And the gallop is BUDGETED
-  // (MAX_LOCATE_PROBES): a build that answers an out-of-range offset with a
-  // full page — offset clamping — would otherwise stay "full" forever; past
-  // the budget the best PROVEN end is used and the answer degrades instead of
-  // hanging the page load.
+  // Under a misbehaving server the probes REJECT rather than trust or degrade:
+  // a failed locating read fails the whole load, exactly as a failed tail
+  // correction always has — a transcript whose tail cannot be located is an
+  // error state, never a silently shorter thread. A server that answers a
+  // disjoint offset with an overlapping page (offset clamping) is detected on
+  // the first probe; one that answers full pages forever is cut off at 2^40
+  // offsets — no thread holds a trillion nodes, and the cap keeps `end` inside
+  // float64's exact range, where `end - fetchCount` still means what it says.
   const segments: Array<{ start: number; hits: Array<{ node: MemoryNode }> }> = [
     { start: firstOffset, hits: first.findNodes.hits },
   ];
-  const rawWindow = (offset: number, readCount: number) =>
-    client
-      .request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(NODES_BY_LOC_PREFIX_QUERY, {
-        memoryId,
-        locPrefix: prefix,
-        limit: readCount,
-        offset,
-        sort,
-        ...messageFilter,
-      })
-      .then((r) => r.findNodes.hits);
-
-  // A locating probe: recorded for window assembly, never thrown.
-  const probeWindow = async (
-    offset: number,
-    readCount: number,
-  ): Promise<Array<{ node: MemoryNode }> | null> => {
-    try {
-      const hits = await rawWindow(offset, readCount);
-      segments.push({ start: offset, hits });
-      return hits;
-    } catch {
-      return null;
-    }
+  const firstReadIds = new Set(first.findNodes.hits.map((h) => h.node.id));
+  const rawWindow = async (offset: number, readCount: number) => {
+    const hits = (
+      await client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
+        NODES_BY_LOC_PREFIX_QUERY,
+        { memoryId, locPrefix: prefix, limit: readCount, offset, sort, ...messageFilter },
+      )
+    ).findNodes.hits;
+    segments.push({ start: offset, hits });
+    return hits;
   };
 
-  // 64 probes locates the end of any thread that can exist (≈ 2·log2(10M) +
-  // log2(150) ≈ 54); a server still answering full pages past it is clamping
-  // or lying, and the best proven end — `lo + 1` — is used.
-  const MAX_LOCATE_PROBES = 64;
-  // And no thread can hold a trillion nodes, so the gallop stops doubling past
-  // 2^40 and uses the best proven end. The cap also keeps `end` inside
-  // float64's exact-integer range (2^53), where `end - fetchCount` still means
-  // what it says — without it, a doubling gallop reaches offsets at which
-  // subtracting 150 changes nothing and the window math degenerates.
   const MAX_LOCATE_OFFSET = 2 ** 40;
 
   const locateThreadEnd = async (): Promise<number> => {
     // `lo` is the highest node index proven to exist. The first read came back
-    // full, so 0..fetchCount-1 do.
-    let lo = fetchCount - 1;
-    let probeOffset = fetchCount;
-    let probes = 0;
+    // full, so firstOffset..firstOffset+fetchCount-1 do (firstOffset is 0
+    // here — the gallop only runs on an unpaged read — but say so, don't
+    // assume it).
+    let lo = firstOffset + fetchCount - 1;
+    let probeOffset = firstOffset + fetchCount;
     for (;;) {
-      if (probeOffset > MAX_LOCATE_OFFSET) return lo + 1;
-      const probe = probes++ >= MAX_LOCATE_PROBES ? null : await probeWindow(probeOffset, fetchCount);
-      if (probe !== null && probe.length === fetchCount) {
+      if (probeOffset > MAX_LOCATE_OFFSET) {
+        throw new Error(
+          `findNodes never ran short of a full page below offset ${MAX_LOCATE_OFFSET} under ${prefix}`,
+        );
+      }
+      const probe = await rawWindow(probeOffset, fetchCount);
+      if (probe.length === fetchCount) {
+        // The probe's window [probeOffset, +fetchCount) is disjoint from the
+        // first read's by construction; an id both return is a server
+        // clamping out-of-range offsets to some fixed page.
+        if (firstReadIds.has(probe[0].node.id)) {
+          throw new Error(
+            `findNodes returned an overlapping page for the disjoint offset ${probeOffset} under ${prefix}`,
+          );
+        }
         lo = probeOffset + fetchCount - 1;
         probeOffset *= 2;
         continue;
       }
-      if (probe !== null && probe.length > 0) {
+      if (probe.length > 0) {
         return probeOffset + probe.length; // the end is inside this page: exact
       }
-      // Empty or failed: the end lies in (lo, probeOffset]. A message may land
-      // while the probes run; the search still terminates at the then-current
-      // end — the same staleness a numeric total already has.
+      // Empty: the end lies in (lo, probeOffset]. A message may land while the
+      // probes run; the search still terminates at the then-current end — the
+      // same staleness a numeric total already has.
       let hi = probeOffset;
       while (hi - lo > 1) {
-        if (probes++ >= MAX_LOCATE_PROBES) return lo + 1;
         const mid = Math.floor((lo + hi) / 2);
-        const one = await probeWindow(mid, 1);
-        if (one !== null && one.length > 0) lo = mid;
+        if ((await rawWindow(mid, 1)).length > 0) lo = mid;
         else hi = mid;
       }
       return lo + 1;
@@ -457,7 +445,7 @@ export async function loadChatMessages(
 
   const reportedTotal = first.findNodes.total;
   let total: number;
-  if (reportedTotal !== null) {
+  if (typeof reportedTotal === 'number') {
     total = reportedTotal;
   } else if (opts.before !== undefined || first.findNodes.hits.length < fetchCount) {
     // A short first read IS the whole thread: a null total cannot say so, but a
@@ -496,9 +484,9 @@ export async function loadChatMessages(
   // [offset, end) from the recorded reads when they cover it with no gap, and
   // only fall back to a fresh request across one. A thread between one and two
   // pages — the common grown chat, and the issue's own fixture — then opens in
-  // two requests, not three. (A failed final fetch still throws, exactly as the
-  // tail-correction request always did: a transcript that cannot be read is an
-  // error, while a probe that cannot is a stale answer.)
+  // two requests, not three. (A failed fetch — probe or window — still throws,
+  // exactly as the tail-correction request always did: a transcript that cannot
+  // be read is an error, never a silently shorter one.)
   const assembledWindow = (from: number, to: number): Array<{ node: MemoryNode }> | null => {
     if (to <= from) return null; // not a window; let the caller fetch
     const out: Array<{ node: MemoryNode }> = [];
