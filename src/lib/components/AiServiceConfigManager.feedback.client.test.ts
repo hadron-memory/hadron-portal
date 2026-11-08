@@ -486,6 +486,26 @@ describe('AI configuration feedback lifecycle review controls', () => {
     expect(requestSignal?.aborted).toBe(true);
   });
 
+  it('aborts a saved-config Test when the owner changes', async () => {
+    let requestSignal: AbortSignal | undefined;
+    stubFetch(async (body, signal) => {
+      if (body.action === 'testSaved') {
+        requestSignal = signal;
+        await new Promise<void>(() => {});
+      }
+      return {};
+    });
+    const m = await open({ configs: [config()] });
+    editRow(m.target);
+    await settle();
+    button(m.target, 'Test').click();
+    await tick(2);
+
+    m.props.ownerId = 'o2';
+    await settle();
+    expect(requestSignal?.aborted).toBe(true);
+  });
+
   it('keeps an uncertain mutation outcome visible after Cancel supersedes the editor', async () => {
     let rejectCreate!: (error: Error) => void;
     stubFetch(async (body) => {
@@ -1637,6 +1657,28 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(button(m.target, 'Save').disabled).toBe(true);
   });
 
+  it('isolates standalone uncertainty and replay locks by principal', async () => {
+    stubFetch(async (body) => {
+      if (body.action === 'create') throw new Error('dropped response');
+      return {};
+    });
+    const first = await open({ currentUserId: 'u1' }, AiServiceConfigManager);
+    await startCreate(first.target, 'first');
+    button(first.target, 'Save').click();
+    await settle();
+    const firstFeedback = $<HTMLElement>(first.target, '[data-testid="ai-config-manager-feedback"]')!;
+    expect(firstFeedback.textContent).toContain('couldn’t confirm the change went through');
+    mounted.splice(mounted.indexOf(first), 1);
+    first.unmount();
+
+    const second = await open({ currentUserId: 'u2' }, AiServiceConfigManager);
+    const secondFeedback = $<HTMLElement>(second.target, '[data-testid="ai-config-manager-feedback"]')!;
+    expect(secondFeedback.textContent).not.toContain('couldn’t confirm the change went through');
+    button(second.target, 'Add configuration').click();
+    await settle();
+    expect(button(second.target, 'Save').disabled).toBe(false);
+  });
+
   it('retains standalone pending recovery across Manager destroy and remount', async () => {
     let releaseCreate!: () => void;
     const createHeld = new Promise<void>((resolve) => { releaseCreate = resolve; });
@@ -1714,6 +1756,10 @@ describe('AI configuration code-review lifecycle pins', () => {
     await settle();
     expect(button(m.target, 'Save').disabled).toBe(true);
     expect(m.target.textContent).toContain('Checking configurations before you can make another change…');
+    const pending = $<HTMLElement>(m.target, '[data-testid="ai-config-recovery-pending"]')!;
+    const status = $<HTMLElement>(m.target, '[data-testid="ai-config-manager-feedback"]')!;
+    expect(status.getAttribute('role')).toBe('status');
+    expect(status.contains(pending)).toBe(true);
     releaseReadback({ body: { configs: [] } });
     await settle();
     expect(m.target.textContent).not.toContain('Checking configurations before you can make another change…');

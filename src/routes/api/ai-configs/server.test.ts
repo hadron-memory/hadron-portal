@@ -435,6 +435,18 @@ describe('GET /api/ai-configs section readback', () => {
     expect(await jsonOf(res)).toEqual({ withheld: true });
   });
 
+  it('keeps a coded non-authorization resolution failure failed:true', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'synthetic failure', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] },
+    });
+    const { GET } = await import('./+server');
+    const res = await GET(ev({ url: 'http://localhost/api/ai-configs?appRef=app1&agentRef=agent1' }));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await jsonOf(res)).toEqual({ failed: true });
+  });
+
   it('contains a failed resolution read as failed:true', async () => {
     mockRequest.mockRejectedValueOnce(new Error('synthetic resolution failure'));
     const { GET } = await import('./+server');
