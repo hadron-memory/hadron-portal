@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { parseAiConfigList, readResolvedAiConfigs } from './ai-config-readback';
+import { parseAiConfigList, readResolvedAiConfigs, withAiConfigTimeout } from './ai-config-readback';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -50,5 +50,23 @@ describe('AI configuration readback parser', () => {
     expect(settled).toBe(true);
     expect(requestSignal?.aborted).toBe(true);
     await vi.advanceTimersByTimeAsync(10_000);
+  });
+
+  it('settles immediately when the externally supplied controller aborts', async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    let settled = false;
+    const pending = withAiConfigTimeout(
+      () => new Promise<boolean>(() => {}),
+      () => false,
+      controller,
+    );
+    void pending.then(() => { settled = true; });
+
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(true);
+    await expect(pending).resolves.toBe(false);
+    expect(controller.signal.aborted).toBe(true);
   });
 });

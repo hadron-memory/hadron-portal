@@ -1008,7 +1008,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(posts.filter((p) => p.action === 'create')).toHaveLength(1);
   });
 
-  it('clears the timeout warning when a related refresh later succeeds', async () => {
+  it('keeps the timeout warning and replay lock when a related refresh later succeeds', async () => {
     vi.useFakeTimers();
     let releaseRelated!: (fresh: boolean) => void;
     const related = new Promise<boolean>((resolve) => { releaseRelated = resolve; });
@@ -1023,7 +1023,10 @@ describe('AI configuration code-review lifecycle pins', () => {
 
     releaseRelated(true);
     await settle();
-    expect(feedback(target).textContent).not.toContain('couldn’t be refreshed');
+    expect(feedback(target).textContent).toContain('couldn’t be refreshed');
+    button(target, 'Add configuration').click();
+    await settle();
+    expect(button(target, 'Save').disabled).toBe(true);
   });
 
   it('uses the action-start owner identity for payload, pending registration and outcome', async () => {
@@ -1378,5 +1381,86 @@ describe('AI configuration code-review lifecycle pins', () => {
     releaseReadback({ body: { configs: [] } });
     await settle();
     expect(button(m.target, 'Save').disabled).toBe(false);
+  });
+
+  it('does not let an old user settlement clear a same-numbered new-user pending lock', async () => {
+    const creates: Array<(reply: Reply) => void> = [];
+    stubFetch((body) => {
+      if (body.action === 'create') return new Promise<Reply>((resolve) => { creates.push(resolve); });
+      return {};
+    });
+    const m = await open();
+    await startCreate(m.target, 'first');
+    button(m.target, 'Save').click();
+    await tick(2);
+
+    m.props.currentUserId = 'u2';
+    m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
+    m.props.configsError = true;
+    await settle();
+    m.props.configsError = false;
+    await settle();
+    await startCreate(m.target, 'second');
+    button(m.target, 'Save').click();
+    await tick(2);
+    expect(creates).toHaveLength(2);
+
+    // Both Manager instances used mutation ID 1. The old user's refusal must
+    // not unregister the new user's request from the shared recovery store.
+    creates[0]({ ok: false, body: { error: 'old user refusal' } });
+    await settle();
+    m.props.configsError = true;
+    await settle();
+    m.props.configsError = false;
+    await settle();
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(true);
+
+    creates[1]({});
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(false);
+  });
+
+  it('retains a committed readback warning and replay lock across an owner round-trip', async () => {
+    stubFetch(() => ({}), () => { throw new Error('readback failed'); });
+    const m = await open();
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await settle();
+    expect(feedback(m.target).textContent).toContain('couldn’t be refreshed');
+
+    m.props.ownerId = 'o2';
+    await settle();
+    expect(feedback(m.target).textContent).not.toContain('couldn’t be refreshed');
+    m.props.ownerId = 'o1';
+    await settle();
+    expect(feedback(m.target).textContent).toContain('couldn’t be refreshed');
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(true);
+  });
+
+  it('isolates a committed readback warning by user as well as owner', async () => {
+    stubFetch(() => ({}), () => { throw new Error('readback failed'); });
+    const m = await open();
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await settle();
+    expect(feedback(m.target).textContent).toContain('couldn’t be refreshed');
+
+    m.props.currentUserId = 'u2';
+    m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
+    await settle();
+    expect(feedback(m.target).textContent).not.toContain('couldn’t be refreshed');
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(false);
+
+    m.props.currentUserId = 'u1';
+    m.props.members = [{ user: { id: 'u1' }, role: 'ADMIN' }];
+    await settle();
+    expect(feedback(m.target).textContent).toContain('couldn’t be refreshed');
+    expect(button(m.target, 'Save').disabled).toBe(true);
   });
 });
