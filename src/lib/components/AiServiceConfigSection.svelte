@@ -46,8 +46,8 @@
 
   // Outcomes live HERE, outside the manager's form/row and every manager
   // conditional. A newer action supersedes only ordinary success; uncertainty
-  // remains until owner change/reload, and a stale-readback warning until a
-  // later successful section readback resolves it.
+  // and stale-readback warnings stay in their user/owner recovery scope until
+  // the reader's explicit full-page check or a successful section readback.
   let notice = $state<{ text: string } | null>(null);
   let uncertainty = $state<string | null>(null);
   let refreshWarning = $state<string | null>(null);
@@ -120,13 +120,12 @@
     return `${ownerType}:${ownerId}`;
   }
 
-  function refreshRelated(controller: AbortController): { settled: Promise<boolean>; completed: Promise<boolean> } {
+  function refreshRelated(controller: AbortController): Promise<boolean> {
     const completed = Promise.resolve()
       .then(() => onRefreshed(controller.signal))
       .then(Boolean)
       .catch(() => false);
-    const settled = withAiConfigTimeout(() => completed, () => false, controller);
-    return { settled, completed };
+    return withAiConfigTimeout(() => completed, () => false, controller);
   }
 
   function finishActive(outcome: AiConfigCommitted, readback: number) {
@@ -183,7 +182,7 @@
       reread = { against, ownerKey: outcome.ownerKey, configs: fresh };
     }
 
-    const relatedFresh = await related.settled;
+    const relatedFresh = await related;
     if (mine !== readbacks) {
       finishActive(outcome, mine);
       return;
@@ -196,22 +195,10 @@
     const failed = fresh === null || !relatedFresh || configsError;
     if (!outcome.uncertainText) {
       // A later successful section read resolves only stale-readback guidance.
-      // Uncertainty is different: any generic list may precede the write, so it
-      // remains until the reader explicitly reloads and checks the result.
-      refreshWarning = failed ? outcome.refreshFailedText : null;
-    }
-    if (!relatedFresh) {
-      // The timeout is guidance, not proof that the related read stayed failed.
-      // If its real callback later applies fresh data, retire our stale warning
-      // — but only while this same owner/readback still owns the outcome.
-      void related.completed.then((lateFresh) => {
-        if (
-          lateFresh && !destroyed && outcomeStore === recoveryStore &&
-          outcome.ownerKey === currentOwnerKey() && mine === readbacks && fresh !== null && !configsError
-        ) {
-          refreshWarning = null;
-        }
-      });
+      // Keep that warning in the same user/owner scope as pending recovery so
+      // owner round-trips and Section remounts cannot unlock stale rows.
+      // Uncertainty remains independent and needs an explicit full-page check.
+      outcomeStore.setRefreshWarning(outcome.ownerKey, failed ? outcome.refreshFailedText : null);
     }
     finishActive(outcome, mine);
   }
@@ -238,6 +225,7 @@
       pendingMutations = recoveryStore.pending();
       const ownerKey = currentOwnerKey();
       uncertainty = recoveryStore.uncertainty(ownerKey);
+      refreshWarning = recoveryStore.refreshWarning(ownerKey);
       const deferred = recoveryStore.takeDeferred(ownerKey);
       if (deferred) {
         // Every deferred write, confirmed or uncertain, keeps replay locked
@@ -266,6 +254,12 @@
     if (nextStore !== recoveryStore) {
       for (const active of activeCommitted.values()) recoveryStore.defer(active.outcome);
       activeCommitted.clear();
+      relatedController?.abort();
+      noticeGeneration++;
+      readbacks++;
+      reread = null;
+      clearTransient();
+      refreshWarning = null;
       recoveryStore = nextStore;
     }
     stopRecovery?.();

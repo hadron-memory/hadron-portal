@@ -28,14 +28,21 @@ export function withAiConfigTimeout<T>(
   const bounded = new Promise<T>((resolve, reject) => {
     onAbort = () => abort(resolve, reject);
     timer = setTimeout(onAbort, AI_CONFIG_TIMEOUT_MS);
-    if (parentSignal?.aborted) onAbort();
-    else parentSignal?.addEventListener('abort', onAbort, { once: true });
+    if (controller.signal.aborted) onAbort();
+    else controller.signal.addEventListener('abort', onAbort, { once: true });
+    if (parentSignal && parentSignal !== controller.signal) {
+      if (parentSignal.aborted) onAbort();
+      else parentSignal.addEventListener('abort', onAbort, { once: true });
+    }
   });
   const pending = Promise.resolve().then(() => operation(controller.signal));
   return Promise.race([pending, bounded]).finally(() => {
     settled = true;
     if (timer !== null) clearTimeout(timer);
-    if (onAbort) parentSignal?.removeEventListener('abort', onAbort);
+    if (onAbort) {
+      controller.signal.removeEventListener('abort', onAbort);
+      if (parentSignal !== controller.signal) parentSignal?.removeEventListener('abort', onAbort);
+    }
   });
 }
 

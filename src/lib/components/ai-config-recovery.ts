@@ -14,6 +14,7 @@ class AiConfigRecoveryStore {
   private pendingByOwner = new Map<string, Map<number, Pending>>();
   private deferredByOwner = new Map<string, Deferred>();
   private uncertaintyByOwner = new Map<string, string>();
+  private refreshWarningByOwner = new Map<string, string>();
   private outcomeOrders = new WeakMap<AiConfigCommitted, number>();
   private listeners = new Set<Listener>();
   private nextOrder = 0;
@@ -60,6 +61,17 @@ class AiConfigRecoveryStore {
     return this.uncertaintyByOwner.get(ownerKey) ?? null;
   }
 
+  setRefreshWarning(ownerKey: string, text: string | null) {
+    if ((this.refreshWarningByOwner.get(ownerKey) ?? null) === text) return;
+    if (text === null) this.refreshWarningByOwner.delete(ownerKey);
+    else this.refreshWarningByOwner.set(ownerKey, text);
+    this.emit();
+  }
+
+  refreshWarning(ownerKey: string): string | null {
+    return this.refreshWarningByOwner.get(ownerKey) ?? null;
+  }
+
   defer(outcome: AiConfigCommitted) {
     const order = this.orderFor(outcome);
     const existing = this.deferredByOwner.get(outcome.ownerKey);
@@ -92,6 +104,7 @@ class AiConfigRecoveryStore {
 }
 
 const stores = new Map<string, AiConfigRecoveryStore>();
+let mutationSequence = 0;
 let recoverySequence = 0;
 
 export function getAiConfigRecoveryStore(userScope: string): AiConfigRecoveryStore {
@@ -103,12 +116,18 @@ export function getAiConfigRecoveryStore(userScope: string): AiConfigRecoverySto
   return store;
 }
 
-/** Negative IDs cannot collide with a Manager's positive per-instance IDs. */
+/** Positive IDs are unique across every Manager in this client document. */
+export function nextAiConfigMutationId(): number {
+  return ++mutationSequence;
+}
+
+/** Negative IDs cannot collide with a Manager's positive document-unique IDs. */
 export function nextAiConfigRecoveryId(): number {
   return --recoverySequence;
 }
 
 export function resetAiConfigRecoveryForTests() {
   stores.clear();
+  mutationSequence = 0;
   recoverySequence = 0;
 }

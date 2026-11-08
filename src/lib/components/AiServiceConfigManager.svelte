@@ -13,6 +13,7 @@
   import DataTable from './table/DataTable.svelte';
   import NodeActionsMenu from './NodeActionsMenu.svelte';
   import { withAiConfigTimeout } from './ai-config-readback';
+  import { nextAiConfigMutationId } from './ai-config-recovery';
   import {
     isValidConfigName,
     resolveKeyInput,
@@ -177,7 +178,6 @@
     ownerGeneration: number;
   };
   type PendingMutation = { id: number; ownerKey: string };
-  let mutationSequence = 0;
   let pendingMutations = $state<PendingMutation[]>([]);
   const localMutationPending = $derived(
     pendingMutations.some((mutation) => mutation.ownerKey === ownerKey),
@@ -214,7 +214,9 @@
   }
 
   function trackMutation(action: ActionToken): number {
-    const id = ++mutationSequence;
+    // Document-unique IDs keep same-owner registrations distinct across Manager
+    // teardown/remount and user switches; settlement releases only its own.
+    const id = nextAiConfigMutationId();
     pendingMutations = [...pendingMutations, { id, ownerKey: action.ownerKey }];
     onMutationPending({ ownerKey: action.ownerKey, mutationId: id, pending: true });
     return id;
