@@ -5,13 +5,12 @@ const request = vi.fn().mockResolvedValue({});
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
 
 describe('/app/apps/[appId]/members (#1005)', () => {
-  it('forwards to the App page’s Human Team tab', () => {
-    try {
-      load({ params: { appId: 'app-1' } } as never);
-      throw new Error('expected a redirect');
-    } catch (e) {
-      expect(e).toMatchObject({ status: 307, location: '/app/apps/app-1?tab=members' });
-    }
+  it('forwards to the App page’s Human Team tab', async () => {
+    // #1732: the load awaits the parent layout first, so the redirect is a rejection.
+    await expect(load({ params: { appId: 'app-1' }, parent: async () => ({}) } as never)).rejects.toMatchObject({
+      status: 307,
+      location: '/app/apps/app-1?tab=members',
+    });
   });
 });
 

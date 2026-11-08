@@ -32,20 +32,22 @@ export interface RegisterPage {
 
 const posInt = (raw: string | null): number | null => (raw !== null && /^[0-9]+$/.test(raw) ? Number(raw) : null);
 
-/** A positive whole number, else the default. Above 200 is sent unchanged: the server clamps (the gate). */
+/**
+ * A positive whole number, else the default. A limit above 200 is sent unchanged up to the
+ * GraphQL Int maximum (the server clamps it to 200, the gate); above that it is held at the maximum.
+ */
 export function parseLimit(raw: string | null): number {
   const n = posInt(raw);
   return n !== null && n > 0 ? Math.min(n, INT32_MAX) : DEFAULT_LIMIT;
 }
 
-/** A whole number from 0, else 0. Past the end is an empty page, not an error. */
+/** A whole number from 0, else 0, held at the GraphQL Int maximum. Past the end is an empty page, not an error. */
 export function parseOffset(raw: string | null): number {
-  return posInt(raw) ?? 0;
+  const n = posInt(raw);
+  return n === null ? 0 : Math.min(n, INT32_MAX);
 }
 
 export interface PageClaims {
-  /** True only for the first page when the server says nothing follows. */
-  wholeList: boolean;
   nextOffset: number | null;
   prevOffset: number | null;
 }
@@ -55,7 +57,6 @@ export function pageClaims(p: { offset: number; limit: number; total: number; ha
   // is that long: stepping by the asked limit (say 500) would skip rows 200-499.
   const step = Math.min(p.limit, MAX_LIMIT);
   return {
-    wholeList: p.offset === 0 && !p.hasMore,
     nextOffset: p.hasMore ? p.offset + step : null,
     prevOffset: p.offset > 0 ? Math.max(0, p.offset - step) : null,
   };

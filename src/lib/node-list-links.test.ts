@@ -13,7 +13,14 @@ describe('#1058 link-resolution seam (not malformed-hit rendering)', () => {
     const defensive = { ...node, comment: { ...node.comment!, target: undefined } as never };
     expect(nodeListHref(defensive, '/app/memories/explicit')).toBe('/app/memories/explicit/nodes/comment-row');
     expect(nodeListHref(defensive)).toBe('/app/memories/memory-pins/nodes/comment-row');
-    expect(nodeListHref({ ...defensive, memory: undefined })).toBe('');
-    expect(nodeListHref({ ...node, memory: undefined })).toBe('');
+    expect(nodeListHref({ ...defensive, memory: undefined, memoryId: undefined as never })).toBe('');
+    expect(nodeListHref({ ...node, memory: undefined, memoryId: undefined as never })).toBe('');
+  });
+});
+
+describe('portal#1700: an inherited node has memory:null but a memoryId', () => {
+  it('links by the row memoryId when the Memory record is withheld', () => {
+    const node = { ...commentSearchNode(), comment: undefined, memory: null, memoryId: 'mem-base' } as never;
+    expect(nodeListHref(node)).toBe('/app/memories/mem-base/nodes/comment-row');
   });
 });

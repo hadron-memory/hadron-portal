@@ -1,3 +1,6 @@
+import { loadAppRunsPage, loadAppRunsExtras } from '$lib/server/app-runs-page';
+import { flowRoots } from '$lib/flow/flows';
+import { runAppFlow } from '$lib/server/run-app-flow';
 import { readChannelPage, postToChannel } from '$lib/server/channel-chat';
 import { withRegisteredChannels } from '$lib/app-chats';
 
@@ -14,6 +17,8 @@ import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout'
 import { appKeyRefusal } from '$lib/server/app-key-refusal';
 import { agentToolsRefusal } from './agent-tools-refusal';
 import { gqlClient } from '$lib/server/api';
+import { logAppActionTransportFailure } from '$lib/server/app-action-transport-diagnostic';
+import { readAppInstallMarks } from '$lib/server/app-install-marks';
 import { pointerAction, readAppPointers } from '$lib/server/boot-prompt-pointer';
 import { appAgentPointerKey } from '$lib/boot-prompt-pointer';
 import { lookupOwn } from '$lib/lookup';
@@ -21,7 +26,7 @@ import { loadAppTeamRoster } from '$lib/server/app-team-roster';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError, extractGqlErrorCode, gqlErrorBody } from '$lib/server/gqlError';
 import { loadOrgDetail } from '$lib/server/org-detail';
-import { mergeInstallableAgents, type OrgAgentPool } from '$lib/server/installable-agents';
+import { fetchOrgVisibleAgents, mergeInstallableAgents, type OrgAgentPool } from '$lib/server/installable-agents';
 import { t } from '$lib/i18n/t';
 import {
   APP_DETAIL_ORG_QUERY,
@@ -64,7 +69,7 @@ import {
 } from '$lib/app-chats';
 import { loadTeamChatTail, teamChatRefusalOf } from '$lib/server/team-chat';
 import { NO_TEAM_FILTER, parseTeamParam } from '$lib/team-chat-filter';
-import { loadChatMessages } from '$lib/server/team-chat';
+import { chatMessageNodeTypes, loadChatMessages } from '$lib/server/team-chat';
 import { resolveTabIntent } from './tab-intent';
 import {
   addMember,
@@ -384,6 +389,17 @@ function castReportingArm(data: { reporting: string; reportsTo: string }): { rep
  * X"), and the codes are a documented contract, so branching on the code is
  * both stabler and more actionable than echoing the message.
  */
+/**
+ * portal#1715: the grant refusals an install into this App can meet, as portal
+ * copy. `lookupOwn` reads it, as CAST_WORKER_ERRORS. Everything else, an unknown
+ * code included, keeps `extractGqlError`'s handling: a generic error is not an
+ * unknown outcome, and neither is ever retried.
+ */
+const ADD_AGENT_ERRORS: Record<string, () => string> = {
+  AGENT_ORG_GRANT_INACTIVE: () => t('app.agent.add.grant-inactive', 'This App’s organization has an inactive grant for that agent, so it can’t be installed. Ask the organization to restore the grant.'),
+  AGENT_ORG_GRANT_REQUIRED: () => t('app.agent.add.grant-required', 'This App’s organization needs a grant for that agent before it can be installed.'),
+};
+
 const CAST_WORKER_ERRORS: Record<string, () => string> = {
   FORBIDDEN: STAFFING_FORBIDDEN,
   WORKER_NAME_TAKEN: () => t(
@@ -423,6 +439,13 @@ const CAST_WORKER_ERRORS: Record<string, () => string> = {
   APP_UNINSTALLED: () => t(
     'app.staff.error.app-uninstalled',
     'This App has been uninstalled, so nothing can be cast into it.',
+  ),
+  // portal#1813 (hadron-server#3626): a personal App's owner no longer
+  // qualifies for its organization Agent. First sentence shared with #1786's
+  // chat copy; no route back, no retry.
+  BOOT_PROMPT_INSTALL_LICENSE_INACTIVE: () => t(
+    'app.staff.error.boot-prompt-install-license-inactive',
+    'The owner of this App no longer qualifies to use this organization Agent, so the worker can’t be cast. Trying again won’t help.',
   ),
   // hadron-portal#1149 — the server's FROZEN public messages (hadron-server#2028,
   // accepted verbatim by the gate), shown as written. The portal always sends
@@ -616,9 +639,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
   // Org chrome only for an org-owned app; a user-owned (org-less) app (spec 047)
   // has none. availableAgents (what the Agents tab can install) = the org's
-  // agents for an org app, or the caller's own personal agents ∪ PUBLIC agents
-  // for an org-less app — mirroring the server install gate (createApp: a
-  // personal App may install a PUBLIC or the caller's OWN personal agent). It is
+  // agents for an org app, or, for an org-less app, the caller's own personal
+  // agents ∪ PUBLIC agents ∪ (#1786, hadron-server#3626) the ORGANIZATION-visible
+  // agents of each organization the caller belongs to — the set the server's
+  // personal-App install gate admits; the server still rechecks. It is
   // sent whether or not the App already has an agent: an App holds MANY (#802),
   // and the picker must not vanish once the first is in (#1006).
 
@@ -682,7 +706,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     availableAgentsError = owned === null;
     subscribedAgentsError = owned !== null && grants === null;
   } else {
-    const [mine, publicAgents] = await Promise.all([
+    const [mine, publicAgents, orgAgents] = await Promise.all([
       // #782: MY_AGENTS_QUERY is scoped server-side (filter.ownedByMe), so it's
       // already the caller's own org-less agents — no client-side filter needed.
       withTimeout(
@@ -695,11 +719,18 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         OPTIONAL_LIST_TIMEOUT_MS,
         null,
       ).catch(() => null),
+      // #1786: one orgId-scoped list per member organization (helper).
+      withTimeout(
+        fetchOrgVisibleAgents<InstallableAgent>(client),
+        OPTIONAL_LIST_TIMEOUT_MS,
+        null,
+      ).catch(() => null),
     ]);
-    availableAgentsError = mine === null || publicAgents === null;
-    // Dedupe by id — a public agent could also be the caller's own.
+    availableAgentsError = mine === null || publicAgents === null || orgAgents === null;
+    // Dedupe by id, first source wins — a public agent could also be the
+    // caller's own, and an organization agent could be either.
     const seen = new Set<string>();
-    availableAgents = [...(mine ?? []), ...(publicAgents ?? [])].filter((a) =>
+    availableAgents = [...(mine ?? []), ...(publicAgents ?? []), ...(orgAgents ?? [])].filter((a) =>
       seen.has(a.id) ? false : (seen.add(a.id), true),
     );
   }
@@ -712,7 +743,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // ⇒ the page treats readiness as "don't block"). Only meaningful with an
   // agent linked.
   const userId = locals.user?.id ?? null;
-  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, viewerManages, teamRoster, bootPointers, liveStops, appProperties] = await Promise.all([
+  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, viewerManages, teamRoster, bootPointers, installMarks, liveStops, appProperties] = await Promise.all([
     client
       .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: APP_NODES_LIMIT })
       .catch(() => ({ appNodes: [] as MemoryNode[] })),
@@ -822,6 +853,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     loadAppTeamRoster(client, app.id),
     // portal#1142 S8: the installs' boot-prompt pointers, for the Agents tab.
     readAppPointers(client, app.id),
+    readAppInstallMarks(client, app.id),
     // portal#1139: the stops in effect, for the banner, in its OWN classified request
     // (never throws): a stop read that fails must not take the App page with it.
     loadLiveStops(client, app.id),
@@ -940,7 +972,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       { errors: false, id: `channel:${selectedChat.channelId}` }) : null;
   const selectedChatMessages =
     selectedChat?.kind === 'other' && selectedChat.memoryId
-      ? await loadChatMessages(client, selectedChat.memoryId, selectedChat.key)
+      ? await loadChatMessages(client, selectedChat.memoryId, selectedChat.key, {
+          messageNodeTypes: chatMessageNodeTypes(selectedChat),
+        })
           .catch((e) => {
             console.warn(`[app-chats] messages fetch failed for ${selectedChat.key}:`, e);
             return null;
@@ -953,7 +987,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     superValidate(zod4(createAppMemorySchema), { id: `createAppMemory:${app.id}`, errors: false }),
   ]);
 
+  const runsSection = initialTab === 'runs' ? await loadAppRunsPage(client, params.appId, url.searchParams) : null;
+  const runsExtras = initialTab === 'runs' ? await loadAppRunsExtras(client, params.appId) : null;
   return {
+    runsPanel: runsSection && runsExtras ? { ...runsSection, app, flows: flowRoots(nodesData.appNodes), flowsCapped: isCapped(nodesData.appNodes?.length ?? 0, APP_NODES_LIMIT), flowsScanned: nodesData.appNodes?.length ?? 0, ...runsExtras } : null,
     appMemoryScope,
     appMemories: app.organizationId ? orgAppMemories : appMemoriesFromScope(appMemoryScope, app.id),
     createMemoryForm,
@@ -1032,6 +1069,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     currentUserId: locals.user?.id ?? null,
     canManageApp: canManageApp as boolean | null,
     bootPointers,
+    installMarks,
     liveStops,
     // The App half of a pointer result's key (the action's own params.appId).
     bootPointerAppKey: params.appId,
@@ -1061,6 +1099,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 };
 
 export const actions: Actions = {
+  run: runAppFlow,
   createMemory,
   createCustomisation: async ({ request, params, locals }) =>
     writeCustomisation(gqlClient(locals.token), params.appId, await request.formData(), true),
@@ -1104,9 +1143,10 @@ export const actions: Actions = {
       });
       return message(form, { type: 'success', text: t('app.settings.saved', 'Saved.') });
     } catch (e: unknown) {
+      logAppActionTransportFailure('update', e);
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to update app') },
+        { type: 'error', text: extractGqlError(e, 'Failed to update app', [], { transport: 'fallback' }) },
         { status: 500 },
       );
     }
@@ -1140,9 +1180,10 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(INSTALL_AGENT_INTO_APP_MUTATION, variables);
       return message(form, { type: 'success', text: t('app.agent.linked', 'Agent linked.') });
     } catch (e: unknown) {
+      logAppActionTransportFailure('install_link', e);
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to add agent') },
+        { type: 'error', text: lookupOwn(ADD_AGENT_ERRORS, gqlErrorCode(e))?.() ?? extractGqlError(e, 'Failed to add agent', [], { transport: 'fallback' }) },
         { status: 500 },
       );
     }
@@ -1162,9 +1203,10 @@ export const actions: Actions = {
       });
       return message(form, { type: 'success', text: t('app.agent.unlinked', 'Agent unlinked.') });
     } catch (e: unknown) {
+      logAppActionTransportFailure('unlink', e);
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to remove agent') },
+        { type: 'error', text: extractGqlError(e, 'Failed to remove agent', [], { transport: 'fallback' }) },
         { status: 500 },
       );
     }
@@ -1226,10 +1268,10 @@ export const actions: Actions = {
         text: t('app.staff.cast.success', 'Worker cast.'),
       });
     } catch (e: unknown) {
-      // Known refusals get copy that says what to do next; anything else —
-      // including a transport failure with no GraphQL payload — falls through
-      // to the server's own message rather than being relabelled as a user
-      // mistake (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
+      logAppActionTransportFailure('cast', e);
+      // Known refusals keep actionable copy. Other GraphQL faults retain the
+      // shared envelope; transport failures use this action's fallback, not
+      // raw exception text (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
       // #835 — `lookupOwn`: the key is the server's `extensions.code`, so an
       // inherited one returns a callable that `known()` below would invoke,
       // putting `{}` into a user-facing error slot instead of the server's own
@@ -1239,7 +1281,7 @@ export const actions: Actions = {
         form,
         {
           type: 'error',
-          text: known ? known() : extractGqlError(e, t('app.staff.cast.error', 'Failed to cast the worker.')),
+          text: known ? known() : extractGqlError(e, t('app.staff.cast.error', 'Failed to cast the worker.'), [], { transport: 'fallback' }),
         },
         { status: 500 },
       );
@@ -1286,6 +1328,7 @@ export const actions: Actions = {
         text: t('app.team-chat.post.success', 'Posted to the team chat.'),
       });
     } catch (e: unknown) {
+      logAppActionTransportFailure('team_chat_post', e);
       // #835 — as above: wire-supplied key, so guard the lookup.
       const known = lookupOwn(TEAM_CHAT_POST_ERRORS, gqlErrorCode(e));
       return message(
@@ -1294,7 +1337,7 @@ export const actions: Actions = {
           type: 'error',
           text: known
             ? known()
-            : extractGqlError(e, t('app.team-chat.post.error', 'Failed to post to the team chat.')),
+            : extractGqlError(e, t('app.team-chat.post.error', 'Failed to post to the team chat.'), [], { transport: 'fallback' }),
         },
         { status: 500 },
       );
@@ -1410,6 +1453,7 @@ export const actions: Actions = {
         text: t('app.staff.retire.success', 'Worker retired. Its name stays reserved.'),
       });
     } catch (e: unknown) {
+      logAppActionTransportFailure('retire', e);
       // Same staffing gate as castWorker, so the same legible refusal.
       const forbidden = gqlErrorCode(e) === 'FORBIDDEN';
       return message(
@@ -1418,7 +1462,7 @@ export const actions: Actions = {
           type: 'error',
           text: forbidden
             ? STAFFING_FORBIDDEN()
-            : extractGqlError(e, t('app.staff.retire.error', 'Failed to retire the worker.')),
+            : extractGqlError(e, t('app.staff.retire.error', 'Failed to retire the worker.'), [], { transport: 'fallback' }),
         },
         { status: 500 },
       );
@@ -1448,6 +1492,7 @@ export const actions: Actions = {
       });
       return message(form, releaseOutcomeMessage(result.releaseWorker));
     } catch (e: unknown) {
+      logAppActionTransportFailure('release', e);
       // #825 — the guarded write refused because the hold is not what the
       // roster showed. Handled BEFORE the generic branches: it is not a server
       // fault and not a permission problem, and reporting it as either would
@@ -1464,7 +1509,7 @@ export const actions: Actions = {
           type: 'error',
           text: forbidden
             ? RELEASE_FORBIDDEN()
-            : extractGqlError(e, t('app.staff.release.error', 'Failed to release the name.')),
+            : extractGqlError(e, t('app.staff.release.error', 'Failed to release the name.'), [], { transport: 'fallback' }),
         },
         { status: 500 },
       );
@@ -1537,9 +1582,10 @@ export const actions: Actions = {
     try {
       await client.request(DELETE_APP_MUTATION, { ref: params.appId });
     } catch (e: unknown) {
+      logAppActionTransportFailure('delete', e);
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to delete app') },
+        { type: 'error', text: extractGqlError(e, 'Failed to delete app', [], { transport: 'fallback' }) },
         { status: 500 },
       );
     }

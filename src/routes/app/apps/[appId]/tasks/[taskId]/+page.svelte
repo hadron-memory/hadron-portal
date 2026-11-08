@@ -1,6 +1,7 @@
 <script lang="ts">
   import TaskHandBack from '$lib/components/agent-tasks/TaskHandBack.svelte';
   import TaskProperties from '$lib/components/agent-tasks/TaskProperties.svelte';
+  import TaskReview from '$lib/components/agent-tasks/TaskReview.svelte';
   import TaskPlanning from '$lib/components/agent-tasks/TaskPlanning.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import CopyCode from '$lib/components/agent-tasks/CopyCode.svelte';
@@ -289,6 +290,16 @@
 
   <TaskHandBack handBack={task.handBack} />
 
+  <!-- portal#1697: above Properties, whose pr.* and review.* keys are mirrors of what this section reads. -->
+  <TaskReview
+    review={data.review}
+    rows={data.tree.kind === 'ok' ? (data.tree.value?.rows ?? []) : []}
+    references={task.references ?? []}
+    app={data.app}
+    {basePath}
+    build={task.parentTaskId ? (parent && parent.id === task.parentTaskId ? parent : { id: task.parentTaskId }) : null}
+  />
+
   <TaskProperties properties={task.properties} />
 
   <section id="subtasks" class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="subtasks-heading">
@@ -296,7 +307,7 @@
     {#if data.tree.kind === 'ok' && data.tree.value}
       {#if data.tree.value.capped}
         <p role="status" class="mb-2 text-xs text-amber-700 dark:text-amber-300">
-          {t('app.tasks.tree.capped', 'Showing the first 1000 tasks in this tree; deeper or later subtasks aren’t shown.')}
+          {t('app.tasks.tree.capped', 'Showing the first 1000 tasks in this tree; deeper or later subtasks may not be shown.')}
         </p>
       {/if}
       <SubtaskTree rows={data.tree.value.rows} rootId={task.id} {basePath} />

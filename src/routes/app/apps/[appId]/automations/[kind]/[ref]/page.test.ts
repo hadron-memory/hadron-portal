@@ -50,10 +50,13 @@ describe('approval page', () => {
   });
 
   it('an approved automation shows Approved and offers Decline only', () => {
-    const html = page({ approval: approval({ state: 'ADOPTED' }) });
+    const html = page({ kind: 'WEBHOOK', approval: approval({ state: 'ADOPTED' }) });
     expect(html).toContain('Approved');
     expect(html).not.toMatch(/>\s*Approve\s*</);
     expect(html).toMatch(/>\s*Decline\s*</);
+  });
+  it('an approved schedule offers no Decline: Pause is its stop (portal#1701 acceptance 3)', () => {
+    expect(page({ approval: approval({ state: 'ADOPTED' }) })).not.toMatch(/>\s*Decline\s*</);
   });
 
   it('renders a schedule the server could not state as "not stated", never an empty field', () => {

@@ -3,7 +3,7 @@
 // (the ViewTabs component is a thin shell over it).
 import type { PortalTable } from '$lib/table/features';
 import type { RowData } from '@tanstack/table-core';
-import { extractView, applyView, serializeView } from './savedView';
+import { extractView, extractTableView, applyView, serializeView } from './savedView';
 import { type ViewStore, type SavedViewRecord, resolveInitialView } from './viewStore';
 import { localStorageViewStore } from './localStorageViewStore';
 import { createViewFrom, overwriteView, applyAndActivate, removeAndResolve, duplicateView } from './viewActions';
@@ -29,6 +29,7 @@ export function createViewController<T extends RowData>(args: {
   table: PortalTable<T>;
   listKey: string;
   store?: ViewStore;
+  initialColumnsOnly?: boolean;
 }): ViewController {
   const { table, listKey } = args;
   const store = args.store ?? localStorageViewStore;
@@ -41,7 +42,7 @@ export function createViewController<T extends RowData>(args: {
   // Canonical-JSON compare of the live arrangement vs the active view. Guarded so
   // there is no `activeView.view` deref when nothing is active (spec FR-006).
   const isModified = $derived.by(() =>
-    activeView ? serializeView(extractView(table.store.get())) !== serializeView(activeView.view) : false,
+    activeView ? serializeView(extractTableView(table)) !== serializeView(activeView.view) : false,
   );
 
   async function refresh() {
@@ -52,7 +53,7 @@ export function createViewController<T extends RowData>(args: {
     await refresh();
     const target = resolveInitialView(views, await store.getActiveId(listKey));
     if (target) {
-      applyView(table, target.view);
+      applyView(table, target.view, { columnsOnly: args.initialColumnsOnly, initial: true });
       activeId = target.id;
     }
   }

@@ -13,8 +13,12 @@
     "test:team-chat-chips-layout": "node scripts/test-team-chat-chips-layout.mjs",
     "test:node-phone-layout": "node scripts/test-node-phone-layout.mjs",
     "test:usage-toolbar-layout": "node scripts/test-usage-toolbar-layout.mjs",
+    "test:org-integrations-row-layout": "node scripts/test-org-integrations-row-layout.mjs",
     "test:task-integrations-focus": "node scripts/test-task-integrations-focus.mjs",
+    "test:apply-agent-tickers-focus": "node scripts/test-apply-agent-tickers-focus.mjs",
+    "test:nodes-tab-lazy": "node scripts/test-nodes-tab-lazy.mjs",
     "test:task-integrations-layout": "node scripts/test-task-integrations-layout.mjs",
+    "test:urn-compact-layout": "node scripts/test-urn-compact-layout.mjs",
     "test:tickers-layout": "node scripts/test-tickers-layout.mjs",
     "test:select-node-layout": "node scripts/test-select-node-layout.mjs",
     "test:stacked-memory-layout": "node scripts/test-stacked-memory-layout.mjs",
@@ -25,7 +29,10 @@
     "check:grid-filters": "node scripts/check-grid-filters.mjs",
     "check:interpolation": "node scripts/check-unsafe-interpolation.mjs",
     "check:hook-teardown": "node scripts/check-hook-teardown.mjs",
-    "test:api-key-chain": "node scripts/test-api-key-chain.mjs"
+    "test:api-key-chain": "node scripts/test-api-key-chain.mjs",
+    "test:relation-focus": "node scripts/test-relation-focus.mjs",
+    "test:invite-copy": "node scripts/test-invite-copy.mjs",
+    "test:app-runs-layout": "node scripts/test-app-runs-layout.mjs"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.5.4",

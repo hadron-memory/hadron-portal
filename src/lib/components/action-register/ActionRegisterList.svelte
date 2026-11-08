@@ -21,6 +21,7 @@
     definitionUrn = null,
     hrefFor,
     listKey,
+    nextStep = '',
   }: {
     page: RegisterPage;
     offset: number;
@@ -28,12 +29,14 @@
     definitionUrn?: string | null;
     hrefFor: (offset: number) => string;
     listKey: string;
+    /** What to do from an empty first page; a neutral step, never a cause (ruling 0107 A). */
+    nextStep?: string;
   } = $props();
 
   const claims = $derived(pageClaims({ offset, limit, total: page.total, hasMore: page.hasMore }));
 
   const columns: PortalColumnDef<RegisterEntry>[] = [
-    { id: 'code', accessorFn: (r) => r.code, header: t('action-register.col.code', 'Code'), enableHiding: false, enableSorting: false, size: 200 },
+    { id: 'code', accessorFn: (r) => r.code, header: t('action-register.col.code', 'Code'), enableHiding: false, enableSorting: false, size: 120 },
     { id: 'resolves', accessorFn: (r) => r.state, header: t('action-register.col.resolves', 'Resolves to'), enableSorting: false, size: 320 },
     { id: 'definedBy', accessorFn: (r) => r.definedBy ?? '', header: t('action-register.col.defined-by', 'Defined by'), enableSorting: false, size: 260 },
   ];
@@ -53,6 +56,7 @@
 {#if page.entries.length === 0}
   <div role="status" class="space-y-2 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-testid="register-empty">
     <p>{t('action-register.empty', 'No codes shown')}</p>
+    {#if nextStep && claims.prevOffset === null}<p>{nextStep}</p>{/if}
     {#if claims.prevOffset !== null}
       <a href={hrefFor(claims.prevOffset)} rel="prev" class="inline-block min-h-6 font-medium text-indigo-600 underline dark:text-indigo-300">{t('action-register.previous', 'Previous')}</a>
     {/if}
@@ -82,7 +86,12 @@
           {/if}
         </div>
       {:else if cell.column.id === 'definedBy'}
-        {#if row.definedBy}<Urn value={row.definedBy} type="agent" compact linked label={t('action-register.defined-by', 'defined by')} />{/if}
+        {#if row.definedBy}
+          <Urn value={row.definedBy} type="agent" compact linked label={t('action-register.defined-by', 'defined by')} />
+        {:else if kind === 'mapped' || kind === 'sends-here' || kind === 'resolves-elsewhere'}
+          <span data-testid="register-defined-by-none" class="text-zinc-400 dark:text-zinc-500" aria-hidden="true">—</span>
+          <span class="sr-only">{t('action-register.defined-by-none', 'No defining Agent')}</span>
+        {/if}
       {/if}
     {/snippet}
   </DataTable>
@@ -91,7 +100,7 @@
 <nav aria-label={t('action-register.paging', 'Pages of codes')} class="flex flex-wrap items-center justify-between gap-3 text-sm text-zinc-600 dark:text-zinc-400" data-testid="register-paging">
   <span>
     {#if page.entries.length === 0}
-      {t('action-register.total', '{total} in all', { total: page.total })}
+      {#if offset > 0}{t('action-register.total', '{total} in all', { total: page.total })}{/if}
     {:else}
       {t('action-register.range', 'Showing {from}–{to} of {total}', { from: offset + 1, to: offset + page.entries.length, total: page.total })}
     {/if}

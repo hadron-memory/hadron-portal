@@ -23,11 +23,15 @@
  * holding A's id against B's results; and ChatThread seeding from the page's
  * submitted action data only when that data's id is its own. This file mounts
  * the real page for a platform team chat and an agent chat, checks the ids,
- * and drives the page-to-page handoff that produced the warning on main (red
- * before the fix, green after).
+ * and drives page-to-page lifecycle handoffs. ChatThread opts out of duplicate-id
+ * registration, so those legs check its explicit policy instead of treating an
+ * empty warning log as id coverage. The two-live-page leg at the end is the
+ * runtime carrier: removing suppression makes that transition warn.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
+import { parse } from 'svelte/compiler';
+import chatThreadSource from '$lib/components/ChatThread.svelte?raw';
 import {
   captureUnhandledRejections,
   mountComponent,
@@ -157,18 +161,52 @@ async function mountPage(node: ReturnType<typeof teamChatNode>, url: URL) {
 
 const duplicateWarnings = () => warnings.filter((w) => w.includes('Duplicate form id'));
 
+/** ChatThread opts out of registration: check its actual option, not an empty warning log. */
+function expectChatThreadWarningPolicy() {
+  const script = parse(chatThreadSource, { modern: true }).instance;
+  const calls = (script?.content.body ?? [])
+    .flatMap((statement) => statement.type === 'VariableDeclaration' ? statement.declarations : [])
+    .map((declaration) => declaration.init)
+    .filter((call) => call?.type === 'CallExpression' && call.callee.type === 'Identifier' && call.callee.name === 'superForm');
+  expect(calls).toHaveLength(1);
+  const call = calls[0];
+  if (call?.type !== 'CallExpression') throw new Error('ChatThread send superForm is missing');
+  expect(call.arguments[0]).toMatchObject({ type: 'Identifier', name: 'initialSendForm' });
+  const options = call.arguments[1];
+  if (options?.type !== 'ObjectExpression') throw new Error('ChatThread send options must be explicit');
+  const warningOption = options.properties.find((property) =>
+    property.type === 'Property' && property.key.type === 'Identifier' && property.key.name === 'warnings');
+  if (warningOption?.type !== 'Property' || warningOption.value.type !== 'ObjectExpression') {
+    throw new Error('ChatThread warning policy is missing');
+  }
+  const duplicateId = warningOption.value.properties.find((property) =>
+    property.type === 'Property' && property.key.type === 'Identifier' && property.key.name === 'duplicateId');
+  expect(duplicateId).toMatchObject({ value: { type: 'Literal', value: false } });
+  // Keep the explanation attached to this option, not an unrelated file comment.
+  const optionStart = (options as typeof options & { start: number }).start;
+  const warningStart = (warningOption as typeof warningOption & { start: number }).start;
+  expect(chatThreadSource.slice(optionStart, warningStart)).toContain(
+    'hrn:node:hadronmemory.com:hadron-portal:findings:superforms-duplicate-id-page-epoch',
+  );
+}
+
+
 describe('#1522 chat send form identity', () => {
-  it('team chat: explicit node-scoped id, distinct from every other form, no duplicate warning', async () => {
+  it('states ChatThread’s registration opt-out and links its page-epoch rationale', () => {
+    expectChatThreadWarningPolicy();
+  });
+
+  it('team chat: node-scoped id distinct from other forms, explicit warning policy', async () => {
     const { target, loaded } = await mountPage(teamChatNode(), new URL(`http://localhost/app/memories/${MEM}/nodes/chat-pk`));
     expect((loaded.sendChatMessageForm as { id: string }).id).toBe('sendChatMessage:chat-pk');
     expect(target.querySelector('form[action="?/sendChatMessage"]')).not.toBeNull();
-    expect(duplicateWarnings()).toEqual([]);
+    expectChatThreadWarningPolicy();
   });
 
   it('agent chat: the id carries that node, not the team chat\'s', async () => {
     const { loaded } = await mountPage(agentChatNode(), new URL(`http://localhost/app/memories/${MEM}/nodes/agent-chat-pk`));
     expect((loaded.sendChatMessageForm as { id: string }).id).toBe('sendChatMessage:agent-chat-pk');
-    expect(duplicateWarnings()).toEqual([]);
+    expectChatThreadWarningPolicy();
   });
 
   it('the send action validates with the same id (a failed post stays this form\'s)', async () => {
@@ -206,11 +244,11 @@ describe('#1522 chat send form identity', () => {
     expect(r.data.form.id).toBe('sendMessage:chat-pk');
   });
 
-  // The red-first carrier: on main both surfaces shared the schema's shape
-  // hash, and the handoff window logged "Duplicate form id's found: 1qyjqon".
-  // The harness's 'overlap' phase is that window made deterministic — see its
-  // docblock for why kit's own ordering is not reproduced here.
-  it('handoff between the node page and the standalone chat page stays warning-free', async () => {
+  // This handoff retains the lifecycle/rejection coverage. ChatThread opts out
+  // of duplicate-id registration, so silence here cannot prove its ids are
+  // distinct: check the explicit policy instead. The two-live-page carrier at
+  // the end remains the runtime test of the router-window suppression.
+  it('handoff between the node and standalone chat pages tears down without rejections', async () => {
     serveNode(teamChatNode());
     const nodeData = await loadNodePage(teamChatNode(), new URL(`http://localhost/app/memories/${MEM}/nodes/chat-pk`));
     const chatData = (await loadChat({
@@ -229,7 +267,7 @@ describe('#1522 chat send form identity', () => {
     await tick();
     flushSync();
     await tick();
-    expect(duplicateWarnings()).toEqual([]);
+    expectChatThreadWarningPolicy();
 
     // node page -> full-screen chat: both pages live under one page value,
     // then the node page is gone. Then back again — each direction passes
@@ -243,7 +281,7 @@ describe('#1522 chat send form identity', () => {
         await tick();
         flushSync();
         await tick();
-        expect(duplicateWarnings(), `phase=${p}`).toEqual([]);
+        expectChatThreadWarningPolicy();
       }
     });
     expect(phaseRejections).toEqual([]);
@@ -320,7 +358,7 @@ describe('#1522 chat send form identity', () => {
 
     expect(host.target.querySelector('[role="alert"]')).toBeNull();
     expect(host.target.textContent).not.toContain('Failed to send message');
-    expect(duplicateWarnings()).toEqual([]);
+    expectChatThreadWarningPolicy();
   });
 
   // The same finding's same-route shape: ChatThread persists across a node
@@ -403,7 +441,7 @@ describe('#1522 chat send form identity', () => {
     const bComposer = target.querySelector<HTMLTextAreaElement>('textarea[name="content"]');
     expect(bComposer).not.toBeNull();
     expect(bComposer!.value).not.toBe('written for A');
-    expect(duplicateWarnings()).toEqual([]);
+    expectChatThreadWarningPolicy();
 
     // …and a page that mounts WHILE that old action data is still on the
     // page (one more navigation before anything clears it) must not SEED
@@ -533,6 +571,189 @@ describe('#1522 chat send form identity', () => {
     expect(reSeeded).not.toBeNull();
     expect(reSeeded!.value).toBe('');
     expect(second.target.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  // #1567: retaining a refused draft on remount must not make that draft
+  // the target of every later successful reset. Drive the installed Superforms
+  // handler; the kit stub only delivers results and records action data.
+  it.each(['node', 'standalone'].flatMap(surface => [false, true].map(valid => ({ surface, valid }))))(
+    '#1567 $surface: success after a preserved failure empties current and later composers (failed valid=$valid)',
+    async ({ surface, valid }) => {
+      serveNode(teamChatNode());
+      const loaded = surface === 'node'
+        ? await loadNodePage(teamChatNode(), new URL(`http://localhost/app/memories/${MEM}/nodes/chat-pk`))
+        : await loadChatPageData('chat-pk');
+      const Component = surface === 'node' ? Page : ChatPage;
+      const formId = (surface === 'node' ? loaded.sendChatMessageForm : loaded.form) as { id: string };
+      const props = reactiveProps<Record<string, unknown>>({ data: { ...PARENT, ...loaded }, form: null });
+      const mountAgain = async () => {
+        const m = mountComponent(Component as never, props as never) as Mounted<Record<string, unknown>>;
+        mounted.push(m); await tick(4); return m;
+      };
+      const result = (content: string, success: boolean) => ({
+        type: success ? 'success' as const : 'failure' as const, status: success ? 200 : 400,
+        data: { form: { id: formId.id, valid: success || valid, posted: true, errors: {},
+          data: { _kind: 'sendChatMessage', content },
+          message: { type: success ? 'success' : 'error', text: success ? 'Message sent.' : 'Send refused.' } } },
+      });
+      const area = (m: Mounted<Record<string, unknown>>) => m.target.querySelector<HTMLTextAreaElement>('textarea[name="content"]')!;
+      const type = async (m: Mounted<Record<string, unknown>>, content: string) => {
+        area(m).value = content; area(m).dispatchEvent(new Event('input', { bubbles: true })); await tick(2);
+      };
+      const send = async (m: Mounted<Record<string, unknown>>, content: string, success: boolean) => {
+        const finish = await beginEnhanced(area(m).form!); const answer = result(content, success);
+        await finish(answer); props.form = answer.data; await tick(4);
+      };
+      const close = (m: Mounted<Record<string, unknown>>) => { m.unmount(); mounted.splice(mounted.indexOf(m), 1); };
+
+      const first = await mountAgain();
+      await type(first, 'refused seed draft'); await send(first, 'refused seed draft', false);
+      expect(first.target.querySelector('[role="alert"]')?.textContent).toContain('Send refused.');
+      close(first); // tab away; action data remains on the page
+      const second = await mountAgain();
+      expect(area(second).value).toBe('refused seed draft'); // failure preservation is still live
+      await type(second, 'edited retry'); await send(second, 'edited retry', true);
+      expect(area(second).value).toBe(''); // red on main: reset restores refused seed
+      await vi.waitFor(() => { flushSync(); expect(area(second).disabled).toBe(false); });
+      expect(area(second).form!.querySelector<HTMLButtonElement>('[type="submit"]')!.disabled).toBe(true);
+      const emptySubmit = vi.fn();
+      area(second).form!.addEventListener('submit', emptySubmit);
+      area(second).form!.querySelector<HTMLButtonElement>('[type="submit"]')!.click();
+      expect(emptySubmit).not.toHaveBeenCalled(); // an empty composer cannot repeat the stale send
+      area(second).form!.removeEventListener('submit', emptySubmit);
+
+      await type(second, 'a later fresh message'); await send(second, 'a later fresh message', true);
+      expect(area(second).value).toBe(''); // the reset target itself remains clean
+      close(second);
+      const third = await mountAgain();
+      expect(area(third).value).toBe(''); // successful action data must never reseed
+      expect(third.target.querySelector('[role="alert"]')).toBeNull();
+    },
+  );
+
+  // #1818 (follow-up to #1567/#1816): mounted lifecycle controls around the
+  // successful-reset behavior, both surfaces, ONE mount throughout unless the
+  // leg says otherwise. Every leg drives the installed Superforms handler
+  // (`beginEnhanced` runs the submit callback the form really registered); the
+  // kit stub only delivers the result a test chose. No new wipe/preserve policy
+  // is selected: a refused draft is preserved, a success empties.
+  describe('#1818 successful-reset lifecycle controls', () => {
+    async function surfaceHarness(surface: 'node' | 'standalone') {
+      serveNode(teamChatNode());
+      const loaded = surface === 'node'
+        ? await loadNodePage(teamChatNode(), new URL(`http://localhost/app/memories/${MEM}/nodes/chat-pk`))
+        : await loadChatPageData('chat-pk');
+      const Component = surface === 'node' ? Page : ChatPage;
+      const formId = (surface === 'node' ? loaded.sendChatMessageForm : loaded.form) as { id: string };
+      const props = reactiveProps<Record<string, unknown>>({ data: { ...PARENT, ...loaded }, form: null });
+      const m = mountComponent(Component as never, props as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m); await tick(4);
+      const area = () => m.target.querySelector<HTMLTextAreaElement>('textarea[name="content"]')!;
+      const submit = () => area().form!.querySelector<HTMLButtonElement>('[type="submit"]')!;
+      // 'fielderror' is the plain validation failure: invalid, a field error,
+      // and NO typed message at all (the shape that only the `valid` half of
+      // the reset guard distinguishes from a success).
+      const result = (content: string, kind: 'success' | 'refused' | 'invalid' | 'fielderror', id = formId.id) => ({
+        type: kind === 'success' ? 'success' as const : 'failure' as const,
+        status: kind === 'success' ? 200 : 400,
+        data: { form: { id, valid: kind !== 'invalid' && kind !== 'fielderror', posted: true,
+          errors: kind === 'fielderror' ? { content: ['Message is required'] } : {},
+          data: { _kind: 'sendChatMessage', content },
+          ...(kind === 'fielderror' ? {} : { message: { type: kind === 'success' ? 'success' : 'error', text: kind === 'success' ? 'Message sent.' : 'Send refused.' } }) } },
+      });
+      const type = async (content: string) => {
+        area().value = content; area().dispatchEvent(new Event('input', { bubbles: true })); await tick(2);
+      };
+      const begin = () => beginEnhanced(area().form!);
+      const deliver = async (finish: Awaited<ReturnType<typeof begin>>, r: ReturnType<typeof result>) => {
+        await finish(r); props.form = r.data; await tick(4);
+      };
+      const send = async (content: string, kind: 'success' | 'refused' | 'invalid' | 'fielderror') => {
+        const finish = await begin(); await deliver(finish, result(content, kind));
+      };
+      const alert = () => m.target.querySelector('[role="alert"]')?.textContent ?? null;
+      return { m, area, submit, result, type, begin, deliver, send, alert, props, formId };
+    }
+    const SURFACES = ['node', 'standalone'] as const;
+
+    it.each(SURFACES)('%s: repeated fresh sends on ONE mount each leave an empty composer', async (surface) => {
+      const h = await surfaceHarness(surface);
+      for (const text of ['first fresh message', 'second fresh message', 'third fresh message']) {
+        await h.type(text);
+        expect(h.area().value).toBe(text);
+        await h.send(text, 'success');
+        expect(h.area().value).toBe(''); // no remount between sends
+        expect(h.alert()).toBeNull();
+        await vi.waitFor(() => { flushSync(); expect(h.area().disabled).toBe(false); });
+        expect(h.submit().disabled).toBe(true); // an empty composer cannot resend the last text
+      }
+    });
+
+    it.each(SURFACES.flatMap((surface) => (['refused', 'invalid'] as const).map((kind) => ({ surface, kind }))))(
+      '$surface: a $kind failure after a successful rebase keeps ITS draft, and the next success empties it',
+      async ({ surface, kind }) => {
+        const h = await surfaceHarness(surface);
+        await h.type('goes through'); await h.send('goes through', 'success'); // baseline rebased to clean
+        expect(h.area().value).toBe('');
+        await h.type('refused later'); await h.send('refused later', kind);
+        expect(h.area().value).toBe('refused later'); // the failure preserves the draft
+        expect(h.alert()).toContain('Send refused.');
+        await h.type('edited after refusal'); await h.send('edited after refusal', 'success');
+        expect(h.area().value).toBe(''); // red if the rebase target were the preserved draft
+        expect(h.alert()).toBeNull();
+        await h.type('one more'); await h.send('one more', kind);
+        expect(h.area().value).toBe('one more'); // preservation is repeatable, not one-shot
+        await h.type('final'); await h.send('final', 'success');
+        expect(h.area().value).toBe('');
+      },
+    );
+
+    it.each(SURFACES)('%s: an untyped field-error failure after a successful rebase keeps its draft', async (surface) => {
+      const h = await surfaceHarness(surface);
+      await h.type('goes through'); await h.send('goes through', 'success');
+      await h.type('field error later'); await h.send('field error later', 'fielderror');
+      expect(h.area().value).toBe('field error later'); // red if the reset guard dropped `valid`
+      await h.type('fixed'); await h.send('fixed', 'success');
+      expect(h.area().value).toBe('');
+    });
+
+    // Reachability FIRST for the held-success / new-draft interleaving. The
+    // composer's own controls are disabled while the send is in flight, so a
+    // person cannot edit or resubmit between submit and result. That boundary
+    // is pinned instead of manufacturing a trace no user can produce; a
+    // programmatic edit (not reachable from the UI) is deliberately NOT
+    // asserted to wipe or preserve, since no policy is chosen for it.
+    it.each(SURFACES)('%s: while a send is held, the composer and submit control are disabled (the interleaving has no UI path)', async (surface) => {
+      const h = await surfaceHarness(surface);
+      await h.type('held send');
+      const finish = await h.begin();
+      await vi.waitFor(() => { flushSync(); expect(h.area().disabled).toBe(true); });
+      expect(h.submit().disabled).toBe(true);
+      const again = vi.fn();
+      h.area().form!.addEventListener('submit', again);
+      h.submit().click(); // a disabled submit does not dispatch: no second send while held
+      expect(again).not.toHaveBeenCalled();
+      h.area().form!.removeEventListener('submit', again);
+      await h.deliver(finish, h.result('held send', 'success'));
+      expect(h.area().value).toBe('');
+      await vi.waitFor(() => { flushSync(); expect(h.area().disabled).toBe(false); });
+      await h.type('after the held one'); await h.send('after the held one', 'success');
+      expect(h.area().value).toBe('');
+    });
+
+    it.each(SURFACES)("%s: a late result for the OTHER form's id neither empties nor banners this composer", async (surface) => {
+      const h = await surfaceHarness(surface);
+      await h.type('draft in flight');
+      const finish = await h.begin();
+      const other = surface === 'node' ? 'sendMessage:chat-pk' : 'sendChatMessage:chat-pk';
+      expect(other).not.toBe(h.formId.id);
+      await finish(h.result('someone else', 'success', other));
+      await tick(4);
+      expect(h.area().value).toBe('draft in flight'); // fenced: the foreign success is not ours
+      expect(h.alert()).toBeNull();
+      await h.deliver(finish, h.result('draft in flight', 'success')); // our own result still lands
+      expect(h.area().value).toBe('');
+    });
   });
 
   // Gaia's LOCAL P2: the {#key} remount guard is load-bearing on a

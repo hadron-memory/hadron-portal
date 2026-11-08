@@ -26,6 +26,7 @@
     onreorder,
     listKey,
     hideSearch = false,
+    viewMemoryId = '',
     snippets = {},
     meta = {},
     deletedIds = [],
@@ -47,6 +48,8 @@
     listKey?: string;
     /** Hide the built-in search box (the owner provides search — issue #355). */
     hideSearch?: boolean;
+    /** The memory this list is shown for: a row from another memory is marked inherited. */
+    viewMemoryId?: string;
     /**
      * #430: nodeId → best matching-passage snippet, from a semantic search.
      * When present for a row, rendered under the node name. Empty in browse.
@@ -398,6 +401,9 @@
                           <span class="ml-1 text-xs tabular-nums text-zinc-400">#{n.seq}</span>
                         {/if}
                       </span>
+                      {#if viewMemoryId && n.memoryId && n.memoryId !== viewMemoryId}
+                        <span data-testid="node-inherited" class="shrink-0 rounded bg-zinc-100 px-1.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{t('nodes-tab.inherited', 'inherited')}</span>
+                      {/if}
                       {#if deletedSet.has(n.id)}
                         <span data-testid="node-deleted" class="shrink-0 rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{t('node.deleted.badge', 'Deleted')}</span>
                       {/if}

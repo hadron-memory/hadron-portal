@@ -19,7 +19,7 @@ function answer(over: Record<string, unknown> = {}) {
   request.mockImplementation(async (q: string) => {
     if (q in over) {
       const v = over[q];
-      if (v && typeof v === 'object' && 'response' in v) throw v;
+      if (v instanceof Error || (v && typeof v === 'object' && 'response' in v)) throw v;
       return v;
     }
     if (q === AGENT_TASKS_APP_QUERY) return { app };
@@ -67,11 +67,6 @@ describe('register loader', () => {
   });
   it('a failed options read is not "no Agents"', async () => {
     answer({ [APP_AGENT_OPTIONS_QUERY]: new Error('down') as never });
-    request.mockImplementation(async (q: string) => {
-      if (q === AGENT_TASKS_APP_QUERY) return { app };
-      if (q === APP_AGENT_OPTIONS_QUERY) throw new Error('down');
-      return { actionRegisterIndex: index };
-    });
     expect((await load()).options).toEqual({ kind: 'failed' });
   });
 });

@@ -22,6 +22,9 @@
     onselect,
     open = $bindable(false),
     clearOf = null,
+    keepOpen = false,
+    addedIds = null,
+    note = '',
   }: {
     memories: Memory[];
     placeholder?: string;
@@ -36,6 +39,12 @@
      * item 4: a scroll chaining to the host dialog moves its header).
      */
     clearOf?: HTMLElement | null;
+    /** #1736: several picks in one sitting. Selecting leaves the picker open, with Done to close it. */
+    keepOpen?: boolean;
+    /** Memories already picked: their rows read "Added" and cannot be picked again. */
+    addedIds?: ReadonlySet<string> | null;
+    /** A status line the host owns, such as how many are picked and the limit. */
+    note?: string;
   } = $props();
 
   const STACK_GAP = 8; // px between the host's edge and this dialog
@@ -114,8 +123,9 @@
   const filteredRowCount = $derived(table.getFilteredRowModel().rows.length);
 
   function select(memory: Memory) {
+    if (addedIds?.has(memory.id)) return;
     onselect(memory);
-    open = false;
+    if (!keepOpen) open = false;
   }
 
   // Escape: consumed at this dialog's own layer — the shared helper owns the
@@ -170,6 +180,7 @@
           aria-label={placeholder}
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
         />
+        {#if keepOpen}<p role="status" class="mt-2 text-xs text-zinc-600 dark:text-zinc-400">{note}</p>{/if}
       </div>
 
       <!-- Table -->
@@ -216,13 +227,15 @@
                   </td>
                   <td class="hidden px-4 py-2 text-sm text-zinc-600 sm:table-cell dark:text-zinc-400">{row.original.orgName || '—'}</td>
                   <td class="px-2 py-2 text-right sm:px-4">
+                    <!-- aria-disabled, not disabled: picking must not drop focus out of the dialog. -->
                     <button
                       type="button"
                       onclick={() => select(row.original)}
-                      aria-label={pickerStrings.selectNamed(row.original.name)}
-                      class="rounded bg-indigo-500 px-3 py-1 text-xs font-medium text-white pointer-coarse:min-h-11 hover:bg-indigo-600 dark:bg-indigo-600 dark:hover:bg-indigo-700"
+                      aria-disabled={addedIds?.has(row.original.id) ? 'true' : undefined}
+                      aria-label={addedIds?.has(row.original.id) ? t('select-memory.added-named', 'Added {name}', { name: row.original.name }) : pickerStrings.selectNamed(row.original.name)}
+                      class="rounded px-3 py-1 text-xs font-medium pointer-coarse:min-h-11 {addedIds?.has(row.original.id) ? 'border border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-300' : 'bg-indigo-500 text-white hover:bg-indigo-600 dark:bg-indigo-600 dark:hover:bg-indigo-700'}"
                     >
-                      {pickerStrings.select()}
+                      {addedIds?.has(row.original.id) ? t('select-memory.added', 'Added') : pickerStrings.select()}
                     </button>
                   </td>
                 </tr>
@@ -233,7 +246,7 @@
       </div>
 
       <!-- Footer with pagination -->
-      <div class="border-t border-zinc-200 flex items-center justify-between px-4 py-3 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
+      <div class="border-t border-zinc-200 flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
         <div>
           {rows.length > 0 && pageIndex >= 0 && pageCount > 0
             ? `${filteredRowCount} result${filteredRowCount !== 1 ? 's' : ''} · Page ${pageIndex + 1} of ${pageCount}`
@@ -259,6 +272,7 @@
         </div>
         <!-- #1600 item 3: keyboard help; a touch device has no Esc. -->
         <div class="pointer-coarse:hidden">Esc to close</div>
+        {#if keepOpen}<button type="button" onclick={() => { open = false; }} class="min-h-11 rounded bg-indigo-600 px-3 text-white">{t('select-memory.done', 'Done')}</button>{/if}
       </div>
     </div>
   </div>

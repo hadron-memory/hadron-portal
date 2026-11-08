@@ -58,6 +58,9 @@ export function escapeIsOurs(event: KeyboardEvent): boolean {
 export function consumeEscapeAtDialog(event: KeyboardEvent, options: DialogEscapeOptions): void {
   if (!escapeIsOurs(event)) return;
   if (options.suppressed?.()) return;
+  // Consuming an inner layer must also cancel the native close request on an
+  // outer <dialog>. Repeated Escape can make its cancel event non-cancelable.
+  event.preventDefault();
   event.stopPropagation();
   options.close();
 }

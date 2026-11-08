@@ -370,6 +370,33 @@ export const PUBLIC_AGENTS_QUERY = /* GraphQL */ `
   }
 `;
 
+// #1786 (hadron-server#3626, ruling 0235): the ids of the caller's own
+// organizations, for listing the ORGANIZATION-visible Agents they may install
+// into a personal App. `memberOnly` holds for platform admins too, so this is
+// the eligible set, never every organization. Ids only: nothing else is drawn.
+export const MEMBER_ORG_IDS_QUERY = /* GraphQL */ `
+  query MemberOrgIds($limit: Int, $offset: Int) {
+    organizations(filter: { memberOnly: true }, limit: $limit, offset: $offset) {
+      items { id }
+      total
+    }
+  }
+`;
+
+// #1786: one member organization's ORGANIZATION-visible Agents, the same slim
+// item as PUBLIC_AGENTS_QUERY. `orgId` is REQUIRED: without it the server
+// gives a platform admin every organization's Agents with no membership test;
+// with it, `resolveOrgScope` requires live membership and answers an empty
+// page otherwise. The list only suggests; createApp stays the gate.
+export const ORG_VISIBLE_AGENTS_QUERY = /* GraphQL */ `
+  query OrgVisibleAgents($orgId: ID!, $limit: Int, $offset: Int) {
+    agents(filter: { visibility: ORGANIZATION }, orgId: $orgId, limit: $limit, offset: $offset) {
+      items { id urn name description organizationId visibility }
+      total
+    }
+  }
+`;
+
 // Find-one agent read for the install flow's PUBLIC path (#486): since
 // server #552, agent(ref:) admits a PUBLIC agent for ANY caller (non-public
 // keeps the membership gate). Callers must still check visibility === PUBLIC
@@ -809,11 +836,18 @@ export const ORG_TASK_MEMORY_IDS_QUERY = /* GraphQL */ `
  * only: they join the scope for RUNNABLE_NODES_QUERY, whose `memoryIds` filter
  * is the boundary — naming a system memory there is what lifts the server's
  * default exclusion. Membership-gated (see ORG_SYSTEM_MEMORIES_QUERY).
+ *
+ * #1706 — `appId` is selected so the caller can leave an App's install memory
+ * out: an install memory is class `system` WITH `appId` set, and this list
+ * returns it to its audience. R208 /
+ * hrn:node:hadronmemory.com:specs:cor:api:060:04 keeps App-owned memories
+ * off the org's task surfaces, and for a platform-ADMIN org member the id
+ * reaching `createScope` is what made the whole org export fail.
  */
 export const ORG_SYSTEM_MEMORY_IDS_QUERY = /* GraphQL */ `
   query OrgSystemMemoryIds($orgId: ID!, $limit: Int, $offset: Int) {
     memories(orgId: $orgId, filter: { memoryClasses: [system] }, limit: $limit, offset: $offset) {
-      items { id }
+      items { id appId }
       total
     }
   }
@@ -3021,6 +3055,26 @@ export const NODE_CHILDREN_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#1700: the Nodes tab's two bounded doors. The memory's id alone, so a
+// door can pin its scope to a memory the viewer can read (null when they cannot).
+export const MEMORY_SCOPE_QUERY = /* GraphQL */ `
+  query MemoryScope($ref: ID!) {
+    memory(ref: $ref) { id urn }
+  }
+`;
+
+// portal#1700: one page of the memory's nodes for the Nodes tab's Table. No
+// sort is sent (server order), no edges and no body: the row a list needs. The
+// memory identity is selected per hit so an inherited row links to its OWN
+// memory (system memories can return base-memory rows).
+export const NODES_PAGE_QUERY = /* GraphQL */ `
+  query NodesPage($memoryId: ID!, $limit: Int!, $offset: Int!) {
+    findNodes(filter: { memoryIds: [$memoryId] }, limit: $limit, offset: $offset) {
+      hits { node { id urn loc name description nodeType tags seq isRunnable memoryId updatedAt memory { id urn name } commentSummary { openThreads } } }
+    }
+  }
+`;
+
 export const NODES_BY_LOC_PREFIX_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query NodesByLocPrefix(
@@ -3029,9 +3083,10 @@ export const NODES_BY_LOC_PREFIX_QUERY = /* GraphQL */ `
     $limit: Int
     $offset: Int
     $sort: NodeSort
+    $nodeTypes: [String!]
   ) {
     findNodes(
-      filter: { memoryIds: [$memoryId], locPrefix: $locPrefix }
+      filter: { memoryIds: [$memoryId], locPrefix: $locPrefix, nodeTypes: $nodeTypes }
       limit: $limit
       offset: $offset
       sort: $sort
@@ -3545,6 +3600,20 @@ export const NODE_EXPORT_QUERY = /* GraphQL */ `
 // 'NODE_NOT_FOUND' on miss; every content field optional, omitted =
 // preserved). updateNode selects its target by `id` (PK or node URN) XOR
 // (`memoryId` + `loc`).
+// #1670: the memory's node-role rules, for the create page's role suggestions.
+// Memory.config is null for anyone who does not MANAGE the memory, so this is
+// also the manager check. Read by the create page only, never the shared layout.
+export const MEMORY_ROLE_RULES_QUERY = /* GraphQL */ `
+  query MemoryRoleRules($ref: ID!) {
+    memory(ref: $ref) {
+      id
+      config {
+        rules { role enabled writers strictSubRoles descriptionNode descriptionNodeState }
+      }
+    }
+  }
+`;
+
 export const CREATE_NODE_MUTATION = /* GraphQL */ `
   ${NODE_FIELDS}
   mutation CreateNode($input: CreateNodeInput!) {
@@ -4145,8 +4214,8 @@ export const APP_RUN_FIELDS = /* GraphQL */ `
 // The runs audit list (org-READER gated server-side; limit hard-capped 200).
 export const APP_RUNS_QUERY = /* GraphQL */ `
   ${APP_RUN_FIELDS}
-  query AppRuns($appRef: String, $status: AppRunStatus, $limit: Int, $offset: Int) {
-    appRuns(appRef: $appRef, status: $status, limit: $limit, offset: $offset) {
+  query AppRuns($appRef: String, $statuses: [AppRunStatus!], $sortBy: AppRunSortField, $sortDir: SortDirection, $limit: Int, $offset: Int) {
+    appRuns(appRef: $appRef, statuses: $statuses, sortBy: $sortBy, sortDir: $sortDir, limit: $limit, offset: $offset) {
       items { ...AppRunFields }
       total
     }
@@ -4231,7 +4300,7 @@ const AGENT_APP_LITE_FIELDS = /* GraphQL */ `
     urn
     organizationId
     agents { id name urn description personaRole }
-    appAgents { agent { id } }
+    appAgents { agent { id } installMethod importer { id name urn } }
   }
 `;
 
@@ -4831,6 +4900,17 @@ export const COMPILE_AGENT_BOOT_PROMPT_MUTATION = /* GraphQL */ `
   }
 `;
 
+/**
+ * portal#1684 (hadron-server#3435): how the App installs each Agent, in its own
+ * read so a refusal costs the marks and never the App page. The server answers
+ * every entry or none, so a null is withheld, and is not "installed".
+ */
+export const APP_INSTALL_MARKS_QUERY = /* GraphQL */ `
+  query AppInstallMarks($ref: ID!) {
+    app(ref: $ref) { id appAgents { agent { id } installMethod importer { id name urn } } }
+  }
+`;
+
 // The App's install rows, joined to the Agents tab by agent id. A row whose
 // agent is withheld (null) can't be joined and shows as not shown.
 export const APP_BOOT_POINTERS_QUERY = /* GraphQL */ `
@@ -5089,6 +5169,32 @@ export const AGENT_TASK_TREE_QUERY = /* GraphQL */ `
   ${AGENT_TASK_ROW_FIELDS}
   query AgentTaskTree($root: ID!) {
     agentTaskTree(root: $root) { ...AgentTaskRowFields }
+  }
+`;
+
+/**
+ * portal#1697 — the two facts the Review section starts from, read from the
+ * task's own typed events (hrn:node:hadronmemory.com:specs:cor:agt:130:03),
+ * never from the `pr.*` / `review.*` property mirrors.
+ */
+export const TASK_REVIEW_EVENTS_QUERY = /* GraphQL */ `
+  query TaskReviewEvents($appRef: ID!, $taskId: ID!, $types: [String!], $after: ID, $limit: Int) {
+    agentTeamEvents(appRef: $appRef, taskId: $taskId, types: $types, after: $after, limit: $limit) {
+      id
+      type
+      payload
+    }
+  }
+`;
+
+/** portal#1697 (hadron-server#3448): the server's readiness answer at the frozen head; the portal never works it out. */
+export const PULL_REQUEST_READINESS_QUERY = /* GraphQL */ `
+  query PullRequestReadiness($taskRef: ID!, $head: String!) {
+    pullRequestReadiness(taskRef: $taskRef, head: $head) {
+      ready
+      head
+      slots { slot currentTaskId state verdict head counts }
+    }
   }
 `;
 

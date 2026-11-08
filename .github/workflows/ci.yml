@@ -83,6 +83,10 @@ jobs:
       - name: Check memory Usage toolbar phone layout
         run: pnpm test:usage-toolbar-layout
 
+      # portal#1826: the Org Integrations Add/select/Configure row at 390px.
+      - name: Check Org Integrations add-row phone layout
+        run: pnpm test:org-integrations-row-layout
+
       # portal#1099: the Tickers views at 390px and 1280px.
       - name: Check Tickers phone layout
         run: pnpm test:tickers-layout
@@ -95,9 +99,27 @@ jobs:
       - name: Check Task integrations focus ring
         run: pnpm test:task-integrations-focus
 
+      # portal#1675: the ApplyAgentTickers result region paints a focus ring after a keyboard apply.
+      - name: Check ApplyAgentTickers focus ring
+        run: pnpm test:apply-agent-tickers-focus
+
       # portal#1676: Task integrations' touch targets and overflow at 390px and 1280px.
       - name: Check Task integrations layout
         run: pnpm test:task-integrations-layout
+
+      # portal#1686: every compact Urn call-site configuration in real Chromium.
+      - name: Check compact URN keyboard and touch layout
+        run: pnpm test:urn-compact-layout
+
+      # portal#1700: the Nodes tab reads one bounded page per action and keeps its DOM windowed (real Chromium).
+      - name: Check Nodes tab lazy reads
+        run: pnpm test:nodes-tab-lazy
+
+      - name: Check App Runs table layout
+        run: pnpm test:app-runs-layout
+
+      - name: Check invitation clipboard feedback
+        run: pnpm test:invite-copy
 
       - name: Check App picker phone layout
         run: node scripts/test-select-app-layout.mjs

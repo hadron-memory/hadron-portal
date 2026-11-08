@@ -171,7 +171,7 @@
     {#if tickers.kind === 'failed'}
       <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
         {t('app.tickers.load-failed', 'Couldn’t load tickers.')}
-        <button type="button" onclick={refresh} class="ml-2 font-medium underline">{t('app.tickers.retry', 'Try again')}</button>
+        <button type="button" onclick={refresh} class="ml-2 py-1 font-medium underline">{t('app.tickers.retry', 'Try again')}</button>
       </div>
     {:else if rows.length === 0}
       <!-- §7: the state everyone meets first. It must not claim a ticker wakes anyone today. -->

@@ -187,7 +187,7 @@ function taskPage(over: Record<string, unknown> = {}) {
       data: { app, task: detail(), ancestors: [], ancestorsTruncated: false,
         canWrite: true, impersonating: null, created: false, candidates: { workers: [], people: [] },
         tree: { kind: 'ok', value: { rows: [detail()], capped: false } },
-        history: { kind: 'ok', value: { events: [], capped: false } }, ...over },
+        history: { kind: 'ok', value: { events: [], capped: false } }, review: { kind: 'ok', value: { readiness: null, seat: null } }, ...over },
     },
   } as never).body;
 }
@@ -275,6 +275,12 @@ describe('task page', () => {
     expect(html).toContain('href="/app/apps/app-1/tasks/c1"');
     expect(html).toContain('Child one');
     expect(html).not.toContain('No subtasks');
+  });
+
+  it('hedges the capped tree notice, and shows no notice without the cap (#1770)', () => {
+    const capped = taskPage({ tree: { kind: 'ok', value: { rows: [detail()], capped: true } } });
+    expect(capped).toContain('Showing the first 1000 tasks in this tree; deeper or later subtasks may not be shown.');
+    expect(taskPage()).not.toContain('Showing the first 1000 tasks in this tree');
   });
 
   it('an open alarm reads as an Alarm with the CLI acknowledge line, and no button', () => {
@@ -530,5 +536,21 @@ describe('task handles', () => {
     const html = taskPage({ task: detail({ id: 'abc', handle: 'AT3', status: 'BACKLOG', assignee: null }), canWrite: true });
     expect(html).not.toContain('project-zero-note');
     expect(barButtons(html).length).toBeGreaterThan(0);
+  });
+});
+
+describe('task page: Review section (portal#1697)', () => {
+  const H = 'c'.repeat(40);
+  const review = { kind: 'ok', value: { readiness: { ready: true, head: H, slots: [] }, seat: null } };
+
+  it('sits above Properties, which stays', () => {
+    const html = taskPage({ review, task: task({ properties: { 'pr.head': H } }) });
+    expect(html).toContain('Ready at cccccccc');
+    expect(html.indexOf('task-review-heading')).toBeLessThan(html.indexOf('Properties'));
+    expect(html).toContain('pr.head');
+  });
+
+  it('a task with no review answer has no Review section', () => {
+    expect(taskPage()).not.toContain('task-review-heading');
   });
 });

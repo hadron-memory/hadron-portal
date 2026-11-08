@@ -28,7 +28,29 @@ export function eventActor(e: Pick<AgentTeamEvent, 'actor' | 'actorRunId'>): Eve
   return { kind: 'hadron' };
 }
 
-export type EventSentence = { known: true; text: string } | { known: false; type: string };
+/** A value an event names (a pull request, a review node, a receipt). `href` is set only for a web URL; anything else is shown as text. */
+export interface EventLink { label: string; value: string; href: string | null }
+
+export type EventSentence =
+  | { known: true; text: string; links?: EventLink[]; detail?: string }
+  | { known: false; type: string };
+
+/** hadron-server#3449 (hrn:node:hadronmemory.com:specs:cor:agt:110:01): `app.<slug>.<name>`, three atoms at least, so the two-atom `app.*` platform types never match. */
+const APP_ACTION_CODE = /^app\.[a-z0-9-]+(\.[a-z0-9][a-z0-9-]*)+$/;
+
+const shortHead = (v: unknown): string | null => (typeof v === 'string' && /^[0-9a-f]{7,40}$/i.test(v) ? v.slice(0, 7) : null);
+
+function link(label: string, v: unknown): EventLink | null {
+  const value = str(v);
+  if (!value) return null;
+  return { label, value, href: /^https:\/\//i.test(value) ? value : null };
+}
+
+/** The sentence plus the links it names; no `links` key at all when there are none. */
+function withLinks(text: string, links: Array<EventLink | null>): EventSentence {
+  const present = links.filter((l): l is EventLink => l !== null);
+  return present.length ? { known: true, text, links: present } : { known: true, text };
+}
 
 function str(v: unknown): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null;
@@ -146,8 +168,52 @@ export function eventSentence(
         known: true,
         text: t('app.tasks.history.session-end', 'asked {who} to end its session when done', { who: subject(e, people) }),
       };
-    default:
+    // hadron-server#3448: closed protocol facts; the head is shown short, the rest verbatim.
+    case 'review.scheduled': {
+      const slots = Array.isArray(p.slots) ? p.slots.filter((x): x is string => typeof x === 'string' && x.length > 0) : [];
+      return { known: true, text: slots.length
+        ? t('app.tasks.history.review-scheduled', 'scheduled the reviews: {slots}', { slots: listWords(slots) })
+        : t('app.tasks.history.review-scheduled-bare', 'scheduled the reviews') };
+    }
+    case 'pr.frozen': {
+      const head = shortHead(p.head);
+      return withLinks(head
+        ? t('app.tasks.history.pr-frozen', 'froze the pull request at {head}', { head })
+        : t('app.tasks.history.pr-frozen-bare', 'froze the pull request'), [link(t('app.tasks.history.link.pr', 'Pull request'), p.pullRequest)]);
+    }
+    case 'review.seat.assigned': {
+      const slot = str(p.slot);
+      const head = shortHead(p.head);
+      const supersedes = str(p.supersedes);
+      const base = slot && head
+        ? t('app.tasks.history.seat-assigned', 'assigned the {slot} seat at {head}', { slot, head })
+        : t('app.tasks.history.seat-assigned-bare', 'assigned a review seat');
+      return { known: true, text: supersedes ? t('app.tasks.history.seat-replacing', '{base}, replacing {old}', { base, old: supersedes }) : base };
+    }
+    case 'review.verdict': {
+      const verdict = str(p.verdict);
+      const slot = str(p.slot);
+      const head = shortHead(p.head);
+      const text = verdict && slot && head
+        ? t('app.tasks.history.verdict', 'recorded {verdict} for the {slot} seat at {head}', { verdict, slot, head })
+        : t('app.tasks.history.verdict-bare', 'recorded a review verdict');
+      return withLinks(text, [link(t('app.tasks.history.link.node', 'Review node'), p.node), link(t('app.tasks.history.link.receipt', 'Receipt'), p.receipt)]);
+    }
+    case 'pr.ready': {
+      const head = shortHead(p.head);
+      return { known: true, text: head
+        ? t('app.tasks.history.pr-ready', 'called it ready at {head}', { head })
+        : t('app.tasks.history.pr-ready-bare', 'called it ready') };
+    }
+    default: {
+      // hadron-server#3449: an App-defined action's type IS its code; the App's own payload sits under `payload`.
+      if (APP_ACTION_CODE.test(e.type)) {
+        const text = t('app.tasks.history.app-action', 'recorded {code}', { code: e.type });
+        const own = p.payload;
+        return own && typeof own === 'object' && !Array.isArray(own) ? { known: true, text, detail: JSON.stringify(own, null, 2) } : { known: true, text };
+      }
       return { known: false, type: e.type };
+    }
   }
 }
 

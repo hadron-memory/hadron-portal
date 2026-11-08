@@ -105,7 +105,7 @@ describe('open-feedback cue (portal#1014)', () => {
   });
 
   it('local review on #1025, P3: with no node link the cue is plain text, never a dead link', () => {
-    const plain = render(NodeList, { props: { nodes: [{ ...node, openThreads: 1, memory: null }], memoryUrn: 'micromentor.org::mmdata' } }).body;
+    const plain = render(NodeList, { props: { nodes: [{ ...node, openThreads: 1, memory: null, memoryId: undefined as never }], memoryUrn: 'micromentor.org::mmdata' } }).body;
     expect(plain).toContain('<span data-testid="node-open-feedback"');
     expect(plain).not.toContain('<a href="undefined');
   });

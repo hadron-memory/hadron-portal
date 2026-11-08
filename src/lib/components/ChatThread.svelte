@@ -143,6 +143,7 @@
     message: sendMessage,
     submitting: sendSubmitting,
     enhance: sendEnhance,
+    reset: resetSend,
   } = superForm<SendChatMessageForm, App.Superforms.Message, SendChatMessageForm>(initialSendForm, {
     validators: zod4Client(sendChatMessageSchema),
     validationMethod: 'oninput',
@@ -151,6 +152,14 @@
     invalidateAll: true,
     clearOnSubmit: 'none',
     resetForm: true,
+    onUpdated: ({ form: updated }) => {
+      if (updated.valid && updated.message?.type !== 'error') {
+        // #1567: a refused draft is a mount seed, not a successful reset
+        // target. Rebase on the loader's clean form, as TeamChatThread does,
+        // so neither this success nor a later reset restores the old draft.
+        resetSend({ newState: sendForm.data, keepMessage: true });
+      }
+    },
     // #1522 QA (portal#1568, Celine's leg 2): superforms' duplicate-id check
     // logs a warning whenever an id registers while the SAME id is still live.
     // Svelte tears the outgoing page down AFTER the incoming page initializes,
@@ -168,6 +177,9 @@
     // HERE rather than re-scoping ids to dodge a mount-order artifact — and
     // the same test file pins this decision: two live ChatThreads (the
     // router's transition window) must log nothing.
+    // hrn:node:hadronmemory.com:hadron-portal:findings:superforms-duplicate-id-page-epoch
+    // This also skips duplicate-id registration: silence from a single thread
+    // is not distinct-id coverage. The tests pin the option and ids separately.
     warnings: { duplicateId: false },
   });
   const sendError = $derived(

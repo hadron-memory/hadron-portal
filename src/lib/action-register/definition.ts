@@ -15,4 +15,6 @@ export type DefinitionRegister =
       limit: number;
       offset: number;
       definitionUrn: string;
+      /** `<App as asked>|<limit>|<offset>`: the request this answer is for. */
+      key: string;
     };

@@ -9,6 +9,7 @@ import { SELF_AGENT_MANAGE_QUERY, AGENT_INDEX_REFS_QUERY } from '$lib/server/age
  * up SvelteKit.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { parse, visit, type FieldNode, type SelectionSetNode } from 'graphql';
 import {
   AGENT_QUERY,
   ORGANIZATIONS_QUERY,
@@ -633,6 +634,16 @@ describe('/app/agents/[id] loader — bundled agents (#713)', () => {
     expect(bundled[0]).toMatchObject({ name: 'Backend Engineer', personaRole: 'backend-engineer', via: 'Team App' });
   });
 
+  it('portal#1684: a derived sibling says so in its via; a row or a withheld answer doesn\u2019t', async () => {
+    const importer = { id: 'agent-aaa', name: 'Team Lead', urn: 'hrn:agent:acme.com:lead' };
+    const row = (id: string, installMethod: string | null, imp: unknown = null) => ({ agent: { id }, installMethod, importer: imp });
+    const app = (id: string, appAgents: unknown) => ({ id, name: `App ${id}`, urn: `urn:app:${id}`, organizationId: 'org-a', appAgents, agents: [selfLite, backend, frontend] });
+    const derived = await loadBundled({ apps: [app('1', [row('agent-aaa', 'ROW'), row('agent-backend', 'DERIVED', importer), row('agent-frontend', 'ROW')])] });
+    expect(derived.bundledAgents.map((a) => a.via)).toEqual(['App 1, derived from Team Lead', 'App 1']);
+    const withheld = await loadBundled({ apps: [app('2', [row('agent-aaa', null), row('agent-backend', null), row('agent-frontend', null)])] });
+    expect(withheld.bundledAgents.map((a) => a.via)).toEqual(['App 2', 'App 2']);
+  });
+
   // portal#1350: App.agents drops an unreadable Agent and App.agentId is masked, so the only
   // signal is an `appAgents` row whose `agent` is null. Pins the real nullable AppAgent shape.
   type Flag = { bundledAgents: Array<{ id: string }>; installedApps: Array<{ id: string }>; bundledMayBeIncomplete?: boolean };
@@ -692,8 +703,17 @@ describe('/app/agents/[id] loader — bundled agents (#713)', () => {
   });
 
   it('selects the join, not the masked primary id, in both App documents', () => {
+    // Parsed, so a reflow or a reordered selection can't fail it and a look-alike in a comment can't pass it.
+    const fields = (set: SelectionSetNode | undefined) =>
+      Object.fromEntries((set?.selections ?? []).filter((n): n is FieldNode => n.kind === 'Field').map((n) => [n.name.value, n.selectionSet]));
+    const names = (set: SelectionSetNode | undefined) => Object.keys(fields(set)).sort();
     for (const doc of [AGENT_APPS_QUERY, AGENT_OWNED_APPS_QUERY]) {
-      expect(doc).toContain('appAgents { agent { id } }');
+      const found: SelectionSetNode[] = [];
+      visit(parse(doc), { Field: (n) => { if (n.name.value === 'appAgents' && n.selectionSet) found.push(n.selectionSet); } });
+      expect(found).toHaveLength(1);
+      expect(names(found[0])).toEqual(['agent', 'importer', 'installMethod']);
+      expect(names(fields(found[0]).agent)).toEqual(['id']);
+      expect(names(fields(found[0]).importer)).toEqual(['id', 'name', 'urn']);
       expect(doc).not.toMatch(/^\s+agentId\s*$/m);
     }
   });

@@ -6,6 +6,7 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { approvalHref, orNotStated, pageStateLabel } from '$lib/automation/approval';
+  import { timingFromSchedule, timingSentence } from '$lib/automation/schedule-timing';
   import { t } from '$lib/i18n/t';
   import TeamGrantSection from './TeamGrantSection.svelte';
   import type { ActionData, PageData } from './$types';
@@ -29,6 +30,16 @@
   // CHANGED means a valid approval exists, so Decline revokes it; UNADOPTED means there is nothing to revoke.
   const approved = $derived(approval.state === 'ADOPTED');
   const hasApproval = $derived(approval.state !== 'UNADOPTED');
+  // An approved schedule has nothing to decline. Both the opener and the open confirmation key on this, so a Decline
+  // opened while UNADOPTED closes when the same automation turns ADOPTED (same identity, new loader state).
+  const canDecline = $derived(!(data.kind === 'SCHEDULE' && approved));
+
+  // portal#1701: a schedule says when it runs in its own words and zone. summary.schedule quotes the raw cron, so it is
+  // the fallback only when the schedule could not be read.
+  const schedule = $derived(data.schedule);
+  const timing = $derived(schedule ? timingFromSchedule(schedule) : null);
+  const whenSentence = $derived(schedule && timing ? timingSentence(timing, schedule.timezone) : null);
+  const nextRun = $derived(schedule?.nextRunAt ? new Date(schedule.nextRunAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone: schedule.timezone }) : null);
 
   let confirmingDecline = $state(false);
   let submitting = $state(false);
@@ -45,6 +56,9 @@
     void identity;
     untrack(() => { confirmingDecline = false; submitting = false; });
   });
+
+  // An open confirmation is dropped, not just hidden, when Decline stops being offered, so it cannot reappear later.
+  $effect.pre(() => { if (!canDecline) untrack(() => { confirmingDecline = false; }); });
 
   // Focus follows the person's action: into the confirmation when it opens, back to Decline when it is cancelled,
   // and to the outcome after a submit, since the button that sent it may be gone.
@@ -107,7 +121,30 @@
 
   <section class="space-y-1" aria-labelledby="auto-when">
     <h2 id="auto-when" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.automations.when', 'When it runs')}</h2>
-    <p class="text-sm text-zinc-700 dark:text-zinc-300">{orNotStated(summary.schedule)}</p>
+    {#if schedule}
+      <p class="text-sm text-zinc-700 dark:text-zinc-300" data-testid="schedule-when">
+        {schedule.enabled ? '' : `${t('app.automations.paused-lead', 'Paused')} · `}{whenSentence ?? orNotStated(null)}
+      </p>
+      {#if schedule.enabled && nextRun}
+        <p class="text-sm text-zinc-700 dark:text-zinc-300" data-testid="schedule-next">{t('app.automations.next-run', 'Next run: {when}', { when: `${nextRun} (${schedule.timezone})` })}</p>
+      {/if}
+      {#if data.created}
+        <p role="status" class="text-sm text-emerald-800 dark:text-emerald-300" data-testid="schedule-created">
+          {t('app.automations.created', 'Created. You approved it by creating it.')}
+        </p>
+      {/if}
+      <div class="flex flex-wrap items-center gap-2 pt-1">
+        <a href="{approvalHref(data.app.id, data.kind, data.ref)}/edit" class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:text-zinc-200">{t('app.automations.change', 'Change')}</a>
+        <form method="POST" action={schedule.enabled ? '?/pause' : '?/resume'} use:enhance>
+          <button type="submit" class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:text-zinc-200">{schedule.enabled ? t('app.automations.pause', 'Pause') : t('app.automations.resume', 'Resume')}</button>
+        </form>
+      </div>
+      {#if form && 'scheduleRefused' in form}
+        <p role="alert" class="text-sm text-red-700 dark:text-red-300" data-testid="schedule-refused">{form.scheduleMessage}</p>
+      {/if}
+    {:else}
+      <p class="text-sm text-zinc-700 dark:text-zinc-300">{orNotStated(summary.schedule)}</p>
+    {/if}
   </section>
 
   <section class="space-y-1" aria-labelledby="auto-reads">
@@ -169,12 +206,12 @@
           <button type="submit" disabled={submitting} class="rounded-lg bg-indigo-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-indigo-400 dark:text-zinc-950">{t('app.automations.approve', 'Approve')}</button>
         </form>
       {/if}
-      {#if !confirmingDecline}
+      {#if !confirmingDecline && canDecline}
         <button type="button" bind:this={declineButton} onclick={openDecline} class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:text-zinc-200">{t('app.automations.decline', 'Decline')}</button>
       {/if}
     </div>
 
-    {#if confirmingDecline}
+    {#if confirmingDecline && canDecline}
       <!-- Decline asks first: on an approved automation it switches the automation off. -->
       <form method="POST" action="?/decline" use:enhance={submitted} bind:this={confirmation} tabindex="-1" data-testid="decline-confirmation" class="space-y-2 rounded-lg border border-zinc-300 p-3 outline-none dark:border-zinc-700">
         <p class="text-sm text-zinc-800 dark:text-zinc-200">

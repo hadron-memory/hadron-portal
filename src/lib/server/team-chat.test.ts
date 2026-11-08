@@ -197,10 +197,11 @@ describe('loadChatMessages', () => {
     expect(page.hasOlder).toBe(false);
   });
 
-  it('keeps only direct message children, and orders a platform thread by seq', async () => {
+  it('keeps only direct message children in provider seq order', async () => {
     const client = clientReturning([
-      msg('chats:team:messages:002-x-iris', { seq: 2 }),
+      // Provider returns seq ASC; the client retains its window order.
       msg('chats:team:messages:001-y-holger', { seq: 1 }),
+      msg('chats:team:messages:002-x-iris', { seq: 2 }),
       // Off-road content under the prefix (D-2026-08-10-003) — not a message.
       msg('chats:team:messages:notes', { nodeType: 'record', seq: 3 }),
       // Nested under a message (e.g. an attachment).
@@ -227,8 +228,9 @@ describe('loadChatMessages', () => {
     // The fixture makes them DISAGREE on purpose — loc `a` is older by name,
     // newer by timestamp — so the assertion can only pass on the loc order.
     const client = clientReturning([
-      msg('chats:team:messages:b', { nodeType: 'message', createdAt: '2026-08-14T09:00:00Z' }),
+      // Provider returns loc ASC, deliberately opposite to createdAt.
       msg('chats:team:messages:a', { nodeType: 'message', createdAt: '2026-08-14T12:00:00Z' }),
+      msg('chats:team:messages:b', { nodeType: 'message', createdAt: '2026-08-14T09:00:00Z' }),
     ]);
 
     const { messages } = await loadChatMessages(client, 'mem-1', 'chats:team', { sort: 'loc' });

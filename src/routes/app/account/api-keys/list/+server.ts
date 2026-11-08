@@ -16,10 +16,10 @@ import type { RequestHandler } from './$types';
 // refused read answers `{ failed: true }` in a 200, never the server's prose;
 // only an unauthenticated caller gets an HTTP error.
 export const GET: RequestHandler = async ({ locals, url }) => {
-  if (!locals.token) {
-    return json({ error: 'Unauthorized' }, { status: 401 });
-  }
   const headers = { 'cache-control': 'no-store' };
+  if (!locals.token) {
+    return json({ error: 'Unauthorized' }, { status: 401, headers });
+  }
   const includeHidden = url.searchParams.get('includeHidden') === 'true';
   try {
     return json({ keys: await readUserApiKeys(locals.token, includeHidden) }, { headers });
