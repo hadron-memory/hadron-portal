@@ -2434,18 +2434,57 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     const { m } = await openCast();
     await supersedeHeldRuns(m);
     // A newer Runs choice after the external navigation owns the latch again.
-    let releaseNewer!: () => void;
-    navigationHooks.onPreloadData = () => new Promise((resolve) => {
-      releaseNewer = () => resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    navigationHooks.onPreloadData = () => Promise.resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    let releaseGoto!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => {
+      // Kit runs beforeNavigate for the owned goto itself, with its exact URL.
+      const navigation = {
+        type: 'goto', to: { url: new URL('/app/apps/a1?tab=runs', window.location.href) },
+        from: { url: new URL('https://example.test/app/apps/a1?tab=staff') },
+        cancel: vi.fn(), willUnload: false,
+      };
+      for (const guard of navigationGuards.filter((entry) => entry.fn === 'beforeNavigate')) {
+        (guard.callback as (nav: unknown) => void)(navigation);
+      }
+      releaseGoto = resolve;
     });
     navigationCalls.length = 0;
     m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
-    await tick(2);
-    // Its own goto passes the guard (exact owned href) and must not release it.
-    releaseNewer();
-    await tick(2);
-    const owned = navigationCalls.filter((call) => call.fn === 'goto').map((call) => String(call.args[0]));
-    expect(owned).toEqual(['/app/apps/a1?tab=runs']);
+    await tick(5);
+    // Still pending: the owned goto neither bumped the epoch nor released the latch,
+    // so a second choice is still routed through goto (and supersedes this one).
+    expect(navigationCalls.filter((call) => call.fn === 'goto').map((call) => String(call.args[0]))).toEqual(['/app/apps/a1?tab=runs']);
+    releaseGoto();
+    await tick(10);
+    // The owned navigation completed and was not treated as superseded.
+    expect(m.target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('#1831 a newer focusTab choice holding the latch is still pending when an owned navigation passes beforeNavigate', async () => {
+    const { m } = await openCast();
+    let releaseGoto!: () => void;
+    navigationHooks.onPreloadData = () => Promise.resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => {
+      const navigation = {
+        type: 'goto', to: { url: new URL('/app/apps/a1?tab=runs', window.location.href) },
+        from: { url: new URL('https://example.test/app/apps/a1?tab=staff') },
+        cancel: vi.fn(), willUnload: false,
+      };
+      for (const guard of navigationGuards.filter((entry) => entry.fn === 'beforeNavigate')) {
+        (guard.callback as (nav: unknown) => void)(navigation);
+      }
+      releaseGoto = resolve;
+    });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(5);
+    navigationCalls.length = 0;
+    navigationHooks.onGoto = undefined;
+    // Latch must still be held: an ordinary local tab is routed through goto.
+    m.target.querySelector<HTMLButtonElement>('#tab-keys')!.click();
+    await tick(5);
+    expect(navigationCalls.filter((call) => call.fn === 'goto').map((call) => String(call.args[0]))).toEqual(['/app/apps/a1?tab=keys']);
+    releaseGoto?.();
+    await tick(5);
   });
 
   it.each([false, true])('control: Runs renders with no action (navigation held=%s)', async (held) => {
