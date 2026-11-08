@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import AiServiceConfigManager from './AiServiceConfigManager.svelte';
+import { resetAiConfigRecoveryForTests } from './ai-config-recovery';
 import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 import type { AiServiceConfig } from '$lib/types';
 
@@ -18,6 +19,7 @@ const GLM_ENDPOINTS = [
 
 let posts: Array<Record<string, unknown>>;
 beforeEach(() => {
+  resetAiConfigRecoveryForTests();
   posts = [];
   vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
     const body = JSON.parse(init.body) as Record<string, unknown>;
@@ -148,6 +150,8 @@ describe('openai-compatible', () => {
     await settle();
     button(root, 'Save').click();
     await settle();
+    await tick(60); // remount only after the committed update's recovery settles
+    flushSync();
     let update = posts.find((p) => p.action === 'update')!;
     expect(update).toMatchObject({ provider: 'glm', endpoint: null });
     expect(update).toHaveProperty('params', null); // cleared, not "unchanged"
