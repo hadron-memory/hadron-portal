@@ -112,13 +112,26 @@
   // #937: one shape for both paths, so the result always reads the same way.
   let testResult = $state<AiConfigTestView | null>(null);
   let confirmDeleteId = $state<string | null>(null);
-  // Plain generations, not reactive state: an accepted newer action and an
-  // owner change both revoke every older continuation, including its finally.
+  // Plain action generations fence visible editor feedback. The owner-visit
+  // generation additionally distinguishes A → B → A, where ownerKey matches
+  // again but the old request no longer belongs to the current editor.
   let actionGeneration = 0;
   let ownerKey = '';
+  let ownerGeneration = $state(0);
   let destroyed = false;
 
-  type ActionToken = { generation: number; noticeGeneration: number };
+  type ActionToken = {
+    generation: number;
+    noticeGeneration: number;
+    ownerKey: string;
+    ownerGeneration: number;
+  };
+  type PendingMutation = { id: number; ownerKey: string };
+  let mutationSequence = 0;
+  let pendingMutations = $state<PendingMutation[]>([]);
+  const mutationPending = $derived(
+    pendingMutations.some((mutation) => mutation.ownerKey === ownerKey),
+  );
 
   function clearNotice(): number {
     return onAction();
@@ -127,11 +140,27 @@
   function beginAction(): ActionToken {
     const noticeGeneration = clearNotice();
     busy = false;
-    return { generation: ++actionGeneration, noticeGeneration };
+    return { generation: ++actionGeneration, noticeGeneration, ownerKey, ownerGeneration };
+  }
+
+  function isOwnerVisitCurrent(action: ActionToken): boolean {
+    return action.ownerKey === ownerKey && action.ownerGeneration === ownerGeneration;
   }
 
   function isCurrent(action: ActionToken): boolean {
-    return !destroyed && action.generation === actionGeneration;
+    return !destroyed && action.generation === actionGeneration && isOwnerVisitCurrent(action);
+  }
+
+  function trackMutation(action: ActionToken): number {
+    const id = ++mutationSequence;
+    pendingMutations = [...pendingMutations, { id, ownerKey: action.ownerKey }];
+    return id;
+  }
+
+  function finishMutation(id: number) {
+    // Settlement always releases its own registration, even after Cancel or an
+    // owner change. A stale request must never clear another request's lock.
+    pendingMutations = pendingMutations.filter((mutation) => mutation.id !== id);
   }
 
   function resetEditor() {
@@ -147,6 +176,7 @@
     const nextOwnerKey = `${ownerType}:${ownerId}`;
     if (nextOwnerKey === ownerKey) return;
     ownerKey = nextOwnerKey;
+    ownerGeneration++;
     actionGeneration++;
     clearNotice();
     resetEditor();
@@ -436,6 +466,7 @@
   }
 
   async function save() {
+    if (mutationPending || mutationLocked) return;
     const action = beginAction();
     error = null;
     testResult = null;
@@ -483,6 +514,7 @@
 
     busy = true;
     const mutationOwnerKey = `${ownerType}:${ownerId}`;
+    const pendingMutation = trackMutation(action);
     try {
       try {
         if (editId === null) {
@@ -519,12 +551,14 @@
         }
       } catch (e) {
         if (e instanceof UncertainMutationError) {
-          // Lock replay until the Section's full-page readback, even if this
-          // manager is later torn down and remounted for the same owner.
-          if (mutationOwnerKey === ownerKey) uncertainMutation = true;
-          // Uncertainty is safety-critical, not action-owned feedback. The
-          // Section keeps it visible even after Cancel or another row action.
-          onUncertain({ ownerKey: mutationOwnerKey, text: s.mutationUnconfirmed() });
+          if (isOwnerVisitCurrent(action)) {
+            // Lock replay until the Section's full-page readback, even if this
+            // manager is later torn down and remounted for the same owner.
+            uncertainMutation = true;
+            // Uncertainty is safety-critical, not action-owned feedback. The
+            // Section keeps it visible even after Cancel or another row action.
+            onUncertain({ ownerKey: mutationOwnerKey, text: s.mutationUnconfirmed() });
+          }
         } else if (isCurrent(action)) {
           error = e instanceof Error ? e.message : 'Failed to save configuration';
         }
@@ -532,15 +566,19 @@
       }
 
       if (isCurrent(action)) resetEditor();
-      // The Section owns the committed write's readback and outcome. It checks
-      // the owner again, including if this manager was unmounted meanwhile.
-      void onCommitted({
-        ownerKey: mutationOwnerKey,
-        noticeGeneration: action.noticeGeneration,
-        successText: s.saveSuccess(name),
-        refreshFailedText: s.saveRefreshFailed(name),
-      });
+      // The Section owns the committed write's readback and outcome. Publish
+      // only into the owner visit that issued the request: A → B → A must not
+      // revive an earlier visit's committed result.
+      if (isOwnerVisitCurrent(action)) {
+        void onCommitted({
+          ownerKey: mutationOwnerKey,
+          noticeGeneration: action.noticeGeneration,
+          successText: s.saveSuccess(name),
+          refreshFailedText: s.saveRefreshFailed(name),
+        });
+      }
     } finally {
+      finishMutation(pendingMutation);
       if (isCurrent(action)) busy = false;
     }
   }
@@ -625,30 +663,37 @@
   }
 
   async function doDelete(id: string, name: string) {
+    if (mutationPending || mutationLocked) return;
     const action = beginAction();
     error = null;
     busy = true;
     const mutationOwnerKey = `${ownerType}:${ownerId}`;
+    const pendingMutation = trackMutation(action);
     try {
       try {
         await post({ action: 'delete', id }, true);
       } catch (e) {
         if (e instanceof UncertainMutationError) {
-          if (mutationOwnerKey === ownerKey) uncertainMutation = true;
-          onUncertain({ ownerKey: mutationOwnerKey, text: s.mutationUnconfirmed() });
+          if (isOwnerVisitCurrent(action)) {
+            uncertainMutation = true;
+            onUncertain({ ownerKey: mutationOwnerKey, text: s.mutationUnconfirmed() });
+          }
         } else if (isCurrent(action)) {
           error = e instanceof Error ? e.message : 'Failed to delete configuration';
         }
         return;
       }
       if (isCurrent(action)) confirmDeleteId = null;
-      void onCommitted({
-        ownerKey: mutationOwnerKey,
-        noticeGeneration: action.noticeGeneration,
-        successText: s.deleteSuccess(name),
-        refreshFailedText: s.deleteRefreshFailed(name),
-      });
+      if (isOwnerVisitCurrent(action)) {
+        void onCommitted({
+          ownerKey: mutationOwnerKey,
+          noticeGeneration: action.noticeGeneration,
+          successText: s.deleteSuccess(name),
+          refreshFailedText: s.deleteRefreshFailed(name),
+        });
+      }
     } finally {
+      finishMutation(pendingMutation);
       if (isCurrent(action)) busy = false;
     }
   }
@@ -685,6 +730,17 @@
       </div>
     {/if}
   </div>
+  <!-- Always mounted so a refusal is announced whether it came from the open
+       editor or a row action; only the alert's content changes. -->
+  <div data-testid="ai-config-error-feedback" role="alert" aria-live="assertive" aria-atomic="true">
+    {#if error}
+      <div
+        class="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+      >
+        {error}
+      </div>
+    {/if}
+  </div>
   <div class="mb-3 flex items-start justify-between gap-4">
     <div>
       <h2 class="font-semibold text-zinc-900 dark:text-white">{s.heading()}</h2>
@@ -706,14 +762,6 @@
       </button>
     {/if}
   </div>
-
-  {#if error && !formOpen}
-    <div
-      class="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
-    >
-      {error}
-    </div>
-  {/if}
 
   <!-- Add / edit form -->
   {#if formOpen}
@@ -919,13 +967,6 @@
         <p class="mt-1 text-xs text-zinc-400">{s.paramsHint()}</p>
       </div>
 
-      {#if error}
-        <div
-          class="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
-        >
-          {error}
-        </div>
-      {/if}
       {#if testResult}
         <div
           class="rounded-md border px-3 py-2 text-xs {testResult.ok
@@ -943,7 +984,7 @@
         <button
           type="button"
           onclick={save}
-          disabled={busy || mutationLocked}
+          disabled={busy || mutationPending || mutationLocked}
           class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
         >
           {busy ? s.savingButton() : s.saveButton()}
@@ -1013,7 +1054,7 @@
                 <button
                   type="button"
                   onclick={() => doDelete(c.id, c.name)}
-                  disabled={busy || mutationLocked}
+                  disabled={busy || mutationPending || mutationLocked}
                   class="rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-500 disabled:opacity-50"
                 >
                   {s.deleteButton()}

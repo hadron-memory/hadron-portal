@@ -6,7 +6,7 @@
   // so the gating + notice copy lives in exactly one place.
   import { onDestroy } from 'svelte';
   import AiServiceConfigManager from './AiServiceConfigManager.svelte';
-  import { readAiConfigs } from './ai-config-readback';
+  import { AI_CONFIG_READBACK_TIMEOUT_MS, readAiConfigs } from './ai-config-readback';
   import { aiConfigStrings as s } from '$lib/i18n/ai-config-strings';
   import type { AiConfigCommitted, AiConfigUncertain } from './ai-config-manager';
   import type { AiConfigOwnerType, AiServiceConfig, OrgMember } from '$lib/types';
@@ -95,6 +95,20 @@
     return `${ownerType}:${ownerId}`;
   }
 
+  function refreshRelated(): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const pending = Promise.resolve()
+      .then(() => onRefreshed())
+      .then(Boolean)
+      .catch(() => false);
+    const expired = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), AI_CONFIG_READBACK_TIMEOUT_MS);
+    });
+    return Promise.race([pending, expired]).finally(() => {
+      if (timer !== null) clearTimeout(timer);
+    });
+  }
+
   async function onCommitted(outcome: AiConfigCommitted) {
     if (destroyed || outcome.ownerKey !== currentOwnerKey()) return;
 
@@ -105,19 +119,19 @@
 
     const against = configs;
     const mine = ++readbacks;
-    const related = Promise.resolve()
-      .then(() => onRefreshed())
-      .catch(() => false);
-    const [fresh, relatedFresh] = await Promise.all([
-      readAiConfigs(ownerType, ownerId),
-      related,
-    ]);
+    const related = refreshRelated();
+    const fresh = await readAiConfigs(ownerType, ownerId);
     if (destroyed || outcome.ownerKey !== currentOwnerKey()) return;
 
+    // The owner list is useful on its own. Do not let a slow or hung related
+    // loader slice hold back fresh rows until the shared timeout expires.
+    if (mine === readbacks && fresh !== null) {
+      reread = { against, ownerKey: outcome.ownerKey, configs: fresh };
+    }
+
+    const relatedFresh = await related;
+    if (destroyed || outcome.ownerKey !== currentOwnerKey()) return;
     if (mine === readbacks) {
-      if (fresh !== null) {
-        reread = { against, ownerKey: outcome.ownerKey, configs: fresh };
-      }
       // A later successful section read resolves only stale-readback guidance.
       // An uncertain mutation still requires the explicit full-page readback.
       refreshWarning = fresh === null || !relatedFresh || configsError ? outcome.refreshFailedText : null;

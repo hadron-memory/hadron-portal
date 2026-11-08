@@ -2,7 +2,7 @@ import type { AiConfigOwnerType, AiServiceConfig } from '$lib/types';
 
 /** The AI-config section's own re-read; never a router-wide invalidateAll(). */
 export const AI_CONFIGS_ENDPOINT = '/api/ai-configs';
-const READBACK_TIMEOUT_MS = 10_000;
+export const AI_CONFIG_READBACK_TIMEOUT_MS = 10_000;
 
 const text = (value: unknown): value is string => typeof value === 'string';
 const textOrNull = (value: unknown): value is string | null => value === null || text(value);
@@ -75,7 +75,7 @@ async function readPayload(url: string): Promise<unknown> {
       timer = setTimeout(() => {
         controller.abort();
         resolve(null);
-      }, READBACK_TIMEOUT_MS);
+      }, AI_CONFIG_READBACK_TIMEOUT_MS);
     });
     return await Promise.race([pending, expired]);
   } catch {

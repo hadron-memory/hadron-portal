@@ -875,11 +875,15 @@ describe('AI configuration review fix pins', () => {
     await settle();
     m.props.ownerId = 'o1';
     await settle();
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(true);
     release();
     await settle();
 
     expect(readbacks).toHaveLength(0);
     expect(feedback(m.target).textContent?.trim()).toBe('');
+    expect(button(m.target, 'Save').disabled).toBe(false);
   });
 
   it('announces a refused save through a persistent alert region', async () => {
@@ -912,5 +916,36 @@ describe('AI configuration review fix pins', () => {
     expect($<HTMLElement>(target, '[data-testid="ai-config-error-feedback"]')).toBe(region);
     expect(region.textContent).toContain('Delete refused.');
     expect(button(target, 'Delete').disabled).toBe(false);
+  });
+
+  it('keeps a late refusal from an old Save out of a Cancel → New draft', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    stubFetch(async (body) => {
+      if (body.action === 'create') {
+        await held;
+        return { ok: false, body: { error: 'Old refusal.' } };
+      }
+      return {};
+    });
+    const { target } = await open();
+    await startCreate(target, 'fast');
+    button(target, 'Save').click();
+    await tick(2);
+
+    button(target, 'Cancel').click();
+    await settle();
+    button(target, 'Add configuration').click();
+    await settle();
+    set($<HTMLInputElement>(target, '#ac-name')!, 'frontier');
+    set($<HTMLInputElement>(target, '#ac-model')!, 'glm-5');
+    set($<HTMLInputElement>(target, '#ac-key')!, 'new-synthetic-key');
+    release();
+    await settle();
+
+    expect(target.textContent).not.toContain('Old refusal.');
+    expect($<HTMLInputElement>(target, '#ac-name')!.value).toBe('frontier');
+    expect($<HTMLElement>(target, '[data-testid="ai-config-error-feedback"]')!.textContent?.trim()).toBe('');
+    expect(button(target, 'Save').disabled).toBe(false);
   });
 });
