@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TabRow from '$lib/components/TabRow.svelte';
   // #327 + follow-up: Account is a tab layout. The breadcrumb + heading + tab bar
   // live here; each tab is a sub-route rendered via {@render children()}:
   //   Account      → /app/account               (profile, sign out)
@@ -45,17 +46,7 @@
        the right edge. `shrink-0 whitespace-nowrap` on each tab is the other
        half — without them flex compresses four labels into unreadable columns
        instead of letting the strip scroll (PR #746, item 2). -->
-  <div class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
-    {#each tabs as tab (tab.id)}
-      <a
-        href={tab.href} data-sveltekit-preload-data={tab.id === 'node-role-templates' ? 'off' : undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
-          {activeTab === tab.id
-            ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-            : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
-      >{tab.label}</a>
-    {/each}
-  </div>
+  <TabRow mode="links" items={tabs.map(tab => ({ ...tab, preload: tab.id === 'node-role-templates' ? 'off' as const : undefined }))} active={activeTab} label={t('account.tabs-label', 'Account sections')} />
 
   {@render children()}
 </div>
