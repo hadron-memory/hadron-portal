@@ -15,8 +15,8 @@
   const identity = $derived(`${nodeId}:${revision}`);
   const columns: PortalColumnDef<ProvenanceRow>[] = [
     { accessorKey: 'name', header: t('boot.provenance.name', 'Source'), size: 300 },
-    { accessorKey: 'depth', header: t('boot.provenance.depth', 'Depth'), size: 80 },
-    { accessorKey: 'revNo', header: t('boot.provenance.revision', 'Revision'), size: 100 },
+    { accessorKey: 'depth', header: t('boot.provenance.depth', 'Depth'), size: 120 },
+    { accessorKey: 'revNo', header: t('boot.provenance.revision', 'Revision'), size: 130 },
     { id: 'selection', header: t('boot.provenance.settings', 'Include settings'), size: 230 },
     { id: 'pruned', header: t('boot.provenance.retention', 'Retention'), size: 220 },
   ];
