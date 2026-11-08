@@ -38,7 +38,7 @@ const CONFIG = {
 
 function body() {
   return render(AiServiceConfigManager, {
-    props: { ownerType: 'ORGANIZATION', ownerId: 'org-1', configs: [CONFIG], canManage: true },
+    props: { ownerType: 'ORGANIZATION', ownerId: 'org-1', currentUserId: 'u1', configs: [CONFIG], canManage: true },
   }).body;
 }
 

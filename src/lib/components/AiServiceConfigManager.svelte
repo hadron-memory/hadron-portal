@@ -38,6 +38,7 @@
     ownerId,
     ownerLabel = null,
     ownerUrn = null,
+    currentUserId = null,
     configs,
     canManage = false,
     allowTest = false,
@@ -94,6 +95,8 @@
     ownerLabel?: string | null;
     /** The same already-authorized owner's URN; null omits the chip. */
     ownerUrn?: string | null;
+    /** Principal scope for standalone recovery; Section also keys remounts by it. */
+    currentUserId?: string | null;
     configs: AiServiceConfig[];
     canManage?: boolean;
     allowTest?: boolean;
@@ -143,7 +146,7 @@
   let standaloneWarning = $state<string | null>(null);
   let standaloneRefreshWarning = $state<string | null>(null);
   let standaloneRefreshGeneration = 0;
-  const standaloneRecovery = getAiConfigRecoveryStore('standalone');
+  const standaloneRecovery = (() => getAiConfigRecoveryStore(`standalone:${currentUserId ?? ''}`))();
   const sharesStandaloneRecovery = $derived(onMutationPending === standaloneMutationPending);
   const activeStandalone = new Map<string, { outcome: AiConfigCommitted; generation: number }>();
   let syncingStandaloneRecovery = false;
@@ -898,6 +901,11 @@
         <a href={aiConfigReloadHref()} data-sveltekit-reload class="ml-1 underline">{s.reloadPage()}</a>
       </div>
     {/if}
+    {#if mutationBlocked && !mutationLocked}
+      <p data-testid="ai-config-recovery-pending" class="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
+        {s.recoveryPending()}
+      </p>
+    {/if}
   </div>
   <!-- Always mounted so a refusal is announced whether it came from the open
        editor or a row action; only the alert's content changes. -->
@@ -910,11 +918,6 @@
       </div>
     {/if}
   </div>
-  {#if mutationBlocked && !mutationLocked}
-    <p data-testid="ai-config-recovery-pending" class="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
-      {s.recoveryPending()}
-    </p>
-  {/if}
   <div class="mb-3 flex items-start justify-between gap-4">
     <div>
       <h2 class="font-semibold text-zinc-900 dark:text-white">{s.heading()}</h2>

@@ -50,7 +50,7 @@ function config(over: Partial<AiServiceConfig> = {}): AiServiceConfig {
 
 async function open(props: { ownerType?: string; configs?: AiServiceConfig[] } = {}) {
   const m = mountComponent(AiServiceConfigManager as never, {
-    ownerType: props.ownerType ?? 'ORGANIZATION', ownerId: 'o1', configs: props.configs ?? [], canManage: true, allowTest: true,
+    ownerType: props.ownerType ?? 'ORGANIZATION', ownerId: 'o1', currentUserId: 'u1', configs: props.configs ?? [], canManage: true, allowTest: true,
   } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick();

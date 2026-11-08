@@ -356,6 +356,7 @@
       {ownerId}
       {ownerLabel}
       {ownerUrn}
+      {currentUserId}
       configs={visibleConfigs}
       canManage
       {allowTest}

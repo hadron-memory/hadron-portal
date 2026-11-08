@@ -16,7 +16,7 @@ import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn() }));
 
 function html(ownerType: 'AGENT' | 'ORGANIZATION' | 'APP') {
-  return render(AiServiceConfigManager, { props: { ownerType, ownerId: 'x', configs: [] } }).body;
+  return render(AiServiceConfigManager, { props: { ownerType, ownerId: 'x', currentUserId: 'u1', configs: [] } }).body;
 }
 
 describe('AiServiceConfigManager agent hint (#924)', () => {
