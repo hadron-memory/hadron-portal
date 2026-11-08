@@ -350,8 +350,12 @@ export async function loadChatMessages(
   const messageFilter = opts.messageNodeTypes ? { nodeTypes: opts.messageNodeTypes } : {};
   const firstOffset = opts.before === undefined ? 0 : Math.max(0, opts.before - fetchCount);
   const first = await client.request<{
-    // `total` is absent (undefined), not null, when a resolver omits the
-    // count field entirely — GraphQL drops unselected/unknown fields.
+    // `total` can be ABSENT (undefined), not null — not from a conforming
+    // GraphQL server (a selected nullable field whose resolver omits the
+    // value serializes as null; an unknown selection fails validation — both
+    // verified on #1820's delta), but a malformed or non-GraphQL response
+    // shape reaches here undefined. `typeof === 'number'` below admits real
+    // numbers only, so absence locates rather than arithmeticking on NaN.
     findNodes: { total?: number | null; hits: Array<{ node: MemoryNode }> };
   }>(NODES_BY_LOC_PREFIX_QUERY, {
     memoryId,
@@ -376,18 +380,17 @@ export async function loadChatMessages(
   // count is logarithmic in the thread's length.
   //
   // Under a misbehaving server the probes REJECT rather than trust or degrade:
-  // a failed locating read fails the whole load, exactly as a failed tail
-  // correction always has — a transcript whose tail cannot be located is an
-  // error state, never a silently shorter thread. A server that answers a
-  // disjoint offset with an overlapping page (offset clamping) is detected on
-  // the first probe; one that answers full pages forever is cut off at 2^40
-  // offsets — no thread holds a trillion nodes, and the cap keeps `end` inside
-  // float64's exact range, where `end - fetchCount` still means what it says.
+  // a failed read fails the load (as a failed tail correction always did — a
+  // transcript whose tail cannot be located is an error state, never a
+  // silently shorter thread), a server that repeats an already-read node is
+  // named, and one that never runs short of a full page is cut off. Each
+  // rejection is exact and pinned by a test.
   const segments: Array<{ start: number; hits: Array<{ node: MemoryNode }> }> = [
     { start: firstOffset, hits: first.findNodes.hits },
   ];
-  const firstReadIds = new Set(first.findNodes.hits.map((h) => h.node.id));
-  const rawWindow = async (offset: number, readCount: number) => {
+  // Every read is recorded; assembledWindow consumes the probes' records, and
+  // a record added after assembly (the final window fetch) is simply unused.
+  const recordedRead = async (offset: number, readCount: number) => {
     const hits = (
       await client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
         NODES_BY_LOC_PREFIX_QUERY,
@@ -398,9 +401,36 @@ export async function loadChatMessages(
     return hits;
   };
 
-  const MAX_LOCATE_OFFSET = 2 ** 40;
+  // The offset variable is GraphQL Int — 32-bit signed — so a probe past
+  // 2^31-1 dies in variable coercion with an unnamed transport error. The cap
+  // must sit BELOW that boundary, or the gallop never reaches its own named
+  // rejection. 2^30 is still a billion nodes; the server imposes no offset
+  // ceiling of its own ("#437 … No offset ceiling" in the schema; out-of-range
+  // offsets page empty), and the cap keeps `end` far inside float64's exact
+  // range, where `end - fetchCount` still means what it says.
+  const MAX_LOCATE_OFFSET = 2 ** 30;
 
   const locateThreadEnd = async (): Promise<number> => {
+    // Every node id any locating read has returned. Gallop windows are disjoint
+    // by construction (offsets double from fetchCount, so each window starts
+    // at or past the previous one's end) and a binary-search mid lands in the
+    // unread gap (lo, hi) — and the browse orders by seq (append-only, NULLS
+    // LAST, loc-broken ties), not by a volatile score — so an honest probe can
+    // never repeat an id. A repeat names a server clamping offsets to a fixed
+    // page: clamping EVERY offset is caught on the first probe, clamping only
+    // out-of-range ones on the second, when the fixed page comes round again.
+    const seenIds = new Set(first.findNodes.hits.map((h) => h.node.id));
+    const readOnce = async (offset: number, readCount: number) => {
+      const hits = await recordedRead(offset, readCount);
+      const repeat = hits.find((h) => seenIds.has(h.node.id));
+      if (repeat) {
+        throw new Error(
+          `findNodes returned an overlapping page (node ${repeat.node.id} already read) for the disjoint offset ${offset} under ${prefix}`,
+        );
+      }
+      for (const h of hits) seenIds.add(h.node.id);
+      return hits;
+    };
     // `lo` is the highest node index proven to exist. The first read came back
     // full, so firstOffset..firstOffset+fetchCount-1 do (firstOffset is 0
     // here — the gallop only runs on an unpaged read — but say so, don't
@@ -413,16 +443,8 @@ export async function loadChatMessages(
           `findNodes never ran short of a full page below offset ${MAX_LOCATE_OFFSET} under ${prefix}`,
         );
       }
-      const probe = await rawWindow(probeOffset, fetchCount);
+      const probe = await readOnce(probeOffset, fetchCount);
       if (probe.length === fetchCount) {
-        // The probe's window [probeOffset, +fetchCount) is disjoint from the
-        // first read's by construction; an id both return is a server
-        // clamping out-of-range offsets to some fixed page.
-        if (firstReadIds.has(probe[0].node.id)) {
-          throw new Error(
-            `findNodes returned an overlapping page for the disjoint offset ${probeOffset} under ${prefix}`,
-          );
-        }
         lo = probeOffset + fetchCount - 1;
         probeOffset *= 2;
         continue;
@@ -436,7 +458,7 @@ export async function loadChatMessages(
       let hi = probeOffset;
       while (hi - lo > 1) {
         const mid = Math.floor((lo + hi) / 2);
-        if ((await rawWindow(mid, 1)).length > 0) lo = mid;
+        if ((await readOnce(mid, 1)).length > 0) lo = mid;
         else hi = mid;
       }
       return lo + 1;
@@ -505,7 +527,7 @@ export async function loadChatMessages(
     offset === firstOffset
       ? first.findNodes.hits.slice(0, end - offset)
       : (assembledWindow(offset, end) ??
-        (await rawWindow(offset, Math.min(fetchCount, end - offset))));
+        (await recordedRead(offset, Math.min(fetchCount, end - offset))));
 
   const messages = hits
     .map((h) => h.node)

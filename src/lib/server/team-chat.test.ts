@@ -249,7 +249,7 @@ describe('loadChatMessages', () => {
   function windowingClient(
     nodes: MemoryNode[],
     total: number | null = null,
-    opts: { clamp?: boolean; failFrom?: number; omitTotal?: boolean } = {},
+    opts: { clampFrom?: number; failFrom?: number; omitTotal?: boolean } = {},
   ) {
     const calls: { offset: number; limit: number }[] = [];
     const client = {
@@ -258,12 +258,15 @@ describe('loadChatMessages', () => {
         const readCount = vars.limit ?? 0;
         calls.push({ offset, limit: readCount });
         if (opts.failFrom !== undefined && offset >= opts.failFrom) {
+          // The message this fixture throws is what the failed-probe test's
+          // /offset cap/ regex matches — change one, change the other.
           throw new Error(`offset cap: ${offset}`);
         }
-        const hits = opts.clamp
-          ? // A clamping server answers ANY offset with a full page.
-            nodes.slice(Math.max(0, nodes.length - readCount))
-          : nodes.slice(offset, offset + readCount);
+        const hits =
+          opts.clampFrom !== undefined && offset >= opts.clampFrom
+            ? // A clamping server answers this offset with the LAST page, full.
+              nodes.slice(Math.max(0, nodes.length - readCount))
+            : nodes.slice(offset, offset + readCount);
         return {
           // omitTotal: a resolver that drops the count field entirely —
           // `total` is ABSENT (undefined), which is not `null`.
@@ -397,21 +400,36 @@ describe('loadChatMessages', () => {
   });
 
   it('#1581: a clamping server (a full page for ANY offset) is detected and rejected', async () => {
-    // Offset clamping answers an out-of-range offset with a fixed full page.
-    // The probe's window is disjoint from the first read's by construction,
-    // so an id both return names the lie on the FIRST probe — no fabricated
-    // trillion-node total, no gallop to the offset cap, no hang.
-    const { client, calls } = windowingClient(platformThread(600), null, { clamp: true });
+    // Offset clamping answers every offset with the same fixed full page, so
+    // the FIRST probe repeats the first read's ids — named immediately, no
+    // fabricated total, no gallop, no hang.
+    const { client, calls } = windowingClient(platformThread(600), null, { clampFrom: 0 });
     await expect(loadChatMessages(client, 'mem-1', 'chats:team')).rejects.toThrow(/overlapping page/);
 
     expect(calls).toHaveLength(2); // the first read, then the detected probe
   });
 
+  it('#1581: a server that clamps only OUT-OF-RANGE offsets is named on the repeat', async () => {
+    // The subtler liar (Axel's delta N1): in-range offsets are answered
+    // truthfully, only offsets past the end get the fixed last page. The first
+    // out-of-range probe returns that page fresh, so a first-read-only id
+    // check cannot see it — but the SECOND out-of-range probe repeats it, and
+    // the detector tracks every id every locating read has returned, not just
+    // the first read's. Named at five requests, not after a gallop to the cap.
+    const { client, calls } = windowingClient(platformThread(600), null, { clampFrom: 600 });
+    await expect(loadChatMessages(client, 'mem-1', 'chats:team')).rejects.toThrow(/overlapping page/);
+
+    // first read, then probes at 150, 300 (truthful), 600 (the lie, fresh),
+    // 1200 (the lie again — the repeat that names it).
+    expect(calls).toHaveLength(5);
+  });
+
   it('#1581: a server that never runs short is cut off at the offset cap and rejected', async () => {
     // Fresh full pages forever (a server fabricating nodes, so the overlap
-    // detector cannot name it): the gallop stops at 2^40 — no thread holds a
-    // trillion nodes, and past float64's exact range the window math itself
-    // degenerates — and rejects rather than serving a fabricated end.
+    // detector cannot name it): the gallop stops at 2^30 — no thread holds a
+    // billion nodes, and the cap sits below the GraphQL Int boundary (2^31-1)
+    // so the NAMED rejection fires before variable coercion fails — and
+    // rejects rather than serving a fabricated end.
     const calls: { offset: number; limit: number }[] = [];
     const growing = {
       request: vi.fn(async (_query: unknown, vars: { offset?: number; limit?: number }) => {
@@ -429,8 +447,10 @@ describe('loadChatMessages', () => {
     await expect(loadChatMessages(growing, 'mem-1', 'chats:team')).rejects.toThrow(
       /never ran short/,
     );
-    // ~34 doublings from 150 to past 2^40, every request page-bounded.
-    expect(calls.length).toBeLessThanOrEqual(40);
+    // Exact: the first read, then 23 doubling probes (150·2^0 … 150·2^22,
+    // the last below 2^30; 150·2^23 crosses it and throws). Every request is
+    // page-bounded.
+    expect(calls).toHaveLength(24);
     for (const c of calls) {
       expect(c.limit).toBeLessThanOrEqual(Math.ceil(CHAT_PAGE_SIZE * 1.5));
     }
