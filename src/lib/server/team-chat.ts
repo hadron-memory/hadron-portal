@@ -304,7 +304,11 @@ export type ChatPage = {
  * names the server a liar only when the repeat recurs — see the retry note in
  * `loadChatMessages`.
  */
-class OverlappingPageError extends Error {}
+class OverlappingPageError extends Error {
+  // Logs otherwise print `Error` for a named rejection; the class name is the
+  // diagnosis (Axel's delta-3 P3).
+  override name = 'OverlappingPageError';
+}
 
 /**
  * The gallop ran to the offset cap without a short read: the server never ran
@@ -312,7 +316,9 @@ class OverlappingPageError extends Error {}
  * honest transient reading — a server that always answers full pages will do
  * so again — so the locator does NOT spend a second gallop on it.
  */
-class NeverShortError extends Error {}
+class NeverShortError extends Error {
+  override name = 'NeverShortError';
+}
 
 /**
  * Load a WINDOW of a chat's messages, newest-last, ending at the tail by default.
@@ -367,22 +373,29 @@ export async function loadChatMessages(
   // spread preserves exact legacy variables: omission, never null or a default.
   const messageFilter = opts.messageNodeTypes ? { nodeTypes: opts.messageNodeTypes } : {};
   const firstOffset = opts.before === undefined ? 0 : Math.max(0, opts.before - fetchCount);
-  const first = await client.request<{
-    // `total` can be ABSENT (undefined), not null — not from a conforming
-    // GraphQL server (a selected nullable field whose resolver omits the
-    // value serializes as null; an unknown selection fails validation — both
-    // verified on #1820's delta), but a malformed or non-GraphQL response
-    // shape reaches here undefined. `typeof === 'number'` below admits real
-    // numbers only, so absence locates rather than arithmeticking on NaN.
-    findNodes: { total?: number | null; hits: Array<{ node: MemoryNode }> };
-  }>(NODES_BY_LOC_PREFIX_QUERY, {
-    memoryId,
-    locPrefix: prefix,
-    limit: fetchCount,
-    offset: firstOffset,
-    sort,
-    ...messageFilter,
-  });
+  const readPage = (offset: number, readCount: number) =>
+    client.request<{
+      // `total` can be ABSENT (undefined), not null — not from a conforming
+      // GraphQL server (a selected nullable field whose resolver omits the
+      // value serializes as null; an unknown selection fails validation — both
+      // verified on #1820's delta), but a malformed or non-GraphQL response
+      // shape reaches here undefined. `typeof === 'number'` below admits real
+      // numbers only, so absence locates rather than arithmeticking on NaN.
+      findNodes: { total?: number | null; hits: Array<{ node: MemoryNode }> };
+    }>(NODES_BY_LOC_PREFIX_QUERY, {
+      memoryId,
+      locPrefix: prefix,
+      limit: readCount,
+      offset,
+      sort,
+      ...messageFilter,
+    });
+  // `let`, not `const`: the locate's retry REPLACES this snapshot. Every
+  // premise built on it — the full-page lower bound, the reusable first
+  // window, the repeat-check seed — belongs to a moment a mid-locate shift
+  // can invalidate (Gizelle's delta-3 P2: a shrink racing the retry kept
+  // serving the stale page as the whole thread).
+  let first = await readPage(firstOffset, fetchCount);
   // #1581: a plain findNodes browse carries no count — `total` is null for
   // filter+sort paging (the count flag is an internal object-store argument
   // since hadron-server#2514, not a public one; NodeSort has no descending
@@ -403,7 +416,9 @@ export async function loadChatMessages(
   // silently shorter thread), a server that repeats an already-read node is
   // named, and one that never runs short of a full page is cut off. Each
   // rejection is exact and pinned by a test.
-  const segments: Array<{ start: number; hits: Array<{ node: MemoryNode }> }> = [
+  // `let` for the same reason as `first`: the retry re-records from the
+  // fresh first page, so no pre-shift segment is ever stitched into a window.
+  let segments: Array<{ start: number; hits: Array<{ node: MemoryNode }> }> = [
     { start: firstOffset, hits: first.findNodes.hits },
   ];
   // Every read is recorded; assembledWindow consumes the probes' records, and
@@ -435,7 +450,7 @@ export async function loadChatMessages(
     // hi)) and the browse orders by seq (append-only, NULLS LAST, loc-broken
     // ties), not by a volatile score. On a list that shifts UNDER the locate,
     // though, a repeat is not yet a liar: see the retry below.
-    const attempt = async (seed: Set<string>): Promise<number> => {
+    const attempt = async (seed: Set<string>, provenLo: number): Promise<number> => {
       // Every node id any locating read of THIS attempt has returned.
       const seenIds = seed;
       const readOnce = async (offset: number, readCount: number) => {
@@ -449,11 +464,12 @@ export async function loadChatMessages(
         for (const h of hits) seenIds.add(h.node.id);
         return hits;
       };
-      // `lo` is the highest node index proven to exist. The first read came
-      // back full, so firstOffset..firstOffset+fetchCount-1 do (firstOffset is
-      // 0 here — the gallop only runs on an unpaged read — but say so, don't
-      // assume it).
-      let lo = firstOffset + fetchCount - 1;
+      // `lo` is the highest node index proven to exist. The proof is the
+      // CALLER's: the first page of THIS attempt came back full, so
+      // firstOffset..firstOffset+fetchCount-1 exist and lo is its last row
+      // (firstOffset is 0 here — the gallop only runs on an unpaged read —
+      // but the code says so, it does not assume it).
+      let lo = provenLo;
       let probeOffset = firstOffset + fetchCount;
       for (;;) {
         if (probeOffset > MAX_LOCATE_OFFSET) {
@@ -487,7 +503,10 @@ export async function loadChatMessages(
     // EVERY offset on the first probe, clamping only out-of-range ones on the
     // second, when the fixed page comes round again.
     try {
-      return await attempt(new Set(first.findNodes.hits.map((h) => h.node.id)));
+      return await attempt(
+        new Set(first.findNodes.hits.map((h) => h.node.id)),
+        firstOffset + fetchCount - 1,
+      );
     } catch (error) {
       if (error instanceof NeverShortError) throw error;
       // Two shapes get exactly one retry (Axel's delta-2: the conditional P2
@@ -506,16 +525,51 @@ export async function loadChatMessages(
       // A FAILED REQUEST is not always a broken server either: one transient
       // transport failure used to fail the whole load (N5).
       //
-      // Retry the locate once against the current list, seeding the repeat
-      // check empty — the first read is a pre-shift snapshot, and its ids
-      // would condemn any honest retry — and dropping the recorded segments,
-      // whose starts are offsets into the pre-shift list (the window then
-      // falls back to one fresh fetch). A repeat or failure on the retry
-      // rejects exactly as before: clamping repeats deterministically (every
-      // offset on the retry's second probe, out-of-range-only on its fourth),
-      // while one concurrent insert or blip is absorbed.
-      segments.length = 0;
-      return await attempt(new Set());
+      // The retry RESTARTS FROM A FRESH FIRST READ, not from attempt 1's
+      // leftovers (Gizelle's delta-3 P2, Axel's delta-3 stale-premise P3):
+      // every premise attempt 1 enjoyed belonged to its snapshot, and a shift
+      // invalidates them together. Re-issuing the first page re-proves the
+      // lower bound (a full fresh page proves its last row; a SHORT one IS
+      // the end — a shrink below the fetch count cannot slide under it, and
+      // a shrink to empty cannot either), re-seeds the repeat check against
+      // the CURRENT list (restoring clamp-detection parity — an empty seed
+      // let a clamp's first lie read as fresh), and re-records the segments
+      // and the reusable first window from it, so nothing pre-shift is ever
+      // stitched into a window or served as one. A fresh read that fails, or
+      // a repeat or failure on the retry itself, rejects as before — with
+      // the first error chained as `cause`, so the root cause survives the
+      // absorbed attempt.
+      console.warn(
+        `chat tail locate retrying once under ${prefix} after ${
+          error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+        }`,
+      );
+      first = await readPage(firstOffset, fetchCount);
+      segments = [{ start: firstOffset, hits: first.findNodes.hits }];
+      const freshTotal = first.findNodes.total;
+      try {
+        if (typeof freshTotal === 'number') {
+          // The server now reports a count — trust it exactly as the primary
+          // path trusts the first read's.
+          return freshTotal;
+        }
+        if (first.findNodes.hits.length < fetchCount) {
+          return firstOffset + first.findNodes.hits.length;
+        }
+        return await attempt(
+          new Set(first.findNodes.hits.map((h) => h.node.id)),
+          firstOffset + fetchCount - 1,
+        );
+      } catch (retryError) {
+        if (
+          retryError instanceof Error &&
+          error instanceof Error &&
+          retryError.cause === undefined
+        ) {
+          retryError.cause = error;
+        }
+        throw retryError;
+      }
     }
   };
 
