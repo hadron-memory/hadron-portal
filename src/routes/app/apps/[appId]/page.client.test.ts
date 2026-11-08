@@ -2354,23 +2354,17 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     await tick(20);
     expect(releaseRefresh).toBeTypeOf('function');
 
-    // invalidateAll uses Kit's internal URL. Before the fix that is still the
-    // staff URL, so this refresh has no Runs section; after awaiting the tab
-    // navigation it is tab=runs and returns a fresh section.
-    const refreshUsedRunsUrl = order.indexOf('refresh-requested') > order.indexOf('runs-response');
-    props.data = {
-      ...props.data,
-      initialTab: refreshUsedRunsUrl ? 'runs' : 'staff',
-      runsPanel: refreshUsedRunsUrl ? await runsPanel('refreshed-run') : null,
-    };
+    // The action's refresh used the pre-Runs URL and has no Runs section.
+    // Its late response must not erase the payload the held navigation loaded.
+    props.data = { ...props.data, initialTab: 'staff', runsPanel: null };
     releaseRefresh();
     await finishing;
     await tick(6);
 
     expect(m.target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
-    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('refreshed-run');
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('held-run');
     expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('Loading runs…');
-    expect(order).toEqual(['runs-response', 'refresh-requested']);
+    expect(order).toEqual(['refresh-requested', 'runs-response']);
     expect(navigationCalls.filter((call) => call.fn === 'invalidateAll')).toHaveLength(1);
   });
 
@@ -2388,6 +2382,28 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     expect(m.target.querySelector('#panel-runs')?.textContent).toContain(`control-${held}-run`);
     expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('Loading runs…');
     expect(navigationCalls.filter((call) => call.fn === 'invalidateAll')).toHaveLength(0);
+
+    // A real Runs response always supersedes the retained payload.
+    props.data = { ...props.data, runsPanel: await runsPanel(`fresh-${held}-run`) };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain(`fresh-${held}-run`);
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain(`control-${held}-run`);
+  });
+
+  it('#1795 never retains one App’s Runs payload on another App', async () => {
+    const { m, props } = await openCast();
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    props.data = { ...props.data, initialTab: 'runs', runsPanel: await runsPanel('app-a-run') };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('app-a-run');
+
+    props.data = await dataFor('a2');
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('app-a-run');
+    props.data = { ...props.data, initialTab: 'runs', runsPanel: { ...await runsPanel('app-b-run'), app: { id: 'a2', name: 'Other', organizationId: null } } };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('app-b-run');
   });
 
   it.each([
@@ -3499,20 +3515,50 @@ describe('Link and Unlink answers belong to their App visit (#1776)', () => {
     await tick(20);
     expect(releaseRefresh).toBeTypeOf('function');
 
-    const refreshUsedRunsUrl = order.indexOf('refresh-requested') > order.indexOf('runs-response');
-    props.data = {
-      ...props.data,
-      initialTab: refreshUsedRunsUrl ? 'runs' : 'agents',
-      runsPanel: refreshUsedRunsUrl ? await runsPanel('refreshed-link-run') : null,
-    };
+    props.data = { ...props.data, initialTab: 'agents', runsPanel: null };
     releaseRefresh();
     await finishing;
     await tick(6);
 
-    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('refreshed-link-run');
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('held-link-run');
     expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('Loading runs…');
-    expect(order).toEqual(['runs-response', 'refresh-requested']);
+    expect(order).toEqual(['refresh-requested', 'runs-response']);
     expect(navigationCalls.filter((call) => call.fn === 'invalidateAll')).toHaveLength(1);
+  });
+
+  it('#1795 retains Runs when an Unlink refresh began BEFORE the tab click', async () => {
+    const { m, props } = await mountAgents();
+    const pending = await begin(m.target, 'unlink');
+    const order: string[] = [];
+    let releaseRefresh!: () => void;
+    navigationHooks.onInvalidateAll = () => {
+      order.push('refresh-requested');
+      return new Promise<void>((resolve) => { releaseRefresh = resolve; });
+    };
+    const finishing = pending.delayed.finish(await answer('unlink', 'success', pending.id, 'A') as never);
+    await tick(4);
+    expect(releaseRefresh).toBeTypeOf('function');
+
+    let releaseRuns!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { releaseRuns = resolve; });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    order.push('runs-response');
+    props.data = { ...props.data, initialTab: 'runs', runsPanel: await runsPanel('held-unlink-run') };
+    await tick(3);
+    releaseRuns();
+    await tick(20);
+
+    // The older Agents-URL refresh lands last. No per-action navigation wait
+    // can cover this inverse ordering; the page must retain its Runs payload.
+    props.data = { ...props.data, initialTab: 'agents', runsPanel: null };
+    releaseRefresh();
+    await finishing;
+    await tick(6);
+
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('held-unlink-run');
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('Loading runs…');
+    expect(order).toEqual(['refresh-requested', 'runs-response']);
   });
 
   async function move(props: { data: Awaited<ReturnType<typeof dataFor>> }, appId: string) {

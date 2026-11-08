@@ -912,6 +912,20 @@
       return tabForActionResult(form, initial) ?? initial ?? 'chats';
     }),
   );
+  // #1795: an action's invalidateAll can use Kit's pre-navigation URL and
+  // answer AFTER a ?tab=runs navigation supplied this section. Retain that
+  // fresh payload through an old-URL refresh which has no Runs section at all.
+  // A real Runs response always replaces it; the App key prevents A's panel
+  // from leaking into B when this page component is reused. This is not a
+  // retry or a poll — it covers every action refresh, in either request order.
+  let retainedRuns = $state<{ appId: string; panel: NonNullable<PageData['runsPanel']> } | null>(null);
+  $effect(() => {
+    const panel = data.runsPanel;
+    if (panel) retainedRuns = { appId: app.id, panel };
+  });
+  const currentRunsPanel = $derived(
+    data.runsPanel ?? (retainedRuns?.appId === app.id ? retainedRuns.panel : null),
+  );
   const tabs = $derived<{ id: TabId; label: string }[]>([
     // #744: ONE "Chats" tab over every conversation the App has — the team
     // chat, any 1:1 chats, and the agent conversation — with a selector inside.
@@ -1043,28 +1057,15 @@
   // unselected tab and dragging away before release diverges focus from
   // selection, and arrows would then move relative to a tab the user is not on.
   let tabNavigation = 0, tabNavigationPending = false, tabAlive = true;
-  let pendingTabNavigation: Promise<void> | null = null;
   onDestroy(() => { tabAlive = false; tabNavigation++; });
-  async function waitForTabNavigation() {
-    // #1795: invalidateAll reads Kit's internal URL. If an action refreshes
-    // while ?tab=runs is still navigating, that URL is the OLD tab and its
-    // response can replace the held navigation's runsPanel with null. Let the
-    // navigation settle first so the refresh reloads the tab now on screen.
-    // A newer choice replaces the promise; wait for quiescence, not a retry.
-    while (pendingTabNavigation) await pendingTabNavigation;
-  }
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
     const mine = ++tabNavigation, appId = app.id;
-    let navigation: Promise<void> | null = null;
-    let settleNavigation: (() => void) | undefined;
     try {
       // A second choice supersedes an in-flight Runs navigation, including
       // a choice of a normally local tab. Its loader URL must agree as well.
       if (id === 'runs' || tabNavigationPending) {
         tabNavigationPending = true;
-        navigation = new Promise<void>((resolve) => { settleNavigation = resolve; });
-        pendingTabNavigation = navigation;
         await goto(`/app/apps/${encodeURIComponent(appId)}?tab=${id}`, { keepFocus: true, noScroll: true });
       }
       if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
@@ -1072,13 +1073,7 @@
       await tick();
       if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id}`)?.focus();
     } catch { /* A failed navigation keeps the current tab; the router owns its error. */ }
-    finally {
-      if (navigation) {
-        if (pendingTabNavigation === navigation) pendingTabNavigation = null;
-        settleNavigation?.();
-      }
-      if (mine === tabNavigation) tabNavigationPending = false;
-    }
+    finally { if (mine === tabNavigation) tabNavigationPending = false; }
   }
   function onTabKeydown(e: KeyboardEvent) {
     const order = tabs.map((tt) => tt.id);
@@ -1161,10 +1156,6 @@
     onResult: async ({ result, formElement, cancel }) => {
       if (linkRequestGeneration.get(formElement) !== agentLinkGeneration) cancel();
       else if (result.type === 'redirect') await applyAction(result);
-      // Superforms performs its normal successful-result invalidation after
-      // this hook. Wait here rather than replacing that refresh or its result
-      // handling; with no pending navigation this adds no new await.
-      else if (result.type === 'success' && pendingTabNavigation) await waitForTabNavigation();
     },
   });
 
@@ -1222,7 +1213,6 @@
       }
       if (f.message?.type !== 'success') return;
       try {
-        if (pendingTabNavigation) await waitForTabNavigation();
         await invalidateAll();
       } catch {
         if (attempt === installGeneration) installRefreshFailed = true;
@@ -1437,7 +1427,6 @@
         );
         castOpen = false;
         try {
-          if (pendingTabNavigation) await waitForTabNavigation();
           await invalidateAll();
         } catch {
           // The worker WAS cast; only the roster read failed. Never retry the mint.
@@ -2547,7 +2536,7 @@
        Append-only: no delete, no edit, no rename. -->
   {#if activeTab === 'runs'}
     <div role="tabpanel" id="panel-runs" aria-labelledby="tab-runs" tabindex="0" class="min-w-0 focus-visible:outline-2 focus-visible:outline-indigo-500">
-      {#if data.runsPanel}<AppRunsPanel data={data.runsPanel} {form} />{:else}<p role="status">{t('runs.loading', 'Loading runs…')}</p>{/if}
+      {#if currentRunsPanel}<AppRunsPanel data={currentRunsPanel} {form} />{:else}<p role="status">{t('runs.loading', 'Loading runs…')}</p>{/if}
     </div>
   {/if}
 
