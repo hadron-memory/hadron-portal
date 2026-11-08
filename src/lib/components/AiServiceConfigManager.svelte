@@ -12,6 +12,7 @@
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import DataTable from './table/DataTable.svelte';
   import NodeActionsMenu from './NodeActionsMenu.svelte';
+  import { withAiConfigTimeout } from './ai-config-readback';
   import {
     isValidConfigName,
     resolveKeyInput,
@@ -46,7 +47,10 @@
     onCommitted = async (outcome) => {
       const mine = ++standaloneRefreshGeneration;
       try {
-        await invalidateAll();
+        await withAiConfigTimeout(
+          () => invalidateAll(),
+          () => { throw new Error('AI configuration refresh timed out'); },
+        );
         if (outcome.ownerKey === ownerKey && mine === standaloneRefreshGeneration) {
           standaloneRefreshWarning = null;
         }
@@ -57,7 +61,20 @@
       }
     },
     onUncertain = (outcome) => {
-      if (outcome.ownerKey === ownerKey) standaloneWarning = outcome.text;
+      if (outcome.ownerKey !== `${ownerType}:${ownerId}`) return;
+      if (!outcome.reconcileOnly) {
+        standaloneWarning = outcome.text;
+        return;
+      }
+      const mine = ++standaloneRefreshGeneration;
+      void withAiConfigTimeout(
+        () => invalidateAll(),
+        () => { throw new Error('AI configuration refresh timed out'); },
+      ).catch(() => {
+        if (outcome.ownerKey === ownerKey && mine === standaloneRefreshGeneration) {
+          standaloneWarning = outcome.text;
+        }
+      });
     },
   }: {
     ownerType: AiConfigOwnerType;
@@ -123,6 +140,7 @@
   // again but the old request no longer belongs to the current editor.
   let actionGeneration = 0;
   let ownerKey = $state('');
+  let ownerAtVisit: { ownerType: AiConfigOwnerType; ownerId: string } | null = null;
   let ownerGeneration = $state(0);
   let destroyed = false;
 
@@ -130,6 +148,8 @@
     generation: number;
     noticeGeneration: number;
     ownerKey: string;
+    ownerType: AiConfigOwnerType;
+    ownerId: string;
     ownerGeneration: number;
   };
   type PendingMutation = { id: number; ownerKey: string };
@@ -147,11 +167,22 @@
   function beginAction(): ActionToken {
     const noticeGeneration = clearNotice();
     busy = false;
-    return { generation: ++actionGeneration, noticeGeneration, ownerKey, ownerGeneration };
+    return {
+      generation: ++actionGeneration,
+      noticeGeneration,
+      ownerKey,
+      ownerType: ownerAtVisit!.ownerType,
+      ownerId: ownerAtVisit!.ownerId,
+      ownerGeneration,
+    };
   }
 
   function isOwnerVisitCurrent(action: ActionToken): boolean {
-    return action.ownerKey === ownerKey && action.ownerGeneration === ownerGeneration;
+    return (
+      action.ownerKey === ownerKey &&
+      action.ownerKey === `${ownerType}:${ownerId}` &&
+      action.ownerGeneration === ownerGeneration
+    );
   }
 
   function isCurrent(action: ActionToken): boolean {
@@ -186,6 +217,7 @@
     const nextOwnerKey = `${ownerType}:${ownerId}`;
     if (nextOwnerKey === ownerKey) return;
     ownerKey = nextOwnerKey;
+    ownerAtVisit = { ownerType, ownerId };
     ownerGeneration++;
     actionGeneration++;
     clearNotice();
@@ -447,28 +479,23 @@
   async function post(payload: Record<string, unknown>, uncertainMutation = false): Promise<Record<string, unknown>> {
     let res: Response;
     let body: unknown;
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    const request = (signal?: AbortSignal) => (async () => {
+      const response = await fetch('/api/ai-configs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal,
+      });
+      return { response, body: await response.json() as unknown };
+    })();
     try {
-      const pending = (async () => {
-        const response = await fetch('/api/ai-configs', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-          signal: controller.signal,
-        });
-        return { response, body: await response.json() as unknown };
-      })();
       if (uncertainMutation) {
-        const expired = new Promise<never>((_, reject) => {
-          timer = setTimeout(() => {
-            controller.abort();
-            reject(new UncertainMutationError());
-          }, 10_000);
-        });
-        ({ response: res, body } = await Promise.race([pending, expired]));
+        ({ response: res, body } = await withAiConfigTimeout(
+          (signal) => request(signal),
+          () => { throw new UncertainMutationError(); },
+        ));
       } else {
-        ({ response: res, body } = await pending);
+        ({ response: res, body } = await request());
       }
     } catch (cause) {
       if (!uncertainMutation) throw cause;
@@ -476,8 +503,6 @@
       // whether the mutation committed. Never present it as a safe refusal or
       // leave an unexplained pending lock forever.
       throw new UncertainMutationError();
-    } finally {
-      if (timer !== null) clearTimeout(timer);
     }
     const record = body && typeof body === 'object' && !Array.isArray(body)
       ? body as Record<string, unknown>
@@ -492,6 +517,61 @@
       throw new Error(String(record?.error ?? 'Request failed'));
     }
     return record ?? {};
+  }
+
+  type MutationOptions = {
+    action: ActionToken;
+    request: () => Promise<unknown>;
+    successText: string;
+    refreshFailedText: string;
+    refusalFallback: string;
+    onSuccess: () => void;
+  };
+
+  function publishUncertain(action: ActionToken, text: string) {
+    if (action.ownerKey !== `${ownerType}:${ownerId}`) return;
+    if (isOwnerVisitCurrent(action)) {
+      // Safety outcomes survive Cancel and newer actions in the same visit.
+      uncertainMutation = true;
+      onUncertain({ ownerKey: action.ownerKey, text });
+    } else {
+      // A → B → A must not publish the old visit into the new editor, but the
+      // owner still needs reconciliation before replay can be safe.
+      onUncertain({ ownerKey: action.ownerKey, text, reconcileOnly: true });
+    }
+  }
+
+  function publishCommitted(action: ActionToken, successText: string, refreshFailedText: string) {
+    if (action.ownerKey !== `${ownerType}:${ownerId}`) return;
+    void onCommitted({
+      ownerKey: action.ownerKey,
+      // Stale visits recover owner data but never publish an old success notice.
+      noticeGeneration: isOwnerVisitCurrent(action) ? action.noticeGeneration : -1,
+      successText,
+      refreshFailedText,
+    });
+  }
+
+  async function runMutation(options: MutationOptions) {
+    const { action } = options;
+    const pendingMutation = trackMutation(action);
+    try {
+      try {
+        await options.request();
+      } catch (e) {
+        if (e instanceof UncertainMutationError) {
+          publishUncertain(action, s.mutationUnconfirmed());
+        } else if (isCurrent(action)) {
+          error = e instanceof Error ? e.message : options.refusalFallback;
+        }
+        return;
+      }
+      options.onSuccess();
+      publishCommitted(action, options.successText, options.refreshFailedText);
+    } finally {
+      finishMutation(pendingMutation);
+      if (isCurrent(action)) busy = false;
+    }
   }
 
   async function save() {
@@ -542,15 +622,14 @@
     }
 
     busy = true;
-    const mutationOwnerKey = `${ownerType}:${ownerId}`;
-    const pendingMutation = trackMutation(action);
-    try {
-      try {
+    await runMutation({
+      action,
+      request: async () => {
         if (editId === null) {
           await post({
             action: 'create',
-            ownerType,
-            ownerId,
+            ownerType: action.ownerType,
+            ownerId: action.ownerId,
             name,
             provider: providerInput,
             model: modelInput.trim(),
@@ -578,38 +657,14 @@
             ...(apiStyle !== undefined ? { apiStyle } : {}),
           }, true);
         }
-      } catch (e) {
-        if (e instanceof UncertainMutationError) {
-          if (isOwnerVisitCurrent(action)) {
-            // Lock replay until the Section's full-page readback, even if this
-            // manager is later torn down and remounted for the same owner.
-            uncertainMutation = true;
-            // Uncertainty is safety-critical, not action-owned feedback. The
-            // Section keeps it visible even after Cancel or another row action.
-            onUncertain({ ownerKey: mutationOwnerKey, text: s.mutationUnconfirmed() });
-          }
-        } else if (isCurrent(action)) {
-          error = e instanceof Error ? e.message : 'Failed to save configuration';
-        }
-        return;
-      }
-
-      if (isCurrent(action)) resetEditor();
-      // The Section owns the committed write's readback and outcome. Publish
-      // only into the owner visit that issued the request: A → B → A must not
-      // revive an earlier visit's committed result.
-      if (isOwnerVisitCurrent(action)) {
-        void onCommitted({
-          ownerKey: mutationOwnerKey,
-          noticeGeneration: action.noticeGeneration,
-          successText: s.saveSuccess(name),
-          refreshFailedText: s.saveRefreshFailed(name),
-        });
-      }
-    } finally {
-      finishMutation(pendingMutation);
-      if (isCurrent(action)) busy = false;
-    }
+      },
+      successText: s.saveSuccess(name),
+      refreshFailedText: s.saveRefreshFailed(name),
+      refusalFallback: 'Failed to save configuration',
+      onSuccess: () => {
+        if (isCurrent(action)) resetEditor();
+      },
+    });
   }
 
   async function test() {
@@ -696,35 +751,16 @@
     const action = beginAction();
     error = null;
     busy = true;
-    const mutationOwnerKey = `${ownerType}:${ownerId}`;
-    const pendingMutation = trackMutation(action);
-    try {
-      try {
-        await post({ action: 'delete', id }, true);
-      } catch (e) {
-        if (e instanceof UncertainMutationError) {
-          if (isOwnerVisitCurrent(action)) {
-            uncertainMutation = true;
-            onUncertain({ ownerKey: mutationOwnerKey, text: s.mutationUnconfirmed() });
-          }
-        } else if (isCurrent(action)) {
-          error = e instanceof Error ? e.message : 'Failed to delete configuration';
-        }
-        return;
-      }
-      if (isCurrent(action)) confirmDeleteId = null;
-      if (isOwnerVisitCurrent(action)) {
-        void onCommitted({
-          ownerKey: mutationOwnerKey,
-          noticeGeneration: action.noticeGeneration,
-          successText: s.deleteSuccess(name),
-          refreshFailedText: s.deleteRefreshFailed(name),
-        });
-      }
-    } finally {
-      finishMutation(pendingMutation);
-      if (isCurrent(action)) busy = false;
-    }
+    await runMutation({
+      action,
+      request: () => post({ action: 'delete', id }, true),
+      successText: s.deleteSuccess(name),
+      refreshFailedText: s.deleteRefreshFailed(name),
+      refusalFallback: 'Failed to delete configuration',
+      onSuccess: () => {
+        if (isCurrent(action)) confirmDeleteId = null;
+      },
+    });
   }
 
   function armDelete(id: string) {

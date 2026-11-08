@@ -6,7 +6,7 @@
   // so the gating + notice copy lives in exactly one place.
   import { onDestroy } from 'svelte';
   import AiServiceConfigManager from './AiServiceConfigManager.svelte';
-  import { AI_CONFIG_READBACK_TIMEOUT_MS, readAiConfigs } from './ai-config-readback';
+  import { readAiConfigs, withAiConfigTimeout } from './ai-config-readback';
   import { aiConfigStrings as s } from '$lib/i18n/ai-config-strings';
   import type { AiConfigCommitted, AiConfigMutationPending, AiConfigUncertain } from './ai-config-manager';
   import type { AiConfigOwnerType, AiServiceConfig, OrgMember } from '$lib/types';
@@ -33,8 +33,8 @@
     /** True when the (admin-gated) masked list failed to load. */
     configsError?: boolean;
     allowTest?: boolean;
-    /** Refresh another loader slice owned by the caller (App chat resolution). */
-    onRefreshed?: () => boolean | Promise<boolean>;
+    /** Refresh another loader slice; settle on abort so timed-out work is released. */
+    onRefreshed?: (signal: AbortSignal) => boolean | Promise<boolean>;
   } = $props();
 
   const canManage = $derived(
@@ -55,6 +55,7 @@
   let sectionOwnerKey = '';
   let readbacks = 0;
   let destroyed = false;
+  let relatedController: AbortController | null = null;
   let pendingMutations = $state<Array<Omit<AiConfigMutationPending, 'pending'>>>([]);
   const mutationPending = $derived(
     pendingMutations.some((mutation) => mutation.ownerKey === currentOwnerKey()),
@@ -108,18 +109,12 @@
     return `${ownerType}:${ownerId}`;
   }
 
-  function refreshRelated(): { settled: Promise<boolean>; completed: Promise<boolean> } {
-    let timer: ReturnType<typeof setTimeout> | null = null;
+  function refreshRelated(controller: AbortController): { settled: Promise<boolean>; completed: Promise<boolean> } {
     const completed = Promise.resolve()
-      .then(() => onRefreshed())
+      .then(() => onRefreshed(controller.signal))
       .then(Boolean)
       .catch(() => false);
-    const expired = new Promise<boolean>((resolve) => {
-      timer = setTimeout(() => resolve(false), AI_CONFIG_READBACK_TIMEOUT_MS);
-    });
-    const settled = Promise.race([completed, expired]).finally(() => {
-      if (timer !== null) clearTimeout(timer);
-    });
+    const settled = withAiConfigTimeout(() => completed, () => false, controller);
     return { settled, completed };
   }
 
@@ -129,11 +124,16 @@
     // Acknowledge the committed write immediately. Readback is recovery for
     // stale view state, not part of whether the mutation succeeded, and a slow
     // or hung GET must never suppress this acknowledgement or hold Save busy.
-    if (outcome.noticeGeneration === noticeGeneration) showTransient(outcome.successText);
+    if (!outcome.uncertainText && outcome.noticeGeneration === noticeGeneration) {
+      showTransient(outcome.successText);
+    }
 
     const against = configs;
     const mine = ++readbacks;
-    const related = refreshRelated();
+    relatedController?.abort();
+    const controller = new AbortController();
+    relatedController = controller;
+    const related = refreshRelated(controller);
     const fresh = await readAiConfigs(ownerType, ownerId);
     if (destroyed || outcome.ownerKey !== currentOwnerKey()) return;
 
@@ -145,12 +145,19 @@
 
     const relatedFresh = await related.settled;
     if (destroyed || outcome.ownerKey !== currentOwnerKey()) return;
+    const failed = fresh === null || !relatedFresh || configsError;
     if (mine === readbacks) {
-      // A later successful section read resolves only stale-readback guidance.
-      // An uncertain mutation still requires the explicit full-page readback.
-      refreshWarning = fresh === null || !relatedFresh || configsError ? outcome.refreshFailedText : null;
+      if (outcome.uncertainText) {
+        // A stale uncertain visit reconciles silently when possible. Only a
+        // failed readback requires the persistent replay lock and reload.
+        if (failed) uncertainty = outcome.uncertainText;
+      } else {
+        // A later successful section read resolves only stale-readback guidance.
+        // An uncertain mutation still requires the explicit full-page readback.
+        refreshWarning = failed ? outcome.refreshFailedText : null;
+      }
     }
-    if (!relatedFresh) {
+    if (!relatedFresh && !outcome.uncertainText) {
       // The timeout is guidance, not proof that the related read stayed failed.
       // If its real callback later applies fresh data, retire our stale warning
       // — but only while this same owner/readback still owns the outcome.
@@ -166,7 +173,16 @@
   }
 
   function onUncertain(outcome: AiConfigUncertain) {
-    if (!destroyed && outcome.ownerKey === currentOwnerKey()) {
+    if (destroyed || outcome.ownerKey !== currentOwnerKey()) return;
+    if (outcome.reconcileOnly) {
+      void onCommitted({
+        ownerKey: outcome.ownerKey,
+        noticeGeneration: -1,
+        successText: '',
+        refreshFailedText: '',
+        uncertainText: outcome.text,
+      });
+    } else {
       uncertainty = outcome.text;
     }
   }
@@ -178,6 +194,7 @@
     const nextOwnerKey = currentOwnerKey();
     if (nextOwnerKey === sectionOwnerKey) return;
     sectionOwnerKey = nextOwnerKey;
+    relatedController?.abort();
     noticeGeneration++;
     readbacks++;
     reread = null;
@@ -188,6 +205,7 @@
 
   onDestroy(() => {
     destroyed = true;
+    relatedController?.abort();
     if (noticeTimer !== null) clearTimeout(noticeTimer);
   });
 </script>

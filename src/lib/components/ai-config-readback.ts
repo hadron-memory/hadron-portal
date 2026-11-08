@@ -2,7 +2,30 @@ import type { AiConfigOwnerType, AiServiceConfig } from '$lib/types';
 
 /** The AI-config section's own re-read; never a router-wide invalidateAll(). */
 export const AI_CONFIGS_ENDPOINT = '/api/ai-configs';
-export const AI_CONFIG_READBACK_TIMEOUT_MS = 10_000;
+export const AI_CONFIG_TIMEOUT_MS = 10_000;
+
+/** One abort + timer + race implementation for AI-config network work. */
+export function withAiConfigTimeout<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  onTimeout: () => T,
+  controller = new AbortController(),
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const pending = Promise.resolve().then(() => operation(controller.signal));
+  const expired = new Promise<T>((resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      try {
+        resolve(onTimeout());
+      } catch (error) {
+        reject(error);
+      }
+    }, AI_CONFIG_TIMEOUT_MS);
+  });
+  return Promise.race([pending, expired]).finally(() => {
+    if (timer !== null) clearTimeout(timer);
+  });
+}
 
 const text = (value: unknown): value is string => typeof value === 'string';
 const textOrNull = (value: unknown): value is string | null => value === null || text(value);
@@ -59,29 +82,18 @@ export function parseAiConfigList(body: unknown): AiServiceConfig[] | null {
 
 /** Fetch and parse with a real time bound, even if a test/custom fetch ignores AbortSignal. */
 async function readPayload(url: string): Promise<unknown> {
-  const controller = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | null = null;
   try {
-    const pending = (async () => {
+    return await withAiConfigTimeout(async (signal) => {
       const response = await fetch(url, {
         headers: { accept: 'application/json' },
         cache: 'no-store',
-        signal: controller.signal,
+        signal,
       });
       if (!response.ok) return null;
       return await response.json();
-    })();
-    const expired = new Promise<null>((resolve) => {
-      timer = setTimeout(() => {
-        controller.abort();
-        resolve(null);
-      }, AI_CONFIG_READBACK_TIMEOUT_MS);
-    });
-    return await Promise.race([pending, expired]);
+    }, () => null);
   } catch {
     return null;
-  } finally {
-    if (timer !== null) clearTimeout(timer);
   }
 }
 
