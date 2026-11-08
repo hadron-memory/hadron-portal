@@ -82,14 +82,15 @@
   let values = $state<Record<string, string>>({});
   let assignee = $state('');
 
-  // portal#1357: an Edit details draft belongs to the task it was opened on. The page reuses
-  // this bar across tasks, so moving to another one closes it, and a draft never posts to a task it wasn't written for.
-  let editTaskId = untrack(() => task.id);
+  // portal#1357 (Edit details), portal#1571 (Hand back): an open panel's draft belongs to the
+  // task it was opened on. The page reuses this bar across tasks, so moving to another one closes
+  // it, and a draft never posts to a task it wasn't written for.
+  let panelTaskId = untrack(() => task.id);
   $effect(() => {
     const id = task.id;
     untrack(() => {
-      if (id !== editTaskId) {
-        editTaskId = id;
+      if (id !== panelTaskId) {
+        panelTaskId = id;
         if (open === 'edit' || open === 'handBack') open = null;
       }
     });
