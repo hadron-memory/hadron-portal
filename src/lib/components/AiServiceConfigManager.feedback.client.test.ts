@@ -96,7 +96,7 @@ function set(el: HTMLInputElement | HTMLSelectElement, value: string) {
 }
 
 async function settle() {
-  await tick(30);
+  await tick(60);
   flushSync();
 }
 
@@ -820,7 +820,11 @@ describe('AI configuration review fix pins', () => {
     vi.useFakeTimers();
     const fresh = config({ id: 'c2', name: 'fast' });
     stubFetch(() => ({}), () => ({ body: { configs: [fresh] } }));
-    const onRefreshed = vi.fn(() => new Promise<boolean>(() => {}));
+    let relatedSignal: AbortSignal | undefined;
+    const onRefreshed = vi.fn((signal?: AbortSignal) => {
+      relatedSignal = signal;
+      return new Promise<boolean>(() => {});
+    });
     const { target } = await open({ onRefreshed });
     await startCreate(target, 'fast');
     button(target, 'Save').click();
@@ -832,6 +836,7 @@ describe('AI configuration review fix pins', () => {
     await vi.advanceTimersByTimeAsync(10_000);
     flushSync();
     expect(onRefreshed).toHaveBeenCalledTimes(1);
+    expect(relatedSignal?.aborted).toBe(true);
     expect(feedback(target).textContent).toContain('couldn’t be refreshed');
   });
 
@@ -853,19 +858,20 @@ describe('AI configuration review fix pins', () => {
     rejectCreate(new Error('dropped response'));
     await settle();
 
+    expect(readbacks).toHaveLength(1);
     expect(feedback(m.target).textContent?.trim()).toBe('');
     button(m.target, 'Add configuration').click();
     await settle();
     expect(button(m.target, 'Save').disabled).toBe(false);
   });
 
-  it('drops a committed result from an earlier A visit after A → B → A', async () => {
+  it('reconciles a committed result from an earlier A visit after A → B → A', async () => {
     let release!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });
     stubFetch(async (body) => {
       if (body.action === 'create') await held;
       return {};
-    });
+    }, () => ({ body: { configs: [config({ id: 'c2', name: 'fast' })] } }));
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
@@ -884,7 +890,8 @@ describe('AI configuration review fix pins', () => {
     release();
     await settle();
 
-    expect(readbacks).toHaveLength(0);
+    expect(readbacks).toHaveLength(1);
+    expect(m.target.querySelector(`button[aria-label="${aiConfigStrings.actionsLabel('fast')}"]`)).not.toBeNull();
     expect(feedback(m.target).textContent?.trim()).toBe('');
     expect(button(m.target, 'Save').disabled).toBe(false);
   });
@@ -1021,5 +1028,22 @@ describe('AI configuration code-review lifecycle pins', () => {
     releaseRelated(true);
     await settle();
     expect(feedback(target).textContent).not.toContain('couldn’t be refreshed');
+  });
+
+  it('uses the action-start owner identity for payload, pending registration and outcome', async () => {
+    stubFetch(() => ({}));
+    const m = await open();
+    await startCreate(m.target, 'fast');
+
+    // Change the props and click before the owner synchronization effect runs.
+    m.props.ownerId = 'o2';
+    button(m.target, 'Save').click();
+    await settle();
+
+    expect(posts.filter((p) => p.action === 'create')).toHaveLength(1);
+    expect(posts.find((p) => p.action === 'create')).toMatchObject({
+      ownerType: 'ORGANIZATION', ownerId: 'o1',
+    });
+    expect(feedback(m.target).textContent?.trim()).toBe('');
   });
 });
