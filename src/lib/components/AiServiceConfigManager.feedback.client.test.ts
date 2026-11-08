@@ -703,32 +703,24 @@ describe('AI configuration feedback lifecycle review controls', () => {
     expect(button(target, 'Add configuration')).not.toBeNull();
   });
 
-  it.each([
-    { label: 'an older failure cannot overwrite a newer success', newerFails: false, olderFails: true, warning: false },
-    { label: 'an older success cannot clear a newer failure', newerFails: true, olderFails: false, warning: true },
-  ])('sequences standalone refreshes: $label', async ({ newerFails, olderFails, warning }) => {
-    const pending: Array<{ resolve: () => void; reject: (error: Error) => void }> = [];
-    navigationHooks.onInvalidateAll = () => new Promise<void>((resolve, reject) => {
-      pending.push({ resolve: () => resolve(), reject });
-    });
+  it('holds a follow-up standalone mutation until the committed refresh settles', async () => {
+    let releaseRefresh!: () => void;
+    navigationHooks.onInvalidateAll = () => new Promise<void>((resolve) => { releaseRefresh = resolve; });
     const { target } = await open({}, AiServiceConfigManager);
     await startCreate(target, 'fast');
     button(target, 'Save').click();
     await settle();
     await startCreate(target, 'frontier');
+    expect(button(target, 'Save').disabled).toBe(true);
+    button(target, 'Save').click();
+    expect(posts.filter((p) => p.action === 'create')).toHaveLength(1);
+
+    releaseRefresh();
+    await settle();
+    expect(button(target, 'Save').disabled).toBe(false);
     button(target, 'Save').click();
     await settle();
-    expect(pending).toHaveLength(2);
-
-    if (newerFails) pending[1].reject(new Error('newer refresh failed'));
-    else pending[1].resolve();
-    await settle();
-    if (olderFails) pending[0].reject(new Error('older refresh failed'));
-    else pending[0].resolve();
-    await settle();
-
-    const region = $<HTMLElement>(target, '[data-testid="ai-config-manager-feedback"]')!;
-    expect(region.textContent?.includes('couldn’t be refreshed')).toBe(warning);
+    expect(posts.filter((p) => p.action === 'create')).toHaveLength(2);
     expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(2);
   });
 
@@ -744,7 +736,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     expect(feedback(target).textContent).not.toContain('couldn’t be refreshed');
     button(target, 'Add configuration').click();
     await settle();
-    expect(button(target, 'Save').disabled).toBe(false);
+    expect(button(target, 'Save').disabled).toBe(true);
 
     await vi.advanceTimersByTimeAsync(10_000);
     flushSync();
@@ -1134,5 +1126,165 @@ describe('AI configuration code-review lifecycle pins', () => {
     button(m.target, 'Add configuration').click();
     await settle();
     expect(button(m.target, 'Save').disabled).toBe(true);
+  });
+
+  it('restarts uncertain reconciliation when its readback crosses A → B → A', async () => {
+    let rejectCreate!: (error: Error) => void;
+    const releases: Array<(reply: Reply) => void> = [];
+    stubFetch(async (body) => {
+      if (body.action === 'create') await new Promise<never>((_, reject) => { rejectCreate = reject; });
+      return {};
+    }, () => new Promise<Reply>((resolve) => { releases.push(resolve); }));
+    const m = await open();
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await tick(2);
+    m.props.ownerId = 'o2';
+    await settle();
+    m.props.ownerId = 'o1';
+    await settle();
+    rejectCreate(new Error('dropped response'));
+    await settle();
+    expect(readbacks).toHaveLength(1);
+
+    m.props.ownerId = 'o2';
+    await settle();
+    m.props.ownerId = 'o1';
+    await settle();
+    releases[0]({ body: { configs: [] } });
+    await settle();
+    expect(readbacks).toHaveLength(2);
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(true);
+
+    releases[1]({ body: { configs: [] } });
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(false);
+    expect(feedback(m.target).textContent?.trim()).toBe('');
+  });
+
+  it('does not open a stale row for editing while its committed update readback is pending', async () => {
+    let releaseReadback!: (reply: Reply) => void;
+    const fresh = config({ model: 'glm-6' });
+    stubFetch(() => ({}), () => new Promise<Reply>((resolve) => { releaseReadback = resolve; }));
+    const { target } = await open({ configs: [config()] });
+    editRow(target);
+    await settle();
+    set($<HTMLInputElement>(target, '#ac-model')!, 'glm-6');
+    button(target, 'Save').click();
+    await settle();
+
+    editRow(target);
+    await settle();
+    expect(target.querySelector('#ac-name')).toBeNull();
+
+    releaseReadback({ body: { configs: [fresh] } });
+    await settle();
+    editRow(target);
+    await settle();
+    expect($<HTMLInputElement>(target, '#ac-model')!.value).toBe('glm-6');
+    expect(button(target, 'Save').disabled).toBe(false);
+  });
+
+  it('retains pending and uncertain outcomes across Section destroy and remount', async () => {
+    let rejectCreate!: (error: Error) => void;
+    let releaseReadback!: (reply: Reply) => void;
+    stubFetch(async (body) => {
+      if (body.action === 'create') await new Promise<never>((_, reject) => { rejectCreate = reject; });
+      return {};
+    }, () => new Promise<Reply>((resolve) => { releaseReadback = resolve; }));
+    const first = await open();
+    await startCreate(first.target, 'fast');
+    button(first.target, 'Save').click();
+    await tick(2);
+    mounted.splice(mounted.indexOf(first), 1);
+    first.unmount();
+
+    const second = await open();
+    button(second.target, 'Add configuration').click();
+    await settle();
+    expect(button(second.target, 'Save').disabled).toBe(true);
+    rejectCreate(new Error('dropped response'));
+    await settle();
+    expect(readbacks).toHaveLength(1);
+    expect(button(second.target, 'Save').disabled).toBe(true);
+
+    releaseReadback({ body: { configs: [] } });
+    await settle();
+    expect(button(second.target, 'Save').disabled).toBe(false);
+    expect(feedback(second.target).textContent?.trim()).toBe('');
+  });
+
+  it('defers standalone recovery when its owner changes during invalidation', async () => {
+    let rejectCreate!: (error: Error) => void;
+    const refreshes: Array<{ resolve: () => void; reject: (error: Error) => void }> = [];
+    stubFetch(async (body) => {
+      if (body.action === 'create') await new Promise<never>((_, reject) => { rejectCreate = reject; });
+      return {};
+    });
+    navigationHooks.onInvalidateAll = () => new Promise<void>((resolve, reject) => {
+      refreshes.push({ resolve: () => resolve(), reject });
+    });
+    const m = await open({}, AiServiceConfigManager);
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await tick(2);
+    m.props.ownerId = 'o2';
+    await settle();
+    m.props.ownerId = 'o1';
+    await settle();
+    rejectCreate(new Error('dropped response'));
+    await settle();
+    expect(refreshes).toHaveLength(1);
+
+    m.props.ownerId = 'o2';
+    await settle();
+    refreshes[0].resolve();
+    await settle();
+    m.props.ownerId = 'o1';
+    await settle();
+    expect(refreshes).toHaveLength(2);
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(true);
+
+    refreshes[1].reject(new Error('refresh rejected'));
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(true);
+    expect(m.target.textContent).toContain('couldn’t confirm the change went through');
+  });
+
+  it('clears uncertain recovery when its related refresh eventually succeeds', async () => {
+    vi.useFakeTimers();
+    let rejectCreate!: (error: Error) => void;
+    let releaseRelated!: (fresh: boolean) => void;
+    const related = new Promise<boolean>((resolve) => { releaseRelated = resolve; });
+    stubFetch(async (body) => {
+      if (body.action === 'create') await new Promise<never>((_, reject) => { rejectCreate = reject; });
+      return {};
+    });
+    const m = await open({ onRefreshed: () => related });
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await tick(2);
+    m.props.ownerId = 'o2';
+    await settle();
+    m.props.ownerId = 'o1';
+    await settle();
+    rejectCreate(new Error('dropped response'));
+    await settle();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    flushSync();
+    expect(feedback(m.target).textContent).toContain('couldn’t confirm the change went through');
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(true);
+
+    releaseRelated(true);
+    await settle();
+    expect(feedback(m.target).textContent?.trim()).toBe('');
+    expect(button(m.target, 'Save').disabled).toBe(false);
   });
 });

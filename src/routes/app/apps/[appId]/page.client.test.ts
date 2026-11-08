@@ -1525,16 +1525,16 @@ describe('App AI configuration readback lifecycle', () => {
     expect(([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Save')!.disabled).toBe(true);
   });
 
-  it('aborts a superseded resolved-config fetch through the production callback', async () => {
-    const relatedSignals: Array<AbortSignal | undefined> = [];
+  it('aborts a timed-out resolved-config fetch through the production callback', async () => {
+    vi.useFakeTimers();
+    let relatedSignal: AbortSignal | undefined;
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string; signal?: AbortSignal }) => {
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
         return { ok: true, json: async () => ({ configs: [] }) } as Response;
       }
       if (url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
-        relatedSignals.push(init?.signal);
-        if (relatedSignals.length === 1) return new Promise<Response>(() => {});
-        return { ok: true, json: async () => ({ configs: [] }) } as Response;
+        relatedSignal = init?.signal;
+        return new Promise<Response>(() => {});
       }
       if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
       const body = JSON.parse(init.body!);
@@ -1545,14 +1545,10 @@ describe('App AI configuration readback lifecycle', () => {
     const m = await mountAi();
     fillNewConfig(m.target);
     await tick(30);
-    expect(relatedSignals).toHaveLength(1);
-    expect(relatedSignals[0]?.aborted).toBe(false);
+    expect(relatedSignal?.aborted).toBe(false);
 
-    fillNewConfig(m.target);
-    await tick(30);
-    expect(relatedSignals).toHaveLength(2);
-    expect(relatedSignals[0]?.aborted).toBe(true);
-    expect(relatedSignals[1]?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(relatedSignal?.aborted).toBe(true);
   });
 
   it('refreshes both the owner grid and resolved Chat configs across create and delete', async () => {
