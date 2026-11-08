@@ -169,7 +169,7 @@
     const controller = new AbortController();
     relatedController = controller;
     const related = refreshRelated(controller);
-    const fresh = await readAiConfigs(ownerType, ownerId);
+    const fresh = await readAiConfigs(ownerType, ownerId, controller.signal);
     if (mine !== readbacks) {
       finishActive(outcome, mine);
       return;

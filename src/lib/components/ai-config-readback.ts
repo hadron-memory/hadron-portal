@@ -128,17 +128,28 @@ async function readPayload(url: string, parentSignal?: AbortSignal): Promise<unk
 export async function readAiConfigs(
   ownerType: AiConfigOwnerType,
   ownerId: string,
+  signal?: AbortSignal,
 ): Promise<AiServiceConfig[] | null> {
   const query = new URLSearchParams({ ownerType, ownerId });
-  return parseAiConfigList(await readPayload(`${AI_CONFIGS_ENDPOINT}?${query}`));
+  return parseAiConfigList(await readPayload(`${AI_CONFIGS_ENDPOINT}?${query}`, signal));
 }
+
+export type ResolvedAiConfigRead =
+  | { status: 'fresh'; configs: AiServiceConfig[] }
+  | { status: 'withheld' }
+  | { status: 'failed' };
 
 /** Re-read the enabled configs resolvable in an App's linked-agent chat context. */
 export async function readResolvedAiConfigs(
   appRef: string,
   agentRef: string,
   signal?: AbortSignal,
-): Promise<AiServiceConfig[] | null> {
+): Promise<ResolvedAiConfigRead> {
   const query = new URLSearchParams({ appRef, agentRef });
-  return parseAiConfigList(await readPayload(`${AI_CONFIGS_ENDPOINT}?${query}`, signal));
+  const body = await readPayload(`${AI_CONFIGS_ENDPOINT}?${query}`, signal);
+  if (body && typeof body === 'object' && !Array.isArray(body) && (body as { withheld?: unknown }).withheld === true) {
+    return { status: 'withheld' };
+  }
+  const configs = parseAiConfigList(body);
+  return configs === null ? { status: 'failed' } : { status: 'fresh', configs };
 }

@@ -110,6 +110,12 @@ export const GET: RequestHandler = async ({ locals, url }) => {
       );
       return json({ configs: data.resolveAiServiceConfigs }, { headers });
     } catch (e) {
+      // An org admin may manage the App's configs without being an App member.
+      // Their Chat picker is legitimately withheld, not a failed refresh that
+      // should lock further writes. Every other refusal remains a real failure.
+      if (extractGqlErrorCode(e) === 'FORBIDDEN') {
+        return json({ withheld: true }, { headers });
+      }
       console.error('[api/ai-configs] resolved section readback failed:', e);
       return json({ failed: true }, { headers });
     }

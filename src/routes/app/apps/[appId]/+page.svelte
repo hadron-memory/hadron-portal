@@ -864,16 +864,20 @@
     const appRef = app.id;
     const against = data;
     const mine = ++chatConfigReads;
-    const fresh = await readResolvedAiConfigs(appRef, agentRef, signal);
-    if (fresh === null) {
+    const read = await readResolvedAiConfigs(appRef, agentRef, signal);
+    if (read.status !== 'fresh') {
       if (mine === chatConfigReads && appRef === app.id && agentRef === app.agentId && against === data) {
         // Do not keep offering a deleted/disabled selection when the confirmed
         // mutation's resolved read cannot be refreshed. Null retains the existing
         // unknown-readiness behavior but removes the stale picker value.
         chatConfigReread = { against, appRef, agentRef, configs: null };
       }
-      return false;
+      // An org admin without App membership cannot read the Chat picker by
+      // contract. That withheld slice needs no recovery lock; transport and
+      // server failures still do.
+      return read.status === 'withheld';
     }
+    const fresh = read.configs;
     if (
       mine !== chatConfigReads ||
       appRef !== app.id ||

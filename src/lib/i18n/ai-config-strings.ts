@@ -97,6 +97,8 @@ export const aiConfigStrings = {
   modelRequired: (): string => t('ai-config.model-required', 'Provider and model are required.'),
   testNeedsKey: (): string =>
     t('ai-config.test-needs-key', 'Enter a key to test this configuration.'),
+  testTimedOut: (): string =>
+    t('ai-config.test-timed-out', 'The test timed out. Try again.'),
 
   /**
    * Hint shown on the AGENT surface (#924). The agent page has no Chat tab any

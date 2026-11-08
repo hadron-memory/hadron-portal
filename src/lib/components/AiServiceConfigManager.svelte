@@ -160,6 +160,7 @@
   // generation additionally distinguishes A → B → A, where ownerKey matches
   // again but the old request no longer belongs to the current editor.
   let actionGeneration = 0;
+  let actionController: AbortController | null = null;
   let ownerKey = $state('');
   let ownerAtVisit: { ownerType: AiConfigOwnerType; ownerId: string } | null = null;
   let ownerGeneration = 0;
@@ -173,6 +174,7 @@
     ownerId: string;
     ownerGeneration: number;
     formFingerprint: string;
+    signal: AbortSignal;
   };
   type PendingMutation = { id: number; ownerKey: string };
   let pendingMutations = $state<PendingMutation[]>([]);
@@ -196,6 +198,10 @@
   function beginAction(): ActionToken {
     const noticeGeneration = clearNotice();
     busy = false;
+    // Only non-mutating Test reads consume this signal. Mutation writes keep
+    // their independent uncertainty semantics even when the editor closes.
+    actionController?.abort();
+    actionController = new AbortController();
     return {
       generation: ++actionGeneration,
       noticeGeneration,
@@ -204,6 +210,7 @@
       ownerId: ownerAtVisit!.ownerId,
       ownerGeneration,
       formFingerprint: formFingerprint(),
+      signal: actionController.signal,
     };
   }
 
@@ -290,6 +297,7 @@
     ownerAtVisit = { ownerType, ownerId };
     ownerGeneration++;
     actionGeneration++;
+    actionController?.abort();
     clearNotice();
     resetEditor();
     configFilter = '';
@@ -314,6 +322,7 @@
     for (const active of activeStandalone.values()) standaloneRecovery.defer(active.outcome);
     activeStandalone.clear();
     actionGeneration++;
+    actionController?.abort();
     stopStandaloneRecovery();
   });
 
@@ -561,7 +570,7 @@
     }
   }
 
-  async function post(payload: Record<string, unknown>, uncertainMutation = false): Promise<Record<string, unknown>> {
+  async function post(payload: Record<string, unknown>, uncertainMutation = false, parentSignal?: AbortSignal): Promise<Record<string, unknown>> {
     let res: Response;
     let body: unknown;
     const request = (signal?: AbortSignal) => (async () => {
@@ -574,10 +583,15 @@
       return { response, body: await response.json() as unknown };
     })();
     try {
-      if (uncertainMutation) {
+      if (uncertainMutation || parentSignal) {
         ({ response: res, body } = await withAiConfigTimeout(
           (signal) => request(signal),
-          () => { throw new UncertainMutationError(); },
+          () => {
+            if (uncertainMutation) throw new UncertainMutationError();
+            throw new Error(s.testTimedOut());
+          },
+          undefined,
+          parentSignal,
         ));
       } else {
         ({ response: res, body } = await request());
@@ -808,7 +822,7 @@
           }
           override.params = params.value;
         }
-        const res = (await post({ action: 'testSaved', id: editing.id, override })) as { result: AiConfigTestResult };
+        const res = (await post({ action: 'testSaved', id: editing.id, override }, false, action.signal)) as { result: AiConfigTestResult };
         if (!isCurrent(action)) return;
         testResult = testResultView(res.result);
       } else if (!inlineTestable({ provider: providerInput, endpoint: endpointInput, apiStyle: apiStyleInput })) {
@@ -821,7 +835,7 @@
           provider: providerInput,
           model: modelInput.trim(),
           apiKey: enteredKey,
-        })) as { ok: boolean; provider?: string; model?: string; reply?: string; error?: string };
+        }, false, action.signal)) as { ok: boolean; provider?: string; model?: string; reply?: string; error?: string };
         if (!isCurrent(action)) return;
         testResult = r.ok
           ? { ok: true, headline: t('ai-config.test.ok.inline', '✓ Works: {provider} / {model}.', { provider: r.provider ?? '', model: r.model ?? '' }), details: r.reply ? [t('ai-config.test.reply', 'Reply: “{reply}”', { reply: r.reply })] : [] }
