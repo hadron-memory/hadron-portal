@@ -2082,6 +2082,93 @@ it.each([true, false])('keeps a pending Channel post mounted through tab changes
 
 });
 
+describe('focusTab and a navigation the busy guard cancelled (#1833)', () => {
+  async function mountChats() {
+    setStubPage('http://localhost/app/apps/a1?tab=chats', { appId: 'a1' });
+    const base = await pageData();
+    const data = { ...base, initialTab: 'chats', selectedChatKey: 'other', selectedChannelId: 'other', selectedChannelMessages: [],
+      selectedChannelTotal: 0, selectedChannelError: false,
+      postChannelMessageForm: await superValidate({ channelRef: 'other' }, zod4(postTeamChatMessageSchema), { errors: false, id: 'channel:other' }),
+    };
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const textarea = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+    textarea.value = 'post during preload';
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    const result = await superValidate({ body: 'post during preload', channelRef: 'other' }, zod4(postTeamChatMessageSchema), { id: 'channel:other', errors: false });
+    result.message = { type: 'success', text: 'Posted.' };
+    return { m, form: textarea.closest('form')!, result };
+  }
+  /** Kit runs beforeNavigate for the owned goto; a guard that cancels makes goto resolve with no commit. */
+  const kitGoto = (cancel: ReturnType<typeof vi.fn>) => () => {
+    const navigation = {
+      type: 'goto', to: { url: new URL('/app/apps/a1?tab=runs', window.location.href) },
+      from: { url: new URL('http://localhost/app/apps/a1?tab=chats') }, cancel, willUnload: false,
+    };
+    for (const guard of navigationGuards.filter((entry) => entry.fn === 'beforeNavigate')) {
+      (guard.callback as (nav: unknown) => void)(navigation);
+    }
+  };
+  const selected = (m: Mounted<Record<string, unknown>>, id: string) => m.target.querySelector(`#tab-${id}`)?.getAttribute('aria-selected');
+
+  it('does not select Runs when the busy guard cancelled the owned navigation (post started during the preload)', async () => {
+    const { m, form, result } = await mountChats();
+    let releasePreload!: () => void;
+    navigationHooks.onPreloadData = () => new Promise((resolve) => {
+      releasePreload = () => resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    });
+    const cancel = vi.fn();
+    navigationHooks.onGoto = kitGoto(cancel);
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { form: result } }, async () => {
+      await tick(2);
+      releasePreload();
+      await tick(10);
+    });
+    await tick(5);
+
+    expect(cancel).toHaveBeenCalled();
+    expect(selected(m, 'chats')).toBe('true');
+    expect(selected(m, 'runs')).toBe('false');
+  });
+
+  it('control: with no post the owned navigation commits and Runs is selected', async () => {
+    const { m } = await mountChats();
+    navigationHooks.onPreloadData = () => Promise.resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    const cancel = vi.fn();
+    navigationHooks.onGoto = kitGoto(cancel);
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(10);
+
+    expect(cancel).not.toHaveBeenCalled();
+    expect(selected(m, 'runs')).toBe('true');
+  });
+
+  it('control: a post already busy before the click stops at entry, with no navigation', async () => {
+    const { m, form, result } = await mountChats();
+    await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { form: result } }, async () => {
+      await tick(2);
+      m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+      await tick(5);
+    });
+    expect(navigationCalls.filter((call) => call.fn === 'goto')).toHaveLength(0);
+    expect(selected(m, 'runs')).toBe('false');
+  });
+
+  it('control: a rejected goto keeps the current tab', async () => {
+    const { m } = await mountChats();
+    navigationHooks.onPreloadData = () => Promise.resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    navigationHooks.onGoto = () => Promise.reject(new Error('loader failed'));
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(10);
+    expect(selected(m, 'runs')).toBe('false');
+    expect(selected(m, 'chats')).toBe('true');
+  });
+});
+
 describe('Cast role follows the selected Agent (#1319)', () => {
   it('has no role input and updates the read-only role when the Agent changes', async () => {
     setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
@@ -2682,6 +2769,110 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     await tick(20);
     const destinations = navigationCalls.filter((call) => call.fn === 'goto').map((call) => String(call.args[0]));
     expect(destinations).toEqual(boundary === 'newer tab' ? ['/app/apps/a1?tab=staff'] : []);
+  });
+
+  // portal#1831: an external navigation supersedes a held Runs choice. The obsolete
+  // focusTab can no longer release the pending latch (mine !== tabNavigation), so
+  // the supersession itself must, or the next ordinary local tab click is forced
+  // through goto and a failing goto blocks the switch.
+  async function supersedeHeldRuns(m: { target: HTMLElement }) {
+    let releasePreload!: () => void;
+    navigationHooks.onPreloadData = () => new Promise((resolve) => {
+      releasePreload = () => resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    const navigation = {
+      type: 'goto', to: { url: new URL('https://example.test/app/apps/a1?tab=chats&chat=other') },
+      from: { url: new URL('https://example.test/app/apps/a1?tab=staff') },
+      cancel: vi.fn(), willUnload: false,
+    };
+    for (const guard of navigationGuards.filter((entry) => entry.fn === 'beforeNavigate')) {
+      (guard.callback as (nav: unknown) => void)(navigation);
+    }
+    await tick(3);
+    return releasePreload;
+  }
+
+  it('#1831 a local tab click after an external navigation superseded Runs stays local', async () => {
+    const { m } = await openCast();
+    const releasePreload = await supersedeHeldRuns(m);
+    releasePreload();
+    await tick(10);
+    navigationCalls.length = 0;
+    navigationHooks.onGoto = () => Promise.reject(new Error('loader failed'));
+    m.target.querySelector<HTMLButtonElement>('#tab-keys')!.click();
+    await tick(5);
+
+    expect(navigationCalls.filter((call) => call.fn === 'goto')).toHaveLength(0);
+    expect(m.target.querySelector('#tab-keys')?.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('#1831 control: a local click with no pending choice stays local even if goto would fail', async () => {
+    const { m } = await openCast();
+    navigationHooks.onGoto = () => Promise.reject(new Error('loader failed'));
+    m.target.querySelector<HTMLButtonElement>('#tab-keys')!.click();
+    await tick(5);
+
+    expect(navigationCalls.filter((call) => call.fn === 'goto')).toHaveLength(0);
+    expect(m.target.querySelector('#tab-keys')?.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('#1831 releasing on supersession does not clear a NEWER focusTab-owned navigation', async () => {
+    const { m } = await openCast();
+    await supersedeHeldRuns(m);
+    // A newer Runs choice after the external navigation owns the latch again.
+    navigationHooks.onPreloadData = () => Promise.resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    let releaseGoto!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => {
+      // Kit runs beforeNavigate for the owned goto itself, with its exact URL.
+      const navigation = {
+        type: 'goto', to: { url: new URL('/app/apps/a1?tab=runs', window.location.href) },
+        from: { url: new URL('https://example.test/app/apps/a1?tab=staff') },
+        cancel: vi.fn(), willUnload: false,
+      };
+      for (const guard of navigationGuards.filter((entry) => entry.fn === 'beforeNavigate')) {
+        (guard.callback as (nav: unknown) => void)(navigation);
+      }
+      releaseGoto = resolve;
+    });
+    navigationCalls.length = 0;
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(5);
+    // Still pending: the owned goto neither bumped the epoch nor released the latch,
+    // so a second choice is still routed through goto (and supersedes this one).
+    expect(navigationCalls.filter((call) => call.fn === 'goto').map((call) => String(call.args[0]))).toEqual(['/app/apps/a1?tab=runs']);
+    releaseGoto();
+    await tick(10);
+    // The owned navigation completed and was not treated as superseded.
+    expect(m.target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('#1831 a newer focusTab choice holding the latch is still pending when an owned navigation passes beforeNavigate', async () => {
+    const { m } = await openCast();
+    let releaseGoto!: () => void;
+    navigationHooks.onPreloadData = () => Promise.resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => {
+      const navigation = {
+        type: 'goto', to: { url: new URL('/app/apps/a1?tab=runs', window.location.href) },
+        from: { url: new URL('https://example.test/app/apps/a1?tab=staff') },
+        cancel: vi.fn(), willUnload: false,
+      };
+      for (const guard of navigationGuards.filter((entry) => entry.fn === 'beforeNavigate')) {
+        (guard.callback as (nav: unknown) => void)(navigation);
+      }
+      releaseGoto = resolve;
+    });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(5);
+    navigationCalls.length = 0;
+    navigationHooks.onGoto = undefined;
+    // Latch must still be held: an ordinary local tab is routed through goto.
+    m.target.querySelector<HTMLButtonElement>('#tab-keys')!.click();
+    await tick(5);
+    expect(navigationCalls.filter((call) => call.fn === 'goto').map((call) => String(call.args[0]))).toEqual(['/app/apps/a1?tab=keys']);
+    releaseGoto?.();
+    await tick(5);
   });
 
   it.each([false, true])('control: Runs renders with no action (navigation held=%s)', async (held) => {

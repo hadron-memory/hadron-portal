@@ -4393,20 +4393,20 @@
         <!-- Data now has its own top-level tab (Rendered/Source + editing);
              the former read-only block here would just duplicate it. -->
 
-        <!-- Danger zone -->
+        <!-- Delete. #1834: no "Danger zone" caption for a single node; the confirm
+             reads top to bottom, with the warning, the subtree choice, then the buttons. -->
         {#if !readOnly}
         <section class="border-t border-zinc-200 pt-6 dark:border-zinc-800">
-          <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
           {#if !confirmDelete}
             <button disabled={readOnly} onclick={() => { $deleteFormData.hard = false; $deleteFormData.recursive = false; confirmDelete = true; }} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
               Delete node
             </button>
           {:else}
-            <form method="POST" action="?/delete" use:deleteEnhance class="flex items-center gap-2" novalidate>
+            <form method="POST" action="?/delete" use:deleteEnhance class="space-y-3" novalidate>
               <input type="hidden" name="_kind" value={$deleteFormData._kind} />
-              <span class="text-sm text-red-500">{deleteNodeStrings.confirmPrompt(node.name)}</span>
+              <p class="text-sm text-red-500">{deleteNodeStrings.confirmPrompt(node.name)}</p>
               {#if deleteRefusedDescendants > 0}
-                <label class="flex items-center gap-1.5 text-sm text-zinc-700 dark:text-zinc-300">
+                <label class="flex flex-wrap items-center gap-1.5 text-sm text-zinc-700 dark:text-zinc-300">
                   <input type="checkbox" name="recursive" value="true" bind:checked={$deleteFormData.recursive}
                     class="rounded border-zinc-300 text-red-600 focus:ring-red-500 dark:border-zinc-600 dark:bg-zinc-800" />
                   {t('node-actions.delete.also-descendants', 'Also delete its descendants')}
@@ -4417,12 +4417,14 @@
                   </span>
                 </label>
               {/if}
-              <button
-                type="submit"
-                disabled={readOnly || $deleteSubmitting}
-                class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >{$deleteSubmitting ? t('node-actions.delete.deleting', 'Deleting...') : 'Yes, delete'}</button>
-              <button type="button" onclick={() => confirmDelete = false} class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+              <div class="flex items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={readOnly || $deleteSubmitting}
+                  class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >{$deleteSubmitting ? t('node-actions.delete.deleting', 'Deleting...') : 'Yes, delete'}</button>
+                <button type="button" onclick={() => confirmDelete = false} class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+              </div>
             </form>
             {#if deleteActionError}
               <p role="alert" class="mt-2 text-xs text-red-500">{deleteActionError}</p>

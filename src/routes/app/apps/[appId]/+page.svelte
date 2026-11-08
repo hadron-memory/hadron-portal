@@ -1114,14 +1114,26 @@
   // selection, and arrows would then move relative to a tab the user is not on.
   let tabNavigation = 0, tabNavigationPending = false, tabAlive = true;
   let tabNavigationHref: string | null = null;
+  let tabNavigationCancelled = false;
   onDestroy(() => { tabAlive = false; tabNavigation++; });
   beforeNavigate((navigation) => {
     // Any real navigation supersedes a pending tab choice, including chat
     // selection and A → B → A (the final App id alone cannot fence those).
     // The exact goto owned by focusTab is the one navigation not to reject.
     // Loader invalidation does not pass through beforeNavigate.
-    if (navigation.to?.url.href === tabNavigationHref) return;
+    if (navigation.to?.url.href === tabNavigationHref) {
+      // #1833: the busy guard above cancels this owned navigation while a post
+      // is in flight, and Kit then resolves goto() without committing. Record
+      // that so focusTab does not select a tab the router never reached.
+      if (channelPostBusy) tabNavigationCancelled = true;
+      return;
+    }
     tabNavigation++;
+    // #1831: the superseded focusTab can no longer release its own latch
+    // (its `finally` only clears when it still owns the epoch), so the
+    // supersession releases it. A newer focusTab starts after this and
+    // re-latches; its own goto returned above.
+    tabNavigationPending = false;
   });
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
@@ -1151,7 +1163,10 @@
         if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
         ownNavigationHref = new URL(href, window.location.href).href;
         tabNavigationHref = ownNavigationHref;
+        tabNavigationCancelled = false;
         await goto(href, { keepFocus: true, noScroll: true });
+        // A cancelled navigation resolves without a commit: keep the current tab.
+        if (tabNavigationCancelled) return;
       }
       if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
       activeTab = id;
