@@ -26,7 +26,7 @@ import { loadAppTeamRoster } from '$lib/server/app-team-roster';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError, extractGqlErrorCode, gqlErrorBody } from '$lib/server/gqlError';
 import { loadOrgDetail } from '$lib/server/org-detail';
-import { mergeInstallableAgents, type OrgAgentPool } from '$lib/server/installable-agents';
+import { fetchOrgVisibleAgents, mergeInstallableAgents, type OrgAgentPool } from '$lib/server/installable-agents';
 import { t } from '$lib/i18n/t';
 import {
   APP_DETAIL_ORG_QUERY,
@@ -632,9 +632,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
   // Org chrome only for an org-owned app; a user-owned (org-less) app (spec 047)
   // has none. availableAgents (what the Agents tab can install) = the org's
-  // agents for an org app, or the caller's own personal agents ∪ PUBLIC agents
-  // for an org-less app — mirroring the server install gate (createApp: a
-  // personal App may install a PUBLIC or the caller's OWN personal agent). It is
+  // agents for an org app, or, for an org-less app, the caller's own personal
+  // agents ∪ PUBLIC agents ∪ (#1786, hadron-server#3626) the ORGANIZATION-visible
+  // agents of each organization the caller belongs to — the set the server's
+  // personal-App install gate admits; the server still rechecks. It is
   // sent whether or not the App already has an agent: an App holds MANY (#802),
   // and the picker must not vanish once the first is in (#1006).
 
@@ -698,7 +699,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     availableAgentsError = owned === null;
     subscribedAgentsError = owned !== null && grants === null;
   } else {
-    const [mine, publicAgents] = await Promise.all([
+    const [mine, publicAgents, orgAgents] = await Promise.all([
       // #782: MY_AGENTS_QUERY is scoped server-side (filter.ownedByMe), so it's
       // already the caller's own org-less agents — no client-side filter needed.
       withTimeout(
@@ -711,11 +712,18 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         OPTIONAL_LIST_TIMEOUT_MS,
         null,
       ).catch(() => null),
+      // #1786: one orgId-scoped list per member organization (helper).
+      withTimeout(
+        fetchOrgVisibleAgents<InstallableAgent>(client),
+        OPTIONAL_LIST_TIMEOUT_MS,
+        null,
+      ).catch(() => null),
     ]);
-    availableAgentsError = mine === null || publicAgents === null;
-    // Dedupe by id — a public agent could also be the caller's own.
+    availableAgentsError = mine === null || publicAgents === null || orgAgents === null;
+    // Dedupe by id, first source wins — a public agent could also be the
+    // caller's own, and an organization agent could be either.
     const seen = new Set<string>();
-    availableAgents = [...(mine ?? []), ...(publicAgents ?? [])].filter((a) =>
+    availableAgents = [...(mine ?? []), ...(publicAgents ?? []), ...(orgAgents ?? [])].filter((a) =>
       seen.has(a.id) ? false : (seen.add(a.id), true),
     );
   }

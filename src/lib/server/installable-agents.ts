@@ -1,3 +1,7 @@
+import type { GraphQLClient } from 'graphql-request';
+import { fetchAllItems } from '$lib/server/paginate';
+import { MEMBER_ORG_IDS_QUERY, ORG_VISIBLE_AGENTS_QUERY } from '$lib/server/queries';
+
 /**
  * The agents an org can put to use: the ones it owns plus the ones it
  * subscribes to (#1172). A subscription is an `AgentOrgGrant`, not a member of
@@ -39,4 +43,19 @@ export function grantedAgents(org: OrgAgentPool, now: number = Date.now()): Inst
 export function mergeInstallableAgents(org: OrgAgentPool, now: number = Date.now()): InstallableAgent[] {
   const seen = new Set<string>();
   return [...org.agents, ...grantedAgents(org, now)].filter((a) => (seen.has(a.id) ? false : (seen.add(a.id), true)));
+}
+
+/**
+ * #1786 (hadron-server#3626, ruling 0235): the ORGANIZATION-visible Agents of
+ * every organization the caller belongs to — what a member may install into a
+ * personal App beside their own and PUBLIC Agents. One list per member org,
+ * each scoped by `orgId` (never the unscoped admin list). Rejects if any
+ * lookup fails, so callers can treat the combined list as unreliable.
+ */
+export async function fetchOrgVisibleAgents<T>(client: GraphQLClient): Promise<T[]> {
+  const orgs = await fetchAllItems<{ id: string }>(client, MEMBER_ORG_IDS_QUERY, 'organizations');
+  const lists = await Promise.all(
+    orgs.map((o) => fetchAllItems<T>(client, ORG_VISIBLE_AGENTS_QUERY, 'agents', { orgId: o.id })),
+  );
+  return lists.flat();
 }
