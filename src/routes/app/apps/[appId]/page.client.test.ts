@@ -1496,6 +1496,32 @@ describe('App AI configuration readback lifecycle', () => {
     expect(relatedSignal?.aborted).toBe(true);
   });
 
+  it('does not lock an org admin out when the App-member-only Chat read is withheld', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
+        return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
+      }
+      if (url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        return { ok: true, json: async () => ({ withheld: true }) } as Response;
+      }
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'create') return { ok: true, json: async () => ({ ok: true }) } as Response;
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi({ chatConfigs: null });
+    fillNewConfig(m.target);
+    await tick(40);
+
+    const feedback = m.target.querySelector('[data-testid="ai-config-feedback"]')!;
+    expect(feedback.textContent).toContain('Saved “default”.');
+    expect(feedback.textContent).not.toContain('couldn’t be refreshed');
+    ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Add configuration')!.click();
+    await tick(3);
+    expect(([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Save')!.disabled).toBe(false);
+  });
+
   it('refreshes both the owner grid and resolved Chat configs across create and delete', async () => {
     let configs = [] as typeof masked[];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {

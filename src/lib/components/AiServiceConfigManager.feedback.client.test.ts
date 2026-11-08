@@ -19,6 +19,7 @@ type Reply = { ok?: boolean; status?: number; body?: Record<string, unknown> | n
 const mounted: Array<Mounted<Props>> = [];
 let posts: Array<Record<string, unknown>>;
 let readbacks: string[];
+let readbackSignals: Array<AbortSignal | undefined>;
 
 function response(reply: Reply): Response {
   return {
@@ -29,13 +30,14 @@ function response(reply: Reply): Response {
 }
 
 function stubFetch(
-  handler: (body: Record<string, unknown>) => Reply | Promise<Reply> = () => ({}),
-  readback: (url: string) => Reply | Promise<Reply> = () => ({ body: { configs: [] } }),
+  handler: (body: Record<string, unknown>, signal?: AbortSignal) => Reply | Promise<Reply> = () => ({}),
+  readback: (url: string, signal?: AbortSignal) => Reply | Promise<Reply> = () => ({ body: { configs: [] } }),
 ) {
-  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string; signal?: AbortSignal }) => {
     if (url.startsWith('/api/ai-configs?') && init?.method !== 'POST') {
       readbacks.push(url);
-      return response(await readback(url));
+      readbackSignals.push(init?.signal);
+      return response(await readback(url, init?.signal));
     }
     if (url !== '/api/ai-configs' || init?.method !== 'POST') {
       throw new Error(`unexpected fetch: ${init?.method ?? 'GET'} ${url}`);
@@ -43,7 +45,7 @@ function stubFetch(
     const body = JSON.parse(init.body!) as Record<string, unknown>;
     posts.push(body);
     if (body.action === 'endpoints') return response({ body: { endpoints: [] } });
-    return response(await handler(body));
+    return response(await handler(body, init?.signal));
   }));
 }
 
@@ -51,6 +53,7 @@ beforeEach(() => {
   resetAiConfigRecoveryForTests();
   posts = [];
   readbacks = [];
+  readbackSignals = [];
   resetNavigationCalls();
   stubFetch();
 });
@@ -440,6 +443,49 @@ describe('AI configuration feedback lifecycle review controls', () => {
     expect(target.textContent).not.toContain('couldn’t confirm the change went through');
   });
 
+  it('bounds a hung connection Test and aborts its request', async () => {
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | undefined;
+    stubFetch(async (body, signal) => {
+      if (body.action === 'test') {
+        requestSignal = signal;
+        await new Promise<void>(() => {});
+      }
+      return {};
+    });
+    const { target } = await open();
+    await startCreate(target);
+    button(target, 'Test').click();
+    await tick(2);
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    flushSync();
+    expect(requestSignal?.aborted).toBe(true);
+    expect(target.textContent).toContain('The test timed out. Try again.');
+    expect(target.textContent).not.toContain('couldn’t confirm the change went through');
+    expect(button(target, 'Save').disabled).toBe(false);
+  });
+
+  it('cancels the underlying saved-config Test when the editor closes', async () => {
+    let requestSignal: AbortSignal | undefined;
+    stubFetch(async (body, signal) => {
+      if (body.action === 'testSaved') {
+        requestSignal = signal;
+        await new Promise<void>(() => {});
+      }
+      return {};
+    });
+    const { target } = await open({ configs: [config()] });
+    editRow(target);
+    await settle();
+    button(target, 'Test').click();
+    await tick(2);
+
+    button(target, 'Cancel').click();
+    await settle();
+    expect(requestSignal?.aborted).toBe(true);
+  });
+
   it('keeps an uncertain mutation outcome visible after Cancel supersedes the editor', async () => {
     let rejectCreate!: (error: Error) => void;
     stubFetch(async (body) => {
@@ -744,6 +790,46 @@ describe('AI configuration feedback lifecycle review controls', () => {
     flushSync();
     expect(feedback(target).textContent).toContain('couldn’t be refreshed');
     expect(feedback(target).querySelector('a[data-sveltekit-reload]')).not.toBeNull();
+  });
+
+  it('aborts a pending owner readback when the owner changes', async () => {
+    stubFetch(() => ({}), () => new Promise<Reply>(() => {}));
+    const m = await open();
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await settle();
+    expect(readbackSignals[0]?.aborted).toBe(false);
+
+    m.props.ownerId = 'o2';
+    await settle();
+    expect(readbackSignals[0]?.aborted).toBe(true);
+  });
+
+  it('aborts a pending owner readback when the user changes', async () => {
+    stubFetch(() => ({}), () => new Promise<Reply>(() => {}));
+    const m = await open();
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await settle();
+    expect(readbackSignals[0]?.aborted).toBe(false);
+
+    m.props.currentUserId = 'u2';
+    m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
+    await settle();
+    expect(readbackSignals[0]?.aborted).toBe(true);
+  });
+
+  it('aborts a pending owner readback on Section teardown', async () => {
+    stubFetch(() => ({}), () => new Promise<Reply>(() => {}));
+    const m = await open();
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await settle();
+    expect(readbackSignals[0]?.aborted).toBe(false);
+
+    mounted.splice(mounted.indexOf(m), 1);
+    m.unmount();
+    expect(readbackSignals[0]?.aborted).toBe(true);
   });
 
   it('reports failure of a caller-owned related readback without delaying success', async () => {

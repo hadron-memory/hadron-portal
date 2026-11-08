@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { parseAiConfigList, readResolvedAiConfigs, withAiConfigTimeout } from './ai-config-readback';
+import { parseAiConfigList, readAiConfigs, readResolvedAiConfigs, withAiConfigTimeout } from './ai-config-readback';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -33,6 +33,15 @@ describe('AI configuration readback parser', () => {
     expect(parseAiConfigList({ configs: [{ ...masked, provider: 'bogus' }] })).toBeNull();
   });
 
+  it('distinguishes an authorization-withheld resolved read from a failure', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ withheld: true }),
+    }) as Response));
+
+    await expect(readResolvedAiConfigs('app1', 'agent1')).resolves.toEqual({ status: 'withheld' });
+  });
+
   it('settles a resolved-config read immediately when its caller aborts', async () => {
     vi.useFakeTimers();
     let requestSignal: AbortSignal | undefined;
@@ -43,6 +52,25 @@ describe('AI configuration readback parser', () => {
     const controller = new AbortController();
     let settled = false;
     const pending = readResolvedAiConfigs('app1', 'agent1', controller.signal);
+    void pending.then(() => { settled = true; });
+
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(true);
+    expect(requestSignal?.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(10_000);
+  });
+
+  it('aborts and settles an owner-list read when its caller changes identity', async () => {
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | undefined;
+    vi.stubGlobal('fetch', vi.fn((_url: string, init?: { signal?: AbortSignal }) => {
+      requestSignal = init?.signal;
+      return new Promise<Response>(() => {});
+    }));
+    const controller = new AbortController();
+    let settled = false;
+    const pending = readAiConfigs('ORGANIZATION', 'org1', controller.signal);
     void pending.then(() => { settled = true; });
 
     controller.abort();
