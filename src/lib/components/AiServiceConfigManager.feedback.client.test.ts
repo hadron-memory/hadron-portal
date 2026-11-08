@@ -1486,6 +1486,8 @@ describe('AI configuration code-review lifecycle pins', () => {
     m.props.members = [{ user: { id: 'u1' }, role: 'ADMIN' }];
     await settle();
     expect(feedback(m.target).textContent).toContain('couldn’t be refreshed');
+    button(m.target, 'Add configuration').click();
+    await settle();
     expect(button(m.target, 'Save').disabled).toBe(true);
   });
 

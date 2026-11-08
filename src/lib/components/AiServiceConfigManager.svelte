@@ -13,7 +13,7 @@
   import DataTable from './table/DataTable.svelte';
   import NodeActionsMenu from './NodeActionsMenu.svelte';
   import { withAiConfigTimeout } from './ai-config-readback';
-  import { createAiConfigRecoveryStore, nextAiConfigMutationId } from './ai-config-recovery';
+  import { getAiConfigRecoveryStore, nextAiConfigMutationId, nextAiConfigRecoveryId } from './ai-config-recovery';
   import {
     isValidConfigName,
     resolveKeyInput,
@@ -41,7 +41,7 @@
     allowTest = false,
     mutationUncertain = false,
     mutationPending = false,
-    onMutationPending = () => {},
+    onMutationPending = standaloneMutationPending,
     onAction = () => 0,
     // Standalone use predates the Section wrapper: keep its original refresh,
     // including the rejection path that used to reach the mutation catch.
@@ -139,10 +139,14 @@
   let standaloneWarning = $state<string | null>(null);
   let standaloneRefreshWarning = $state<string | null>(null);
   let standaloneRefreshGeneration = 0;
-  const standaloneRecovery = createAiConfigRecoveryStore();
+  const standaloneRecovery = getAiConfigRecoveryStore('standalone');
+  const sharesStandaloneRecovery = $derived(onMutationPending === standaloneMutationPending);
   const activeStandalone = new Map<string, { outcome: AiConfigCommitted; generation: number }>();
-  let standaloneRecoverySequence = 0;
   let syncingStandaloneRecovery = false;
+
+  function standaloneMutationPending(outcome: AiConfigMutationPending) {
+    standaloneRecovery.setPending(outcome);
+  }
   const mutationLocked = $derived(uncertainMutation || mutationUncertain || standaloneRefreshWarning !== null);
   let error = $state<string | null>(null);
   // #937: one shape for both paths, so the result always reads the same way.
@@ -233,22 +237,24 @@
   }
 
   function scheduleStandaloneRecovery(ownerKey: string, recover: () => void | Promise<void>) {
-    const recoveryId = --standaloneRecoverySequence;
-    pendingMutations = [...pendingMutations, { id: recoveryId, ownerKey }];
+    const recoveryId = nextAiConfigRecoveryId();
+    standaloneRecovery.setPending({ ownerKey, mutationId: recoveryId, pending: true });
+    pendingMutations = standaloneRecovery.pending().map(({ mutationId, ownerKey: key }) => ({ id: mutationId, ownerKey: key }));
     queueMicrotask(async () => {
       try {
         await recover();
       } finally {
-        pendingMutations = pendingMutations.filter((mutation) => mutation.id !== recoveryId);
+        standaloneRecovery.setPending({ ownerKey, mutationId: recoveryId, pending: false });
       }
     });
   }
 
   function syncStandaloneRecovery() {
-    if (destroyed || syncingStandaloneRecovery) return;
+    if (destroyed || syncingStandaloneRecovery || !sharesStandaloneRecovery) return;
     syncingStandaloneRecovery = true;
     try {
       const recoveryOwnerKey = `${ownerType}:${ownerId}`;
+      pendingMutations = standaloneRecovery.pending().map(({ mutationId, ownerKey: key }) => ({ id: mutationId, ownerKey: key }));
       standaloneWarning = standaloneRecovery.uncertainty(recoveryOwnerKey);
       uncertainMutation = standaloneWarning !== null;
       standaloneRefreshWarning = standaloneRecovery.refreshWarning(recoveryOwnerKey);

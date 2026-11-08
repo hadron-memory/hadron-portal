@@ -193,7 +193,7 @@
       finishActive(outcome, mine);
       return;
     }
-    const failed = !ownerFresh || !relatedFresh || configsError;
+    const failed = !ownerFresh || against !== configs || !relatedFresh || configsError;
     if (!outcome.uncertainText) {
       // A later successful section read resolves only stale-readback guidance.
       // Keep that warning in the same user/owner scope as pending recovery so
@@ -343,18 +343,20 @@
     {s.loadError()}
   </div>
 {:else}
-  <AiServiceConfigManager
-    {ownerType}
-    {ownerId}
-    {ownerLabel}
-    configs={visibleConfigs}
-    canManage
-    {allowTest}
-    mutationUncertain={uncertainty !== null || refreshWarning !== null}
-    {mutationPending}
-    {onMutationPending}
-    {onAction}
-    {onCommitted}
-    {onUncertain}
-  />
+  {#key currentUserId}
+    <AiServiceConfigManager
+      {ownerType}
+      {ownerId}
+      {ownerLabel}
+      configs={visibleConfigs}
+      canManage
+      {allowTest}
+      mutationUncertain={uncertainty !== null || refreshWarning !== null}
+      {mutationPending}
+      {onMutationPending}
+      {onAction}
+      {onCommitted}
+      {onUncertain}
+    />
+  {/key}
 {/if}
