@@ -76,7 +76,7 @@ async function mountPage(node: Record<string, unknown>, search = '', canWriteMem
 
 const tabLabels = (t: HTMLElement) =>
   // The button's own text, without its count / "Empty" badge span.
-  [...t.querySelectorAll<HTMLButtonElement>('div.scroll-hint > button')].map(
+  [...t.querySelectorAll<HTMLButtonElement>('[role="tablist"] > button')].map(
     (b) => [...b.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('').trim(),
   );
 async function menuLabels(t: HTMLElement): Promise<string[]> {
@@ -115,7 +115,7 @@ describe('portal#1175 — the page of a comment node', () => {
 
   it.each([false, true])('Info stays read-only with memory canWrite=%s: no edit, no danger zone', async (canWrite) => {
     const { target } = await mountPage(COMMENT, '', canWrite);
-    [...target.querySelectorAll<HTMLButtonElement>('div.scroll-hint > button')].find((b) => b.textContent?.trim() === 'Info')?.click();
+    [...target.querySelectorAll<HTMLButtonElement>('[role="tablist"] > button')].find((b) => b.textContent?.trim() === 'Info')?.click();
     await settle();
     expect(target.textContent).toContain('Type');
     expect(target.textContent).toContain('comment');
@@ -204,4 +204,15 @@ describe('portal#1175 — saving a comment (Glen on #1180)', () => {
     const plain = await mountPage({ ...PLAIN, content: null });
     expect(plain.target.textContent).toContain('Write content');
   });
+});
+
+
+it('#1408 Node exposes its selected panel through the shared tab semantics', async () => {
+  const { target } = await mountPage(COMMENT);
+  const selected = target.querySelector('[role="tab"][aria-selected="true"]');
+  const panel = target.querySelector('[role="tabpanel"]');
+  expect(selected).not.toBeNull();
+  expect(panel).not.toBeNull();
+  expect(selected!.getAttribute('aria-controls')).toBe(panel!.id);
+  expect(panel!.getAttribute('aria-labelledby')).toBe(selected!.id);
 });
