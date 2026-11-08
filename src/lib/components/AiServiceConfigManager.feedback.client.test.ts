@@ -58,6 +58,7 @@ beforeEach(() => {
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
   resetNavigationCalls();
+  window.history.replaceState({}, '', '/');
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -138,18 +139,21 @@ function menuDelete(root: HTMLElement, name = 'default'): void {
 
 describe('AI configuration acknowledgement (#303)', () => {
   it('shows the caller-supplied owner, omits a null owner, and passes it through the section', async () => {
-    const manager = await open({ ownerLabel: 'Acme' });
+    const manager = await open({ ownerLabel: 'Acme', ownerUrn: 'hrn:org:acme.com' });
     expect(manager.target.textContent).toContain('AI provider configurations');
     expect(manager.target.textContent).toContain('Owned by Acme');
+    expect(manager.target.textContent).toContain('hrn:org:');
 
     const section = await open({
-      ownerLabel: 'Acme', canManage: undefined,
+      ownerLabel: 'Acme', ownerUrn: 'hrn:org:acme.com', canManage: undefined,
       members: [{ user: { id: 'u1' }, role: 'ADMIN' }], currentUserId: 'u1',
     }, AiServiceConfigSection);
     expect(section.target.textContent).toContain('Owned by Acme');
+    expect(section.target.textContent).toContain('hrn:org:');
 
     const withoutOwner = await open({ ownerLabel: null });
     expect(withoutOwner.target.textContent).not.toContain('Owned by');
+    expect(withoutOwner.target.textContent).not.toContain('hrn:org:');
   });
 
   it('titles an existing editor with the configuration name', async () => {
@@ -1568,5 +1572,64 @@ describe('AI configuration code-review lifecycle pins', () => {
     releaseCreate();
     await settle();
     expect(button(second.target, 'Save').disabled).toBe(false);
+  });
+
+  it('does not carry a wrapped owner-A uncertainty lock into owner B', async () => {
+    stubFetch(async (body) => {
+      if (body.action === 'create') throw new Error('dropped response');
+      return {};
+    });
+    const m = await open();
+    await startCreate(m.target, 'first');
+    button(m.target, 'Save').click();
+    await settle();
+    expect(feedback(m.target).textContent).toContain('couldn’t confirm the change went through');
+
+    m.props.ownerId = 'o2';
+    await settle();
+    expect(feedback(m.target).textContent).not.toContain('couldn’t confirm the change went through');
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(false);
+
+    m.props.ownerId = 'o1';
+    await settle();
+    expect(feedback(m.target).textContent).toContain('couldn’t confirm the change went through');
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(true);
+  });
+
+  it('drops the fragment from the explicit full-page readback link', async () => {
+    window.history.replaceState({}, '', '/app/apps/a1?tab=ai-configs#some-anchor');
+    stubFetch(async (body) => {
+      if (body.action === 'create') throw new Error('dropped response');
+      return {};
+    });
+    const m = await open();
+    await startCreate(m.target, 'first');
+    button(m.target, 'Save').click();
+    await settle();
+
+    const reload = feedback(m.target).querySelector('a[data-sveltekit-reload]')!;
+    expect(reload.getAttribute('href')).toBe('/app/apps/a1?tab=ai-configs');
+  });
+
+  it('explains why Save is disabled while committed readback is pending', async () => {
+    let releaseReadback!: (reply: Reply) => void;
+    stubFetch(() => ({}), () => new Promise<Reply>((resolve) => { releaseReadback = resolve; }));
+    const m = await open();
+    await startCreate(m.target, 'first');
+    button(m.target, 'Save').click();
+    await settle();
+    expect(readbacks).toHaveLength(1);
+
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(true);
+    expect(m.target.textContent).toContain('Checking configurations before you can make another change…');
+    releaseReadback({ body: { configs: [] } });
+    await settle();
+    expect(m.target.textContent).not.toContain('Checking configurations before you can make another change…');
   });
 });
