@@ -1632,4 +1632,36 @@ describe('AI configuration code-review lifecycle pins', () => {
     await settle();
     expect(m.target.textContent).not.toContain('Checking configurations before you can make another change…');
   });
+
+  it('preserves edits made while a Save request is in flight', async () => {
+    let releaseUpdate!: (reply: Reply) => void;
+    const original = config();
+    stubFetch((body) => {
+      if (body.action === 'update') return new Promise<Reply>((resolve) => { releaseUpdate = resolve; });
+      return {};
+    }, () => ({ body: { configs: [{ ...original, model: 'glm-6' }] } }));
+    const m = await open({ configs: [original] });
+    editRow(m.target);
+    await settle();
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-6');
+    button(m.target, 'Save').click();
+    await settle();
+    expect(releaseUpdate).toBeTypeOf('function');
+
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-7');
+    releaseUpdate({});
+    await settle();
+    expect($<HTMLInputElement>(m.target, '#ac-model')!.value).toBe('glm-7');
+    expect(feedback(m.target).textContent).toContain('Saved “default”.');
+  });
+
+  it('clears the previous owner search when the owner changes', async () => {
+    const m = await open({ configs: [config({ name: 'fast' })] });
+    set($<HTMLInputElement>(m.target, 'input[aria-label="Search AI provider configs"]')!, 'fast');
+
+    m.props.ownerId = 'o2';
+    m.props.configs = [config({ id: 'c2', name: 'default', ownerId: 'o2' })];
+    await settle();
+    expect(m.target.querySelector(`button[aria-label="${aiConfigStrings.actionsLabel('default')}"]`)).not.toBeNull();
+  });
 });

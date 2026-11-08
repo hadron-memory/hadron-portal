@@ -1613,6 +1613,59 @@ describe('App AI configuration readback lifecycle', () => {
     await tick(10);
     expect(m.target.querySelector('#chat-config')).toBeNull();
   });
+
+  it('masks stale resolved Chat configs when their readback fails after delete', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
+        return { ok: true, json: async () => ({ configs: [] }) } as Response;
+      }
+      if (url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        return { ok: false, status: 500, json: async () => ({ failed: true }) } as Response;
+      }
+      if (url.startsWith('/api/agent-chat/list')) return { ok: true, json: async () => ({ chats: [] }) } as Response;
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'delete') return { ok: true, json: async () => ({ ok: true }) } as Response;
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi({ chatConfigs: [masked], appConfigs: [masked] });
+    (m.target.querySelector('button[aria-label="Actions for default"]') as HTMLButtonElement).click();
+    flushSync();
+    ([...m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')]).find((x) => x.textContent?.trim() === 'Delete')!.click();
+    flushSync();
+    ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Delete')!.click();
+    await tick(40);
+
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    expect(m.target.querySelector('#chat-config')).toBeNull();
+  });
+
+  it('resets the Chat config selection when App or agent identity changes', async () => {
+    const fast = { ...masked, id: 'c2', name: 'fast' };
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.startsWith('/api/agent-chat/list')) return { ok: true, json: async () => ({ chats: [] }) } as Response;
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const m = await mountAi({ chatConfigs: [fast, masked] });
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    const picker = m.target.querySelector<HTMLSelectElement>('#chat-config')!;
+    picker.value = 'fast';
+    picker.dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+    expect(picker.value).toBe('fast');
+
+    const loader = m.props.data as { app: Record<string, unknown> };
+    m.props.data = {
+      ...loader,
+      app: { ...loader.app, id: 'b1', agentId: 'ag2' },
+      chatConfigs: [fast, masked],
+    };
+    await tick(10);
+    expect(m.target.querySelector<HTMLSelectElement>('#chat-config')!.value).toBe('default');
+  });
 });
 
 // portal#1068 — the Client tab's "Download setup files" mints a key through
