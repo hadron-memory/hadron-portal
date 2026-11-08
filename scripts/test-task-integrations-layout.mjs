@@ -153,6 +153,17 @@ try {
       await page.click('button:has-text("Edit")');
       await page.waitForSelector('button[type="submit"]');
       await noOverflow('form');
+      if (width === 390 && coarse) {
+        const removeTeam = page.locator('[data-team="3"] button:has-text("Remove team")');
+        const shape = await removeTeam.evaluate((el) => {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const input = el.parentElement.querySelector('input').getBoundingClientRect();
+          return { lines: [...range.getClientRects()].length, inputWidth: input.width };
+        });
+        assert.equal(shape.lines, 1, `${label}: Remove team wraps to ${shape.lines} lines`);
+        assert.ok(shape.inputWidth > 0, `${label}: Label input is not usable beside Remove team ${JSON.stringify(shape)}`);
+      }
       // A null lead refuses locally, so it never reaches the save that answers with Reload.
       await page.click('[data-team="3"] button:has-text("Remove team")');
       await page.evaluate(async () => {
