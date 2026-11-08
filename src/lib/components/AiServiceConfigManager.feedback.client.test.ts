@@ -840,12 +840,14 @@ describe('AI configuration review fix pins', () => {
     expect(feedback(target).textContent).toContain('couldn’t be refreshed');
   });
 
-  it('drops an uncertain result from an earlier A visit after A → B → A', async () => {
+  it('holds replay while reconciling an uncertain result from an earlier A visit', async () => {
     let rejectCreate!: (error: Error) => void;
+    let releaseReadback!: (reply: Reply) => void;
+    const readbackHeld = new Promise<Reply>((resolve) => { releaseReadback = resolve; });
     stubFetch(async (body) => {
       if (body.action === 'create') await new Promise<never>((_, reject) => { rejectCreate = reject; });
       return {};
-    });
+    }, () => readbackHeld);
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
@@ -859,9 +861,13 @@ describe('AI configuration review fix pins', () => {
     await settle();
 
     expect(readbacks).toHaveLength(1);
-    expect(feedback(m.target).textContent?.trim()).toBe('');
     button(m.target, 'Add configuration').click();
     await settle();
+    expect(button(m.target, 'Save').disabled).toBe(true);
+
+    releaseReadback({ body: { configs: [] } });
+    await settle();
+    expect(feedback(m.target).textContent?.trim()).toBe('');
     expect(button(m.target, 'Save').disabled).toBe(false);
   });
 
@@ -1045,5 +1051,88 @@ describe('AI configuration code-review lifecycle pins', () => {
       ownerType: 'ORGANIZATION', ownerId: 'o1',
     });
     expect(feedback(m.target).textContent?.trim()).toBe('');
+  });
+
+  it('remembers a committed A outcome that settles while B is selected', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    stubFetch(async (body) => {
+      if (body.action === 'create') await held;
+      return {};
+    });
+    const m = await open();
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await tick(2);
+
+    m.props.ownerId = 'o2';
+    await settle();
+    release();
+    await settle();
+    expect(readbacks).toHaveLength(0);
+
+    m.props.ownerId = 'o1';
+    await settle();
+    expect(readbacks).toHaveLength(1);
+    expect(feedback(m.target).textContent?.trim()).toBe('');
+  });
+
+  it('remembers an uncertain A outcome that settles while B is selected', async () => {
+    let rejectCreate!: (error: Error) => void;
+    let releaseReadback!: (reply: Reply) => void;
+    const readbackHeld = new Promise<Reply>((resolve) => { releaseReadback = resolve; });
+    stubFetch(async (body) => {
+      if (body.action === 'create') await new Promise<never>((_, reject) => { rejectCreate = reject; });
+      return {};
+    }, () => readbackHeld);
+    const m = await open();
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await tick(2);
+
+    m.props.ownerId = 'o2';
+    await settle();
+    rejectCreate(new Error('dropped response'));
+    await settle();
+    expect(readbacks).toHaveLength(0);
+
+    m.props.ownerId = 'o1';
+    await settle();
+    expect(readbacks).toHaveLength(1);
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(true);
+    expect(feedback(m.target).textContent?.trim()).toBe('');
+
+    releaseReadback({ body: { configs: [] } });
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(false);
+    expect(feedback(m.target).textContent?.trim()).toBe('');
+  });
+
+  it('locks replay when standalone stale-owner reconciliation fails', async () => {
+    let rejectCreate!: (error: Error) => void;
+    stubFetch(async (body) => {
+      if (body.action === 'create') await new Promise<never>((_, reject) => { rejectCreate = reject; });
+      return {};
+    });
+    navigationHooks.onInvalidateAll = () => { throw new Error('refresh rejected'); };
+    const m = await open({}, AiServiceConfigManager);
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await tick(2);
+
+    m.props.ownerId = 'o2';
+    await settle();
+    m.props.ownerId = 'o1';
+    await settle();
+    rejectCreate(new Error('dropped response'));
+    await settle();
+
+    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-manager-feedback"]')!;
+    expect(region.textContent).toContain('couldn’t confirm the change went through');
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(true);
   });
 });

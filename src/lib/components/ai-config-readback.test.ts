@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest';
-import { parseAiConfigList } from './ai-config-readback';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { parseAiConfigList, readResolvedAiConfigs } from './ai-config-readback';
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 const masked = {
   id: 'c1', name: 'default', ownerType: 'AGENT', ownerId: 'a1', provider: 'glm', model: 'glm-5',
@@ -22,5 +27,28 @@ describe('AI configuration readback parser', () => {
 
     expect(parsed).toEqual([masked]);
     expect(JSON.stringify(parsed)).not.toContain('synthetic-must-not-survive');
+  });
+
+  it('rejects an unknown provider instead of casting it into the editor model', () => {
+    expect(parseAiConfigList({ configs: [{ ...masked, provider: 'bogus' }] })).toBeNull();
+  });
+
+  it('settles a resolved-config read immediately when its caller aborts', async () => {
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | undefined;
+    vi.stubGlobal('fetch', vi.fn((_url: string, init?: { signal?: AbortSignal }) => {
+      requestSignal = init?.signal;
+      return new Promise<Response>(() => {});
+    }));
+    const controller = new AbortController();
+    let settled = false;
+    const pending = readResolvedAiConfigs('app1', 'agent1', controller.signal);
+    void pending.then(() => { settled = true; });
+
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(true);
+    expect(requestSignal?.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(10_000);
   });
 });
