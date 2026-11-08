@@ -91,4 +91,20 @@ describe('bounded tab row', () => {
     document.body.dispatchEvent(event); expect(event.defaultPrevented).toBe(false);
   });
 
+  it.each(['tabs', 'links'] as const)('%s keeps focus on More when an item activation is refused', async mode => {
+    // The tab callback deliberately leaves active unchanged. The link control
+    // cancels its default action: neither should strand focus on BODY after
+    // the focused menu item is removed. This is not a Kit router simulation.
+    const { target, activate } = setup(mode); await tick(4);
+    const more = target.querySelector<HTMLButtonElement>('[aria-haspopup=menu]')!;
+    more.click(); await tick(4);
+    const choice = target.querySelector<HTMLElement>('[role=menuitem]')!;
+    expect(document.activeElement).toBe(choice);
+    if (mode === 'links') choice.addEventListener('click', event => event.preventDefault(), { once: true });
+    choice.click(); await tick(4);
+    expect(target.querySelector('[role=menu]')).toBeNull();
+    if (mode === 'tabs') expect(activate).toHaveBeenCalledExactlyOnceWith('two');
+    expect(document.activeElement).toBe(more);
+  });
+
 });
