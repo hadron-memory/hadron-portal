@@ -27,6 +27,7 @@
     type AiApiStyle,
     type AiConfigUncertain,
     type AiConfigCommitted,
+    type AiConfigMutationPending,
   } from './ai-config-manager';
 
   let {
@@ -37,6 +38,8 @@
     canManage = false,
     allowTest = false,
     mutationUncertain = false,
+    mutationPending = false,
+    onMutationPending = () => {},
     onAction = () => 0,
     // Standalone use predates the Section wrapper: keep its original refresh,
     // including the rejection path that used to reach the mutation catch.
@@ -66,6 +69,9 @@
     allowTest?: boolean;
     /** Section-owned uncertainty survives this manager being torn down. */
     mutationUncertain?: boolean;
+    /** Section-owned in-flight lock survives manager teardown/remount. */
+    mutationPending?: boolean;
+    onMutationPending?: (outcome: AiConfigMutationPending) => void;
     onAction?: () => number;
     onCommitted?: (outcome: AiConfigCommitted) => void | Promise<void>;
     onUncertain?: (outcome: AiConfigUncertain) => void;
@@ -116,7 +122,7 @@
   // generation additionally distinguishes A → B → A, where ownerKey matches
   // again but the old request no longer belongs to the current editor.
   let actionGeneration = 0;
-  let ownerKey = '';
+  let ownerKey = $state('');
   let ownerGeneration = $state(0);
   let destroyed = false;
 
@@ -129,9 +135,10 @@
   type PendingMutation = { id: number; ownerKey: string };
   let mutationSequence = 0;
   let pendingMutations = $state<PendingMutation[]>([]);
-  const mutationPending = $derived(
+  const localMutationPending = $derived(
     pendingMutations.some((mutation) => mutation.ownerKey === ownerKey),
   );
+  const mutationBlocked = $derived(localMutationPending || mutationPending);
 
   function clearNotice(): number {
     return onAction();
@@ -154,13 +161,16 @@
   function trackMutation(action: ActionToken): number {
     const id = ++mutationSequence;
     pendingMutations = [...pendingMutations, { id, ownerKey: action.ownerKey }];
+    onMutationPending({ ownerKey: action.ownerKey, mutationId: id, pending: true });
     return id;
   }
 
   function finishMutation(id: number) {
     // Settlement always releases its own registration, even after Cancel or an
     // owner change. A stale request must never clear another request's lock.
+    const finished = pendingMutations.find((mutation) => mutation.id === id);
     pendingMutations = pendingMutations.filter((mutation) => mutation.id !== id);
+    if (finished) onMutationPending({ ownerKey: finished.ownerKey, mutationId: id, pending: false });
   }
 
   function resetEditor() {
@@ -437,18 +447,37 @@
   async function post(payload: Record<string, unknown>, uncertainMutation = false): Promise<Record<string, unknown>> {
     let res: Response;
     let body: unknown;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | null = null;
     try {
-      res = await fetch('/api/ai-configs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      body = await res.json();
+      const pending = (async () => {
+        const response = await fetch('/api/ai-configs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+        return { response, body: await response.json() as unknown };
+      })();
+      if (uncertainMutation) {
+        const expired = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            controller.abort();
+            reject(new UncertainMutationError());
+          }, 10_000);
+        });
+        ({ response: res, body } = await Promise.race([pending, expired]));
+      } else {
+        ({ response: res, body } = await pending);
+      }
     } catch (cause) {
       if (!uncertainMutation) throw cause;
-      // A dropped response or non-JSON proxy reply says nothing about whether
-      // the mutation committed. Never present this as a safe-to-repeat refusal.
+      // A dropped response, non-JSON proxy reply, or timeout says nothing about
+      // whether the mutation committed. Never present it as a safe refusal or
+      // leave an unexplained pending lock forever.
       throw new UncertainMutationError();
+    } finally {
+      if (timer !== null) clearTimeout(timer);
     }
     const record = body && typeof body === 'object' && !Array.isArray(body)
       ? body as Record<string, unknown>
@@ -466,7 +495,7 @@
   }
 
   async function save() {
-    if (mutationPending || mutationLocked) return;
+    if (mutationBlocked || mutationLocked) return;
     const action = beginAction();
     error = null;
     testResult = null;
@@ -663,7 +692,7 @@
   }
 
   async function doDelete(id: string, name: string) {
-    if (mutationPending || mutationLocked) return;
+    if (mutationBlocked || mutationLocked) return;
     const action = beginAction();
     error = null;
     busy = true;
@@ -984,7 +1013,7 @@
         <button
           type="button"
           onclick={save}
-          disabled={busy || mutationPending || mutationLocked}
+          disabled={busy || mutationBlocked || mutationLocked}
           class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
         >
           {busy ? s.savingButton() : s.saveButton()}
@@ -1054,7 +1083,7 @@
                 <button
                   type="button"
                   onclick={() => doDelete(c.id, c.name)}
-                  disabled={busy || mutationPending || mutationLocked}
+                  disabled={busy || mutationBlocked || mutationLocked}
                   class="rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-500 disabled:opacity-50"
                 >
                   {s.deleteButton()}

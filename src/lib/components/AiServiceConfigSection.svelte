@@ -8,7 +8,7 @@
   import AiServiceConfigManager from './AiServiceConfigManager.svelte';
   import { AI_CONFIG_READBACK_TIMEOUT_MS, readAiConfigs } from './ai-config-readback';
   import { aiConfigStrings as s } from '$lib/i18n/ai-config-strings';
-  import type { AiConfigCommitted, AiConfigUncertain } from './ai-config-manager';
+  import type { AiConfigCommitted, AiConfigMutationPending, AiConfigUncertain } from './ai-config-manager';
   import type { AiConfigOwnerType, AiServiceConfig, OrgMember } from '$lib/types';
 
   let {
@@ -55,6 +55,19 @@
   let sectionOwnerKey = '';
   let readbacks = 0;
   let destroyed = false;
+  let pendingMutations = $state<Array<Omit<AiConfigMutationPending, 'pending'>>>([]);
+  const mutationPending = $derived(
+    pendingMutations.some((mutation) => mutation.ownerKey === currentOwnerKey()),
+  );
+
+  function onMutationPending(outcome: AiConfigMutationPending) {
+    const remaining = pendingMutations.filter(
+      (mutation) => !(mutation.ownerKey === outcome.ownerKey && mutation.mutationId === outcome.mutationId),
+    );
+    pendingMutations = outcome.pending
+      ? [...remaining, { ownerKey: outcome.ownerKey, mutationId: outcome.mutationId }]
+      : remaining;
+  }
 
   // The endpoint answer is a working copy of the loader array it was read
   // against. Any later loader replacement wins automatically; an old readback
@@ -95,18 +108,19 @@
     return `${ownerType}:${ownerId}`;
   }
 
-  function refreshRelated(): Promise<boolean> {
+  function refreshRelated(): { settled: Promise<boolean>; completed: Promise<boolean> } {
     let timer: ReturnType<typeof setTimeout> | null = null;
-    const pending = Promise.resolve()
+    const completed = Promise.resolve()
       .then(() => onRefreshed())
       .then(Boolean)
       .catch(() => false);
     const expired = new Promise<boolean>((resolve) => {
       timer = setTimeout(() => resolve(false), AI_CONFIG_READBACK_TIMEOUT_MS);
     });
-    return Promise.race([pending, expired]).finally(() => {
+    const settled = Promise.race([completed, expired]).finally(() => {
       if (timer !== null) clearTimeout(timer);
     });
+    return { settled, completed };
   }
 
   async function onCommitted(outcome: AiConfigCommitted) {
@@ -129,12 +143,25 @@
       reread = { against, ownerKey: outcome.ownerKey, configs: fresh };
     }
 
-    const relatedFresh = await related;
+    const relatedFresh = await related.settled;
     if (destroyed || outcome.ownerKey !== currentOwnerKey()) return;
     if (mine === readbacks) {
       // A later successful section read resolves only stale-readback guidance.
       // An uncertain mutation still requires the explicit full-page readback.
       refreshWarning = fresh === null || !relatedFresh || configsError ? outcome.refreshFailedText : null;
+    }
+    if (!relatedFresh) {
+      // The timeout is guidance, not proof that the related read stayed failed.
+      // If its real callback later applies fresh data, retire our stale warning
+      // — but only while this same owner/readback still owns the outcome.
+      void related.completed.then((lateFresh) => {
+        if (
+          lateFresh && !destroyed && outcome.ownerKey === currentOwnerKey() &&
+          mine === readbacks && fresh !== null && !configsError
+        ) {
+          refreshWarning = null;
+        }
+      });
     }
   }
 
@@ -214,6 +241,8 @@
     canManage
     {allowTest}
     mutationUncertain={uncertainty !== null}
+    {mutationPending}
+    {onMutationPending}
     {onAction}
     {onCommitted}
     {onUncertain}
