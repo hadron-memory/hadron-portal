@@ -1383,6 +1383,30 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(button(m.target, 'Save').disabled).toBe(false);
   });
 
+  it('keeps replay locked when a loader replacement prevents the owner readback from applying', async () => {
+    let releaseReadback!: (reply: Reply) => void;
+    const stale = config();
+    const fresh = config({ model: 'glm-6' });
+    stubFetch(() => ({}), () => new Promise<Reply>((resolve) => { releaseReadback = resolve; }));
+    const m = await open({ configs: [stale] });
+    editRow(m.target);
+    await settle();
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-6');
+    button(m.target, 'Save').click();
+    await tick(2);
+
+    // An older loader completion wins the props race. The endpoint's fresh
+    // rows must not be treated as applied while their identity token is stale.
+    m.props.configs = [{ ...stale }];
+    await settle();
+    releaseReadback({ body: { configs: [fresh] } });
+    await settle();
+    expect(feedback(m.target).textContent).toContain('couldn’t be refreshed');
+    editRow(m.target);
+    await settle();
+    expect(m.target.querySelector('#ac-name')).toBeNull();
+  });
+
   it('does not let an old user settlement clear a same-numbered new-user pending lock', async () => {
     const creates: Array<(reply: Reply) => void> = [];
     stubFetch((body) => {

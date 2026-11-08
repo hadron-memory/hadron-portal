@@ -42,4 +42,15 @@ describe('AI configuration recovery store', () => {
     second.setPending({ ownerKey: 'ORGANIZATION:o1', mutationId: 1, pending: false });
     expect(first.pending()).toEqual([]);
   });
+
+  it('releases an empty user scope after its last subscriber leaves', () => {
+    const store = getAiConfigRecoveryStore('u1');
+    const stop = store.subscribe(() => {});
+    store.setPending({ ownerKey: 'ORGANIZATION:o1', mutationId: 1, pending: true });
+    store.setPending({ ownerKey: 'ORGANIZATION:o1', mutationId: 1, pending: false });
+    expect(getAiConfigRecoveryStore('u1')).toBe(store);
+
+    stop();
+    expect(getAiConfigRecoveryStore('u1')).not.toBe(store);
+  });
 });

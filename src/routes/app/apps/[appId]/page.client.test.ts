@@ -1616,6 +1616,60 @@ describe('App AI configuration readback lifecycle', () => {
     expect(m.target.querySelector('#chat-config')).toBeNull();
     expect(m.target.querySelector('#panel-chats')!.textContent).toContain('Connect an LLM provider to enable agent chat');
   });
+
+  it('keeps recovery locked when a loader replacement drops the resolved-config readback', async () => {
+    let releaseRelated!: (reply: Response) => void;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
+        return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
+      }
+      if (url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        return new Promise<Response>((resolve) => { releaseRelated = resolve; });
+      }
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'create') return { ok: true, json: async () => ({ ok: true }) } as Response;
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi({ chatConfigs: [] });
+    fillNewConfig(m.target);
+    await tick(30);
+    expect(releaseRelated).toBeTypeOf('function');
+
+    const loader = m.props.data as Record<string, unknown>;
+    m.props.data = { ...loader, chatConfigs: [] };
+    await tick(5);
+    releaseRelated({ ok: true, json: async () => ({ configs: [masked] }) } as Response);
+    await tick(40);
+    expect(m.target.querySelector('[data-testid="ai-config-feedback"]')!.textContent).toContain('couldn’t be refreshed');
+  });
+
+  it('supersedes a resolved-config working copy on a same-App null loader generation', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1' || url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
+      }
+      if (url.startsWith('/api/agent-chat/list')) return { ok: true, json: async () => ({ chats: [] }) } as Response;
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'create') return { ok: true, json: async () => ({ ok: true }) } as Response;
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi({ chatConfigs: null });
+    fillNewConfig(m.target);
+    await tick(40);
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    expect(m.target.querySelector('#chat-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
+
+    const loader = m.props.data as Record<string, unknown>;
+    m.props.data = { ...loader, chatConfigs: null };
+    await tick(10);
+    expect(m.target.querySelector('#chat-config')).toBeNull();
+    expect(m.target.querySelector('#panel-chats')!.textContent).toContain('Connect an LLM provider to enable agent chat');
+  });
 });
 
 // portal#1068 — the Client tab's "Download setup files" mints a key through
