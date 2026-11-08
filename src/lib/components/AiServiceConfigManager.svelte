@@ -13,7 +13,7 @@
   import DataTable from './table/DataTable.svelte';
   import NodeActionsMenu from './NodeActionsMenu.svelte';
   import { withAiConfigTimeout } from './ai-config-readback';
-  import { nextAiConfigMutationId } from './ai-config-recovery';
+  import { createAiConfigRecoveryStore, nextAiConfigMutationId } from './ai-config-recovery';
   import {
     isValidConfigName,
     resolveKeyInput,
@@ -46,53 +46,43 @@
     // Standalone use predates the Section wrapper: keep its original refresh,
     // including the rejection path that used to reach the mutation catch.
     onCommitted = async (outcome) => {
-      if (outcome.ownerKey !== `${ownerType}:${ownerId}`) {
-        deferredStandaloneCommitted.set(outcome.ownerKey, outcome);
+      if (outcome.uncertainText) standaloneRecovery.setUncertainty(outcome.ownerKey, outcome.uncertainText);
+      if (outcome.ownerKey !== `${ownerType}:${ownerId}` || destroyed) {
+        standaloneRecovery.defer(outcome);
         return;
       }
-      deferredStandaloneCommitted.delete(outcome.ownerKey);
+      standaloneRecovery.discardDeferred(outcome);
       const mine = ++standaloneRefreshGeneration;
-      activeStandaloneCommitted.set(outcome.ownerKey, { outcome, generation: mine });
+      activeStandalone.set(outcome.ownerKey, { outcome, generation: mine });
+      let failed = false;
       try {
         await withAiConfigTimeout(
           () => invalidateAll(),
           () => { throw new Error('AI configuration refresh timed out'); },
         );
-        if (outcome.ownerKey === ownerKey && mine === standaloneRefreshGeneration) {
-          standaloneRefreshWarning = null;
-        }
       } catch {
-        if (outcome.ownerKey === ownerKey && mine === standaloneRefreshGeneration) {
-          standaloneRefreshWarning = outcome.refreshFailedText;
-        }
-      } finally {
-        finishStandaloneCommitted(outcome, mine);
+        failed = true;
       }
+      if (destroyed || outcome.ownerKey !== `${ownerType}:${ownerId}` || mine !== standaloneRefreshGeneration) {
+        standaloneRecovery.defer(outcome);
+        finishStandaloneActive(outcome, mine);
+        return;
+      }
+      if (!outcome.uncertainText) {
+        standaloneRecovery.setRefreshWarning(outcome.ownerKey, failed ? outcome.refreshFailedText : null);
+      }
+      finishStandaloneActive(outcome, mine);
     },
     onUncertain = (outcome) => {
-      standaloneUncertaintyByOwner.set(outcome.ownerKey, outcome.text);
-      if (outcome.ownerKey !== `${ownerType}:${ownerId}`) {
-        deferredStandaloneUncertain.set(outcome.ownerKey, outcome);
-        return;
-      }
-      deferredStandaloneUncertain.delete(outcome.ownerKey);
-      if (!outcome.reconcileOnly) {
-        standaloneWarning = outcome.text;
-        return;
-      }
-      const mine = ++standaloneRefreshGeneration;
-      activeStandaloneUncertain.set(outcome.ownerKey, { outcome, generation: mine });
-      return withAiConfigTimeout(
-        () => invalidateAll(),
-        () => { throw new Error('AI configuration refresh timed out'); },
-      ).catch(() => undefined).finally(() => {
-        if (outcome.ownerKey === ownerKey && mine === standaloneRefreshGeneration) {
-          // A list read may precede the still-running write. Only the reader's
-          // explicit full-page check ends uncertainty, never a generic success.
-          uncertainMutation = true;
-          standaloneWarning = outcome.text;
-        }
-        finishStandaloneUncertain(outcome, mine);
+      standaloneRecovery.setUncertainty(outcome.ownerKey, outcome.text);
+      if (!outcome.reconcileOnly && outcome.ownerKey === `${ownerType}:${ownerId}` && !destroyed) return;
+      return onCommitted({
+        ownerKey: outcome.ownerKey,
+        mutationId: outcome.mutationId,
+        noticeGeneration: -1,
+        successText: '',
+        refreshFailedText: '',
+        uncertainText: outcome.text,
       });
     },
   }: {
@@ -149,12 +139,10 @@
   let standaloneWarning = $state<string | null>(null);
   let standaloneRefreshWarning = $state<string | null>(null);
   let standaloneRefreshGeneration = 0;
-  const deferredStandaloneCommitted = new Map<string, AiConfigCommitted>();
-  const deferredStandaloneUncertain = new Map<string, AiConfigUncertain>();
-  const standaloneUncertaintyByOwner = new Map<string, string>();
-  const activeStandaloneCommitted = new Map<string, { outcome: AiConfigCommitted; generation: number }>();
-  const activeStandaloneUncertain = new Map<string, { outcome: AiConfigUncertain; generation: number }>();
+  const standaloneRecovery = createAiConfigRecoveryStore();
+  const activeStandalone = new Map<string, { outcome: AiConfigCommitted; generation: number }>();
   let standaloneRecoverySequence = 0;
+  let syncingStandaloneRecovery = false;
   const mutationLocked = $derived(uncertainMutation || mutationUncertain || standaloneRefreshWarning !== null);
   let error = $state<string | null>(null);
   // #937: one shape for both paths, so the result always reads the same way.
@@ -237,17 +225,10 @@
     testResult = null;
   }
 
-  function finishStandaloneCommitted(outcome: AiConfigCommitted, generation: number) {
-    const active = activeStandaloneCommitted.get(outcome.ownerKey);
+  function finishStandaloneActive(outcome: AiConfigCommitted, generation: number) {
+    const active = activeStandalone.get(outcome.ownerKey);
     if (active?.outcome === outcome && active.generation === generation) {
-      activeStandaloneCommitted.delete(outcome.ownerKey);
-    }
-  }
-
-  function finishStandaloneUncertain(outcome: AiConfigUncertain, generation: number) {
-    const active = activeStandaloneUncertain.get(outcome.ownerKey);
-    if (active?.outcome === outcome && active.generation === generation) {
-      activeStandaloneUncertain.delete(outcome.ownerKey);
+      activeStandalone.delete(outcome.ownerKey);
     }
   }
 
@@ -263,6 +244,22 @@
     });
   }
 
+  function syncStandaloneRecovery() {
+    if (destroyed || syncingStandaloneRecovery) return;
+    syncingStandaloneRecovery = true;
+    try {
+      const recoveryOwnerKey = `${ownerType}:${ownerId}`;
+      standaloneWarning = standaloneRecovery.uncertainty(recoveryOwnerKey);
+      uncertainMutation = standaloneWarning !== null;
+      standaloneRefreshWarning = standaloneRecovery.refreshWarning(recoveryOwnerKey);
+      const deferred = standaloneRecovery.takeDeferred(recoveryOwnerKey);
+      if (deferred) scheduleStandaloneRecovery(recoveryOwnerKey, () => onCommitted(deferred));
+    } finally {
+      syncingStandaloneRecovery = false;
+    }
+  }
+  const stopStandaloneRecovery = standaloneRecovery.subscribe(syncStandaloneRecovery);
+
   // Track the scalar owner identity, not a refreshed configs/loader object.
   // Same-owner invalidation must preserve a pending draft and its outcome.
   $effect(() => {
@@ -276,38 +273,22 @@
     clearNotice();
     resetEditor();
     confirmDeleteId = null;
-    uncertainMutation = standaloneUncertaintyByOwner.has(nextOwnerKey);
-    standaloneWarning = standaloneUncertaintyByOwner.get(nextOwnerKey) ?? null;
-    standaloneRefreshWarning = null;
     standaloneRefreshGeneration++;
     busy = false;
-
-    const activeCommitted = activeStandaloneCommitted.get(previousOwnerKey);
-    if (activeCommitted) {
-      activeStandaloneCommitted.delete(previousOwnerKey);
-      deferredStandaloneCommitted.set(previousOwnerKey, activeCommitted.outcome);
+    const active = activeStandalone.get(previousOwnerKey);
+    if (active) {
+      activeStandalone.delete(previousOwnerKey);
+      standaloneRecovery.defer(active.outcome);
     }
-    const activeUncertain = activeStandaloneUncertain.get(previousOwnerKey);
-    if (activeUncertain) {
-      activeStandaloneUncertain.delete(previousOwnerKey);
-      deferredStandaloneUncertain.set(previousOwnerKey, activeUncertain.outcome);
-    }
-
-    const committed = deferredStandaloneCommitted.get(nextOwnerKey);
-    if (committed) {
-      deferredStandaloneCommitted.delete(nextOwnerKey);
-      scheduleStandaloneRecovery(nextOwnerKey, () => onCommitted(committed));
-    }
-    const uncertain = deferredStandaloneUncertain.get(nextOwnerKey);
-    if (uncertain) {
-      deferredStandaloneUncertain.delete(nextOwnerKey);
-      scheduleStandaloneRecovery(nextOwnerKey, () => onUncertain(uncertain));
-    }
+    syncStandaloneRecovery();
   });
 
   onDestroy(() => {
     destroyed = true;
+    for (const active of activeStandalone.values()) standaloneRecovery.defer(active.outcome);
+    activeStandalone.clear();
     actionGeneration++;
+    stopStandaloneRecovery();
   });
 
   const editing = $derived(editId ? (configs.find((c) => c.id === editId) ?? null) : null);

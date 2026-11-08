@@ -178,7 +178,8 @@
 
     // The owner list is useful on its own. Do not let a slow or hung related
     // loader slice hold back fresh rows until the shared timeout expires.
-    if (fresh !== null) {
+    const ownerFresh = fresh !== null && against === configs;
+    if (fresh !== null && ownerFresh) {
       reread = { against, ownerKey: outcome.ownerKey, configs: fresh };
     }
 
@@ -192,7 +193,7 @@
       finishActive(outcome, mine);
       return;
     }
-    const failed = fresh === null || !relatedFresh || configsError;
+    const failed = !ownerFresh || !relatedFresh || configsError;
     if (!outcome.uncertainText) {
       // A later successful section read resolves only stale-readback guidance.
       // Keep that warning in the same user/owner scope as pending recovery so

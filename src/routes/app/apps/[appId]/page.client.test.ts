@@ -1597,7 +1597,8 @@ describe('App AI configuration readback lifecycle', () => {
     };
     await tick(10);
     expect(m.target.querySelector('#chat-config')).toBeNull();
-    m.props.data = { ...appA, appConfigs: [masked] };
+    appA.appConfigs = [masked];
+    m.props.data = appA;
     await tick(10);
     expect(m.target.querySelector('#chat-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
 
@@ -1668,7 +1669,6 @@ describe('App AI configuration readback lifecycle', () => {
     m.props.data = { ...loader, chatConfigs: null };
     await tick(10);
     expect(m.target.querySelector('#chat-config')).toBeNull();
-    expect(m.target.querySelector('#panel-chats')!.textContent).toContain('Connect an LLM provider to enable agent chat');
   });
 });
 

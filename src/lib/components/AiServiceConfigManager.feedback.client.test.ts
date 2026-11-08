@@ -1393,7 +1393,8 @@ describe('AI configuration code-review lifecycle pins', () => {
     await settle();
     set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-6');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
+    expect(readbacks).toHaveLength(1);
 
     // An older loader completion wins the props race. The endpoint's fresh
     // rows must not be treated as applied while their identity token is stale.

@@ -841,10 +841,10 @@
   // 036-ai-service-config: configs resolvable for this app's chat context
   // (App→Agent→Org→Host, masked). Powers the picker + LLM-readiness gate.
   // AI-tab writes re-read this slice through the same section endpoint as the
-  // owner list. The raw working copy preserves the loader-array identity token;
-  // any later full loader result supersedes it, including across Chat/AI tabs.
+  // owner list. The raw working copy preserves the loader OBJECT identity token;
+  // any later full loader result supersedes it, including null → null results.
   let chatConfigReread = $state.raw<{
-    against: AiServiceConfig[] | null;
+    against: PageData;
     appRef: string;
     agentRef: string;
     configs: AiServiceConfig[];
@@ -852,7 +852,7 @@
   let chatConfigReads = 0;
   const chatConfigs = $derived(
     chatConfigReread &&
-    chatConfigReread.against === data.chatConfigs &&
+    chatConfigReread.against === data &&
     chatConfigReread.appRef === app.id &&
     chatConfigReread.agentRef === app.agentId
       ? chatConfigReread.configs
@@ -862,18 +862,17 @@
     const agentRef = app.agentId;
     if (!agentRef) return true;
     const appRef = app.id;
-    const against = data.chatConfigs;
+    const against = data;
     const mine = ++chatConfigReads;
     const fresh = await readResolvedAiConfigs(appRef, agentRef, signal);
     if (fresh === null) return false;
     if (
-      mine === chatConfigReads &&
-      appRef === app.id &&
-      agentRef === app.agentId &&
-      against === data.chatConfigs
-    ) {
-      chatConfigReread = { against, appRef, agentRef, configs: fresh };
-    }
+      mine !== chatConfigReads ||
+      appRef !== app.id ||
+      agentRef !== app.agentId ||
+      against !== data
+    ) return false;
+    chatConfigReread = { against, appRef, agentRef, configs: fresh };
     return true;
   }
   const usableChatConfigs = $derived((chatConfigs ?? []).filter((c) => c.hasApiKey));

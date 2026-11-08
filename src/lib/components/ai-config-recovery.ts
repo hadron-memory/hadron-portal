@@ -10,7 +10,7 @@ type Listener = () => void;
  * owner keys and display text only — never credentials or mutation payloads.
  * The user scope prevents a client-side account change inheriting the state.
  */
-class AiConfigRecoveryStore {
+export class AiConfigRecoveryStore {
   private pendingByOwner = new Map<string, Map<number, Pending>>();
   private deferredByOwner = new Map<string, Deferred>();
   private uncertaintyByOwner = new Map<string, string>();
@@ -19,8 +19,24 @@ class AiConfigRecoveryStore {
   private listeners = new Set<Listener>();
   private nextOrder = 0;
 
+  private empty(): boolean {
+    return this.pendingByOwner.size === 0 && this.deferredByOwner.size === 0 &&
+      this.uncertaintyByOwner.size === 0 && this.refreshWarningByOwner.size === 0;
+  }
+
+  private pruneWhenUnused() {
+    if (this.listeners.size !== 0 || !this.empty()) return;
+    for (const [scope, candidate] of stores) {
+      if (candidate === this) {
+        stores.delete(scope);
+        return;
+      }
+    }
+  }
+
   private emit() {
     for (const listener of [...this.listeners]) listener();
+    this.pruneWhenUnused();
   }
 
   private orderFor(outcome: AiConfigCommitted): number {
@@ -99,7 +115,10 @@ class AiConfigRecoveryStore {
 
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
+    return () => {
+      this.listeners.delete(listener);
+      this.pruneWhenUnused();
+    };
   }
 }
 
@@ -107,10 +126,14 @@ const stores = new Map<string, AiConfigRecoveryStore>();
 let mutationSequence = 0;
 let recoverySequence = 0;
 
+export function createAiConfigRecoveryStore(): AiConfigRecoveryStore {
+  return new AiConfigRecoveryStore();
+}
+
 export function getAiConfigRecoveryStore(userScope: string): AiConfigRecoveryStore {
   let store = stores.get(userScope);
   if (!store) {
-    store = new AiConfigRecoveryStore();
+    store = createAiConfigRecoveryStore();
     stores.set(userScope, store);
   }
   return store;
