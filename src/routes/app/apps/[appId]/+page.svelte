@@ -119,6 +119,7 @@
   };
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
+  import { readResolvedAiConfigs } from '$lib/components/ai-config-readback';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import TerminalStatus from '$lib/components/TerminalStatus.svelte';
   import { terminalBadge, terminalCheckedAge, terminalSummary } from '$lib/workers/terminal';
@@ -131,7 +132,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
-  import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker } from '$lib/types';
+  import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker, AiServiceConfig } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import type { AppTabId } from './tab-intent';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
@@ -839,19 +840,55 @@
   // linked, and an empty state otherwise.
   // 036-ai-service-config: configs resolvable for this app's chat context
   // (App→Agent→Org→Host, masked). Powers the picker + LLM-readiness gate.
-  const usableChatConfigs = $derived((data.chatConfigs ?? []).filter((c) => c.hasApiKey));
+  // AI-tab writes re-read this slice through the same section endpoint as the
+  // owner list. The raw working copy preserves the loader-array identity token;
+  // any later full loader result supersedes it, including across Chat/AI tabs.
+  let chatConfigReread = $state.raw<{
+    against: AiServiceConfig[] | null;
+    appRef: string;
+    agentRef: string;
+    configs: AiServiceConfig[];
+  } | null>(null);
+  let chatConfigReads = 0;
+  const chatConfigs = $derived(
+    chatConfigReread &&
+    chatConfigReread.against === data.chatConfigs &&
+    chatConfigReread.appRef === app.id &&
+    chatConfigReread.agentRef === app.agentId
+      ? chatConfigReread.configs
+      : data.chatConfigs,
+  );
+  async function refreshChatConfigs(): Promise<boolean> {
+    const agentRef = app.agentId;
+    if (!agentRef) return true;
+    const appRef = app.id;
+    const against = data.chatConfigs;
+    const mine = ++chatConfigReads;
+    const fresh = await readResolvedAiConfigs(appRef, agentRef);
+    if (fresh === null) return false;
+    if (
+      mine === chatConfigReads &&
+      appRef === app.id &&
+      agentRef === app.agentId &&
+      against === data.chatConfigs
+    ) {
+      chatConfigReread = { against, appRef, agentRef, configs: fresh };
+    }
+    return true;
+  }
+  const usableChatConfigs = $derived((chatConfigs ?? []).filter((c) => c.hasApiKey));
   // null chatConfigs = couldn't list (e.g. viewer isn't an App member) →
   // unknown → don't block the chat.
-  const llmReady = $derived(data.chatConfigs === null ? null : usableChatConfigs.length > 0);
+  const llmReady = $derived(chatConfigs === null ? null : usableChatConfigs.length > 0);
   const appChatRender = $derived(
     chooseAppChatTabRender({ surfaces: app.surfaces, agentId: app.agentId, agents: app.agents, llmReady }),
   );
   // Picker selection overlaid on the default (`default`, else first usable).
   let selectedConfigName = $state<string | null>(null);
   // Validate the pick against the (possibly refreshed) usable set: if the
-  // selected config was deleted/disabled — e.g. edited on the AI Service
-  // Configs tab, then back to Chat where invalidateAll refetched chatConfigs — fall back to
-  // default → first rather than sending a name that no longer resolves.
+  // selected config was deleted/disabled on the AI Service Configs tab, the
+  // resolved-config working copy falls back to default → first rather than
+  // sending a name that no longer resolves.
   const effectiveConfigName = $derived(
     selectedConfigName && usableChatConfigs.some((c) => c.name === selectedConfigName)
       ? selectedConfigName
@@ -3432,9 +3469,10 @@
     </div>
   {/if}
 
-  <!-- ───────────── AI SERVICE CONFIGS TAB (#1008) ───────────── -->
-  {#if activeTab === 'ai-configs'}
-    <div id="panel-ai-configs" role="tabpanel" aria-labelledby="tab-ai-configs" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+  <!-- ───────────── AI SERVICE CONFIGS TAB (#1008) ─────────────
+       Keep the Section mounted while hidden: tab switches are not a full-page
+       readback, so pending writes, safety warnings and fresh rows must survive. -->
+  <div id="panel-ai-configs" role="tabpanel" aria-labelledby="tab-ai-configs" tabindex="0" hidden={activeTab !== 'ai-configs'} class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-8">
       <!-- AI providers (registry; consumers resolve a config by name) -->
       <section class="max-w-2xl">
@@ -3446,11 +3484,11 @@
           members={org?.members ?? []}
           currentUserId={data.currentUserId}
           configsError={data.configsError}
+          onRefreshed={refreshChatConfigs}
         />
       </section>
     </div>
-    </div>
-  {/if}
+  </div>
 
   <!-- ───────────── SETTINGS TAB ───────────── -->
   {#if activeTab === 'settings'}

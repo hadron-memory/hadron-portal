@@ -1433,6 +1433,145 @@ describe('Chats tab, no LLM config (#1007/#1008, Cody on #1034)', () => {
   });
 });
 
+describe('App AI configuration readback lifecycle', () => {
+  const masked = {
+    id: 'c1', name: 'default', ownerType: 'APP', ownerId: 'a1', provider: 'anthropic', model: 'claude-sonnet-5',
+    endpoint: null, effectiveEndpoint: 'https://api.anthropic.com/v1', apiStyle: null, effectiveApiStyle: null,
+    hasApiKey: true, apiKeyPreview: '…key', params: null, enabled: true,
+    createdAt: '2026-11-08T00:00:00Z', updatedAt: null,
+  };
+
+  async function mountAi(dataOver: Record<string, unknown> = {}) {
+    setStubPage('https://example.test/app/apps/a1?tab=ai-configs', { appId: 'a1' });
+    const data = await pageData();
+    const m = mountComponent(Page as never, reactiveProps({
+      data: {
+        ...data,
+        ...dataOver,
+        initialTab: 'ai-configs', selectedChatKey: AGENT_CHAT_KEY,
+        app: {
+          ...data.app, surfaces: ['chat'], agentId: 'ag1', agent: { id: 'ag1', name: 'Bot' },
+          agents: [{ id: 'ag1', name: 'Bot' }],
+        },
+        appChats: [{ key: AGENT_CHAT_KEY, label: 'Bot' }],
+        org: { id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com', members: [{ user: { id: 'u1' }, role: 'ADMIN' }] },
+      },
+      form: null,
+    }) as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(3);
+    return m;
+  }
+
+  function fillNewConfig(target: HTMLElement) {
+    const add = [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Add configuration')!;
+    add.click();
+    flushSync();
+    for (const [selector, value] of [['#ac-name', 'default'], ['#ac-model', 'claude-sonnet-5'], ['#ac-key', 'synthetic-key']] as const) {
+      const input = target.querySelector<HTMLInputElement>(selector)!;
+      input.value = value;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      flushSync();
+    }
+    ([...target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Save')!.click();
+  }
+
+  it('keeps a pending mutation, uncertainty and its replay lock while the AI tab is hidden', async () => {
+    let rejectCreate!: (error: Error) => void;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'create') return new Promise<Response>((_, reject) => { rejectCreate = reject; });
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi();
+    fillNewConfig(m.target);
+    await tick(3);
+    const panel = m.target.querySelector<HTMLElement>('#panel-ai-configs')!;
+    const region = m.target.querySelector<HTMLElement>('[data-testid="ai-config-feedback"]')!;
+
+    (m.target.querySelector('#tab-settings') as HTMLButtonElement).click();
+    await tick(3);
+    rejectCreate(new Error('dropped response'));
+    await tick(30);
+    expect(panel.hidden).toBe(true);
+    expect(region.isConnected).toBe(true);
+    expect(region.textContent).toContain('couldn’t confirm the change went through');
+
+    (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
+    await tick(3);
+    expect(panel.hidden).toBe(false);
+    expect(m.target.querySelector('[data-testid="ai-config-feedback"]')).toBe(region);
+    expect(region.textContent).toContain('couldn’t confirm the change went through');
+    expect(([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Save')!.disabled).toBe(true);
+  });
+
+  it('refreshes both the owner grid and resolved Chat configs across create and delete', async () => {
+    let configs = [] as typeof masked[];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1' || url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        return { ok: true, json: async () => ({ configs }) } as Response;
+      }
+      if (url.startsWith('/api/agent-chat/list')) return { ok: true, json: async () => ({ chats: [] }) } as Response;
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'create') {
+        configs = [masked];
+        return { ok: true, json: async () => ({ ok: true, config: masked }) } as Response;
+      }
+      if (body.action === 'delete') {
+        configs = [];
+        return { ok: true, json: async () => ({ ok: true }) } as Response;
+      }
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi({ chatConfigs: null });
+    fillNewConfig(m.target);
+    await tick(40);
+    expect(m.target.querySelector('[data-testid="ai-config-feedback"]')!.textContent).toContain('Saved “default”.');
+
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    expect(m.target.querySelector('#chat-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
+
+    // Null loader reads are not identity tokens: App B must not inherit A's
+    // resolved list, and returning to A restores only A's working copy.
+    const appA = m.props.data as {
+      app: Record<string, unknown>;
+      chatConfigs: unknown;
+      appConfigs: unknown;
+    };
+    m.props.data = {
+      ...appA,
+      app: { ...appA.app, id: 'b1', agentId: 'ag2' },
+      chatConfigs: null,
+      appConfigs: [],
+    };
+    await tick(10);
+    expect(m.target.querySelector('#chat-config')).toBeNull();
+    m.props.data = { ...appA, appConfigs: [masked] };
+    await tick(10);
+    expect(m.target.querySelector('#chat-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
+
+    (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
+    await tick(3);
+    (m.target.querySelector('button[aria-label="Actions for default"]') as HTMLButtonElement).click();
+    flushSync();
+    ([...m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')]).find((x) => x.textContent?.trim() === 'Delete')!.click();
+    flushSync();
+    ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Delete')!.click();
+    await tick(40);
+    expect(m.target.querySelector('[data-testid="ai-config-feedback"]')!.textContent).toContain('Deleted “default”.');
+
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    expect(m.target.querySelector('#chat-config')).toBeNull();
+    expect(m.target.querySelector('#panel-chats')!.textContent).toContain('Connect an LLM provider to enable agent chat');
+  });
+});
+
 // portal#1068 — the Client tab's "Download setup files" mints a key through
 // /api/create-app-key. A manager refusal must reach the reader as the rule,
 // not as "Failed to create client key." with the reason dropped.

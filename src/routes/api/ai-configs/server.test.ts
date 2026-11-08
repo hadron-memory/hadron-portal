@@ -16,12 +16,12 @@ const mockCallAgentChatLlm = vi.fn();
 vi.mock('$lib/server/llm/agentChatLlm', () => ({ callAgentChatLlm: mockCallAgentChatLlm }));
 vi.mock('$lib/server/llm/agentChatLlm.js', () => ({ callAgentChatLlm: mockCallAgentChatLlm }));
 
-function ev(opts: { token?: string | null; body?: unknown }) {
+function ev(opts: { token?: string | null; body?: unknown; url?: string }) {
   const token = opts.token === undefined ? 'test-token' : opts.token;
   return {
     request: { json: async () => opts.body },
     locals: { token },
-    url: new URL('http://localhost/api/ai-configs'),
+    url: new URL(opts.url ?? 'http://localhost/api/ai-configs'),
   } as any;
 }
 
@@ -360,5 +360,71 @@ describe('POST /api/ai-configs', () => {
     const { POST } = await import('./+server');
     const res = await POST(ev({ body: { action: 'explode' } }));
     expect(res.status).toBe(400);
+  });
+});
+
+describe('GET /api/ai-configs section readback', () => {
+  const maskedConfig = {
+    id: 'c1', name: 'default', ownerType: 'AGENT', ownerId: 'a1', provider: 'glm', model: 'glm-5',
+    endpoint: null, effectiveEndpoint: 'https://api.z.ai/api/paas/v4',
+    apiStyle: null, effectiveApiStyle: 'CHAT_COMPLETIONS',
+    hasApiKey: true, apiKeyPreview: '…abcd', params: null, enabled: true,
+    createdAt: '2026-09-26T00:00:00Z', updatedAt: null,
+  };
+
+  it('requires auth and both owner arguments', async () => {
+    const { GET } = await import('./+server');
+    expect((await GET(ev({ token: null }))).status).toBe(401);
+    expect((await GET(ev({ url: 'http://localhost/api/ai-configs?ownerType=AGENT' }))).status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('reads the same masked owner list with pagination and no-store', async () => {
+    mockRequest.mockResolvedValueOnce({ aiServiceConfigs: { items: [maskedConfig], total: 1 } });
+    const { GET } = await import('./+server');
+    const res = await GET(ev({ url: 'http://localhost/api/ai-configs?ownerType=AGENT&ownerId=a1' }));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await jsonOf(res)).toEqual({ configs: [maskedConfig] });
+    expect(mockRequest.mock.calls[0][1]).toEqual({ ownerType: 'AGENT', ownerId: 'a1', limit: 200, offset: 0 });
+  });
+
+  it('reads the App chat resolution slice with the same masked fields', async () => {
+    mockRequest.mockResolvedValueOnce({ resolveAiServiceConfigs: [maskedConfig] });
+    const { GET } = await import('./+server');
+    const res = await GET(ev({ url: 'http://localhost/api/ai-configs?appRef=app1&agentRef=agent1' }));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await jsonOf(res)).toEqual({ configs: [maskedConfig] });
+    expect(mockRequest.mock.calls[0][1]).toEqual({ appRef: 'app1', agentRef: 'agent1' });
+  });
+
+  it('rejects incomplete or mixed readback arguments without querying', async () => {
+    const { GET } = await import('./+server');
+    expect((await GET(ev({ url: 'http://localhost/api/ai-configs?appRef=app1' }))).status).toBe(400);
+    expect((await GET(ev({ url: 'http://localhost/api/ai-configs?appRef=app1&agentRef=agent1&ownerType=APP&ownerId=app1' }))).status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('contains a refused resolution read as failed:true', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('synthetic resolution failure'));
+    const { GET } = await import('./+server');
+    const res = await GET(ev({ url: 'http://localhost/api/ai-configs?appRef=app1&agentRef=agent1' }));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await jsonOf(res)).toEqual({ failed: true });
+  });
+
+  it('contains a refused read in the page as failed:true', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('synthetic read failure'));
+    const { GET } = await import('./+server');
+    const res = await GET(ev({ url: 'http://localhost/api/ai-configs?ownerType=ORGANIZATION&ownerId=o1' }));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await jsonOf(res)).toEqual({ failed: true });
   });
 });

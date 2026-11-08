@@ -8,26 +8,38 @@ import {
   resetNavigationCalls,
 } from '$lib/test/stubs/app-navigation';
 import AiServiceConfigSection from './AiServiceConfigSection.svelte';
+import AiServiceConfigManager from './AiServiceConfigManager.svelte';
 import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 import type { AiServiceConfig } from '$lib/types';
 
 type Props = Record<string, unknown>;
-type Reply = { ok?: boolean; status?: number; body?: Record<string, unknown> };
+type Reply = { ok?: boolean; status?: number; body?: Record<string, unknown> | null };
 
 const mounted: Array<Mounted<Props>> = [];
 let posts: Array<Record<string, unknown>>;
+let readbacks: string[];
 
 function response(reply: Reply): Response {
   return {
     ok: reply.ok ?? true,
     status: reply.status ?? ((reply.ok ?? true) ? 200 : 400),
-    json: async () => reply.body ?? { ok: true },
+    json: async () => ('body' in reply ? reply.body : { ok: true }),
   } as Response;
 }
 
-function stubFetch(handler: (body: Record<string, unknown>) => Reply | Promise<Reply> = () => ({})) {
-  vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
-    const body = JSON.parse(init.body) as Record<string, unknown>;
+function stubFetch(
+  handler: (body: Record<string, unknown>) => Reply | Promise<Reply> = () => ({}),
+  readback: (url: string) => Reply | Promise<Reply> = () => ({ body: { configs: [] } }),
+) {
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+    if (url.startsWith('/api/ai-configs?') && init?.method !== 'POST') {
+      readbacks.push(url);
+      return response(await readback(url));
+    }
+    if (url !== '/api/ai-configs' || init?.method !== 'POST') {
+      throw new Error(`unexpected fetch: ${init?.method ?? 'GET'} ${url}`);
+    }
+    const body = JSON.parse(init.body!) as Record<string, unknown>;
     posts.push(body);
     if (body.action === 'endpoints') return response({ body: { endpoints: [] } });
     return response(await handler(body));
@@ -36,6 +48,7 @@ function stubFetch(handler: (body: Record<string, unknown>) => Reply | Promise<R
 
 beforeEach(() => {
   posts = [];
+  readbacks = [];
   resetNavigationCalls();
   stubFetch();
 });
@@ -83,7 +96,7 @@ function set(el: HTMLInputElement | HTMLSelectElement, value: string) {
 }
 
 async function settle() {
-  await tick(12);
+  await tick(30);
   flushSync();
 }
 
@@ -157,11 +170,13 @@ describe('AI configuration acknowledgement (#303)', () => {
     expect(feedback(target)).toBe(region);
     expect(region.textContent).toContain('Saved “fast”.');
     expect(target.querySelector('#ac-name')).toBeNull();
-    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
+    expect(readbacks).toEqual(['/api/ai-configs?ownerType=ORGANIZATION&ownerId=o1']);
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
     expect(navigationCalls.filter((c) => c.fn === 'goto')).toHaveLength(0);
   });
 
   it('acknowledges update and delete with the affected configuration name', async () => {
+    stubFetch(() => ({}), () => ({ body: { configs: [config()] } }));
     const { target } = await open({ configs: [config()] });
     editRow(target);
     await settle();
@@ -204,7 +219,7 @@ describe('AI configuration acknowledgement (#303)', () => {
   });
 
   it('reports a saved create whose refresh failed without calling it a save refusal', async () => {
-    navigationHooks.onInvalidateAll = () => { throw new Error('synthetic refresh failure'); };
+    stubFetch(() => ({}), () => { throw new Error('synthetic refresh failure'); });
     const { target } = await open();
     await startCreate(target, 'fast');
     button(target, 'Save').click();
@@ -218,7 +233,7 @@ describe('AI configuration acknowledgement (#303)', () => {
   });
 
   it('reports a committed delete whose refresh failed and offers readback, never a replay', async () => {
-    navigationHooks.onInvalidateAll = () => { throw new Error('synthetic refresh failure'); };
+    stubFetch(() => ({}), () => { throw new Error('synthetic refresh failure'); });
     const { target } = await open({ configs: [config()] });
     menuDelete(target);
     button(target, 'Delete').click();
@@ -314,13 +329,17 @@ describe('AI configuration feedback lifecycle review controls', () => {
     release();
     await settle();
 
-    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
+    expect(readbacks).toHaveLength(1);
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
     expect(feedback(target).textContent?.trim()).toBe('');
   });
 
   it('keeps a committed outcome visible when the refreshed loader reports configsError', async () => {
     const m = await open();
-    navigationHooks.onInvalidateAll = () => { m.props.configsError = true; };
+    stubFetch(() => ({}), () => {
+      m.props.configsError = true;
+      return { body: { configs: [] } };
+    });
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
     await settle();
@@ -367,7 +386,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
 
   it('does not expire a refresh-failure warning or its reload control', async () => {
     vi.useFakeTimers();
-    navigationHooks.onInvalidateAll = () => { throw new Error('refresh failed'); };
+    stubFetch(() => ({}), () => { throw new Error('refresh failed'); });
     const { target } = await open();
     await startCreate(target, 'fast');
     button(target, 'Save').click();
@@ -382,7 +401,10 @@ describe('AI configuration feedback lifecycle review controls', () => {
 
   it('clears a committed outcome on owner change even while configsError hides the manager', async () => {
     const m = await open({ ownerLabel: 'First' });
-    navigationHooks.onInvalidateAll = () => { m.props.configsError = true; };
+    stubFetch(() => ({}), () => {
+      m.props.configsError = true;
+      return { body: { configs: [] } };
+    });
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
     await settle();
@@ -433,7 +455,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
 
   it('keeps a committed refresh failure visible when a newer action supersedes ordinary success', async () => {
     let rejectRefresh!: (error: Error) => void;
-    navigationHooks.onInvalidateAll = () => new Promise<void>((_, reject) => { rejectRefresh = reject; });
+    stubFetch(() => ({}), () => new Promise<never>((_, reject) => { rejectRefresh = reject; }));
     const { target } = await open();
     await startCreate(target, 'fast');
     button(target, 'Save').click();
@@ -442,14 +464,17 @@ describe('AI configuration feedback lifecycle review controls', () => {
     rejectRefresh(new Error('refresh failed'));
     await settle();
 
-    expect(feedback(target).textContent).toContain('Saved “fast”');
+    expect(feedback(target).textContent).not.toContain('Saved “fast”.');
     expect(feedback(target).textContent).toContain('couldn’t be refreshed');
     expect(feedback(target).querySelector('a[data-sveltekit-reload]')).not.toBeNull();
   });
 
   it('acknowledges a committed save when refreshed permissions hide the manager', async () => {
     const m = await open();
-    navigationHooks.onInvalidateAll = () => { m.props.members = []; };
+    stubFetch(() => ({}), () => {
+      m.props.members = [];
+      return { body: { configs: [] } };
+    });
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
     await settle();
@@ -475,5 +500,286 @@ describe('AI configuration feedback lifecycle review controls', () => {
 
     expect(feedback(target).textContent).toContain('couldn’t confirm the change went through');
     expect(feedback(target).querySelector('a[data-sveltekit-reload]')).not.toBeNull();
+    expect(button(target, 'Delete').disabled).toBe(true);
+    button(target, 'Delete').click();
+    expect(posts.filter((p) => p.action === 'delete')).toHaveLength(1);
+  });
+
+  it.each([
+    { label: 'an empty success envelope', body: {} },
+    { label: 'an explicitly unsuccessful envelope', body: { ok: false } },
+    { label: 'a null body', body: null },
+  ])('treats $label as an unconfirmed mutation, never success', async ({ body: replyBody }) => {
+    stubFetch((body) => body.action === 'create' ? { body: replyBody } : {});
+    const { target } = await open();
+    await startCreate(target, 'fast');
+    button(target, 'Save').click();
+    await settle();
+
+    expect($<HTMLInputElement>(target, '#ac-name')!.value).toBe('fast');
+    expect(feedback(target).textContent).toContain('couldn’t confirm the change went through');
+    expect(feedback(target).textContent).not.toContain('Saved “fast”.');
+    expect(readbacks).toHaveLength(0);
+  });
+
+  it('locks the same mutation action after an uncertain outcome until readback', async () => {
+    stubFetch(async (body) => {
+      if (body.action === 'create') throw new Error('dropped response');
+      return {};
+    });
+    const { target } = await open();
+    await startCreate(target, 'fast');
+    button(target, 'Save').click();
+    await settle();
+
+    expect(button(target, 'Save').disabled).toBe(true);
+    button(target, 'Save').click();
+    expect(posts.filter((p) => p.action === 'create')).toHaveLength(1);
+  });
+
+  it('preserves the previous refresh behavior for a standalone manager', async () => {
+    const { target } = await open({}, AiServiceConfigManager);
+    await startCreate(target, 'fast');
+    button(target, 'Save').click();
+    await settle();
+
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
+  });
+
+  it('keeps the page and committed warning when the section-owned readback fails', async () => {
+    stubFetch(() => ({}), () => { throw new Error('readback failed'); });
+    const m = await open();
+    navigationHooks.onInvalidateAll = () => {
+      const index = mounted.indexOf(m);
+      if (index >= 0) mounted.splice(index, 1);
+      m.unmount(); // kit's real error boundary unmounts the caller, not a rejection
+    };
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await settle();
+
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
+    expect(readbacks).toHaveLength(1);
+    expect(feedback(m.target).textContent).toContain('Saved “fast”');
+    expect(feedback(m.target).textContent).toContain('couldn’t be refreshed');
+  });
+
+  it('clears an earlier refresh-failure warning after a later successful readback', async () => {
+    let first = true;
+    navigationHooks.onInvalidateAll = () => {
+      if (first) { first = false; throw new Error('refresh failed'); }
+    };
+    stubFetch(() => ({}), () => {
+      if (first) { first = false; throw new Error('readback failed'); }
+      return { body: { configs: [] } };
+    });
+    const { target } = await open();
+    await startCreate(target, 'fast');
+    button(target, 'Save').click();
+    await settle();
+    expect(feedback(target).textContent).toContain('couldn’t be refreshed');
+
+    await startCreate(target, 'frontier');
+    button(target, 'Save').click();
+    await settle();
+
+    expect(feedback(target).textContent).toContain('Saved “frontier”.');
+    expect(feedback(target).textContent).not.toContain('couldn’t be refreshed');
+  });
+
+  it.each([
+    { label: 'a failed-read envelope', body: { failed: true } },
+    { label: 'a non-list payload', body: { configs: 'not-a-list' } },
+    { label: 'a malformed config row', body: { configs: [{ ...config(), enabled: 'yes' }] } },
+  ])('keeps the committed warning and page when readback returns $label', async ({ body }) => {
+    stubFetch(() => ({}), () => ({ body }));
+    const { target } = await open();
+    await startCreate(target, 'fast');
+    button(target, 'Save').click();
+    await settle();
+
+    expect(feedback(target).textContent).toContain('Saved “fast”');
+    expect(feedback(target).textContent).toContain('couldn’t be refreshed');
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
+    expect(button(target, 'Add configuration')).not.toBeNull();
+  });
+
+  it('lets a later loader replacement supersede the section working copy', async () => {
+    const fresh = config({ id: 'c2', name: 'fast' });
+    stubFetch(() => ({}), () => ({ body: { configs: [fresh] } }));
+    const m = await open({ configs: [config()] });
+    editRow(m.target);
+    button(m.target, 'Save').click();
+    await settle();
+    expect(m.target.textContent).toContain('fast');
+
+    m.props.configs = [config({ id: 'c3', name: 'frontier' })];
+    await settle();
+    expect(m.target.textContent).toContain('frontier');
+    expect(m.target.querySelector(`button[aria-label="${aiConfigStrings.actionsLabel('fast')}"]`)).toBeNull();
+  });
+
+  it('discards a readback issued for the old owner and applies its own-owner counterpart', async () => {
+    let release!: (reply: Reply) => void;
+    const held = new Promise<Reply>((resolve) => { release = resolve; });
+    stubFetch(() => ({}), () => held);
+    const stale = await open({ configs: [config()] });
+    editRow(stale.target);
+    button(stale.target, 'Save').click();
+    await settle();
+
+    stale.props.ownerId = 'o2';
+    stale.props.configs = [config({ id: 'other', ownerId: 'o2', name: 'frontier' })];
+    await settle();
+    release({ body: { configs: [config({ id: 'c2', name: 'fast' })] } });
+    await settle();
+
+    expect(stale.target.querySelector(`button[aria-label="${aiConfigStrings.actionsLabel('frontier')}"]`)).not.toBeNull();
+    expect(stale.target.querySelector(`button[aria-label="${aiConfigStrings.actionsLabel('fast')}"]`)).toBeNull();
+    expect(feedback(stale.target).textContent?.trim()).toBe('');
+
+    let releaseFresh!: (reply: Reply) => void;
+    const freshHeld = new Promise<Reply>((resolve) => { releaseFresh = resolve; });
+    stubFetch(() => ({}), () => freshHeld);
+    const fresh = await open({ configs: [config()] });
+    editRow(fresh.target);
+    button(fresh.target, 'Save').click();
+    await settle();
+    releaseFresh({ body: { configs: [config({ id: 'c2', name: 'fast' })] } });
+    await settle();
+
+    expect(fresh.target.querySelector(`button[aria-label="${aiConfigStrings.actionsLabel('fast')}"]`)).not.toBeNull();
+    expect(feedback(fresh.target).textContent).toContain('Saved “default”.');
+  });
+
+  it('does not let a late old-owner uncertainty lock the current owner', async () => {
+    let rejectCreate!: (error: Error) => void;
+    stubFetch(async (body) => {
+      if (body.action === 'create') await new Promise<never>((_, reject) => { rejectCreate = reject; });
+      return {};
+    });
+    const m = await open();
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await tick(2);
+
+    m.props.ownerId = 'o2';
+    await settle();
+    rejectCreate(new Error('dropped response'));
+    await settle();
+
+    expect(feedback(m.target).textContent?.trim()).toBe('');
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(false);
+  });
+
+  it('shows standalone uncertainty with readback instead of a silent replay lock', async () => {
+    stubFetch(async (body) => {
+      if (body.action === 'create') throw new Error('dropped response');
+      return {};
+    });
+    const { target } = await open({}, AiServiceConfigManager);
+    await startCreate(target, 'fast');
+    button(target, 'Save').click();
+    await settle();
+
+    const region = $<HTMLElement>(target, '[data-testid="ai-config-manager-feedback"]')!;
+    expect(region.textContent).toContain('couldn’t confirm the change went through');
+    expect(region.querySelector('a[data-sveltekit-reload]')).not.toBeNull();
+    expect(button(target, 'Save').disabled).toBe(true);
+  });
+
+  it('reports a standalone committed refresh rejection instead of dropping it', async () => {
+    navigationHooks.onInvalidateAll = () => { throw new Error('refresh rejected'); };
+    const { target } = await open({}, AiServiceConfigManager);
+    await startCreate(target, 'fast');
+    button(target, 'Save').click();
+    await settle();
+
+    const region = $<HTMLElement>(target, '[data-testid="ai-config-manager-feedback"]')!;
+    expect(region.textContent).toContain('Saved “fast”, but the configurations couldn’t be refreshed');
+    expect(region.querySelector('a[data-sveltekit-reload]')).not.toBeNull();
+    expect(button(target, 'Add configuration')).not.toBeNull();
+  });
+
+  it.each([
+    { label: 'an older failure cannot overwrite a newer success', newerFails: false, olderFails: true, warning: false },
+    { label: 'an older success cannot clear a newer failure', newerFails: true, olderFails: false, warning: true },
+  ])('sequences standalone refreshes: $label', async ({ newerFails, olderFails, warning }) => {
+    const pending: Array<{ resolve: () => void; reject: (error: Error) => void }> = [];
+    navigationHooks.onInvalidateAll = () => new Promise<void>((resolve, reject) => {
+      pending.push({ resolve: () => resolve(), reject });
+    });
+    const { target } = await open({}, AiServiceConfigManager);
+    await startCreate(target, 'fast');
+    button(target, 'Save').click();
+    await settle();
+    await startCreate(target, 'frontier');
+    button(target, 'Save').click();
+    await settle();
+    expect(pending).toHaveLength(2);
+
+    if (newerFails) pending[1].reject(new Error('newer refresh failed'));
+    else pending[1].resolve();
+    await settle();
+    if (olderFails) pending[0].reject(new Error('older refresh failed'));
+    else pending[0].resolve();
+    await settle();
+
+    const region = $<HTMLElement>(target, '[data-testid="ai-config-manager-feedback"]')!;
+    expect(region.textContent?.includes('couldn’t be refreshed')).toBe(warning);
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(2);
+  });
+
+  it('acknowledges immediately and bounds a hung section readback', async () => {
+    vi.useFakeTimers();
+    stubFetch(() => ({}), () => new Promise<Reply>(() => {}));
+    const { target } = await open();
+    await startCreate(target, 'fast');
+    button(target, 'Save').click();
+    await settle();
+
+    expect(feedback(target).textContent).toContain('Saved “fast”.');
+    expect(feedback(target).textContent).not.toContain('couldn’t be refreshed');
+    button(target, 'Add configuration').click();
+    await settle();
+    expect(button(target, 'Save').disabled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    flushSync();
+    expect(feedback(target).textContent).toContain('couldn’t be refreshed');
+    expect(feedback(target).querySelector('a[data-sveltekit-reload]')).not.toBeNull();
+  });
+
+  it('reports failure of a caller-owned related readback without delaying success', async () => {
+    const onRefreshed = vi.fn(() => false);
+    const { target } = await open({ onRefreshed });
+    await startCreate(target, 'fast');
+    button(target, 'Save').click();
+    await settle();
+
+    expect(onRefreshed).toHaveBeenCalledTimes(1);
+    expect(feedback(target).textContent).toContain('Saved “fast”');
+    expect(feedback(target).textContent).toContain('couldn’t be refreshed');
+  });
+
+  it('lets inline delete Cancel supersede ordinary acknowledgement without cancelling readback', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    stubFetch(async (body) => {
+      if (body.action === 'delete') await held;
+      return {};
+    });
+    const { target } = await open({ configs: [config()] });
+    menuDelete(target);
+    button(target, 'Delete').click();
+    await tick(2);
+    button(target, 'Cancel').click();
+    release();
+    await settle();
+
+    expect(feedback(target).textContent).not.toContain('Deleted “default”.');
+    expect(readbacks).toHaveLength(1);
   });
 });

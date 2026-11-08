@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import { invalidateAll } from '$app/navigation';
   import { testResultView, type AiConfigTestResult, type AiConfigTestView } from '$lib/ai-config-test';
   import { lookupOwn } from '$lib/lookup';
   import { AI_CONFIG_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
@@ -35,9 +36,26 @@
     configs,
     canManage = false,
     allowTest = false,
+    mutationUncertain = false,
     onAction = () => 0,
-    onCommitted = () => {},
-    onUncertain = () => {},
+    // Standalone use predates the Section wrapper: keep its original refresh,
+    // including the rejection path that used to reach the mutation catch.
+    onCommitted = async (outcome) => {
+      const mine = ++standaloneRefreshGeneration;
+      try {
+        await invalidateAll();
+        if (outcome.ownerKey === ownerKey && mine === standaloneRefreshGeneration) {
+          standaloneRefreshWarning = null;
+        }
+      } catch {
+        if (outcome.ownerKey === ownerKey && mine === standaloneRefreshGeneration) {
+          standaloneRefreshWarning = outcome.refreshFailedText;
+        }
+      }
+    },
+    onUncertain = (outcome) => {
+      if (outcome.ownerKey === ownerKey) standaloneWarning = outcome.text;
+    },
   }: {
     ownerType: AiConfigOwnerType;
     ownerId: string;
@@ -46,8 +64,10 @@
     configs: AiServiceConfig[];
     canManage?: boolean;
     allowTest?: boolean;
+    /** Section-owned uncertainty survives this manager being torn down. */
+    mutationUncertain?: boolean;
     onAction?: () => number;
-    onCommitted?: (outcome: AiConfigCommitted) => void;
+    onCommitted?: (outcome: AiConfigCommitted) => void | Promise<void>;
     onUncertain?: (outcome: AiConfigUncertain) => void;
   } = $props();
 
@@ -83,6 +103,11 @@
   type KnownEndpoint = { url: string; label: string; isDefault: boolean; note: string | null };
   let knownEndpoints = $state<KnownEndpoint[]>([]);
   let busy = $state(false);
+  let uncertainMutation = $state(false);
+  let standaloneWarning = $state<string | null>(null);
+  let standaloneRefreshWarning = $state<string | null>(null);
+  let standaloneRefreshGeneration = 0;
+  const mutationLocked = $derived(uncertainMutation || mutationUncertain);
   let error = $state<string | null>(null);
   // #937: one shape for both paths, so the result always reads the same way.
   let testResult = $state<AiConfigTestView | null>(null);
@@ -126,6 +151,10 @@
     clearNotice();
     resetEditor();
     confirmDeleteId = null;
+    uncertainMutation = false;
+    standaloneWarning = null;
+    standaloneRefreshWarning = null;
+    standaloneRefreshGeneration++;
     busy = false;
   });
 
@@ -377,7 +406,7 @@
 
   async function post(payload: Record<string, unknown>, uncertainMutation = false): Promise<Record<string, unknown>> {
     let res: Response;
-    let body: Record<string, unknown>;
+    let body: unknown;
     try {
       res = await fetch('/api/ai-configs', {
         method: 'POST',
@@ -391,14 +420,19 @@
       // the mutation committed. Never present this as a safe-to-repeat refusal.
       throw new UncertainMutationError();
     }
-    if (!res.ok || body.error) {
-      // The portal endpoint can return JSON after an upstream failure whose
-      // position relative to the mutation is unknown. 4xx is a refusal; 5xx
-      // needs the same readback-before-retry treatment as a dropped response.
-      if (uncertainMutation && res.status >= 500) throw new UncertainMutationError();
-      throw new Error(String(body.error ?? 'Request failed'));
+    const record = body && typeof body === 'object' && !Array.isArray(body)
+      ? body as Record<string, unknown>
+      : null;
+    if (uncertainMutation && (res.status >= 500 || (res.ok && record?.ok !== true))) {
+      // A 5xx may be upstream of a committed write. Likewise, a 2xx without the
+      // endpoint's explicit {ok:true} is not proof of success (or of refusal).
+      throw new UncertainMutationError();
     }
-    return body;
+    if (!res.ok || record?.error) {
+      // A definitive 4xx refusal stays draft-local and safe to correct/retry.
+      throw new Error(String(record?.error ?? 'Request failed'));
+    }
+    return record ?? {};
   }
 
   async function save() {
@@ -485,6 +519,9 @@
         }
       } catch (e) {
         if (e instanceof UncertainMutationError) {
+          // Lock replay until the Section's full-page readback, even if this
+          // manager is later torn down and remounted for the same owner.
+          if (mutationOwnerKey === ownerKey) uncertainMutation = true;
           // Uncertainty is safety-critical, not action-owned feedback. The
           // Section keeps it visible even after Cancel or another row action.
           onUncertain({ ownerKey: mutationOwnerKey, text: s.mutationUnconfirmed() });
@@ -497,7 +534,7 @@
       if (isCurrent(action)) resetEditor();
       // The Section owns the committed write's readback and outcome. It checks
       // the owner again, including if this manager was unmounted meanwhile.
-      onCommitted({
+      void onCommitted({
         ownerKey: mutationOwnerKey,
         noticeGeneration: action.noticeGeneration,
         successText: s.saveSuccess(name),
@@ -597,6 +634,7 @@
         await post({ action: 'delete', id }, true);
       } catch (e) {
         if (e instanceof UncertainMutationError) {
+          if (mutationOwnerKey === ownerKey) uncertainMutation = true;
           onUncertain({ ownerKey: mutationOwnerKey, text: s.mutationUnconfirmed() });
         } else if (isCurrent(action)) {
           error = e instanceof Error ? e.message : 'Failed to delete configuration';
@@ -604,7 +642,7 @@
         return;
       }
       if (isCurrent(action)) confirmDeleteId = null;
-      onCommitted({
+      void onCommitted({
         ownerKey: mutationOwnerKey,
         noticeGeneration: action.noticeGeneration,
         successText: s.deleteSuccess(name),
@@ -620,9 +658,33 @@
     error = null;
     confirmDeleteId = id;
   }
+
+  function cancelDelete() {
+    // Cancel supersedes ordinary acknowledgement, not the committed readback.
+    beginAction();
+    confirmDeleteId = null;
+  }
 </script>
 
 <section>
+  <div data-testid="ai-config-manager-feedback" role="status" aria-live="polite" aria-atomic="true">
+    {#if standaloneWarning}
+      <div
+        class="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+      >
+        {standaloneWarning}
+        <a href={typeof window === 'undefined' ? '/' : window.location.href} data-sveltekit-reload class="ml-1 underline">{s.reloadPage()}</a>
+      </div>
+    {/if}
+    {#if standaloneRefreshWarning}
+      <div
+        class="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+      >
+        {standaloneRefreshWarning}
+        <a href={typeof window === 'undefined' ? '/' : window.location.href} data-sveltekit-reload class="ml-1 underline">{s.reloadPage()}</a>
+      </div>
+    {/if}
+  </div>
   <div class="mb-3 flex items-start justify-between gap-4">
     <div>
       <h2 class="font-semibold text-zinc-900 dark:text-white">{s.heading()}</h2>
@@ -881,7 +943,7 @@
         <button
           type="button"
           onclick={save}
-          disabled={busy}
+          disabled={busy || mutationLocked}
           class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
         >
           {busy ? s.savingButton() : s.saveButton()}
@@ -951,14 +1013,14 @@
                 <button
                   type="button"
                   onclick={() => doDelete(c.id, c.name)}
-                  disabled={busy}
+                  disabled={busy || mutationLocked}
                   class="rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-500 disabled:opacity-50"
                 >
                   {s.deleteButton()}
                 </button>
                 <button
                   type="button"
-                  onclick={() => (confirmDeleteId = null)}
+                  onclick={cancelDelete}
                   class="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
                 >
                   {s.cancelButton()}

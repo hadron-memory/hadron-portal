@@ -7,7 +7,10 @@ import {
   DELETE_AI_SERVICE_CONFIG_MUTATION,
   TEST_AI_SERVICE_CONFIG_MUTATION,
   AI_PROVIDER_ENDPOINTS_QUERY,
+  AI_SERVICE_CONFIGS_QUERY,
+  RESOLVE_AI_SERVICE_CONFIGS_QUERY,
 } from '$lib/server/queries';
+import { fetchAllItems } from '$lib/server/paginate';
 import { inlineTestable } from '$lib/components/ai-config-manager';
 import { callAgentChatLlm } from '$lib/server/llm/agentChatLlm.js';
 import { publicChatError } from '$lib/server/llm/chatError.js';
@@ -78,6 +81,60 @@ function endpointArgs(src: { endpoint?: string | null; apiStyle?: string | null 
 
 const TEST_SYSTEM =
   'You are a test assistant. Reply with exactly one short sentence confirming you are reachable.';
+
+// A committed write re-reads only this section, never invalidateAll(): Kit
+// renders a failed __data.json over the whole page before a component catch
+// can report the committed outcome. The query, owner arguments and token are
+// the same masked, paginated read the page loaders use. A refused upstream
+// read is an in-page `{failed:true}` result, not an HTTP 5xx.
+export const GET: RequestHandler = async ({ locals, url }) => {
+  const headers = { 'cache-control': 'no-store' };
+  if (!locals.token) return json({ error: 'Unauthorized' }, { status: 401, headers });
+
+  const ownerType = url.searchParams.get('ownerType');
+  const ownerId = url.searchParams.get('ownerId');
+  const appRef = url.searchParams.get('appRef');
+  const agentRef = url.searchParams.get('agentRef');
+
+  // App chat consumes the resolution walk, not just the App-owned rows. This
+  // mode refreshes that existing loader slice after an AI-config write without
+  // invalidating the rest of the App page. It uses the same App-membership gate.
+  if (appRef !== null || agentRef !== null) {
+    if (!appRef || !agentRef || ownerType !== null || ownerId !== null) {
+      return json({ error: 'appRef and agentRef are required together, without owner arguments' }, { status: 400, headers });
+    }
+    try {
+      const data = await gqlClient(locals.token).request<{ resolveAiServiceConfigs: AiServiceConfig[] }>(
+        RESOLVE_AI_SERVICE_CONFIGS_QUERY,
+        { appRef, agentRef },
+      );
+      return json({ configs: data.resolveAiServiceConfigs }, { headers });
+    } catch (e) {
+      console.error('[api/ai-configs] resolved section readback failed:', e);
+      return json({ failed: true }, { headers });
+    }
+  }
+
+  if (
+    !ownerId ||
+    (ownerType !== 'HADRON_SERVER' && ownerType !== 'ORGANIZATION' && ownerType !== 'APP' && ownerType !== 'AGENT')
+  ) {
+    return json({ error: 'Valid ownerType and ownerId are required' }, { status: 400, headers });
+  }
+
+  try {
+    const configs = await fetchAllItems<AiServiceConfig>(
+      gqlClient(locals.token),
+      AI_SERVICE_CONFIGS_QUERY,
+      'aiServiceConfigs',
+      { ownerType, ownerId },
+    );
+    return json({ configs }, { headers });
+  } catch (e) {
+    console.error('[api/ai-configs] section readback failed:', e);
+    return json({ failed: true }, { headers });
+  }
+};
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) {

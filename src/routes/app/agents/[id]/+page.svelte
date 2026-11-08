@@ -1494,10 +1494,9 @@
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <!-- AI PROVIDERS TAB — agent-owned AI service configs (#352)            -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
-  {#if activeTab === 'ai'}
-    <!-- The agent's `default` config is one level of the resolution walk used
-         when the agent runs inside an App. -->
-    <section class="max-w-2xl">
+  <!-- Keep the Section mounted while hidden: switching tabs is not a readback,
+       so pending writes, uncertainty lockout and refreshed rows must survive. -->
+  <section class="max-w-2xl" hidden={activeTab !== 'ai'}>
       <AiServiceConfigSection
         ownerType="AGENT"
         ownerId={agent.id}
@@ -1508,7 +1507,6 @@
         configsError={data.configsError}
       />
     </section>
-  {/if}
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <!-- SETTINGS TAB — the rest (#352)                                      -->

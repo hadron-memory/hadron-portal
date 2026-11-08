@@ -5,8 +5,8 @@
   // AiServiceConfigManager. Used identically by the Org / Agent / App surfaces
   // so the gating + notice copy lives in exactly one place.
   import { onDestroy } from 'svelte';
-  import { invalidateAll } from '$app/navigation';
   import AiServiceConfigManager from './AiServiceConfigManager.svelte';
+  import { readAiConfigs } from './ai-config-readback';
   import { aiConfigStrings as s } from '$lib/i18n/ai-config-strings';
   import type { AiConfigCommitted, AiConfigUncertain } from './ai-config-manager';
   import type { AiConfigOwnerType, AiServiceConfig, OrgMember } from '$lib/types';
@@ -20,6 +20,7 @@
     currentUserId = null,
     configsError = false,
     allowTest = true,
+    onRefreshed = () => true,
   }: {
     ownerType: AiConfigOwnerType;
     ownerId: string;
@@ -32,6 +33,8 @@
     /** True when the (admin-gated) masked list failed to load. */
     configsError?: boolean;
     allowTest?: boolean;
+    /** Refresh another loader slice owned by the caller (App chat resolution). */
+    onRefreshed?: () => boolean | Promise<boolean>;
   } = $props();
 
   const canManage = $derived(
@@ -42,13 +45,30 @@
 
   // Outcomes live HERE, outside the manager's form/row and every manager
   // conditional. A newer action supersedes only ordinary success; uncertainty
-  // and stale-readback warnings remain until owner change or full-page readback.
+  // remains until owner change/reload, and a stale-readback warning until a
+  // later successful section readback resolves it.
   let notice = $state<{ text: string } | null>(null);
-  let warning = $state<string | null>(null);
+  let uncertainty = $state<string | null>(null);
+  let refreshWarning = $state<string | null>(null);
   let noticeGeneration = 0;
   let noticeTimer: ReturnType<typeof setTimeout> | null = null;
   let sectionOwnerKey = '';
+  let readbacks = 0;
   let destroyed = false;
+
+  // The endpoint answer is a working copy of the loader array it was read
+  // against. Any later loader replacement wins automatically; an old readback
+  // can never resurrect the previous list after a newer page load.
+  let reread = $state.raw<{
+    against: AiServiceConfig[];
+    ownerKey: string;
+    configs: AiServiceConfig[];
+  } | null>(null);
+  const visibleConfigs = $derived(
+    reread && reread.against === configs && reread.ownerKey === currentOwnerKey()
+      ? reread.configs
+      : configs,
+  );
 
   function clearTransient() {
     if (noticeTimer !== null) clearTimeout(noticeTimer);
@@ -77,28 +97,36 @@
 
   async function onCommitted(outcome: AiConfigCommitted) {
     if (destroyed || outcome.ownerKey !== currentOwnerKey()) return;
-    try {
-      await invalidateAll();
-    } catch {
-      if (!destroyed && outcome.ownerKey === currentOwnerKey()) {
-        warning = outcome.refreshFailedText;
-      }
-      return;
-    }
-    if (destroyed || outcome.ownerKey !== currentOwnerKey()) return;
-    if (configsError) {
-      warning = outcome.refreshFailedText;
-      return;
-    }
-    // Cancel/another action may suppress this ordinary acknowledgement without
-    // cancelling the readback above. Manager unmount alone does not suppress it:
-    // refreshed permissions can hide the form after a perfectly good save.
+
+    // Acknowledge the committed write immediately. Readback is recovery for
+    // stale view state, not part of whether the mutation succeeded, and a slow
+    // or hung GET must never suppress this acknowledgement or hold Save busy.
     if (outcome.noticeGeneration === noticeGeneration) showTransient(outcome.successText);
+
+    const against = configs;
+    const mine = ++readbacks;
+    const related = Promise.resolve()
+      .then(() => onRefreshed())
+      .catch(() => false);
+    const [fresh, relatedFresh] = await Promise.all([
+      readAiConfigs(ownerType, ownerId),
+      related,
+    ]);
+    if (destroyed || outcome.ownerKey !== currentOwnerKey()) return;
+
+    if (mine === readbacks) {
+      if (fresh !== null) {
+        reread = { against, ownerKey: outcome.ownerKey, configs: fresh };
+      }
+      // A later successful section read resolves only stale-readback guidance.
+      // An uncertain mutation still requires the explicit full-page readback.
+      refreshWarning = fresh === null || !relatedFresh || configsError ? outcome.refreshFailedText : null;
+    }
   }
 
   function onUncertain(outcome: AiConfigUncertain) {
     if (!destroyed && outcome.ownerKey === currentOwnerKey()) {
-      warning = outcome.text;
+      uncertainty = outcome.text;
     }
   }
 
@@ -110,8 +138,11 @@
     if (nextOwnerKey === sectionOwnerKey) return;
     sectionOwnerKey = nextOwnerKey;
     noticeGeneration++;
+    readbacks++;
+    reread = null;
     clearTransient();
-    warning = null;
+    uncertainty = null;
+    refreshWarning = null;
   });
 
   onDestroy(() => {
@@ -123,11 +154,19 @@
 <!-- Always mounted: only its content changes, so every result is announced
      after the editor or row closes, including loader/permission teardown. -->
 <div data-testid="ai-config-feedback" role="status" aria-live="polite" aria-atomic="true">
-  {#if warning}
+  {#if uncertainty}
     <div
       class="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
     >
-      {warning}
+      {uncertainty}
+      <a href={typeof window === 'undefined' ? '/' : window.location.href} data-sveltekit-reload class="ml-1 underline">{s.reloadPage()}</a>
+    </div>
+  {/if}
+  {#if refreshWarning}
+    <div
+      class="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+    >
+      {refreshWarning}
       <a href={typeof window === 'undefined' ? '/' : window.location.href} data-sveltekit-reload class="ml-1 underline">{s.reloadPage()}</a>
     </div>
   {/if}
@@ -153,5 +192,16 @@
     {s.loadError()}
   </div>
 {:else}
-  <AiServiceConfigManager {ownerType} {ownerId} {ownerLabel} {configs} canManage {allowTest} {onAction} {onCommitted} {onUncertain} />
+  <AiServiceConfigManager
+    {ownerType}
+    {ownerId}
+    {ownerLabel}
+    configs={visibleConfigs}
+    canManage
+    {allowTest}
+    mutationUncertain={uncertainty !== null}
+    {onAction}
+    {onCommitted}
+    {onUncertain}
+  />
 {/if}
