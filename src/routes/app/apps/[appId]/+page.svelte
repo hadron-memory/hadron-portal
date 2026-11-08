@@ -3441,6 +3441,7 @@
         <AiServiceConfigSection
           ownerType="APP"
           ownerId={app.id}
+          ownerLabel={app.name}
           configs={data.appConfigs ?? []}
           members={org?.members ?? []}
           currentUserId={data.currentUserId}

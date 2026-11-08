@@ -1,7 +1,7 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { testResultView, type AiConfigTestResult, type AiConfigTestView } from '$lib/ai-config-test';
   import { lookupOwn } from '$lib/lookup';
-  import { invalidateAll } from '$app/navigation';
   import { AI_CONFIG_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
   import type { AiConfigOwnerType, AiConfigProvider, AiServiceConfig } from '$lib/types';
   import { aiConfigStrings as s } from '$lib/i18n/ai-config-strings';
@@ -24,20 +24,31 @@
     endpointShapeError,
     inlineTestable,
     type AiApiStyle,
+    type AiConfigUncertain,
+    type AiConfigCommitted,
   } from './ai-config-manager';
 
   let {
     ownerType,
     ownerId,
+    ownerLabel = null,
     configs,
     canManage = false,
     allowTest = false,
+    onAction = () => 0,
+    onCommitted = () => {},
+    onUncertain = () => {},
   }: {
     ownerType: AiConfigOwnerType;
     ownerId: string;
+    /** The caller's already-loaded owner name; null omits the caption. */
+    ownerLabel?: string | null;
     configs: AiServiceConfig[];
     canManage?: boolean;
     allowTest?: boolean;
+    onAction?: () => number;
+    onCommitted?: (outcome: AiConfigCommitted) => void;
+    onUncertain?: (outcome: AiConfigUncertain) => void;
   } = $props();
 
   const WELL_KNOWN = ['default', 'fast', 'frontier'];
@@ -76,6 +87,52 @@
   // #937: one shape for both paths, so the result always reads the same way.
   let testResult = $state<AiConfigTestView | null>(null);
   let confirmDeleteId = $state<string | null>(null);
+  // Plain generations, not reactive state: an accepted newer action and an
+  // owner change both revoke every older continuation, including its finally.
+  let actionGeneration = 0;
+  let ownerKey = '';
+  let destroyed = false;
+
+  type ActionToken = { generation: number; noticeGeneration: number };
+
+  function clearNotice(): number {
+    return onAction();
+  }
+
+  function beginAction(): ActionToken {
+    const noticeGeneration = clearNotice();
+    busy = false;
+    return { generation: ++actionGeneration, noticeGeneration };
+  }
+
+  function isCurrent(action: ActionToken): boolean {
+    return !destroyed && action.generation === actionGeneration;
+  }
+
+  function resetEditor() {
+    formOpen = false;
+    editId = null;
+    error = null;
+    testResult = null;
+  }
+
+  // Track the scalar owner identity, not a refreshed configs/loader object.
+  // Same-owner invalidation must preserve a pending draft and its outcome.
+  $effect(() => {
+    const nextOwnerKey = `${ownerType}:${ownerId}`;
+    if (nextOwnerKey === ownerKey) return;
+    ownerKey = nextOwnerKey;
+    actionGeneration++;
+    clearNotice();
+    resetEditor();
+    confirmDeleteId = null;
+    busy = false;
+  });
+
+  onDestroy(() => {
+    destroyed = true;
+    actionGeneration++;
+  });
 
   const editing = $derived(editId ? (configs.find((c) => c.id === editId) ?? null) : null);
   const hasExistingKey = $derived(editing?.hasApiKey ?? false);
@@ -246,12 +303,14 @@
   }
 
   function openCreate() {
+    beginAction();
     resetForm();
     editId = null;
     formOpen = true;
   }
 
   function openEdit(c: AiServiceConfig) {
+    beginAction();
     resetForm();
     editId = c.id;
     nameInput = c.name;
@@ -272,10 +331,8 @@
   }
 
   function closeForm() {
-    formOpen = false;
-    editId = null;
-    error = null;
-    testResult = null;
+    beginAction();
+    resetEditor();
   }
 
   /** Stable JSON for comparing params: keys sorted at every level. */
@@ -312,18 +369,42 @@
     return canonicalJson(next.value ?? null) !== canonicalJson(c.params ?? null);
   }
 
-  async function post(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const res = await fetch('/api/ai-configs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const body = await res.json();
-    if (!res.ok || body.error) throw new Error(body.error ?? 'Request failed');
+  class UncertainMutationError extends Error {
+    constructor() {
+      super('Request failed');
+    }
+  }
+
+  async function post(payload: Record<string, unknown>, uncertainMutation = false): Promise<Record<string, unknown>> {
+    let res: Response;
+    let body: Record<string, unknown>;
+    try {
+      res = await fetch('/api/ai-configs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      body = await res.json();
+    } catch (cause) {
+      if (!uncertainMutation) throw cause;
+      // A dropped response or non-JSON proxy reply says nothing about whether
+      // the mutation committed. Never present this as a safe-to-repeat refusal.
+      throw new UncertainMutationError();
+    }
+    if (!res.ok || body.error) {
+      // The portal endpoint can return JSON after an upstream failure whose
+      // position relative to the mutation is unknown. 4xx is a refusal; 5xx
+      // needs the same readback-before-retry treatment as a dropped response.
+      if (uncertainMutation && res.status >= 500) throw new UncertainMutationError();
+      throw new Error(String(body.error ?? 'Request failed'));
+    }
     return body;
   }
 
   async function save() {
+    const action = beginAction();
+    error = null;
+    testResult = null;
     const name = nameInput.trim();
     if (!isValidConfigName(name)) {
       error = s.invalidName();
@@ -367,51 +448,70 @@
     }
 
     busy = true;
-    error = null;
-    testResult = null;
+    const mutationOwnerKey = `${ownerType}:${ownerId}`;
     try {
-      if (editId === null) {
-        await post({
-          action: 'create',
-          ownerType,
-          ownerId,
-          name,
-          provider: providerInput,
-          model: modelInput.trim(),
-          apiKey: enteredKey || undefined,
-          params: paramsValue,
-          enabled: enabledInput,
-          endpoint: endpointInput.trim() || undefined,
-          apiStyle: apiStyleInput || undefined,
-        });
-      } else {
-        const keyArg = resolveApiKeyAction({ removeKey: clearKey, enteredKey });
-        // Absent = unchanged, null = back to the provider default.
-        const endpoint = fieldChange(editing?.endpoint, endpointInput);
-        const apiStyle = fieldChange<AiApiStyle>(editing?.apiStyle, apiStyleInput);
-        await post({
-          action: 'update',
-          id: editId,
-          name,
-          provider: providerInput,
-          model: modelInput.trim(),
-          params: paramsValue,
-          enabled: enabledInput,
-          ...keyArg,
-          ...(endpoint !== undefined ? { endpoint } : {}),
-          ...(apiStyle !== undefined ? { apiStyle } : {}),
-        });
+      try {
+        if (editId === null) {
+          await post({
+            action: 'create',
+            ownerType,
+            ownerId,
+            name,
+            provider: providerInput,
+            model: modelInput.trim(),
+            apiKey: enteredKey || undefined,
+            params: paramsValue,
+            enabled: enabledInput,
+            endpoint: endpointInput.trim() || undefined,
+            apiStyle: apiStyleInput || undefined,
+          }, true);
+        } else {
+          const keyArg = resolveApiKeyAction({ removeKey: clearKey, enteredKey });
+          // Absent = unchanged, null = back to the provider default.
+          const endpoint = fieldChange(editing?.endpoint, endpointInput);
+          const apiStyle = fieldChange<AiApiStyle>(editing?.apiStyle, apiStyleInput);
+          await post({
+            action: 'update',
+            id: editId,
+            name,
+            provider: providerInput,
+            model: modelInput.trim(),
+            params: paramsValue,
+            enabled: enabledInput,
+            ...keyArg,
+            ...(endpoint !== undefined ? { endpoint } : {}),
+            ...(apiStyle !== undefined ? { apiStyle } : {}),
+          }, true);
+        }
+      } catch (e) {
+        if (e instanceof UncertainMutationError) {
+          // Uncertainty is safety-critical, not action-owned feedback. The
+          // Section keeps it visible even after Cancel or another row action.
+          onUncertain({ ownerKey: mutationOwnerKey, text: s.mutationUnconfirmed() });
+        } else if (isCurrent(action)) {
+          error = e instanceof Error ? e.message : 'Failed to save configuration';
+        }
+        return;
       }
-      closeForm();
-      await invalidateAll();
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to save configuration';
+
+      if (isCurrent(action)) resetEditor();
+      // The Section owns the committed write's readback and outcome. It checks
+      // the owner again, including if this manager was unmounted meanwhile.
+      onCommitted({
+        ownerKey: mutationOwnerKey,
+        noticeGeneration: action.noticeGeneration,
+        successText: s.saveSuccess(name),
+        refreshFailedText: s.saveRefreshFailed(name),
+      });
     } finally {
-      busy = false;
+      if (isCurrent(action)) busy = false;
     }
   }
 
   async function test() {
+    const action = beginAction();
+    error = null;
+    testResult = null;
     // Save refuses a blank model, so Test does too: otherwise an edited-away
     // model would silently test the saved one and could report success.
     if (!modelInput.trim()) {
@@ -427,8 +527,6 @@
       bedrockRegion,
     });
     busy = true;
-    error = null;
-    testResult = null;
     try {
       if (editing) {
         // #937: a SAVED config, of ANY owner kind, tests BY ID through the
@@ -462,6 +560,7 @@
           override.params = params.value;
         }
         const res = (await post({ action: 'testSaved', id: editing.id, override })) as { result: AiConfigTestResult };
+        if (!isCurrent(action)) return;
         testResult = testResultView(res.result);
       } else if (!inlineTestable({ provider: providerInput, endpoint: endpointInput, apiStyle: apiStyleInput })) {
         // The portal's own client would test a different host than a run uses.
@@ -474,6 +573,7 @@
           model: modelInput.trim(),
           apiKey: enteredKey,
         })) as { ok: boolean; provider?: string; model?: string; reply?: string; error?: string };
+        if (!isCurrent(action)) return;
         testResult = r.ok
           ? { ok: true, headline: t('ai-config.test.ok.inline', '✓ Works: {provider} / {model}.', { provider: r.provider ?? '', model: r.model ?? '' }), details: r.reply ? [t('ai-config.test.reply', 'Reply: “{reply}”', { reply: r.reply })] : [] }
           : { ok: false, headline: r.error ?? t('ai-config.test.error.unknown', 'The test failed.'), details: [] };
@@ -481,24 +581,44 @@
         error = s.testNeedsKey();
       }
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Test failed';
+      if (isCurrent(action)) error = e instanceof Error ? e.message : 'Test failed';
     } finally {
-      busy = false;
+      if (isCurrent(action)) busy = false;
     }
   }
 
-  async function doDelete(id: string) {
-    busy = true;
+  async function doDelete(id: string, name: string) {
+    const action = beginAction();
     error = null;
+    busy = true;
+    const mutationOwnerKey = `${ownerType}:${ownerId}`;
     try {
-      await post({ action: 'delete', id });
-      confirmDeleteId = null;
-      await invalidateAll();
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to delete configuration';
+      try {
+        await post({ action: 'delete', id }, true);
+      } catch (e) {
+        if (e instanceof UncertainMutationError) {
+          onUncertain({ ownerKey: mutationOwnerKey, text: s.mutationUnconfirmed() });
+        } else if (isCurrent(action)) {
+          error = e instanceof Error ? e.message : 'Failed to delete configuration';
+        }
+        return;
+      }
+      if (isCurrent(action)) confirmDeleteId = null;
+      onCommitted({
+        ownerKey: mutationOwnerKey,
+        noticeGeneration: action.noticeGeneration,
+        successText: s.deleteSuccess(name),
+        refreshFailedText: s.deleteRefreshFailed(name),
+      });
     } finally {
-      busy = false;
+      if (isCurrent(action)) busy = false;
     }
+  }
+
+  function armDelete(id: string) {
+    beginAction();
+    error = null;
+    confirmDeleteId = id;
   }
 </script>
 
@@ -506,6 +626,9 @@
   <div class="mb-3 flex items-start justify-between gap-4">
     <div>
       <h2 class="font-semibold text-zinc-900 dark:text-white">{s.heading()}</h2>
+      {#if ownerLabel}
+        <p class="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">{s.ownerCaption(ownerLabel)}</p>
+      {/if}
       <p class="mt-0.5 text-sm text-zinc-500">{s.subheading()}</p>
       {#if ownerType === 'AGENT'}
         <p class="mt-1 text-xs text-zinc-400">{s.agentDefaultHint()}</p>
@@ -535,6 +658,9 @@
     <div
       class="mb-4 space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900"
     >
+      {#if editing}
+        <h3 class="text-sm font-medium text-zinc-900 dark:text-white">{s.editorTitle(editing.name)}</h3>
+      {/if}
       <div>
         <label for="ac-name" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
           {s.nameLabel()}
@@ -824,7 +950,7 @@
                 <span class="text-xs text-zinc-500">{s.confirmQuestion()}</span>
                 <button
                   type="button"
-                  onclick={() => doDelete(c.id)}
+                  onclick={() => doDelete(c.id, c.name)}
                   disabled={busy}
                   class="rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-500 disabled:opacity-50"
                 >
@@ -849,7 +975,7 @@
                 ]}
                 onselect={(id) => {
                   if (id === 'edit') openEdit(c);
-                  else confirmDeleteId = c.id;
+                  else armDelete(c.id);
                 }}
                 label={s.actionsLabel(c.name)}
                 fixed

@@ -1160,7 +1160,8 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
     await tick(2);
     const configsPanel = m.target.querySelector('#panel-ai-configs')!;
-    expect(configsPanel.textContent).toContain('AI providers');
+    expect(configsPanel.textContent).toContain('AI provider configurations');
+    expect(configsPanel.textContent).toContain('Owned by Team');
     expect(m.target.querySelector('#panel-keys')).toBeNull();
 
     (m.target.querySelector('#tab-settings') as HTMLButtonElement).click();
@@ -1168,7 +1169,7 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     const settingsPanel = m.target.querySelector('#panel-settings')!;
     expect(settingsPanel.textContent).not.toContain('Generate Key');
     expect(settingsPanel.textContent).not.toContain('production-backend');
-    expect(settingsPanel.textContent).not.toContain('AI providers');
+    expect(settingsPanel.textContent).not.toContain('AI provider configurations');
   });
 
   // A fresh page (a full POST before hydration) is followed by SvelteKit

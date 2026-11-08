@@ -10,7 +10,8 @@
 import { t } from './t';
 
 export const aiConfigStrings = {
-  heading: (): string => t('ai-config.heading', 'AI providers'),
+  heading: (): string => t('ai-config.heading', 'AI provider configurations'),
+  ownerCaption: (name: string): string => t('ai-config.owner-caption', 'Owned by {name}', { name }),
   subheading: (): string =>
     t(
       'ai-config.subheading',
@@ -126,4 +127,15 @@ export const aiConfigStrings = {
   /** #1020 review: the inline confirm keeps the irreversibility visible —
    * the menu item's title is invisible to keyboard and touch users. */
   confirmQuestion: (): string => t('ai-config.confirm-question', 'Delete? This cannot be undone.'),
+
+  editorTitle: (name: string): string => t('ai-config.editor-title', '“{name}”', { name }),
+  saveSuccess: (name: string): string => t('ai-config.save-success', 'Saved “{name}”.', { name }),
+  deleteSuccess: (name: string): string => t('ai-config.delete-success', 'Deleted “{name}”.', { name }),
+  saveRefreshFailed: (name: string): string =>
+    t('ai-config.save-refresh-failed', 'Saved “{name}”, but the configurations couldn’t be refreshed.', { name }),
+  deleteRefreshFailed: (name: string): string =>
+    t('ai-config.delete-refresh-failed', 'Deleted “{name}”, but the configurations couldn’t be refreshed.', { name }),
+  reloadPage: (): string => t('ai-config.reload-page', 'Reload page'),
+  mutationUnconfirmed: (): string =>
+    t('ai-config.mutation-unconfirmed', 'We couldn’t confirm the change went through. Reload to check before trying again.'),
 };

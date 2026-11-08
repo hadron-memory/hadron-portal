@@ -1501,6 +1501,7 @@
       <AiServiceConfigSection
         ownerType="AGENT"
         ownerId={agent.id}
+        ownerLabel={agent.name}
         configs={data.agentConfigs ?? []}
         members={org?.members ?? []}
         currentUserId={data.currentUserId}
