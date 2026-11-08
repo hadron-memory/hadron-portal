@@ -69,6 +69,7 @@
       }
     },
     onUncertain = (outcome) => {
+      standaloneUncertaintyByOwner.set(outcome.ownerKey, outcome.text);
       if (outcome.ownerKey !== `${ownerType}:${ownerId}`) {
         deferredStandaloneUncertain.set(outcome.ownerKey, outcome);
         return;
@@ -83,12 +84,13 @@
       return withAiConfigTimeout(
         () => invalidateAll(),
         () => { throw new Error('AI configuration refresh timed out'); },
-      ).catch(() => {
+      ).catch(() => undefined).finally(() => {
         if (outcome.ownerKey === ownerKey && mine === standaloneRefreshGeneration) {
+          // A list read may precede the still-running write. Only the reader's
+          // explicit full-page check ends uncertainty, never a generic success.
           uncertainMutation = true;
           standaloneWarning = outcome.text;
         }
-      }).finally(() => {
         finishStandaloneUncertain(outcome, mine);
       });
     },
@@ -148,10 +150,11 @@
   let standaloneRefreshGeneration = 0;
   const deferredStandaloneCommitted = new Map<string, AiConfigCommitted>();
   const deferredStandaloneUncertain = new Map<string, AiConfigUncertain>();
+  const standaloneUncertaintyByOwner = new Map<string, string>();
   const activeStandaloneCommitted = new Map<string, { outcome: AiConfigCommitted; generation: number }>();
   const activeStandaloneUncertain = new Map<string, { outcome: AiConfigUncertain; generation: number }>();
   let standaloneRecoverySequence = 0;
-  const mutationLocked = $derived(uncertainMutation || mutationUncertain);
+  const mutationLocked = $derived(uncertainMutation || mutationUncertain || standaloneRefreshWarning !== null);
   let error = $state<string | null>(null);
   // #937: one shape for both paths, so the result always reads the same way.
   let testResult = $state<AiConfigTestView | null>(null);
@@ -271,8 +274,8 @@
     clearNotice();
     resetEditor();
     confirmDeleteId = null;
-    uncertainMutation = false;
-    standaloneWarning = null;
+    uncertainMutation = standaloneUncertaintyByOwner.has(nextOwnerKey);
+    standaloneWarning = standaloneUncertaintyByOwner.get(nextOwnerKey) ?? null;
     standaloneRefreshWarning = null;
     standaloneRefreshGeneration++;
     busy = false;
@@ -601,21 +604,22 @@
     onSuccess: () => void;
   };
 
-  function publishUncertain(action: ActionToken, text: string): void | Promise<void> {
+  function publishUncertain(action: ActionToken, text: string, mutationId: number): void | Promise<void> {
     if (isOwnerVisitCurrent(action)) {
       // Safety outcomes survive Cancel and newer actions in the same visit.
       uncertainMutation = true;
-      return onUncertain({ ownerKey: action.ownerKey, text });
+      return onUncertain({ ownerKey: action.ownerKey, mutationId, text });
     }
     // A → B → A must not publish the old visit into the new editor, but the
     // owner still needs reconciliation before replay can be safe. If another
     // owner is current, the callback defers that recovery until A is revisited.
-    return onUncertain({ ownerKey: action.ownerKey, text, reconcileOnly: true });
+    return onUncertain({ ownerKey: action.ownerKey, mutationId, text, reconcileOnly: true });
   }
 
-  function publishCommitted(action: ActionToken, successText: string, refreshFailedText: string): void | Promise<void> {
+  function publishCommitted(action: ActionToken, successText: string, refreshFailedText: string, mutationId: number): void | Promise<void> {
     return onCommitted({
       ownerKey: action.ownerKey,
+      mutationId,
       // Stale visits recover owner data but never publish an old success notice.
       noticeGeneration: isOwnerVisitCurrent(action) ? action.noticeGeneration : -1,
       successText,
@@ -633,7 +637,7 @@
         if (e instanceof UncertainMutationError) {
           // Reconcile-only recovery retains the pending registration until its
           // bounded readback finishes; settlement must not open a replay gap.
-          await publishUncertain(action, s.mutationUnconfirmed());
+          await publishUncertain(action, s.mutationUnconfirmed(), pendingMutation);
         } else if (isCurrent(action)) {
           error = e instanceof Error ? e.message : options.refusalFallback;
         }
@@ -642,7 +646,7 @@
       options.onSuccess();
       // A confirmed write still has stale rows until recovery finishes. Keep
       // the pending lock without delaying the Section's immediate success note.
-      await publishCommitted(action, options.successText, options.refreshFailedText);
+      await publishCommitted(action, options.successText, options.refreshFailedText, pendingMutation);
     } finally {
       finishMutation(pendingMutation);
       if (isCurrent(action)) busy = false;

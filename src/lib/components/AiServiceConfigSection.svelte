@@ -61,15 +61,24 @@
   let recoveryStore = getAiConfigRecoveryStore('');
   let stopRecovery: (() => void) | undefined;
   let syncingRecovery = false;
+  const pendingStores = new Map<string, ReturnType<typeof getAiConfigRecoveryStore>>();
   const activeCommitted = new Map<string, { outcome: AiConfigCommitted; readback: number }>();
   const mutationPending = $derived(
     pendingMutations.some((mutation) => mutation.ownerKey === currentOwnerKey()),
   );
 
+  function pendingStoreKey(ownerKey: string, mutationId: number): string {
+    return `${ownerKey}:${mutationId}`;
+  }
+
   function onMutationPending(outcome: AiConfigMutationPending) {
-    // This callback can arrive after teardown. The shared registration is the
-    // lifecycle boundary, so a remounted Section sees settlement immediately.
-    recoveryStore.setPending(outcome);
+    const key = pendingStoreKey(outcome.ownerKey, outcome.mutationId);
+    if (outcome.pending) pendingStores.set(key, recoveryStore);
+    const store = pendingStores.get(key) ?? recoveryStore;
+    // Settlement can arrive after teardown or a user change. Remove exactly the
+    // registration this mutation created, never a same-numbered new-user one.
+    store.setPending(outcome);
+    if (!outcome.pending) pendingStores.delete(key);
   }
 
   // The endpoint answer is a working copy of the loader array it was read
@@ -127,11 +136,18 @@
     }
   }
 
+  function storeForOutcome(outcome: AiConfigCommitted): ReturnType<typeof getAiConfigRecoveryStore> {
+    if (outcome.mutationId === undefined) return recoveryStore;
+    return pendingStores.get(pendingStoreKey(outcome.ownerKey, outcome.mutationId)) ?? recoveryStore;
+  }
+
   async function onCommitted(outcome: AiConfigCommitted) {
-    if (destroyed || outcome.ownerKey !== currentOwnerKey()) {
-      // Settlement after teardown or while another owner is visible still
-      // belongs to this user/owner. Ordered deferral preserves newer uncertainty.
-      recoveryStore.defer(outcome);
+    const outcomeStore = storeForOutcome(outcome);
+    if (outcome.uncertainText) outcomeStore.setUncertainty(outcome.ownerKey, outcome.uncertainText);
+    if (outcomeStore !== recoveryStore || destroyed || outcome.ownerKey !== currentOwnerKey()) {
+      // Settlement after teardown, a user change, or while another owner is
+      // visible still belongs to its original user/owner scope.
+      outcomeStore.defer(outcome);
       return;
     }
     recoveryStore.discardDeferred(outcome);
@@ -155,8 +171,8 @@
       finishActive(outcome, mine);
       return;
     }
-    if (destroyed || outcome.ownerKey !== currentOwnerKey()) {
-      recoveryStore.defer(outcome);
+    if (outcomeStore !== recoveryStore || destroyed || outcome.ownerKey !== currentOwnerKey()) {
+      outcomeStore.defer(outcome);
       finishActive(outcome, mine);
       return;
     }
@@ -172,19 +188,16 @@
       finishActive(outcome, mine);
       return;
     }
-    if (destroyed || outcome.ownerKey !== currentOwnerKey()) {
-      recoveryStore.defer(outcome);
+    if (outcomeStore !== recoveryStore || destroyed || outcome.ownerKey !== currentOwnerKey()) {
+      outcomeStore.defer(outcome);
       finishActive(outcome, mine);
       return;
     }
     const failed = fresh === null || !relatedFresh || configsError;
-    if (outcome.uncertainText) {
-      // A stale uncertain visit reconciles silently when possible. Only a
-      // failed readback requires the persistent replay lock and reload.
-      if (failed) uncertainty = outcome.uncertainText;
-    } else {
+    if (!outcome.uncertainText) {
       // A later successful section read resolves only stale-readback guidance.
-      // An uncertain mutation still requires the explicit full-page readback.
+      // Uncertainty is different: any generic list may precede the write, so it
+      // remains until the reader explicitly reloads and checks the result.
       refreshWarning = failed ? outcome.refreshFailedText : null;
     }
     if (!relatedFresh) {
@@ -193,11 +206,10 @@
       // — but only while this same owner/readback still owns the outcome.
       void related.completed.then((lateFresh) => {
         if (
-          lateFresh && !destroyed && outcome.ownerKey === currentOwnerKey() &&
-          mine === readbacks && fresh !== null && !configsError
+          lateFresh && !destroyed && outcomeStore === recoveryStore &&
+          outcome.ownerKey === currentOwnerKey() && mine === readbacks && fresh !== null && !configsError
         ) {
-          if (outcome.uncertainText) uncertainty = null;
-          else refreshWarning = null;
+          refreshWarning = null;
         }
       });
     }
@@ -205,16 +217,18 @@
   }
 
   function onUncertain(outcome: AiConfigUncertain): void | Promise<void> {
-    if (outcome.reconcileOnly || destroyed || outcome.ownerKey !== currentOwnerKey()) {
-      return onCommitted({
-        ownerKey: outcome.ownerKey,
-        noticeGeneration: -1,
-        successText: '',
-        refreshFailedText: '',
-        uncertainText: outcome.text,
-      });
+    const committed: AiConfigCommitted = {
+      ownerKey: outcome.ownerKey,
+      mutationId: outcome.mutationId,
+      noticeGeneration: -1,
+      successText: '',
+      refreshFailedText: '',
+      uncertainText: outcome.text,
+    };
+    if (outcome.reconcileOnly || destroyed || storeForOutcome(committed) !== recoveryStore || outcome.ownerKey !== currentOwnerKey()) {
+      return onCommitted(committed);
     }
-    uncertainty = outcome.text;
+    recoveryStore.setUncertainty(outcome.ownerKey, outcome.text);
   }
 
   function syncSharedRecovery() {
@@ -223,18 +237,22 @@
     try {
       pendingMutations = recoveryStore.pending();
       const ownerKey = currentOwnerKey();
+      uncertainty = recoveryStore.uncertainty(ownerKey);
       const deferred = recoveryStore.takeDeferred(ownerKey);
       if (deferred) {
         // Every deferred write, confirmed or uncertain, keeps replay locked
         // until fresh rows replace the stale list. IDs are document-unique so
         // teardown/remount cannot settle another instance's registration.
         const recoveryId = nextAiConfigRecoveryId();
-        recoveryStore.setPending({ ownerKey, mutationId: recoveryId, pending: true });
+        onMutationPending({ ownerKey, mutationId: recoveryId, pending: true });
+        // Listener re-entry is guarded above, so publish the just-added
+        // registration into this instance's reactive snapshot explicitly.
+        pendingMutations = recoveryStore.pending();
         queueMicrotask(async () => {
           try {
             await onCommitted(deferred);
           } finally {
-            recoveryStore.setPending({ ownerKey, mutationId: recoveryId, pending: false });
+            onMutationPending({ ownerKey, mutationId: recoveryId, pending: false });
           }
         });
       }
@@ -337,7 +355,7 @@
     configs={visibleConfigs}
     canManage
     {allowTest}
-    mutationUncertain={uncertainty !== null}
+    mutationUncertain={uncertainty !== null || refreshWarning !== null}
     {mutationPending}
     {onMutationPending}
     {onAction}

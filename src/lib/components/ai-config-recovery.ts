@@ -13,6 +13,7 @@ type Listener = () => void;
 class AiConfigRecoveryStore {
   private pendingByOwner = new Map<string, Map<number, Pending>>();
   private deferredByOwner = new Map<string, Deferred>();
+  private uncertaintyByOwner = new Map<string, string>();
   private outcomeOrders = new WeakMap<AiConfigCommitted, number>();
   private listeners = new Set<Listener>();
   private nextOrder = 0;
@@ -47,6 +48,16 @@ class AiConfigRecoveryStore {
 
   pending(): Pending[] {
     return [...this.pendingByOwner.values()].flatMap((owner) => [...owner.values()]);
+  }
+
+  setUncertainty(ownerKey: string, text: string) {
+    if (this.uncertaintyByOwner.get(ownerKey) === text) return;
+    this.uncertaintyByOwner.set(ownerKey, text);
+    this.emit();
+  }
+
+  uncertainty(ownerKey: string): string | null {
+    return this.uncertaintyByOwner.get(ownerKey) ?? null;
   }
 
   defer(outcome: AiConfigCommitted) {

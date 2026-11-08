@@ -5,8 +5,8 @@
 import type { AiConfigProvider } from '$lib/types';
 import { aiConfigStrings as s } from '$lib/i18n/ai-config-strings';
 
-export type AiConfigCommitted = { ownerKey: string; noticeGeneration: number; successText: string; refreshFailedText: string; uncertainText?: string };
-export type AiConfigUncertain = { ownerKey: string; text: string; reconcileOnly?: boolean };
+export type AiConfigCommitted = { ownerKey: string; mutationId?: number; noticeGeneration: number; successText: string; refreshFailedText: string; uncertainText?: string };
+export type AiConfigUncertain = { ownerKey: string; mutationId?: number; text: string; reconcileOnly?: boolean };
 export type AiConfigMutationPending = { ownerKey: string; mutationId: number; pending: boolean };
 
 /** Server contract: config name is 1–64 chars of [a-z0-9_-], unique per owner. */

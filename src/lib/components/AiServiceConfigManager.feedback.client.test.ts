@@ -566,15 +566,8 @@ describe('AI configuration feedback lifecycle review controls', () => {
     expect(feedback(m.target).textContent).toContain('couldn’t be refreshed');
   });
 
-  it('clears an earlier refresh-failure warning after a later successful readback', async () => {
-    let first = true;
-    navigationHooks.onInvalidateAll = () => {
-      if (first) { first = false; throw new Error('refresh failed'); }
-    };
-    stubFetch(() => ({}), () => {
-      if (first) { first = false; throw new Error('readback failed'); }
-      return { body: { configs: [] } };
-    });
+  it('locks replay after a committed refresh failure leaves stale rows', async () => {
+    stubFetch(() => ({}), () => { throw new Error('readback failed'); });
     const { target } = await open();
     await startCreate(target, 'fast');
     button(target, 'Save').click();
@@ -582,11 +575,10 @@ describe('AI configuration feedback lifecycle review controls', () => {
     expect(feedback(target).textContent).toContain('couldn’t be refreshed');
 
     await startCreate(target, 'frontier');
+    expect(button(target, 'Save').disabled).toBe(true);
     button(target, 'Save').click();
-    await settle();
-
-    expect(feedback(target).textContent).toContain('Saved “frontier”.');
-    expect(feedback(target).textContent).not.toContain('couldn’t be refreshed');
+    expect(posts.filter((p) => p.action === 'create')).toHaveLength(1);
+    expect(feedback(target).textContent).toContain('couldn’t be refreshed');
   });
 
   it.each([
@@ -865,8 +857,8 @@ describe('AI configuration review fix pins', () => {
 
     releaseReadback({ body: { configs: [] } });
     await settle();
-    expect(feedback(m.target).textContent?.trim()).toBe('');
-    expect(button(m.target, 'Save').disabled).toBe(false);
+    expect(feedback(m.target).textContent).toContain('couldn’t confirm the change went through');
+    expect(button(m.target, 'Save').disabled).toBe(true);
   });
 
   it('reconciles a committed result from an earlier A visit after A → B → A', async () => {
@@ -1100,12 +1092,12 @@ describe('AI configuration code-review lifecycle pins', () => {
     button(m.target, 'Add configuration').click();
     await settle();
     expect(button(m.target, 'Save').disabled).toBe(true);
-    expect(feedback(m.target).textContent?.trim()).toBe('');
+    expect(feedback(m.target).textContent).toContain('couldn’t confirm the change went through');
 
     releaseReadback({ body: { configs: [] } });
     await settle();
-    expect(button(m.target, 'Save').disabled).toBe(false);
-    expect(feedback(m.target).textContent?.trim()).toBe('');
+    expect(button(m.target, 'Save').disabled).toBe(true);
+    expect(feedback(m.target).textContent).toContain('couldn’t confirm the change went through');
   });
 
   it('locks replay when standalone stale-owner reconciliation fails', async () => {
@@ -1177,8 +1169,8 @@ describe('AI configuration code-review lifecycle pins', () => {
 
     releases[2]({ body: { configs: [] } });
     await settle();
-    expect(button(m.target, 'Save').disabled).toBe(false);
-    expect(feedback(m.target).textContent?.trim()).toBe('');
+    expect(button(m.target, 'Save').disabled).toBe(true);
+    expect(feedback(m.target).textContent).toContain('couldn’t confirm the change went through');
   });
 
   it('does not open a stale row for editing while its committed update readback is pending', async () => {
@@ -1229,8 +1221,8 @@ describe('AI configuration code-review lifecycle pins', () => {
 
     releaseReadback({ body: { configs: [] } });
     await settle();
-    expect(button(second.target, 'Save').disabled).toBe(false);
-    expect(feedback(second.target).textContent?.trim()).toBe('');
+    expect(button(second.target, 'Save').disabled).toBe(true);
+    expect(feedback(second.target).textContent).toContain('couldn’t confirm the change went through');
   });
 
   it('defers standalone recovery when its owner changes during invalidation', async () => {
@@ -1373,6 +1365,8 @@ describe('AI configuration code-review lifecycle pins', () => {
     button(m.target, 'Add configuration').click();
     await settle();
     expect(button(m.target, 'Save').disabled).toBe(false);
+    button(m.target, 'Cancel').click();
+    await settle();
 
     m.props.currentUserId = 'u1';
     m.props.members = [{ user: { id: 'u1' }, role: 'ADMIN' }];

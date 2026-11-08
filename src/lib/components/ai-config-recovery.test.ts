@@ -21,6 +21,16 @@ describe('AI configuration recovery store', () => {
     expect(store.takeDeferred('ORGANIZATION:o1')).toBeUndefined();
   });
 
+  it('retains direct uncertainty within a user and isolates other users', () => {
+    const first = getAiConfigRecoveryStore('u1');
+    const second = getAiConfigRecoveryStore('u1');
+    const other = getAiConfigRecoveryStore('u2');
+    first.setUncertainty('ORGANIZATION:o1', 'uncertain');
+
+    expect(second.uncertainty('ORGANIZATION:o1')).toBe('uncertain');
+    expect(other.uncertainty('ORGANIZATION:o1')).toBeNull();
+  });
+
   it('shares pending registrations within a user and isolates other users', () => {
     const first = getAiConfigRecoveryStore('u1');
     const second = getAiConfigRecoveryStore('u1');
