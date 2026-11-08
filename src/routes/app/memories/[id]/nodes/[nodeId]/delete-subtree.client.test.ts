@@ -121,6 +121,23 @@ async function submitWith(target: HTMLElement, props: Record<string, unknown>, a
   flushSync();
 }
 
+// The Settings danger zone is the second delete surface (#621 renders the
+// checkbox in both); it binds the same consent store as the menu popover.
+// Found by its confirm copy — #1160 moved the danger zone to
+// deleteNodeStrings.confirmPrompt ("…Include deleted…"), which the menu
+// popover's plain "Delete <name>?" does not carry.
+const settingsDeleteForm = (target: HTMLElement) =>
+  [...target.querySelectorAll<HTMLFormElement>('form[action="?/delete"]')]
+    .find((f) => f.textContent?.includes('Include deleted'))!;
+
+/** The Settings danger zone arms behind its own "Delete node" button. */
+function openSettingsDangerZone(target: HTMLElement) {
+  [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Settings')!.click();
+  flushSync();
+  [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Delete node')!.click();
+  flushSync();
+}
+
 describe('delete confirm dialog (#621)', () => {
   it('offers no subtree option before the server has refused', async () => {
     const { target } = await mountPage();
@@ -143,23 +160,6 @@ describe('delete confirm dialog (#621)', () => {
     expect(box).not.toBeNull();
     expect(box?.closest('label')?.textContent).toContain('3 descendant');
   });
-
-  // The Settings danger zone is the second delete surface (#621 renders the
-  // checkbox in both); it binds the same consent store as the menu popover.
-  // Found by its confirm copy — #1160 moved the danger zone to
-  // deleteNodeStrings.confirmPrompt ("…Include deleted…"), which the menu
-  // popover's plain "Delete <name>?" does not carry.
-  const settingsDeleteForm = (target: HTMLElement) =>
-    [...target.querySelectorAll<HTMLFormElement>('form[action="?/delete"]')]
-      .find((f) => f.textContent?.includes('Include deleted'))!;
-
-  /** The Settings danger zone arms behind its own "Delete node" button. */
-  function openSettingsDangerZone(target: HTMLElement) {
-    [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Settings')!.click();
-    flushSync();
-    [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Delete node')!.click();
-    flushSync();
-  }
 
   it('after a refusal, the Settings danger zone offers the subtree checkbox too', async () => {
     const { target, props } = await mountPage();
@@ -359,5 +359,55 @@ describe('delete confirm dialog (#621)', () => {
     const bBox = settingsDeleteForm(target).querySelector<HTMLInputElement>('input[name="recursive"]');
     expect(bBox).not.toBeNull();
     expect(bBox!.checked).toBe(false);
+  });
+});
+
+// #1834: on a single node's Settings the delete needs no "Danger zone" caption,
+// and the confirm reads top to bottom: the warning notice, the subtree choice
+// when the server offered one, then the buttons under them.
+describe('Settings delete layout (#1834)', () => {
+  const precedes = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+  it('has no "Danger zone" caption above the Delete node button', async () => {
+    const { target } = await mountPage();
+    [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Settings')!.click();
+    flushSync();
+    expect([...target.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Delete node')).toBe(true);
+    expect(target.textContent).not.toMatch(/danger zone/i);
+  });
+
+  it('puts Yes, delete and Cancel under the warning notice and the subtree choice', async () => {
+    const { target, props } = await mountPage();
+    openDeleteConfirm(target);
+    await submitWith(target, props, '?/delete', await refusalResult(3));
+    openSettingsDangerZone(target);
+    const form = settingsDeleteForm(target);
+    const notice = [...form.querySelectorAll('p')].find((el) => el.textContent?.includes('Include deleted'));
+    const choice = form.querySelector('input[name="recursive"]')!.closest('label')!;
+    const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    const cancel = [...form.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cancel')!;
+    // The notice is its own block, not a span in the buttons' row.
+    expect(notice).toBeDefined();
+    expect(precedes(notice!, choice)).toBe(true);
+    expect(precedes(choice, submit)).toBe(true);
+    // The buttons share a row of their own, which holds neither the notice nor the choice.
+    const row = submit.parentElement!;
+    expect(row).not.toBe(form);
+    expect(row.contains(cancel)).toBe(true);
+    expect(row.contains(notice!)).toBe(false);
+    expect(row.contains(choice)).toBe(false);
+    expect(submit.textContent?.trim()).toBe('Yes, delete');
+  });
+
+  it('without a refusal, the buttons still sit under the notice', async () => {
+    const { target } = await mountPage();
+    openSettingsDangerZone(target);
+    const form = settingsDeleteForm(target);
+    expect(form.querySelector('input[name="recursive"]')).toBeNull();
+    const notice = [...form.querySelectorAll('p')].find((el) => el.textContent?.includes('Include deleted'));
+    const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    expect(notice).toBeDefined();
+    expect(precedes(notice!, submit)).toBe(true);
+    expect(submit.parentElement!.contains(notice!)).toBe(false);
   });
 });

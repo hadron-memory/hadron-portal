@@ -1067,6 +1067,11 @@
     // Loader invalidation does not pass through beforeNavigate.
     if (navigation.to?.url.href === tabNavigationHref) return;
     tabNavigation++;
+    // #1831: the superseded focusTab can no longer release its own latch
+    // (its `finally` only clears when it still owns the epoch), so the
+    // supersession releases it. A newer focusTab starts after this and
+    // re-latches; its own goto returned above.
+    tabNavigationPending = false;
   });
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;

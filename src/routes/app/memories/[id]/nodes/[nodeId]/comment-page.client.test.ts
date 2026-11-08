@@ -113,13 +113,15 @@ describe('portal#1175 — the page of a comment node', () => {
     expect(target.querySelector('.prose')?.textContent).toContain('the comment body');
   });
 
-  it.each([false, true])('Info stays read-only with memory canWrite=%s: no edit, no danger zone', async (canWrite) => {
+  it.each([false, true])('Info stays read-only with memory canWrite=%s: no edit, no delete', async (canWrite) => {
     const { target } = await mountPage(COMMENT, '', canWrite);
     [...target.querySelectorAll<HTMLButtonElement>('[role="tablist"] > button')].find((b) => b.textContent?.trim() === 'Info')?.click();
     await settle();
     expect(target.textContent).toContain('Type');
     expect(target.textContent).toContain('comment');
-    expect(target.textContent).not.toContain('Danger zone');
+    // #1834 dropped the "Danger zone" caption, so its absence proves nothing;
+    // the delete control itself is what a read-only view must not offer.
+    expect([...target.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Delete node')).toBe(false);
     expect([...target.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Edit')).toBe(false);
     expect(target.querySelector('#editName')).toBeNull();
   });
