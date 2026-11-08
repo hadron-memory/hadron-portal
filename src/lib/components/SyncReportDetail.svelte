@@ -20,7 +20,7 @@
     get data() { return view.entries; }, columns,
     state: { get globalFilter() { return globalFilter; } },
     onGlobalFilterChange: u => { globalFilter = typeof u === 'function' ? u(globalFilter) : u; },
-    globalFilterFn: makeGlobalFilterFn<SyncReportEntry>(columnFormatters, { kind: row => row.kind }),
+    globalFilterFn: makeGlobalFilterFn<SyncReportEntry>(columnFormatters),
     initialState: { pagination: { pageIndex: 0, pageSize: 10 } },
     enableColumnResizing: true, columnResizeMode: 'onChange',
   });
