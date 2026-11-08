@@ -1488,4 +1488,83 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(feedback(m.target).textContent).toContain('couldn’t be refreshed');
     expect(button(m.target, 'Save').disabled).toBe(true);
   });
+
+  it('rechecks the owner loader generation after the related refresh settles', async () => {
+    let releaseRelated!: (fresh: boolean) => void;
+    const related = vi.fn(() => new Promise<boolean>((resolve) => { releaseRelated = resolve; }));
+    const stale = config();
+    const fresh = config({ model: 'glm-6' });
+    stubFetch(() => ({}), () => ({ body: { configs: [fresh] } }));
+    const m = await open({ configs: [stale], onRefreshed: related });
+    editRow(m.target);
+    await settle();
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-6');
+    button(m.target, 'Save').click();
+    await settle();
+    expect(readbacks).toHaveLength(1);
+    expect(related).toHaveBeenCalledTimes(1);
+
+    m.props.configs = [{ ...stale }];
+    await settle();
+    releaseRelated(true);
+    await settle();
+    expect(feedback(m.target).textContent).toContain('couldn’t be refreshed');
+    editRow(m.target);
+    await settle();
+    expect(m.target.querySelector('#ac-name')).toBeNull();
+  });
+
+  it('resets Manager-local credential and mutation state on a same-owner user change', async () => {
+    stubFetch(async (body) => {
+      if (body.action === 'create') throw new Error('dropped response');
+      return {};
+    });
+    const m = await open();
+    await startCreate(m.target, 'first');
+    button(m.target, 'Save').click();
+    await settle();
+    expect(feedback(m.target).textContent).toContain('couldn’t confirm the change went through');
+    expect($<HTMLInputElement>(m.target, '#ac-key')!.value).toBe('synthetic-key');
+
+    m.props.currentUserId = 'u2';
+    m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
+    await settle();
+    expect(feedback(m.target).textContent).not.toContain('couldn’t confirm the change went through');
+    expect(m.target.querySelector('#ac-key')).toBeNull();
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect($<HTMLInputElement>(m.target, '#ac-key')!.value).toBe('');
+    expect(button(m.target, 'Save').disabled).toBe(false);
+
+    m.props.currentUserId = 'u1';
+    m.props.members = [{ user: { id: 'u1' }, role: 'ADMIN' }];
+    await settle();
+    expect(feedback(m.target).textContent).toContain('couldn’t confirm the change went through');
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(true);
+  });
+
+  it('retains standalone pending recovery across Manager destroy and remount', async () => {
+    let releaseCreate!: () => void;
+    const createHeld = new Promise<void>((resolve) => { releaseCreate = resolve; });
+    stubFetch(async (body) => {
+      if (body.action === 'create') await createHeld;
+      return {};
+    });
+    const first = await open({}, AiServiceConfigManager);
+    await startCreate(first.target, 'first');
+    button(first.target, 'Save').click();
+    await tick(2);
+    mounted.splice(mounted.indexOf(first), 1);
+    first.unmount();
+
+    const second = await open({}, AiServiceConfigManager);
+    button(second.target, 'Add configuration').click();
+    await settle();
+    expect(button(second.target, 'Save').disabled).toBe(true);
+    releaseCreate();
+    await settle();
+    expect(button(second.target, 'Save').disabled).toBe(false);
+  });
 });
