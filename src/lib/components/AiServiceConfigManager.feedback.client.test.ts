@@ -783,3 +783,134 @@ describe('AI configuration feedback lifecycle review controls', () => {
     expect(readbacks).toHaveLength(1);
   });
 });
+
+describe('AI configuration review fix pins', () => {
+  it('keeps Cancel → reopen → Save from overlapping a pending mutation', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    stubFetch(async (body) => {
+      if (body.action === 'create') await held;
+      return {};
+    });
+    const { target } = await open();
+    await startCreate(target, 'fast');
+    button(target, 'Save').click();
+    await tick(2);
+
+    button(target, 'Cancel').click();
+    await settle();
+    button(target, 'Add configuration').click();
+    await settle();
+    expect(button(target, 'Save').disabled).toBe(true);
+    button(target, 'Save').click();
+    expect(posts.filter((p) => p.action === 'create')).toHaveLength(1);
+
+    release();
+    await settle();
+    expect(button(target, 'Save').disabled).toBe(false);
+    set($<HTMLInputElement>(target, '#ac-name')!, 'frontier');
+    set($<HTMLInputElement>(target, '#ac-model')!, 'glm-5');
+    set($<HTMLInputElement>(target, '#ac-key')!, 'another-synthetic-key');
+    button(target, 'Save').click();
+    await settle();
+    expect(posts.filter((p) => p.action === 'create')).toHaveLength(2);
+  });
+
+  it('applies the owner readback independently and bounds a hung related refresh', async () => {
+    vi.useFakeTimers();
+    const fresh = config({ id: 'c2', name: 'fast' });
+    stubFetch(() => ({}), () => ({ body: { configs: [fresh] } }));
+    const onRefreshed = vi.fn(() => new Promise<boolean>(() => {}));
+    const { target } = await open({ onRefreshed });
+    await startCreate(target, 'fast');
+    button(target, 'Save').click();
+    await settle();
+
+    expect(target.querySelector(`button[aria-label="${aiConfigStrings.actionsLabel('fast')}"]`)).not.toBeNull();
+    expect(feedback(target).textContent).not.toContain('couldn’t be refreshed');
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    flushSync();
+    expect(onRefreshed).toHaveBeenCalledTimes(1);
+    expect(feedback(target).textContent).toContain('couldn’t be refreshed');
+  });
+
+  it('drops an uncertain result from an earlier A visit after A → B → A', async () => {
+    let rejectCreate!: (error: Error) => void;
+    stubFetch(async (body) => {
+      if (body.action === 'create') await new Promise<never>((_, reject) => { rejectCreate = reject; });
+      return {};
+    });
+    const m = await open();
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await tick(2);
+
+    m.props.ownerId = 'o2';
+    await settle();
+    m.props.ownerId = 'o1';
+    await settle();
+    rejectCreate(new Error('dropped response'));
+    await settle();
+
+    expect(feedback(m.target).textContent?.trim()).toBe('');
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(false);
+  });
+
+  it('drops a committed result from an earlier A visit after A → B → A', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    stubFetch(async (body) => {
+      if (body.action === 'create') await held;
+      return {};
+    });
+    const m = await open();
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await tick(2);
+
+    m.props.ownerId = 'o2';
+    await settle();
+    m.props.ownerId = 'o1';
+    await settle();
+    release();
+    await settle();
+
+    expect(readbacks).toHaveLength(0);
+    expect(feedback(m.target).textContent?.trim()).toBe('');
+  });
+
+  it('announces a refused save through a persistent alert region', async () => {
+    stubFetch((body) => body.action === 'create' ? { ok: false, body: { error: 'Name already exists.' } } : {});
+    const { target } = await open();
+    const region = $<HTMLElement>(target, '[data-testid="ai-config-error-feedback"]')!;
+    expect(region.getAttribute('role')).toBe('alert');
+    expect(region.textContent?.trim()).toBe('');
+
+    await startCreate(target, 'fast');
+    button(target, 'Save').click();
+    await settle();
+
+    expect($<HTMLElement>(target, '[data-testid="ai-config-error-feedback"]')).toBe(region);
+    expect(region.textContent).toContain('Name already exists.');
+    expect($<HTMLInputElement>(target, '#ac-name')!.value).toBe('fast');
+  });
+
+  it('announces a refused delete through the same persistent alert region', async () => {
+    stubFetch((body) => body.action === 'delete' ? { ok: false, body: { error: 'Delete refused.' } } : {});
+    const { target } = await open({ configs: [config()] });
+    const region = $<HTMLElement>(target, '[data-testid="ai-config-error-feedback"]')!;
+    expect(region.getAttribute('role')).toBe('alert');
+    expect(region.textContent?.trim()).toBe('');
+
+    menuDelete(target);
+    button(target, 'Delete').click();
+    await settle();
+
+    expect($<HTMLElement>(target, '[data-testid="ai-config-error-feedback"]')).toBe(region);
+    expect(region.textContent).toContain('Delete refused.');
+    expect(button(target, 'Delete').disabled).toBe(false);
+  });
+});
