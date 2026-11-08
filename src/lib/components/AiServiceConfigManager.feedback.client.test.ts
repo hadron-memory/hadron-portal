@@ -1283,7 +1283,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(m.target.textContent).toContain('couldn’t confirm the change went through');
   });
 
-  it('clears uncertain recovery when its related refresh eventually succeeds', async () => {
+  it('keeps uncertainty after a late related success because the write may still commit', async () => {
     vi.useFakeTimers();
     let rejectCreate!: (error: Error) => void;
     let releaseRelated!: (fresh: boolean) => void;
@@ -1312,7 +1312,77 @@ describe('AI configuration code-review lifecycle pins', () => {
 
     releaseRelated(true);
     await settle();
-    expect(feedback(m.target).textContent?.trim()).toBe('');
+    expect(feedback(m.target).textContent).toContain('couldn’t confirm the change went through');
+    expect(button(m.target, 'Save').disabled).toBe(true);
+  });
+
+  it('retains a direct uncertain warning and replay lock across Section remount', async () => {
+    stubFetch(async (body) => {
+      if (body.action === 'create') throw new Error('dropped response');
+      return {};
+    });
+    const first = await open();
+    await startCreate(first.target, 'fast');
+    button(first.target, 'Save').click();
+    await settle();
+    expect(feedback(first.target).textContent).toContain('couldn’t confirm the change went through');
+    mounted.splice(mounted.indexOf(first), 1);
+    first.unmount();
+
+    const second = await open();
+    expect(feedback(second.target).textContent).toContain('couldn’t confirm the change went through');
+    button(second.target, 'Add configuration').click();
+    await settle();
+    expect(button(second.target, 'Save').disabled).toBe(true);
+  });
+
+  it('keeps a stale row closed after its committed readback fails', async () => {
+    stubFetch(() => ({}), () => { throw new Error('readback failed'); });
+    const { target } = await open({ configs: [config()] });
+    editRow(target);
+    await settle();
+    set($<HTMLInputElement>(target, '#ac-model')!, 'glm-6');
+    button(target, 'Save').click();
+    await settle();
+    expect(feedback(target).textContent).toContain('couldn’t be refreshed');
+
+    editRow(target);
+    await settle();
+    expect(target.querySelector('#ac-name')).toBeNull();
+  });
+
+  it('settles a mutation into the user store that registered it', async () => {
+    let releaseCreate!: () => void;
+    const createHeld = new Promise<void>((resolve) => { releaseCreate = resolve; });
+    let releaseReadback!: (reply: Reply) => void;
+    stubFetch(async (body) => {
+      if (body.action === 'create') await createHeld;
+      return {};
+    }, () => new Promise<Reply>((resolve) => { releaseReadback = resolve; }));
+    const m = await open();
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await tick(2);
+
+    m.props.currentUserId = 'u2';
+    m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
+    await settle();
+    releaseCreate();
+    await settle();
+    expect(readbacks).toHaveLength(0);
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(false);
+
+    m.props.currentUserId = 'u1';
+    m.props.members = [{ user: { id: 'u1' }, role: 'ADMIN' }];
+    await settle();
+    expect(readbacks).toHaveLength(1);
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(true);
+    releaseReadback({ body: { configs: [] } });
+    await settle();
     expect(button(m.target, 'Save').disabled).toBe(false);
   });
 });
