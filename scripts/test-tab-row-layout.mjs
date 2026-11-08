@@ -77,6 +77,23 @@ try {
       assert.equal(await selectedTab.evaluate(el => getComputedStyle(el).whiteSpace), 'nowrap');
     }
     if (screenshots) await page.screenshot({ path: `${screenshots}/${name}-${width}-${dark ? 'dark' : 'light'}.png` });
+    // Removing a chosen menu item must not lose focus when navigation is
+    // cancelled. The positive native-link control still commits its href.
+    if (await more.count()) {
+      await more.click();
+      const firstLink = page.locator('[role=menuitem][href]').first();
+      if (await firstLink.count()) {
+        const href = await firstLink.getAttribute('href');
+        await firstLink.evaluate(el => el.addEventListener('click', event => event.preventDefault(), { once: true }));
+        await firstLink.click();
+        assert.equal(await more.evaluate(el => el === document.activeElement), true, `${name}: cancelled link keeps a surviving focus target`);
+        await more.click();
+        await page.route('**/view/*', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Native link destination</title>' }));
+        await Promise.all([page.waitForURL(new URL(href, origin).href), page.locator(`[role=menuitem][href="${href}"]`).click()]);
+      } else {
+        await page.keyboard.press('Escape');
+      }
+    }
     assert.deepEqual(pageErrors, [], `${name}: unexpected fixture page error`);
     console.log(JSON.stringify({ name, width, dark, ...measurement, reachable: reachable.length }));
     await page.close();

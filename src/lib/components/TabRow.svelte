@@ -131,9 +131,9 @@
     <div bind:this={menu} role="menu" use:dialogEscapeFallback={escape} aria-label={t('tab-row.more-label', 'More sections')} tabindex="-1" onkeydown={menuKey} class="absolute right-0 top-full z-30 max-h-80 max-w-[calc(100vw-2rem)] overflow-auto rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
       {#each hidden as item (item.id)}
         {#if item.href}
-          <a role="menuitem" tabindex="-1" href={item.href} data-sveltekit-reload={item.reload || undefined} data-sveltekit-preload-data={item.preload} class="pointer-coarse:min-h-11 block whitespace-nowrap px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-100 focus:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800" onclick={() => close()}>{@render caption(item)}</a>
+          <a role="menuitem" tabindex="-1" href={item.href} data-sveltekit-reload={item.reload || undefined} data-sveltekit-preload-data={item.preload} class="pointer-coarse:min-h-11 block whitespace-nowrap px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-100 focus:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800" onclick={() => close(true)}>{@render caption(item)}</a>
         {:else}
-          <button type="button" role="menuitem" tabindex="-1" class="pointer-coarse:min-h-11 block w-full whitespace-nowrap px-4 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100 focus:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800" onclick={async () => { close(); onselect?.(item.id); await tick(); if (!alive || active !== item.id) return; root?.querySelector<HTMLElement>(`[role=tab][aria-selected=true]`)?.focus(); }}>{@render caption(item)}</button>
+          <button type="button" role="menuitem" tabindex="-1" class="pointer-coarse:min-h-11 block w-full whitespace-nowrap px-4 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100 focus:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800" onclick={async () => { close(true); onselect?.(item.id); await tick(); if (!alive || active !== item.id) return; root?.querySelector<HTMLElement>(`[role=tab][aria-selected=true]`)?.focus(); }}>{@render caption(item)}</button>
         {/if}
       {/each}
     </div>
