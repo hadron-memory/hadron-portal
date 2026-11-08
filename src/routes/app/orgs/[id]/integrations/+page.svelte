@@ -7,6 +7,7 @@
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
+  import AddIntegrationRow from '$lib/components/AddIntegrationRow.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
@@ -332,33 +333,14 @@
     {/each}
 
     <!-- Add integration -->
-    <div class="flex items-center gap-3">
-      <label for="addIntegration" class="text-sm text-zinc-600 dark:text-zinc-400">Add:</label>
-      <select
-        id="addIntegration"
-        bind:value={selectedIntegration}
-        class="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
-      >
-        <option value="">Select integration...</option>
-        {#if !hasGithubConfigured}
-          <option value="github">GitHub</option>
-        {/if}
-        <option value="exchange">Microsoft Exchange</option>
-      </select>
-      <button
-        onclick={() => {
-          if (selectedIntegration === 'github') { showGithubConfig = true; showExchangeSetup = false; }
-          else if (selectedIntegration === 'exchange') { showExchangeSetup = true; showGithubConfig = false; }
-        }}
-        disabled={!selectedIntegration}
-        class="rounded-lg px-4 py-1.5 text-sm font-medium transition
-          {selectedIntegration
-            ? 'bg-amber-500 text-white hover:bg-amber-600'
-            : 'bg-zinc-200 text-zinc-400 cursor-not-allowed dark:bg-zinc-800 dark:text-zinc-600'}"
-      >
-        Configure
-      </button>
-    </div>
+    <AddIntegrationRow
+      bind:selected={selectedIntegration}
+      {hasGithubConfigured}
+      onconfigure={() => {
+        if (selectedIntegration === 'github') { showGithubConfig = true; showExchangeSetup = false; }
+        else if (selectedIntegration === 'exchange') { showExchangeSetup = true; showGithubConfig = false; }
+      }}
+    />
 
     <!-- GitHub config panel (when adding new) -->
     {#if showGithubConfig && !hasGithubConfigured}
