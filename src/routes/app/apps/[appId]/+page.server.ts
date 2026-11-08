@@ -440,6 +440,13 @@ const CAST_WORKER_ERRORS: Record<string, () => string> = {
     'app.staff.error.app-uninstalled',
     'This App has been uninstalled, so nothing can be cast into it.',
   ),
+  // portal#1813 (hadron-server#3626): a personal App's owner no longer
+  // qualifies for its organization Agent. First sentence shared with #1786's
+  // chat copy; no route back, no retry.
+  BOOT_PROMPT_INSTALL_LICENSE_INACTIVE: () => t(
+    'app.staff.error.boot-prompt-install-license-inactive',
+    'The owner of this App no longer qualifies to use this organization Agent, so the worker can’t be cast. Trying again won’t help.',
+  ),
   // hadron-portal#1149 — the server's FROZEN public messages (hadron-server#2028,
   // accepted verbatim by the gate), shown as written. The portal always sends
   // one deliberate arm, so REQUIRED/INVALID/CONFLICT mean the form and server
