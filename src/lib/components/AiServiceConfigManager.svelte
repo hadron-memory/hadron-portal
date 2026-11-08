@@ -172,6 +172,7 @@
     ownerType: AiConfigOwnerType;
     ownerId: string;
     ownerGeneration: number;
+    formFingerprint: string;
   };
   type PendingMutation = { id: number; ownerKey: string };
   let pendingMutations = $state<PendingMutation[]>([]);
@@ -184,6 +185,14 @@
     return onAction();
   }
 
+  function formFingerprint(): string {
+    return JSON.stringify({
+      nameInput, providerInput, modelInput, apiKeyInput,
+      bedrockAccessKeyId, bedrockSecretAccessKey, bedrockRegion,
+      enabledInput, removeKey, paramsText, endpointInput, apiStyleInput, toolCalling,
+    });
+  }
+
   function beginAction(): ActionToken {
     const noticeGeneration = clearNotice();
     busy = false;
@@ -194,6 +203,7 @@
       ownerType: ownerAtVisit!.ownerType,
       ownerId: ownerAtVisit!.ownerId,
       ownerGeneration,
+      formFingerprint: formFingerprint(),
     };
   }
 
@@ -282,6 +292,7 @@
     actionGeneration++;
     clearNotice();
     resetEditor();
+    configFilter = '';
     confirmDeleteId = null;
     if (!sharesStandaloneRecovery) {
       uncertainMutation = false;
@@ -739,7 +750,9 @@
       refreshFailedText: s.saveRefreshFailed(name),
       refusalFallback: 'Failed to save configuration',
       onSuccess: () => {
-        if (isCurrent(action)) resetEditor();
+        // The request captured the old values. Close only if the reader did not
+        // make newer edits while it was in flight; otherwise keep that draft.
+        if (isCurrent(action) && formFingerprint() === action.formFingerprint) resetEditor();
       },
     });
   }

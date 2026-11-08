@@ -847,7 +847,7 @@
     against: PageData;
     appRef: string;
     agentRef: string;
-    configs: AiServiceConfig[];
+    configs: AiServiceConfig[] | null;
   } | null>(null);
   let chatConfigReads = 0;
   const chatConfigs = $derived(
@@ -865,7 +865,15 @@
     const against = data;
     const mine = ++chatConfigReads;
     const fresh = await readResolvedAiConfigs(appRef, agentRef, signal);
-    if (fresh === null) return false;
+    if (fresh === null) {
+      if (mine === chatConfigReads && appRef === app.id && agentRef === app.agentId && against === data) {
+        // Do not keep offering a deleted/disabled selection when the confirmed
+        // mutation's resolved read cannot be refreshed. Null retains the existing
+        // unknown-readiness behavior but removes the stale picker value.
+        chatConfigReread = { against, appRef, agentRef, configs: null };
+      }
+      return false;
+    }
     if (
       mine !== chatConfigReads ||
       appRef !== app.id ||
@@ -884,6 +892,14 @@
   );
   // Picker selection overlaid on the default (`default`, else first usable).
   let selectedConfigName = $state<string | null>(null);
+  const chatSelectionIdentity = $derived(`${app.id}:${app.agentId ?? ''}`);
+  let previousChatSelectionIdentity = '';
+  $effect(() => {
+    const next = chatSelectionIdentity;
+    if (next === previousChatSelectionIdentity) return;
+    previousChatSelectionIdentity = next;
+    selectedConfigName = null;
+  });
   // Validate the pick against the (possibly refreshed) usable set: if the
   // selected config was deleted/disabled on the AI Service Configs tab, the
   // resolved-config working copy falls back to default → first rather than
