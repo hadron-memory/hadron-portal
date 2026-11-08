@@ -48,6 +48,35 @@ describe('portal#1685 saved signature/trailer link advice', () => {
     expect(root.textContent).toContain('{{worker.url}}');
     expect(root.textContent).not.toContain('must contain');
   });
+  it('shows the approved zero copy and refresh guidance only after a complete successful saved read', async () => {
+    let release!: (r: unknown) => void;
+    vi.stubGlobal('fetch', vi.fn().mockImplementationOnce(() => new Promise(r => release = r)));
+    const { root } = await open();
+    const clear = 'No worker-link warnings on the saved values.';
+    expect(root.textContent).not.toContain(clear);
+    expect(root.textContent).toContain('Saved-value advice refreshes after a successful save.');
+    release(response(page([]))); await settle();
+    expect(root.querySelector('[data-signature-lint]')?.textContent).toContain(clear);
+    type(root, 'unsaved draft without a link');
+    expect(root.textContent).toContain(clear);
+  });
+  it.each(['null', 'transport', 'failed-http', 'wrong-worker', 'partial', 'warning', 'masked', 'one-masked'])('never gives an all-clear for %s', async mode => {
+    const fetcher = vi.fn().mockResolvedValue(response(page([])));
+    if (mode === 'null') fetcher.mockResolvedValue(response(null));
+    if (mode === 'transport') fetcher.mockRejectedValue(new Error('offline'));
+    if (mode === 'failed-http') fetcher.mockResolvedValue(response(page([]), false));
+    if (mode === 'wrong-worker') fetcher.mockResolvedValue(response(page([]), true, 'b'));
+    if (mode === 'partial') fetcher.mockResolvedValue(response(page([], 0, 'next')));
+    if (mode === 'warning') fetcher.mockResolvedValue(response(page([item('signature')])));
+    vi.stubGlobal('fetch', fetcher);
+    const { root } = await open(mode === 'masked' || mode === 'one-masked' ? null : 'signature', mode === 'masked' ? null : 'trailer');
+    expect(root.textContent).not.toContain('No worker-link warnings on the saved values.');
+    if (mode === 'null') {
+      const retry = [...root.querySelectorAll('button')].find(b => b.textContent === 'Retry')!;
+      expect(retry.classList.contains('pointer-coarse:min-h-11')).toBe(true);
+      expect(retry.classList.contains('pointer-coarse:min-w-11')).toBe(true);
+    }
+  });
   it('uses the server zero result even for a literal URL, not a client variable matcher', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(page([]))));
     const { root } = await open('https://example.test/app/u/hrn:worker:example.com:team:a');
