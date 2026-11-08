@@ -1172,6 +1172,26 @@ describe('castWorker action', () => {
     expect(result.data.form.message.text).toContain('contributor access');
   });
 
+  // portal#1813 (hadron-server#3626): the personal App's owner no longer
+  // qualifies for its ORGANIZATION-visible Agent. Without its own entry this
+  // fell to extractGqlError's generic "Failed to cast the worker.". The status
+  // stays the action's 500 for every refusal; only the copy is pinned.
+  it('translates BOOT_PROMPT_INSTALL_LICENSE_INACTIVE into its fixed copy', async () => {
+    mockRequest.mockRejectedValueOnce({
+      message: 'server text',
+      response: { errors: [{ message: 'server text', extensions: { code: 'BOOT_PROMPT_INSTALL_LICENSE_INACTIVE' } }] },
+    });
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', reporting: 'none' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({
+      type: 'error',
+      text: 'The owner of this App no longer qualifies to use this organization Agent, so the worker can’t be cast. Trying again won’t help.',
+    });
+  });
+
   it('uses generic copy for an UNKNOWN code', async () => {
     // hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only — only known codes get friendly
     // copy; an internal error must not be relabelled as a user mistake.
