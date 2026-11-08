@@ -15883,18 +15883,16 @@ type ResendSendersPage {
 }
 
 """
-036-ai-service-config: privileged resolution result. Carries the
-DECRYPTED key — only returned by resolveAIConfig. A resolved platform
-credential is decrypted only for platform ADMIN/OWNER; org ADMIN may
-decrypt an authorized tenant-owned config. Successor to agentAIConfig /
-appAIConfig.
+036-ai-service-config: resolution identity. Credential material is returned
+only to the source manager; other authorized resolution callers receive null.
+Successor to agentAIConfig / appAIConfig.
 """
 type ResolvedAiConfig {
   """
-  Decrypted key. For provider 'bedrock' this is the JSON-encoded
-  accessKeyId/secretAccessKey/region triple the portal stores.
+  Decrypted key when authorized for the resolved source, otherwise null.
+  For provider 'bedrock' the key is a JSON-encoded credential triple.
   """
-  apiKey: String!
+  apiKey: String
   configId: ID!
 
   """

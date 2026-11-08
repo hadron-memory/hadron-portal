@@ -407,3 +407,20 @@ describe('/app/agents/[id]/test loader', () => {
     await expect(load(ev({ agentId: personalAgent.id, isConsumerMode: true }))).rejects.toThrow('owned scope unavailable');
   });
 });
+
+// Error envelopes can embed successful partial data and request variables.
+it('readiness transport diagnostics never log the raw response envelope', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const error = Object.assign(new Error('synthetic-key-in-transport'), {
+      response: { data: { resolveAIConfig: { apiKey: 'synthetic-key-in-transport', params: { secret: 'synthetic-param' } } } },
+    });
+    routeMyOrgs({ organizations: [{ ...orgA, agents: [agentConfigured] }] }, error);
+    const result = await (await importLoad())(ev({ agentId: 'agent-aaa' }));
+    expect((result as { llm: unknown }).llm).toEqual({ status: 'unavailable', detail: null });
+    expect(warn).toHaveBeenCalled();
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('synthetic-key-in-transport');
+    expect(JSON.stringify(result)).not.toContain('synthetic-key-in-transport');
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('synthetic-param');
+  } finally { warn.mockRestore(); }
+});

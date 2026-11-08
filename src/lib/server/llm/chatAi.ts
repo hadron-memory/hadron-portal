@@ -2,7 +2,7 @@ import { gqlClient } from '$lib/server/api';
 import { RESOLVE_AI_CONFIG_QUERY } from '$lib/server/queries';
 import { isMissingEffectiveEndpoint, portalRuntimeRefusal } from './agentChatLlm.js';
 import type { AIProvider } from '$lib/types';
-import { ChatError } from './chatError.js';
+import { CHAT_ERROR, ChatError } from './chatError.js';
 
 export type ChatAi = { provider: AIProvider; apiKey: string; model: string };
 
@@ -14,7 +14,14 @@ export type ChatAi = { provider: AIProvider; apiKey: string; model: string };
  */
 export type ChatAiResolution = { ok: true; ai: ChatAi } | { ok: false; error: unknown };
 
-/** Fetch the agent's decrypted LLM config. Throws on missing config. */
+export const CREDENTIAL_UNAVAILABLE = CHAT_ERROR.credentialUnavailable;
+
+/** A resolved identity is not evidence that this runtime received credentials. */
+export function hasRuntimeCredential(apiKey: unknown): apiKey is string {
+  return typeof apiKey === 'string' && apiKey.trim().length > 0;
+}
+
+/** Fetch a config usable by this runtime. Never substitute another credential. */
 export async function fetchAgentAIConfig(
   token: string | null,
   agentId: string,
@@ -24,13 +31,14 @@ export async function fetchAgentAIConfig(
   // chat's context. Passing `appId` makes the walk App → Agent → Org → Host
   // (so app-level configs apply); agentId-only stays Agent → Org → Host.
   // `configName` lets the App chat pick a specific config. Returns the
-  // decrypted key. `resolveAIConfig` throws NoAiConfigAvailableError when
+  // credential only when the server permits it. Identity-only resolution is
+  // refused below. `resolveAIConfig` throws NoAiConfigAvailableError when
   // nothing resolves — translate that into the "configure a provider"
   // guidance, but let auth/transport errors propagate untouched.
-  let resolved: { provider: string; apiKey: string; model: string; effectiveEndpoint: string | null };
+  let resolved: { provider: string; apiKey: string | null; model: string; effectiveEndpoint: string | null };
   try {
     const result = await gqlClient(token).request<{
-      resolveAIConfig: { provider: string; apiKey: string; model: string; effectiveEndpoint: string | null };
+      resolveAIConfig: { provider: string; apiKey: string | null; model: string; effectiveEndpoint: string | null };
     }>(RESOLVE_AI_CONFIG_QUERY, {
       name: opts?.configName ?? 'default',
       appRef: opts?.appId ?? undefined,
@@ -50,6 +58,7 @@ export async function fetchAgentAIConfig(
   // it's meant to go, with its key. Refused BEFORE the key is handed to anything.
   const refusal = portalRuntimeRefusal(resolved);
   if (refusal) throw new ChatError('configUnsupported');
+  if (!hasRuntimeCredential(resolved.apiKey)) throw new ChatError('credentialUnavailable');
   return {
     provider: resolved.provider as AIProvider,
     apiKey: resolved.apiKey,
