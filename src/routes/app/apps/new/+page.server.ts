@@ -1,6 +1,7 @@
 // #648 part 2: org-less (personal) app create/install. An individual installs a
-// PUBLIC agent or their OWN personal agent as a user-owned App (createApp with no
-// orgId, spec 047). Unlike the org install route (/app/orgs/[id]/agents/install/
+// PUBLIC agent, their OWN personal agent, or (#1786, hadron-server#3626) an
+// ORGANIZATION-visible agent of an organization they belong to, as a user-owned
+// App (createApp with no orgId, spec 047). Unlike the org install route (/app/orgs/[id]/agents/install/
 // [aid]), the agent is chosen HERE (picker) — or pre-selected via ?agent=<id>
 // from the org-less agent detail page — so there's no [aid] path param.
 //
@@ -19,6 +20,7 @@ import {
   MY_APPS_QUERY,
   CREATE_PERSONAL_APP_MUTATION,
 } from '$lib/server/queries';
+import { fetchOrgVisibleAgents } from '$lib/server/installable-agents';
 import { deriveDefaultUrn } from '$lib/install/derive-default-urn';
 import { deriveDefaultName } from '$lib/install/derive-default-name';
 import type { Actions, PageServerLoad } from './$types';
@@ -27,7 +29,7 @@ import { createPersonalAppSchema } from './schema';
 type CreatePersonalAppForm = Infer<typeof createPersonalAppSchema, 'zod4'>;
 const adapter = zod4(createPersonalAppSchema);
 
-/** An agent the caller may install into a personal App (own personal ∪ PUBLIC). */
+/** An agent the caller may install into a personal App (own personal ∪ PUBLIC ∪ member-org ORGANIZATION). */
 export interface InstallableAgent {
   id: string;
   urn: string;
@@ -43,11 +45,13 @@ function agentSlugFromUrn(urn: string): string {
 
 /**
  * The agents installable into a personal App: the caller's OWN (org-less)
- * personal agents ∪ every PUBLIC agent — mirroring the server install gate
- * (createApp: a personal App may install a PUBLIC or the caller's own personal
- * agent). Deduped by id (a public agent could also be the caller's own).
+ * personal agents ∪ every PUBLIC agent ∪ (#1786) the ORGANIZATION-visible
+ * agents of each organization the caller belongs to — the set the server's
+ * install gate admits (hadron-server#3626, `requirePersonalAppAgentInstall`).
+ * The list only suggests: createApp rechecks, and refuses an ex-member.
+ * Deduped by id, first source wins, in the order mine, public, organization.
  *
- * `ok` is false when EITHER lookup failed — the list is then unreliable and
+ * `ok` is false when ANY lookup failed — the list is then unreliable and
  * callers must NOT treat it as authoritative: a transient failure would
  * otherwise (a) show "no agents" on GET and (b) reject a valid own/public agent
  * on POST. On failure the loader surfaces an error and the action defers to the
@@ -57,7 +61,7 @@ async function fetchInstallableAgents(
   client: ReturnType<typeof gqlClient>,
 ): Promise<{ agents: InstallableAgent[]; ok: boolean }> {
   let ok = true;
-  const [mine, pub] = await Promise.all([
+  const [mine, pub, org] = await Promise.all([
     // #782: server-side filter.ownedByMe — already the caller's own org-less agents.
     fetchAllItems<InstallableAgent>(client, MY_AGENTS_QUERY, 'agents')
       .catch(() => {
@@ -69,9 +73,14 @@ async function fetchInstallableAgents(
         ok = false;
         return [] as InstallableAgent[];
       }),
+    fetchOrgVisibleAgents<InstallableAgent>(client)
+      .catch(() => {
+        ok = false;
+        return [] as InstallableAgent[];
+      }),
   ]);
   const seen = new Set<string>();
-  const agents = [...mine, ...pub]
+  const agents = [...mine, ...pub, ...org]
     .filter((a) => (seen.has(a.id) ? false : (seen.add(a.id), true)))
     .map((a) => ({ id: a.id, urn: a.urn, name: a.name, description: a.description ?? null }));
   return { agents, ok };
@@ -133,8 +142,9 @@ export const actions: Actions = {
 
     const client = gqlClient(locals.token);
     // Re-check installability on POST — load()'s gate doesn't run on submit, and
-    // a crafted POST could name a foreign private agent (this gives a friendly
-    // field error instead of a raw GraphQL one). But only REJECT when the lookup
+    // a crafted POST could name a foreign private agent, or an ex-member could
+    // name an organization agent they no longer qualify for (#1786); this gives
+    // a friendly field error instead of a raw GraphQL one. But only REJECT when the lookup
     // is reliable (ok): a transient fetch failure must not reject a valid agent —
     // defer to the server's createApp gate, which is authoritative either way.
     const installable = await fetchInstallableAgents(client);

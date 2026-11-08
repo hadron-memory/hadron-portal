@@ -2,6 +2,7 @@ import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatMessage } from '$lib/types';
+import { runAppFlowSchema } from './runs/schema';
 import {
   createAppMemorySchema, addAgentSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
   deleteAppSchema, releaseWorkerSchema, removeAppAgentSchema, retireWorkerSchema,
@@ -38,10 +39,27 @@ export async function pageData() {
     teamChatMessages: [message(1, 'w1')], teamChatTotal: 1, teamChatError: false, teamFilter: { kind: 'none' }, teamFilterInvalid: false, teamChatRefusal: null,
     appChats: [{ key: 'chats:team', label: 'Team chat' }], chatsError: false,
     selectedChatKey: 'chats:team', initialTab: 'chats', initialChatFullView: false,
+    runsPanel: null as Awaited<ReturnType<typeof runsPanel>> | null,
     chatConfigs: [], appConfigs: [], worklog: [], worklogTotal: 0, worklogError: false,
     currentUserId: 'u1',
     appSettingsForm, addAgentForm, createKeyForm, removeAgentForm,
     updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm,
     retireWorkerForm, releaseWorkerForm, postTeamChatMessageForm,
+  };
+}
+
+export async function runsPanel(runId: string) {
+  return {
+    app: { id: 'a1', name: 'Team', organizationId: null },
+    runs: [{
+      id: runId, appId: 'a1', organizationId: null, agentId: null, userId: null,
+      triggerKind: 'MANUAL', triggerId: null, entryNodeUrn: `hrn:node:acme.com:flows:${runId}`,
+      eventData: null, policy: null, budgetTokens: null, budgetActions: null, status: 'COMPLETED',
+      curNodeUrn: null, parentRunId: null, failure: null, timeoutMs: null, attempts: 1,
+      startedAt: null, finishedAt: null, createdAt: '2026-11-01T00:00:00Z', createdBy: null,
+    }],
+    total: 1, page: 1, statuses: [], sort: 'createdAt', dir: 'desc', failed: false, explicitState: true,
+    flows: [], flowsCapped: false, flowsScanned: 0, runAgents: null,
+    runForm: await superValidate(zod4(runAppFlowSchema), { errors: false }),
   };
 }

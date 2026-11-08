@@ -19,6 +19,10 @@ export const CHAT_ERROR = {
   bootPromptNotSigned: t('agent-chat.error.boot-prompt-not-signed', "No signed version of this Agent's boot prompt is available here, so the chat can't run until whoever manages it signs one. Trying again won't help until they do."),
   // Defensive: a bind or a run raises it; the chat path excludes it (server serve.ts).
   bootPromptRecordedRevisionDeleted: t('agent-chat.error.boot-prompt-recorded-revision-deleted', "The boot prompt version this conversation was given has been deleted, so it can't continue. Start a new chat."),
+  // portal#1786 (hadron-server#3626): a personal App's owner stopped qualifying for its ORGANIZATION-visible Agent.
+  // No route back is promised: rejoining doesn't help if the Agent's visibility narrowed, and none is known
+  // from a revoked subscription. Nor does it imply that a reload helps.
+  bootPromptInstallLicenseInactive: t('agent-chat.error.boot-prompt-install-license-inactive', "The owner of this App no longer qualifies to use this organization Agent, so the chat can't run. Trying again won't help."),
   // portal#916 — the reply was saved but the extraction was refused (hadron-server#3514). Only chosen under a
   // recognised structured partialTurn marker (see partialTurnRefusal); never names a task, revision, rule or config.
   partialTurnAttestationMissing: t('agent-chat.error.partial-turn-attestation-missing', "Your message was sent and the reply was saved, but the chat couldn't save the information it collected: this memory accepts that data only from a task-assigned author, and a chat turn doesn't name one. Ask whoever manages the memory. You don't need to send it again."),
@@ -42,6 +46,7 @@ const BOOT_PROMPT_REFUSALS: Readonly<Record<string, ChatErrorCode>> = {
   BOOT_PROMPT_NOT_APPROVED: 'bootPromptNotApproved',
   BOOT_PROMPT_NOT_SIGNED: 'bootPromptNotSigned',
   BOOT_PROMPT_RECORDED_REVISION_DELETED: 'bootPromptRecordedRevisionDeleted',
+  BOOT_PROMPT_INSTALL_LICENSE_INACTIVE: 'bootPromptInstallLicenseInactive',
 };
 
 /** The portal code for a boot-prompt refusal, or null for any other error. */
@@ -58,6 +63,7 @@ const CONFLICT_CODES: ReadonlySet<ChatErrorCode> = new Set<ChatErrorCode>([
   'bootPromptNotApproved',
   'bootPromptNotSigned',
   'bootPromptRecordedRevisionDeleted',
+  'bootPromptInstallLicenseInactive',
 ]);
 
 export function publicChatError(error: unknown): { code: ChatErrorCode; message: string; status: number } {

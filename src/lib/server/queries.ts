@@ -370,6 +370,33 @@ export const PUBLIC_AGENTS_QUERY = /* GraphQL */ `
   }
 `;
 
+// #1786 (hadron-server#3626, ruling 0235): the ids of the caller's own
+// organizations, for listing the ORGANIZATION-visible Agents they may install
+// into a personal App. `memberOnly` holds for platform admins too, so this is
+// the eligible set, never every organization. Ids only: nothing else is drawn.
+export const MEMBER_ORG_IDS_QUERY = /* GraphQL */ `
+  query MemberOrgIds($limit: Int, $offset: Int) {
+    organizations(filter: { memberOnly: true }, limit: $limit, offset: $offset) {
+      items { id }
+      total
+    }
+  }
+`;
+
+// #1786: one member organization's ORGANIZATION-visible Agents, the same slim
+// item as PUBLIC_AGENTS_QUERY. `orgId` is REQUIRED: without it the server
+// gives a platform admin every organization's Agents with no membership test;
+// with it, `resolveOrgScope` requires live membership and answers an empty
+// page otherwise. The list only suggests; createApp stays the gate.
+export const ORG_VISIBLE_AGENTS_QUERY = /* GraphQL */ `
+  query OrgVisibleAgents($orgId: ID!, $limit: Int, $offset: Int) {
+    agents(filter: { visibility: ORGANIZATION }, orgId: $orgId, limit: $limit, offset: $offset) {
+      items { id urn name description organizationId visibility }
+      total
+    }
+  }
+`;
+
 // Find-one agent read for the install flow's PUBLIC path (#486): since
 // server #552, agent(ref:) admits a PUBLIC agent for ANY caller (non-public
 // keeps the membership gate). Callers must still check visibility === PUBLIC
