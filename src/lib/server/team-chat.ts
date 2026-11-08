@@ -306,7 +306,7 @@ export type ChatPage = {
  */
 class OverlappingPageError extends Error {
   // Logs otherwise print `Error` for a named rejection; the class name is the
-  // diagnosis (Axel's delta-3 P3).
+  // diagnosis (#1820 review).
   override name = 'OverlappingPageError';
 }
 
@@ -393,8 +393,8 @@ export async function loadChatMessages(
   // `let`, not `const`: the locate's retry REPLACES this snapshot. Every
   // premise built on it — the full-page lower bound, the reusable first
   // window, the repeat-check seed — belongs to a moment a mid-locate shift
-  // can invalidate (Gizelle's delta-3 P2: a shrink racing the retry kept
-  // serving the stale page as the whole thread).
+  // can invalidate (#1820: a shrink racing the retry kept serving the stale
+  // page as the whole thread).
   let first = await readPage(firstOffset, fetchCount);
   // #1581: a plain findNodes browse carries no count — `total` is null for
   // filter+sort paging (the count flag is an internal object-store argument
@@ -450,9 +450,16 @@ export async function loadChatMessages(
     // hi)) and the browse orders by seq (append-only, NULLS LAST, loc-broken
     // ties), not by a volatile score. On a list that shifts UNDER the locate,
     // though, a repeat is not yet a liar: see the retry below.
-    const attempt = async (seed: Set<string>, provenLo: number): Promise<number> => {
+    // No parameters: every premise derives from `first`, the page THIS
+    // attempt starts on — the retry replaces it before calling through, so
+    // the seed and the lower bound below are the fresh attempt's own, never
+    // the absorbed attempt's. (Both callers check the page came back full
+    // before locating — the primary path's `else` arm, the retry's
+    // short-page early return — which is what makes the bound below a
+    // proof rather than an assumption.)
+    const attempt = async (): Promise<number> => {
       // Every node id any locating read of THIS attempt has returned.
-      const seenIds = seed;
+      const seenIds = new Set(first.findNodes.hits.map((h) => h.node.id));
       const readOnce = async (offset: number, readCount: number) => {
         const hits = await recordedRead(offset, readCount);
         const repeat = hits.find((h) => seenIds.has(h.node.id));
@@ -464,12 +471,11 @@ export async function loadChatMessages(
         for (const h of hits) seenIds.add(h.node.id);
         return hits;
       };
-      // `lo` is the highest node index proven to exist. The proof is the
-      // CALLER's: the first page of THIS attempt came back full, so
-      // firstOffset..firstOffset+fetchCount-1 exist and lo is its last row
-      // (firstOffset is 0 here — the gallop only runs on an unpaged read —
-      // but the code says so, it does not assume it).
-      let lo = provenLo;
+      // `lo` is the highest node index proven to exist: the full first page
+      // above proves firstOffset..firstOffset+its last row exist (firstOffset
+      // is 0 here — the gallop only runs on an unpaged read — but the code
+      // says so, it does not assume it).
+      let lo = firstOffset + first.findNodes.hits.length - 1;
       let probeOffset = firstOffset + fetchCount;
       for (;;) {
         if (probeOffset > MAX_LOCATE_OFFSET) {
@@ -503,14 +509,11 @@ export async function loadChatMessages(
     // EVERY offset on the first probe, clamping only out-of-range ones on the
     // second, when the fixed page comes round again.
     try {
-      return await attempt(
-        new Set(first.findNodes.hits.map((h) => h.node.id)),
-        firstOffset + fetchCount - 1,
-      );
+      return await attempt();
     } catch (error) {
       if (error instanceof NeverShortError) throw error;
-      // Two shapes get exactly one retry (Axel's delta-2: the conditional P2
-      // and N5).
+      // Two shapes get exactly one retry (#1820: the honest repeat and the
+      // transient blip).
       //
       // A REPEAT is not always a lying server. On a chat root no LIVE Channel
       // protects — a legacy record thread, which this reader browses whenever
@@ -526,40 +529,54 @@ export async function loadChatMessages(
       // transport failure used to fail the whole load (N5).
       //
       // The retry RESTARTS FROM A FRESH FIRST READ, not from attempt 1's
-      // leftovers (Gizelle's delta-3 P2, Axel's delta-3 stale-premise P3):
-      // every premise attempt 1 enjoyed belonged to its snapshot, and a shift
-      // invalidates them together. Re-issuing the first page re-proves the
-      // lower bound (a full fresh page proves its last row; a SHORT one IS
-      // the end — a shrink below the fetch count cannot slide under it, and
-      // a shrink to empty cannot either), re-seeds the repeat check against
-      // the CURRENT list (restoring clamp-detection parity — an empty seed
-      // let a clamp's first lie read as fresh), and re-records the segments
-      // and the reusable first window from it, so nothing pre-shift is ever
-      // stitched into a window or served as one. A fresh read that fails, or
-      // a repeat or failure on the retry itself, rejects as before — with
-      // the first error chained as `cause`, so the root cause survives the
-      // absorbed attempt.
+      // leftovers (#1820 review): every premise attempt 1 enjoyed belonged
+      // to its snapshot, and a shift invalidates them together. Re-issuing
+      // the first page re-proves the lower bound (a full fresh page proves
+      // its last row; a SHORT one IS the end — ON THE RETRY a shrink below
+      // the fetch count cannot slide under it, and a shrink to empty cannot
+      // either; attempt 1 alone keeps its pre-shift bound, and a shrink
+      // landing during the FIRST gallop's probes ends that attempt at a
+      // stale end with no repeat to catch it — the locate's pre-existing
+      // snapshot skew, unchanged by this retry and pinned as accepted by its
+      // own test), re-seeds the repeat check against the CURRENT list
+      // (restoring clamp-detection parity — an empty seed let a clamp's
+      // first lie read as fresh), and re-records the segments and the
+      // reusable first window from it, so nothing pre-shift is ever stitched
+      // into a window or served as one. A fresh read that fails, or a repeat
+      // or failure on the retry itself, rejects as before — with the first
+      // error chained as `cause`, so the root cause survives the absorbed
+      // attempt. The fresh read sits INSIDE the retry's try below for
+      // exactly that reason: its failure is a retry failure like any other,
+      // not an escape past the cause chain.
+      //
+      // One exposure the assembly KEEPS from the primary path: the fresh
+      // first page and a later probe are two reads at two moments, and a
+      // delete that lands between them shifts rows up with no repeat to
+      // name it — the assembled window can be silently a row short at the
+      // seam. The repeat detector checks what a read RETURNS against what
+      // earlier reads returned; it cannot check what the list LOST between
+      // reads. Every multi-request window assembly has this exposure; the
+      // locator narrows it (the retry collapses the epoch) but cannot
+      // eliminate it short of a server-side count.
       console.warn(
         `chat tail locate retrying once under ${prefix} after ${
           error instanceof Error ? `${error.name}: ${error.message}` : String(error)
         }`,
       );
-      first = await readPage(firstOffset, fetchCount);
-      segments = [{ start: firstOffset, hits: first.findNodes.hits }];
-      const freshTotal = first.findNodes.total;
       try {
+        first = await readPage(firstOffset, fetchCount);
+        segments = [{ start: firstOffset, hits: first.findNodes.hits }];
+        const freshTotal = first.findNodes.total;
         if (typeof freshTotal === 'number') {
           // The server now reports a count — trust it exactly as the primary
-          // path trusts the first read's.
+          // path trusts the first read's: neither cross-checks it, so the
+          // retry's trust is parity, not new optimism.
           return freshTotal;
         }
         if (first.findNodes.hits.length < fetchCount) {
           return firstOffset + first.findNodes.hits.length;
         }
-        return await attempt(
-          new Set(first.findNodes.hits.map((h) => h.node.id)),
-          firstOffset + fetchCount - 1,
-        );
+        return await attempt();
       } catch (retryError) {
         if (
           retryError instanceof Error &&
