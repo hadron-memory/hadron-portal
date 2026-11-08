@@ -873,6 +873,9 @@ describe('AI configuration review fix pins', () => {
 
     m.props.ownerId = 'o2';
     await settle();
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(false);
     m.props.ownerId = 'o1';
     await settle();
     button(m.target, 'Add configuration').click();
