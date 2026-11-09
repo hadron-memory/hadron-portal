@@ -42,7 +42,7 @@ describe('agent offer readiness (#1850)', () => {
       offerReadiness: {
         ready: false,
         reasons: [
-          { code: 'AGENT_NOT_PUBLIC', count: 1, subjects: [], omittedByCap: 0, hiddenByAccess: 0 },
+          { code: 'AGENT_NOT_PUBLIC', count: 1, subjects: [], omittedByCap: 0, hiddenByAccess: 1 },
           {
             code: 'CLONE_LINKED_MEMORY_ENCRYPTED',
             count: 3,
@@ -64,19 +64,19 @@ describe('agent offer readiness (#1850)', () => {
     expect(text).toContain('Not ready to be offered');
     // Server order preserved: NOT_PUBLIC before the encrypted memory before the import.
     const notPublic = text.indexOf('only subscribe to, install or clone a PUBLIC Agent');
-    const encrypted = text.indexOf('A linked memory is encrypted');
-    const imports = text.indexOf('An imported Agent can’t be used by another organisation');
+    const encrypted = text.indexOf('3 linked memories are encrypted');
+    const imports = text.indexOf('22 imported Agents can’t be used by another organization');
     expect(notPublic).toBeGreaterThan(-1);
     expect(encrypted).toBeGreaterThan(notPublic);
     expect(imports).toBeGreaterThan(encrypted);
-    // Named subjects appear (the server names only what the manager may read).
-    expect(text).toContain('Team roles');
-    expect(text).toContain('Alpha role');
-    expect(text).toContain('Beta role');
-    // Hidden and capped subjects are counts only.
-    expect(text).toContain('2 you can’t view');
+    // Named subjects appear after a separator (the server names only what the manager may read).
+    expect(text).toContain('3 linked memories are encrypted: Team roles');
+    expect(text).toContain('Alpha role, Beta role');
+    // Hidden and capped subjects are counts only — and the hidden line carries its own noun (UX #1859).
+    expect(text).toContain('2 more items you can’t view');
     expect(text).toContain('+2 more');
-    expect(text).toContain('18 you can’t view');
+    expect(text).toContain('18 more items you can’t view');
+    expect(text).toContain('1 more item you can’t view');
   });
 
   it('acceptance 3 (hard pin): null offerReadiness renders nothing — no section, no state line', async () => {
@@ -104,5 +104,46 @@ describe('agent offer readiness (#1850)', () => {
     });
     expect(section(m.target)).not.toBeNull();
     expect(m.target.textContent).toContain('Blocked: SOME_FUTURE_CODE');
+  });
+
+  // The Settings pointer is the section's only interactive element (BLIND #1859):
+  // it exists exactly when AGENT_NOT_PUBLIC is among the reasons, and a singular
+  // count keeps the singular sentence.
+  it('the Settings pointer appears only with AGENT_NOT_PUBLIC; singular counts keep singular copy', async () => {
+    const withNotPublic = await mountAgent({
+      offerReadiness: {
+        ready: false,
+        reasons: [
+          { code: 'AGENT_NOT_PUBLIC', count: 1, subjects: [], omittedByCap: 0, hiddenByAccess: 0 },
+          { code: 'CLONE_LINKED_MEMORY_ENCRYPTED', count: 1, subjects: [{ name: 'Team roles' }], omittedByCap: 0, hiddenByAccess: 0 },
+        ],
+      },
+    });
+    const text = withNotPublic.target.textContent ?? '';
+    expect(text).toContain('A linked memory is encrypted: Team roles');
+    expect(section(withNotPublic.target)?.querySelector('button')).not.toBeNull();
+    expect(text).toContain('Visibility can be changed in');
+    await withNotPublic.unmount();
+
+    const withoutNotPublic = await mountAgent({
+      offerReadiness: {
+        ready: false,
+        reasons: [{ code: 'AGENT_RETIRED', count: 1, subjects: [], omittedByCap: 0, hiddenByAccess: 0 }],
+      },
+    });
+    expect(withoutNotPublic.target.textContent).not.toContain('Visibility can be changed in');
+  });
+
+  // The UI trusts `ready` (the server computes it from the same blockers); a
+  // contradictory payload still renders ready, not a reason list (BLIND #1859).
+  it('ready wins: a non-empty reasons array alongside ready renders the ready state', async () => {
+    const m = await mountAgent({
+      offerReadiness: {
+        ready: true,
+        reasons: [{ code: 'AGENT_RETIRED', count: 1, subjects: [], omittedByCap: 0, hiddenByAccess: 0 }],
+      },
+    });
+    expect(m.target.textContent).toContain('Ready to be offered');
+    expect(m.target.textContent).not.toContain('This Agent is retired');
   });
 });

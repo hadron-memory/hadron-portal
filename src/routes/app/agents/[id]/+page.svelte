@@ -531,17 +531,42 @@
   // code, one line per reason in the server's (clone refusal's) order. The
   // fallback prints the raw code so a new server code is VISIBLE, never
   // swallowed. Subjects render as names only — the contract exposes no id or
-  // URN to link (see AgentOfferSubject in $lib/types).
-  const offerReasonText = (code: string): string => {
-    switch (code) {
-      case 'AGENT_NOT_PUBLIC': return t('agent.offer.reason.not-public', 'Not public — another organisation can only subscribe to, install or clone a PUBLIC Agent.');
-      case 'AGENT_RETIRED': return t('agent.offer.reason.retired', 'This Agent is retired.');
-      case 'CLONE_LINKED_MEMORY_ENCRYPTED': return t('agent.offer.reason.memory-encrypted', 'A linked memory is encrypted.');
-      case 'CLONE_LINKED_MEMORY_UNREADABLE': return t('agent.offer.reason.memory-unreadable', 'A linked memory is not readable by another organisation.');
-      case 'CLONE_BASE_UNUSABLE': return t('agent.offer.reason.base-unusable', 'The base Agent can’t be used by another organisation.');
-      case 'CLONE_IMPORT_UNUSABLE': return t('agent.offer.reason.import-unusable', 'An imported Agent can’t be used by another organisation.');
-      default: return t('agent.offer.reason.unknown', 'Blocked: {code}', { code });
+  // URN to link (see AgentOfferSubject in $lib/types). "organization" is the
+  // portal's established spelling (the Visibility row says Organization); the
+  // count pluralises the subject-carrying reasons (UX #1859: a sentence about
+  // three memories should not say "a memory").
+  const offerReasonText = (reason: { code: string; count: number }): string => {
+    const one = reason.count === 1;
+    switch (reason.code) {
+      case 'AGENT_NOT_PUBLIC': return t('agent.offer.reason.not-public', 'Not public — another organization can only subscribe to, install or clone a PUBLIC Agent');
+      case 'AGENT_RETIRED': return t('agent.offer.reason.retired', 'This Agent is retired');
+      case 'CLONE_LINKED_MEMORY_ENCRYPTED': return one
+        ? t('agent.offer.reason.memory-encrypted.one', 'A linked memory is encrypted')
+        : t('agent.offer.reason.memory-encrypted.many', '{count} linked memories are encrypted', { count: reason.count });
+      case 'CLONE_LINKED_MEMORY_UNREADABLE': return one
+        ? t('agent.offer.reason.memory-unreadable.one', 'A linked memory is not readable by another organization')
+        : t('agent.offer.reason.memory-unreadable.many', '{count} linked memories are not readable by another organization', { count: reason.count });
+      case 'CLONE_BASE_UNUSABLE': return one
+        ? t('agent.offer.reason.base-unusable.one', 'The base Agent can’t be used by another organization')
+        : t('agent.offer.reason.base-unusable.many', '{count} base Agents can’t be used by another organization', { count: reason.count });
+      case 'CLONE_IMPORT_UNUSABLE': return one
+        ? t('agent.offer.reason.import-unusable.one', 'An imported Agent can’t be used by another organization')
+        : t('agent.offer.reason.import-unusable.many', '{count} imported Agents can’t be used by another organization', { count: reason.count });
+      default: return t('agent.offer.reason.unknown', 'Blocked: {code}', { code: reason.code });
     }
+  };
+  // The names and counts after a reason sentence, " · "-separated: names the
+  // server chose to show, then the cap overflow, then the subjects even the
+  // manager may not read (counts only — the hidden line carries its own noun,
+  // never a dangling "N you can't view"; UX #1859).
+  const offerReasonDetail = (reason: { subjects: Array<{ name: string }>; omittedByCap: number; hiddenByAccess: number }): string => {
+    const parts: string[] = [];
+    if (reason.subjects.length > 0) parts.push(reason.subjects.map((s) => s.name).join(', '));
+    if (reason.omittedByCap > 0) parts.push(t('agent.offer.more', '+{count} more', { count: reason.omittedByCap }));
+    if (reason.hiddenByAccess > 0) parts.push(reason.hiddenByAccess === 1
+      ? t('agent.offer.hidden.one', '1 more item you can’t view')
+      : t('agent.offer.hidden.many', '{count} more items you can’t view', { count: reason.hiddenByAccess }));
+    return parts.join(' · ');
   };
   const offerNotPublic = $derived((agent.offerReadiness?.reasons ?? []).some((r) => r.code === 'AGENT_NOT_PUBLIC'));
 
@@ -956,26 +981,21 @@
                 <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400"><path d="M20 6 9 17l-5-5"></path></svg>
                 <div>
                   <p class="text-sm font-medium text-emerald-700 dark:text-emerald-400">{t('agent.offer.ready', 'Ready to be offered')}</p>
-                  <p class="mt-0.5 text-sm text-zinc-500">{t('agent.offer.ready.detail', 'Another organisation could subscribe to, install and clone this Agent as it stands.')}</p>
+                  <p class="mt-0.5 text-sm text-zinc-500">{t('agent.offer.ready.detail', 'Another organization could subscribe to, install and clone this Agent as it stands.')}</p>
                 </div>
               </div>
             {:else}
               <div class="px-5 py-3">
-                <p class="text-sm font-medium text-amber-700 dark:text-amber-400">{t('agent.offer.not-ready', 'Not ready to be offered')}</p>
+                <div class="flex items-start gap-2">
+                  <!-- Amber state icon mirrors the ready check: the words carry the meaning, the shape matches it (UX #1859). -->
+                  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                  <p class="text-sm font-medium text-amber-700 dark:text-amber-400">{t('agent.offer.not-ready', 'Not ready to be offered')}</p>
+                </div>
                 <ul class="mt-2 space-y-1">
-                  {#each agent.offerReadiness.reasons as reason (reason.code)}
-                    <li class="text-sm text-zinc-900 dark:text-white">
-                      {offerReasonText(reason.code)}
-                      {#if reason.subjects.length > 0}
-                        <span class="text-zinc-500">{reason.subjects.map((s) => s.name).join(', ')}</span>
-                      {/if}
-                      {#if reason.omittedByCap > 0}
-                        <span class="text-zinc-500">{t('agent.offer.more', '+{count} more', { count: reason.omittedByCap })}</span>
-                      {/if}
-                      {#if reason.hiddenByAccess > 0}
-                        <span class="text-zinc-500">{t('agent.offer.hidden', '{count} you can’t view', { count: reason.hiddenByAccess })}</span>
-                      {/if}
-                    </li>
+                  <!-- Unkeyed: the server emits one reason per code, but a duplicate code key would be a Svelte runtime error, and nothing here reorders (BLIND #1859). -->
+                  {#each agent.offerReadiness.reasons as reason}
+                    {@const detail = offerReasonDetail(reason)}
+                    <li class="text-sm text-zinc-900 dark:text-white">{offerReasonText(reason)}{#if detail}<span class="text-zinc-500">: {detail}</span>{:else}.{/if}</li>
                   {/each}
                 </ul>
                 {#if offerNotPublic}

@@ -133,8 +133,18 @@ export interface AgentOfferSubject {
   name: string;
 }
 
+/** Every code the server emits today. Unknown codes stay possible at runtime — the UI renders them raw — so the union is open, not closed. */
+export type AgentOfferReasonCode =
+  | 'AGENT_NOT_PUBLIC'
+  | 'AGENT_RETIRED'
+  | 'CLONE_LINKED_MEMORY_ENCRYPTED'
+  | 'CLONE_LINKED_MEMORY_UNREADABLE'
+  | 'CLONE_BASE_UNUSABLE'
+  | 'CLONE_IMPORT_UNUSABLE'
+  | (string & {});
+
 export interface AgentOfferReason {
-  code: 'AGENT_NOT_PUBLIC' | 'AGENT_RETIRED' | 'CLONE_LINKED_MEMORY_ENCRYPTED' | 'CLONE_LINKED_MEMORY_UNREADABLE' | 'CLONE_BASE_UNUSABLE' | 'CLONE_IMPORT_UNUSABLE';
+  code: AgentOfferReasonCode;
   /** Every blocked subject. subjects + omittedByCap + hiddenByAccess === count. */
   count: number;
   subjects: AgentOfferSubject[];
