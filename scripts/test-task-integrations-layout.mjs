@@ -263,6 +263,31 @@ try {
         assert.equal(team.wrapped, true, `${label}: the narrow Label row did not exercise wrapping ${JSON.stringify(team)}`);
         assert.ok(team.inputWidth >= MIN_LABEL_INPUT_WIDTH - 0.5 && team.rowOver <= 0.5, `${label}: narrow Label input is crushed or overflows ${JSON.stringify(team)}`);
       }
+      // BLIND #1845: a narrow English label is not enough. A translated label at 200% text
+      // must wrap INSIDE the button too; flex-wrap alone cannot fit an oversized min-content width.
+      const stressed = page.locator('[data-team="2"] button:has-text("Remove team")');
+      const stress = await stressed.evaluate((el) => {
+        const text = 'Remove this team from the integration permanently and delete its worker assignment';
+        el.textContent = text;
+        el.setAttribute('aria-label', text);
+        el.style.fontSize = '200%';
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const button = el.getBoundingClientRect();
+        const row = el.parentElement.getBoundingClientRect();
+        return {
+          lines: [...range.getClientRects()].length,
+          buttonLeft: button.left,
+          buttonRight: button.right,
+          rowLeft: row.left,
+          rowRight: row.right,
+          textOver: el.scrollWidth - el.clientWidth,
+          rowOver: el.parentElement.scrollWidth - el.parentElement.clientWidth,
+        };
+      });
+      await noOverflow('long enlarged Remove team');
+      assert.ok(stress.lines > 1, `${label}: long enlarged Remove team did not exercise text wrapping ${JSON.stringify(stress)}`);
+      assert.ok(stress.buttonLeft >= stress.rowLeft - 0.5 && stress.buttonRight <= stress.rowRight + 0.5 && stress.textOver <= 0.5 && stress.rowOver <= 0.5, `${label}: long enlarged Remove team escapes its button or row ${JSON.stringify(stress)}`);
       await page.close();
 
       // The failed-roster list: chips and no overflow for every state.

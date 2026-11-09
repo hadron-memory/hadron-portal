@@ -400,7 +400,7 @@
                     <label for={field(tp)} class="mt-3 mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('app.integrations.team-label', 'Label')}</label>
                     <div class="flex flex-wrap gap-2">
                       <input id={field(tp)} type="text" bind:value={team.label} aria-invalid={!!errors[tp]} aria-describedby={describedBy(tp)} class="{inputClass} min-w-32 flex-1 {errors[tp] ? 'border-red-500' : ''}" />
-                      <button type="button" class="{buttonClass} shrink-0 whitespace-nowrap" aria-label={t('app.integrations.remove-team-n', 'Remove team {label}', { label: team.label.trim() || String(j + 1) })} onclick={() => d.teams.splice(j, 1)}>{t('app.integrations.remove-team', 'Remove team')}</button>
+                      <button type="button" class="{buttonClass} min-w-0 max-w-full whitespace-normal break-words" aria-label={t('app.integrations.remove-team-n', 'Remove team {label}', { label: team.label.trim() || String(j + 1) })} onclick={() => d.teams.splice(j, 1)}>{t('app.integrations.remove-team', 'Remove team')}</button>
                     </div>
                     {#if errors[tp]}<p id="{field(tp)}-error" role="alert" class={errorClass}>{errors[tp]}</p>{/if}
                   </div>
