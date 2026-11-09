@@ -798,7 +798,7 @@
        bespoke cards. Same chrome as every other portal list. -->
   {#if configs.length === 0}
     {#if !formOpen}
-      <p class="text-sm text-zinc-500">{s.empty()}</p>
+      <p class="text-sm text-zinc-500">{pagination && (pagination.offset > 0 || pagination.total > 0) ? t('ai-config.empty.page', 'No AI configurations on this page.') : s.empty()}</p>
     {/if}
   {:else}
     <DataTable
