@@ -65,7 +65,7 @@ const params = (value: unknown): value is AiServiceConfig['params'] =>
   value === null || (!!value && typeof value === 'object' && !Array.isArray(value));
 
 /** One masked config, or null when any rendered field has the wrong shape. */
-function parseConfig(raw: unknown): AiServiceConfig | null {
+export function parseAiConfig(raw: unknown): AiServiceConfig | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const c = raw as Record<string, unknown>;
   if (!text(c.id) || !c.id || !text(c.name) || !ownerType(c.ownerType) || !text(c.ownerId)) return null;
@@ -100,7 +100,7 @@ export function parseAiConfigList(body: unknown): AiServiceConfig[] | null {
   if (!Array.isArray(configs)) return null;
   const parsed: AiServiceConfig[] = [];
   for (const raw of configs) {
-    const config = parseConfig(raw);
+    const config = parseAiConfig(raw);
     if (!config) return null;
     parsed.push(config);
   }

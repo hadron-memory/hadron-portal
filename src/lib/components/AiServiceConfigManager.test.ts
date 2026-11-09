@@ -42,6 +42,13 @@ describe('AiServiceConfigManager agent hint (#924)', () => {
     expect(html('APP')).not.toContain(hint);
   });
 
+  it('retains the store in the unguarded subscription control', () => {
+    resetAiConfigRecoveryForTests();
+    const store = getAiConfigRecoveryStore('standalone:leaky');
+    store.subscribe(() => {});
+    expect(getAiConfigRecoveryStore('standalone:leaky')).toBe(store);
+  });
+
   it('does not retain a standalone recovery listener after SSR', () => {
     resetAiConfigRecoveryForTests();
     const store = getAiConfigRecoveryStore('standalone:u1');

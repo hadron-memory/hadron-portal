@@ -1713,6 +1713,79 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(first.pending()).toEqual([]);
   });
 
+  it('keeps a custom-callback mutation in its originating principal scope', async () => {
+    let releaseCreate!: () => void;
+    const createHeld = new Promise<void>((resolve) => { releaseCreate = resolve; });
+    const pending = vi.fn();
+    stubFetch(async (body) => {
+      if (body.action === 'create') {
+        await createHeld;
+        throw new Error('dropped response');
+      }
+      return {};
+    });
+    const m = await open({ onMutationPending: pending }, AiServiceConfigManager);
+    await startCreate(m.target, 'first');
+    button(m.target, 'Save').click();
+    await tick(2);
+
+    m.props.currentUserId = 'u2';
+    await settle();
+    releaseCreate();
+    await settle();
+    expect(getAiConfigRecoveryStore('standalone:u1').uncertainty('ORGANIZATION:o1')).toContain('couldn’t confirm the change went through');
+    expect(getAiConfigRecoveryStore('standalone:u2').uncertainty('ORGANIZATION:o1')).toBeNull();
+    expect(pending).toHaveBeenLastCalledWith(expect.objectContaining({ pending: false }));
+  });
+
+  it('settles an uncertain outcome through the callback captured at action start', async () => {
+    let releaseCreate!: () => void;
+    const createHeld = new Promise<void>((resolve) => { releaseCreate = resolve; });
+    const first = vi.fn();
+    const second = vi.fn();
+    stubFetch(async (body) => {
+      if (body.action === 'create') {
+        await createHeld;
+        throw new Error('dropped response');
+      }
+      return {};
+    });
+    const m = await open({ onUncertain: first }, AiServiceConfigManager);
+    await startCreate(m.target, 'first');
+    button(m.target, 'Save').click();
+    await tick(2);
+
+    m.props.onUncertain = second;
+    await settle();
+    releaseCreate();
+    await settle();
+    expect(first).toHaveBeenCalledWith(expect.objectContaining({ recoveryScope: 'standalone:u1' }));
+    expect(second).not.toHaveBeenCalled();
+  });
+
+  it('retains a custom pending registration when standalone handling resumes', async () => {
+    let releaseCreate!: (reply: Reply) => void;
+    const pending = vi.fn();
+    stubFetch((body) => {
+      if (body.action === 'create') return new Promise<Reply>((resolve) => { releaseCreate = resolve; });
+      return {};
+    });
+    const m = await open({ onMutationPending: pending }, AiServiceConfigManager);
+    await startCreate(m.target, 'first');
+    button(m.target, 'Save').click();
+    await tick(2);
+
+    m.props.onMutationPending = undefined;
+    await settle();
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(true);
+    releaseCreate({});
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(false);
+    expect(pending).toHaveBeenLastCalledWith(expect.objectContaining({ pending: false }));
+  });
+
   it('resyncs standalone recovery when the principal changes in place', async () => {
     stubFetch(async (body) => {
       if (body.action === 'create') throw new Error('dropped response');
@@ -1867,7 +1940,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(releaseUpdate).toBeTypeOf('function');
 
     set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-7');
-    releaseUpdate({});
+    releaseUpdate({ body: { ok: true, config: { ...original, model: 'glm-6' } } });
     await settle();
     expect($<HTMLInputElement>(m.target, '#ac-model')!.value).toBe('glm-7');
     expect(feedback(m.target).textContent).toContain('Saved “default”.');
@@ -1917,6 +1990,31 @@ describe('AI configuration code-review lifecycle pins', () => {
     await settle();
     const update = posts.find((body) => body.action === 'update');
     expect(update).toMatchObject({ id: 'created-id', endpoint: null });
+  });
+
+  it('refreshes the fallback baseline after a preserved update', async () => {
+    let releaseCreate!: (reply: Reply) => void;
+    let releaseUpdate!: (reply: Reply) => void;
+    const created = config({ id: 'created-id', name: 'fast', model: 'glm-5' });
+    stubFetch((body) => {
+      if (body.action === 'create') return new Promise<Reply>((resolve) => { releaseCreate = resolve; });
+      if (body.action === 'update') return new Promise<Reply>((resolve) => { releaseUpdate = resolve; });
+      return {};
+    });
+    const m = await open();
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await tick(2);
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-6');
+    releaseCreate({ body: { ok: true, config: created } });
+    await settle();
+
+    button(m.target, 'Save').click();
+    await tick(2);
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-7');
+    releaseUpdate({ body: { ok: true, config: { ...created, name: 'renamed', model: 'glm-6', hasApiKey: false } } });
+    await settle();
+    expect(m.target.querySelector('h3')?.textContent).toContain('renamed');
   });
 
   it('locks a preserved create draft when the response omits the created id', async () => {

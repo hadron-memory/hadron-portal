@@ -13,7 +13,7 @@
   import DataTable from './table/DataTable.svelte';
   import NodeActionsMenu from './NodeActionsMenu.svelte';
   import Urn from './Urn.svelte';
-  import { aiConfigReloadHref, withAiConfigTimeout } from './ai-config-readback';
+  import { aiConfigReloadHref, parseAiConfig, withAiConfigTimeout } from './ai-config-readback';
   import { getAiConfigRecoveryStore, nextAiConfigMutationId, nextAiConfigRecoveryId } from './ai-config-recovery';
   import {
     isValidConfigName,
@@ -134,7 +134,7 @@
   // ── Form state ──
   let formOpen = $state(false);
   let editId = $state<string | null>(null); // null ⇒ create
-  let createdConfig = $state<AiServiceConfig | null>(null);
+  let savedConfig = $state<AiServiceConfig | null>(null);
   let nameInput = $state('');
   let providerInput = $state<AiConfigProvider>('anthropic');
   let modelInput = $state('');
@@ -197,6 +197,8 @@
     ownerGeneration: number;
     recoveryScope: string;
     standaloneRecovery: boolean;
+    onCommitted: (outcome: AiConfigCommitted) => void | Promise<void>;
+    onUncertain: (outcome: AiConfigUncertain) => void | Promise<void>;
     formFingerprint: string;
     signal: AbortSignal;
   };
@@ -241,6 +243,8 @@
       ownerGeneration,
       recoveryScope: standaloneScope,
       standaloneRecovery: sharesStandaloneRecovery,
+      onCommitted,
+      onUncertain,
       formFingerprint: formFingerprint(),
       signal: actionController.signal,
     };
@@ -248,6 +252,7 @@
 
   function isOwnerVisitCurrent(action: ActionToken): boolean {
     return (
+      !destroyed &&
       action.ownerKey === ownerKey &&
       action.ownerKey === `${ownerType}:${ownerId}` &&
       action.ownerGeneration === ownerGeneration &&
@@ -275,7 +280,7 @@
       ownerKey: action.ownerKey,
       mutationId: id,
       pending: true,
-      ...(action.standaloneRecovery ? { recoveryScope: action.recoveryScope } : {}),
+      recoveryScope: action.recoveryScope,
     });
     return id;
   }
@@ -296,7 +301,7 @@
   function resetEditor() {
     formOpen = false;
     editId = null;
-    createdConfig = null;
+    savedConfig = null;
     error = null;
     testResult = null;
   }
@@ -316,7 +321,7 @@
     const recoveryId = nextAiConfigRecoveryId();
     recovery.setPending({ ownerKey, mutationId: recoveryId, pending: true, recoveryScope: scope });
     pendingMutations = [
-      ...pendingMutations.filter((mutation) => mutation.recoveryScope !== scope),
+      ...pendingMutations.filter((mutation) => mutation.recoveryScope !== scope || !mutation.standaloneRecovery),
       ...recovery.pending().map(({ mutationId, ownerKey: key }) => ({ id: mutationId, ownerKey: key, recoveryScope: scope, standaloneRecovery: true, notify: standaloneMutationPending })),
     ];
     queueMicrotask(async () => {
@@ -336,7 +341,7 @@
       const recovery = recoveryFor(scope);
       const recoveryOwnerKey = `${ownerType}:${ownerId}`;
       pendingMutations = [
-        ...pendingMutations.filter((mutation) => mutation.recoveryScope !== scope),
+        ...pendingMutations.filter((mutation) => mutation.recoveryScope !== scope || !mutation.standaloneRecovery),
         ...recovery.pending().map(({ mutationId, ownerKey: key }) => ({ id: mutationId, ownerKey: key, recoveryScope: scope, standaloneRecovery: true, notify: standaloneMutationPending })),
       ];
       standaloneWarning = recovery.uncertainty(recoveryOwnerKey);
@@ -430,7 +435,7 @@
     actionController?.abort();
   });
 
-  const editing = $derived(editId ? (configs.find((c) => c.id === editId) ?? (createdConfig?.id === editId ? createdConfig : null)) : null);
+  const editing = $derived(editId ? (configs.find((c) => c.id === editId) ?? (savedConfig?.id === editId ? savedConfig : null)) : null);
   const hasExistingKey = $derived(editing?.hasApiKey ?? false);
   const renamingWellKnown = $derived(
     !!editing && WELL_KNOWN.includes(editing.name) && nameInput.trim() !== editing.name,
@@ -601,7 +606,7 @@
   function openCreate() {
     beginAction();
     resetForm();
-    createdConfig = null;
+    savedConfig = null;
     editId = null;
     formOpen = true;
   }
@@ -612,7 +617,7 @@
     if (mutationBlocked || mutationLocked) return;
     beginAction();
     resetForm();
-    createdConfig = null;
+    savedConfig = null;
     editId = c.id;
     nameInput = c.name;
     providerInput = c.provider;
@@ -737,34 +742,34 @@
     if (isOwnerVisitCurrent(action)) {
       // Safety outcomes survive Cancel and newer actions in the same visit.
       uncertainMutation = true;
-      return onUncertain({
+      return action.onUncertain({
         ownerKey: action.ownerKey,
         mutationId,
         text,
-        ...(action.standaloneRecovery ? { recoveryScope: action.recoveryScope } : {}),
+        recoveryScope: action.recoveryScope,
       });
     }
     // A → B → A must not publish the old visit into the new editor, but the
     // owner still needs reconciliation before replay can be safe. If another
     // owner is current, the callback defers that recovery until A is revisited.
-    return onUncertain({
+    return action.onUncertain({
       ownerKey: action.ownerKey,
       mutationId,
       text,
       reconcileOnly: true,
-      ...(action.standaloneRecovery ? { recoveryScope: action.recoveryScope } : {}),
+      recoveryScope: action.recoveryScope,
     });
   }
 
   function publishCommitted(action: ActionToken, successText: string, refreshFailedText: string, mutationId: number): void | Promise<void> {
-    return onCommitted({
+    return action.onCommitted({
       ownerKey: action.ownerKey,
       mutationId,
       // Stale visits recover owner data but never publish an old success notice.
       noticeGeneration: isOwnerVisitCurrent(action) ? action.noticeGeneration : -1,
       successText,
       refreshFailedText,
-      ...(action.standaloneRecovery ? { recoveryScope: action.recoveryScope } : {}),
+      recoveryScope: action.recoveryScope,
     });
   }
 
@@ -860,13 +865,13 @@
             endpoint: endpointInput.trim() || undefined,
             apiStyle: apiStyleInput || undefined,
           }, true);
-          const created = result.config;
-          if (created && typeof created === 'object' && !Array.isArray(created) && typeof (created as Record<string, unknown>).id === 'string' && (created as { id: string }).id.length > 0) {
-            createdId = (created as { id: string }).id;
-            createdConfig = created as AiServiceConfig;
+          const saved = parseAiConfig(result.config);
+          if (saved) {
+            createdId = saved.id;
+            savedConfig = saved;
           } else if (isCurrent(action) && formFingerprint() !== action.formFingerprint) {
-            // The write may have committed, but without its id a preserved draft
-            // cannot safely become an update. Reconcile instead of recreating.
+            // The write may have committed, but without a complete saved row a
+            // preserved draft cannot safely become an update. Reconcile it.
             throw new UncertainMutationError();
           }
         } else {
@@ -874,7 +879,7 @@
           // Absent = unchanged, null = back to the provider default.
           const endpoint = fieldChange(editing?.endpoint, endpointInput);
           const apiStyle = fieldChange<AiApiStyle>(editing?.apiStyle, apiStyleInput);
-          await post({
+          const result = await post({
             action: 'update',
             id: editId,
             name,
@@ -886,6 +891,11 @@
             ...(endpoint !== undefined ? { endpoint } : {}),
             ...(apiStyle !== undefined ? { apiStyle } : {}),
           }, true);
+          const saved = parseAiConfig(result.config);
+          if (saved) savedConfig = saved;
+          else if (isCurrent(action) && formFingerprint() !== action.formFingerprint) {
+            throw new UncertainMutationError();
+          }
         }
       },
       successText: s.saveSuccess(name),
