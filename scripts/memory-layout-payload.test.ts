@@ -56,7 +56,7 @@ describe('memory layout payload at 32,920 nodes (portal#1429, portal#1524)', () 
     expect(seen).not.toContain(MEMORY_NODES_QUERY);
     expect(seen).not.toContain(MEMORY_EDGES_QUERY);
     // Payload: no graph, tree or usage key; the distinct "off" state instead.
-    expect(Object.keys(data).sort()).toEqual(['canWriteMemory', 'graph', 'nodesFailed', 'nodesOff', 'nodesTotal', 'org']);
+    expect(Object.keys(data).sort()).toEqual(['canWriteMemory', 'graph', 'nodesFailed', 'nodesOff', 'nodesTotal', 'org', 'orgReadFailed']);
     expect(data.nodesOff).toBe(true);
     expect(data.nodesFailed).toBe(false); // off is not an error: no banner
     expect(data.nodesTotal).toBeNull();
