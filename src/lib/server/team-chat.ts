@@ -277,7 +277,7 @@ export function chatSortKey(node: Pick<MemoryNode, 'nodeType'>): 'seq' | 'loc' {
   return node.nodeType === CHAT_NODE_TYPE ? 'seq' : 'loc';
 }
 
-type TranscriptMessageTypes = [typeof PLATFORM_MESSAGE_NODE_TYPE, typeof LEGACY_MESSAGE_NODE_TYPE];
+type TranscriptMessageTypes = readonly [typeof PLATFORM_MESSAGE_NODE_TYPE, typeof LEGACY_MESSAGE_NODE_TYPE];
 
 /** #1569: only the authenticated root's platform type selects the union.
  * A default seq sort, a tag or a request parameter is not platform evidence.
