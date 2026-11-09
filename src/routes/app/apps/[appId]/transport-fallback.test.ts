@@ -14,7 +14,9 @@ const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
 vi.mock('$lib/server/guards', () => ({ requireNonConsumer: vi.fn().mockResolvedValue(undefined) }));
 
-beforeEach(() => mockRequest.mockReset());
+beforeEach(() => {
+  mockRequest.mockReset();
+});
 
 const transport = () => new Error('fetch failed');
 const typed = (code: string, message = 'server prose') =>
@@ -99,7 +101,7 @@ describe('Channels actions', () => {
   for (const [name, fields, fallback] of cases) {
     it(`${name}: a transport failure returns the fallback`, async () => {
       const { actions } = await import('./channels/+page.server');
-      mockRequest.mockImplementation(async (_doc: string, _vars: unknown) => { throw transport(); });
+      mockRequest.mockRejectedValueOnce(transport());
       const r = await actions[name]({ request: post(fields), params: { appId: 'app-1' }, locals: { token: 'tok' } } as never);
       expect(textOf(r)).toBe(fallback);
     });
