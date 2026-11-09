@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import { mountComponent } from '$lib/test/mountComponent';
+import { mountComponent, captureUnhandledRejections } from '$lib/test/mountComponent';
 import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import BootInstallCompile from './BootInstallCompile.svelte';
 import BootProvenance from './BootProvenance.svelte';
@@ -91,6 +91,13 @@ describe('portal#1666 mounted provenance', () => {
     button(m.target, 'Next').click(); await settle();
     expect(fetcher.mock.calls[1][0]).toContain('offset=20');
   });
+  it('distinguishes truncation omissions from concealed sources', async () => {
+    const row = { name: null, urn: null, depth: 1, revNo: 2, selection: { rev: null, approved: true, signed: false }, pruned: null };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({ page: { items: [{ ...row, omitted: false }, { ...row, omitted: true }], total: 2, hasMore: false, pruned: false, offset: 0 } })));
+    const m = mountComponent(BootProvenance, { nodeId: 'c', revision: 3 }); mounted.push(m); await settle();
+    expect(m.target.textContent?.match(/Not available to you/g)).toHaveLength(1);
+    expect(m.target.textContent?.match(/name not loaded/g)).toHaveLength(1);
+  });
   it('renders page-level and readable-row retention flags', async () => {
     const row = { name: 'Readable source', urn: 'hrn:node:example.com:policies:readable', omitted: false, depth: 1, revNo: 2, selection: { rev: null, approved: true, signed: false }, pruned: true };
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({ page: { items: [row], total: 1, hasMore: false, pruned: true, offset: 0 } })));
@@ -108,24 +115,36 @@ describe('portal#1666 mounted provenance', () => {
 });
 
 describe('stale revision responses', () => {
-  it('drops a provenance read after the revision is unmounted, including its failure', async () => {
-    let resolve!: (value: unknown) => void;
-    vi.stubGlobal('fetch', vi.fn().mockReturnValueOnce(new Promise(r => { resolve = r; })).mockResolvedValue(response({ page: null })));
-    const old = mountComponent(BootProvenance, { nodeId: 'old', revision: 1 }); mounted.push(old); await settle(); old.unmount();
-    const current = mountComponent(BootProvenance, { nodeId: 'new', revision: 2 }); mounted.push(current); await settle();
-    resolve(response({ page: { items: [], total: 999, hasMore: true, pruned: true } })); await settle();
-    expect(current.target.textContent).not.toContain('999');
-    expect(current.target.textContent).not.toContain('no longer kept');
-  });
-  it('drops a late unkeyed write after A→B→A even when the owner key matches again', async () => {
+  it.each(['success', 'failure'])('keeps a late provenance %s after teardown isolated from a replacement instance', async outcome => {
     let resolveOld!: (value: unknown) => void;
+    let rejectOld!: (reason: unknown) => void;
+    const pending = new Promise((resolve, reject) => { resolveOld = resolve; rejectOld = reject; });
+    vi.stubGlobal('fetch', vi.fn().mockReturnValueOnce(pending).mockResolvedValue(response({ page: null })));
+    const old = mountComponent(BootProvenance, { nodeId: 'old', revision: 1 }); mounted.push(old); await settle();
+    const rejections = await captureUnhandledRejections(async () => {
+      old.unmount();
+      const current = mountComponent(BootProvenance, { nodeId: 'new', revision: 2 }); mounted.push(current); await settle();
+      if (outcome === 'success') resolveOld(response({ page: { items: [], total: 999, hasMore: true, pruned: true } }));
+      else rejectOld(new Error('late private failure'));
+      await settle();
+      expect(current.target.textContent).not.toContain('999');
+      expect(current.target.textContent).not.toContain('no longer kept');
+      expect(current.target.textContent).not.toContain('Couldn’t load what this revision was built from');
+    });
+    // Separate instances prove isolation and rejection handling, not the old
+    // instance's internal epoch arm; detached DOM cannot observe that assignment.
+    expect(rejections).toEqual([]);
+  });
+  it('drops a late unkeyed write after A→B→A while the current write is pending', async () => {
+    let resolveOld!: (value: unknown) => void;
+    let resolveCurrent!: (value: unknown) => void;
     let posts = 0;
     const otherView = { ...view, key: 'workerCompile:other:a:g' };
     const fetcher = vi.fn().mockImplementation(async (input, init) => {
       if (init?.method === 'POST') {
         posts += 1;
         if (posts === 1) return new Promise(resolve => { resolveOld = resolve; });
-        return response({ ok: true, key: view.key, text: 'Current A built' });
+        return new Promise(resolve => { resolveCurrent = resolve; });
       }
       return response(String(input).includes('worker=other') ? otherView : view);
     });
@@ -136,10 +155,20 @@ describe('stale revision responses', () => {
     props.owner = { ...owner, worker: 'other' }; flushSync(); await settle();
     props.owner = owner; flushSync(); await settle();
     button(m.target, 'Update the prompt').click(); await settle();
-    expect(m.target.textContent).toContain('Current A built');
+    expect(button(m.target, 'Working…').disabled).toBe(true);
     resolveOld(response({ ok: true, text: 'Stale A success' })); await settle();
     expect(m.target.textContent).not.toContain('Stale A success');
+    expect(button(m.target, 'Working…')?.disabled).toBe(true);
+    button(m.target, 'Working…').click(); await settle();
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2);
+    expect(navigationCalls.filter(call => call.fn === 'invalidateAll')).toEqual([]);
+    resolveCurrent(response({ ok: true, key: view.key, text: 'Current A built' }));
+    await vi.waitFor(() => expect(navigationCalls.filter(call => call.fn === 'invalidateAll')).toHaveLength(1));
+    await settle();
     expect(m.target.textContent).toContain('Current A built');
+    expect(m.target.textContent).not.toContain('Stale A success');
+    expect(button(m.target, 'Update the prompt').disabled).toBe(false);
+    expect(navigationCalls.filter(call => call.fn === 'invalidateAll')).toHaveLength(1);
   });
   it('drops a late unkeyed write for A after the same mounted panel changes to B, without clearing B busy', async () => {
     let resolveA!: (value: unknown) => void;

@@ -22,9 +22,11 @@ describe('compile endpoint', () => {
     expect(response.status).toBe(403);
     expect(JSON.stringify(await response.json())).not.toContain('hidden worker');
   });
-  it('bad provenance offsets are refused before a read', async () => {
-    const response = await GET({ url: new URL('https://portal.invalid/app/boot-prompt?node=c&revision=3&offset=-1'), locals: { token: 'viewer' } } as never);
+  it('bad provenance offsets are refused before a read, privately and uncacheably', async () => {
+    const setHeaders = vi.fn();
+    const response = await GET({ url: new URL('https://portal.invalid/app/boot-prompt?node=c&revision=3&offset=-1'), locals: { token: 'viewer' }, setHeaders } as never);
     expect(response.status).toBe(400); expect(request).not.toHaveBeenCalled();
+    expect(setHeaders).toHaveBeenCalledWith({ 'Cache-Control': 'private, no-store' });
   });
   it('marks viewer-specific reads private and uncacheable', async () => {
     request.mockResolvedValueOnce({ app: { id: 'a', appAgents: [{ agent: { id: 'g' }, bootPromptRef: null }] } }).mockResolvedValueOnce({ installMemory: null });
@@ -33,6 +35,20 @@ describe('compile endpoint', () => {
     expect(response.status).toBe(200);
     const cacheHeaders = setHeaders.mock.calls.map(([headers]) => headers).filter(headers => 'Cache-Control' in headers);
     expect(cacheHeaders.at(-1)).toEqual({ 'Cache-Control': 'private, no-store' });
+  });
+  it('marks successful provenance reads private and uncacheable', async () => {
+    request.mockResolvedValueOnce({ compiledPromptProvenance: { items: [], total: 0, hasMore: false, pruned: false } });
+    const setHeaders = vi.fn();
+    const response = await GET({ url: new URL('https://portal.invalid/app/boot-prompt?node=c&revision=3'), locals: { token: 'viewer' }, setHeaders } as never);
+    expect(response.status).toBe(200);
+    expect(setHeaders).toHaveBeenCalledWith({ 'Cache-Control': 'private, no-store' });
+  });
+  it('marks failed provenance reads private and uncacheable', async () => {
+    request.mockRejectedValueOnce(new Error('private upstream detail'));
+    const setHeaders = vi.fn();
+    const response = await GET({ url: new URL('https://portal.invalid/app/boot-prompt?node=c&revision=3'), locals: { token: 'viewer' }, setHeaders } as never);
+    expect(response.status).toBe(502);
+    expect(setHeaders).toHaveBeenCalledWith({ 'Cache-Control': 'private, no-store' });
   });
 });
 
