@@ -27,3 +27,59 @@ describe('compile endpoint', () => {
     expect(response.status).toBe(400); expect(request).not.toHaveBeenCalled();
   });
 });
+
+
+describe('POST JSON media-type boundary', () => {
+  const person = { token: 'viewer', user: { id: 'person' } };
+  function event(contentType: string | null, locals: unknown = person) {
+    const headers = new Headers();
+    if (contentType !== null) headers.set('Content-Type', contentType);
+    const req = new Request('https://portal.invalid/app/boot-prompt', {
+      method: 'POST', headers,
+      body: JSON.stringify({ owner, intent: 'start' }),
+    });
+    // A missing header must stay missing (Request adds text/plain for a string body).
+    if (contentType === null) req.headers.delete('Content-Type');
+    const read = vi.spyOn(req, 'json');
+    return { args: { request: req, locals } as never, read };
+  }
+
+  it.each([
+    'application/jsonp', 'application/json-seq', 'application/jsonl',
+    'APPLICATION/JSONP; charset=x', 'application/json-extra; charset=utf-8',
+    'application/problem+json', 'text/json', 'text/plain',
+    'application/json, text/plain', 'application/json /', '', null,
+  ])('refuses %s before reading the body or calling GraphQL', async (contentType) => {
+    const { args, read } = event(contentType);
+    const response = await POST(args);
+    expect(response.status).toBe(415);
+    expect(await response.json()).toEqual({ ok: false });
+    expect(read).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'application/json', 'application/json; charset=utf-8', 'Application/JSON',
+    'APPLICATION/JSON ; charset=UTF-8',
+  ])('accepts the exact JSON essence %s and reaches the write', async (contentType) => {
+    request.mockResolvedValueOnce({ worker: { id: 'w', app: { id: 'a' }, agent: { id: 'g' }, bootPromptRef: null } })
+      .mockResolvedValueOnce({ createNode: { id: 'source' } });
+    const { args, read } = event(contentType);
+    const response = await POST(args);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true });
+    expect(read).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request.mock.calls[1][1]).toMatchObject({ input: { loc: 'boot:workers:w:source' } });
+  });
+
+  it.each([
+    { token: 'worker' },
+    { token: 'viewer', user: { id: 'person' }, impersonation: true },
+  ])('preserves the person/impersonation 403 before the media-type boundary: %j', async (locals) => {
+    const { args, read } = event('application/jsonp', locals);
+    expect((await POST(args)).status).toBe(403);
+    expect(read).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+  });
+});
