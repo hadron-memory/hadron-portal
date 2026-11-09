@@ -42,7 +42,7 @@ describe('invite success feedback (#1545)', () => {
     const box = code?.parentElement?.parentElement ?? null;
     pairs(box, ['border-green-300', 'bg-green-50', 'text-green-700', 'dark:border-green-800', 'dark:bg-green-950', 'dark:text-green-300'], ['border-green-800', 'bg-green-950', 'text-green-300']);
     pairs(code, ['bg-zinc-100', 'text-green-800', 'dark:bg-zinc-800', 'dark:text-green-200'], ['bg-zinc-800', 'text-green-200']);
-    pairs(box?.querySelector('button') ?? null, ['border-green-300', 'text-green-700', 'hover:bg-green-100', 'dark:border-green-700', 'dark:text-green-300', 'dark:hover:bg-green-900'], ['border-green-700', 'text-green-300', 'hover:bg-green-900']);
+    pairs(box?.querySelector('button') ?? null, ['border-green-300', 'text-green-800', 'hover:bg-green-100', 'dark:border-green-700', 'dark:text-green-300', 'dark:hover:bg-green-900'], ['border-green-700', 'text-green-700', 'text-green-300', 'hover:bg-green-900']);
     pairs(box?.querySelector('p.mt-2') ?? null, ['text-green-700', 'dark:text-green-400'], ['text-green-400']);
   });
 });
