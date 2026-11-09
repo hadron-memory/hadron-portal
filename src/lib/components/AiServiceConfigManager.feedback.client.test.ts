@@ -2339,6 +2339,106 @@ describe('AI configuration code-review lifecycle pins', () => {
     });
   });
 
+  it('preserves a Remove key choice made while Save is in flight', async () => {
+    let releaseUpdate!: (reply: Reply) => void;
+    let updateCalls = 0;
+    stubFetch((body) => {
+      if (body.action === 'update') {
+        updateCalls++;
+        if (updateCalls === 1) return new Promise<Reply>((resolve) => { releaseUpdate = resolve; });
+        return { body: { ok: true, config: config({ ownerType: 'HADRON_SERVER', provider: 'openai' }) } };
+      }
+      return {};
+    });
+    const ambient = config({ ownerType: 'HADRON_SERVER', provider: 'openai' });
+    const m = await open({ ownerType: 'HADRON_SERVER', ownerId: 'host', configs: [ambient], onCommitted: async () => {} }, AiServiceConfigManager);
+    editRow(m.target);
+    await settle();
+    const remove = [...m.target.querySelectorAll<HTMLLabelElement>('label')]
+      .find((label) => label.textContent?.includes('Remove the stored key'))!
+      .querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    button(m.target, 'Save').click();
+    await tick(2);
+    remove.click();
+    flushSync();
+    releaseUpdate({ body: { ok: true, config: config({ ownerType: 'HADRON_SERVER', provider: 'openai' }) } });
+    await settle();
+
+    button(m.target, 'Save').click();
+    await settle();
+    expect(posts.filter((body) => body.action === 'update')).toHaveLength(2);
+    expect(posts.filter((body) => body.action === 'update')[1]).toMatchObject({ apiKeyAction: 'clear' });
+  });
+
+  it('shows a definitive refusal when another row’s confirmation supersedes the action', async () => {
+    let releaseUpdate!: (reply: Reply) => void;
+    stubFetch((body) => {
+      if (body.action === 'update') return new Promise<Reply>((resolve) => { releaseUpdate = resolve; });
+      return {};
+    });
+    const m = await open({ configs: [config(), config({ id: 'c2', name: 'other' })], onCommitted: async () => {} }, AiServiceConfigManager);
+    editRow(m.target);
+    await settle();
+    button(m.target, 'Save').click();
+    await tick(2);
+    menuDelete(m.target, 'other');
+    cancelDelete(m.target);
+
+    releaseUpdate({ ok: false, status: 409, body: { error: 'Name already taken.' } });
+    await settle();
+    expect(m.target.textContent).toContain('Name already taken.');
+  });
+
+  it('saves the visible endpoint when a newer listed row differs from the acknowledgement', async () => {
+    let releaseUpdate!: (reply: Reply) => void;
+    stubFetch((body) => {
+      if (body.action === 'update') {
+        if (posts.filter((entry) => entry.action === 'update').length === 1) {
+          return new Promise<Reply>((resolve) => { releaseUpdate = resolve; });
+        }
+        return { body: { ok: true, config: config({ endpoint: 'https://a.example' }) } };
+      }
+      return {};
+    });
+    const m = await open({ configs: [config()], onCommitted: async () => {} }, AiServiceConfigManager);
+    editRow(m.target);
+    await settle();
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://a.example');
+    button(m.target, 'Save').click();
+    await tick(2);
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-6');
+    releaseUpdate({ body: { ok: true, config: config({ endpoint: 'https://a.example' }) } });
+    await settle();
+
+    m.props.configs = [config({ endpoint: 'https://b.example' })];
+    await settle();
+    button(m.target, 'Save').click();
+    await settle();
+    expect(posts.filter((body) => body.action === 'update')).toHaveLength(2);
+    expect(posts.filter((body) => body.action === 'update')[1]).toMatchObject({ endpoint: 'https://a.example' });
+  });
+
+  it('closes an unchanged successful draft after an unrelated action without inventing uncertainty', async () => {
+    let releaseUpdate!: (reply: Reply) => void;
+    stubFetch((body) => {
+      if (body.action === 'update') return new Promise<Reply>((resolve) => { releaseUpdate = resolve; });
+      return {};
+    });
+    const m = await open({ configs: [config(), config({ id: 'c2', name: 'other' })], onCommitted: async () => {} }, AiServiceConfigManager);
+    editRow(m.target);
+    await settle();
+    button(m.target, 'Save').click();
+    await tick(2);
+    menuDelete(m.target, 'other');
+    cancelDelete(m.target);
+
+    releaseUpdate({ body: { ok: true } });
+    await settle();
+    expect(m.target.querySelector('#ac-name')).toBeNull();
+    expect(m.target.textContent).not.toContain('couldn’t confirm the change went through');
+    expect(posts.filter((body) => body.action === 'update')).toHaveLength(1);
+  });
+
   it('refreshes the fallback baseline after a preserved update', async () => {
     let releaseCreate!: (reply: Reply) => void;
     let releaseUpdate!: (reply: Reply) => void;

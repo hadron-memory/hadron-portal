@@ -223,6 +223,7 @@
     onCommitted: (outcome: AiConfigCommitted) => void | Promise<void>;
     onUncertain: (outcome: AiConfigUncertain) => void | Promise<void>;
     formFingerprint: string;
+    removeKey: boolean;
     signal: AbortSignal;
   };
   type PendingMutation = {
@@ -287,6 +288,7 @@
       onCommitted,
       onUncertain,
       formFingerprint: formFingerprint(),
+      removeKey,
       signal: actionController.signal,
     };
   }
@@ -313,7 +315,7 @@
     if (!isEditorCurrent(action) || action.generation < savedConfigGeneration) return;
     savedConfigGeneration = action.generation;
     savedConfig = saved;
-    removeKey = false;
+    if (removeKey === action.removeKey) removeKey = false;
   }
 
   function trackMutation(action: ActionToken): number {
@@ -735,7 +737,7 @@
    * The params Save writes: the JSON field, plus Bedrock's region (so the region
    * dropdown round-trips; the masked list never returns the key it's encoded
    * in) and openai-compatible's tool-calling toggle. Save, Test and
-   * paramsEdited all use this, so they can't disagree.
+   * paramsText and toolCalling are included, so Save and Test can't disagree.
    */
   function formParams(): { ok: true; value: Record<string, unknown> | null } | { ok: false; error: string } {
     const parsed = parseParamsText(paramsText);
@@ -750,11 +752,15 @@
             : parsed.value,
     };
   }
-  /** Whether the params Save would write differ from the saved config's. Unparseable JSON counts as edited. */
-  function paramsEdited(c: AiServiceConfig): boolean {
-    const next = formParams();
-    if (!next.ok) return true;
-    return canonicalJson(next.value ?? null) !== canonicalJson(c.params ?? null);
+  function draftFieldChange<T extends string>(
+    acknowledged: T | null | undefined,
+    listed: T | null | undefined,
+    hasListed: boolean,
+    input: string,
+  ): T | null | undefined {
+    const own = fieldChange(acknowledged, input);
+    if (own !== undefined) return own;
+    return hasListed ? fieldChange(listed, input) : undefined;
   }
 
   class UncertainMutationError extends Error {
@@ -866,7 +872,7 @@
           // Reconcile-only recovery retains the pending registration until its
           // bounded readback finishes; settlement must not open a replay gap.
           await publishUncertain(action, s.mutationUnconfirmed(), pendingMutation);
-        } else if (isCurrent(action)) {
+        } else if (isEditorCurrent(action)) {
           error = e instanceof Error ? e.message : options.refusalFallback;
         }
         return;
@@ -951,16 +957,19 @@
           if (saved) {
             createdId = saved.id;
             acknowledgeSavedConfig(action, saved);
-          } else if (isEditorCurrent(action) && (!isCurrent(action) || formFingerprint() !== action.formFingerprint)) {
+          } else if (isEditorCurrent(action) && formFingerprint() !== action.formFingerprint) {
             // The write may have committed, but without a complete saved row a
             // preserved draft cannot safely become an update. Reconcile it.
             throw new UncertainMutationError();
           }
         } else {
           const keyArg = resolveApiKeyAction({ removeKey: clearKey, enteredKey });
-          // Absent = unchanged, null = back to the provider default.
-          const endpoint = fieldChange(editing?.endpoint, endpointInput);
-          const apiStyle = fieldChange<AiApiStyle>(editing?.apiStyle, apiStyleInput);
+          // Absent = unchanged, null = back to the provider default. Diff the
+          // visible draft against both the acknowledgement and listed row, as
+          // Test does, so either readback order preserves the submitted value.
+          const listedConfig = configs.find((config) => config.id === editId) ?? null;
+          const endpoint = draftFieldChange(editing?.endpoint, listedConfig?.endpoint, listedConfig !== null, endpointInput);
+          const apiStyle = draftFieldChange<AiApiStyle>(editing?.apiStyle, listedConfig?.apiStyle, listedConfig !== null, apiStyleInput);
           const result = await post({
             action: 'update',
             id: editId,
@@ -976,7 +985,7 @@
           const saved = parseAiConfig(result.config);
           if (saved) {
             acknowledgeSavedConfig(action, saved);
-          } else if (isEditorCurrent(action) && (!isCurrent(action) || formFingerprint() !== action.formFingerprint)) {
+          } else if (isEditorCurrent(action) && formFingerprint() !== action.formFingerprint) {
             throw new UncertainMutationError();
           }
         }
@@ -991,8 +1000,11 @@
         // Arming/cancelling another row's Delete is a new ACTION, but it does
         // not replace this editor or invalidate its acknowledged identity.
         if (!isEditorCurrent(action)) return;
-        if (createdId !== null) editId = createdId;
-        if (isCurrent(action) && formFingerprint() === action.formFingerprint) resetEditor();
+        if (formFingerprint() === action.formFingerprint) {
+          resetEditor();
+        } else if (createdId !== null) {
+          editId = createdId;
+        }
       },
     });
   }
@@ -1036,28 +1048,23 @@
         // required, so a tick left over from another provider clears nothing.
         const key = testOverrideKey({ removeKey: removeKey && !needsKey, enteredKey });
         if (key !== undefined) override.apiKey = key;
-        const acknowledgedEndpoint = fieldChange(editing.endpoint, endpointInput);
-        const endpoint = acknowledgedEndpoint !== undefined
-          ? acknowledgedEndpoint
-          : listedConfig ? fieldChange(listedConfig.endpoint, endpointInput) : undefined;
+        const endpoint = draftFieldChange(editing.endpoint, listedConfig?.endpoint, listedConfig !== null, endpointInput);
         if (endpoint !== undefined) override.endpoint = endpoint;
-        const acknowledgedApiStyle = fieldChange<AiApiStyle>(editing.apiStyle, apiStyleInput);
-        const apiStyle = acknowledgedApiStyle !== undefined
-          ? acknowledgedApiStyle
-          : listedConfig ? fieldChange<AiApiStyle>(listedConfig.apiStyle, apiStyleInput) : undefined;
+        const apiStyle = draftFieldChange<AiApiStyle>(editing.apiStyle, listedConfig?.apiStyle, listedConfig !== null, apiStyleInput);
         if (apiStyle !== undefined) override.apiStyle = apiStyle;
         // Edited params ride along exactly as Save would write them
         // (hadron-server#1413: override.params; null = cleared), so Test checks
         // the config shown, tool-calling toggle included (#951 Codex P2).
         // Unparseable JSON is refused like Save refuses it, before any request.
-        if (paramsEdited(editing) || (listedConfig !== null && listedConfig !== editing && paramsEdited(listedConfig))) {
-          const params = formParams();
-          if (!params.ok) {
-            error = params.error;
-            return;
-          }
-          override.params = params.value;
+        const parsedParams = formParams();
+        if (!parsedParams.ok) {
+          error = parsedParams.error;
+          return;
         }
+        const paramsValue = parsedParams.value;
+        const paramsChanged = canonicalJson(paramsValue ?? null) !== canonicalJson(editing.params ?? null)
+          || (listedConfig !== null && listedConfig !== editing && canonicalJson(paramsValue ?? null) !== canonicalJson(listedConfig.params ?? null));
+        if (paramsChanged) override.params = paramsValue;
         const res = (await post({ action: 'testSaved', id: editing.id, override }, false, action.signal)) as { result: AiConfigTestResult };
         if (!isCurrent(action)) return;
         testResult = testResultView(res.result);
