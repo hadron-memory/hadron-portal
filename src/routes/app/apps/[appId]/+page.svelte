@@ -971,16 +971,30 @@
   // #1795: an action's invalidateAll can use Kit's pre-navigation URL and
   // answer AFTER a ?tab=runs navigation supplied this section. Retain that
   // fresh payload through an old-URL refresh which has no Runs section at all.
-  // A real Runs response always replaces it; the App key prevents A's panel
-  // from leaking into B when this page component is reused. This is not a
-  // retry or a poll — it covers every action refresh, in either request order.
-  let retainedRuns = $state<{ appId: string; panel: NonNullable<PageData['runsPanel']> } | null>(null);
+  // A real Runs response always replaces it; the App and principal keys prevent
+  // one App's panel from leaking into another App or account when this page
+  // component is reused. This is not a retry or a poll — it covers every action
+  // refresh, in either request order.
+  let retainedRuns = $state<{
+    appId: string;
+    principalId: string | null;
+    panel: NonNullable<PageData['runsPanel']>;
+  } | null>(null);
   $effect(() => {
+    const principalId = data.currentUserId;
     const panel = data.runsPanel;
-    if (panel) retainedRuns = { appId: app.id, panel };
+    const appId = app.id;
+    untrack(() => {
+      if (retainedRuns && retainedRuns.principalId !== principalId) retainedRuns = null;
+      if (panel) retainedRuns = { appId, principalId, panel };
+    });
   });
   const currentRunsPanel = $derived(
-    data.runsPanel ?? (retainedRuns?.appId === app.id ? retainedRuns.panel : null),
+    data.runsPanel ?? (
+      retainedRuns !== null && retainedRuns.appId === app.id && retainedRuns.principalId === data.currentUserId
+        ? retainedRuns.panel
+        : null
+    ),
   );
   const tabs = $derived<{ id: TabId; label: string }[]>([
     // #744: ONE "Chats" tab over every conversation the App has — the team
@@ -1137,7 +1151,7 @@
   });
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
-    const mine = ++tabNavigation, appId = app.id;
+    const mine = ++tabNavigation, appId = app.id, principalId = data.currentUserId;
     let ownNavigationHref: string | null = null;
     try {
       // A second choice supersedes an in-flight Runs navigation, including
@@ -1152,9 +1166,9 @@
             // preloadData still resolves with that result; retain it before
             // the real navigation, which reuses the preload when it can.
             const result = await preloadData(href);
-            if (tabAlive && mine === tabNavigation && app.id === appId && result.type === 'loaded') {
+            if (tabAlive && mine === tabNavigation && app.id === appId && data.currentUserId === principalId && result.type === 'loaded') {
               const panel = result.data.runsPanel as PageData['runsPanel'];
-              if (panel) retainedRuns = { appId, panel };
+              if (panel) retainedRuns = { appId, principalId, panel };
             }
           } catch { /* The real navigation below owns and reports its own failure. */ }
         }

@@ -2733,6 +2733,35 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     expect(navigationCalls.filter((call) => call.fn === 'preloadData')).toHaveLength(1);
   });
 
+  it('#1825 clears a retained Runs payload when the principal changes on the same App', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=runs', { appId: 'a1' });
+    const data = await pageData();
+    data.initialTab = 'runs';
+    data.runsPanel = await runsPanel('principal-one-run');
+    const props = reactiveProps({ data, form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(3);
+
+    // Control: an old-URL refresh without a Runs section retains the panel for
+    // the SAME principal, which is the #1795 behavior this key must preserve.
+    props.data = { ...props.data, runsPanel: null };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('principal-one-run');
+
+    props.data = { ...props.data, currentUserId: 'u2', runsPanel: null };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('principal-one-run');
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('Loading runs…');
+
+    // The old payload was cleared, not merely hidden: returning to the first
+    // principal without a fresh Runs response cannot resurrect it.
+    props.data = { ...props.data, currentUserId: 'u1', runsPanel: null };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('principal-one-run');
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('Loading runs…');
+  });
+
   it.each(['newer tab', 'teardown', 'chat navigation', 'A-B-A navigation'] as const)('#1795 a completed stale preload does not navigate after %s', async (boundary) => {
     const { m } = await openCast();
     const preloaded = await runsPanel('stale-preloaded-run');
