@@ -33,7 +33,8 @@ try {
       mountAiConfigRows(document.getElementById('fixture'), enabled);
     }, enabled);
     const trigger = page.getByRole('button', { name: 'Actions for config-02', exact: true });
-    const row = trigger.locator('xpath=ancestor::tr');
+    // Delete replaces the trigger with inline confirmation; bind to the row's stable name.
+    const row = page.locator('tbody tr').filter({ hasText: 'config-02' });
     await trigger.click();
     const edit = page.getByRole('menuitem', { name: 'Edit', exact: true });
     await edit.waitFor();
