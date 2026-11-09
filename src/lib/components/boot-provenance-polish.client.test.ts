@@ -64,6 +64,15 @@ describe('portal#1757 phone columns', () => {
   });
 });
 
+describe('portal#1757 a pruned source says so where a phone always shows it', () => {
+  it('repeats No longer kept in the source cell, and only for a pruned row', async () => {
+    const m = await mountProvenance([row({ pruned: true }), row({ pruned: false })]);
+    const [pruned, kept] = [...m.target.querySelectorAll('tbody tr')].map(r => text(r.querySelector('td')!));
+    expect(pruned).toContain('No longer kept');
+    expect(kept).not.toMatch(/kept/i);
+  });
+});
+
 describe('portal#1757 heading hierarchy', () => {
   it('defaults to h3 and honours the level its host panel asks for', async () => {
     const def = await mountProvenance([row()]);

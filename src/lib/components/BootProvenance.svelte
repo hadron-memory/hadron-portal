@@ -16,9 +16,9 @@
   // Three columns, not five: revision and depth read as detail under the source's name, so a phone
   // is not asked to scroll sideways for numbers a reader rarely needs (portal#1757).
   const columns: PortalColumnDef<ProvenanceRow>[] = [
-    { accessorKey: 'name', header: t('boot.provenance.name', 'Source'), size: 260 },
-    { id: 'selection', header: t('boot.provenance.settings', 'Include settings'), size: 200 },
-    { id: 'pruned', header: t('boot.provenance.retention', 'Text kept'), size: 130 },
+    { accessorKey: 'name', header: t('boot.provenance.name', 'Source'), size: 220 },
+    { id: 'selection', header: t('boot.provenance.settings', 'Include settings'), size: 150 },
+    { id: 'pruned', header: t('boot.provenance.retention', 'Text kept'), size: 100 },
   ];
   function settingsText(s: ProvenanceRow['selection']) {
     const which = s.rev === null ? t('boot.provenance.latest', 'Latest revision') : t('boot.provenance.pinned', 'Revision {n}', { n: s.rev });
@@ -60,7 +60,7 @@
         {#snippet cell(cell, item)}
           {#if cell.column.id === 'name'}
             {#if item.urn && item.name}<span>{item.name}</span> <Urn value={item.urn} type="node" />{:else}{item.omitted ? t('boot.provenance.omitted', 'name not loaded') : t('boot.provenance.unavailable', 'Not available to you')}{/if}
-            <div class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('boot.provenance.detail', 'Revision {n}, depth {d}', { n: item.revNo, d: item.depth })}</div>
+            <div class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('boot.provenance.detail', 'Revision {n}, depth {d}', { n: item.revNo, d: item.depth })}{item.pruned === true ? ` · ${t('boot.provenance.pruned', 'No longer kept')}` : ''}</div>
           {:else if cell.column.id === 'selection'}
             {settingsText(item.selection)}
           {:else if cell.column.id === 'pruned'}
