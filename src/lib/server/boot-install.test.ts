@@ -49,7 +49,7 @@ describe('portal#1666 install compile boundary', () => {
     expect(request.mock.calls[1][1]).toEqual({ input: { install: { appRef: 'a', agentRef: 'g' }, loc: 'boot:workers:w:source', name: 'Worker boot prompt source', role: 'boot-prompt', content: '' } });
   });
   it('strips unreadable and deleted source identifiers and retention from the transport, but keeps truncation omission', async () => {
-    // cor:api:040: omission is response-size truncation, disjoint from unavailable refs.
+    // hrn:node:hadronmemory.com:specs:cor:api:040: omission is response-size truncation, disjoint from unavailable refs.
     const item = (nodeId: string) => ({ nodeId, depth: 1, revNo: 2, selection: { rev: null, approved: true, signed: false }, pruned: true });
     const request = vi.fn().mockResolvedValueOnce({ compiledPromptProvenance: { items: [item('hidden'), item('deleted'), item('dropped')], total: 23, hasMore: true, pruned: false } }).mockResolvedValueOnce({ nodeBatch: { nodes: [], unavailable: ['hidden', 'deleted'], omitted: ['dropped'] } });
     const page = await readProvenance({ request } as never, 'c', 3, 0);
