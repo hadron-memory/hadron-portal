@@ -5,11 +5,12 @@
   import { compileOwnerKey, type CompileOwner, type InstallCompileView } from '$lib/boot-install';
   import Urn from './Urn.svelte';
   import BootProvenance from './BootProvenance.svelte';
-  let { owner, canManage, impersonating = false, title = t('boot.install.heading', 'Boot prompt') }: { title?: string; owner: CompileOwner; canManage: boolean | null | undefined; impersonating?: boolean } = $props();
+  let { owner, canManage, impersonating = false, title = t('boot.install.heading', 'Boot prompt'), onClose }: { title?: string; owner: CompileOwner; canManage: boolean | null | undefined; impersonating?: boolean; onClose?: () => void } = $props();
   let heading = $state<HTMLHeadingElement>();
   export function reveal() {
     heading?.focus();
-    heading?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    heading?.scrollIntoView?.({ block: 'nearest', behavior: calm ? 'auto' : 'smooth' });
   }
   let view = $state<InstallCompileView | null>(null);
   let failed = $state(false);
@@ -80,7 +81,7 @@
     {/if}
     {#if controls}
       {#if owner.level === 'app'}<p class="text-sm">{t("boot.install.66d70b0aa7", "This also points the App at the built prompt. Workers without their own prompt, chats and runs then get it once it can be served, which first needs an approved revision, and are refused until then. Workers with their own prompt keep it.")}</p>{/if}
-      <button class="rounded bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50" disabled={busy} onclick={() => { if (owner.level === 'app') confirmAppCompile = true; else void write('compile'); }}>{busy ? t('boot.install.working', 'Working…') : t('boot.install.update', 'Update the prompt')}</button>
+      <button type="button" class="rounded bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50" disabled={busy} onclick={() => { if (owner.level === 'app') confirmAppCompile = true; else void write('compile'); }}>{busy ? t('boot.install.working', 'Working…') : t('boot.install.update', 'Update the prompt')}</button>
       {#if owner.level === 'app' && confirmAppCompile}
         <section class="space-y-2 rounded border border-amber-400 p-3" aria-label={t('boot.install.confirm-app', 'Confirm App prompt update')}>
           <p>{t('boot.install.confirm-app-copy', 'Build this prompt and point the App at it? Workers without their own prompt, chats and runs can be refused until an approved revision is available.')}</p>
@@ -89,22 +90,23 @@
         </section>
       {/if}
       {#if owner.level === 'worker' && view.canStart}
-        <button class={button} disabled={busy} onclick={() => { confirmStart = true; }}>{t("boot.install.c172aa05a5", "Start an empty source for this worker")}</button>
+        <button type="button" class={button} disabled={busy} onclick={() => { confirmStart = true; }}>{t("boot.install.c172aa05a5", "Start an empty source for this worker")}</button>
         {#if confirmStart}
           <section class="space-y-2 rounded border border-amber-400 p-3" aria-label={t('boot.install.confirm-source', 'Confirm empty worker source')}>
             <p>{t("boot.install.cb0d3f865e", "This starts an empty source for this worker. Nothing served changes: the worker keeps getting what it gets now until a prompt is built from this source, approved, and the worker is pointed at it.")}</p>
-            <button class={button} disabled={busy} onclick={() => write('start')}>{t("boot.install.6d9f0de198", "Start empty source")}</button>
-            <button class={button} disabled={busy} onclick={() => { confirmStart = false; }}>{t("boot.install.77dfd2135f", "Cancel")}</button>
+            <button type="button" class={button} disabled={busy} onclick={() => write('start')}>{t("boot.install.6d9f0de198", "Start empty source")}</button>
+            <button type="button" class={button} disabled={busy} onclick={() => { confirmStart = false; }}>{t("boot.install.77dfd2135f", "Cancel")}</button>
           </section>
         {/if}
       {/if}
-      {#if view.compiled?.pending}<button class="rounded bg-amber-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-amber-400 disabled:opacity-50" disabled={busy} onclick={() => write('approve')}>{t('boot.install.approve', 'Approve revision {n}', { n: view.compiled.revision })}</button>{/if}
+      {#if view.compiled?.pending}<button type="button" class="rounded bg-amber-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-amber-400 disabled:opacity-50" disabled={busy} onclick={() => write('approve')}>{t('boot.install.approve', 'Approve revision {n}', { n: view.compiled.revision })}</button>{/if}
     {/if}
   {/if}
   <!-- Persistent from first paint and adjacent to the write controls, before the potentially long provenance table. -->
+  {#if onClose}<div><button type="button" class={button} disabled={busy} onclick={onClose}>{t('boot.install.close', 'Close')}</button></div>{/if}
   <p role="status" class={success && notice ? successStyle : ''}>{success ? notice : ''}</p>
   <p role="alert" class={!success && notice ? errorStyle : ''}>{!success ? notice : ''}</p>
   {#if view?.compiled}
-    {#key `${key}:${view.compiled.id}:${view.compiled.revision}`}<BootProvenance nodeId={view.compiled.id} revision={view.compiled.revision} />{/key}
+    {#key `${key}:${view.compiled.id}:${view.compiled.revision}`}<BootProvenance nodeId={view.compiled.id} revision={view.compiled.revision} headingLevel={4} />{/key}
   {/if}
 </section>
