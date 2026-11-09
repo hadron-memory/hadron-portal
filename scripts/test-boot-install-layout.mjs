@@ -29,9 +29,9 @@ try {
         await page.getByRole('button', { name: 'Update the prompt', exact: true }).waitFor();
         if (variant === 'source') await page.getByRole('button', { name: 'Start an empty source for this worker', exact: true }).click();
         else if (variant === 'failed') await page.getByRole('alert').filter({ hasText: 'Couldn’t load what this revision was built from' }).waitFor();
-        else await page.getByText('Not available to you', { exact: true }).waitFor();
+        else await page.locator('tbody td').filter({ hasText: 'Not available to you' }).waitFor();
         if (width === 1280 && (variant === 'app' || variant === 'worker')) {
-          for (const label of ['Depth', 'Revision']) {
+          for (const label of ['Include settings', 'Text kept']) {
             const header = page.getByRole('columnheader').filter({ hasText: label });
             const metrics = await header.locator('.truncate').evaluate(el => ({ visible: el.clientWidth, required: el.scrollWidth }));
             assert.ok(metrics.visible >= metrics.required, `${variant}/${theme}/${width}: ${label} header truncated (${metrics.visible}/${metrics.required})`);

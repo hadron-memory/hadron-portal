@@ -95,7 +95,8 @@ describe('portal#1666 mounted provenance', () => {
     const row = { name: 'Readable source', urn: 'hrn:node:example.com:policies:readable', omitted: false, depth: 1, revNo: 2, selection: { rev: null, approved: true, signed: false }, pruned: true };
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({ page: { items: [row], total: 1, hasMore: false, pruned: true, offset: 0 } })));
     const m = mountComponent(BootProvenance, { nodeId: 'c', revision: 3 }); mounted.push(m); await settle();
-    expect(m.target.textContent?.match(/This revision’s text is no longer kept\./g)).toHaveLength(2);
+    expect(m.target.textContent?.match(/This revision’s text is no longer kept\./g)).toHaveLength(1);
+    expect(m.target.textContent?.match(/No longer kept/g)).toHaveLength(2);
   });
   it('null provenance has no section and a failed read is not empty', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response({ page: null })).mockRejectedValueOnce(new Error('private')));
