@@ -731,14 +731,14 @@ describe('createKey action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns a typed error when key creation fails', async () => {
+  it('returns the fallback copy, not the raw text, when key creation fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('createKey', { label: 'production' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to create key' });
   });
 
   // portal#1068 (Holger #8095): whoever manages the App mints its keys. The
@@ -858,14 +858,14 @@ describe('updateAgentTools action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns typed updateAgentTools errors', async () => {
+  it('returns the fallback copy for a transport failure in updateAgentTools errors', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('updateAgentTools', { agentTools: 'CLAUDE_CODE' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to update agent tools' });
   });
 
   // portal#1106: a non-manager's tick is refused by updateApp's gate. That is
@@ -947,14 +947,14 @@ describe('revokeKey action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns typed revokeKey errors', async () => {
+  it('returns the fallback copy for a transport failure in revokeKey errors', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('revokeKey', { keyId: 'key-1' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to revoke key' });
   });
 
   it('a FORBIDDEN revoke is a 403 with the same manager copy', async () => {
