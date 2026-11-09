@@ -19,6 +19,7 @@ const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   window.history.replaceState({}, '', '/');
 });
 
@@ -282,5 +283,36 @@ describe('compile panel focus from the real row menu', () => {
     target.querySelector<HTMLButtonElement>('button[aria-label="Actions for Beta"]')!.focus();
     pick(); await tick(5);
     expect(document.activeElement).toBe(panel.querySelector('h3'));
+  });
+  it('wires the selected second-row Agent through the App compile and renders its refusal', async () => {
+    const target = await mountTab('agents', { canManageApp: true, app: {
+      id: 'a1', urn: 'hrn:app:acme.com:team', name: 'Team', appType: 'WORKSTATION',
+      role: 'OWNER', surfaces: [], agentId: null, agent: null, agents: [IMPORTER, AGENT],
+    } });
+    const key = 'appCompile:a1:ag1';
+    const fetcher = vi.fn(async (input, init) => {
+      const url = new URL(String(input), 'https://example.test');
+      if (url.pathname !== '/app/boot-prompt') return { ok: true, json: async () => ({}) };
+      if (init?.method === 'POST') return { ok: false, json: async () => ({ ok: false, key, text: 'The prompt couldn’t be built right now. Try again.' }) };
+      if (url.searchParams.has('node')) return { ok: true, json: async () => ({ page: { items: [], total: 0, offset: 0, hasMore: false, pruned: false } }) };
+      return { ok: true, json: async () => ({ key, source: null, canStart: false, pointerMatches: true, compiled: { id: 'c3', urn: 'hrn:node:example.com:install:boot:compiled', revision: 3, content: 'Compiled prompt', pending: false, lint: null } }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    openMenu(target, 'Actions for Beta').find(i => i.textContent?.trim() === 'Update the prompt…')!.click();
+    await tick(10);
+    const panel = target.querySelector<HTMLElement>('[data-install-compile]')!;
+    expect(panel.getAttribute('data-install-compile')).toBe(key);
+    const read = fetcher.mock.calls.find(([input, init]) => init?.method !== 'POST' && String(input).includes('/app/boot-prompt?'))!;
+    const query = new URL(String(read[0]), 'https://example.test').searchParams;
+    expect(Object.fromEntries(query)).toEqual({ level: 'app', app: 'a1', agent: 'ag1' });
+    [...panel.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Update the prompt')!.click();
+    await tick(2);
+    [...panel.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Build and point App')!.click();
+    await tick(12);
+    const writes = fetcher.mock.calls.filter(([, init]) => init?.method === 'POST');
+    expect(writes).toHaveLength(1);
+    expect(JSON.parse(String(writes[0][1]!.body))).toMatchObject({ owner: { level: 'app', app: 'a1', agent: 'ag1' }, intent: 'compile', nodeId: 'c3', revision: 3 });
+    expect([...panel.querySelectorAll('[role=alert]')].some(el => el.textContent === 'The prompt couldn’t be built right now. Try again.')).toBe(true);
+    expect(panel.querySelector('[role=status]')?.textContent).toBe('');
   });
 });
