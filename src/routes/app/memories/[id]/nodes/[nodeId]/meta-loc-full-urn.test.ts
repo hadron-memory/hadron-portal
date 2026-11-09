@@ -85,6 +85,20 @@ describe('updateMeta location field takes a full node URN (#1876)', () => {
     expect(mockRequest.mock.calls.some(([q]) => q === UPDATE_NODE_MUTATION)).toBe(true);
   });
 
+  it.each([
+    'urn:node:acme.com::mem-a::worker::system::reports:daily',
+    'acme.com::mem-a::worker::system::reports:daily',
+  ])('forwards a legacy ownership-chain destination %s for the server to resolve (never flattened into a no-op)', async (chain) => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === NODE_BY_ID_QUERY || query === NODE_QUERY || query === NODE_DATA_READ_QUERY) {
+        return { node: { ...node, loc: 'worker:system:reports:daily' } };
+      }
+      return {};
+    });
+    await saveLoc(chain);
+    expect(moves()).toEqual([{ sourceRef: 'pk', targetUrn: chain }]);
+  });
+
   it('keeps composing a bare loc into the node\'s own memory', async () => {
     stub();
     await saveLoc('rules:renamed');

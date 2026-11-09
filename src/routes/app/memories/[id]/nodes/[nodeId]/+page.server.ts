@@ -760,6 +760,19 @@ function bareNodeAddress(u: string): string {
   return u.replace(/^(?:hrn|urn):node:/, '').split('::').join(':');
 }
 
+/**
+ * Whether a pasted destination is, spelling aside, the node's own address.
+ * Only the `hrn:`/`urn:` prefix is ignored: the grammar is NOT normalized,
+ * because a legacy ownership chain (`org::app::agent::system::loc`) has no
+ * string-derivable v2 form and may name another memory through the server's
+ * alias map. Anything but the same string is forwarded for the server to
+ * resolve (#1879 local review).
+ */
+function isSameNodeAddress(a: string, b: string): boolean {
+  const strip = (u: string) => u.trim().replace(/^(?:hrn|urn):node:/, '');
+  return strip(a) === strip(b);
+}
+
 export const actions: Actions = {
   // #237 review follow-up: every mutating action below derives `memoryId`
   // from the node fetched by PK rather than from `params.gid`. The load
@@ -884,7 +897,7 @@ export const actions: Actions = {
       loc === currentNode.loc ||
       (locIsFullUrn &&
         !!currentNode.memory?.urn &&
-        bareNodeAddress(loc) === bareNodeAddress(composeNodeUrn(currentNode.memory.urn, currentNode.loc)));
+        isSameNodeAddress(loc, composeNodeUrn(currentNode.memory.urn, currentNode.loc)));
     if (!unchanged) {
       // `metaSaved` on every failure below: the edits ARE saved, and a failed
       // action does not rerun the page load, so the client reloads the node
