@@ -51,3 +51,12 @@ it('config continuation remains reachable, but cannot navigate away from an open
   expect(cancel).toBeDefined(); cancel!.click(); await tick(2);
   expect(nav()!.querySelector('a[rel="next"]')?.getAttribute('href')).toBe(nextHref);
 });
+it('a now-empty config page offers a route back without claiming the inventory is empty', async () => {
+  const root = await mountPage('ai-configs', {
+    org: { id: 'org-a', name: 'Org', urn: 'hrn:org:example.test:demo', members: [{ role: 'ADMIN', user: { id: 'u1' } }] },
+    appConfigs: [], configsPage: { offset: 40, count: 0, total: 1, firstHref: '/app/apps/a1?tab=ai-configs', previousHref: '/app/apps/a1?tab=ai-configs&configOffset=20', nextHref: null },
+  });
+  expect(root.textContent).toContain('No AI configurations on this page.');
+  expect(root.textContent).not.toContain('No AI configurations yet.');
+  expect(root.querySelector('nav[aria-label="AI config pages"] a')?.getAttribute('href')).toBe('/app/apps/a1?tab=ai-configs');
+});
