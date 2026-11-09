@@ -14,7 +14,28 @@ it('continues after the actual served count, preserving independent filters and 
   expect(next.searchParams.get('worklogRef')).toBe('a#b');
   expect(next.searchParams.get('configOffset')).toBe('20');
   expect(next.searchParams.get('tab')).toBe('worklog');
-  expect(new URL(page.previousHref!, url).searchParams.get('worklogOffset')).toBe('13');
+  // #1868: Previous steps by the page size, not the served count — even a
+  // raced short page returns to the aligned window (here offset 0, whose
+  // href drops the param), never offset 13.
+  expect(new URL(page.previousHref!, url).searchParams.get('worklogOffset')).toBe(null);
+});
+// #1868 — Celine's exact repro: 41 records, short last page of 1. Previous
+// must return to the page the user came from (offset 20), and from there to
+// the start — two clicks back, with 21–40 seen again on the way.
+it('Previous from a short last page steps by the page size back to the aligned window', () => {
+  const url = new URL('https://example.test/app/apps/a');
+  const tail = appListNavigation(url, 'worklogOffset', 'worklog', 40, 1, 41);
+  expect(new URL(tail.previousHref!, url).searchParams.get('worklogOffset')).toBe('20');
+  const back = appListNavigation(url, 'worklogOffset', 'worklog', 20, 20, 41);
+  expect(new URL(back.previousHref!, url).searchParams.get('worklogOffset')).toBe(null); // offset 0 drops the param
+  // The same step from a now-empty old page (everything on it deleted):
+  // count plays no part in the step, so the route back is unchanged.
+  const empty = appListNavigation(url, 'worklogOffset', 'worklog', 40, 0, 41);
+  expect(new URL(empty.previousHref!, url).searchParams.get('worklogOffset')).toBe('20');
+  // A hand-edited offset inside the first window clamps to the start —
+  // never a negative param for appListOffset to silently heal.
+  const shallow = appListNavigation(url, 'worklogOffset', 'worklog', 7, 7, 41);
+  expect(new URL(shallow.previousHref!, url).searchParams.get('worklogOffset')).toBe(null);
 });
 it('stops at total or no progress, with a route back from a now-empty old page', () => {
   const url = new URL('https://example.test/app/apps/a');

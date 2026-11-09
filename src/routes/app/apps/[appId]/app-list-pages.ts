@@ -27,7 +27,15 @@ export function appListNavigation(
   return {
     offset, count, total: count > 0 ? Math.max(total, offset + count) : total,
     firstHref: offset > 0 ? href(0) : null,
-    previousHref: offset > 0 ? href(Math.max(0, offset - (count || APP_DISPLAY_PAGE_SIZE))) : null,
+    // #1868: step BACK by the page size, never by the count served on the
+    // current page. Served-count stepping is a Next-side survival trait (it
+    // keeps the window glued to the data when counts race); applied to
+    // Previous it makes a short last page creep back by its own length
+    // (41 records: offset 40 -> 39 -> 37 …), landing on overlapping,
+    // misaligned pages and hiding the page the reader came from. The full
+    // window before this one always starts at offset - PAGE_SIZE, whatever
+    // this page served — or nothing, if this page is empty after deletes.
+    previousHref: offset > 0 ? href(Math.max(0, offset - APP_DISPLAY_PAGE_SIZE)) : null,
     nextHref: count > 0 && (next < total || count === APP_DISPLAY_PAGE_SIZE) && next <= MAX_OFFSET ? href(next) : null,
   };
 }
