@@ -18,7 +18,7 @@ const row = (over: Record<string, unknown> = {}) => ({
   name: 'Style', urn: URN, omitted: false, depth: 1, revNo: 2,
   selection: { rev: null, approved: false, signed: false }, pruned: false, ...over,
 });
-async function mountProvenance(items: unknown[], props: { headingLevel?: number } = {}) {
+async function mountProvenance(items: unknown[], props: { headingLevel?: 3 | 4 } = {}) {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({ page: { items, total: items.length, hasMore: false, pruned: false, offset: 0 } })));
   const m = mountComponent(BootProvenance, { nodeId: 'c', revision: 3, ...props }); mounted.push(m); await settle();
   return m;
@@ -128,7 +128,9 @@ describe('portal#1757 closing the App panel', () => {
 describe('portal#1757 shared table resize handle keeps a visible keyboard focus', () => {
   it('shows an outline on focus-visible instead of removing it', () => {
     const src = read('table/DataTable.svelte');
-    const handle = src.split('role="separator"')[0].split('<div').pop()!;
+    const at = src.indexOf('cursor-col-resize');
+    expect(at, 'resize handle class not found').toBeGreaterThan(0);
+    const handle = src.slice(src.lastIndexOf('class="', at), src.indexOf('role="separator"', at));
     expect(handle).not.toContain('focus:outline-none');
     expect(handle).toMatch(/focus-visible:outline-2/);
     expect(handle).toMatch(/focus-visible:outline-indigo-/);

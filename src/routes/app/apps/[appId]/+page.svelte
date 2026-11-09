@@ -3263,7 +3263,12 @@
         </DataTable>
         {#if compileAgent}
           {#key `${data.bootPointerAppKey}:${compileAgent.id}`}
-            <BootInstallCompile bind:this={compilePanel} title={t('app.agents.compile-title', 'Boot prompt for {name} in this App', { name: compileAgent.name })} owner={{ level: 'app', app: data.app.id, agent: compileAgent.id }} canManage={data.canManageApp} {impersonating} />
+            <BootInstallCompile bind:this={compilePanel} title={t('app.agents.compile-title', 'Boot prompt for {name} in this App', { name: compileAgent.name })} owner={{ level: 'app', app: data.app.id, agent: compileAgent.id }} canManage={data.canManageApp} {impersonating} onClose={async () => {
+              const label = t('app.agents.actions.label', 'Actions for {name}', { name: compileAgent.name });
+              compileChoice = null;
+              await tick();
+              document.querySelector<HTMLButtonElement>(`button[aria-label="${CSS.escape(label)}"]`)?.focus();
+            }} />
           {/key}
         {/if}
         {#if customisationAgent}
