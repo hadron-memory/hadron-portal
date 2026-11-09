@@ -2578,7 +2578,8 @@
              never runs here. The hidden revision input, like the approval
              forms above, pins the request to the text on screen.
 
-             No readOnly gate, deliberately: cor:dmo:130:03 gives ANY reader
+             No readOnly gate, deliberately:
+             hrn:node:hadronmemory.com:specs:cor:dmo:130:03 gives ANY reader
              the right to request ("anyone who may read the node"), and the
              requester need not be the signer — so the affordance is not
              hidden from view-only readers the way writer actions are. The

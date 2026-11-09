@@ -165,7 +165,8 @@ export function signatureRequestRefusalText(code: string | null): string | null 
     case 'REVISION_MISMATCH': return t('node.signatures.request.refused.revision', 'The node changed since you loaded it. Reload the page and try again.');
     case 'SIGNER_NOT_FOUND': return t('node.signatures.request.refused.signer-not-found', 'The person asked to sign could not be found.');
     case 'SIGNER_NOT_A_WRITER': return t('node.signatures.request.refused.signer-not-writer', 'The person asked to sign may not write this memory.');
-    // cor:dmo:130:03 S18: an impersonation session may read requests but never
+    // hrn:node:hadronmemory.com:specs:cor:dmo:130:03 S18: an impersonation
+    // session may read requests but never
     // ask for a signature on someone's behalf. FORBIDDEN is otherwise a
     // framework code whose server prose would pass through verbatim — on this
     // surface it is a typed refusal, so it gets portal copy like the rest.

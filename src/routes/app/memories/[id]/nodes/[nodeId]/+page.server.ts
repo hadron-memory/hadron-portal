@@ -1424,7 +1424,8 @@ export const actions: Actions = {
     }
   },
 
-  // portal#1022 links half — the portal's leg of cor:dmo:130:08: create a
+  // portal#1022 links half — the portal's leg of
+  // hrn:node:hadronmemory.com:specs:cor:dmo:130:08: create a
   // signing request and hand over the ceremony page's link. NOT the ceremony:
   // no assertion, no key material, nothing but the request and a redirect, so
   // the signer always proves who they are on the page that shows what is

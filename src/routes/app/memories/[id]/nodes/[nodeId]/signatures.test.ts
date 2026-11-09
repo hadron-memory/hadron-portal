@@ -205,7 +205,7 @@ describe('node page — Sign affordance (portal#1022 links half)', () => {
     });
   });
 
-  it('a dead session gets sign-in copy, not the not-offered line (cor:dmo:130:03 lets any reader ask)', async () => {
+  it('a dead session gets sign-in copy, not the not-offered line (hrn:node:hadronmemory.com:specs:cor:dmo:130:03 lets any reader ask)', async () => {
     // A stale tab after sign-out: the token is null, and the capability gate
     // answers off for that — which must not be reported as the deployment's
     // switch. Both halves pinned: the no-token reason, and that the gate was
