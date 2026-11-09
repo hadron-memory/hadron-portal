@@ -51,3 +51,35 @@ it('retains a forward probe when a full page races a lagging count', () => {
   expect(page.total).toBe(20);
   expect(page.nextHref).toContain('worklogOffset=20');
 });
+
+// #1875 documents the accepted race-only trace, not a bidirectional-history
+// promise. Next follows served rows; Previous subtracts the fixed page size.
+// Gate6743213150 / code-fact answer6743515074: no stable short non-terminal
+// serve on these two reads; no production pager or UX contract change here.
+it.each([
+  ['worklogOffset', 'worklog', 'configOffset'],
+  ['configOffset', 'ai-configs', 'worklogOffset'],
+] as const)('%s short-history trace is 0 → 7 → 14 → Previous → 0, not a retrace to 7', (key, tab, otherKey) => {
+  let url = new URL(`https://example.test/app/apps/a?${otherKey}=40&worklogRef=a%23b`);
+  const visited = [appListOffset(url.searchParams, key)];
+  for (const expected of [7, 14]) {
+    const page = appListNavigation(url, key, tab, visited.at(-1)!, 7, 41);
+    expect(page.nextHref).not.toBeNull();
+    url = new URL(page.nextHref!, url);
+    const offset = appListOffset(url.searchParams, key);
+    expect(offset).toBe(expected);
+    visited.push(offset);
+    expect(url.searchParams.get(otherKey)).toBe('40');
+    expect(url.searchParams.get('worklogRef')).toBe('a#b');
+    expect(url.searchParams.get('tab')).toBe(tab);
+  }
+  const previous = appListNavigation(url, key, tab, visited.at(-1)!, 7, 41);
+  expect(previous.previousHref).not.toBeNull();
+  const back = new URL(previous.previousHref!, url);
+  visited.push(appListOffset(back.searchParams, key));
+  expect(visited).toEqual([0, 7, 14, 0]);
+  expect(back.searchParams.has(key)).toBe(false);
+  expect(back.searchParams.get(otherKey)).toBe('40');
+  expect(back.searchParams.get('worklogRef')).toBe('a#b');
+  expect(back.searchParams.get('tab')).toBe(tab);
+});
