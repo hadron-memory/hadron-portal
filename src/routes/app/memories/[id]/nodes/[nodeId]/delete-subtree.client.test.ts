@@ -15,6 +15,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { announcedAlertText } from '$lib/test/announcedAlertText';
 import { DELETE_NODE_MUTATION, NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
 // Static imports: the page is large, and importing it inside a test spent the
 // test's whole timeout under full-suite load. `vi.mock` below is hoisted above
@@ -152,9 +153,9 @@ describe('delete confirm dialog (#621)', () => {
     expect(result.status).toBe(409);
     await submitWith(target, props, '?/delete', result);
     // The actionable message renders…
-    const alert = target.querySelector('[role="alert"]');
-    expect(alert?.textContent).toContain('3 descendant');
-    expect(alert?.textContent).toContain('Also delete');
+    const alert = announcedAlertText(target);
+    expect(alert).toContain('3 descendant');
+    expect(alert).toContain('Also delete');
     // …and the checkbox it points at exists, labelled with the server's count.
     const box = target.querySelector<HTMLInputElement>('form[action="?/delete"] input[name="recursive"]');
     expect(box).not.toBeNull();

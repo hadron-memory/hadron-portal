@@ -260,3 +260,48 @@ describe('account load: the root layout clears locals.user mid-load (#1117)', ()
     expect(out.user).toMatchObject({ id: 'u1', name: 'Ada', handle: null });
   });
 });
+
+/**
+ * portal#1022 links half: the account page links to the server-hosted passkey
+ * registration page. The link exists only while the deployment's
+ * `passkey-registration` switch is on — a switched-off surface must not show
+ * that the feature exists — and its URL is the portal's PUBLIC_SERVER_URL
+ * (the same browser-facing base the Microsoft OAuth hand-over uses), not the
+ * internal server-to-server LOCAL_SERVER_URL.
+ */
+// Registered with a default (registration off) because vi.mock hoists this
+// factory above the const: every OTHER loader test in this file runs against
+// it too, and a bare vi.fn() would answer undefined and throw mid-load.
+const capabilities = vi.fn().mockResolvedValue(new Set<string>());
+vi.mock('$lib/server/signing-capability', () => ({
+  deploymentCapabilities: () => capabilities(),
+}));
+import { env as publicEnv } from '$env/dynamic/public';
+
+describe('account load: the passkey-registration link (portal#1022)', () => {
+  beforeEach(() => {
+    capabilities.mockReset().mockResolvedValue(new Set(['passkey-registration']));
+    mockRequest.mockReset().mockResolvedValue({ me: null });
+    delete publicEnv.PUBLIC_SERVER_URL;
+  });
+
+  it('links to the server-hosted registration page while the switch is on', async () => {
+    publicEnv.PUBLIC_SERVER_URL = 'https://server.example';
+    const { load } = await import('./+page.server');
+    const out = (await load({ locals: { token: 't', user: { id: 'u1' } } } as never)) as { passkeysUrl: string | null };
+    expect(out.passkeysUrl).toBe('https://server.example/passkeys/register');
+  });
+
+  it('falls back to the local default base when the env var is unset', async () => {
+    const { load } = await import('./+page.server');
+    const out = (await load({ locals: { token: 't', user: { id: 'u1' } } } as never)) as { passkeysUrl: string | null };
+    expect(out.passkeysUrl).toBe('http://localhost:4000/passkeys/register');
+  });
+
+  it('renders no link while registration is switched off', async () => {
+    capabilities.mockResolvedValue(new Set(['node-signing']));
+    const { load } = await import('./+page.server');
+    const out = (await load({ locals: { token: 't', user: { id: 'u1' } } } as never)) as { passkeysUrl: string | null };
+    expect(out.passkeysUrl).toBeNull();
+  });
+});

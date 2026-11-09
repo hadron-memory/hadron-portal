@@ -8,10 +8,16 @@
  * offers signing, so selecting it with signing off fails GraphQL validation on
  * every node view. The page asks the deployment first and, when it says off,
  * sends no signature query at all.
+ *
+ * portal#1022 links half: the Sign affordance creates the signing request and
+ * hands over the ceremony page's link verbatim
+ * (hrn:node:hadronmemory.com:specs:cor:dmo:130:08) — the portal never runs
+ * the ceremony. The same capability answer gates the affordance and the query,
+ * and a typed refusal renders portal copy instead of the server's prose.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
-import { NODE_APPROVAL_QUERY, NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY, NODE_SIGNATURES_QUERY } from '$lib/server/queries';
+import { NODE_APPROVAL_QUERY, NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY, NODE_SIGNATURES_QUERY, REQUEST_SIGNATURE_MUTATION } from '$lib/server/queries';
 import type { NodeApprovalStatus } from '$lib/node-approval';
 import type { NodeSignatureStatus } from '$lib/node-signatures';
 import type { ProvenanceResult } from '$lib/node-provenance';
@@ -57,9 +63,10 @@ function refused(code: string) {
   );
 }
 
-function serve(signatures: () => unknown) {
+function serve(signatures: () => unknown, requestSignature: () => unknown = () => ({})) {
   mockRequest.mockImplementation(async (doc: string) => {
     if (doc === NODE_SIGNATURES_QUERY) return signatures();
+    if (doc === REQUEST_SIGNATURE_MUTATION) return requestSignature();
     if (doc === NODE_APPROVAL_QUERY) return { node: { id: 'leaf-pk', revision: 4, approvalStatus: APPROVED, mintStatus: null } };
     if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: NODE };
     if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
@@ -82,8 +89,21 @@ async function load() {
   } as never)) as unknown as {
     signatures: Promise<ProvenanceResult<NodeSignatureStatus>>;
     approval: Promise<ProvenanceResult<NodeApprovalStatus>>;
+    signingOffered: Promise<boolean>;
   };
   return data;
+}
+
+/** Fires the links-half action exactly as the Sign form does. */
+async function requestSignature(fields: Record<string, string> = { revision: '4' }) {
+  const { actions } = await import('./+page.server');
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) fd.set(k, v);
+  return actions.requestSignature({
+    params: { id: 'mem-A', nodeId: 'leaf-pk' },
+    locals: { token: 'tok' },
+    request: { formData: async () => fd },
+  } as never);
 }
 
 describe('node page — signature status (portal#1022)', () => {
@@ -122,5 +142,72 @@ describe('node page — signature status (portal#1022)', () => {
     offersSigning.mockResolvedValue(true);
     serve(() => ({ node: { id: 'leaf-pk', revision: 4, signatureStatus: SIGNED } }));
     expect(await (await load()).signatures).toEqual({ ok: true, value: SIGNED });
+  });
+
+  it('exposes the same answer as signingOffered, whatever it is', async () => {
+    serve(() => ({ node: { id: 'leaf-pk', revision: 4, signatureStatus: SIGNED } }));
+    offersSigning.mockResolvedValue(false);
+    expect(await (await load()).signingOffered).toBe(false);
+    offersSigning.mockResolvedValue(true);
+    expect(await (await load()).signingOffered).toBe(true);
+  });
+});
+
+describe('node page — Sign affordance (portal#1022 links half)', () => {
+  it('hands over the ceremony page link verbatim, pinning the revision on screen', async () => {
+    serve(() => ({}), () => ({ requestNodeSignature: { id: 'req-1', ceremonyUrl: 'https://server.example/signing/req-1' } }));
+    await expect(requestSignature()).rejects.toMatchObject({
+      status: 303,
+      location: 'https://server.example/signing/req-1',
+    });
+    const calls = mockRequest.mock.calls.filter(([doc]) => doc === REQUEST_SIGNATURE_MUTATION);
+    expect(calls).toEqual([[REQUEST_SIGNATURE_MUTATION, { nodeRef: 'leaf-pk', expectedRevision: 4 }]]);
+  });
+
+  it('asks the deployment first: with signing off, no mutation goes out', async () => {
+    offersSigning.mockResolvedValue(false);
+    serve(() => ({}), () => {
+      throw new Error('the mutation must not be reached');
+    });
+    const result = await requestSignature();
+    expect(result).toMatchObject({ status: 400, data: { requestSignatureError: expect.stringContaining('does not offer node signing') } });
+    expect(mockRequest.mock.calls.filter(([doc]) => doc === REQUEST_SIGNATURE_MUTATION)).toEqual([]);
+  });
+
+  it('a typed refusal renders portal copy, not the server prose', async () => {
+    serve(() => ({}), () => {
+      throw refused('REVISION_MISMATCH');
+    });
+    const result = await requestSignature();
+    expect(result).toMatchObject({ status: 400, data: { requestSignatureError: expect.stringContaining('changed since you loaded it') } });
+  });
+
+  it.each(['ENCRYPTED_MEMORY_NOT_APPLICABLE', 'COMMENT_NOT_SIGNABLE', 'NODE_IS_PLACEHOLDER', 'NODE_NOT_FOUND'])(
+    'every typed refusal gets its own reader copy (%s)',
+    async (code) => {
+      serve(() => ({}), () => {
+        throw refused(code);
+      });
+      const result = await requestSignature();
+      expect(result).toMatchObject({
+        status: 400,
+        data: { requestSignatureError: expect.not.stringContaining('server prose') },
+      });
+    },
+  );
+
+  it('an unknown code keeps the generic line — never a borrowed reason', async () => {
+    serve(() => ({}), () => {
+      throw refused('SOME_FUTURE_CODE');
+    });
+    const result = await requestSignature();
+    expect(result).toMatchObject({ status: 400, data: { requestSignatureError: expect.stringContaining('Something went wrong') } });
+  });
+
+  it('a malformed revision still asks — the server pins the current revision itself', async () => {
+    serve(() => ({}), () => ({ requestNodeSignature: { id: 'req-2', ceremonyUrl: 'https://server.example/signing/req-2' } }));
+    await expect(requestSignature({ revision: 'not-a-number' })).rejects.toMatchObject({ status: 303 });
+    const calls = mockRequest.mock.calls.filter(([doc]) => doc === REQUEST_SIGNATURE_MUTATION);
+    expect(calls[calls.length - 1][1]).toEqual({ nodeRef: 'leaf-pk', expectedRevision: undefined });
   });
 });

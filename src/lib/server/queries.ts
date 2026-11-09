@@ -5026,6 +5026,21 @@ export const NODE_SIGNATURES_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#1022 — open a signing request and hand over the ceremony page's link
+// (hrn:node:hadronmemory.com:specs:cor:dmo:130:08). The portal never runs the
+// ceremony: this creates the request, and `ceremonyUrl` — copied verbatim,
+// never composed, per its own SDL note — is where the signer goes. Like
+// NODE_SIGNATURES_QUERY above, this document only validates while the
+// deployment offers signing, so the capability gate is asked first.
+export const REQUEST_SIGNATURE_MUTATION = /* GraphQL */ `
+  mutation RequestNodeSignature($nodeRef: ID!, $expectedRevision: Int) {
+    requestNodeSignature(nodeRef: $nodeRef, expectedRevision: $expectedRevision) {
+      id
+      ceremonyUrl
+    }
+  }
+`;
+
 // `revision` pins the approval to the revision the reader saw: an edit in
 // between answers REVISION_MISMATCH instead of approving text never reviewed.
 export const APPROVE_NODE_MUTATION = /* GraphQL */ `
