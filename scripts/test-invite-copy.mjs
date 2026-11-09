@@ -74,6 +74,12 @@ try {
           window.fixture = h.mountInviteCopy(document.getElementById('fixture'), url);
         }, INVITE_URL);
         await page.waitForLoadState('networkidle');
+        // #1742 review: the Superforms stub records the page's superForm()
+        // arguments. Pin the exact call so seed/options drift in the page
+        // fails here loudly instead of passing vacuously.
+        assert.deepEqual(await page.evaluate(() => globalThis.__inviteSuperFormCalls), [
+          { seed: {}, options: { validators: {}, validationMethod: 'oninput', scrollToError: 'smooth', autoFocusOnError: 'detect', clearOnSubmit: 'none' } },
+        ], `${label}: superForm seed/options match the fixture's assumptions`);
         // Count ALL requests after hydration, not just POST. Copy is local only.
         page.on('request', request => requests.push({ method: request.method(), url: request.url() }));
         const copy = page.getByRole('button', { name: 'Copy invitation link', exact: true });
@@ -85,7 +91,8 @@ try {
           await page.waitForFunction(() => window.writes.length === 1);
           assert.equal(await copy.evaluate(el => el === document.activeElement), true, `${label}: pending Copy keeps keyboard focus`);
           assert.equal(await page.getByText('Link copied.', { exact: true }).count(), 0, `${label}: pending is not success`);
-          assert.equal(await page.getByRole('button', { name: 'Copy invitation link' }).getAttribute('aria-disabled'), 'true', `${label}: pending is announced disabled`);
+          assert.equal(await page.evaluate(() => [...document.querySelectorAll('[role="status"] p')].filter((p) => !(p.textContent ?? '').trim()).length), 0, `${label}: pending renders no empty feedback paragraph`);
+          assert.equal(await copy.getAttribute('aria-disabled'), 'true', `${label}: pending is announced disabled`);
           await copy.evaluate(el => el.click());
           assert.equal(await page.evaluate(() => window.writes.length), 1, `${label}: no duplicate pending write`);
           if (mode === 'replacement') await page.evaluate(url => window.fixture.replace(url), REPLACEMENT_URL);

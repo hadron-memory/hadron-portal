@@ -16,7 +16,12 @@ type InviteSuperForm = {
   enhance: (form: HTMLFormElement) => { destroy(): void };
 };
 
-export function superForm(): InviteSuperForm {
+export function superForm(seed?: unknown, options?: unknown): InviteSuperForm {
+  // Argument drift (#1742 review): the page's seed and options are recorded,
+  // never silently ignored — the browser script asserts the recorded call
+  // against what this fixture assumes, so a page that retunes them fails the
+  // harness loudly instead of passing vacuously.
+  ((globalThis as { __inviteSuperFormCalls?: Array<{ seed: unknown; options: unknown }> }).__inviteSuperFormCalls ??= []).push({ seed, options });
   const provided: InviteSuperForm = {
     form: writable({ inviteName: '', inviteEmail: '', inviteGithub: '' }),
     errors: writable({}),

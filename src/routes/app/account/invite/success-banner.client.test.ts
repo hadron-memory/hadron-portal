@@ -42,7 +42,7 @@ describe('invite success feedback (#1545)', () => {
     const box = link?.parentElement?.parentElement ?? null;
     pairs(box, ['border-green-300', 'bg-green-50', 'text-green-700', 'dark:border-green-800', 'dark:bg-green-950', 'dark:text-green-300'], ['border-green-800', 'bg-green-950', 'text-green-300']);
     pairs(link, ['bg-zinc-100', 'text-green-800', 'dark:bg-zinc-800', 'dark:text-green-200'], ['bg-zinc-800', 'text-green-200']);
-    pairs(box?.querySelector('button') ?? null, ['border-green-300', 'text-green-700', 'enabled:hover:bg-green-100', 'aria-disabled:opacity-50', 'aria-disabled:cursor-wait', 'dark:border-green-700', 'dark:text-green-300', 'dark:enabled:hover:bg-green-900'], ['border-green-700', 'text-green-300', 'hover:bg-green-100', 'hover:bg-green-900', 'dark:hover:bg-green-900']);
+    pairs(box?.querySelector('button') ?? null, ['border-green-300', 'text-green-700', 'not-aria-disabled:hover:bg-green-100', 'aria-disabled:opacity-50', 'aria-disabled:cursor-wait', 'dark:border-green-700', 'dark:text-green-300', 'dark:not-aria-disabled:hover:bg-green-900'], ['border-green-700', 'text-green-300', 'hover:bg-green-100', 'hover:bg-green-900', 'dark:hover:bg-green-900', 'enabled:hover:bg-green-100']);
     // The limits paragraph is the only mt-2 paragraph while Copy is idle
     // (#1742): the feedback paragraph is omitted, not rendered empty.
     const limits = [...(box?.querySelectorAll('p.mt-2') ?? [])].find((p) => /can be used/.test(p.textContent ?? ''));

@@ -34,4 +34,12 @@ describe('invite-copy Superforms stub drift diagnostics (#1742)', () => {
   it('keeps the adapter stub inert for the validators option', () => {
     expect(zod4Client()).toEqual({});
   });
+
+  it('records its call arguments so the harness can pin seed/options drift (#1742 review)', () => {
+    (globalThis as { __inviteSuperFormCalls?: unknown[] }).__inviteSuperFormCalls = [];
+    superForm({ inviteEmail: 'a@b.test' }, { validationMethod: 'oninput' });
+    const calls = (globalThis as { __inviteSuperFormCalls?: Array<{ seed: unknown; options: unknown }> }).__inviteSuperFormCalls ?? [];
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual({ seed: { inviteEmail: 'a@b.test' }, options: { validationMethod: 'oninput' } });
+  });
 });
