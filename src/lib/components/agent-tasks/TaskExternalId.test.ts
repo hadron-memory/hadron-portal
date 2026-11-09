@@ -5,28 +5,11 @@
  */
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
-import { Kind, parse, type FieldNode, type OperationDefinitionNode } from 'graphql';
+import { selectsFieldPath } from '$lib/test/graphql-selection';
 import TaskExternalId from './TaskExternalId.svelte';
 import { AGENT_TASK_DETAIL_QUERY } from '$lib/server/queries';
 
 const html = (externalId: string | null) => render(TaskExternalId, { props: { externalId } }).body;
-
-/**
- * Is `externalId` a direct, unaliased field of `agentTask` in AgentTaskDetail? The page reads it under that
- * name. Direct only, which is where the query has it: moving it into a fragment means updating this check.
- */
-const selectsExternalId = (query: string) => {
-  const operation = parse(query).definitions.find(
-    (d): d is OperationDefinitionNode => d.kind === Kind.OPERATION_DEFINITION && d.name?.value === 'AgentTaskDetail',
-  );
-  const agentTask = operation?.selectionSet.selections.find(
-    (s): s is FieldNode => s.kind === Kind.FIELD && s.name.value === 'agentTask',
-  );
-  return (
-    agentTask?.selectionSet?.selections.some(s => s.kind === Kind.FIELD && s.name.value === 'externalId' && !s.alias) ??
-    false
-  );
-};
 
 /** The real detail query with its `externalId` line rewritten: a mutant, not an invented document. */
 const mutate = (rewrite: (query: string) => string) => {
@@ -60,7 +43,7 @@ describe('TaskExternalId', () => {
   });
 
   it('is selected by the detail query', () => {
-    expect(selectsExternalId(AGENT_TASK_DETAIL_QUERY)).toBe(true);
+    expect(selectsFieldPath(AGENT_TASK_DETAIL_QUERY, 'AgentTaskDetail', ['agentTask', 'externalId'])).toBe(true);
   });
 
   // portal#1680. The word survives in each of these, so only the structure tells them from the real query.
@@ -75,12 +58,12 @@ describe('TaskExternalId', () => {
   ])('does not count externalId %s as selected', (_name, rewrite) => {
     const mutant = mutate(rewrite);
     expect(mutant).toMatch(/\bexternalId\b/);
-    expect(selectsExternalId(mutant)).toBe(false);
+    expect(selectsFieldPath(mutant, 'AgentTaskDetail', ['agentTask', 'externalId'])).toBe(false);
   });
 
   it('does not count a query without externalId as selected', () => {
     const mutant = mutate(q => q.replace(/^\s*externalId\n/m, ''));
     expect(mutant).not.toMatch(/\bexternalId\b/);
-    expect(selectsExternalId(mutant)).toBe(false);
+    expect(selectsFieldPath(mutant, 'AgentTaskDetail', ['agentTask', 'externalId'])).toBe(false);
   });
 });
