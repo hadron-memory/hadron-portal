@@ -6,20 +6,27 @@
   import Urn from './Urn.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
-  let { nodeId, revision }: { nodeId: string; revision: number } = $props();
+  let { nodeId, revision, headingLevel = 3 }: { nodeId: string; revision: number; headingLevel?: 3 | 4 } = $props();
   let page = $state<ProvenancePage | null>(null);
   let failed = $state(false), busy = $state(false), offset = $state(0);
   let epoch = 0;
   let attemptedOffset = 0;
   let region: HTMLDivElement;
   const identity = $derived(`${nodeId}:${revision}`);
+  // Three columns, not five: revision and depth read as detail under the source's name, so a phone
+  // is not asked to scroll sideways for numbers a reader rarely needs (portal#1757).
   const columns: PortalColumnDef<ProvenanceRow>[] = [
-    { accessorKey: 'name', header: t('boot.provenance.name', 'Source'), size: 300 },
-    { accessorKey: 'depth', header: t('boot.provenance.depth', 'Depth'), size: 120 },
-    { accessorKey: 'revNo', header: t('boot.provenance.revision', 'Revision'), size: 130 },
-    { id: 'selection', header: t('boot.provenance.settings', 'Include settings'), size: 230 },
-    { id: 'pruned', header: t('boot.provenance.retention', 'Retention'), size: 220 },
+    { accessorKey: 'name', header: t('boot.provenance.name', 'Source'), size: 220 },
+    { id: 'selection', header: t('boot.provenance.settings', 'Include settings'), size: 150 },
+    { id: 'pruned', header: t('boot.provenance.retention', 'Text kept'), size: 100 },
   ];
+  function settingsText(s: ProvenanceRow['selection']) {
+    const which = s.rev === null ? t('boot.provenance.latest', 'Latest revision') : t('boot.provenance.pinned', 'Revision {n}', { n: s.rev });
+    const only = s.approved && s.signed ? t('boot.provenance.approved-signed', 'Approved and signed only')
+      : s.approved ? t('boot.provenance.approved-only', 'Approved only')
+      : s.signed ? t('boot.provenance.signed-only', 'Signed only') : '';
+    return only ? `${which} · ${only}` : which;
+  }
   const table = createSvelteTable<ProvenanceRow>({ get data() { return page?.items ?? []; }, columns, enableColumnResizing: true, columnResizeMode: 'onChange', initialState: { pagination: { pageIndex: 0, pageSize: 20 } } });
   async function load(next: number, retry = false) {
     const stamp = ++epoch, expected = identity;
@@ -47,16 +54,17 @@
   </div>
   {#if page}
     <section aria-label={t('boot.provenance.title', 'Built from')} class="space-y-2">
-      <h3 class="font-semibold">{t("boot.install.a3d5f43902", "Built from")}</h3>
+      <svelte:element this={`h${headingLevel}`} class="font-semibold">{t("boot.install.a3d5f43902", "Built from")}</svelte:element>
       {#if page.pruned}<p>{t("boot.install.2bb11af10a", "This revision’s text is no longer kept.")}</p>{/if}
-      <DataTable {table} listKey="boot-prompt-provenance" searchPlaceholder="Search this page…" searchAriaLabel="Search provenance on this page" showSearch={false} showFooter={false}>
+      <DataTable {table} listKey="boot-prompt-provenance" searchPlaceholder={t('boot.provenance.search', 'Search this page…')} searchAriaLabel={t('boot.provenance.search-label', 'Search provenance on this page')} showSearch={false} showFooter={false}>
         {#snippet cell(cell, item)}
           {#if cell.column.id === 'name'}
             {#if item.urn && item.name}<span>{item.name}</span> <Urn value={item.urn} type="node" />{:else}{item.omitted ? t('boot.provenance.omitted', 'name not loaded') : t('boot.provenance.unavailable', 'Not available to you')}{/if}
+            <div class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('boot.provenance.detail', 'Revision {n}, depth {d}', { n: item.revNo, d: item.depth })}{item.pruned === true ? ` · ${t('boot.provenance.pruned', 'No longer kept')}` : ''}</div>
           {:else if cell.column.id === 'selection'}
-            {t('boot.provenance.selection', 'rev: {rev}; approved: {approved}; signed: {signed}', { rev: item.selection.rev ?? t('boot.provenance.latest', 'latest'), approved: String(item.selection.approved), signed: String(item.selection.signed) })}
+            {settingsText(item.selection)}
           {:else if cell.column.id === 'pruned'}
-            {item.pruned === true ? t('boot.provenance.pruned', 'This revision’s text is no longer kept.') : ''}
+            {item.pruned === true ? t('boot.provenance.pruned', 'No longer kept') : item.pruned === false ? t('boot.provenance.kept', 'Kept') : ''}
           {:else}{cell.getValue()}{/if}
         {/snippet}
       </DataTable>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TabRow from '$lib/components/TabRow.svelte';
   import { untrack } from 'svelte';
   import { TASK_SEARCH_MAX, taskBoardHref } from '$lib/agent-tasks/search';
   import { overdueApplies, type BoardNarrow } from '$lib/agent-tasks/narrow';
@@ -222,19 +223,8 @@
     <TasksReadOnlyNote view={data.view ?? 'board'} />
   </div>
 
-  <!-- §2: Board · Roster · Composition · Alarms, addressed by ?view=. Its own row scrolls on a phone, never the page. -->
-  <nav aria-label={t('app.tasks.view.label', 'Task views')} class="-mx-1 flex overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
-    {#each TASK_VIEWS as v (v)}
-      <a
-        href={viewHref(v)}
-        data-sveltekit-reload
-        aria-current={data.view === v ? 'page' : undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium {data.view === v
-          ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-          : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200'}"
-      >{taskViewLabel(v)}</a>
-    {/each}
-  </nav>
+  <!-- §2: Board · Roster · Composition · Alarms, addressed by ?view=. The shared overflow menu keeps every view reachable on a phone. -->
+  <TabRow mode="links" items={TASK_VIEWS.map(v => ({ id: v, label: taskViewLabel(v), href: viewHref(v), reload: true }))} active={data.view ?? 'board'} label={t('app.tasks.view.label', 'Task views')} />
 
   {#if data.view === 'roster' && data.roster}
     <TasksRoster roster={data.roster} refs={data.refs} {basePath} impersonating={data.impersonating} />

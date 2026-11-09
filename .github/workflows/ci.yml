@@ -120,6 +120,9 @@ jobs:
       - name: Check Nodes tab lazy reads
         run: pnpm test:nodes-tab-lazy
 
+      - name: Check shared tab-row overflow and keyboard layout
+        run: pnpm test:tab-row-layout
+
       - name: Check App Runs table layout
         run: pnpm test:app-runs-layout
 

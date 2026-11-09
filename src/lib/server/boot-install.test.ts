@@ -177,3 +177,22 @@ describe('compiled read availability and approval preflight', () => {
     expect(request.mock.calls.some(([doc]) => String(doc).includes('approveNode'))).toBe(false);
   });
 });
+
+
+describe('portal#1857 compile revision boundary', () => {
+  for (const level of ['app', 'worker'] as const) {
+    it.each([0, -1])(`${level} refuses revNo %s without reading serving`, async revNo => {
+      const scope = level === 'worker' ? owner : { level, app: 'a', agent: 'g' };
+      const identity = level === 'worker' ? worker : { app: { id: 'a', appAgents: [{ agent: { id: 'g' }, bootPromptRef: null }] } };
+      const payload = { node: { id: 'c', revision: revNo }, revNo };
+      const request = vi.fn().mockResolvedValueOnce(identity).mockResolvedValueOnce(level === 'worker' ? { compileWorkerBootPrompt: payload } : { compileAppAgentBootPrompt: payload });
+      const result = await writeInstallPrompt({ request } as never, scope, { intent: 'compile' }, false);
+      expect(result.ok).toBe(false);
+      expect(result.text).toContain('Couldn’t confirm whether the prompt was built');
+      expect(result.text).not.toContain('Built revision');
+      expect(result.text).not.toContain('Nothing changed');
+      expect(request).toHaveBeenCalledTimes(2);
+      expect(request.mock.calls.some(([query]) => String(query).includes('bootPromptServe'))).toBe(false);
+    });
+  }
+});
