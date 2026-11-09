@@ -1434,6 +1434,16 @@ export const actions: Actions = {
   // reviewed. `redirect()` throws, so the catch rethrows it — the hand-over
   // must never be swallowed into a refusal message.
   requestSignature: async ({ request, params, locals }) => {
+    // A stale tab after signing out: the token is gone, and the capability
+    // gate below would fold that into "not offered" — a wrong reason for a
+    // reader whose actual problem is the dead session. Distinguish it first;
+    // the other actions on this page surface their auth failures from the
+    // server's UNAUTHENTICATED, and this one gets its own honest line.
+    if (!locals.token) {
+      return fail(400, {
+        requestSignatureError: t('node.signatures.request.signed-out', 'Your session has ended. Sign in again, then request the signature from the node page.'),
+      });
+    }
     // The mutation exists in the SDL only while the deployment offers signing
     // (hadron-server#1895/#1918); asking first keeps a switched-off server
     // from answering every click with a validation error.

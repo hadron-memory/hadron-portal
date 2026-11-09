@@ -288,20 +288,35 @@ describe('account load: the passkey-registration link (portal#1022)', () => {
   it('links to the server-hosted registration page while the switch is on', async () => {
     publicEnv.PUBLIC_SERVER_URL = 'https://server.example';
     const { load } = await import('./+page.server');
-    const out = (await load({ locals: { token: 't', user: { id: 'u1' } } } as never)) as { passkeysUrl: string | null };
-    expect(out.passkeysUrl).toBe('https://server.example/passkeys/register');
+    const out = (await load({ locals: { token: 't', user: { id: 'u1' } } } as never)) as { passkeysUrl: Promise<string | null> };
+    expect(await out.passkeysUrl).toBe('https://server.example/passkeys/register');
   });
 
   it('falls back to the local default base when the env var is unset', async () => {
     const { load } = await import('./+page.server');
-    const out = (await load({ locals: { token: 't', user: { id: 'u1' } } } as never)) as { passkeysUrl: string | null };
-    expect(out.passkeysUrl).toBe('http://localhost:4000/passkeys/register');
+    const out = (await load({ locals: { token: 't', user: { id: 'u1' } } } as never)) as { passkeysUrl: Promise<string | null> };
+    expect(await out.passkeysUrl).toBe('http://localhost:4000/passkeys/register');
   });
 
   it('renders no link while registration is switched off', async () => {
     capabilities.mockResolvedValue(new Set(['node-signing']));
     const { load } = await import('./+page.server');
-    const out = (await load({ locals: { token: 't', user: { id: 'u1' } } } as never)) as { passkeysUrl: string | null };
-    expect(out.passkeysUrl).toBeNull();
+    const out = (await load({ locals: { token: 't', user: { id: 'u1' } } } as never)) as { passkeysUrl: Promise<string | null> };
+    expect(await out.passkeysUrl).toBeNull();
+  });
+
+  it('streams the link instead of blocking the page on a slow capabilities endpoint', async () => {
+    // The loader must return before the capability answer resolves: a hung
+    // endpoint (up to CAPABILITIES_DEADLINE_MS before failing closed) may
+    // never hold the profile hostage. The promise is still derivable later.
+    let answer: (caps: Set<string>) => void = () => {};
+    capabilities.mockReturnValue(new Promise((resolve) => { answer = resolve; }));
+    const { load } = await import('./+page.server');
+    let settled: string | null | undefined;
+    const out = (await load({ locals: { token: 't', user: { id: 'u1' } } } as never)) as { passkeysUrl: Promise<string | null> };
+    out.passkeysUrl.then((url) => { settled = url; });
+    expect(settled).toBeUndefined(); // not resolved yet — and the page is already returned
+    answer(new Set(['passkey-registration']));
+    await expect(out.passkeysUrl).resolves.toBe('http://localhost:4000/passkeys/register');
   });
 });

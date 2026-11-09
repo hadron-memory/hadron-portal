@@ -2576,17 +2576,25 @@
              the portal's whole leg is to create the signing request and hand
              over the server-hosted ceremony page's link — the ceremony itself
              never runs here. The hidden revision input, like the approval
-             forms above, pins the request to the text on screen. -->
+             forms above, pins the request to the text on screen.
+
+             No readOnly gate, deliberately: cor:dmo:130:03 gives ANY reader
+             the right to request ("anyone who may read the node"), and the
+             requester need not be the signer — so the affordance is not
+             hidden from view-only readers the way writer actions are. The
+             copy says what the click does (a request, then the server's
+             page), never "Sign", which a reader the ceremony would refuse
+             could not finish. -->
         <form method="POST" action="?/requestSignature" use:enhance={requestSignatureEnhance} class="mt-1" data-testid="request-signature-form">
           <input type="hidden" name="revision" value={node.revision} />
           <button
             type="submit"
             data-testid="request-signature"
             disabled={requestingSignature}
-            title={t('node.signatures.request.hint', 'Opens the signing page for this revision on the server.')}
+            title={t('node.signatures.request.hint', 'Creates a signing request and opens the server-hosted signing page for this revision.')}
             class="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
-            {t('node.signatures.request.action', 'Sign this node…')}
+            {t('node.signatures.request.action', 'Request a signature…')}
           </button>
         </form>
       {/if}

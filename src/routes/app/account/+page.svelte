@@ -207,29 +207,33 @@
   <!-- Passkeys (portal#1022 links half): a link to the server-hosted
        registration page — the portal runs no ceremony and holds no key
        material (hrn:node:hadronmemory.com:specs:cor:dmo:130:08). Renders
-       nothing while the deployment keeps registration switched off. -->
-  {#if data.passkeysUrl}
-    <section data-testid="passkeys-section">
-      <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">{t('account.passkeys.heading', 'Passkeys')}</h2>
-      <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-        <p class="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-          {t('account.passkeys.lede', 'A passkey signs node changes with your fingerprint, face or device PIN. Signing always happens on a page the server hosts, never in this portal.')}
-        </p>
-        <!-- A new tab: the passkey page is its own flow with no way back, and
-             the reader should not lose their account settings to it. -->
-        <a
-          href={data.passkeysUrl}
-          target="_blank"
-          rel="noopener"
-          data-testid="passkeys-register-link"
-          class="mt-3 inline-block rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-        >
-          {t('account.passkeys.manage', 'Add or manage passkeys')}
-          <span class="sr-only"> {t('account.passkeys.opens-new-tab', '(opens on the server in a new tab)')}</span>
-        </a>
-      </div>
-    </section>
-  {/if}
+       nothing while the deployment keeps registration switched off. The URL
+       arrives as a streamed promise (a cold capabilities endpoint never
+       blocks the page), so the section mounts when the answer lands. -->
+  {#await data.passkeysUrl then url}
+    {#if url}
+      <section data-testid="passkeys-section">
+        <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">{t('account.passkeys.heading', 'Passkeys')}</h2>
+        <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+          <p class="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+            {t('account.passkeys.lede', 'A passkey signs node changes with your fingerprint, face or device PIN. Signing always happens on a page the server hosts, never in this portal.')}
+          </p>
+          <!-- A new tab: the passkey page is its own flow with no way back, and
+               the reader should not lose their account settings to it. -->
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener"
+            data-testid="passkeys-register-link"
+            class="mt-3 inline-block rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            {t('account.passkeys.manage', 'Add or manage passkeys')}
+            <span class="sr-only"> {t('account.passkeys.opens-new-tab', '(opens on the server in a new tab)')}</span>
+          </a>
+        </div>
+      </section>
+    {/if}
+  {/await}
 
   <!-- Sign out -->
   <section>

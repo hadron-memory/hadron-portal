@@ -1,8 +1,8 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
-import { env as publicEnv } from '$env/dynamic/public';
 import { gqlClient } from '$lib/server/api';
+import { publicServerBaseUrl } from '$lib/public-server-base-url';
 import { deploymentCapabilities } from '$lib/server/signing-capability';
 import { accountProfileStrings } from '$lib/i18n/account-profile-strings';
 import { DELETE_CONFIRMATION_TOKEN, deleteAccountStrings } from '$lib/i18n/delete-account-strings';
@@ -60,8 +60,12 @@ export const load: PageServerLoad = async ({ locals }) => {
   // used to null `locals.user` when its own `me` failed (it no longer does),
   // and reading it after the await built a fallback user with no id.
   const sessionUser = locals.user;
-  // portal#1022: the capability answer is fetched in parallel with `me` so a
-  // cold capabilities endpoint never adds its own latency to this page.
+  // portal#1022: the capability answer is fetched in parallel with `me` — and
+  // unlike every other value on this page it is returned as a STREAMED
+  // promise, never awaited here, so a cold or hung capabilities endpoint (up
+  // to CAPABILITIES_DEADLINE_MS before it fails closed) cannot hold the
+  // profile hostage: the page renders, and the Passkeys section appears when
+  // the answer lands. The node view streams the same answer the same way.
   const capabilities = deploymentCapabilities();
   const data = await gqlClient(locals.token)
     .request<{ me: UserSummary | null }>(ME_QUERY)
@@ -75,15 +79,15 @@ export const load: PageServerLoad = async ({ locals }) => {
     });
   const user: UserSummary = data.me ?? { ...sessionUser!, handle: null };
   const form = await superValidate(profileFormDefaults(user), accountProfileFormAdapter, { errors: false });
-  // portal#1022 links half: the passkey-registration link. Awaits the same
+  // portal#1022 links half: the passkey-registration link. The same
   // per-process capability answer the node view uses, so the section appears
   // only while the deployment actually serves the server-hosted page — a
   // switched-off surface must not show that the feature exists (the
-  // signature-status rule, applied to this link too). passkeysUrl stays null
-  // then, and the section renders nothing.
-  const passkeysUrl = (await capabilities).has('passkey-registration')
-    ? `${publicEnv.PUBLIC_SERVER_URL ?? 'http://localhost:4000'}/passkeys/register`
-    : null;
+  // signature-status rule, applied to this link too). The promise resolves to
+  // null then, and the section renders nothing.
+  const passkeysUrl = capabilities.then(
+    (caps) => caps.has('passkey-registration') ? `${publicServerBaseUrl()}/passkeys/register` : null,
+  );
   return { user, form, passkeysUrl };
 };
 

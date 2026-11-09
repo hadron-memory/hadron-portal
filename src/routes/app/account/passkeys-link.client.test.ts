@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';
-import { mountComponent, type Mounted } from '$lib/test/mountComponent';
+import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import Page from './+page.svelte';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -20,39 +20,49 @@ const profileForm = {
   data: { name: 'Ada', handle: 'ada', email: 'ada@example.com' },
 };
 
-function mountAccount(passkeysUrl: string | null) {
+function mountAccount(passkeysUrl: Promise<string | null>) {
   const m = mountComponent(Page as never, {
     data: { user, form: { ...profileForm }, passkeysUrl },
     form: null,
   } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   flushSync();
-  return m.target;
+  return m;
 }
 
 describe('account page — Passkeys section (portal#1022)', () => {
-  it('links to the server-hosted registration page, in its own tab, while the switch is on', () => {
-    const target = mountAccount('https://server.example/passkeys/register');
-    const link = target.querySelector<HTMLAnchorElement>('[data-testid="passkeys-register-link"]');
+  it('renders nothing while the streamed capability answer is still in flight', () => {
+    const m = mountAccount(new Promise<string | null>(() => {}));
+    expect(m.target.querySelector('[data-testid="passkeys-section"]')).toBeNull();
+    expect(m.target.querySelector('[data-testid="passkeys-register-link"]')).toBeNull();
+  });
+
+  it('links to the server-hosted registration page, in its own tab, once the answer lands', async () => {
+    const m = mountAccount(Promise.resolve('https://server.example/passkeys/register'));
+    await tick();
+    const link = m.target.querySelector<HTMLAnchorElement>('[data-testid="passkeys-register-link"]');
     expect(link).not.toBeNull();
     expect(link!.getAttribute('href')).toBe('https://server.example/passkeys/register');
     expect(link!.target).toBe('_blank');
     expect(link!.rel).toBe('noopener');
-    expect(target.querySelector('[data-testid="passkeys-section"]')).not.toBeNull();
+    expect(m.target.querySelector('[data-testid="passkeys-section"]')).not.toBeNull();
   });
 
-  it('renders no section at all while registration is switched off', () => {
-    const target = mountAccount(null);
-    expect(target.querySelector('[data-testid="passkeys-section"]')).toBeNull();
-    expect(target.querySelector('[data-testid="passkeys-register-link"]')).toBeNull();
+  it('renders no section at all while registration is switched off', async () => {
+    const m = mountAccount(Promise.resolve(null));
+    await tick();
+    expect(m.target.querySelector('[data-testid="passkeys-section"]')).toBeNull();
+    expect(m.target.querySelector('[data-testid="passkeys-register-link"]')).toBeNull();
   });
 
-  it('unmounts cleanly with the section present', () => {
+  it('unmounts cleanly with the section present', async () => {
     const m = mountComponent(Page as never, {
-      data: { user, form: { ...profileForm }, passkeysUrl: 'https://server.example/passkeys/register' },
+      data: { user, form: { ...profileForm }, passkeysUrl: Promise.resolve('https://server.example/passkeys/register') },
       form: null,
     } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
     flushSync();
+    await tick();
     expect(m.target.querySelector('[data-testid="passkeys-register-link"]')).not.toBeNull();
     m.unmount();
     expect(m.target.querySelector('[data-testid="passkeys-register-link"]')).toBeNull();

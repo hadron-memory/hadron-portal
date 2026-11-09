@@ -95,13 +95,13 @@ async function load() {
 }
 
 /** Fires the links-half action exactly as the Sign form does. */
-async function requestSignature(fields: Record<string, string> = { revision: '4' }) {
+async function requestSignature(fields: Record<string, string> = { revision: '4' }, token: string | null = 'tok') {
   const { actions } = await import('./+page.server');
   const fd = new FormData();
   for (const [k, v] of Object.entries(fields)) fd.set(k, v);
   return actions.requestSignature({
     params: { id: 'mem-A', nodeId: 'leaf-pk' },
-    locals: { token: 'tok' },
+    locals: { token },
     request: { formData: async () => fd },
   } as never);
 }
@@ -182,19 +182,42 @@ describe('node page — Sign affordance (portal#1022 links half)', () => {
     expect(result).toMatchObject({ status: 400, data: { requestSignatureError: expect.stringContaining('changed since you loaded it') } });
   });
 
-  it.each(['ENCRYPTED_MEMORY_NOT_APPLICABLE', 'COMMENT_NOT_SIGNABLE', 'NODE_IS_PLACEHOLDER', 'NODE_NOT_FOUND'])(
-    'every typed refusal gets its own reader copy (%s)',
-    async (code) => {
-      serve(() => ({}), () => {
-        throw refused(code);
-      });
-      const result = await requestSignature();
-      expect(result).toMatchObject({
-        status: 400,
-        data: { requestSignatureError: expect.not.stringContaining('server prose') },
-      });
-    },
-  );
+  // Each case pins its own copy by a substring unique to it, so dropping a
+  // case from signatureRequestRefusalText fails its row (the generic
+  // internal-error line satisfies none of them) instead of passing vacuously
+  // the way a bare "no server prose" assertion did.
+  it.each([
+    ['NODE_NOT_FOUND', 'no longer available'],
+    ['ENCRYPTED_MEMORY_NOT_APPLICABLE', 'encrypted'],
+    ['COMMENT_NOT_SIGNABLE', 'Comments cannot be signed'],
+    ['NODE_IS_PLACEHOLDER', 'placeholder'],
+    ['SIGNER_NOT_FOUND', 'could not be found'],
+    ['SIGNER_NOT_A_WRITER', 'may not write'],
+    ['FORBIDDEN', 'support session'],
+  ])('every typed refusal gets its own reader copy (%s)', async (code, expected) => {
+    serve(() => ({}), () => {
+      throw refused(code);
+    });
+    const result = await requestSignature();
+    expect(result).toMatchObject({
+      status: 400,
+      data: { requestSignatureError: expect.stringContaining(expected) },
+    });
+  });
+
+  it('a dead session gets sign-in copy, not the not-offered line (cor:dmo:130:03 lets any reader ask)', async () => {
+    // A stale tab after sign-out: the token is null, and the capability gate
+    // answers off for that — which must not be reported as the deployment's
+    // switch. Both halves pinned: the no-token reason, and that the gate was
+    // never asked.
+    serve(() => ({}), () => {
+      throw new Error('the mutation must not be reached');
+    });
+    const result = await requestSignature({ revision: '4' }, null);
+    expect(result).toMatchObject({ status: 400, data: { requestSignatureError: expect.stringContaining('session has ended') } });
+    expect(offersSigning).not.toHaveBeenCalled();
+    expect(mockRequest.mock.calls.filter(([doc]) => doc === REQUEST_SIGNATURE_MUTATION)).toEqual([]);
+  });
 
   it('an unknown code keeps the generic line — never a borrowed reason', async () => {
     serve(() => ({}), () => {
