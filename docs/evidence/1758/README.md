@@ -19,3 +19,10 @@ page; show the server total; use real Previous/Next links with preserved URL
 filters. Existing complete-context inventories and capped previews are unchanged.
 
 This is author evidence. Independent portal QA is a separate stamped seat.
+
+Regression evidence: initial loader pins fail 4/5 against the old read strategy;
+initial mounted pins fail 2/2 without continuation controls. Seven isolated
+mutants are assertion-red (20→200, next/previous requested-size steps, count-race
+probe removal, next-link removal, open-form link enablement, navigation-guard
+removal), with 11 focused pins restored green. The now-empty config-page copy
+pin fails on the old inventory-wide empty claim, then passes with the scoped copy.
