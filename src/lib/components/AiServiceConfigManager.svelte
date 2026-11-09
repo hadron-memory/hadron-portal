@@ -1,7 +1,7 @@
 <script lang="ts">
   import { testResultView, type AiConfigTestResult, type AiConfigTestView } from '$lib/ai-config-test';
   import { lookupOwn } from '$lib/lookup';
-  import { invalidateAll } from '$app/navigation';
+  import { beforeNavigate, invalidateAll } from '$app/navigation';
   import { AI_CONFIG_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
   import type { AiConfigOwnerType, AiConfigProvider, AiServiceConfig } from '$lib/types';
   import { aiConfigStrings as s } from '$lib/i18n/ai-config-strings';
@@ -10,6 +10,8 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import DataTable from './table/DataTable.svelte';
+  import ListPageNav from './ListPageNav.svelte';
+  import type { ListPageNavigation } from '$lib/list-page';
   import NodeActionsMenu from './NodeActionsMenu.svelte';
   import {
     isValidConfigName,
@@ -27,12 +29,14 @@
   } from './ai-config-manager';
 
   let {
+    pagination,
     ownerType,
     ownerId,
     configs,
     canManage = false,
     allowTest = false,
   }: {
+    pagination?: ListPageNavigation;
     ownerType: AiConfigOwnerType;
     ownerId: string;
     configs: AiServiceConfig[];
@@ -76,6 +80,14 @@
   // #937: one shape for both paths, so the result always reads the same way.
   let testResult = $state<AiConfigTestView | null>(null);
   let confirmDeleteId = $state<string | null>(null);
+
+  // Keep a paged editor's source row in place, including browser Back/Forward.
+  // Other surfaces retain their existing navigation behavior.
+  beforeNavigate(({ from, to, cancel }) => {
+    if (!pagination || !(formOpen || busy || confirmDeleteId !== null)) return;
+    if (from?.url.pathname === to?.url.pathname &&
+        from?.url.searchParams.get('configOffset') !== to?.url.searchParams.get('configOffset')) cancel();
+  });
 
   const editing = $derived(editId ? (configs.find((c) => c.id === editId) ?? null) : null);
   const hasExistingKey = $derived(editing?.hasApiKey ?? false);
@@ -200,6 +212,7 @@
     createdAt: (v) => (v == null ? '—' : new Date(v as number).toLocaleString()),
   };
   const configTable = createSvelteTable<AiServiceConfig>({
+    get manualPagination() { return !!pagination; },
     get data() {
       return configs;
     },
@@ -785,14 +798,15 @@
        bespoke cards. Same chrome as every other portal list. -->
   {#if configs.length === 0}
     {#if !formOpen}
-      <p class="text-sm text-zinc-500">{s.empty()}</p>
+      <p class="text-sm text-zinc-500">{pagination && (pagination.offset > 0 || pagination.total > 0) ? t('ai-config.empty.page', 'No AI configurations on this page.') : s.empty()}</p>
     {/if}
   {:else}
     <DataTable
       table={configTable}
+      showFooter={!pagination}
       listKey="ai-configs"
-      searchPlaceholder={t('ai-config.search.placeholder', 'Search configs...')}
-      searchAriaLabel={t('ai-config.search.aria-label', 'Search AI provider configs')}
+      searchPlaceholder={pagination ? t('ai-config.search.page', 'Search configs on this page…') : t('ai-config.search.placeholder', 'Search configs...')}
+      searchAriaLabel={pagination ? t('ai-config.search.page.aria', 'Search AI provider configs on this page') : t('ai-config.search.aria-label', 'Search AI provider configs')}
       bind:globalFilter={configFilter}
       maxHeight="max(200px, calc(100vh - 30rem))"
     >
@@ -863,5 +877,9 @@
         {/if}
       {/snippet}
     </DataTable>
+  {/if}
+  {#if pagination}
+    <ListPageNav page={pagination} label={t('app.ai-config.pages', 'AI config pages')} disabled={formOpen || busy || confirmDeleteId !== null} />
+    {#if formOpen}<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{t('app.ai-config.page-edit', 'Save or cancel the form before changing pages.')}</p>{/if}
   {/if}
 </section>
