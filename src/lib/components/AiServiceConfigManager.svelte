@@ -38,7 +38,7 @@
     ownerId,
     ownerLabel = null,
     ownerUrn = null,
-    currentUserId = null,
+    currentUserId,
     configs,
     canManage = false,
     allowTest = false,
@@ -108,8 +108,8 @@
     ownerLabel?: string | null;
     /** The same already-authorized owner's URN; null omits the chip. */
     ownerUrn?: string | null;
-    /** Principal scope for standalone recovery; Section also keys remounts by it. */
-    currentUserId?: string | null;
+    /** Required principal scope for standalone recovery; Section also keys remounts by it. */
+    currentUserId: string;
     configs: AiServiceConfig[];
     canManage?: boolean;
     allowTest?: boolean;
@@ -137,7 +137,11 @@
   // ── Form state ──
   let formOpen = $state(false);
   let editId = $state<string | null>(null); // null ⇒ create
+  // Latest row acknowledged by this editor's own mutation; used as its baseline
+  // until close/reopen instead of an eventually-consistent list readback.
   let savedConfig = $state<AiServiceConfig | null>(null);
+  let savedConfigGeneration = 0;
+  let editorGeneration = 0;
   let nameInput = $state('');
   let providerInput = $state<AiConfigProvider>('anthropic');
   let modelInput = $state('');
@@ -164,7 +168,14 @@
   let standaloneNoticeTimer: ReturnType<typeof setTimeout> | null = null;
   let standaloneRefreshGeneration = 0;
   let hadStandaloneScope = false;
-  const standaloneScope = $derived(`standalone:${currentUserId ?? ''}`);
+  function requireStandaloneScope(principalId: string): string {
+    if (!principalId) {
+      throw new Error('AiServiceConfigManager requires a non-empty currentUserId for principal-scoped recovery');
+    }
+    return `standalone:${principalId}`;
+  }
+  untrack(() => requireStandaloneScope(currentUserId));
+  const standaloneScope = $derived(requireStandaloneScope(currentUserId));
   const sharesStandaloneRecovery = $derived(onMutationPending === standaloneMutationPending);
   const activeStandalone = new Map<string, { outcome: AiConfigCommitted; generation: number; recoveryScope: string }>();
   let syncingStandaloneRecovery = false;
@@ -202,6 +213,7 @@
     ownerType: AiConfigOwnerType;
     ownerId: string;
     ownerGeneration: number;
+    editorGeneration: number;
     recoveryScope: string;
     standaloneRecovery: boolean;
     onCommitted: (outcome: AiConfigCommitted) => void | Promise<void>;
@@ -265,6 +277,7 @@
       ownerType: ownerAtVisit!.ownerType,
       ownerId: ownerAtVisit!.ownerId,
       ownerGeneration,
+      editorGeneration,
       recoveryScope: standaloneScope,
       standaloneRecovery: sharesStandaloneRecovery,
       onCommitted,
@@ -284,8 +297,19 @@
     );
   }
 
+  function isEditorCurrent(action: ActionToken): boolean {
+    return isOwnerVisitCurrent(action) && action.editorGeneration === editorGeneration;
+  }
+
   function isCurrent(action: ActionToken): boolean {
     return !destroyed && action.generation === actionGeneration && isOwnerVisitCurrent(action);
+  }
+
+  function acknowledgeSavedConfig(action: ActionToken, saved: AiServiceConfig): void {
+    if (!isEditorCurrent(action) || action.generation < savedConfigGeneration) return;
+    savedConfigGeneration = action.generation;
+    savedConfig = saved;
+    removeKey = false;
   }
 
   function trackMutation(action: ActionToken): number {
@@ -322,10 +346,16 @@
     });
   }
 
+  function clearSavedConfig() {
+    savedConfig = null;
+    savedConfigGeneration = 0;
+  }
+
   function resetEditor() {
+    editorGeneration++;
     formOpen = false;
     editId = null;
-    savedConfig = null;
+    clearSavedConfig();
     error = null;
     testResult = null;
   }
@@ -463,7 +493,15 @@
     actionController?.abort();
   });
 
-  const editing = $derived(editId ? (configs.find((c) => c.id === editId) ?? (savedConfig?.id === editId ? savedConfig : null)) : null);
+  // The open editor uses its latest own acknowledgement as the baseline. An
+  // older list readback must not make a subsequent Save omit an intentional
+  // clear; close/reopen picks up external list changes in a fresh draft.
+  const editing = $derived.by(() => {
+    if (!editId) return null;
+    return (savedConfig?.id === editId ? savedConfig : null)
+      ?? configs.find((c) => c.id === editId)
+      ?? null;
+  });
   const hasExistingKey = $derived(editing?.hasApiKey ?? false);
   const renamingWellKnown = $derived(
     !!editing && WELL_KNOWN.includes(editing.name) && nameInput.trim() !== editing.name,
@@ -633,8 +671,9 @@
 
   function openCreate() {
     beginAction();
+    editorGeneration++;
     resetForm();
-    savedConfig = null;
+    clearSavedConfig();
     editId = null;
     formOpen = true;
   }
@@ -644,8 +683,9 @@
     // would seed a full-field update that could revert the just-saved values.
     if (mutationBlocked || mutationLocked) return;
     beginAction();
+    editorGeneration++;
     resetForm();
-    savedConfig = null;
+    clearSavedConfig();
     editId = c.id;
     nameInput = c.name;
     providerInput = c.provider;
@@ -896,8 +936,8 @@
           const saved = parseAiConfig(result.config);
           if (saved) {
             createdId = saved.id;
-            savedConfig = saved;
-          } else if (isCurrent(action) && formFingerprint() !== action.formFingerprint) {
+            acknowledgeSavedConfig(action, saved);
+          } else if (isEditorCurrent(action) && (!isCurrent(action) || formFingerprint() !== action.formFingerprint)) {
             // The write may have committed, but without a complete saved row a
             // preserved draft cannot safely become an update. Reconcile it.
             throw new UncertainMutationError();
@@ -920,8 +960,9 @@
             ...(apiStyle !== undefined ? { apiStyle } : {}),
           }, true);
           const saved = parseAiConfig(result.config);
-          if (saved) savedConfig = saved;
-          else if (isCurrent(action) && formFingerprint() !== action.formFingerprint) {
+          if (saved) {
+            acknowledgeSavedConfig(action, saved);
+          } else if (isEditorCurrent(action) && (!isCurrent(action) || formFingerprint() !== action.formFingerprint)) {
             throw new UncertainMutationError();
           }
         }
@@ -933,9 +974,11 @@
         // The request captured the old values. Close only if the reader did not
         // make newer edits while it was in flight. A preserved create draft is
         // now an UPDATE of the row the server returned, never a second create.
-        if (!isCurrent(action)) return;
-        if (formFingerprint() === action.formFingerprint) resetEditor();
-        else if (createdId !== null) editId = createdId;
+        // Arming/cancelling another row's Delete is a new ACTION, but it does
+        // not replace this editor or invalidate its acknowledged identity.
+        if (!isEditorCurrent(action)) return;
+        if (createdId !== null) editId = createdId;
+        if (isCurrent(action) && formFingerprint() === action.formFingerprint) resetEditor();
       },
     });
   }
@@ -963,11 +1006,15 @@
       if (editing) {
         // #937: a SAVED config, of ANY owner kind, tests BY ID through the
         // server's own run path (server#1378). The stored key stays there.
+        // Diff against BOTH the latest own acknowledgement and the listed row.
+        // If the visible value differs from either, send it explicitly: stale
+        // and newer readbacks must not change what Test exercises.
+        const listedConfig = configs.find((config) => config.id === editing.id) ?? null;
         // Only what the user changed or typed rides along as an override,
         // which is tested and never saved.
         const override: Record<string, unknown> = {};
-        if (providerInput !== editing.provider) override.provider = providerInput;
-        if (modelInput.trim() && modelInput.trim() !== editing.model) override.model = modelInput.trim();
+        if (providerInput !== editing.provider || (listedConfig !== null && providerInput !== listedConfig.provider)) override.provider = providerInput;
+        if (modelInput.trim() && (modelInput.trim() !== editing.model || (listedConfig !== null && modelInput.trim() !== listedConfig.model))) override.model = modelInput.trim();
         // The credential Save would leave, by Save's own rule: "Remove the
         // stored key" wins over a typed key, so a pass can't hide a config that
         // won't run once saved.
@@ -975,15 +1022,21 @@
         // required, so a tick left over from another provider clears nothing.
         const key = testOverrideKey({ removeKey: removeKey && !needsKey, enteredKey });
         if (key !== undefined) override.apiKey = key;
-        const endpoint = fieldChange(editing.endpoint, endpointInput);
+        const acknowledgedEndpoint = fieldChange(editing.endpoint, endpointInput);
+        const endpoint = acknowledgedEndpoint !== undefined
+          ? acknowledgedEndpoint
+          : listedConfig ? fieldChange(listedConfig.endpoint, endpointInput) : undefined;
         if (endpoint !== undefined) override.endpoint = endpoint;
-        const apiStyle = fieldChange<AiApiStyle>(editing.apiStyle, apiStyleInput);
+        const acknowledgedApiStyle = fieldChange<AiApiStyle>(editing.apiStyle, apiStyleInput);
+        const apiStyle = acknowledgedApiStyle !== undefined
+          ? acknowledgedApiStyle
+          : listedConfig ? fieldChange<AiApiStyle>(listedConfig.apiStyle, apiStyleInput) : undefined;
         if (apiStyle !== undefined) override.apiStyle = apiStyle;
         // Edited params ride along exactly as Save would write them
         // (hadron-server#1413: override.params; null = cleared), so Test checks
         // the config shown, tool-calling toggle included (#951 Codex P2).
         // Unparseable JSON is refused like Save refuses it, before any request.
-        if (paramsEdited(editing)) {
+        if (paramsEdited(editing) || (listedConfig !== null && listedConfig !== editing && paramsEdited(listedConfig))) {
           const params = formParams();
           if (!params.ok) {
             error = params.error;

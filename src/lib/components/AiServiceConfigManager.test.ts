@@ -23,6 +23,12 @@ function html(ownerType: 'AGENT' | 'ORGANIZATION' | 'APP') {
 }
 
 describe('AiServiceConfigManager agent hint (#924)', () => {
+  it('refuses to create a shared standalone recovery scope without a principal', () => {
+    expect(() => render(AiServiceConfigManager, {
+      props: { ownerType: 'ORGANIZATION', ownerId: 'x', configs: [] } as never,
+    }).body).toThrow('currentUserId');
+  });
+
   it('on an agent, names where the agent actually chats and that the App comes first', () => {
     const body = html('AGENT');
     expect(body).toContain('Agent chat');

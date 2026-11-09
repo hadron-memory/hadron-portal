@@ -345,7 +345,7 @@
   {/if}
 </div>
 
-{#if !canManage}
+{#if !canManage || !currentUserId}
   <h2 class="mb-2 font-semibold text-zinc-900 dark:text-white">{s.heading()}</h2>
   {#if ownerLabel}
     <p class="mb-1 text-sm text-zinc-500 dark:text-zinc-400">{s.ownerCaption(ownerLabel)}</p>

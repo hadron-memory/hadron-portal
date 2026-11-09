@@ -97,6 +97,13 @@ describe('gqlClient redirect policy (#1647)', () => {
     expect(JSON.parse(hits[0].body)).toMatchObject({ query: MUTATION, variables: VARIABLES });
   });
 
+  it('forwards an abort signal instead of issuing an already-cancelled request', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(gqlClient('token', controller.signal).request(QUERY)).rejects.toThrow();
+    expect(hits).toHaveLength(0);
+  });
+
   it('a client without a token sends no Authorization header', async () => {
     await gqlClient().request(QUERY);
     expect(hits[0].authorization).toBeUndefined();

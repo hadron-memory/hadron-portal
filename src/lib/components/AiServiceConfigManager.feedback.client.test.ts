@@ -75,7 +75,10 @@ function config(over: Partial<AiServiceConfig> = {}): AiServiceConfig {
   };
 }
 
-async function open(props: Props = {}, component = AiServiceConfigSection) {
+async function open(
+  props: Props = {},
+  component: typeof AiServiceConfigSection | typeof AiServiceConfigManager = AiServiceConfigSection,
+) {
   const m = mountComponent(component as never, reactiveProps({
     ownerType: 'ORGANIZATION', ownerId: 'o1', configs: [], canManage: true, allowTest: true,
     members: [{ user: { id: 'u1' }, role: 'ADMIN' }], currentUserId: 'u1',
@@ -137,6 +140,15 @@ function menuDelete(root: HTMLElement, name = 'default'): void {
     .find((x) => x.textContent?.trim() === 'Delete');
   if (!item) throw new Error('no Delete menu item');
   item.click();
+  flushSync();
+}
+
+function cancelDelete(root: HTMLElement): void {
+  const question = [...root.querySelectorAll<HTMLSpanElement>('span')]
+    .find((el) => el.textContent?.trim() === aiConfigStrings.confirmQuestion())!;
+  const cancel = [...question.parentElement!.querySelectorAll<HTMLButtonElement>('button')]
+    .find((el) => el.textContent?.trim() === 'Cancel')!;
+  cancel.click();
   flushSync();
 }
 
@@ -2086,6 +2098,245 @@ describe('AI configuration code-review lifecycle pins', () => {
     await settle();
     const update = posts.find((body) => body.action === 'update');
     expect(update).toMatchObject({ id: 'created-id', endpoint: null });
+  });
+
+  it('refuses a standalone principal that becomes empty after mount', async () => {
+    const m = await open({}, AiServiceConfigManager);
+    m.props.currentUserId = '';
+    expect(() => flushSync()).toThrow('currentUserId');
+  });
+
+  it('uses the latest acknowledged update when the old configs row is retained', async () => {
+    let releaseUpdate!: (reply: Reply) => void;
+    const original = config({ endpoint: null });
+    const acknowledged = config({ endpoint: 'https://new.example' });
+    stubFetch((body) => {
+      if (body.action === 'update') return new Promise<Reply>((resolve) => { releaseUpdate = resolve; });
+      return {};
+    });
+    const m = mountComponent(AiServiceConfigManager as never, {
+      ownerType: 'ORGANIZATION', ownerId: 'o1', currentUserId: 'u1', configs: [original],
+      canManage: true, allowTest: true, onCommitted: async () => {},
+    } as never) as Mounted<Props>;
+    mounted.push(m);
+    await tick(2);
+    editRow(m.target);
+    await settle();
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://new.example');
+    button(m.target, 'Save').click();
+    await tick(2);
+
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, '');
+    releaseUpdate({ body: { ok: true, config: acknowledged } });
+    await settle();
+
+    button(m.target, 'Save').click();
+    await settle();
+    const updates = posts.filter((body) => body.action === 'update');
+    expect(updates).toHaveLength(2);
+    expect(updates[1]).toMatchObject({ id: 'c1', endpoint: null });
+  });
+
+  it('keeps the acknowledged baseline when an older readback is reused', async () => {
+    let releaseUpdate!: (reply: Reply) => void;
+    const original = config({ endpoint: null });
+    const acknowledged = config({ endpoint: 'https://new.example' });
+    stubFetch((body) => {
+      if (body.action === 'update') return new Promise<Reply>((resolve) => { releaseUpdate = resolve; });
+      return {};
+    });
+    const m = await open({ configs: [original], onCommitted: async () => {} }, AiServiceConfigManager);
+    editRow(m.target);
+    await settle();
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://new.example');
+    button(m.target, 'Save').click();
+    await tick(2);
+
+    m.props.configs = [config({ endpoint: 'https://external.example' })];
+    await settle();
+    m.props.configs = [original];
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, '');
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-7');
+    releaseUpdate({ body: { ok: true, config: acknowledged } });
+    await settle();
+
+    button(m.target, 'Save').click();
+    await settle();
+    const updates = posts.filter((body) => body.action === 'update');
+    expect(updates).toHaveLength(2);
+    expect(updates[1]).toMatchObject({ id: 'c1', endpoint: null });
+  });
+
+  it('retains an acknowledged update when another row’s delete confirmation supersedes the action', async () => {
+    let releaseUpdate!: (reply: Reply) => void;
+    const original = config({ endpoint: null });
+    const acknowledged = config({ endpoint: 'https://new.example' });
+    stubFetch((body) => {
+      if (body.action === 'update') return new Promise<Reply>((resolve) => { releaseUpdate = resolve; });
+      return {};
+    });
+    const m = await open({ configs: [original, config({ id: 'c2', name: 'other' })], onCommitted: async () => {} }, AiServiceConfigManager);
+    editRow(m.target);
+    await settle();
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://new.example');
+    button(m.target, 'Save').click();
+    await tick(2);
+
+    menuDelete(m.target, 'other');
+    cancelDelete(m.target);
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, '');
+    releaseUpdate({ body: { ok: true, config: acknowledged } });
+    await settle();
+
+    button(m.target, 'Save').click();
+    await settle();
+    const updates = posts.filter((body) => body.action === 'update');
+    expect(updates).toHaveLength(2);
+    expect(updates[1]).toMatchObject({ id: 'c1', endpoint: null });
+  });
+
+  it('promotes a preserved create draft after another row’s delete confirmation supersedes the action', async () => {
+    let releaseCreate!: (reply: Reply) => void;
+    let createCalls = 0;
+    const created = config({ id: 'created-id', name: 'fast' });
+    stubFetch((body) => {
+      if (body.action === 'create') {
+        createCalls++;
+        if (createCalls === 1) return new Promise<Reply>((resolve) => { releaseCreate = resolve; });
+        return { body: { ok: true, config: created } };
+      }
+      if (body.action === 'update') return { body: { ok: true, config: created } };
+      return {};
+    });
+    const m = await open({ configs: [config()], onCommitted: async () => {} }, AiServiceConfigManager);
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await tick(2);
+
+    menuDelete(m.target);
+    cancelDelete(m.target);
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-6');
+    releaseCreate({ body: { ok: true, config: created } });
+    await settle();
+
+    button(m.target, 'Save').click();
+    await settle();
+    expect(createCalls).toBe(1);
+    expect(posts.filter((body) => body.action === 'update')).toHaveLength(1);
+    expect(posts.find((body) => body.action === 'update')).toMatchObject({ id: 'created-id' });
+  });
+
+  it('tests the visible acknowledged model rather than a newer listed server row', async () => {
+    let releaseUpdate!: (reply: Reply) => void;
+    stubFetch((body) => {
+      if (body.action === 'update') return new Promise<Reply>((resolve) => { releaseUpdate = resolve; });
+      if (body.action === 'testSaved') return { body: { ok: true, result: {
+        ok: true, provider: 'glm', model: 'glm-6', endpoint: null, apiStyle: 'CHAT_COMPLETIONS',
+        latencyMs: 1, reply: 'ok', error: null,
+        used: { provider: 'SAVED', model: 'OVERRIDE', endpoint: 'SAVED', apiStyle: 'SAVED', key: 'SAVED' },
+      } } };
+      return {};
+    });
+    const m = await open({ configs: [config({ model: 'glm-5' })], onCommitted: async () => {} }, AiServiceConfigManager);
+    editRow(m.target);
+    await settle();
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-6');
+    button(m.target, 'Save').click();
+    await tick(2);
+    set($<HTMLInputElement>(m.target, '#ac-name')!, 'renamed');
+    releaseUpdate({ body: { ok: true, config: config({ model: 'glm-6' }) } });
+    await settle();
+
+    m.props.configs = [config({ model: 'glm-7' })];
+    await settle();
+    button(m.target, 'Test').click();
+    await settle();
+    expect(posts.find((body) => body.action === 'testSaved')).toMatchObject({
+      id: 'c1', override: { model: 'glm-6' },
+    });
+  });
+
+  it('locks a superseded preserved create draft when the response omits the row', async () => {
+    let releaseCreate!: (reply: Reply) => void;
+    stubFetch((body) => {
+      if (body.action === 'create') return new Promise<Reply>((resolve) => { releaseCreate = resolve; });
+      return {};
+    });
+    const m = await open({ configs: [config()], onCommitted: async () => {} }, AiServiceConfigManager);
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await tick(2);
+    menuDelete(m.target);
+    cancelDelete(m.target);
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-6');
+
+    releaseCreate({ body: { ok: true } });
+    await settle();
+    expect(m.target.textContent).toContain('couldn’t confirm the change went through');
+    expect(button(m.target, 'Save').disabled).toBe(true);
+    expect(posts.filter((body) => body.action === 'create')).toHaveLength(1);
+  });
+
+  it('consumes Remove key before a retained editor accepts a replacement', async () => {
+    let releaseUpdate!: (reply: Reply) => void;
+    let updateCalls = 0;
+    stubFetch((body) => {
+      if (body.action === 'update') {
+        updateCalls++;
+        if (updateCalls === 1) return new Promise<Reply>((resolve) => { releaseUpdate = resolve; });
+        return { body: { ok: true, config: config({ ownerType: 'HADRON_SERVER', provider: 'openai', hasApiKey: true }) } };
+      }
+      return {};
+    });
+    const ambient = config({ ownerType: 'HADRON_SERVER', provider: 'openai' });
+    const m = await open({ ownerType: 'HADRON_SERVER', ownerId: 'host', configs: [ambient], onCommitted: async () => {} }, AiServiceConfigManager);
+    editRow(m.target);
+    await settle();
+    const remove = [...m.target.querySelectorAll<HTMLLabelElement>('label')]
+      .find((label) => label.textContent?.includes('Remove the stored key'))!
+      .querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    remove.click();
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'gpt-5');
+    button(m.target, 'Save').click();
+    await tick(2);
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'gpt-5.1');
+    releaseUpdate({ body: { ok: true, config: config({ ownerType: 'HADRON_SERVER', provider: 'openai', model: 'gpt-5', hasApiKey: false }) } });
+    await settle();
+
+    set($<HTMLInputElement>(m.target, '#ac-key')!, 'sk-replacement');
+    button(m.target, 'Save').click();
+    await settle();
+    expect(posts.filter((body) => body.action === 'update')).toHaveLength(2);
+    expect(posts.filter((body) => body.action === 'update')[1]).toMatchObject({ apiKeyAction: 'set', apiKey: 'sk-replacement' });
+  });
+
+  it('tests a visible value that matches a stale listed row rather than the acknowledged row', async () => {
+    let releaseUpdate!: (reply: Reply) => void;
+    stubFetch((body) => {
+      if (body.action === 'update') return new Promise<Reply>((resolve) => { releaseUpdate = resolve; });
+      if (body.action === 'testSaved') return { body: { ok: true, result: {
+        ok: true, provider: 'glm', model: 'glm-5', endpoint: null, apiStyle: 'CHAT_COMPLETIONS',
+        latencyMs: 1, reply: 'ok', error: null,
+        used: { provider: 'SAVED', model: 'OVERRIDE', endpoint: 'SAVED', apiStyle: 'SAVED', key: 'SAVED' },
+      } } };
+      return {};
+    });
+    const m = await open({ configs: [config({ model: 'glm-5' })], onCommitted: async () => {} }, AiServiceConfigManager);
+    editRow(m.target);
+    await settle();
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-6');
+    button(m.target, 'Save').click();
+    await tick(2);
+    set($<HTMLInputElement>(m.target, '#ac-name')!, 'renamed');
+    releaseUpdate({ body: { ok: true, config: config({ model: 'glm-6' }) } });
+    await settle();
+
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-5');
+    button(m.target, 'Test').click();
+    await settle();
+    expect(posts.find((body) => body.action === 'testSaved')).toMatchObject({
+      id: 'c1', override: { model: 'glm-5' },
+    });
   });
 
   it('refreshes the fallback baseline after a preserved update', async () => {
