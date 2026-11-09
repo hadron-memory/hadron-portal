@@ -74,6 +74,7 @@ describe('compile and approval outcomes', () => {
     const result = await writeInstallPrompt({ request } as never, owner, { intent: 'approve', nodeId: 'c', revision: 3 }, false);
     expect(result.ok).toBe(true); expect(request.mock.calls[7][1]).toEqual({ nodeRef: 'c', revision: 3 });
     expect(result.text).toContain('Sessions already open keep the revision');
+    expect(result.text).not.toMatch(/sign(?!ed in| in)/i);
     expect(result.text).toContain('next bind would get revision 3');
   });
 });

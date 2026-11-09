@@ -10,7 +10,7 @@ describe('portal#1674 compile copy follows returned approval, not serving', () =
     const result = await writeInstallPrompt({ request } as never, owner, { intent: 'compile' }, false);
     expect(result.ok).toBe(true);
     expect(result.text).toContain('Its existing approval still applies.');
-    expect(result.text).toContain('Compiling didn’t approve or sign it.');
+    expect(result.text).not.toMatch(/sign(?!ed in| in)/i);
     expect(result.text).not.toContain('isn’t approved yet');
     expect(result.text).toContain('Couldn’t read');
     expect(request.mock.calls[1][0]).toMatch(/node\s*\{[^}]*revision[^}]*approvalStatus\s*\{\s*state/);
@@ -27,7 +27,7 @@ describe('portal#1674 compile copy follows returned approval, not serving', () =
     const request = vi.fn().mockResolvedValueOnce(worker).mockResolvedValueOnce({ compileWorkerBootPrompt: { revNo: 3, node: { id: 'c', revision, approvalStatus: state ? { state } : null } } }).mockResolvedValueOnce({ worker: { bootPromptServe: { refusal: null, served: { compiledNodeId: 'other', servedRevSeq: 1, pointerLevel: 'APP_AGENT' } } } }).mockResolvedValueOnce(worker);
     const result = await writeInstallPrompt({ request } as never, { level: 'worker', worker: 'w', app: 'a', agent: 'g' }, { intent: 'compile' }, false);
     expect(result.text).toContain(copy);
-    expect(result.text).toContain('Compiling didn’t approve or sign it.');
+    expect(result.text).not.toMatch(/sign(?!ed in| in)/i);
     expect(result.text).toContain('revision 1');
     if (copy.startsWith('Couldn’t')) expect(result.text).not.toContain('isn’t approved yet');
   });

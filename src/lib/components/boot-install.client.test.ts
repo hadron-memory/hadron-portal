@@ -15,6 +15,19 @@ function mount(props: { owner: typeof owner; canManage: boolean | null; imperson
 }
 const button = (root: HTMLElement, text: string) => [...root.querySelectorAll('button')].find(b => b.textContent === text)!;
 describe('portal#1666 mounted writes', () => {
+  it('keeps signing out of pre-button compile and approval copy', async () => {
+    const compiled = { id: 'c', urn: 'hrn:node:example.com:install:boot:compiled', revision: 3, content: 'Synthetic prompt', pending: true, approvalStatus: { state: 'NOT_APPROVED' } };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({ ...view, compiled })));
+    const m = mount({ owner, canManage: true }); await settle();
+    expect(button(m.target, 'Update the prompt')).toBeTruthy();
+    expect(button(m.target, 'Approve revision 3')).toBeTruthy();
+    // Provenance selection settings are separate from the action copy.
+    const controls = m.target.querySelector('button')!.closest('section') ?? m.target;
+    for (const el of controls.querySelectorAll('button, p')) {
+      if (!el.closest('[aria-label="Compiled prompt provenance"]')) expect(el.textContent).not.toMatch(/sign(?!ed in| in)/i);
+    }
+  });
+
   it.each([false, null])('hides every write for unknown or non-manager %s', async canManage => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(view)));
     const m = mount({ owner, canManage }); await settle();
