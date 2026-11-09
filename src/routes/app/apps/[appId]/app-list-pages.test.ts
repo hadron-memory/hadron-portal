@@ -21,6 +21,7 @@ it('stops at total or no progress, with a route back from a now-empty old page',
   expect(appListNavigation(url, 'configOffset', 'ai-configs', 20, 1, 21).nextHref).toBeNull();
   const empty = appListNavigation(url, 'configOffset', 'ai-configs', 40, 0, 1);
   expect(empty.nextHref).toBeNull();
+  expect(empty.total).toBe(1);
   expect(empty.firstHref).toBe('/app/apps/a?tab=ai-configs');
 });
 
