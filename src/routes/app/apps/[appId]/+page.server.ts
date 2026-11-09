@@ -397,7 +397,7 @@ function castReportingArm(data: { reporting: string; reportsTo: string }): { rep
  * unknown outcome, and neither is ever retried.
  */
 const ADD_AGENT_ERRORS: Record<string, () => string> = {
-  AGENT_ORG_GRANT_INACTIVE: () => t('app.agent.add.grant-inactive', 'This App’s organization has an inactive grant for that agent, so it can’t be installed. Ask the organization to restore the grant.'),
+  AGENT_ORG_GRANT_INACTIVE: () => t('app.agent.add.grant-inactive', 'This App’s organization has an inactive grant for that agent, so it can’t be installed.'),
   AGENT_ORG_GRANT_REQUIRED: () => t('app.agent.add.grant-required', 'This App’s organization needs a grant for that agent before it can be installed.'),
 };
 
