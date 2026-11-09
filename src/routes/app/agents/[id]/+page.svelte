@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TabRow from '$lib/components/TabRow.svelte';
   import BootProvenance from '$lib/components/BootProvenance.svelte';
   import AgentMemberRolesEditor from './AgentMemberRolesEditor.svelte';
   import BootPromptSource from './BootPromptSource.svelte';
@@ -800,26 +801,8 @@
       <NodeActionsMenu label={t('agent.actions.label', 'Agent actions')} actions={profileActions} />
     {/if}
   </div>
-
-  <!-- Tabs — #747: the third instance of the strip #746 fixed on the App detail
-       page, and the one that gates a MemoryBrowser mount: the Nodes tab lives
-       behind it, so the component being usable at phone widths is moot if the
-       tab reaching it runs off the screen. Up to eight tabs here.
-       `shrink-0 whitespace-nowrap` is what makes it SCROLL rather than squash
-       the labels into unreadable columns. -->
-  <div class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
-    {#each tabs as tab}
-      <button
-        onclick={() => activeTab = tab.id}
-        class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
-          {activeTab === tab.id
-            ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-            : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
-      >
-        {tab.label}
-      </button>
-    {/each}
-  </div>
+  <TabRow items={tabs} active={activeTab} label={t('agent.tabs-label', 'Agent sections')} onselect={(id) => activeTab = id as typeof activeTab} />
+  <div class="space-y-4" role="tabpanel" id="panel-{activeTab}" aria-labelledby="tab-{activeTab}" tabindex="0">
 
   <!-- Action feedback lives at page level so it stays visible no matter which
        tab's form produced it (#352 split the agent / memory / delete forms
@@ -1732,4 +1715,6 @@
       </section>
     </div>
   {/if}
+
+  </div>
 </div>

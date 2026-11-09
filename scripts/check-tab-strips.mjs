@@ -1,5 +1,10 @@
 #!/usr/bin/env node
 /**
+ * #1408: nine route rows now use TabRow; its mounted tests and Chromium
+ * test:tab-row-layout cover that measured implementation. This shape-based
+ * guard covers the five remaining legacy strips. Historical census below is
+ * provenance, not a claim that this predicate parses the shared component.
+ *
  * #858 — a horizontal tab strip in the portal's narrow content column must not
  * push the page off a phone screen.
  *
@@ -808,10 +813,10 @@ function main() {
   // sub-tab bar specifically (@copilot on #863). The check is about phone-width
   // overflow; scrolling is one of two ways to satisfy it.
   console.log(
-    `OK — the ${stripsSeen} tab strip(s) this gate can parse do not overflow a phone screen (${files.length} .svelte files).`,
+    `OK — the ${stripsSeen} legacy tab strip(s) this gate can parse do not overflow a phone screen (${files.length} .svelte files).`,
   );
   console.log(
-    `The other ${railsSeen - stripsSeen} rail(s) matching flex+border-b resolved to no border-b-2 children. Today all seven are genuinely not tab strips, and the suite pins them BY NAME — but this line reports what the predicate resolved, not that the rest are safe: a strip whose classes come from an imported or runtime-built constant would land here too. See #858.`,
+    `The other ${railsSeen - stripsSeen} rail(s) matching flex+border-b resolved to no border-b-2 children. The known non-strip rails are pinned by name in the suite, and the suite pins them BY NAME — but this line reports what the predicate resolved, not that the rest are safe: a strip whose classes come from an imported or runtime-built constant would land here too. See #858.`,
   );
 }
 
