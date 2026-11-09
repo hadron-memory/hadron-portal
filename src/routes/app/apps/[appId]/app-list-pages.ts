@@ -25,7 +25,7 @@ export function appListNavigation(
   // with a larger total is not the end (hrn:node:hadronmemory.com:specs:cor:api:120:04).
   const next = offset + count;
   return {
-    offset, count, total: Math.max(total, offset + count),
+    offset, count, total: count > 0 ? Math.max(total, offset + count) : total,
     firstHref: offset > 0 ? href(0) : null,
     previousHref: offset > 0 ? href(Math.max(0, offset - (count || APP_DISPLAY_PAGE_SIZE))) : null,
     nextHref: count > 0 && (next < total || count === APP_DISPLAY_PAGE_SIZE) && next <= MAX_OFFSET ? href(next) : null,
