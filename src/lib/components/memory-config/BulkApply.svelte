@@ -128,7 +128,7 @@
         <h3 class="font-semibold">{report.dryRun ? t('config.preview-heading', 'Preview: nothing has been changed') : t('config.bulk.applied-heading', 'Apply finished')}</h3>
         {#if report.dryRun}
           {@const split = changeSplit(report.results)}
-          <p>{t('config.bulk.preview-summary', '{change} will change, {skipped} will be skipped, {failed} can’t be applied', { change: split.change, skipped: split.skipped, failed: report.failed })}</p>
+          <p>{t('config.bulk.preview-summary', '{change} will change, {skipped} will change nothing, {failed} can’t be applied', { change: split.change, skipped: split.skipped, failed: report.failed })}</p>
           {#if settled.length}<p>{t('config.bulk.retry-preview', 'These memories have not been retried yet. Check the preview, then apply.')}</p>{/if}
           {#if revision === null}<p>{!report.results.some(entry => entry.ok) ? t('config.bulk.no-ok', 'No memory in this preview can take the template. Change the list and preview again.') : t('config.bulk.revisions-disagree', 'This preview saw different versions of the template. Preview again before applying.')}</p>{/if}
         {:else}
@@ -155,7 +155,7 @@
   {#if report?.dryRun}
     {#if required}<p class="rounded bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">{t('config.required-warning', 'Applied rules arrive locked: ordinary edits and deletion are refused. On an org memory only an org admin can unlock them.')}</p>{/if}
     <p>{t('config.bulk.preview-may-differ', 'This preview may differ from the apply if memories change in between.')}</p>
-    {#if revision !== null && report.failed > 0}<p>{t('config.bulk.apply-sends-all', 'Apply sends every memory in this list, including any that can’t take the template in this preview.')}</p>{/if}
+    {#if revision !== null && report.failed > 0}<p>{t('config.bulk.apply-sends-all', 'Apply sends every memory in this list, including any that can’t be applied in this preview.')}</p>{/if}
   {/if}
   {#if unknown}
     {#if required}<p class="rounded bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">{t('config.bulk.reapply-warning', 'This template is required: applying it again replaces each chosen memory’s rule again and discards edits made since.')}</p>{/if}

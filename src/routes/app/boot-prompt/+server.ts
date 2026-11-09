@@ -29,7 +29,8 @@ export const GET: RequestHandler = async ({ url, locals, setHeaders }) => {
 };
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.user || locals.impersonation) return json({ ok: false, text: t('boot.install.person-required', 'This prompt can’t be updated here. Sign in as yourself.') }, { status: 403 });
-  if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) return json({ ok: false }, { status: 415 });
+  const mediaType = request.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase();
+  if (mediaType !== 'application/json') return json({ ok: false }, { status: 415 });
   let body;
   try { body = await request.json(); } catch { return json({ ok: false }, { status: 400 }); }
   const owner = ownerOf(body.owner);

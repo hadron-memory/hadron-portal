@@ -68,7 +68,7 @@ describe('entry and boundary', () => {
     (navigationGuards.find(g => g.fn === 'beforeNavigate')!.callback as (e: { cancel: () => void }) => void)({ cancel });
     expect(cancel).toHaveBeenCalledOnce();
     settleIt(answer([ok(0)]));
-    await settle(() => expect(panel.textContent).toContain('1 will change, 0 will be skipped, 0 can’t be applied'));
+    await settle(() => expect(panel.textContent).toContain('1 will change, 0 will change nothing, 0 can’t be applied'));
   });
   it('dims every control it disables, in the panel and behind it', async () => {
     let settleIt!: (v: unknown) => void;
@@ -152,12 +152,12 @@ describe('dry run first', () => {
     expect(sent(0)).toEqual({ kind: 'bulk', op: 'preview', ref: 't1', memoryRefs: ['m0', 'm1'] });
     expect(panel.querySelectorAll('tbody tr').length).toBe(2);
     expect(panel.textContent).toContain('Will be replaced');
-    expect(panel.textContent).toContain('1 will change, 0 will be skipped, 1 can’t be applied');
+    expect(panel.textContent).toContain('1 will change, 0 will change nothing, 1 can’t be applied');
     expect(panel.textContent).not.toMatch(/succeeded|failed/);
     expect(panel.textContent).toContain('This preview may differ from the apply if memories change in between.');
   });
-  it('says Apply sends the rows that can’t take the template, and only when there are any', async () => {
-    const note = 'Apply sends every memory in this list, including any that can’t take the template in this preview.';
+  it('says Apply sends the rows that can’t be applied, and only when there are any', async () => {
+    const note = 'Apply sends every memory in this list, including any that can’t be applied in this preview.';
     const m = mount(); const panel = open(m.target); pick(panel, 2);
     await preview(panel, [ok(0), bad(1, 'MEMORY_NOT_FOUND')]);
     expect(panel.textContent).toContain(note);
@@ -221,12 +221,12 @@ describe('summary counts what actually changes (#1763)', () => {
   it('a preview with an all-skipped row shows it apart from rows that change', async () => {
     const m = mount(); const panel = open(m.target); pick(panel, 3);
     await preview(panel, [ok(0, { outcome: 'SKIPPED_LOCKED' }), ok(1), bad(2, 'MEMORY_NOT_FOUND')]);
-    expect(panel.textContent).toContain('1 will change, 1 will be skipped, 1 can’t be applied');
+    expect(panel.textContent).toContain('1 will change, 1 will change nothing, 1 can’t be applied');
   });
   it('a row with some rules skipped and some applied counts as changing', async () => {
     const m = mount(); const panel = open(m.target); pick(panel, 1);
     await preview(panel, [ok(0, { entries: [{ role: 'review', outcome: 'SKIPPED_LOCKED' }, { role: 'author', outcome: 'APPLIED' }] })]);
-    expect(panel.textContent).toContain('1 will change, 0 will be skipped, 0 can’t be applied');
+    expect(panel.textContent).toContain('1 will change, 0 will change nothing, 0 can’t be applied');
   });
   it('the applied report carries the same split', async () => {
     const m = mount(); const panel = await applied(m.target, [0, 1, 2]);

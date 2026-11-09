@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TabRow from '$lib/components/TabRow.svelte';
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import AppRunsPanel from './runs/AppRunsPanel.svelte';
   import TaskIntegrations from './TaskIntegrations.svelte';
@@ -7,7 +8,7 @@
   import WorkerDeleteDialog from './WorkerDeleteDialog.svelte';
   import StopBanner from '$lib/components/stops/StopBanner.svelte';
   import { rosterOf } from '$lib/withheld';
-  import { env } from '$env/dynamic/public';
+  import { publicServerBaseUrl } from '$lib/public-server-base-url';
   import { tick, untrack, onDestroy } from 'svelte';
   import { applyAction } from '$app/forms';
   import { beforeNavigate, goto, afterNavigate, invalidateAll, preloadData, replaceState } from '$app/navigation';
@@ -1133,20 +1134,7 @@
       if (mine === tabNavigation) tabNavigationPending = false;
     }
   }
-  function onTabKeydown(e: KeyboardEvent) {
-    const order = tabs.map((tt) => tt.id);
-    const focusedId = (e.currentTarget as HTMLElement | null)?.id?.replace(/^tab-/, '');
-    const from = focusedId && order.includes(focusedId as TabId) ? (focusedId as TabId) : activeTab;
-    const i = order.indexOf(from);
-    // Left/Right ONLY: this tablist is HORIZONTAL (no aria-orientation),
-    // so Up/Down must keep their normal page-scrolling behaviour rather
-    // than changing section under a keyboard user who is just scrolling
-    // (@codex on #769).
-    if (e.key === 'ArrowRight') { e.preventDefault(); focusTab(order[(i + 1) % order.length]); }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); focusTab(order[(i - 1 + order.length) % order.length]); }
-    else if (e.key === 'Home') { e.preventDefault(); focusTab(order[0]); }
-    else if (e.key === 'End') { e.preventDefault(); focusTab(order[order.length - 1]); }
-  }
+
 
   // URN slug helpers — slug is the part after the org URN's prefix.
   function slugOfUrn(urn: string): string {
@@ -1848,7 +1836,7 @@
   // #990: hadron-client is retired, so setup always talks to the server
   // directly; the old "With Client App" mode (localhost:3200, client hooks)
   // is gone.
-  const serverUrl = env.PUBLIC_SERVER_URL ?? 'http://localhost:4000';
+  const serverUrl = publicServerBaseUrl();
   const mcpUrl = $derived(serverUrl.includes('localhost') ? serverUrl + '/mcp' : serverUrl.replace(/\/$/, '') + '/mcp');
 
   function claudeCodeMcpConfig(url: string, apiKey: string) {
@@ -2125,94 +2113,18 @@
       </p>
     </div>
   {/if}
-
-  <!-- Tabs — #740: the strip scrolls horizontally instead of overflowing the
-       page. A team App showed seven of these when this was written (~570px
-       of tabs), and up to ten since Channels and #1007/#1008's App Keys and
-       AI Service Configs; at 375px they ran straight off the right edge and
-       took the panel bodies with them. `shrink-0` + `whitespace-nowrap` on each tab is what makes it
-       SCROLL rather than compress — without them flex squeezes every label
-       into an unreadable column instead. -->
   <!-- portal#1139: the stops in effect, prominent above the sections. -->
   <StopBanner live={data.liveStops} workers={(data.staff ?? []).map((w) => ({ id: w.id, name: w.name, urn: w.urn ?? null }))} href="/app/apps/{app.id}/stops" />
 
-  <div class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
-    <!-- #768 — the ARIA tab pattern. These controls swap mutually exclusive
-         panels IN PLACE, which is what role="tab" describes; the previous
-         `aria-current="page"` announced NAVIGATION and left the panels
-         programmatically unrelated to the strip.
-
-         The tablist is an inner flex box rather than this container, because
-         the other subroute links below must not sit
-         inside a tablist. -->
-    <div role="tablist" aria-label={t('app.tabs-label', 'App sections')} class="flex shrink-0">
-      {#each tabs as tab (tab.id)}
-        <button
-          type="button"
-          role="tab"
-          id="tab-{tab.id}"
-          aria-selected={activeTab === tab.id}
-          aria-controls="panel-{tab.id}"
-          tabindex={activeTab === tab.id ? 0 : -1}
-          onclick={() => { void focusTab(tab.id); }}
-          onkeydown={onTabKeydown}
-          class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
-            {activeTab === tab.id
-              ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-              : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
-        >
-          {tab.label}
-        </button>
-      {/each}
-    </div>
-    <!-- #942: Channels is a subroute too (its own forms and table), linked like Runs. -->
-    <a
-      href="/app/apps/{app.id}/channels"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.channels', 'Channels')}
-    </a>
-    <!-- #1052: Tasks is a subroute too: its reads refuse a non-participant
-         (APP_NOT_FOUND), and that must never reach this page's loader. -->
-    <a
-      href="/app/apps/{app.id}/tasks"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.tasks', 'Tasks')}
-    </a>
-    <!-- #1099: Tickers is a subroute for the same reason: a ticker read
-         answers a non-participant APP_NOT_FOUND. -->
-    <a
-      href="/app/apps/{app.id}/tickers"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.tickers', 'Tickers')}
-    </a>
-    <!-- #1139: Stops is a subroute: its reads answer a non-participant APP_NOT_FOUND,
-         and that must never reach this page's loader. -->
-    <a
-      href="/app/apps/{app.id}/stops"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.stops', 'Stops')}
-    </a>
-    <!-- #1649: the action register is a subroute: its read answers a non-participant
-         APP_NOT_FOUND, and that must never reach this page's loader. -->
-    <a
-      href="/app/apps/{app.id}/register"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.register', 'Action register')}
-    </a>
-    <!-- #1299: Automations is a subroute: its reads answer a reader who may not adopt
-         with nothing, and that must never reach this page's loader. -->
-    <a
-      href="/app/apps/{app.id}/automations"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.automations', 'Automations')}
-    </a>
-  </div>
+  <TabRow items={[
+    ...tabs,
+    { id: 'channels', label: t('app.tabs.channels', 'Channels'), href: `/app/apps/${app.id}/channels` },
+    { id: 'tasks', label: t('app.tabs.tasks', 'Tasks'), href: `/app/apps/${app.id}/tasks` },
+    { id: 'tickers', label: t('app.tabs.tickers', 'Tickers'), href: `/app/apps/${app.id}/tickers` },
+    { id: 'stops', label: t('app.tabs.stops', 'Stops'), href: `/app/apps/${app.id}/stops` },
+    { id: 'register', label: t('app.tabs.register', 'Action register'), href: `/app/apps/${app.id}/register` },
+    { id: 'automations', label: t('app.tabs.automations', 'Automations'), href: `/app/apps/${app.id}/automations` }
+  ]} active={activeTab} label={t('app.tabs-label', 'App sections')} onselect={(id) => { void focusTab(id as TabId); }} />
 
   <!-- ───────────── CHATS TAB (#744) ─────────────
        Every conversation the App has, behind one selector: the agent chat, the
@@ -2613,6 +2525,7 @@
         </p>
       </div>
       <WorklogTable
+        serverPage={data.worklogPage}
         items={data.worklog ?? []}
         total={data.worklogTotal ?? 0}
         loadError={data.worklogError ?? false}
@@ -3263,7 +3176,12 @@
         </DataTable>
         {#if compileAgent}
           {#key `${data.bootPointerAppKey}:${compileAgent.id}`}
-            <BootInstallCompile bind:this={compilePanel} title={t('app.agents.compile-title', 'Boot prompt for {name} in this App', { name: compileAgent.name })} owner={{ level: 'app', app: data.app.id, agent: compileAgent.id }} canManage={data.canManageApp} {impersonating} />
+            <BootInstallCompile bind:this={compilePanel} title={t('app.agents.compile-title', 'Boot prompt for {name} in this App', { name: compileAgent.name })} owner={{ level: 'app', app: data.app.id, agent: compileAgent.id }} canManage={data.canManageApp} {impersonating} onClose={async () => {
+              const label = t('app.agents.actions.label', 'Actions for {name}', { name: compileAgent.name });
+              compileChoice = null;
+              await tick();
+              document.querySelector<HTMLButtonElement>(`button[aria-label="${CSS.escape(label)}"]`)?.focus();
+            }} />
           {/key}
         {/if}
         {#if customisationAgent}
@@ -3518,6 +3436,7 @@
         <AiServiceConfigSection
           ownerType="APP"
           ownerId={app.id}
+          pagination={data.configsPage}
           configs={data.appConfigs ?? []}
           members={org?.members ?? []}
           currentUserId={data.currentUserId}

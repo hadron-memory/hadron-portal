@@ -1,10 +1,10 @@
 import { nodeWriteErrorText } from '$lib/node-role-refusal';
-import { error, fail, redirect } from '@sveltejs/kit';
+import { error, fail, isRedirect, redirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
 import { runStartError, runStartStatus } from '$lib/server/run-start-error';
 import { runAgentChoice } from '$lib/run-agent';
 import type { InstalledAgent } from '$lib/app-installed-agents';
@@ -13,10 +13,10 @@ import { fetchAllItems } from '$lib/server/paginate';
 import { deletedEdgeEndpoints } from '$lib/server/deleted-edge-endpoints';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
-import { RECOVERY_NODE_QUERY, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APPS_RUNNABLE_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_EDGE_REMOVALS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
+import { RECOVERY_NODE_QUERY, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APPS_RUNNABLE_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_EDGE_REMOVALS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, REQUEST_SIGNATURE_MUTATION, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
 import { bindToRevision, type NodeProvenance, type ProvenanceResult } from '$lib/node-provenance';
 import { bindMintToRevision, type NodeMintStatus } from '$lib/node-mint';
-import { bindSignaturesToRevision, type NodeSignatureRead, type NodeSignatureStatus } from '$lib/node-signatures';
+import { bindSignaturesToRevision, signatureRequestRefusalText, type NodeSignatureRead, type NodeSignatureStatus } from '$lib/node-signatures';
 import { deploymentOffersSigning } from '$lib/server/signing-capability';
 import { approvalRefusalStatus, approveRefusalText, bindApprovalToRevision, integrityText, verifyFailureText, type NodeApprovalRead, type NodeApprovalStatus, type NodeIntegrityCheck } from '$lib/node-approval';
 // #868: every node write on this page goes through the door chooser. The
@@ -396,9 +396,13 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // a request of their own, so a refusal or a failure only leaves the
   // signatures unshown. The field exists only while the deployment offers
   // signing (hadron-server#1895/#1918); with signing off, selecting it fails
-  // validation, so no signature query goes out at all.
+  // validation, so no signature query goes out at all. The same answer gates
+  // the Sign affordance (returned as signingOffered, read by the
+  // requestSignature action), so the button and the query can never disagree
+  // about whether the deployment offers signing.
+  const signingOffered = deploymentOffersSigning(locals.token);
   const signatures: Promise<ProvenanceResult<NodeSignatureStatus>> = (async () => {
-    if (!(await deploymentOffersSigning(locals.token))) return { ok: false } as const;
+    if (!(await signingOffered)) return { ok: false } as const;
     try {
       const r = await gqlClient(locals.token).request<{ node: NodeSignatureRead | null }>(NODE_SIGNATURES_QUERY, { ref: node.id });
       return bindSignaturesToRevision(r?.node, node.revision);
@@ -599,6 +603,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     revisionProvenance,
     approval,
     signatures,
+    signingOffered,
     mint,
     discussion,
     commentSummary,
@@ -1417,6 +1422,71 @@ export const actions: Actions = {
       const code = extractGqlErrorCode(e);
       return message(form, { type: 'error', text: verifyFailureText(code) }, { status: approvalRefusalStatus(code) });
     }
+  },
+
+  // portal#1022 links half — the portal's leg of
+  // hrn:node:hadronmemory.com:specs:cor:dmo:130:08: create a
+  // signing request and hand over the ceremony page's link. NOT the ceremony:
+  // no assertion, no key material, nothing but the request and a redirect, so
+  // the signer always proves who they are on the page that shows what is
+  // signed. Plain form (no superforms): the only input is the revision the
+  // reader saw, pinned like an approval so an edit in between answers
+  // REVISION_MISMATCH instead of requesting a signature for text never
+  // reviewed. `redirect()` throws, so the catch rethrows it — the hand-over
+  // must never be swallowed into a refusal message.
+  requestSignature: async ({ request, params, locals }) => {
+    // A stale tab after signing out: the token is gone, and the capability
+    // gate below would fold that into "not offered" — a wrong reason for a
+    // reader whose actual problem is the dead session. Distinguish it first;
+    // the other actions on this page surface their auth failures from the
+    // server's UNAUTHENTICATED, and this one gets its own honest line.
+    if (!locals.token) {
+      return fail(400, {
+        requestSignatureError: t('node.signatures.request.signed-out', 'Your session has ended. Sign in again, then request the signature from the node page.'),
+      });
+    }
+    // The mutation exists in the SDL only while the deployment offers signing
+    // (hadron-server#1895/#1918); asking first keeps a switched-off server
+    // from answering every click with a validation error.
+    if (!(await deploymentOffersSigning(locals.token))) {
+      return fail(400, {
+        requestSignatureError: t('node.signatures.request.not-offered', 'This deployment does not offer node signing.'),
+      });
+    }
+    // Dorian's BLIND P2 on #1860: a missing or malformed revision must never
+    // degrade to `undefined` — the server would then pin its CURRENT revision,
+    // and the request could be for text the reader never saw. The page's other
+    // revision-pinned writes agree: saveNodeText answers no-baseline, the
+    // approve forms fail superforms validation. The portal always renders a
+    // revision, so the only way here is a tampered or broken form — refuse it
+    // and send nothing.
+    const revision = parseExpectedRevision((await request.formData()).get('revision'));
+    if (revision === null) {
+      return fail(400, {
+        requestSignatureError: t('node.signatures.request.stale-form', 'Reload the page — this form no longer matches the node on screen.'),
+      });
+    }
+    let failure: string | null = null;
+    try {
+      const r = await gqlClient(locals.token).request<{ requestNodeSignature: { ceremonyUrl: string } }>(
+        REQUEST_SIGNATURE_MUTATION,
+        { nodeRef: params.nodeId, expectedRevision: revision },
+      );
+      // ceremonyUrl is String! on SigningRequest! — the contract guarantees a
+      // URL, and any GraphQL-level failure threw into the catch below, so
+      // there is no lying-server branch here to pin with an illegal fixture
+      // (hrn:node:hadronmemory.com:hadron-portal:review:a-response-fixture-must-be-legal-under-the-schema).
+      // The SDL says copy it verbatim, never compose it.
+      redirect(303, r.requestNodeSignature.ceremonyUrl);
+    } catch (e: unknown) {
+      if (isRedirect(e)) throw e;
+      // A typed refusal gets portal copy; anything else — an internal error,
+      // an unknown code a newer server added, a transport failure — keeps the
+      // generic line, never a borrowed reason (the gql-error convention).
+      failure = signatureRequestRefusalText(extractGqlErrorCode(e))
+        ?? extractGqlError(e, t('node.signatures.request.failed', 'Could not start a signing request.'));
+    }
+    return fail(400, { requestSignatureError: failure });
   },
 
   updateEdges: async ({ request, params, locals }) => {

@@ -139,6 +139,13 @@ export function validateDrafts(drafts: readonly IntegrationDraft[]): Record<stri
   return errors;
 }
 
+export interface LeadWorker {
+  id: string;
+  name: string;
+  urn?: string | null;
+  retiredAt?: string | null;
+}
+
 export type LeadStatus =
   | { kind: 'live'; name: string; urn: string }
   | { kind: 'retired'; name: string; urn: string }
@@ -153,10 +160,10 @@ export type LeadStatus =
  */
 export function leadStatus(
   lead: string | null,
-  workers: readonly { id: string; name: string; urn?: string | null; retiredAt?: string | null }[] | null,
+  workers: readonly LeadWorker[] | null | undefined,
 ): LeadStatus {
   if (lead === null) return { kind: 'unknown' };
-  if (workers === null) return { kind: 'unchecked', urn: lead };
+  if (workers == null) return { kind: 'unchecked', urn: lead };
   const w = workers.find((x) => x.urn === lead || x.id === lead);
   if (!w) return { kind: 'missing', urn: lead };
   return w.retiredAt ? { kind: 'retired', name: w.name, urn: lead } : { kind: 'live', name: w.name, urn: lead };

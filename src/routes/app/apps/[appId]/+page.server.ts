@@ -1,3 +1,4 @@
+import { APP_DISPLAY_PAGE_SIZE, appListOffset, appListNavigation } from './app-list-pages';
 import { loadAppRunsPage, loadAppRunsExtras } from '$lib/server/app-runs-page';
 import { flowRoots } from '$lib/flow/flows';
 import { runAppFlow } from '$lib/server/run-app-flow';
@@ -536,10 +537,6 @@ function slugOfUrn(urn: string): string {
   return idx >= 0 ? urn.slice(idx + 1) : urn;
 }
 
-// Same cap and same reasoning as TEAM_CHAT_PAGE_SIZE: ask for the server's
-// maximum, and report the server's `total` so a truncated view can say so
-// rather than reading as the whole worklog.
-const WORKLOG_PAGE_SIZE = 200;
 // #744/#793 — how much of an arbitrary chat's transcript is fetched. The size
 // now comes from `$lib/server/team-chat` (CHAT_PAGE_SIZE) rather than a second
 // constant of the same name declared here: two "chat page size" values, 500 and
@@ -564,6 +561,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const worklogRef = normalizeFilter(url.searchParams.get('worklogRef'));
   const worklogKind = normalizeKind(url.searchParams.get('worklogKind'));
   const worklogTool = normalizeFilter(url.searchParams.get('worklogTool'));
+  const worklogOffset = appListOffset(url.searchParams, 'worklogOffset');
+  const configOffset = appListOffset(url.searchParams, 'configOffset');
 
   // `?tab=` so a filtered worklog URL lands on the worklog rather than the
   // page's default tab, and `?chat=` to preselect a conversation. Both rules
@@ -615,9 +614,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // member's call errors (the page hides the manager for them anyway).
     // Coerce to null so a transient failure surfaces as a load error to admins
     // instead of a misleading empty list.
-    fetchAllItems<AiServiceConfig>(client, AI_SERVICE_CONFIGS_QUERY, 'aiServiceConfigs', {
-      ownerType: 'APP', ownerId: params.appId,
-    }).catch(() => null),
+    client.request<{ aiServiceConfigs: { items: AiServiceConfig[]; total: number } }>(AI_SERVICE_CONFIGS_QUERY, {
+      ownerType: 'APP', ownerId: params.appId, limit: APP_DISPLAY_PAGE_SIZE, offset: configOffset,
+    }).then(r => r.aiServiceConfigs).catch(() => null),
     // #1005: the Human Team tab. null = the fetch failed, distinct from an App
     // with no members, so the tab can say so instead of showing "No members yet."
     // Bounded: a request that HANGS would otherwise hold every tab of the page.
@@ -798,7 +797,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         ref: worklogRef,
         kind: worklogKind,
         tool: worklogTool,
-        limit: WORKLOG_PAGE_SIZE,
+        limit: APP_DISPLAY_PAGE_SIZE,
+        offset: worklogOffset,
       })
       .then((r) => r.teamWorkItems)
       .catch((e) => {
@@ -1003,7 +1003,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     appNodes: nodesData.appNodes,
     appNodesCapped: isCapped(nodesData.appNodes?.length ?? 0, APP_NODES_LIMIT),
     chatConfigs,
-    appConfigs: configsData ?? [],
+    appConfigs: configsData?.items ?? [],
+    configsPage: appListNavigation(url, 'configOffset', 'ai-configs', configOffset, configsData?.items.length ?? 0, configsData?.total ?? 0),
     configsError: configsData === null,
     // #974: the App's staff. null = the fetch failed (distinct from []).
     staff,
@@ -1027,6 +1028,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // that state in the component.
     worklog: worklog?.items ?? [],
     worklogTotal: worklog?.total ?? 0,
+    worklogPage: appListNavigation(url, 'worklogOffset', 'worklog', worklogOffset, worklog?.items.length ?? 0, worklog?.total ?? 0),
     worklogError: worklog === null,
     // #744: the App's chats, the one selected, and its transcript when that
     // chat is neither the team chat nor the agent chat. `chatsError` is the

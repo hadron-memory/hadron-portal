@@ -100,7 +100,7 @@ export async function writeInstallPrompt(client: Client, owner: CompileOwner, in
   try {
     if (owner.level === 'worker') result = (await client.request<{ compileWorkerBootPrompt: typeof result }>(WORKER_COMPILE, { workerRef: owner.worker, setPointer: false })).compileWorkerBootPrompt;
     else result = (await client.request<{ compileAppAgentBootPrompt: typeof result }>(INSTALL_COMPILE, { appRef: owner.app, agentRef: owner.agent })).compileAppAgentBootPrompt;
-    if (!result?.node?.id || !Number.isInteger(result.revNo)) throw new Error('unknown outcome');
+    if (!result?.node?.id || !Number.isInteger(result.revNo) || result.revNo < 1) throw new Error('unknown outcome');
   } catch (e) {
     const code = extractGqlErrorCode(e);
     const text = compileRefusalText(code, extractGqlErrorExtensions(e)?.position, undefined, owner.level === 'app' ? 'App' : 'worker');
