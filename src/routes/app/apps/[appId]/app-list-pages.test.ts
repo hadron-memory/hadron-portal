@@ -52,14 +52,18 @@ it('retains a forward probe when a full page races a lagging count', () => {
   expect(page.nextHref).toContain('worklogOffset=20');
 });
 
-// #1875 documents the accepted race-only trace, not a bidirectional-history
-// promise. Next follows served rows; Previous subtracts the fixed page size.
-// Gate6743213150 / code-fact answer6743515074: no stable short non-terminal
-// serve on these two reads; no production pager or UX contract change here.
+// #1875 records existing race-only behavior, not a history-retrace promise.
+// The fixed requested page size is 20; these simulated raced responses serve
+// only 7 rows, with 41 reported total. Next adds the 7 served rows. Previous
+// uses max(0, offset - 20): from 14 it returns 0, skipping the visited 7.
+// That skip is explicitly accepted by the #1868/#1875 gates for this bounded
+// race case, not proposed here as ideal UX or a bidirectional-history contract.
+// The server code review for #1875 found no stable short non-terminal serve
+// on these two reads. This pin changes neither the pager nor that contract.
 it.each([
   ['worklogOffset', 'worklog', 'configOffset'],
   ['configOffset', 'ai-configs', 'worklogOffset'],
-] as const)('%s short-history trace is 0 → 7 → 14 → Previous → 0, not a retrace to 7', (key, tab, otherKey) => {
+] as const)('%s records the accepted race trace 0 → 7 → 14 → Previous → 0 (skips visited 7)', (key, tab, otherKey) => {
   let url = new URL(`https://example.test/app/apps/a?${otherKey}=40&worklogRef=a%23b`);
   const visited = [appListOffset(url.searchParams, key)];
   for (const expected of [7, 14]) {
