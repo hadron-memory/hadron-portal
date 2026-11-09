@@ -9,7 +9,7 @@
   import { invalidateAll, goto } from '$app/navigation';
   import { canonicalJson, parseDataSource, parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
   import { displayJson, JsonDraft, SIGNED_OUT, submitJsonDraft, syncDraftWith } from '$lib/json-draft.svelte';
-  import { deserialize } from '$app/forms';
+  import { deserialize, enhance } from '$app/forms';
   import { signinRedirectLocation } from '$lib/forms/signin-redirect';
   import { submitTextDraft, syncTextDraftWith, TextDraft } from '$lib/text-draft.svelte';
   import { abstractPlaceholder, abstractSearchHint } from '$lib/abstract-search-hint';
@@ -1979,6 +1979,33 @@
     });
   });
   const signatureState = $derived(signaturesView(signatureResult));
+  // portal#1022 links half: whether to offer the Sign affordance at all. Same
+  // streamed-and-guarded shape, fed by the loader's capability answer — the
+  // very promise that gates the signature query, so the button and the
+  // status read can never disagree about whether signing is offered.
+  let signingOn = $state<boolean | null>(null);
+  $effect(() => {
+    const p = data.signingOffered;
+    signingOn = null;
+    p.then((on) => {
+      if (data.signingOffered === p) signingOn = on;
+    });
+  });
+  // One click, one request: the default enhance leaves the button live for
+  // the round trip, and a second click would mint a second signing request.
+  // update() in try/finally — the delete-form pattern — so a redirecting or
+  // throwing result still re-enables (or navigates away entirely).
+  let requestingSignature = $state(false);
+  function requestSignatureEnhance() {
+    requestingSignature = true;
+    return async ({ update }: { update: (opts?: { reset?: boolean }) => Promise<void> }) => {
+      try {
+        await update({ reset: false });
+      } finally {
+        requestingSignature = false;
+      }
+    };
+  }
   // portal#1014: the node's discussion and its open-feedback summary, streamed
   // and checked the same way. The tab's own writes update the summary too.
   let discussion = $state<Discussion | null | undefined>(undefined);
@@ -2544,6 +2571,41 @@
       </div>
       <!-- portal#1022: passkey signatures (hadron-server#1864); renders nothing with nothing to report. -->
       <NodeSignatures view={signatureState} />
+      {#if signingOn}
+        <!-- portal#1022 links half (hrn:node:hadronmemory.com:specs:cor:dmo:130:08):
+             the portal's whole leg is to create the signing request and hand
+             over the server-hosted ceremony page's link — the ceremony itself
+             never runs here. The hidden revision input, like the approval
+             forms above, pins the request to the text on screen.
+
+             No readOnly gate, deliberately:
+             hrn:node:hadronmemory.com:specs:cor:dmo:130:03 gives ANY reader
+             the right to request ("anyone who may read the node"), and the
+             requester need not be the signer — so the affordance is not
+             hidden from view-only readers the way writer actions are. The
+             copy says what the click does (a request, then the server's
+             page), never "Sign", which a reader the ceremony would refuse
+             could not finish. -->
+        <form method="POST" action="?/requestSignature" use:enhance={requestSignatureEnhance} class="mt-1" data-testid="request-signature-form">
+          <input type="hidden" name="revision" value={node.revision} />
+          <button
+            type="submit"
+            data-testid="request-signature"
+            disabled={requestingSignature}
+            title={t('node.signatures.request.hint', 'Creates a signing request and opens the server-hosted signing page for this revision.')}
+            class="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            {t('node.signatures.request.action', 'Request a signature…')}
+          </button>
+        </form>
+      {/if}
+      <!-- Live region stays mounted; only its content changes — a region that
+           mounts populated announces nothing
+           (hrn:node:hadronmemory.com:hadron-portal:review:live-region-persistent-not-conditionally-mounted).
+           empty:hidden keeps the always-present region from taking a line. -->
+      <p role="alert" data-testid="signature-request-error" class="mt-1 empty:hidden text-xs text-red-700 dark:text-red-300">
+        {#if typeof form?.requestSignatureError === 'string'}{form.requestSignatureError}{/if}
+      </p>
       {/if}
       {#if approveActionError || verifyActionError}
         <p role="alert" data-testid="approval-error" class="mt-1 text-xs text-red-700 dark:text-red-300">{approveActionError ?? verifyActionError}</p>

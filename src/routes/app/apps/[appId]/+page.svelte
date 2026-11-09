@@ -8,7 +8,7 @@
   import WorkerDeleteDialog from './WorkerDeleteDialog.svelte';
   import StopBanner from '$lib/components/stops/StopBanner.svelte';
   import { rosterOf } from '$lib/withheld';
-  import { env } from '$env/dynamic/public';
+  import { publicServerBaseUrl } from '$lib/public-server-base-url';
   import { tick, untrack, onDestroy } from 'svelte';
   import { applyAction } from '$app/forms';
   import { beforeNavigate, goto, afterNavigate, invalidateAll, preloadData, replaceState } from '$app/navigation';
@@ -1836,7 +1836,7 @@
   // #990: hadron-client is retired, so setup always talks to the server
   // directly; the old "With Client App" mode (localhost:3200, client hooks)
   // is gone.
-  const serverUrl = env.PUBLIC_SERVER_URL ?? 'http://localhost:4000';
+  const serverUrl = publicServerBaseUrl();
   const mcpUrl = $derived(serverUrl.includes('localhost') ? serverUrl + '/mcp' : serverUrl.replace(/\/$/, '') + '/mcp');
 
   function claudeCodeMcpConfig(url: string, apiKey: string) {
