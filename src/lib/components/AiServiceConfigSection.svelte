@@ -4,11 +4,13 @@
   // load-error states, and delegates the actual CRUD UI to
   // AiServiceConfigManager. Used identically by the Org / Agent / App surfaces
   // so the gating + notice copy lives in exactly one place.
+  import type { ListPageNavigation } from '$lib/list-page';
   import AiServiceConfigManager from './AiServiceConfigManager.svelte';
   import { aiConfigStrings as s } from '$lib/i18n/ai-config-strings';
   import type { AiConfigOwnerType, AiServiceConfig, OrgMember } from '$lib/types';
 
   let {
+    pagination,
     ownerType,
     ownerId,
     configs,
@@ -17,6 +19,7 @@
     configsError = false,
     allowTest = true,
   }: {
+    pagination?: ListPageNavigation;
     ownerType: AiConfigOwnerType;
     ownerId: string;
     configs: AiServiceConfig[];
@@ -45,5 +48,5 @@
     {s.loadError()}
   </div>
 {:else}
-  <AiServiceConfigManager {ownerType} {ownerId} {configs} canManage {allowTest} />
+  <AiServiceConfigManager {pagination} {ownerType} {ownerId} {configs} canManage {allowTest} />
 {/if}

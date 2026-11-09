@@ -2525,6 +2525,7 @@
         </p>
       </div>
       <WorklogTable
+        serverPage={data.worklogPage}
         items={data.worklog ?? []}
         total={data.worklogTotal ?? 0}
         loadError={data.worklogError ?? false}
@@ -3435,6 +3436,7 @@
         <AiServiceConfigSection
           ownerType="APP"
           ownerId={app.id}
+          pagination={data.configsPage}
           configs={data.appConfigs ?? []}
           members={org?.members ?? []}
           currentUserId={data.currentUserId}

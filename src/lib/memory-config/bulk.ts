@@ -71,16 +71,23 @@ export function retryPositions(results: BulkEntry[]): number[] {
   return results.flatMap((entry, index) => !entry.ok && entry.error?.code !== 'DUPLICATE_TARGET' ? [index] : []);
 }
 
+/** Every MemoryConfigApplyOutcome the contract defines; bulk.test.ts pins this against the schema snapshot. */
+export const APPLY_OUTCOMES = ['APPLIED', 'REPLACED', 'SKIPPED_CONFLICT', 'SKIPPED_LOCKED'] as const;
+const SKIP_OUTCOMES: ReadonlySet<string> = new Set<(typeof APPLY_OUTCOMES)[number]>(['SKIPPED_CONFLICT', 'SKIPPED_LOCKED']);
+
 /**
  * How many ok rows the call actually changes. A row whose every rule is skipped
  * is ok (hrn:node:hadronmemory.com:specs:cor:api:290:01: skips are outcomes of a successful apply) but changes
  * nothing, so the summary splits succeeded into change and skipped. A row with
- * any APPLIED or REPLACED entry counts as changing, skips alongside it or not.
+ * any entry that is not a skip counts as changing, skips alongside it or not;
+ * that includes an outcome the contract adds later, because the preview is
+ * advisory and should err toward warning that a row may change (#1807).
+ * A row with no entries changes nothing.
  */
 export function changeSplit(results: BulkEntry[]): { change: number; skipped: number } {
   let change = 0;
   for (const entry of results) {
-    if (entry.ok && (entry.result?.entries ?? []).some(e => e.outcome === 'APPLIED' || e.outcome === 'REPLACED')) change++;
+    if (entry.ok && (entry.result?.entries ?? []).some(e => !SKIP_OUTCOMES.has(e.outcome))) change++;
   }
   return { change, skipped: results.filter(entry => entry.ok).length - change };
 }

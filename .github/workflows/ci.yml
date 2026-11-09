@@ -126,6 +126,9 @@ jobs:
       - name: Check App Runs table layout
         run: pnpm test:app-runs-layout
 
+      - name: Check disabled AI config row menu pointer access
+        run: pnpm test:ai-config-row-menu
+
       - name: Check invitation clipboard feedback
         run: pnpm test:invite-copy
 

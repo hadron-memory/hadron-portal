@@ -5,6 +5,7 @@ import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import { APP_KEY_IMPERSONATION_READ_ONLY, APP_KEY_MANAGERS_ONLY } from '$lib/server/app-key-refusal';
 import { AGENT_TOOLS_IMPERSONATION_READ_ONLY, AGENT_TOOLS_MANAGERS_ONLY } from './agent-tools-refusal';
 import {
+  AI_SERVICE_CONFIGS_QUERY,
   INSTALL_AGENT_INTO_APP_MUTATION,
   APP_NODES_QUERY,
   APP_QUERY,
@@ -119,7 +120,7 @@ const validSettings = {
 describe('load', () => {
   it('seeds the link-agent form with an explicit empty choice', async () => {
     // mockResolvedValue (not …Once): the loader makes SEVERAL paginated calls —
-    // AI configs and, since #974, the App's Worker staff.
+    // Complete-context consumers such as the App's Worker staff.
     mockFetchAllItems.mockResolvedValue([]);
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) {
@@ -157,6 +158,7 @@ describe('load', () => {
       if (query === APP_ORG_AGENT_GRANTS_QUERY) {
         return Promise.resolve({ organization: { id: 'org-1', agentOrgGrants: [] } });
       }
+      if (query === AI_SERVICE_CONFIGS_QUERY) return Promise.resolve({ aiServiceConfigs: { items: [], total: 0 } });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
       // #744: chat-root discovery for the Chats selector. Shares the appNodes
@@ -729,14 +731,14 @@ describe('createKey action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns a typed error when key creation fails', async () => {
+  it('returns the fallback copy, not the raw text, when key creation fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('createKey', { label: 'production' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to create key' });
   });
 
   // portal#1068 (Holger #8095): whoever manages the App mints its keys. The
@@ -856,14 +858,14 @@ describe('updateAgentTools action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns typed updateAgentTools errors', async () => {
+  it('returns the fallback copy for a transport failure in updateAgentTools errors', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('updateAgentTools', { agentTools: 'CLAUDE_CODE' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to update agent tools' });
   });
 
   // portal#1106: a non-manager's tick is refused by updateApp's gate. That is
@@ -945,14 +947,14 @@ describe('revokeKey action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns typed revokeKey errors', async () => {
+  it('returns the fallback copy for a transport failure in revokeKey errors', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('revokeKey', { keyId: 'key-1' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to revoke key' });
   });
 
   it('a FORBIDDEN revoke is a 403 with the same manager copy', async () => {
