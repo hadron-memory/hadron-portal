@@ -54,7 +54,7 @@ try {
    await noOverflow('fifty chosen');
    const previewButton = panel.getByRole('button', { name: 'Preview', exact: true });
    await previewButton.scrollIntoViewIfNeeded(); await inViewport(previewButton, 'Preview at the cap'); await previewButton.click();
-   await panel.getByText('50 will change, 0 will be skipped, 0 can’t be applied').waitFor();
+   await panel.getByText('50 will change, 0 will change nothing, 0 can’t be applied').waitFor();
    const applyButton = panel.getByRole('button', { name: 'Apply and lock rules', exact: true });
    await applyButton.scrollIntoViewIfNeeded(); await inViewport(applyButton, 'Apply at the cap'); await applyButton.click();
    await panel.getByText('50 changed, 0 changed nothing, 0 failed').waitFor();
@@ -78,7 +78,7 @@ try {
   await inViewport(panel.getByRole('button', { name: 'Remove Fixture memory 0', exact: true }), 'Remove');
   await noOverflow('selection');
   await panel.getByRole('button', { name: 'Preview', exact: true }).click();
-  await panel.getByText('4 will change, 1 will be skipped, 1 can’t be applied').waitFor();
+  await panel.getByText('4 will change, 1 will change nothing, 1 can’t be applied').waitFor();
   for (const name of ['Create template', 'Edit', 'Delete', 'Apply to a memory…', 'Apply to several memories…']) await dimmed(name);
   await noOverflow('preview');
   await inViewport(panel.getByText('Will be replaced').first().or(panel.getByText('review: Will be replaced')).first(), 'row outcome');

@@ -14,7 +14,7 @@ import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 import { getAiConfigRecoveryStore, resetAiConfigRecoveryForTests } from './ai-config-recovery';
 
 // The node lane has no `$app/*`; a server render never navigates.
-vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn() }));
+vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), beforeNavigate: vi.fn() }));
 
 afterEach(() => resetAiConfigRecoveryForTests());
 

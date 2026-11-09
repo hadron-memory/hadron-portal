@@ -1,7 +1,7 @@
 import { redirect } from '@sveltejs/kit';
-import { env } from '$env/dynamic/public';
 import { randomBytes } from 'node:crypto';
 import { safeRedirect } from '$lib/safeRedirect';
+import { publicServerBaseUrl } from '$lib/public-server-base-url';
 import type { RequestHandler } from './$types';
 
 /**
@@ -15,7 +15,7 @@ import type { RequestHandler } from './$types';
  * attacker can't lure a victim into finishing the attacker's login.
  */
 export const GET: RequestHandler = ({ url, cookies }) => {
-  const serverUrl = env.PUBLIC_SERVER_URL ?? 'http://localhost:4000';
+  const serverUrl = publicServerBaseUrl();
 
   // Post-auth destination — must be a portal-local path. Validate with the
   // shared #439 helper (rejects absolute, protocol-relative, AND backslash-

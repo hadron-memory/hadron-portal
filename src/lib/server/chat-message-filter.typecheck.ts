@@ -4,6 +4,7 @@ type ProducedFilter = ReturnType<typeof chatMessageNodeTypes>;
 type ReadOptions = NonNullable<Parameters<typeof loadChatMessages>[3]>;
 
 // Compile-only boundary pins. Never execute a request from this fixture.
+// Enforced by `pnpm check` (svelte-check includes src/**/*.ts), not by Vitest.
 export function transcriptFilterTypePins() {
   const produced: ProducedFilter = ['chat-message', 'message'];
   const legacy: ProducedFilter = undefined;

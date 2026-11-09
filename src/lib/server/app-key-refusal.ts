@@ -30,5 +30,5 @@ export function appKeyRefusal(e: unknown, fallback: string): { status: 403 | 500
   const code = extractGqlErrorCode(e);
   if (code === 'FORBIDDEN') return { status: 403, text: APP_KEY_MANAGERS_ONLY() };
   if (code === 'IMPERSONATION_READ_ONLY') return { status: 403, text: APP_KEY_IMPERSONATION_READ_ONLY() };
-  return { status: 500, text: extractGqlError(e, fallback) };
+  return { status: 500, text: extractGqlError(e, fallback, [], { transport: 'fallback' }) };
 }

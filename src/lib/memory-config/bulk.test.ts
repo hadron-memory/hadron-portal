@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { buildSchema, isEnumType } from 'graphql';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { bulkCall, changeSplit, retryPositions, rowErrorCopy, sharedRevision, type BulkEntry } from './bulk';
+import { APPLY_OUTCOMES, bulkCall, changeSplit, retryPositions, rowErrorCopy, sharedRevision, type BulkEntry } from './bulk';
 
 const ok = (index: number, templateRevision: number): BulkEntry => ({ index, memoryRef: `m${index}`, ok: true, error: null, result: { memoryId: `m${index}`, templateRevision, required: false, dryRun: true, entries: [], warnings: [] } });
 const failed = (index: number, code: string): BulkEntry => ({ index, memoryRef: `m${index}`, ok: false, result: null, error: { code, message: 'server text', currentRevision: null, requestId: null } });
@@ -31,6 +33,27 @@ describe('changeSplit', () => {
   });
   it('leaves failed rows to the report’s failed count', () => {
     expect(changeSplit([applied(0, ['APPLIED']), failed(1, 'CONFLICT')])).toEqual({ change: 1, skipped: 0 });
+  });
+  it('counts an outcome the contract adds later as changing, never as skipped (#1807)', () => {
+    const base = ok(0, 4);
+    const future = { ...base, result: { ...base.result!, entries: [{ role: 'review', outcome: 'FUTURE_OUTCOME' }] } } as unknown as BulkEntry;
+    expect(changeSplit([future])).toEqual({ change: 1, skipped: 0 });
+  });
+});
+describe('APPLY_OUTCOMES', () => {
+  const contractOutcomes = (sdl: string) => {
+    const type = buildSchema(sdl).getType('MemoryConfigApplyOutcome');
+    if (!isEnumType(type)) throw new Error('MemoryConfigApplyOutcome is not an enum in this SDL');
+    return type.getValues().map(value => value.name).sort();
+  };
+  const snapshot = readFileSync('schema/schema.graphql', 'utf8');
+  it('names exactly the contract’s MemoryConfigApplyOutcome values, so a new value fails here (#1807)', () => {
+    expect([...APPLY_OUTCOMES].sort()).toEqual(contractOutcomes(snapshot));
+  });
+  it('would fail if the snapshot gained a value', () => {
+    const grown = snapshot.replace(/(enum MemoryConfigApplyOutcome \{[^}]*?)\n\}/, '$1\n  FUTURE_OUTCOME\n}');
+    expect(contractOutcomes(grown)).toContain('FUTURE_OUTCOME');
+    expect([...APPLY_OUTCOMES].sort()).not.toEqual(contractOutcomes(grown));
   });
 });
 describe('rowErrorCopy', () => {

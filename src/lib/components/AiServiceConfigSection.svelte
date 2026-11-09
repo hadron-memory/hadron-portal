@@ -5,6 +5,7 @@
   // AiServiceConfigManager. Used identically by the Org / Agent / App surfaces
   // so the gating + notice copy lives in exactly one place.
   import { onDestroy } from 'svelte';
+  import type { ListPageNavigation } from '$lib/list-page';
   import AiServiceConfigManager from './AiServiceConfigManager.svelte';
   import Urn from './Urn.svelte';
   import { aiConfigReloadHref, readAiConfigs, withAiConfigTimeout } from './ai-config-readback';
@@ -14,6 +15,7 @@
   import type { AiConfigOwnerType, AiServiceConfig, OrgMember } from '$lib/types';
 
   let {
+    pagination,
     ownerType,
     ownerId,
     ownerLabel = null,
@@ -25,6 +27,7 @@
     allowTest = true,
     onRefreshed = () => true,
   }: {
+    pagination?: ListPageNavigation;
     ownerType: AiConfigOwnerType;
     ownerId: string;
     /** Already-authorized owner name supplied by the caller; never fetched here. */
@@ -363,6 +366,7 @@
 {:else}
   {#key currentUserId}
     <AiServiceConfigManager
+      {pagination}
       {ownerType}
       {ownerId}
       {ownerLabel}
