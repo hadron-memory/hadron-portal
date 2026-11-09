@@ -351,7 +351,7 @@
         </p>
         <p class="mt-1 text-sm text-zinc-500">
           {serverPage && serverPage.offset > 0
-            ? t('app.worklog.empty.page.body', 'Use the page controls to return to earlier offsets, or clear the filters.')
+            ? t('app.worklog.empty.page.body', 'Use the page controls to return to earlier pages, or clear the filters.')
             : hasFilters
             ? t('app.worklog.empty.filtered.body', 'Try a different artifact, kind or tool — or clear the filters.')
             : t('app.worklog.empty.body', 'Workers record milestones here — a PR opened, a branch pushed, an issue closed — from their worker sessions.')}
