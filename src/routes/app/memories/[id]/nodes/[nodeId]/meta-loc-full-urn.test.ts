@@ -86,6 +86,23 @@ describe('updateMeta location field takes a full node URN (#1876)', () => {
   });
 
   it.each([
+    'urn:node:acme.com:mem-a:rules:copy',
+    'hrn:node:acme.com:mem-a:rules:copy ',
+  ])('treats the own address spelled %j as no change', async (own) => {
+    stub();
+    await saveLoc(own);
+    expect(moves()).toEqual([]);
+  });
+
+  it('does not let a loosely prefixed non-URN skip loc cleaning', async () => {
+    const { nodeUpdateMetaSchema, isFullyQualifiedNodeUrnInput } = await import('./schema');
+    expect(isFullyQualifiedNodeUrnInput('hrn:node:junk')).toBe(false);
+    expect(isFullyQualifiedNodeUrnInput('rules:copy')).toBe(false);
+    const out = nodeUpdateMetaSchema.safeParse({ name: 'n', loc: 'loc:rules:x' });
+    expect(out.success && out.data.loc).toBe('rules:x');
+  });
+
+  it.each([
     'urn:node:acme.com::mem-a::worker::system::reports:daily',
     'acme.com::mem-a::worker::system::reports:daily',
   ])('forwards a legacy ownership-chain destination %s for the server to resolve (never flattened into a no-op)', async (chain) => {
