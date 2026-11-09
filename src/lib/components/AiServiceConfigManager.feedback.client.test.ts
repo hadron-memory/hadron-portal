@@ -200,6 +200,22 @@ describe('AI configuration acknowledgement (#303)', () => {
     expect(posts.filter((p) => p.action === 'delete')).toEqual([{ action: 'delete', id: 'c1' }]);
   });
 
+  it('closes the editor when its open configuration is deleted through the row menu', async () => {
+    const { target } = await open({ configs: [config()] });
+    editRow(target);
+    await settle();
+    expect(target.querySelector('#ac-name')).not.toBeNull();
+
+    menuDelete(target);
+    button(target, 'Delete').click();
+    await settle();
+
+    expect(feedback(target).textContent).toContain('Deleted “default”.');
+    expect(target.querySelector('#ac-name')).toBeNull();
+    expect(posts.filter((p) => p.action === 'delete')).toEqual([{ action: 'delete', id: 'c1' }]);
+    expect(posts.filter((p) => p.action === 'update')).toEqual([]);
+  });
+
   it('keeps a refused save open with its draft, then clears the old error on a valid retry', async () => {
     stubFetch((body) => body.action === 'create' && posts.filter((p) => p.action === 'create').length === 1
       ? { ok: false, body: { error: 'Name already exists.' } }
@@ -1093,6 +1109,48 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(button(m.target, 'Save').disabled).toBe(false);
   });
 
+  it('preserves a Section success acknowledgement across Manager teardown and remount', async () => {
+    const m = await open();
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await settle();
+    expect(feedback(m.target).textContent).toContain('Saved “fast”.');
+
+    m.props.configsError = true;
+    await settle();
+    m.props.configsError = false;
+    await settle();
+
+    expect(feedback(m.target).textContent).toContain('Saved “fast”.');
+  });
+
+  it('does not re-defer an old Section readback after its replacement recovered the outcome', async () => {
+    const releases: Array<(reply: Reply) => void> = [];
+    stubFetch(() => ({}), () => new Promise<Reply>((resolve) => { releases.push(resolve); }));
+    const first = await open();
+    await startCreate(first.target, 'fast');
+    button(first.target, 'Save').click();
+    await settle();
+    expect(releases).toHaveLength(1);
+    mounted.splice(mounted.indexOf(first), 1);
+    first.unmount();
+
+    const second = await open();
+    await settle();
+    expect(releases).toHaveLength(2);
+    releases[1]({ body: { configs: [] } });
+    await settle();
+    expect(feedback(second.target).textContent).not.toContain('couldn’t be refreshed');
+
+    // The destroyed Section's readback settles only after its replacement has
+    // completed recovery. It must not enqueue the same outcome for a third run.
+    releases[0]({ body: { configs: [] } });
+    await settle();
+    expect(releases).toHaveLength(2);
+    expect(readbacks).toHaveLength(2);
+    expect(feedback(second.target).textContent).not.toContain('couldn’t be refreshed');
+  });
+
   it('turns a hung mutation POST into a visible uncertain outcome instead of a silent permanent lock', async () => {
     vi.useFakeTimers();
     stubFetch(async (body) => {
@@ -1836,6 +1894,17 @@ describe('AI configuration code-review lifecycle pins', () => {
     button(second.target, 'Add configuration').click();
     await settle();
     expect(button(second.target, 'Save').disabled).toBe(false);
+  });
+
+  it('acknowledges a standalone committed save in the Manager live region', async () => {
+    const m = await open({}, AiServiceConfigManager);
+    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-manager-feedback"]')!;
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await settle();
+
+    expect(region.textContent).toContain('Saved “fast”.');
+    expect(navigationCalls.filter((call) => call.fn === 'invalidateAll')).toHaveLength(1);
   });
 
   it('retains standalone pending recovery across Manager destroy and remount', async () => {

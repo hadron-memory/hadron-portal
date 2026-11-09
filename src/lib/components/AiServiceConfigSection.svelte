@@ -139,6 +139,13 @@
     }
   }
 
+  function deferActive(outcome: AiConfigCommitted, readback: number, store: ReturnType<typeof getAiConfigRecoveryStore>) {
+    const active = activeCommitted.get(outcome.ownerKey);
+    if (active?.outcome !== outcome || active.readback !== readback) return;
+    activeCommitted.delete(outcome.ownerKey);
+    store.defer(outcome);
+  }
+
   function storeForOutcome(outcome: AiConfigCommitted): ReturnType<typeof getAiConfigRecoveryStore> {
     if (outcome.mutationId === undefined) return recoveryStore;
     return pendingStores.get(pendingStoreKey(outcome.ownerKey, outcome.mutationId)) ?? recoveryStore;
@@ -175,8 +182,10 @@
       return;
     }
     if (outcomeStore !== recoveryStore || destroyed || outcome.ownerKey !== currentOwnerKey()) {
-      outcomeStore.defer(outcome);
-      finishActive(outcome, mine);
+      // Teardown/owner change already deferred and removed the active entry.
+      // Re-defer only while this continuation still owns it; otherwise a late
+      // old-Section readback can resurrect work a replacement already finished.
+      deferActive(outcome, mine, outcomeStore);
       return;
     }
 
@@ -193,8 +202,10 @@
       return;
     }
     if (outcomeStore !== recoveryStore || destroyed || outcome.ownerKey !== currentOwnerKey()) {
-      outcomeStore.defer(outcome);
-      finishActive(outcome, mine);
+      // Teardown/owner change already deferred and removed the active entry.
+      // Re-defer only while this continuation still owns it; otherwise a late
+      // old-Section readback can resurrect work a replacement already finished.
+      deferActive(outcome, mine, outcomeStore);
       return;
     }
     const failed = !ownerFresh || against !== configs || !relatedFresh || configsError;

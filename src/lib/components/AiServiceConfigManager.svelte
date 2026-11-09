@@ -45,7 +45,7 @@
     mutationUncertain = false,
     mutationPending = false,
     onMutationPending = standaloneMutationPending,
-    onAction = () => 0,
+    onAction = standaloneAction,
     // Standalone use predates the Section wrapper: keep its original refresh,
     // including the rejection path that used to reach the mutation catch.
     onCommitted = async (outcome) => {
@@ -57,6 +57,9 @@
         return;
       }
       recovery.discardDeferred(outcome);
+      if (!outcome.uncertainText && outcome.noticeGeneration === standaloneNoticeGeneration) {
+        showStandaloneNotice(outcome.successText);
+      }
       const mine = ++standaloneRefreshGeneration;
       activeStandalone.set(standaloneActiveKey(scope, outcome.ownerKey), { outcome, generation: mine, recoveryScope: scope });
       let failed = false;
@@ -156,7 +159,11 @@
   let uncertainMutation = $state(false);
   let standaloneWarning = $state<string | null>(null);
   let standaloneRefreshWarning = $state<string | null>(null);
+  let standaloneNotice = $state<string | null>(null);
+  let standaloneNoticeGeneration = 0;
+  let standaloneNoticeTimer: ReturnType<typeof setTimeout> | null = null;
   let standaloneRefreshGeneration = 0;
+  let hadStandaloneScope = false;
   const standaloneScope = $derived(`standalone:${currentUserId ?? ''}`);
   const sharesStandaloneRecovery = $derived(onMutationPending === standaloneMutationPending);
   const activeStandalone = new Map<string, { outcome: AiConfigCommitted; generation: number; recoveryScope: string }>();
@@ -214,6 +221,23 @@
     pendingMutations.some((mutation) => mutation.ownerKey === ownerKey && mutation.recoveryScope === standaloneScope),
   );
   const mutationBlocked = $derived(localMutationPending || mutationPending);
+
+  function standaloneAction(): number {
+    standaloneNoticeGeneration++;
+    if (standaloneNoticeTimer !== null) clearTimeout(standaloneNoticeTimer);
+    standaloneNoticeTimer = null;
+    standaloneNotice = null;
+    return standaloneNoticeGeneration;
+  }
+
+  function showStandaloneNotice(text: string) {
+    if (standaloneNoticeTimer !== null) clearTimeout(standaloneNoticeTimer);
+    standaloneNotice = text;
+    standaloneNoticeTimer = setTimeout(() => {
+      standaloneNotice = null;
+      standaloneNoticeTimer = null;
+    }, 6000);
+  }
 
   function clearNotice(): number {
     return onAction();
@@ -362,6 +386,8 @@
   // subscribes a module-global recovery store. A principal switch unsubscribes
   // the old scope and fences its in-flight readback before syncing the new one.
   $effect(() => {
+    const scopeChanged = hadStandaloneScope;
+    hadStandaloneScope = true;
     if (!sharesStandaloneRecovery) {
       untrack(() => {
         uncertainMutation = false;
@@ -375,7 +401,7 @@
     ownerGeneration++;
     actionGeneration++;
     actionController?.abort();
-    untrack(clearNotice);
+    if (scopeChanged) untrack(clearNotice);
     resetEditor();
     configFilter = '';
     confirmDeleteId = null;
@@ -407,7 +433,7 @@
     ownerGeneration++;
     actionGeneration++;
     actionController?.abort();
-    clearNotice();
+    if (previousOwnerKey !== '') clearNotice();
     resetEditor();
     configFilter = '';
     confirmDeleteId = null;
@@ -429,6 +455,8 @@
 
   onDestroy(() => {
     destroyed = true;
+    if (standaloneNoticeTimer !== null) clearTimeout(standaloneNoticeTimer);
+    standaloneNoticeTimer = null;
     for (const active of activeStandalone.values()) recoveryFor(active.recoveryScope).defer(active.outcome);
     activeStandalone.clear();
     actionGeneration++;
@@ -1003,7 +1031,10 @@
       refreshFailedText: s.deleteRefreshFailed(name),
       refusalFallback: 'Failed to delete configuration',
       onSuccess: () => {
-        if (isCurrent(action)) confirmDeleteId = null;
+        if (isCurrent(action)) {
+          confirmDeleteId = null;
+          if (editId === id) resetEditor();
+        }
       },
     });
   }
@@ -1037,6 +1068,13 @@
       >
         {standaloneRefreshWarning}
         <a href={aiConfigReloadHref()} data-sveltekit-reload class="ml-1 underline">{s.reloadPage()}</a>
+      </div>
+    {/if}
+    {#if standaloneNotice}
+      <div
+        class="mb-3 rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300"
+      >
+        {standaloneNotice}
       </div>
     {/if}
     {#if mutationBlocked && !mutationLocked}
