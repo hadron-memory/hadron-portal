@@ -84,6 +84,13 @@ try {
         page.on('request', request => requests.push({ method: request.method(), url: request.url() }));
         const copy = page.getByRole('button', { name: 'Copy invitation link', exact: true });
         assert.equal((await copy.textContent())?.trim(), 'Copy', `${label}: visible Copy label retained under the specific name`);
+        // #1883: class tokens alone cannot prove the compiled Tailwind rule.
+        // Exercise a real hover and compare the computed backgrounds in both
+        // themes, then keep the pointer over Copy while it becomes pending.
+        const restingBackground = await copy.evaluate(el => getComputedStyle(el).backgroundColor);
+        await copy.hover();
+        const hoverBackground = await copy.evaluate(el => getComputedStyle(el).backgroundColor);
+        assert.notEqual(hoverBackground, restingBackground, `${label}: compiled enabled-hover background reaches the DOM`);
         await copy.focus(); await page.keyboard.press('Enter');
         if (mode === 'missing') await page.getByText(unavailable, { exact: true }).waitFor();
         else if (mode === 'rejected') await page.getByText(rejected, { exact: true }).waitFor();
@@ -93,6 +100,7 @@ try {
           assert.equal(await page.getByText('Link copied.', { exact: true }).count(), 0, `${label}: pending is not success`);
           assert.equal(await page.evaluate(() => [...document.querySelectorAll('[role="status"] p')].filter((p) => !(p.textContent ?? '').trim()).length), 0, `${label}: pending renders no empty feedback paragraph`);
           assert.equal(await copy.getAttribute('aria-disabled'), 'true', `${label}: pending is announced disabled`);
+          assert.equal(await copy.evaluate(el => getComputedStyle(el).backgroundColor), restingBackground, `${label}: pending hover suppresses the compiled enabled-hover background`);
           await copy.evaluate(el => el.click());
           assert.equal(await page.evaluate(() => window.writes.length), 1, `${label}: no duplicate pending write`);
           if (mode === 'replacement') await page.evaluate(url => window.fixture.replace(url), REPLACEMENT_URL);
