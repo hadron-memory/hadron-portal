@@ -122,7 +122,7 @@ export async function writeInstallPrompt(client: Client, owner: CompileOwner, in
     : approvalState === 'NOT_APPROVED' || approvalState === 'SUPERSEDED'
       ? t('boot.install.not-approved', 'It isn’t approved yet.')
       : t('boot.install.approval-state-unknown', 'Couldn’t confirm its approval state. Reload to check.');
-  return { ok: true, key: compileOwnerKey(owner), text: `${t('boot.install.built-revision', 'Built revision {n}.', { n: result.revNo })} ${approvalText} ${t('boot.install.compile-no-approval', 'Compiling didn’t approve or sign it.')} ${servedNowText(state, owner, result.node.id)}${pointer}` };
+  return { ok: true, key: compileOwnerKey(owner), text: `${t('boot.install.built-revision', 'Built revision {n}.', { n: result.revNo })} ${approvalText} ${servedNowText(state, owner, result.node.id)}${pointer}` };
 }
 export const PROVENANCE = /* GraphQL */ `query CompileProvenance($nodeRef: ID!, $revNo: Int!, $offset: Int!) { compiledPromptProvenance(nodeRef: $nodeRef, revNo: $revNo, offset: $offset, limit: 20) { items { nodeId depth revNo selection { rev approved signed } pruned } total hasMore pruned } }`;
 const NAMES = /* GraphQL */ `query CompileProvenanceNames($refs: [ID!]!) { nodeBatch(refs: $refs) { nodes { id urn name } unavailable omitted } }`;
