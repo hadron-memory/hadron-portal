@@ -9,7 +9,7 @@ import {
 } from '$lib/test/stubs/app-navigation';
 import AiServiceConfigSection from './AiServiceConfigSection.svelte';
 import AiServiceConfigManager from './AiServiceConfigManager.svelte';
-import { resetAiConfigRecoveryForTests } from './ai-config-recovery';
+import { getAiConfigRecoveryStore, resetAiConfigRecoveryForTests } from './ai-config-recovery';
 import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 import type { AiServiceConfig } from '$lib/types';
 
@@ -1685,6 +1685,34 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(button(m.target, 'Save').disabled).toBe(false);
   });
 
+  it('settles the original standalone scope when ownership and principal change in flight', async () => {
+    let releaseCreate!: () => void;
+    const createHeld = new Promise<void>((resolve) => { releaseCreate = resolve; });
+    stubFetch(async (body) => {
+      if (body.action === 'create') {
+        await createHeld;
+        throw new Error('dropped response');
+      }
+      return {};
+    });
+    const m = await open({}, AiServiceConfigManager);
+    await startCreate(m.target, 'first');
+    button(m.target, 'Save').click();
+    await tick(2);
+
+    m.props.onMutationPending = vi.fn();
+    m.props.currentUserId = 'u2';
+    await settle();
+    releaseCreate();
+    await settle();
+
+    const first = getAiConfigRecoveryStore('standalone:u1');
+    const second = getAiConfigRecoveryStore('standalone:u2');
+    expect(first.uncertainty('ORGANIZATION:o1')).toContain('couldn’t confirm the change went through');
+    expect(second.uncertainty('ORGANIZATION:o1')).toBeNull();
+    expect(first.pending()).toEqual([]);
+  });
+
   it('resyncs standalone recovery when the principal changes in place', async () => {
     stubFetch(async (body) => {
       if (body.action === 'create') throw new Error('dropped response');
@@ -1867,6 +1895,28 @@ describe('AI configuration code-review lifecycle pins', () => {
     const writes = posts.filter((body) => body.action === 'create' || body.action === 'update');
     expect(writes.map((body) => body.action)).toEqual(['create', 'update']);
     expect(writes[1]).toMatchObject({ id: 'created-id', model: 'glm-7' });
+  });
+
+  it('uses the returned created config as the edit baseline when readback omits it', async () => {
+    let releaseCreate!: (reply: Reply) => void;
+    const created = config({ id: 'created-id', name: 'fast', model: 'glm-5', endpoint: 'https://old.example' });
+    stubFetch((body) => {
+      if (body.action === 'create') return new Promise<Reply>((resolve) => { releaseCreate = resolve; });
+      return {};
+    });
+    const m = await open();
+    await startCreate(m.target, 'fast');
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://old.example');
+    button(m.target, 'Save').click();
+    await tick(2);
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, '');
+    releaseCreate({ body: { ok: true, config: created } });
+    await settle();
+
+    button(m.target, 'Save').click();
+    await settle();
+    const update = posts.find((body) => body.action === 'update');
+    expect(update).toMatchObject({ id: 'created-id', endpoint: null });
   });
 
   it('locks a preserved create draft when the response omits the created id', async () => {

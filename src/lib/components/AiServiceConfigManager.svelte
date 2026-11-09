@@ -134,6 +134,7 @@
   // ── Form state ──
   let formOpen = $state(false);
   let editId = $state<string | null>(null); // null ⇒ create
+  let createdConfig = $state<AiServiceConfig | null>(null);
   let nameInput = $state('');
   let providerInput = $state<AiConfigProvider>('anthropic');
   let modelInput = $state('');
@@ -195,10 +196,17 @@
     ownerId: string;
     ownerGeneration: number;
     recoveryScope: string;
+    standaloneRecovery: boolean;
     formFingerprint: string;
     signal: AbortSignal;
   };
-  type PendingMutation = { id: number; ownerKey: string; recoveryScope: string };
+  type PendingMutation = {
+    id: number;
+    ownerKey: string;
+    recoveryScope: string;
+    standaloneRecovery: boolean;
+    notify: (outcome: AiConfigMutationPending) => void;
+  };
   let pendingMutations = $state<PendingMutation[]>([]);
   const localMutationPending = $derived(
     pendingMutations.some((mutation) => mutation.ownerKey === ownerKey && mutation.recoveryScope === standaloneScope),
@@ -232,6 +240,7 @@
       ownerId: ownerAtVisit!.ownerId,
       ownerGeneration,
       recoveryScope: standaloneScope,
+      standaloneRecovery: sharesStandaloneRecovery,
       formFingerprint: formFingerprint(),
       signal: actionController.signal,
     };
@@ -254,12 +263,19 @@
     // Document-unique IDs keep same-owner registrations distinct across Manager
     // teardown/remount and user switches; settlement releases only its own.
     const id = nextAiConfigMutationId();
-    pendingMutations = [...pendingMutations, { id, ownerKey: action.ownerKey, recoveryScope: action.recoveryScope }];
-    onMutationPending({
+    const notify = onMutationPending;
+    pendingMutations = [...pendingMutations, {
+      id,
+      ownerKey: action.ownerKey,
+      recoveryScope: action.recoveryScope,
+      standaloneRecovery: action.standaloneRecovery,
+      notify,
+    }];
+    notify({
       ownerKey: action.ownerKey,
       mutationId: id,
       pending: true,
-      ...(sharesStandaloneRecovery ? { recoveryScope: action.recoveryScope } : {}),
+      ...(action.standaloneRecovery ? { recoveryScope: action.recoveryScope } : {}),
     });
     return id;
   }
@@ -269,17 +285,18 @@
     // owner change. A stale request must never clear another request's lock.
     const finished = pendingMutations.find((mutation) => mutation.id === id);
     pendingMutations = pendingMutations.filter((mutation) => mutation.id !== id);
-    if (finished) onMutationPending({
+    if (finished) finished.notify({
       ownerKey: finished.ownerKey,
       mutationId: id,
       pending: false,
-      ...(sharesStandaloneRecovery ? { recoveryScope: finished.recoveryScope } : {}),
+      ...(finished.standaloneRecovery ? { recoveryScope: finished.recoveryScope } : {}),
     });
   }
 
   function resetEditor() {
     formOpen = false;
     editId = null;
+    createdConfig = null;
     error = null;
     testResult = null;
   }
@@ -300,7 +317,7 @@
     recovery.setPending({ ownerKey, mutationId: recoveryId, pending: true, recoveryScope: scope });
     pendingMutations = [
       ...pendingMutations.filter((mutation) => mutation.recoveryScope !== scope),
-      ...recovery.pending().map(({ mutationId, ownerKey: key }) => ({ id: mutationId, ownerKey: key, recoveryScope: scope })),
+      ...recovery.pending().map(({ mutationId, ownerKey: key }) => ({ id: mutationId, ownerKey: key, recoveryScope: scope, standaloneRecovery: true, notify: standaloneMutationPending })),
     ];
     queueMicrotask(async () => {
       try {
@@ -320,7 +337,7 @@
       const recoveryOwnerKey = `${ownerType}:${ownerId}`;
       pendingMutations = [
         ...pendingMutations.filter((mutation) => mutation.recoveryScope !== scope),
-        ...recovery.pending().map(({ mutationId, ownerKey: key }) => ({ id: mutationId, ownerKey: key, recoveryScope: scope })),
+        ...recovery.pending().map(({ mutationId, ownerKey: key }) => ({ id: mutationId, ownerKey: key, recoveryScope: scope, standaloneRecovery: true, notify: standaloneMutationPending })),
       ];
       standaloneWarning = recovery.uncertainty(recoveryOwnerKey);
       uncertainMutation = standaloneWarning !== null;
@@ -345,7 +362,6 @@
         uncertainMutation = false;
         standaloneWarning = null;
         standaloneRefreshWarning = null;
-        pendingMutations = [];
       });
       return;
     }
@@ -414,7 +430,7 @@
     actionController?.abort();
   });
 
-  const editing = $derived(editId ? (configs.find((c) => c.id === editId) ?? null) : null);
+  const editing = $derived(editId ? (configs.find((c) => c.id === editId) ?? (createdConfig?.id === editId ? createdConfig : null)) : null);
   const hasExistingKey = $derived(editing?.hasApiKey ?? false);
   const renamingWellKnown = $derived(
     !!editing && WELL_KNOWN.includes(editing.name) && nameInput.trim() !== editing.name,
@@ -585,6 +601,7 @@
   function openCreate() {
     beginAction();
     resetForm();
+    createdConfig = null;
     editId = null;
     formOpen = true;
   }
@@ -595,6 +612,7 @@
     if (mutationBlocked || mutationLocked) return;
     beginAction();
     resetForm();
+    createdConfig = null;
     editId = c.id;
     nameInput = c.name;
     providerInput = c.provider;
@@ -723,7 +741,7 @@
         ownerKey: action.ownerKey,
         mutationId,
         text,
-        ...(sharesStandaloneRecovery ? { recoveryScope: action.recoveryScope } : {}),
+        ...(action.standaloneRecovery ? { recoveryScope: action.recoveryScope } : {}),
       });
     }
     // A → B → A must not publish the old visit into the new editor, but the
@@ -734,7 +752,7 @@
       mutationId,
       text,
       reconcileOnly: true,
-      ...(sharesStandaloneRecovery ? { recoveryScope: action.recoveryScope } : {}),
+      ...(action.standaloneRecovery ? { recoveryScope: action.recoveryScope } : {}),
     });
   }
 
@@ -746,7 +764,7 @@
       noticeGeneration: isOwnerVisitCurrent(action) ? action.noticeGeneration : -1,
       successText,
       refreshFailedText,
-      ...(sharesStandaloneRecovery ? { recoveryScope: action.recoveryScope } : {}),
+      ...(action.standaloneRecovery ? { recoveryScope: action.recoveryScope } : {}),
     });
   }
 
@@ -845,6 +863,7 @@
           const created = result.config;
           if (created && typeof created === 'object' && !Array.isArray(created) && typeof (created as Record<string, unknown>).id === 'string' && (created as { id: string }).id.length > 0) {
             createdId = (created as { id: string }).id;
+            createdConfig = created as AiServiceConfig;
           } else if (isCurrent(action) && formFingerprint() !== action.formFingerprint) {
             // The write may have committed, but without its id a preserved draft
             // cannot safely become an update. Reconcile instead of recreating.
