@@ -13,6 +13,7 @@
     "test:team-chat-chips-layout": "node scripts/test-team-chat-chips-layout.mjs",
     "test:node-phone-layout": "node scripts/test-node-phone-layout.mjs",
     "test:usage-toolbar-layout": "node scripts/test-usage-toolbar-layout.mjs",
+    "test:org-integrations-row-layout": "node scripts/test-org-integrations-row-layout.mjs",
     "test:task-integrations-focus": "node scripts/test-task-integrations-focus.mjs",
     "test:apply-agent-tickers-focus": "node scripts/test-apply-agent-tickers-focus.mjs",
     "test:nodes-tab-lazy": "node scripts/test-nodes-tab-lazy.mjs",
@@ -31,6 +32,7 @@
     "test:api-key-chain": "node scripts/test-api-key-chain.mjs",
     "test:relation-focus": "node scripts/test-relation-focus.mjs",
     "test:invite-copy": "node scripts/test-invite-copy.mjs",
+    "test:tab-row-layout": "node scripts/test-tab-row-layout.mjs",
     "test:app-runs-layout": "node scripts/test-app-runs-layout.mjs"
   },
   "devDependencies": {

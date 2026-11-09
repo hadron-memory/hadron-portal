@@ -631,6 +631,131 @@ describe('#1522 chat send form identity', () => {
     },
   );
 
+  // #1818 (follow-up to #1567/#1816): mounted lifecycle controls around the
+  // successful-reset behavior, both surfaces, ONE mount throughout unless the
+  // leg says otherwise. Every leg drives the installed Superforms handler
+  // (`beginEnhanced` runs the submit callback the form really registered); the
+  // kit stub only delivers the result a test chose. No new wipe/preserve policy
+  // is selected: a refused draft is preserved, a success empties.
+  describe('#1818 successful-reset lifecycle controls', () => {
+    async function surfaceHarness(surface: 'node' | 'standalone') {
+      serveNode(teamChatNode());
+      const loaded = surface === 'node'
+        ? await loadNodePage(teamChatNode(), new URL(`http://localhost/app/memories/${MEM}/nodes/chat-pk`))
+        : await loadChatPageData('chat-pk');
+      const Component = surface === 'node' ? Page : ChatPage;
+      const formId = (surface === 'node' ? loaded.sendChatMessageForm : loaded.form) as { id: string };
+      const props = reactiveProps<Record<string, unknown>>({ data: { ...PARENT, ...loaded }, form: null });
+      const m = mountComponent(Component as never, props as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m); await tick(4);
+      const area = () => m.target.querySelector<HTMLTextAreaElement>('textarea[name="content"]')!;
+      const submit = () => area().form!.querySelector<HTMLButtonElement>('[type="submit"]')!;
+      // 'fielderror' is the plain validation failure: invalid, a field error,
+      // and NO typed message at all (the shape that only the `valid` half of
+      // the reset guard distinguishes from a success).
+      const result = (content: string, kind: 'success' | 'refused' | 'invalid' | 'fielderror', id = formId.id) => ({
+        type: kind === 'success' ? 'success' as const : 'failure' as const,
+        status: kind === 'success' ? 200 : 400,
+        data: { form: { id, valid: kind !== 'invalid' && kind !== 'fielderror', posted: true,
+          errors: kind === 'fielderror' ? { content: ['Message is required'] } : {},
+          data: { _kind: 'sendChatMessage', content },
+          ...(kind === 'fielderror' ? {} : { message: { type: kind === 'success' ? 'success' : 'error', text: kind === 'success' ? 'Message sent.' : 'Send refused.' } }) } },
+      });
+      const type = async (content: string) => {
+        area().value = content; area().dispatchEvent(new Event('input', { bubbles: true })); await tick(2);
+      };
+      const begin = () => beginEnhanced(area().form!);
+      const deliver = async (finish: Awaited<ReturnType<typeof begin>>, r: ReturnType<typeof result>) => {
+        await finish(r); props.form = r.data; await tick(4);
+      };
+      const send = async (content: string, kind: 'success' | 'refused' | 'invalid' | 'fielderror') => {
+        const finish = await begin(); await deliver(finish, result(content, kind));
+      };
+      const alert = () => m.target.querySelector('[role="alert"]')?.textContent ?? null;
+      return { m, area, submit, result, type, begin, deliver, send, alert, props, formId };
+    }
+    const SURFACES = ['node', 'standalone'] as const;
+
+    it.each(SURFACES)('%s: repeated fresh sends on ONE mount each leave an empty composer', async (surface) => {
+      const h = await surfaceHarness(surface);
+      for (const text of ['first fresh message', 'second fresh message', 'third fresh message']) {
+        await h.type(text);
+        expect(h.area().value).toBe(text);
+        await h.send(text, 'success');
+        expect(h.area().value).toBe(''); // no remount between sends
+        expect(h.alert()).toBeNull();
+        await vi.waitFor(() => { flushSync(); expect(h.area().disabled).toBe(false); });
+        expect(h.submit().disabled).toBe(true); // an empty composer cannot resend the last text
+      }
+    });
+
+    it.each(SURFACES.flatMap((surface) => (['refused', 'invalid'] as const).map((kind) => ({ surface, kind }))))(
+      '$surface: a $kind failure after a successful rebase keeps ITS draft, and the next success empties it',
+      async ({ surface, kind }) => {
+        const h = await surfaceHarness(surface);
+        await h.type('goes through'); await h.send('goes through', 'success'); // baseline rebased to clean
+        expect(h.area().value).toBe('');
+        await h.type('refused later'); await h.send('refused later', kind);
+        expect(h.area().value).toBe('refused later'); // the failure preserves the draft
+        expect(h.alert()).toContain('Send refused.');
+        await h.type('edited after refusal'); await h.send('edited after refusal', 'success');
+        expect(h.area().value).toBe(''); // red if the rebase target were the preserved draft
+        expect(h.alert()).toBeNull();
+        await h.type('one more'); await h.send('one more', kind);
+        expect(h.area().value).toBe('one more'); // preservation is repeatable, not one-shot
+        await h.type('final'); await h.send('final', 'success');
+        expect(h.area().value).toBe('');
+      },
+    );
+
+    it.each(SURFACES)('%s: an untyped field-error failure after a successful rebase keeps its draft', async (surface) => {
+      const h = await surfaceHarness(surface);
+      await h.type('goes through'); await h.send('goes through', 'success');
+      await h.type('field error later'); await h.send('field error later', 'fielderror');
+      expect(h.area().value).toBe('field error later'); // red if the reset guard dropped `valid`
+      await h.type('fixed'); await h.send('fixed', 'success');
+      expect(h.area().value).toBe('');
+    });
+
+    // Reachability FIRST for the held-success / new-draft interleaving. The
+    // composer's own controls are disabled while the send is in flight, so a
+    // person cannot edit or resubmit between submit and result. That boundary
+    // is pinned instead of manufacturing a trace no user can produce; a
+    // programmatic edit (not reachable from the UI) is deliberately NOT
+    // asserted to wipe or preserve, since no policy is chosen for it.
+    it.each(SURFACES)('%s: while a send is held, the composer and submit control are disabled (the interleaving has no UI path)', async (surface) => {
+      const h = await surfaceHarness(surface);
+      await h.type('held send');
+      const finish = await h.begin();
+      await vi.waitFor(() => { flushSync(); expect(h.area().disabled).toBe(true); });
+      expect(h.submit().disabled).toBe(true);
+      const again = vi.fn();
+      h.area().form!.addEventListener('submit', again);
+      h.submit().click(); // a disabled submit does not dispatch: no second send while held
+      expect(again).not.toHaveBeenCalled();
+      h.area().form!.removeEventListener('submit', again);
+      await h.deliver(finish, h.result('held send', 'success'));
+      expect(h.area().value).toBe('');
+      await vi.waitFor(() => { flushSync(); expect(h.area().disabled).toBe(false); });
+      await h.type('after the held one'); await h.send('after the held one', 'success');
+      expect(h.area().value).toBe('');
+    });
+
+    it.each(SURFACES)("%s: a late result for the OTHER form's id neither empties nor banners this composer", async (surface) => {
+      const h = await surfaceHarness(surface);
+      await h.type('draft in flight');
+      const finish = await h.begin();
+      const other = surface === 'node' ? 'sendMessage:chat-pk' : 'sendChatMessage:chat-pk';
+      expect(other).not.toBe(h.formId.id);
+      await finish(h.result('someone else', 'success', other));
+      await tick(4);
+      expect(h.area().value).toBe('draft in flight'); // fenced: the foreign success is not ours
+      expect(h.alert()).toBeNull();
+      await h.deliver(finish, h.result('draft in flight', 'success')); // our own result still lands
+      expect(h.area().value).toBe('');
+    });
+  });
+
   // Gaia's LOCAL P2: the {#key} remount guard is load-bearing on a
   // SAME-INSTANCE data swap — the real shape of a same-route A→B hop, where
   // the page component persists and only its data changes. The HandoffHost

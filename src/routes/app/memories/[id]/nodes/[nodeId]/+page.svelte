@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TabRow from '$lib/components/TabRow.svelte';
   import { locOfSameMemoryTarget } from '$lib/urn/move-destination';
   import { Expand } from 'lucide-svelte';
   import MoveLocationInput from '$lib/components/MoveLocationInput.svelte';
@@ -78,7 +79,6 @@
     type ExtractionRow,
   } from '$lib/flow/extraction';
   import { fillViewport } from '$lib/fill-viewport';
-  import { scrollHint } from '$lib/scroll-hint';
   import type { MemoryNode, NodeEdge, NodeEdgeRemoval, NodeRevision } from '$lib/types';
   import type { PageData, ActionData } from './$types';
   import NodeStorageForm from './NodeStorageForm.svelte';
@@ -2253,7 +2253,8 @@
   let morePendingFor = $state.raw<unknown>(null);
   let moreFailedFor = $state.raw<unknown>(null);
   const extraChildren = $derived(morePages && morePages.against === data.children ? morePages : null);
-  const children = $derived([...((data.children ?? []) as unknown as MemoryNode[]), ...(extraChildren?.rows ?? [])]);
+  const children = $derived([...((data.children ?? []) as unknown as MemoryNode[]),
+        ...(extraChildren?.rows ?? [])]);
   // A full page never passes for the whole list: the count says "20+".
   const childrenHasMore = $derived(extraChildren ? extraChildren.hasMore : !!data.childrenHasMore);
   const moreChildrenLoading = $derived(morePendingFor !== null && morePendingFor === data.children);
@@ -2311,7 +2312,8 @@
     isComment
       // portal#1175: a comment is feedback, not a node to author. It keeps its
       // text (and any children), and its facts move to a read-only Info tab.
-      ? ['info', 'content', ...(hasChildren ? (['children'] as NodeTab[]) : [])]
+      ? ['info', 'content',
+        ...(hasChildren ? (['children'] as NodeTab[]) : [])]
       : [
           ...(isChat ? (['chat'] as NodeTab[]) : []),
           'content',
@@ -3011,128 +3013,56 @@
     {/key}
   {/if}
 
-  <!-- Tabs: Content | Abstract | Children (when present) | Edges | Settings -->
+  <!-- Shared sections retain node-kind membership and read-availability cues. -->
   <div class="border-t border-zinc-200 pt-4 dark:border-zinc-800">
-    <!-- #858: keep tabs in their own horizontal scroller at phone widths.
-         #1086: `scrollHint` fades the edge with more tabs past it and keeps the
-         active tab (a `?tab=` deep link included) scrolled into view. -->
-    <div class="scroll-hint mb-3 flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800" use:scrollHint={activeTab}>
-      <!-- Chat nodes only: the thread as bubbles, same view as /chat. -->
-      {#if isChat}
-        <button
-          data-active={activeTab === 'chat' || undefined}
-          class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'chat' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-          onclick={() => activeTab = 'chat'}
-        >Chat
+    <div class="mb-3">
+      <TabRow items={[
+        ...(isChat ? [{ id: 'chat', label: t('node.tabs.chat', 'Chat') }] : []),
+        ...(isComment ? [{ id: 'info', label: t('node.tabs.info', 'Info') }] : []),
+        { id: 'content', label: t('node.tabs.content', 'Content') },
+        ...(commentable ? [{ id: 'discussion', label: t('node.tabs.discussion', 'Discussion') }] : []),
+        ...(!isComment ? [{ id: 'abstract', label: t('node.tabs.abstract', 'Abstract') }] : []),
+        ...(!isComment ? [{ id: 'data', label: t('node.tabs.data', 'Data') }] : []),
+        ...(!isComment ? [{ id: 'properties', label: t('node.tabs.properties', 'Properties') }] : []),
+        ...(!isComment ? [{ id: 'flow', label: t('node.tabs.flow', 'Flow') }] : []),
+        ...(hasChildren ? [{ id: 'children', label: t('node.tabs.children', 'Children') }] : []),
+        ...(!isComment ? [{ id: 'references', label: t('node.tabs.references', 'Edges') }] : []),
+        ...(!isComment ? [{ id: 'history', label: t('node.tabs.history', 'Revisions') }] : []),
+        ...(!isComment ? [{ id: 'settings', label: t('node.tabs.settings', 'Settings') }] : [])
+      ]} active={activeTab} label={t('node.tabs-label', 'Node sections')} onselect={(id) => activeTab = id as typeof activeTab}>
+        {#snippet itemLabel(tab)}
+          {#if tab.id === 'chat'}{t('node.tabs.chat', 'Chat')}
           {#if chatMessages.length}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{chatMessages.length}</span>{/if}
-        </button>
-      {/if}
-      <!-- portal#1175: a comment's facts, read-only (the Settings content). -->
-      {#if isComment}
-        <button
-          data-active={activeTab === 'info' || undefined}
-          class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'info' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-          onclick={() => activeTab = 'info'}
-        >{t('node.info.tab', 'Info')}</button>
-      {/if}
-      <!-- Always shown (#256) — an empty node still needs an authoring
-           surface, or there's no portal path to add content. Mirrors the
-           Abstract tab's always-on treatment below. -->
-      <button
-        data-active={activeTab === 'content' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'content' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'content'}
-      >Content
+        {:else if tab.id === 'info'}{t('node.info.tab', 'Info')}
+          {:else if tab.id === 'content'}{t('node.tabs.content', 'Content')}
         {#if !hasContent}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
-      </button>
-      {#if commentable}
-        <button
-          data-active={activeTab === 'discussion' || undefined}
-          class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'discussion' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-          onclick={() => activeTab = 'discussion'}
-        >{t('comments.tab', 'Discussion')}
+      {:else if tab.id === 'discussion'}{t('comments.tab', 'Discussion')}
           <!-- Uma (#6998): the badge counts every discussion; amber while any is open. -->
           {#if discussionCount(commentSummary) > 0}
             <span class="ml-1 rounded-full px-1.5 text-xs {(commentSummary?.openThreads ?? 0) > 0
               ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
               : 'bg-zinc-200 dark:bg-zinc-800'}">{discussionCount(commentSummary)}</span>
           {/if}
-        </button>
-      {/if}
-      {#if !isComment}
-      <!-- Always shown — an empty abstract still needs an authoring surface
-           (a vector-index source where the memory says so, #936), same rationale as Content (#256). -->
-      <button
-        data-active={activeTab === 'abstract' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'abstract' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'abstract'}
-      >Abstract
+        {:else if tab.id === 'abstract'}{t('node.tabs.abstract', 'Abstract')}
         {#if !hasAbstract}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
-      </button>
-      <!-- Always shown — Node.data is free-form JSON; an empty node still
-           needs an authoring surface, same rationale as Content/Abstract. -->
-      <button
-        data-active={activeTab === 'data' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'data' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'data'}
-      >Data
+      {:else if tab.id === 'data'}{t('node.tabs.data', 'Data')}
         {#if !hasData}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
-      </button>
-      <!-- #518: Node.properties — structured key-value metadata, often
-           server-set provenance. Always shown for discoverability, and since
-           #1031 its editor lives on the tab itself. -->
-      <button
-        data-active={activeTab === 'properties' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'properties' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'properties'}
-      >{t('node.properties.tab', 'Properties')}
+      {:else if tab.id === 'properties'}{t('node.properties.tab', 'Properties')}
         {#if !hasProperties}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
-      </button>
-      <!-- Always shown (#478) — turning a plain node into a flow node (extract
-           fields, write output) needs an authoring surface. -->
-      <button
-        data-active={activeTab === 'flow' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'flow' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'flow'}
-      >Flow
+      {:else if tab.id === 'flow'}{t('node.tabs.flow', 'Flow')}
         {#if !hasFlowConfig}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
-      </button>
-      {/if}
-      {#if hasChildren}
-        <button
-          data-active={activeTab === 'children' || undefined}
-          class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'children' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-          onclick={() => activeTab = 'children'}
-        >Children <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{children.length}{childrenHasMore ? '+' : ''}</span></button>
-      {:else if data.childrenUnavailable}
-        <!-- portal#1524/#1656: not "no children": the read failed, so the
-             section says it is withheld. -->
-        <span data-testid="children-unavailable" title={t('node-detail.children-unavailable-reason', 'The children could not be read')} class="shrink-0 whitespace-nowrap px-3 py-1.5 text-sm italic text-zinc-500">{t('node-detail.children-unavailable', 'Children unavailable')}</span>
-      {/if}
-      {#if !isComment}
-      <button
-        data-active={activeTab === 'references' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'references' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'references'}
-      >Edges
+      {:else if tab.id === 'children'}{t('node.tabs.children', 'Children')} <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{children.length}{childrenHasMore ? '+' : ''}</span>{:else if tab.id === 'references'}{t('node.tabs.references', 'Edges')}
         {#if hasReferences}
           <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{node.outgoingEdges.length + node.incomingEdges.length}</span>
         {/if}
-      </button>
-      <!-- Comments keep no revision history (server#1727). -->
-      <button
-        data-active={activeTab === 'history' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'history' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'history'}
-      >{t('node.history.tab', 'Revisions')}</button>
-      <button
-        data-active={activeTab === 'settings' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'settings' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'settings'}
-      >Settings</button>
-      {/if}
+      {:else if tab.id === 'history'}{t('node.history.tab', 'Revisions')}
+          {:else if tab.id === 'settings'}{t('node.tabs.settings', 'Settings')}{/if}
+        {/snippet}
+      </TabRow>
+      {#if !hasChildren && data.childrenUnavailable}<span data-testid="children-unavailable" title={t('node-detail.children-unavailable-reason', 'The children could not be read')} class="text-sm italic text-zinc-500">{t('node-detail.children-unavailable', 'Children unavailable')}</span>{/if}
     </div>
 
+    <div role="tabpanel" id="panel-{activeTab}" aria-labelledby="tab-{activeTab}" tabindex="0">
     <!-- ═══ CHAT TAB ═══ -->
     {#if activeTab === 'chat'}
       <div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
@@ -4393,20 +4323,20 @@
         <!-- Data now has its own top-level tab (Rendered/Source + editing);
              the former read-only block here would just duplicate it. -->
 
-        <!-- Danger zone -->
+        <!-- Delete. #1834: no "Danger zone" caption for a single node; the confirm
+             reads top to bottom, with the warning, the subtree choice, then the buttons. -->
         {#if !readOnly}
         <section class="border-t border-zinc-200 pt-6 dark:border-zinc-800">
-          <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
           {#if !confirmDelete}
             <button disabled={readOnly} onclick={() => { $deleteFormData.hard = false; $deleteFormData.recursive = false; confirmDelete = true; }} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
               Delete node
             </button>
           {:else}
-            <form method="POST" action="?/delete" use:deleteEnhance class="flex items-center gap-2" novalidate>
+            <form method="POST" action="?/delete" use:deleteEnhance class="space-y-3" novalidate>
               <input type="hidden" name="_kind" value={$deleteFormData._kind} />
-              <span class="text-sm text-red-500">{deleteNodeStrings.confirmPrompt(node.name)}</span>
+              <p class="text-sm text-red-500">{deleteNodeStrings.confirmPrompt(node.name)}</p>
               {#if deleteRefusedDescendants > 0}
-                <label class="flex items-center gap-1.5 text-sm text-zinc-700 dark:text-zinc-300">
+                <label class="flex flex-wrap items-center gap-1.5 text-sm text-zinc-700 dark:text-zinc-300">
                   <input type="checkbox" name="recursive" value="true" bind:checked={$deleteFormData.recursive}
                     class="rounded border-zinc-300 text-red-600 focus:ring-red-500 dark:border-zinc-600 dark:bg-zinc-800" />
                   {t('node-actions.delete.also-descendants', 'Also delete its descendants')}
@@ -4417,12 +4347,14 @@
                   </span>
                 </label>
               {/if}
-              <button
-                type="submit"
-                disabled={readOnly || $deleteSubmitting}
-                class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >{$deleteSubmitting ? t('node-actions.delete.deleting', 'Deleting...') : 'Yes, delete'}</button>
-              <button type="button" onclick={() => confirmDelete = false} class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+              <div class="flex items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={readOnly || $deleteSubmitting}
+                  class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >{$deleteSubmitting ? t('node-actions.delete.deleting', 'Deleting...') : 'Yes, delete'}</button>
+                <button type="button" onclick={() => confirmDelete = false} class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+              </div>
             </form>
             {#if deleteActionError}
               <p role="alert" class="mt-2 text-xs text-red-500">{deleteActionError}</p>
@@ -4432,7 +4364,8 @@
         {/if}
       </div>
     {/if}
-  </div>
+      </div>
+</div>
 </div>
 
 <!-- portal#696: attach a file to this node. Outside the page wrapper because it

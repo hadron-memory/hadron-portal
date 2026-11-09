@@ -28,7 +28,7 @@ function page(data: Record<string, unknown>) {
       data: { app, view: 'board', filter: 'active', alarmFilter: 'open', boardLimit: 200, alarmsLimit: 2000,
         loadedAt: '2026-10-16T01:00:00Z', impersonating: null, board: null, roster: null, alarms: null, refs: {}, ...data },
     },
-  } as never).body;
+  } as never).body.replace(/<!--[\s\S]*?-->/g, ''); // Ignore Svelte snippet anchors; they are not visible link text.
 }
 
 describe('sub-navigation', () => {

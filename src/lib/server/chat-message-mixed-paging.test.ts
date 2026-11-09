@@ -20,17 +20,21 @@ it('preserves every mixed message once across the existing seq-page boundaries',
   }));
   let before: number | undefined;
   let collected: string[] = [];
-  const pages: Array<{ offset: number; ids: string[] }> = [];
+  const pages: Array<{ offset: number; ids: string[]; hasOlder: boolean }> = [];
   for (let i = 0; i < 10; i++) {
     const page = await loadChatMessages({ request } as never, 'synthetic-memory', root, { limit: 2, sort: 'seq', before });
     const ids = page.messages.map(m => m.id);
-    pages.push({ offset: page.offset, ids });
+    pages.push({ offset: page.offset, ids, hasOlder: page.hasOlder });
     collected = [...ids, ...collected];
     if (!page.hasOlder) break;
     expect(page.offset).toBeLessThan(before ?? Infinity);
     before = page.offset;
   }
   expect({ pages, complete: [...new Set(collected)].sort(), count: collected.length }, JSON.stringify({ pages, collected, requests: request.mock.calls.map(([, vars]) => vars) })).toEqual({
-    pages: expect.any(Array), complete: rows.map(n => n.id).sort(), count: rows.length,
+    pages: [
+      { offset: 3, ids: ['legacy-1', 'legacy-2'], hasOlder: true },
+      { offset: 1, ids: ['platform-2', 'platform-3'], hasOlder: true },
+      { offset: 0, ids: ['platform-1'], hasOlder: false },
+    ], complete: rows.map(n => n.id).sort(), count: rows.length,
   });
 });

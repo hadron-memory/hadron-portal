@@ -13,11 +13,10 @@ import type { TeamChatFilter } from '$lib/team-chat-filter';
 import type { TeamChatMessage, TeamChatRefusal } from '$lib/types';
 import { AGENT_CHAT_KEY } from '$lib/app-chats';
 import Page from './+page.svelte';
+import { message, pageData, runsPanel } from './app-page.fixture';
 import {
-  createAppMemorySchema, addAgentSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
-  deleteAppSchema, releaseWorkerSchema, removeAppAgentSchema, retireWorkerSchema,
-  revokeAppKeySchema, updateAppAgentToolsSchema,
-  addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema,
+  createAppMemorySchema, addAgentSchema, castWorkerSchema, removeAppAgentSchema,
+  revokeAppKeySchema, addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema,
 } from './schema';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -32,44 +31,6 @@ afterEach(() => {
   resetKitAppliedResults();
   window.history.replaceState({}, '', '/');
 });
-
-function message(seq: number, authorWorkerId: string): TeamChatMessage {
-  return {
-    nodeId: `m${seq}`, seq, body: `body ${seq}`, at: '2026-09-30T12:00:00.000Z',
-    authorUserId: null, authorWorkerId, authorName: seq === 1 ? 'Ada' : 'Dara',
-    sessionId: null, replyToSeq: null, mentions: [], urn: null, teamTags: null,
-  };
-}
-
-async function pageData() {
-  const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm,
-    updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm,
-    retireWorkerForm, releaseWorkerForm, postTeamChatMessageForm] = await Promise.all([
-    appSettingsSchema, addAgentSchema, createAppKeySchema, removeAppAgentSchema,
-    updateAppAgentToolsSchema, revokeAppKeySchema, deleteAppSchema, castWorkerSchema,
-    retireWorkerSchema, releaseWorkerSchema, postTeamChatMessageSchema,
-  ].map((schema) => superValidate(zod4(schema), { errors: false })));
-  return {
-    app: {
-      id: 'a1', urn: 'hrn:app:acme.com:team', name: 'Team', appType: 'WORKSTATION',
-      role: 'OWNER', surfaces: [], agentId: null, agent: null, agents: [],
-    },
-    appKeys: { kind: 'ok', keys: [] },
-    viewerManages: { kind: 'known', manages: true },
-    org: null, availableAgents: [], staff: [
-      { id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', retiredAt: null },
-    ],
-    staffError: false,
-    teamChatMessages: [message(1, 'w1')], teamChatTotal: 1, teamChatError: false, teamFilter: { kind: 'none' }, teamFilterInvalid: false, teamChatRefusal: null,
-    appChats: [{ key: 'chats:team', label: 'Team chat' }], chatsError: false,
-    selectedChatKey: 'chats:team', initialTab: 'chats', initialChatFullView: false,
-    chatConfigs: [], appConfigs: [], worklog: [], worklogTotal: 0, worklogError: false,
-    currentUserId: 'u1',
-    appSettingsForm, addAgentForm, createKeyForm, removeAgentForm,
-    updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm,
-    retireWorkerForm, releaseWorkerForm, postTeamChatMessageForm,
-  };
-}
 
 describe('App team chat roster refresh', () => {
   it('renders a new worker URN after a failed lookup and a successful retry on an empty poll', async () => {
@@ -1820,6 +1781,93 @@ it.each([true, false])('keeps a pending Channel post mounted through tab changes
 
 });
 
+describe('focusTab and a navigation the busy guard cancelled (#1833)', () => {
+  async function mountChats() {
+    setStubPage('http://localhost/app/apps/a1?tab=chats', { appId: 'a1' });
+    const base = await pageData();
+    const data = { ...base, initialTab: 'chats', selectedChatKey: 'other', selectedChannelId: 'other', selectedChannelMessages: [],
+      selectedChannelTotal: 0, selectedChannelError: false,
+      postChannelMessageForm: await superValidate({ channelRef: 'other' }, zod4(postTeamChatMessageSchema), { errors: false, id: 'channel:other' }),
+    };
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const textarea = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+    textarea.value = 'post during preload';
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    const result = await superValidate({ body: 'post during preload', channelRef: 'other' }, zod4(postTeamChatMessageSchema), { id: 'channel:other', errors: false });
+    result.message = { type: 'success', text: 'Posted.' };
+    return { m, form: textarea.closest('form')!, result };
+  }
+  /** Kit runs beforeNavigate for the owned goto; a guard that cancels makes goto resolve with no commit. */
+  const kitGoto = (cancel: ReturnType<typeof vi.fn>) => () => {
+    const navigation = {
+      type: 'goto', to: { url: new URL('/app/apps/a1?tab=runs', window.location.href) },
+      from: { url: new URL('http://localhost/app/apps/a1?tab=chats') }, cancel, willUnload: false,
+    };
+    for (const guard of navigationGuards.filter((entry) => entry.fn === 'beforeNavigate')) {
+      (guard.callback as (nav: unknown) => void)(navigation);
+    }
+  };
+  const selected = (m: Mounted<Record<string, unknown>>, id: string) => m.target.querySelector(`#tab-${id}`)?.getAttribute('aria-selected');
+
+  it('does not select Runs when the busy guard cancelled the owned navigation (post started during the preload)', async () => {
+    const { m, form, result } = await mountChats();
+    let releasePreload!: () => void;
+    navigationHooks.onPreloadData = () => new Promise((resolve) => {
+      releasePreload = () => resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    });
+    const cancel = vi.fn();
+    navigationHooks.onGoto = kitGoto(cancel);
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { form: result } }, async () => {
+      await tick(2);
+      releasePreload();
+      await tick(10);
+    });
+    await tick(5);
+
+    expect(cancel).toHaveBeenCalled();
+    expect(selected(m, 'chats')).toBe('true');
+    expect(selected(m, 'runs')).toBe('false');
+  });
+
+  it('control: with no post the owned navigation commits and Runs is selected', async () => {
+    const { m } = await mountChats();
+    navigationHooks.onPreloadData = () => Promise.resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    const cancel = vi.fn();
+    navigationHooks.onGoto = kitGoto(cancel);
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(10);
+
+    expect(cancel).not.toHaveBeenCalled();
+    expect(selected(m, 'runs')).toBe('true');
+  });
+
+  it('control: a post already busy before the click stops at entry, with no navigation', async () => {
+    const { m, form, result } = await mountChats();
+    await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { form: result } }, async () => {
+      await tick(2);
+      m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+      await tick(5);
+    });
+    expect(navigationCalls.filter((call) => call.fn === 'goto')).toHaveLength(0);
+    expect(selected(m, 'runs')).toBe('false');
+  });
+
+  it('control: a rejected goto keeps the current tab', async () => {
+    const { m } = await mountChats();
+    navigationHooks.onPreloadData = () => Promise.resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    navigationHooks.onGoto = () => Promise.reject(new Error('loader failed'));
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(10);
+    expect(selected(m, 'runs')).toBe('false');
+    expect(selected(m, 'chats')).toBe('true');
+  });
+});
+
 describe('Cast role follows the selected Agent (#1319)', () => {
   it('has no role input and updates the read-only role when the Agent changes', async () => {
     setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
@@ -2306,6 +2354,268 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     expect(region!.getAttribute('role')).toBe(outcome === 'success' ? 'status' : 'alert');
     expect(region!.textContent).toContain(outcome === 'success' ? 'Worker cast.' : 'Name already taken.');
     expect([...m.target.querySelectorAll('[role="status"], [role="alert"]')].filter(el => el.textContent?.includes(outcome === 'success' ? 'Worker cast.' : 'Name already taken.'))).toHaveLength(1);
+  });
+
+  it('#1795 keeps the Runs payload when the cast refresh used the pre-navigation URL', async () => {
+    const { m, props, form } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    const sent = idOf(form());
+    const delayed = await submitEnhancedDeferred(form());
+    let releaseRuns!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { releaseRuns = resolve; });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+
+    const order: string[] = [];
+    let releaseRefresh!: () => void;
+    navigationHooks.onInvalidateAll = () => {
+      order.push('refresh-requested');
+      return new Promise<void>((resolve) => { releaseRefresh = resolve; });
+    };
+    const finishing = delayed.finish(await success(sent));
+    await tick(4);
+
+    // The held Runs navigation supplies its panel. The action's invalidation
+    // response is deliberately held until afterwards, as in Cooper's repro.
+    order.push('runs-response');
+    props.data = { ...props.data, initialTab: 'runs', runsPanel: await runsPanel('held-run') };
+    await tick(3);
+    releaseRuns();
+    await tick(20);
+    expect(releaseRefresh).toBeTypeOf('function');
+
+    // The action's refresh used the pre-Runs URL and has no Runs section.
+    // Its late response must not erase the payload the held navigation loaded.
+    props.data = { ...props.data, initialTab: 'staff', runsPanel: null };
+    releaseRefresh();
+    await finishing;
+    await tick(6);
+
+    expect(m.target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('held-run');
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('Loading runs…');
+    expect(order).toEqual(['refresh-requested', 'runs-response']);
+    expect(navigationCalls.filter((call) => call.fn === 'invalidateAll')).toHaveLength(1);
+  });
+
+  it('#1795 QA: preloaded Runs survives an invalidated navigation payload', async () => {
+    const { m, props, form } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    const sent = idOf(form());
+    const delayed = await submitEnhancedDeferred(form());
+    const preloaded = await runsPanel('preloaded-run');
+    let releasePreload: (() => void) | undefined;
+    navigationHooks.onPreloadData = () => new Promise((resolve) => {
+      releasePreload = () => resolve({ type: 'loaded', status: 200, data: { runsPanel: preloaded } });
+    });
+    let releaseGoto!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { releaseGoto = resolve; });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+
+    // Cedar's real-browser ordering: the old-URL action refresh applies while
+    // the destination load is still held. Kit discards that destination's
+    // eventual navigation payload, so props NEVER receive the fresh panel.
+    navigationHooks.onInvalidateAll = async () => {
+      props.data = { ...props.data, initialTab: 'staff', runsPanel: null };
+    };
+    await delayed.finish(await success(sent));
+    await tick(4);
+    releasePreload?.();
+    await tick(2);
+    releaseGoto();
+    await tick(20);
+
+    expect(m.target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('preloaded-run');
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('Loading runs…');
+    expect(navigationCalls.filter((call) => call.fn === 'preloadData')).toHaveLength(1);
+  });
+
+  it.each(['newer tab', 'teardown', 'chat navigation', 'A-B-A navigation'] as const)('#1795 a completed stale preload does not navigate after %s', async (boundary) => {
+    const { m } = await openCast();
+    const preloaded = await runsPanel('stale-preloaded-run');
+    let releasePreload!: () => void;
+    navigationHooks.onPreloadData = () => new Promise((resolve) => {
+      releasePreload = () => resolve({ type: 'loaded', status: 200, data: { runsPanel: preloaded } });
+    });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    if (boundary === 'newer tab') {
+      m.target.querySelector<HTMLButtonElement>('#tab-staff')!.click();
+      await tick(5);
+      expect(m.target.querySelector('#tab-staff')?.getAttribute('aria-selected')).toBe('true');
+    } else if (boundary === 'teardown') {
+      m.unmount();
+    } else {
+      const destinations = boundary === 'chat navigation'
+        ? ['https://example.test/app/apps/a1?tab=chats&chat=other']
+        : ['https://example.test/app/apps/a2?tab=staff', 'https://example.test/app/apps/a1?tab=staff'];
+      for (const destination of destinations) {
+        const navigation = {
+          type: 'goto', to: { url: new URL(destination) },
+          from: { url: new URL('https://example.test/app/apps/a1?tab=staff') },
+          cancel: vi.fn(), willUnload: false,
+        };
+        for (const guard of navigationGuards.filter((entry) => entry.fn === 'beforeNavigate')) {
+          (guard.callback as (nav: unknown) => void)(navigation);
+        }
+      }
+      await tick(3);
+    }
+
+    releasePreload();
+    await tick(20);
+    const destinations = navigationCalls.filter((call) => call.fn === 'goto').map((call) => String(call.args[0]));
+    expect(destinations).toEqual(boundary === 'newer tab' ? ['/app/apps/a1?tab=staff'] : []);
+  });
+
+  // portal#1831: an external navigation supersedes a held Runs choice. The obsolete
+  // focusTab can no longer release the pending latch (mine !== tabNavigation), so
+  // the supersession itself must, or the next ordinary local tab click is forced
+  // through goto and a failing goto blocks the switch.
+  async function supersedeHeldRuns(m: { target: HTMLElement }) {
+    let releasePreload!: () => void;
+    navigationHooks.onPreloadData = () => new Promise((resolve) => {
+      releasePreload = () => resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    const navigation = {
+      type: 'goto', to: { url: new URL('https://example.test/app/apps/a1?tab=chats&chat=other') },
+      from: { url: new URL('https://example.test/app/apps/a1?tab=staff') },
+      cancel: vi.fn(), willUnload: false,
+    };
+    for (const guard of navigationGuards.filter((entry) => entry.fn === 'beforeNavigate')) {
+      (guard.callback as (nav: unknown) => void)(navigation);
+    }
+    await tick(3);
+    return releasePreload;
+  }
+
+  it('#1831 a local tab click after an external navigation superseded Runs stays local', async () => {
+    const { m } = await openCast();
+    const releasePreload = await supersedeHeldRuns(m);
+    releasePreload();
+    await tick(10);
+    navigationCalls.length = 0;
+    navigationHooks.onGoto = () => Promise.reject(new Error('loader failed'));
+    m.target.querySelector<HTMLButtonElement>('#tab-keys')!.click();
+    await tick(5);
+
+    expect(navigationCalls.filter((call) => call.fn === 'goto')).toHaveLength(0);
+    expect(m.target.querySelector('#tab-keys')?.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('#1831 control: a local click with no pending choice stays local even if goto would fail', async () => {
+    const { m } = await openCast();
+    navigationHooks.onGoto = () => Promise.reject(new Error('loader failed'));
+    m.target.querySelector<HTMLButtonElement>('#tab-keys')!.click();
+    await tick(5);
+
+    expect(navigationCalls.filter((call) => call.fn === 'goto')).toHaveLength(0);
+    expect(m.target.querySelector('#tab-keys')?.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('#1831 releasing on supersession does not clear a NEWER focusTab-owned navigation', async () => {
+    const { m } = await openCast();
+    await supersedeHeldRuns(m);
+    // A newer Runs choice after the external navigation owns the latch again.
+    navigationHooks.onPreloadData = () => Promise.resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    let releaseGoto!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => {
+      // Kit runs beforeNavigate for the owned goto itself, with its exact URL.
+      const navigation = {
+        type: 'goto', to: { url: new URL('/app/apps/a1?tab=runs', window.location.href) },
+        from: { url: new URL('https://example.test/app/apps/a1?tab=staff') },
+        cancel: vi.fn(), willUnload: false,
+      };
+      for (const guard of navigationGuards.filter((entry) => entry.fn === 'beforeNavigate')) {
+        (guard.callback as (nav: unknown) => void)(navigation);
+      }
+      releaseGoto = resolve;
+    });
+    navigationCalls.length = 0;
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(5);
+    // Still pending: the owned goto neither bumped the epoch nor released the latch,
+    // so a second choice is still routed through goto (and supersedes this one).
+    expect(navigationCalls.filter((call) => call.fn === 'goto').map((call) => String(call.args[0]))).toEqual(['/app/apps/a1?tab=runs']);
+    releaseGoto();
+    await tick(10);
+    // The owned navigation completed and was not treated as superseded.
+    expect(m.target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('#1831 a newer focusTab choice holding the latch is still pending when an owned navigation passes beforeNavigate', async () => {
+    const { m } = await openCast();
+    let releaseGoto!: () => void;
+    navigationHooks.onPreloadData = () => Promise.resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => {
+      const navigation = {
+        type: 'goto', to: { url: new URL('/app/apps/a1?tab=runs', window.location.href) },
+        from: { url: new URL('https://example.test/app/apps/a1?tab=staff') },
+        cancel: vi.fn(), willUnload: false,
+      };
+      for (const guard of navigationGuards.filter((entry) => entry.fn === 'beforeNavigate')) {
+        (guard.callback as (nav: unknown) => void)(navigation);
+      }
+      releaseGoto = resolve;
+    });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(5);
+    navigationCalls.length = 0;
+    navigationHooks.onGoto = undefined;
+    // Latch must still be held: an ordinary local tab is routed through goto.
+    m.target.querySelector<HTMLButtonElement>('#tab-keys')!.click();
+    await tick(5);
+    expect(navigationCalls.filter((call) => call.fn === 'goto').map((call) => String(call.args[0]))).toEqual(['/app/apps/a1?tab=keys']);
+    releaseGoto?.();
+    await tick(5);
+  });
+
+  it.each([false, true])('control: Runs renders with no action (navigation held=%s)', async (held) => {
+    const { m, props } = await openCast();
+    let releaseRuns: (() => void) | undefined;
+    if (held) navigationHooks.onGoto = () => new Promise<void>((resolve) => { releaseRuns = resolve; });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    props.data = { ...props.data, initialTab: 'runs', runsPanel: await runsPanel(`control-${held}-run`) };
+    await tick(3);
+    releaseRuns?.();
+    await tick(20);
+
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain(`control-${held}-run`);
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('Loading runs…');
+    expect(navigationCalls.filter((call) => call.fn === 'invalidateAll')).toHaveLength(0);
+
+    // A real Runs response always supersedes the retained payload.
+    props.data = { ...props.data, runsPanel: await runsPanel(`fresh-${held}-run`) };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain(`fresh-${held}-run`);
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain(`control-${held}-run`);
+
+    // R2, not R1, is what a still-later old-URL omission must retain.
+    props.data = { ...props.data, initialTab: 'staff', runsPanel: null };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain(`fresh-${held}-run`);
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain(`control-${held}-run`);
+  });
+
+  it('#1795 never retains one App’s Runs payload on another App', async () => {
+    const { m, props } = await openCast();
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    props.data = { ...props.data, initialTab: 'runs', runsPanel: await runsPanel('app-a-run') };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('app-a-run');
+
+    props.data = await dataFor('a2');
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('app-a-run');
+    props.data = { ...props.data, initialTab: 'runs', runsPanel: { ...await runsPanel('app-b-run'), app: { id: 'a2', name: 'Other', organizationId: null } } };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('app-b-run');
   });
 
   it.each([
@@ -3393,6 +3703,76 @@ describe('Link and Unlink answers belong to their App visit (#1776)', () => {
     f.message = { type: outcome === 'success' ? 'success' : 'error', text: `${owner} ${kind} ${outcome}` };
     return { type: outcome === 'success' ? 'success' : 'failure', status: outcome === 'success' ? 200 : 400, data: { form: f } };
   }
+
+  it('#1795 Link retains Runs through an overlapping old-URL refresh', async () => {
+    const { m, props } = await mountAgents();
+    const pending = await begin(m.target, 'link');
+    let releaseRuns!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { releaseRuns = resolve; });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+
+    const order: string[] = [];
+    let releaseRefresh!: () => void;
+    navigationHooks.onInvalidateAll = () => {
+      order.push('refresh-requested');
+      return new Promise<void>((resolve) => { releaseRefresh = resolve; });
+    };
+    const finishing = pending.delayed.finish(await answer('link', 'success', pending.id, 'A') as never);
+    await tick(4);
+    order.push('runs-response');
+    props.data = { ...props.data, initialTab: 'runs', runsPanel: await runsPanel('held-link-run') };
+    await tick(3);
+    releaseRuns();
+    await tick(20);
+    expect(releaseRefresh).toBeTypeOf('function');
+
+    props.data = { ...props.data, initialTab: 'agents', runsPanel: null };
+    releaseRefresh();
+    await finishing;
+    await tick(6);
+
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('held-link-run');
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('Loading runs…');
+    expect(order).toEqual(['refresh-requested', 'runs-response']);
+    expect(navigationCalls.filter((call) => call.fn === 'invalidateAll')).toHaveLength(1);
+  });
+
+  it('#1795 retains Runs when an Unlink refresh began BEFORE the tab click', async () => {
+    const { m, props } = await mountAgents();
+    const pending = await begin(m.target, 'unlink');
+    const order: string[] = [];
+    let releaseRefresh!: () => void;
+    navigationHooks.onInvalidateAll = () => {
+      order.push('refresh-requested');
+      return new Promise<void>((resolve) => { releaseRefresh = resolve; });
+    };
+    const finishing = pending.delayed.finish(await answer('unlink', 'success', pending.id, 'A') as never);
+    await tick(4);
+    expect(releaseRefresh).toBeTypeOf('function');
+
+    let releaseRuns!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { releaseRuns = resolve; });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    order.push('runs-response');
+    props.data = { ...props.data, initialTab: 'runs', runsPanel: await runsPanel('held-unlink-run') };
+    await tick(3);
+    releaseRuns();
+    await tick(20);
+
+    // The older Agents-URL refresh lands last. No per-action navigation wait
+    // can cover this inverse ordering; the page must retain its Runs payload.
+    props.data = { ...props.data, initialTab: 'agents', runsPanel: null };
+    releaseRefresh();
+    await finishing;
+    await tick(6);
+
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('held-unlink-run');
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('Loading runs…');
+    expect(order).toEqual(['refresh-requested', 'runs-response']);
+  });
+
   async function move(props: { data: Awaited<ReturnType<typeof dataFor>> }, appId: string) {
     props.data = await dataFor(appId);
     await tick(3);

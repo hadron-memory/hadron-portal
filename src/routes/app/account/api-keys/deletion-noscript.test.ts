@@ -8,13 +8,11 @@ import { render } from 'svelte/server';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 
-vi.mock('$app/stores', () => ({
-  page: { subscribe: (fn: (v: unknown) => void) => (fn({ url: new URL('http://localhost/app/account/api-keys'), data: {}, form: null }), () => {}) },
-  navigating: { subscribe: (fn: (v: unknown) => void) => (fn(null), () => {}) },
-}));
-vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false, version: 'test' }));
-vi.mock('$app/navigation', () => ({ goto: () => {}, invalidate: () => {}, invalidateAll: () => {}, beforeNavigate: () => {}, afterNavigate: () => {}, onNavigate: () => {} }));
-vi.mock('$app/forms', () => ({ enhance: () => ({ destroy: () => {} }), applyAction: () => {}, deserialize: JSON.parse }));
+import { setStubPage } from '$lib/test/stubs/app-stores';
+
+vi.mock('$app/forms', () => import('$lib/test/stubs/app-forms'));
+vi.mock('$app/environment', () => import('$lib/test/stubs/app-environment-ssr'));
+setStubPage('http://localhost/app/account/api-keys');
 
 import Page from './+page.svelte';
 import { createUserApiKeySchema, revokeUserApiKeySchema } from './schema';

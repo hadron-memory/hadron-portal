@@ -48,6 +48,63 @@ describe('portal#1685 saved signature/trailer link advice', () => {
     expect(root.textContent).toContain('{{worker.url}}');
     expect(root.textContent).not.toContain('must contain');
   });
+  it('shows refresh guidance immediately and the approved zero copy after a complete successful saved read', async () => {
+    let release!: (r: unknown) => void;
+    vi.stubGlobal('fetch', vi.fn().mockImplementationOnce(() => new Promise(r => release = r)));
+    const { root } = await open();
+    const clear = 'No worker-link warnings on the saved values.';
+    expect(root.textContent).not.toContain(clear);
+    expect(root.textContent).toContain('Saved-value advice refreshes after a successful save.');
+    release(response(page([]))); await settle();
+    expect(root.querySelector('[data-signature-lint]')?.textContent).toContain(clear);
+    type(root, 'unsaved draft without a link');
+    expect(root.textContent).toContain(clear);
+  });
+  it.each(['null', 'transport', 'failed-http', 'wrong-worker', 'partial', 'partial-count', 'warning', 'masked', 'one-masked', 'trailer-masked'])('never gives an all-clear for %s', async mode => {
+    const fetcher = vi.fn().mockResolvedValue(response(page([])));
+    if (mode === 'null') fetcher.mockResolvedValue(response(null));
+    if (mode === 'transport') fetcher.mockRejectedValue(new Error('offline'));
+    if (mode === 'failed-http') fetcher.mockResolvedValue(response(page([]), false));
+    if (mode === 'wrong-worker') fetcher.mockResolvedValue(response(page([]), true, 'b'));
+    if (mode === 'partial') fetcher.mockResolvedValue(response(page([], 0, 'next')));
+    if (mode === 'partial-count') fetcher.mockResolvedValue(response(page([], 1)));
+    if (mode === 'warning') fetcher.mockResolvedValue(response(page([item('signature')])));
+    vi.stubGlobal('fetch', fetcher);
+    const { root } = await open(mode === 'masked' || mode === 'one-masked' ? null : 'signature', mode === 'masked' || mode === 'trailer-masked' ? null : 'trailer');
+    expect(root.textContent).not.toContain('No worker-link warnings on the saved values.');
+    if (mode === 'null') {
+      const retry = [...root.querySelectorAll('button')].find(b => b.textContent === 'Retry')!;
+      expect(retry.classList.contains('pointer-coarse:min-h-11')).toBe(true);
+      expect(retry.classList.contains('pointer-coarse:min-w-11')).toBe(true);
+    }
+  });
+  it('withdraws an old all-clear while a successful save refresh is unread, then shows the fresh result', async () => {
+    let release!: (r: unknown) => void;
+    const fetcher = vi.fn().mockResolvedValueOnce(response(page([]))).mockImplementationOnce(() => new Promise(r => release = r));
+    vi.stubGlobal('fetch', fetcher);
+    const { root } = await open();
+    const clear = 'No worker-link warnings on the saved values.';
+    expect(root.textContent).toContain(clear);
+    type(root, 'new signature without its worker link'); await save(root);
+    expect(root.textContent).toContain('Saved.');
+    expect(root.querySelector('[data-signature-lint]')?.getAttribute('aria-busy')).toBe('true');
+    expect(root.textContent).not.toContain(clear);
+    release(response(page([item('signature')]))); await settle();
+    expect(advice(root, 'signature')).not.toBeNull(); expect(root.textContent).not.toContain(clear);
+    fetcher.mockImplementationOnce(() => new Promise(r => release = r));
+    type(root, 'now contains {{worker.url}}'); await save(root);
+    expect(root.textContent).not.toContain(clear);
+    release(response(page([]))); await settle();
+    expect(root.textContent).toContain(clear);
+  });
+  it('does not explain a successful-save refresh to a retired worker with no Save', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(page([]))));
+    const { root, props } = await open(); props.retired = true; await settle();
+    expect(root.querySelector('[type=submit]')).toBeNull();
+    expect(root.textContent).not.toContain('Saved-value advice refreshes after a successful save.');
+    props.retired = false; await settle();
+    expect(root.textContent).toContain('Saved-value advice refreshes after a successful save.');
+  });
   it('uses the server zero result even for a literal URL, not a client variable matcher', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(page([]))));
     const { root } = await open('https://example.test/app/u/hrn:worker:example.com:team:a');

@@ -177,6 +177,19 @@ export const APP_FIELDS = /* GraphQL */ `
 // Queries
 // ---------------------------------------------------------------------------
 
+/**
+ * #1091, hrn:node:hadronmemory.com:specs:cor:aut:010:05: whether the credential THIS
+ * request presented authenticates. AUTHENTICATED, REFUSED (one answer for every
+ * cause, an ended sign-in included) or ANONYMOUS. Asked only after `me` answers
+ * null, never merged into ME_QUERY: a server without the field refuses the
+ * whole document, and `me` must keep working there.
+ */
+export const AUTHENTICATION_STATUS_QUERY = /* GraphQL */ `
+  query AuthenticationStatus {
+    authenticationStatus
+  }
+`;
+
 export const ME_QUERY = /* GraphQL */ `
   query Me {
     me {
@@ -364,6 +377,33 @@ export const ORGANIZATIONS_QUERY = /* GraphQL */ `
 export const PUBLIC_AGENTS_QUERY = /* GraphQL */ `
   query PublicAgents($limit: Int, $offset: Int) {
     publicAgents(limit: $limit, offset: $offset) {
+      items { id urn name description organizationId visibility }
+      total
+    }
+  }
+`;
+
+// #1786 (hadron-server#3626, ruling 0235): the ids of the caller's own
+// organizations, for listing the ORGANIZATION-visible Agents they may install
+// into a personal App. `memberOnly` holds for platform admins too, so this is
+// the eligible set, never every organization. Ids only: nothing else is drawn.
+export const MEMBER_ORG_IDS_QUERY = /* GraphQL */ `
+  query MemberOrgIds($limit: Int, $offset: Int) {
+    organizations(filter: { memberOnly: true }, limit: $limit, offset: $offset) {
+      items { id }
+      total
+    }
+  }
+`;
+
+// #1786: one member organization's ORGANIZATION-visible Agents, the same slim
+// item as PUBLIC_AGENTS_QUERY. `orgId` is REQUIRED: without it the server
+// gives a platform admin every organization's Agents with no membership test;
+// with it, `resolveOrgScope` requires live membership and answers an empty
+// page otherwise. The list only suggests; createApp stays the gate.
+export const ORG_VISIBLE_AGENTS_QUERY = /* GraphQL */ `
+  query OrgVisibleAgents($orgId: ID!, $limit: Int, $offset: Int) {
+    agents(filter: { visibility: ORGANIZATION }, orgId: $orgId, limit: $limit, offset: $offset) {
       items { id urn name description organizationId visibility }
       total
     }
@@ -1797,7 +1837,17 @@ export const CREATE_PERSONAL_AGENT_MUTATION = /* GraphQL */ `
 export const AGENT_QUERY = /* GraphQL */ `
   ${AGENT_FIELDS}
   query Agent($ref: ID!) {
-    agent(ref: $ref) { ...AgentFields clonedFromAgentRef }
+    agent(ref: $ref) {
+      ...AgentFields
+      clonedFromAgentRef
+      # portal#1850 (hrn:node:hadronmemory.com:specs:cor:dmo:050:19): manager-only, null for everyone else —
+      # the page renders nothing without it. Kept out of AgentFields (like
+      # registerDefaults) so surfaces sharing the fragment never select it.
+      offerReadiness {
+        ready
+        reasons { code count subjects { name } omittedByCap hiddenByAccess }
+      }
+    }
   }
 `;
 
@@ -5120,6 +5170,9 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
       closeSessionWhenDone
       result { outcome summary evidence }
       sessionEndRequest { requestedAt dueAt resolution resolvedAt }
+      # portal#1571 (hadron-server#2651): like the references below, needs a server serving
+      # 1475888f or later — a server without the field rejects this whole read, so the portal
+      # deploys only after production serves it (#1575's Order).
       handBack { code text handedBackAt }
       properties
       # portal#1607 (hadron-server#3137): the outside item this task claimed; needs a server serving 986a7cbd or later.

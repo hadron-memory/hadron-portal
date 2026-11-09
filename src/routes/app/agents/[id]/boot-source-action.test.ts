@@ -61,7 +61,7 @@ describe('portal#1377 S2 compile and approve actions', () => {
     expect(r.form!.message.text).toBe('Built revision 6.');
   });
   it('a refused compile maps by code, names the position, never echoes server prose, and says nothing changed', async () => {
-    request.mockRejectedValueOnce(refusal('BOOT_PROMPT_INCLUDE_BROKEN', { position: 12 }));
+    request.mockRejectedValueOnce(refusal('BOOT_PROMPT_INCLUDE_MALFORMED', { position: 12 }));
     request.mockResolvedValueOnce({ agent: { bootPromptRef: 'ref' } }).mockResolvedValueOnce({ node: { id: 'c', urn: 'u', revision: 3, content: '', approvalStatus: { state: 'APPROVED', approval: { revision: 3 } }, lintWarnings: null } });
     const r = await run('compileBootPrompt', { _kind: 'bootCompile' });
     expect(r.status).toBe(422);
@@ -147,5 +147,16 @@ describe('portal#1378 startBootSource', () => {
     expect(text(r)).toContain(copy);
     expect(text(r)).not.toContain('private upstream detail');
     expect(text(r)).not.toContain('server prose');
+  });
+});
+
+describe('portal#1666 Agent compile unknown-outcome regression', () => {
+  it.each([null, 'INTERNAL_SERVER_ERROR', 'UNKNOWN'])('does not assert no commit for %s after the compile request was sent', async code => {
+    const { actions } = await import('./+page.server');
+    const fd = new FormData(); fd.set('_kind', 'bootCompile');
+    request.mockRejectedValueOnce(code ? { response: { errors: [{ extensions: { code }, message: 'private upstream detail' }] } } : new Error('transport private detail'));
+    const r = await actions.compileBootPrompt!({ request: { formData: async () => fd }, params: { id: 'agent-1' }, locals: { token: 'viewer' } } as never) as { data: { form: { message: { text: string } } } };
+    expect(r.data.form.message.text).toContain('Couldn’t confirm whether the prompt was built');
+    expect(r.data.form.message.text).not.toMatch(/Nothing changed|private/);
   });
 });

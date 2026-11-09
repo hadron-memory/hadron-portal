@@ -1,4 +1,6 @@
 <script lang="ts">
+  import TabRow from '$lib/components/TabRow.svelte';
+  import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import AppRunsPanel from './runs/AppRunsPanel.svelte';
   import TaskIntegrations from './TaskIntegrations.svelte';
   import { taskHref } from '$lib/agent-tasks/handle';
@@ -9,7 +11,7 @@
   import { env } from '$env/dynamic/public';
   import { tick, untrack, onDestroy } from 'svelte';
   import { applyAction } from '$app/forms';
-  import { beforeNavigate, goto, afterNavigate, invalidateAll, replaceState } from '$app/navigation';
+  import { beforeNavigate, goto, afterNavigate, invalidateAll, preloadData, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import JSZip from 'jszip';
@@ -755,11 +757,15 @@
   // the pointer panel below the table (omitted when this viewer cannot manage
   // the App, the pre-menu button's gate); Unlink submits the hidden form
   // below the table for the picked row.
+  let compilePanel = $state<{ reveal: () => void }>();
+  let compileChoice = $state<{ app: string; agent: string } | null>(null);
+  const compileAgent = $derived(compileChoice?.app === data.app.id ? installedAgents.find(a => a.id === compileChoice?.agent) : undefined);
   function agentRowActions(agent: InstalledAgent): NodeMenuAction[] {
     // #1684: a derived agent has no row, so Unlink has nothing to remove. Its
     // own way off the roster is removing the import; Install writes the row.
     const derived = installMarks[agent.id]?.kind === 'derived';
     return [
+      ...(data.canManageApp === true && !impersonating ? [{ id: 'compile-prompt', label: t('app.agents.compile', 'Update the prompt…') }] : []),
       { id: 'customisation', label: t('app.agents.customisation', 'Customisation…') },
       ...(data.canManageApp !== false
         ? [{
@@ -776,7 +782,13 @@
     ];
   }
   function onAgentAction(id: string, agent: InstalledAgent) {
-    if (id === 'customisation') {
+    if (id === 'compile-prompt') {
+      const appId = data.app.id;
+      compileChoice = { app: appId, agent: agent.id };
+      void tick().then(() => {
+        if (appId === data.app.id && compileAgent?.id === agent.id) compilePanel?.reveal();
+      });
+    } else if (id === 'customisation') {
       customisationChoice = { appRef: data.bootPointerAppKey, agentId: agent.id };
       const appKey = data.bootPointerAppKey;
       void tick().then(() => {
@@ -912,6 +924,20 @@
       return tabForActionResult(form, initial) ?? initial ?? 'chats';
     }),
   );
+  // #1795: an action's invalidateAll can use Kit's pre-navigation URL and
+  // answer AFTER a ?tab=runs navigation supplied this section. Retain that
+  // fresh payload through an old-URL refresh which has no Runs section at all.
+  // A real Runs response always replaces it; the App key prevents A's panel
+  // from leaking into B when this page component is reused. This is not a
+  // retry or a poll — it covers every action refresh, in either request order.
+  let retainedRuns = $state<{ appId: string; panel: NonNullable<PageData['runsPanel']> } | null>(null);
+  $effect(() => {
+    const panel = data.runsPanel;
+    if (panel) retainedRuns = { appId: app.id, panel };
+  });
+  const currentRunsPanel = $derived(
+    data.runsPanel ?? (retainedRuns?.appId === app.id ? retainedRuns.panel : null),
+  );
   const tabs = $derived<{ id: TabId; label: string }[]>([
     // #744: ONE "Chats" tab over every conversation the App has — the team
     // chat, any 1:1 chats, and the agent conversation — with a selector inside.
@@ -1043,38 +1069,72 @@
   // unselected tab and dragging away before release diverges focus from
   // selection, and arrows would then move relative to a tab the user is not on.
   let tabNavigation = 0, tabNavigationPending = false, tabAlive = true;
+  let tabNavigationHref: string | null = null;
+  let tabNavigationCancelled = false;
   onDestroy(() => { tabAlive = false; tabNavigation++; });
+  beforeNavigate((navigation) => {
+    // Any real navigation supersedes a pending tab choice, including chat
+    // selection and A → B → A (the final App id alone cannot fence those).
+    // The exact goto owned by focusTab is the one navigation not to reject.
+    // Loader invalidation does not pass through beforeNavigate.
+    if (navigation.to?.url.href === tabNavigationHref) {
+      // #1833: the busy guard above cancels this owned navigation while a post
+      // is in flight, and Kit then resolves goto() without committing. Record
+      // that so focusTab does not select a tab the router never reached.
+      if (channelPostBusy) tabNavigationCancelled = true;
+      return;
+    }
+    tabNavigation++;
+    // #1831: the superseded focusTab can no longer release its own latch
+    // (its `finally` only clears when it still owns the epoch), so the
+    // supersession releases it. A newer focusTab starts after this and
+    // re-latches; its own goto returned above.
+    tabNavigationPending = false;
+  });
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
     const mine = ++tabNavigation, appId = app.id;
+    let ownNavigationHref: string | null = null;
     try {
       // A second choice supersedes an in-flight Runs navigation, including
       // a choice of a normally local tab. Its loader URL must agree as well.
       if (id === 'runs' || tabNavigationPending) {
         tabNavigationPending = true;
-        await goto(`/app/apps/${encodeURIComponent(appId)}?tab=${id}`, { keepFocus: true, noScroll: true });
+        const href = `/app/apps/${encodeURIComponent(appId)}?tab=${id}`;
+        if (id === 'runs') {
+          try {
+            // #1795 QA: invalidateAll discards the pending navigation's load
+            // cache, so its fresh payload may never reach page.data at all.
+            // preloadData still resolves with that result; retain it before
+            // the real navigation, which reuses the preload when it can.
+            const result = await preloadData(href);
+            if (tabAlive && mine === tabNavigation && app.id === appId && result.type === 'loaded') {
+              const panel = result.data.runsPanel as PageData['runsPanel'];
+              if (panel) retainedRuns = { appId, panel };
+            }
+          } catch { /* The real navigation below owns and reports its own failure. */ }
+        }
+        // preloadData cannot be cancelled by a newer choice or teardown. Do
+        // not let its completion navigate back to a stale tab or App.
+        if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
+        ownNavigationHref = new URL(href, window.location.href).href;
+        tabNavigationHref = ownNavigationHref;
+        tabNavigationCancelled = false;
+        await goto(href, { keepFocus: true, noScroll: true });
+        // A cancelled navigation resolves without a commit: keep the current tab.
+        if (tabNavigationCancelled) return;
       }
       if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
       activeTab = id;
       await tick();
       if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id}`)?.focus();
     } catch { /* A failed navigation keeps the current tab; the router owns its error. */ }
-    finally { if (mine === tabNavigation) tabNavigationPending = false; }
+    finally {
+      if (ownNavigationHref && tabNavigationHref === ownNavigationHref) tabNavigationHref = null;
+      if (mine === tabNavigation) tabNavigationPending = false;
+    }
   }
-  function onTabKeydown(e: KeyboardEvent) {
-    const order = tabs.map((tt) => tt.id);
-    const focusedId = (e.currentTarget as HTMLElement | null)?.id?.replace(/^tab-/, '');
-    const from = focusedId && order.includes(focusedId as TabId) ? (focusedId as TabId) : activeTab;
-    const i = order.indexOf(from);
-    // Left/Right ONLY: this tablist is HORIZONTAL (no aria-orientation),
-    // so Up/Down must keep their normal page-scrolling behaviour rather
-    // than changing section under a keyboard user who is just scrolling
-    // (@codex on #769).
-    if (e.key === 'ArrowRight') { e.preventDefault(); focusTab(order[(i + 1) % order.length]); }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); focusTab(order[(i - 1 + order.length) % order.length]); }
-    else if (e.key === 'Home') { e.preventDefault(); focusTab(order[0]); }
-    else if (e.key === 'End') { e.preventDefault(); focusTab(order[order.length - 1]); }
-  }
+
 
   // URN slug helpers — slug is the part after the org URN's prefix.
   function slugOfUrn(urn: string): string {
@@ -2053,94 +2113,18 @@
       </p>
     </div>
   {/if}
-
-  <!-- Tabs — #740: the strip scrolls horizontally instead of overflowing the
-       page. A team App showed seven of these when this was written (~570px
-       of tabs), and up to ten since Channels and #1007/#1008's App Keys and
-       AI Service Configs; at 375px they ran straight off the right edge and
-       took the panel bodies with them. `shrink-0` + `whitespace-nowrap` on each tab is what makes it
-       SCROLL rather than compress — without them flex squeezes every label
-       into an unreadable column instead. -->
   <!-- portal#1139: the stops in effect, prominent above the sections. -->
   <StopBanner live={data.liveStops} workers={(data.staff ?? []).map((w) => ({ id: w.id, name: w.name, urn: w.urn ?? null }))} href="/app/apps/{app.id}/stops" />
 
-  <div class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
-    <!-- #768 — the ARIA tab pattern. These controls swap mutually exclusive
-         panels IN PLACE, which is what role="tab" describes; the previous
-         `aria-current="page"` announced NAVIGATION and left the panels
-         programmatically unrelated to the strip.
-
-         The tablist is an inner flex box rather than this container, because
-         the other subroute links below must not sit
-         inside a tablist. -->
-    <div role="tablist" aria-label={t('app.tabs-label', 'App sections')} class="flex shrink-0">
-      {#each tabs as tab (tab.id)}
-        <button
-          type="button"
-          role="tab"
-          id="tab-{tab.id}"
-          aria-selected={activeTab === tab.id}
-          aria-controls="panel-{tab.id}"
-          tabindex={activeTab === tab.id ? 0 : -1}
-          onclick={() => { void focusTab(tab.id); }}
-          onkeydown={onTabKeydown}
-          class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
-            {activeTab === tab.id
-              ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-              : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
-        >
-          {tab.label}
-        </button>
-      {/each}
-    </div>
-    <!-- #942: Channels is a subroute too (its own forms and table), linked like Runs. -->
-    <a
-      href="/app/apps/{app.id}/channels"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.channels', 'Channels')}
-    </a>
-    <!-- #1052: Tasks is a subroute too: its reads refuse a non-participant
-         (APP_NOT_FOUND), and that must never reach this page's loader. -->
-    <a
-      href="/app/apps/{app.id}/tasks"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.tasks', 'Tasks')}
-    </a>
-    <!-- #1099: Tickers is a subroute for the same reason: a ticker read
-         answers a non-participant APP_NOT_FOUND. -->
-    <a
-      href="/app/apps/{app.id}/tickers"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.tickers', 'Tickers')}
-    </a>
-    <!-- #1139: Stops is a subroute: its reads answer a non-participant APP_NOT_FOUND,
-         and that must never reach this page's loader. -->
-    <a
-      href="/app/apps/{app.id}/stops"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.stops', 'Stops')}
-    </a>
-    <!-- #1649: the action register is a subroute: its read answers a non-participant
-         APP_NOT_FOUND, and that must never reach this page's loader. -->
-    <a
-      href="/app/apps/{app.id}/register"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.register', 'Action register')}
-    </a>
-    <!-- #1299: Automations is a subroute: its reads answer a reader who may not adopt
-         with nothing, and that must never reach this page's loader. -->
-    <a
-      href="/app/apps/{app.id}/automations"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.automations', 'Automations')}
-    </a>
-  </div>
+  <TabRow items={[
+    ...tabs,
+    { id: 'channels', label: t('app.tabs.channels', 'Channels'), href: `/app/apps/${app.id}/channels` },
+    { id: 'tasks', label: t('app.tabs.tasks', 'Tasks'), href: `/app/apps/${app.id}/tasks` },
+    { id: 'tickers', label: t('app.tabs.tickers', 'Tickers'), href: `/app/apps/${app.id}/tickers` },
+    { id: 'stops', label: t('app.tabs.stops', 'Stops'), href: `/app/apps/${app.id}/stops` },
+    { id: 'register', label: t('app.tabs.register', 'Action register'), href: `/app/apps/${app.id}/register` },
+    { id: 'automations', label: t('app.tabs.automations', 'Automations'), href: `/app/apps/${app.id}/automations` }
+  ]} active={activeTab} label={t('app.tabs-label', 'App sections')} onselect={(id) => { void focusTab(id as TabId); }} />
 
   <!-- ───────────── CHATS TAB (#744) ─────────────
        Every conversation the App has, behind one selector: the agent chat, the
@@ -2522,7 +2506,7 @@
        Append-only: no delete, no edit, no rename. -->
   {#if activeTab === 'runs'}
     <div role="tabpanel" id="panel-runs" aria-labelledby="tab-runs" tabindex="0" class="min-w-0 focus-visible:outline-2 focus-visible:outline-indigo-500">
-      {#if data.runsPanel}<AppRunsPanel data={data.runsPanel} {form} />{:else}<p role="status">{t('runs.loading', 'Loading runs…')}</p>{/if}
+      {#if currentRunsPanel}<AppRunsPanel data={currentRunsPanel} {form} />{:else}<p role="status">{t('runs.loading', 'Loading runs…')}</p>{/if}
     </div>
   {/if}
 
@@ -3189,6 +3173,16 @@
             {/if}
           {/snippet}
         </DataTable>
+        {#if compileAgent}
+          {#key `${data.bootPointerAppKey}:${compileAgent.id}`}
+            <BootInstallCompile bind:this={compilePanel} title={t('app.agents.compile-title', 'Boot prompt for {name} in this App', { name: compileAgent.name })} owner={{ level: 'app', app: data.app.id, agent: compileAgent.id }} canManage={data.canManageApp} {impersonating} onClose={async () => {
+              const label = t('app.agents.actions.label', 'Actions for {name}', { name: compileAgent.name });
+              compileChoice = null;
+              await tick();
+              document.querySelector<HTMLButtonElement>(`button[aria-label="${CSS.escape(label)}"]`)?.focus();
+            }} />
+          {/key}
+        {/if}
         {#if customisationAgent}
           {#key `${data.bootPointerAppKey}\u0000${customisationAgent.id}`}
             <InstallCustomisation bind:this={customisationPanel} appRef={data.bootPointerAppKey} agent={customisationAgent} canManage={data.canManageApp ?? null} onClose={async () => {
