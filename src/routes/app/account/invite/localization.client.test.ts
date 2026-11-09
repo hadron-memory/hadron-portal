@@ -28,6 +28,10 @@ it('routes invite form labels, placeholders, hints and success through the trans
   expect(root.querySelector<HTMLInputElement>('#inviteName')?.placeholder).toContain('[account.invite.name-placeholder]');
   expect(root.querySelector<HTMLInputElement>('#inviteEmail')?.placeholder).toContain('[account.invite.email-placeholder]');
   expect(root.querySelector<HTMLInputElement>('#inviteGithub')?.placeholder).toContain('[account.invite.github-placeholder]');
+  // The Copy button's specific accessible name is user-facing copy too
+  // (#1742): it must cross the boundary even though only AT sees it.
+  const copyButton = root.querySelector<HTMLButtonElement>('button[type="button"]');
+  expect(copyButton?.getAttribute('aria-label')).toBe('[account.invite.copy-link]Copy invitation link');
 });
 it('routes returned limits and dynamic values through translated summary and clause templates', () => {
   expect(describeInviteLimits({ maxActivations: 1 })).toBe('[invite.limits.summary][invite.limits.no-expiry]Does not expire; [invite.limits.one-use]can be used 1 time.');
