@@ -92,7 +92,7 @@
       <p class="mb-1">{t('account.invite.created', "Invitation created! Share this link:")}</p>
       <div class="flex items-center gap-2">
         <textarea readonly rows="2" value={form.inviteUrl} aria-label={t('account.invite.link', 'Invitation link')} class="min-w-0 flex-1 resize-none overflow-y-auto [field-sizing:content] rounded bg-zinc-100 px-3 py-1.5 font-mono text-xs text-green-800 dark:bg-zinc-800 dark:text-green-200 select-all break-all focus:outline-2 focus:outline-offset-2 focus:outline-indigo-500"></textarea>
-        <button type="button" onclick={copyInviteLink} aria-disabled={copyState === 'pending'} class="shrink-0 rounded-md border border-green-300 px-2 py-1 text-xs text-green-700 hover:bg-green-100 aria-disabled:opacity-50 dark:border-green-700 dark:text-green-300 dark:hover:bg-green-900">{t('account.invite.copy', "Copy")}</button>
+        <button type="button" onclick={copyInviteLink} aria-disabled={copyState === 'pending'} class="shrink-0 rounded-md border border-green-300 px-2 py-1 text-xs text-green-800 hover:bg-green-100 aria-disabled:opacity-50 dark:border-green-700 dark:text-green-300 dark:hover:bg-green-900">{t('account.invite.copy', "Copy")}</button>
       </div>
       <p class="mt-2 text-xs text-green-700 dark:text-green-400">
         {#if copyState === 'unavailable'}
