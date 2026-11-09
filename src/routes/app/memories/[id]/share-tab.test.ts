@@ -41,6 +41,10 @@ function renderLayout(opts: {
   user?: typeof OWNER;
   memoryClass?: string;
   userId?: string | null;
+  organizationId?: string | null;
+  org?: Record<string, unknown> | null;
+  orgReadFailed?: boolean;
+  canWriteMemory?: boolean;
 }) {
   const graph = {
     id: 'mem-1',
@@ -48,13 +52,19 @@ function renderLayout(opts: {
     urn: 'hrn:mem:acme.com:notes',
     class: opts.memoryClass ?? 'personal',
     userId: opts.userId === undefined ? 'owner-1' : opts.userId,
-    organizationId: null,
+    organizationId: opts.organizationId ?? null,
     isEncrypted: false,
     tags: [],
   };
   return render(Layout, {
     props: {
-      data: { graph, org: null, user: opts.user ?? OWNER } as never,
+      data: {
+        graph,
+        org: opts.org ?? null,
+        orgReadFailed: opts.orgReadFailed ?? false,
+        user: opts.user ?? OWNER,
+        canWriteMemory: opts.canWriteMemory ?? false,
+      } as never,
       children: createRawSnippet(() => ({ render: () => '<div>tab body</div>' })),
     } as never,
   }).body;
@@ -87,5 +97,38 @@ describe('#668 Sharing tab visibility', () => {
     // shares exist only on personal (user-owned) memories.
     const html = renderLayout({ userId: null, memoryClass: 'knowledge' });
     expect(html).not.toContain(SHARING_TAB);
+  });
+
+  it('withholds member chrome from an org-owned non-member (#1846)', () => {
+    const nonmember = renderLayout({
+      user: STRANGER, userId: null, memoryClass: 'knowledge', organizationId: 'org-1',
+    });
+    expect(nonmember).not.toContain('/app/orgs/org-1/memories');
+    expect(nonmember).not.toContain('href="/app/memories/mem-1/settings"');
+
+    const member = renderLayout({
+      user: STRANGER,
+      userId: null,
+      memoryClass: 'knowledge',
+      organizationId: 'org-1',
+      org: { id: 'org-1', name: 'Acme', urn: 'hrn:org:acme.com', members: [{ id: 'm1', role: 'ADMIN', user: { id: STRANGER.id } }] },
+    });
+    expect(member).toContain('/app/orgs/org-1/memories');
+    expect(member).toContain('href="/app/memories/mem-1/settings"');
+  });
+
+  it('keeps Settings for an org-anchored personal owner, not a share recipient', () => {
+    const owner = renderLayout({ organizationId: 'org-1', canWriteMemory: true });
+    expect(owner).toContain('href="/app/memories/mem-1/settings"');
+
+    const recipient = renderLayout({ user: STRANGER, organizationId: 'org-1' });
+    expect(recipient).not.toContain('href="/app/memories/mem-1/settings"');
+  });
+
+  it('keeps Settings available when the member-org read fails', () => {
+    const html = renderLayout({
+      user: STRANGER, userId: null, memoryClass: 'knowledge', organizationId: 'org-1', orgReadFailed: true,
+    });
+    expect(html).toContain('href="/app/memories/mem-1/settings"');
   });
 });

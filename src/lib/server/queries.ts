@@ -247,6 +247,7 @@ export const MEMORY_BY_ID_QUERY = /* GraphQL */ `
   query MemoryById($ref: ID!) {
     memory(ref: $ref) {
       ...MemoryFields
+      organization { urn }
       subscriptions {
         id
         role
@@ -606,6 +607,16 @@ export const MEMORY_LAYOUT_ORG_QUERY = /* GraphQL */ `
         role
         user { id }
       }
+    }
+  }
+`;
+
+export const MEMORY_OWNER_PUBLIC_ORG_QUERY = /* GraphQL */ `
+  query MemoryOwnerPublicOrg($ref: ID!) {
+    publicOrganization(ref: $ref) {
+      id
+      name
+      urn
     }
   }
 `;

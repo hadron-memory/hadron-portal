@@ -11,7 +11,7 @@ export interface Memory {
    * exclusive, so this is null exactly when the memory belongs to a user.
    */
   organizationId: string | null;
-  organization?: OrgSummary;
+  organization?: OrgSummary | null;
   urn: string;
   name: string;
   shortDescription: string | null;

@@ -32,6 +32,75 @@ it('reader keeps the memory readable without Add/Edit; a writer gets the control
   expect(target.textContent).toContain('Edit memory');
 });
 
+it('an org-owned non-member gets no member memory actions or Settings tab (#1846)', async () => {
+  setStubPage('http://localhost/app/memories/mem-1/info', { id: 'mem-1' });
+  const props = reactiveProps<Record<string, unknown>>({
+    data: {
+      graph: {
+        id: 'mem-1', urn: 'hrn:mem:acme.com:shared', name: 'Shared', class: 'knowledge',
+        userId: null, organizationId: 'org-1', isEncrypted: false,
+      },
+      canWriteMemory: true,
+      user: { id: 'stranger' },
+      org: null,
+    },
+    children: createRawSnippet(() => ({ render: () => '<p>Readable memory content</p>' })),
+  });
+  mounted = mountComponent(Layout as never, props as never) as Mounted<Record<string, unknown>>;
+  await tick();
+  mounted.target.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click();
+  flushSync();
+  expect(mounted.target.textContent).not.toContain('Delete memory');
+  expect(mounted.target.textContent).not.toContain('Edit memory');
+  expect(mounted.target.querySelector('a[href="/app/memories/mem-1/settings"]')).toBeNull();
+
+  flushSync(() => {
+    props.data = {
+      ...(props.data as any),
+      org: {
+        id: 'org-1', name: 'Acme', urn: 'hrn:org:acme.com',
+        members: [{ id: 'membership', role: 'ADMIN', user: { id: 'stranger' } }],
+      },
+    };
+  });
+  await tick();
+  expect(mounted.target.textContent).toContain('Delete memory');
+  expect(mounted.target.textContent).toContain('Edit memory');
+  expect(mounted.target.querySelector('a[href="/app/memories/mem-1/settings"]')).not.toBeNull();
+});
+
+it('an org-anchored personal owner keeps Edit, but a share recipient does not (#1846)', async () => {
+  setStubPage('http://localhost/app/memories/mem-1/info', { id: 'mem-1' });
+  const props = reactiveProps<Record<string, unknown>>({
+    data: {
+      graph: {
+        id: 'mem-1', urn: 'hrn:mem:acme.com:personal', name: 'Personal', class: 'personal',
+        userId: 'owner', organizationId: 'org-1', isEncrypted: false,
+      },
+      canWriteMemory: true,
+      user: { id: 'owner' },
+      org: null,
+    },
+    children: createRawSnippet(() => ({ render: () => '<p>Readable memory content</p>' })),
+  });
+  mounted = mountComponent(Layout as never, props as never) as Mounted<Record<string, unknown>>;
+  await tick();
+  mounted.target.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click();
+  flushSync();
+  expect(mounted.target.textContent).toContain('Edit memory');
+  expect(mounted.target.querySelector('a[href="/app/memories/mem-1/settings"]')).not.toBeNull();
+
+  flushSync(() => {
+    props.data = { ...(props.data as any), canWriteMemory: false, user: { id: 'recipient' } };
+  });
+  await tick();
+  const menu = mounted.target.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
+  if (menu.getAttribute('aria-expanded') === 'false') menu.click();
+  flushSync();
+  expect(mounted.target.textContent).not.toContain('Edit memory');
+  expect(mounted.target.querySelector('a[href="/app/memories/mem-1/settings"]')).toBeNull();
+});
+
 // portal#1524 (Holger, 2026-10-31): the Graph tab shows a "temporarily off" note
 // and renders no graph. portal#1700: the Nodes tab is back, on bounded reads.
 async function mountTab(tab: string) {

@@ -11,7 +11,7 @@
   import { t } from '$lib/i18n/t';
   import ApproveAllDialog from '$lib/components/memory/ApproveAllDialog.svelte';
   import MintDialog from '$lib/components/memory/MintDialog.svelte';
-  import { canSeeShares } from '$lib/memory/can-manage-shares';
+  import { canSeeShares, isSharePrincipal } from '$lib/memory/can-manage-shares';
   import { scrollHint } from '$lib/scroll-hint';
   import type { OrgSummary } from '$lib/types';
   import type { LayoutData } from './$types';
@@ -28,18 +28,22 @@
   // memories are excluded (delete goes through the owning agent). The server
   // resolver is the trust boundary; this only hides the affordance.
   const myMember = $derived(data.org?.members?.find((m) => m.user?.id === data.user?.id));
+  const isStrictOwner = $derived(
+    (g.class === 'personal' || g.class === 'private') && isSharePrincipal(g, data.user),
+  );
   const canDelete = $derived(
     g.class !== 'system' &&
       (g.class === 'personal' || g.class === 'private'
-        ? !!data.user?.id && data.user.id === g.userId
+        ? isStrictOwner
         : myMember?.role === 'ADMIN' || myMember?.role === 'OWNER'),
   );
   // cloneMemory rejects system + encrypted sources — hide Clone there.
   const cloneable = $derived(g.class !== 'system' && !g.isEncrypted);
 
+  const canAccessSettings = $derived(!g.organizationId || !!data.org || data.orgReadFailed === true || isStrictOwner);
   const memoryActions = $derived<NodeMenuAction[]>([
     { id: 'add-node', label: t('memory-actions.add-node', 'Add node') },
-    { id: 'edit', label: t('memory-actions.edit', 'Edit memory') },
+    ...(canAccessSettings ? [{ id: 'edit', label: t('memory-actions.edit', 'Edit memory') }] : []),
     ...(cloneable ? [{ id: 'clone', label: t('memory-actions.clone', 'Clone memory') }] : []),
     // #992: system memories hold an agent's own state, not specs to approve.
     // portal#1088 (hadron-server#1637): encrypted memories are never approved.
@@ -163,7 +167,9 @@
     // portal#696: the memory's files. Sits next to Nodes/Graph — it's content,
     // not configuration.
     { id: 'assets', label: t('memory-detail.tab.assets', 'Files'), href: `${basePath}/assets` },
-    { id: 'settings', label: t('memory-detail.tab.settings', 'Settings'), href: `${basePath}/settings` },
+    ...(canAccessSettings
+      ? [{ id: 'settings' as const, label: t('memory-detail.tab.settings', 'Settings'), href: `${basePath}/settings` }]
+      : []),
     // #668 — who this memory is shared with (spec 023 US3 MemoryShare).
     //
     // Offered only to someone who can actually read the share list. The first
