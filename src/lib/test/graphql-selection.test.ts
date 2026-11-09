@@ -4,9 +4,8 @@ import { selectsFieldPath } from './graphql-selection';
 
 const PROPERTIES = ['agentTask', 'properties'] as const;
 const MIN_TIER = ['agentTask', 'requirements', 'minTier'] as const;
-const REQUIREMENTS = 'requirements { role familyIn familyNotIn excludeWorkerIds minTier }';
 type Rewrite = (query: string) => string;
-type Case = [name: string, rewrite: Rewrite, selected: boolean, oldSelected: boolean];
+type Case = [name: string, rewrite: Rewrite, selected: boolean];
 
 function edit(query: string, search: string | RegExp, replacement: string): string {
   if (typeof search === 'string') expect(query).toContain(search);
@@ -19,30 +18,37 @@ function mutate(rewrite: Rewrite): string {
   return mutant;
 }
 const removeProperties = (q: string) => edit(q, /^      properties\n/m, '');
+const movePropertiesToRowFields = (q: string) =>
+  edit(removeProperties(q), 'fragment AgentTaskRowFields on AgentTask {', 'fragment AgentTaskRowFields on AgentTask {\n    properties');
 
 const propertiesCases: Case[] = [
-  ['in a comment', q => edit(q, /^      properties\n/m, '      # properties\n'), false, true],
-  ['aliased', q => edit(q, /^      properties\n/m, '      x: properties\n'), false, true],
-  ['nested one level deeper', q => edit(removeProperties(q), 'result { outcome summary evidence }', 'result { outcome summary evidence properties }'), false, true],
-  ['with a directive', q => edit(q, /^      properties\n/m, '      properties @include(if: true)\n'), false, true],
+  ['in a comment', q => edit(q, /^      properties\n/m, '      # properties\n'), false],
+  ['aliased', q => edit(q, /^      properties\n/m, '      x: properties\n'), false],
+  ['nested one level deeper', q => edit(removeProperties(q), 'result {', 'result { properties'), false],
+  ['with a directive', q => edit(q, /^      properties\n/m, '      properties @include(if: true)\n'), false],
   [
     'under AgentTaskPartyFields',
-    q => edit(removeProperties(q), 'fragment AgentTaskPartyFields on AgentTaskParty { id kind name urn }', 'fragment AgentTaskPartyFields on AgentTaskParty { id kind name urn properties }'),
+    q => edit(removeProperties(q), 'fragment AgentTaskPartyFields on AgentTaskParty {', 'fragment AgentTaskPartyFields on AgentTaskParty {\n    properties'),
     false,
-    true,
   ],
-  ['removed', removeProperties, false, false],
-  ['in AgentTaskRowFields', q => edit(removeProperties(q), '    tags\n  }', '    tags\n    properties\n  }'), true, true],
-  ['in an inline fragment', q => edit(q, /^      properties\n/m, '      ... on AgentTask { properties }\n'), true, true],
+  ['removed', removeProperties, false],
+  ['in AgentTaskRowFields', movePropertiesToRowFields, true],
+  ['in an inline fragment', q => edit(q, /^      properties\n/m, '      ... on AgentTask { properties }\n'), true],
+  [
+    'in a named fragment with a directive',
+    q => edit(movePropertiesToRowFields(q), 'agentTask(id: $id) {\n      ...AgentTaskRowFields', 'agentTask(id: $id) {\n      ...AgentTaskRowFields @include(if: false)'),
+    false,
+  ],
+  ['in an inline fragment with a directive', q => edit(q, /^      properties\n/m, '      ... on AgentTask @include(if: false) { properties }\n'), false],
 ];
 
 const minTierCases: Case[] = [
-  ['in a comment', q => edit(q, REQUIREMENTS, 'requirements { role familyIn familyNotIn excludeWorkerIds # minTier\n }'), false, true],
-  ['aliased', q => edit(q, REQUIREMENTS, 'requirements { role familyIn familyNotIn excludeWorkerIds x: minTier }'), false, true],
-  ['nested one level deeper', q => edit(q, REQUIREMENTS, 'requirements { role familyIn familyNotIn excludeWorkerIds nested { minTier } }'), false, true],
-  ['under an aliased requirements field', q => edit(q, REQUIREMENTS, `x: ${REQUIREMENTS}`), false, true],
-  ['removed', q => edit(q, REQUIREMENTS, 'requirements { role familyIn familyNotIn excludeWorkerIds }'), false, false],
-  ['in an inline fragment', q => edit(q, REQUIREMENTS, 'requirements { role familyIn familyNotIn excludeWorkerIds ... on AgentTaskRequirements { minTier } }'), true, true],
+  ['in a comment', q => edit(q, /\bminTier\b/, '# minTier\n'), false],
+  ['aliased', q => edit(q, /\bminTier\b/, 'x: minTier'), false],
+  ['nested one level deeper', q => edit(q, /\bminTier\b/, 'nested { minTier }'), false],
+  ['under an aliased requirements field', q => edit(q, /\brequirements\s*\{/, 'x: requirements {'), false],
+  ['removed', q => edit(q, /\s*\bminTier\b/, ''), false],
+  ['in an inline fragment', q => edit(q, /\bminTier\b/, '... on AgentTaskRequirements { minTier }'), true],
 ];
 
 describe('selectsFieldPath', () => {
@@ -51,16 +57,12 @@ describe('selectsFieldPath', () => {
     expect(selectsFieldPath(AGENT_TASK_DETAIL_QUERY, 'AgentTaskDetail', MIN_TIER)).toBe(true);
   });
 
-  it.each(propertiesCases)('properties: %s', (_name, rewrite, selected, oldSelected) => {
-    const mutant = mutate(rewrite);
-    expect(/\bproperties\b/.test(mutant)).toBe(oldSelected);
-    expect(selectsFieldPath(mutant, 'AgentTaskDetail', PROPERTIES)).toBe(selected);
+  it.each(propertiesCases)('properties: %s', (_name, rewrite, selected) => {
+    expect(selectsFieldPath(mutate(rewrite), 'AgentTaskDetail', PROPERTIES)).toBe(selected);
   });
 
-  it.each(minTierCases)('requirements.minTier: %s', (_name, rewrite, selected, oldSelected) => {
-    const mutant = mutate(rewrite);
-    expect(/requirements\s*\{[^}]*\bminTier\b/.test(mutant)).toBe(oldSelected);
-    expect(selectsFieldPath(mutant, 'AgentTaskDetail', MIN_TIER)).toBe(selected);
+  it.each(minTierCases)('requirements.minTier: %s', (_name, rewrite, selected) => {
+    expect(selectsFieldPath(mutate(rewrite), 'AgentTaskDetail', MIN_TIER)).toBe(selected);
   });
 
   it('scopes the check to the named operation', () => {

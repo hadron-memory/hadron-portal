@@ -20,9 +20,11 @@ function fieldsAtLevel(
       continue;
     }
     if (selection.kind === Kind.INLINE_FRAGMENT) {
+      if (selection.directives?.length) continue;
       fields.push(...fieldsAtLevel(selection.selectionSet, fragments, visited));
       continue;
     }
+    if (selection.directives?.length) continue;
     const name = selection.name.value;
     if (visited.has(name)) continue;
     const fragment = fragments.get(name);
@@ -35,7 +37,8 @@ function fieldsAtLevel(
 
 /**
  * Whether a named operation selects every step of an unaliased field path.
- * Directives disqualify a step because the server may omit it. Only fragments
+ * Directives on fields or fragments disqualify a step because the server may
+ * omit it. Only fragments
  * at the step's own level are followed; unresolved and cyclic spreads are not
  * selections, and traversal always terminates. This is an AST check, not schema
  * validation, and is used only by tests.
