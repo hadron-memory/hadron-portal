@@ -2,10 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { mountComponent } from '$lib/test/mountComponent';
+import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import BootInstallCompile from './BootInstallCompile.svelte';
 import BootProvenance from './BootProvenance.svelte';
 const mounted: { unmount: () => void }[] = [];
-afterEach(() => { mounted.splice(0).forEach(m => m.unmount()); vi.unstubAllGlobals(); });
+afterEach(() => { mounted.splice(0).forEach(m => m.unmount()); vi.unstubAllGlobals(); resetNavigationCalls(); });
 const owner = { level: 'worker' as const, worker: 'w', app: 'a', agent: 'g' };
 const view = { key: 'workerCompile:w:a:g', source: null, canStart: true, compiled: null, pointerMatches: null };
 const response = (value: unknown, ok = true) => ({ ok, json: async () => value });
@@ -57,6 +58,19 @@ describe('portal#1666 mounted writes', () => {
     resolve(response({ ok: true, key: view.key, text: 'Late success' })); await settle();
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(document.body.textContent).not.toContain('Late success');
+    expect(navigationCalls.filter(call => call.fn === 'invalidateAll')).toEqual([]);
+  });
+  it('drops a write response keyed to another owner and does not refresh', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response(view))
+      .mockResolvedValueOnce(response({ ok: true, key: 'workerCompile:other:a:g', text: 'Wrong owner success' }));
+    vi.stubGlobal('fetch', fetcher);
+    const m = mount({ owner, canManage: true }); await settle();
+    button(m.target, 'Update the prompt').click(); await settle();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(m.target.textContent).not.toContain('Wrong owner success');
+    expect(m.target.querySelector('[role=status]')?.textContent).toBe('');
+    expect(navigationCalls.filter(call => call.fn === 'invalidateAll')).toEqual([]);
   });
   it('a rejected write is an unknown outcome, never a refusal or success', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response(view)).mockRejectedValueOnce(new Error('transport secret')));
@@ -77,6 +91,12 @@ describe('portal#1666 mounted provenance', () => {
     button(m.target, 'Next').click(); await settle();
     expect(fetcher.mock.calls[1][0]).toContain('offset=20');
   });
+  it('renders page-level and readable-row retention flags', async () => {
+    const row = { name: 'Readable source', urn: 'hrn:node:example.com:policies:readable', omitted: false, depth: 1, revNo: 2, selection: { rev: null, approved: true, signed: false }, pruned: true };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({ page: { items: [row], total: 1, hasMore: false, pruned: true, offset: 0 } })));
+    const m = mountComponent(BootProvenance, { nodeId: 'c', revision: 3 }); mounted.push(m); await settle();
+    expect(m.target.textContent?.match(/This revision’s text is no longer kept\./g)).toHaveLength(2);
+  });
   it('null provenance has no section and a failed read is not empty', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response({ page: null })).mockRejectedValueOnce(new Error('private')));
     const first = mountComponent(BootProvenance, { nodeId: 'c', revision: 3 }); mounted.push(first); await settle();
@@ -96,13 +116,57 @@ describe('stale revision responses', () => {
     expect(current.target.textContent).not.toContain('999');
     expect(current.target.textContent).not.toContain('no longer kept');
   });
-  it('a late result for worker A cannot appear when worker B is mounted', async () => {
-    let resolve!: (value: unknown) => void;
-    const fetcher = vi.fn().mockResolvedValueOnce(response(view)).mockReturnValueOnce(new Promise(r => { resolve = r; })).mockResolvedValue(response({ ...view, key: 'workerCompile:other:a:g' })); vi.stubGlobal('fetch', fetcher);
-    const old = mount({ owner, canManage: true }); await settle(); button(old.target, 'Update the prompt').click(); await settle(); old.unmount();
-    const current = mount({ owner: { ...owner, worker: 'other' }, canManage: true }); await settle();
-    resolve(response({ ok: true, key: view.key, text: 'Wrong worker success' })); await settle();
-    expect(current.target.textContent).not.toContain('Wrong worker success');
+  it('drops a late unkeyed write after A→B→A even when the owner key matches again', async () => {
+    let resolveOld!: (value: unknown) => void;
+    let posts = 0;
+    const otherView = { ...view, key: 'workerCompile:other:a:g' };
+    const fetcher = vi.fn().mockImplementation(async (input, init) => {
+      if (init?.method === 'POST') {
+        posts += 1;
+        if (posts === 1) return new Promise(resolve => { resolveOld = resolve; });
+        return response({ ok: true, key: view.key, text: 'Current A built' });
+      }
+      return response(String(input).includes('worker=other') ? otherView : view);
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const props = reactiveProps({ owner, canManage: true });
+    const m = mountComponent(BootInstallCompile, props); mounted.push(m); await settle();
+    button(m.target, 'Update the prompt').click(); await settle();
+    props.owner = { ...owner, worker: 'other' }; flushSync(); await settle();
+    props.owner = owner; flushSync(); await settle();
+    button(m.target, 'Update the prompt').click(); await settle();
+    expect(m.target.textContent).toContain('Current A built');
+    resolveOld(response({ ok: true, text: 'Stale A success' })); await settle();
+    expect(m.target.textContent).not.toContain('Stale A success');
+    expect(m.target.textContent).toContain('Current A built');
+  });
+  it('drops a late unkeyed write for A after the same mounted panel changes to B, without clearing B busy', async () => {
+    let resolveA!: (value: unknown) => void;
+    let resolveB!: (value: unknown) => void;
+    const otherView = { ...view, key: 'workerCompile:other:a:g' };
+    const fetcher = vi.fn().mockImplementation(async (input, init) => {
+      if (init?.method === 'POST') {
+        const body = JSON.parse(String(init.body));
+        if (body.owner.worker === 'w') return new Promise(resolve => { resolveA = resolve; });
+        return new Promise(resolve => { resolveB = resolve; });
+      }
+      return response(String(input).includes('worker=other') ? otherView : view);
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const props = reactiveProps({ owner, canManage: true });
+    const m = mountComponent(BootInstallCompile, props); mounted.push(m); await settle();
+    button(m.target, 'Update the prompt').click(); await settle();
+    props.owner = { ...owner, worker: 'other' }; flushSync(); await settle();
+    button(m.target, 'Update the prompt').click(); await settle();
+    resolveA(response({ ok: true, text: 'Wrong worker success' })); await settle();
+    const working = button(m.target, 'Working…');
+    expect(working.disabled).toBe(true);
+    working.click(); await settle();
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST' && JSON.parse(String(init.body)).owner.worker === 'other')).toHaveLength(1);
+    expect(m.target.textContent).not.toContain('Wrong worker success');
+    resolveB(response({ ok: true, key: otherView.key, text: 'Worker B built' })); await settle();
+    expect(m.target.textContent).toContain('Worker B built');
+    expect(m.target.textContent).not.toContain('Wrong worker success');
   });
 });
 

@@ -39,16 +39,20 @@ export function enhance(form: HTMLFormElement, submit?: unknown): { destroy: () 
 
 /**
  * Run superforms' submit callback for `form` as kit would on submit, and
- * report whether it cancelled. No request is made: the callback's returned
- * result handler is never invoked.
+ * report whether it cancelled. Pass `true` to also receive the FormData after
+ * superforms has processed it (including any JSON transport rewrite). No request
+ * is made: the callback's returned result handler is never invoked.
  */
-export async function submitEnhanced(form: HTMLFormElement): Promise<{ cancelled: boolean }> {
+export async function submitEnhanced(form: HTMLFormElement): Promise<{ cancelled: boolean }>;
+export async function submitEnhanced(form: HTMLFormElement, includeFormData: true): Promise<{ cancelled: boolean; formData: FormData }>;
+export async function submitEnhanced(form: HTMLFormElement, includeFormData = false): Promise<{ cancelled: boolean; formData?: FormData }> {
   const submit = enhanced.get(form);
   if (!submit) throw new Error('submitEnhanced: this form was never enhanced');
   let cancelled = false;
+  const formData = new FormData(form);
   await submit({
     action: new URL(form.action || 'http://localhost/'),
-    formData: new FormData(form),
+    formData,
     formElement: form,
     controller: new AbortController(),
     submitter: form.querySelector('[type="submit"]'),
@@ -56,7 +60,7 @@ export async function submitEnhanced(form: HTMLFormElement): Promise<{ cancelled
       cancelled = true;
     },
   });
-  return { cancelled };
+  return includeFormData ? { cancelled, formData } : { cancelled };
 }
 
 /**

@@ -4,7 +4,7 @@ vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
 import { POST, GET } from './+server';
 beforeEach(() => { request.mockReset(); });
 const owner = { level: 'worker', worker: 'w', app: 'a', agent: 'g' };
-const post = (body: unknown, locals: unknown = { token: 'viewer', user: { id: 'person' } }) => POST({ request: new Request('https://portal.invalid/app/boot-prompt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }), locals } as never);
+const post = (body: unknown, locals: unknown = { token: 'viewer', user: { id: 'person' } }, contentType = 'application/json') => POST({ request: new Request('https://portal.invalid/app/boot-prompt', { method: 'POST', headers: { 'Content-Type': contentType }, body: JSON.stringify(body) }), locals } as never);
 describe('compile endpoint', () => {
   it('a forged impersonation POST is refused before a provider request', async () => {
     expect((await post({ owner, intent: 'compile' }, { token: 'viewer', user: { id: 'person' }, impersonation: true })).status).toBe(403);
@@ -25,5 +25,27 @@ describe('compile endpoint', () => {
   it('bad provenance offsets are refused before a read', async () => {
     const response = await GET({ url: new URL('https://portal.invalid/app/boot-prompt?node=c&revision=3&offset=-1'), locals: { token: 'viewer' } } as never);
     expect(response.status).toBe(400); expect(request).not.toHaveBeenCalled();
+  });
+  it('requires JSON for writes before reading the body or making a request', async () => {
+    const response = await POST({
+      request: new Request('https://portal.invalid/app/boot-prompt', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: '{' }),
+      locals: { token: 'viewer', user: { id: 'person' } },
+    } as never);
+    expect(response.status).toBe(415);
+    expect(request).not.toHaveBeenCalled();
+  });
+  it('accepts parameters on the JSON media type', async () => {
+    request.mockResolvedValueOnce({ app: { id: 'a', appAgents: [{ agent: { id: 'g' }, bootPromptRef: null }] } }).mockRejectedValueOnce(new Error('socket'));
+    const response = await post({ owner: { level: 'app', app: 'a', agent: 'g' }, intent: 'compile' }, undefined, 'application/json; charset=utf-8');
+    expect(response.status).toBe(500);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+  it('marks viewer-specific reads private and uncacheable', async () => {
+    request.mockResolvedValueOnce({ app: { id: 'a', appAgents: [{ agent: { id: 'g' }, bootPromptRef: null }] } }).mockResolvedValueOnce({ installMemory: null });
+    const setHeaders = vi.fn();
+    const response = await GET({ url: new URL('https://portal.invalid/app/boot-prompt?level=app&app=a&agent=g'), locals: { token: 'viewer' }, setHeaders } as never);
+    expect(response.status).toBe(200);
+    const cacheHeaders = setHeaders.mock.calls.map(([headers]) => headers).filter(headers => 'Cache-Control' in headers);
+    expect(cacheHeaders.at(-1)).toEqual({ 'Cache-Control': 'private, no-store' });
   });
 });
