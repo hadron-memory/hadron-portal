@@ -10,6 +10,7 @@
   toggleable via the column menu).
 -->
 <script lang="ts">
+  import TabRow from '$lib/components/TabRow.svelte';
   import { tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -396,9 +397,6 @@
   // 74px tall — two lines of compressed text. The page did not overflow because
   // the labels were being crushed instead, which is the failure this looks like
   // when the rail cannot scroll.
-  const subTabBase = 'shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium transition';
-  const subTabActive = 'border-indigo-500 text-indigo-600 dark:text-indigo-400';
-  const subTabInactive = 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200';
 </script>
 
 <svelte:head><title>Memories · {org.name} · Hadron</title></svelte:head>
@@ -411,23 +409,12 @@
   </div>
 
   <!-- #342/#555: secondary tab row (Personal Memories / Org Memories / Subscriptions) -->
-  <!-- #858: `overflow-x-auto` on the rail itself — it is the direct parent of
-       the tabs, so there is no inner scroller here and no `min-w-0` to add (a
-       flex item that is a scroll container already has an automatic minimum
-       size of zero). -->
-  <div class="flex gap-1 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
-    <button type="button" onclick={() => (subTab = 'personal')} class="{subTabBase} {subTab === 'personal' ? subTabActive : subTabInactive}">
-      {t('org-memories.subtab.personal', 'Personal Memories')}
-      <span class="ml-1 text-xs font-normal text-zinc-400">({personalRows.length})</span>
-    </button>
-    <button type="button" onclick={() => (subTab = 'org')} class="{subTabBase} {subTab === 'org' ? subTabActive : subTabInactive}">
-      {t('org-memories.subtab.org', 'Org Memories')}
-    </button>
-    <button type="button" onclick={() => (subTab = 'subscriptions')} class="{subTabBase} {subTab === 'subscriptions' ? subTabActive : subTabInactive}">
-      {t('org-memories.subtab.subscriptions', 'Subscriptions')}
-      <span class="ml-1 text-xs font-normal text-zinc-400">({subscriptions.length})</span>
-    </button>
-  </div>
+  <TabRow items={[
+    { id: 'personal', label: t('org-memories.subtab.personal', 'Personal Memories'), badge: `(${personalRows.length})` },
+    { id: 'org', label: t('org-memories.subtab.org', 'Org Memories') },
+    { id: 'subscriptions', label: t('org-memories.subtab.subscriptions', 'Subscriptions'), badge: `(${subscriptions.length})` }
+  ]} active={subTab} label={t('org-memories.tabs-label', 'Memory lists')} onselect={(id) => subTab = id as typeof subTab} />
+  <div class="space-y-4" role="tabpanel" id="panel-{subTab}" aria-labelledby="tab-{subTab}" tabindex="0">
 
   {#if deleteActionError || syncAllActionError || unsubscribeActionError}
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
@@ -644,4 +631,6 @@
     <input type="hidden" name="_kind" value="unsubscribeMemory" />
     <input type="hidden" name="memoryId" value={$unsubscribeForm.memoryId} />
   </form>
+
+  </div>
 </div>

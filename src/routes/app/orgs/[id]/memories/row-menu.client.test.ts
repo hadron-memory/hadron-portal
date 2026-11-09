@@ -110,3 +110,14 @@ describe('org Memories row ⋯ menus (#1020)', () => {
     expect(requestSubmit).not.toHaveBeenCalled();
   });
 });
+
+
+it('#1408 Org memories exposes its selected panel through the shared tab semantics', async () => {
+  const target = await mountMemories('org');
+  const selected = target.querySelector('[role="tab"][aria-selected="true"]');
+  const panel = target.querySelector('[role="tabpanel"]');
+  expect(selected).not.toBeNull();
+  expect(panel).not.toBeNull();
+  expect(selected!.getAttribute('aria-controls')).toBe(panel!.id);
+  expect(panel!.getAttribute('aria-labelledby')).toBe(selected!.id);
+});
