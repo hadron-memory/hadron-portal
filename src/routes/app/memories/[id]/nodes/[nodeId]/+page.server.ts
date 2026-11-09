@@ -1453,14 +1453,24 @@ export const actions: Actions = {
         requestSignatureError: t('node.signatures.request.not-offered', 'This deployment does not offer node signing.'),
       });
     }
+    // Dorian's BLIND P2 on #1860: a missing or malformed revision must never
+    // degrade to `undefined` — the server would then pin its CURRENT revision,
+    // and the request could be for text the reader never saw. The page's other
+    // revision-pinned writes agree: saveNodeText answers no-baseline, the
+    // approve forms fail superforms validation. The portal always renders a
+    // revision, so the only way here is a tampered or broken form — refuse it
+    // and send nothing.
     const revision = parseExpectedRevision((await request.formData()).get('revision'));
+    if (revision === null) {
+      return fail(400, {
+        requestSignatureError: t('node.signatures.request.stale-form', 'Reload the page — this form no longer matches the node on screen.'),
+      });
+    }
     let failure: string | null = null;
     try {
       const r = await gqlClient(locals.token).request<{ requestNodeSignature: { ceremonyUrl: string } }>(
         REQUEST_SIGNATURE_MUTATION,
-        // undefined omits the variable entirely; the server then pins the
-        // request to the node's current revision itself.
-        { nodeRef: params.nodeId, expectedRevision: revision ?? undefined },
+        { nodeRef: params.nodeId, expectedRevision: revision },
       );
       // ceremonyUrl is String! on SigningRequest! — the contract guarantees a
       // URL, and any GraphQL-level failure threw into the catch below, so

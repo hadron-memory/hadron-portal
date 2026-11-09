@@ -227,10 +227,32 @@ describe('node page — Sign affordance (portal#1022 links half)', () => {
     expect(result).toMatchObject({ status: 400, data: { requestSignatureError: expect.stringContaining('Something went wrong') } });
   });
 
-  it('a malformed revision still asks — the server pins the current revision itself', async () => {
-    serve(() => ({}), () => ({ requestNodeSignature: { id: 'req-2', ceremonyUrl: 'https://server.example/signing/req-2' } }));
-    await expect(requestSignature({ revision: 'not-a-number' })).rejects.toMatchObject({ status: 303 });
-    const calls = mockRequest.mock.calls.filter(([doc]) => doc === REQUEST_SIGNATURE_MUTATION);
-    expect(calls[calls.length - 1][1]).toEqual({ nodeRef: 'leaf-pk', expectedRevision: undefined });
+  // Dorian's BLIND P2 (#1860): a missing or malformed revision must never
+  // degrade to `undefined` — the server would then pin its CURRENT revision,
+  // and the request could be for text the reader never saw. The page's other
+  // revision-pinned writes agree: saveNodeText answers no-baseline, the
+  // approve forms fail validation. The portal always renders a revision, so
+  // the only way here is a tampered or broken form — refuse it, send nothing.
+  it.each(['not-a-number', '0', '-3', '2147483648', ''])(
+    'a malformed revision (%s) is refused and no mutation goes out',
+    async (bad) => {
+      serve(() => ({}), () => ({ requestNodeSignature: { id: 'req-2', ceremonyUrl: 'https://server.example/signing/req-2' } }));
+      const result = await requestSignature({ revision: bad });
+      expect(result).toMatchObject({
+        status: 400,
+        data: { requestSignatureError: expect.stringContaining('Reload the page') },
+      });
+      expect(mockRequest.mock.calls.filter(([doc]) => doc === REQUEST_SIGNATURE_MUTATION)).toEqual([]);
+    },
+  );
+
+  it('a missing revision is refused the same way — the form always sends one', async () => {
+    serve(() => ({}), () => ({ requestNodeSignature: { id: 'req-3', ceremonyUrl: 'https://server.example/signing/req-3' } }));
+    const result = await requestSignature({});
+    expect(result).toMatchObject({
+      status: 400,
+      data: { requestSignatureError: expect.stringContaining('Reload the page') },
+    });
+    expect(mockRequest.mock.calls.filter(([doc]) => doc === REQUEST_SIGNATURE_MUTATION)).toEqual([]);
   });
 });

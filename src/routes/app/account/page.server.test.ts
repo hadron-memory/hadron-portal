@@ -292,6 +292,16 @@ describe('account load: the passkey-registration link (portal#1022)', () => {
     expect(await out.passkeysUrl).toBe('https://server.example/passkeys/register');
   });
 
+  // Dorian's BLIND P3 (#1860): a configured base may legitimately carry a
+  // trailing slash (`https://server.example/`); joining blindly produced
+  // `https://server.example//passkeys/register`.
+  it('joins one path separator even when the configured base ends in a slash', async () => {
+    publicEnv.PUBLIC_SERVER_URL = 'https://server.example/';
+    const { load } = await import('./+page.server');
+    const out = (await load({ locals: { token: 't', user: { id: 'u1' } } } as never)) as { passkeysUrl: Promise<string | null> };
+    expect(await out.passkeysUrl).toBe('https://server.example/passkeys/register');
+  });
+
   it('falls back to the local default base when the env var is unset', async () => {
     const { load } = await import('./+page.server');
     const out = (await load({ locals: { token: 't', user: { id: 'u1' } } } as never)) as { passkeysUrl: Promise<string | null> };

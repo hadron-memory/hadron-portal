@@ -86,7 +86,13 @@ export const load: PageServerLoad = async ({ locals }) => {
   // signature-status rule, applied to this link too). The promise resolves to
   // null then, and the section renders nothing.
   const passkeysUrl = capabilities.then(
-    (caps) => caps.has('passkey-registration') ? `${publicServerBaseUrl()}/passkeys/register` : null,
+    // The path is the server's own registration route (hadron-server
+    // src/api/ceremonyClientPages.ts) — the portal links to it, it does not
+    // own it. A configured base may legitimately end in a slash, so join with
+    // exactly one separator (Dorian's BLIND P3 on #1860).
+    (caps) => caps.has('passkey-registration')
+      ? `${publicServerBaseUrl().replace(/\/+$/, '')}/passkeys/register`
+      : null,
   );
   return { user, form, passkeysUrl };
 };
