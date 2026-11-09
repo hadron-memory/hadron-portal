@@ -527,6 +527,24 @@
   // and the warnings were confusing for the non-PUBLIC cases.
   const visibilityLabel: Record<string, string> = { PERSONAL: 'Personal', ORGANIZATION: 'Organization', PUBLIC: 'Public' };
 
+  // portal#1850 (hrn:node:hadronmemory.com:specs:cor:dmo:050:19): plain words for each offer-readiness reason
+  // code, one line per reason in the server's (clone refusal's) order. The
+  // fallback prints the raw code so a new server code is VISIBLE, never
+  // swallowed. Subjects render as names only — the contract exposes no id or
+  // URN to link (see AgentOfferSubject in $lib/types).
+  const offerReasonText = (code: string): string => {
+    switch (code) {
+      case 'AGENT_NOT_PUBLIC': return t('agent.offer.reason.not-public', 'Not public — another organisation can only subscribe to, install or clone a PUBLIC Agent.');
+      case 'AGENT_RETIRED': return t('agent.offer.reason.retired', 'This Agent is retired.');
+      case 'CLONE_LINKED_MEMORY_ENCRYPTED': return t('agent.offer.reason.memory-encrypted', 'A linked memory is encrypted.');
+      case 'CLONE_LINKED_MEMORY_UNREADABLE': return t('agent.offer.reason.memory-unreadable', 'A linked memory is not readable by another organisation.');
+      case 'CLONE_BASE_UNUSABLE': return t('agent.offer.reason.base-unusable', 'The base Agent can’t be used by another organisation.');
+      case 'CLONE_IMPORT_UNUSABLE': return t('agent.offer.reason.import-unusable', 'An imported Agent can’t be used by another organisation.');
+      default: return t('agent.offer.reason.unknown', 'Blocked: {code}', { code });
+    }
+  };
+  const offerNotPublic = $derived((agent.offerReadiness?.reasons ?? []).some((r) => r.code === 'AGENT_NOT_PUBLIC'));
+
   let selectMemoryOpen = $state(false);
 
   const memoryIdsInAgent = $derived(new Set((agent.memoryItems ?? []).map((item) => item.memory.id)));
@@ -924,6 +942,55 @@
         </div>
       </section>
 
+      <!-- portal#1850 (hrn:node:hadronmemory.com:specs:cor:dmo:050:19): whether another organisation could
+           subscribe to, install and clone this Agent. Manager-only by contract:
+           offerReadiness is null for every other caller (PUBLIC readers
+           included), and null renders NOTHING — no heading, no state line, no
+           empty section. -->
+      {#if agent.offerReadiness}
+        <section class="max-w-lg">
+          <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">{t('agent.offer.heading', 'Offering')}</h2>
+          <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
+            {#if agent.offerReadiness.ready}
+              <div class="flex items-start gap-2 px-5 py-3">
+                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400"><path d="M20 6 9 17l-5-5"></path></svg>
+                <div>
+                  <p class="text-sm font-medium text-emerald-700 dark:text-emerald-400">{t('agent.offer.ready', 'Ready to be offered')}</p>
+                  <p class="mt-0.5 text-sm text-zinc-500">{t('agent.offer.ready.detail', 'Another organisation could subscribe to, install and clone this Agent as it stands.')}</p>
+                </div>
+              </div>
+            {:else}
+              <div class="px-5 py-3">
+                <p class="text-sm font-medium text-amber-700 dark:text-amber-400">{t('agent.offer.not-ready', 'Not ready to be offered')}</p>
+                <ul class="mt-2 space-y-1">
+                  {#each agent.offerReadiness.reasons as reason (reason.code)}
+                    <li class="text-sm text-zinc-900 dark:text-white">
+                      {offerReasonText(reason.code)}
+                      {#if reason.subjects.length > 0}
+                        <span class="text-zinc-500">{reason.subjects.map((s) => s.name).join(', ')}</span>
+                      {/if}
+                      {#if reason.omittedByCap > 0}
+                        <span class="text-zinc-500">{t('agent.offer.more', '+{count} more', { count: reason.omittedByCap })}</span>
+                      {/if}
+                      {#if reason.hiddenByAccess > 0}
+                        <span class="text-zinc-500">{t('agent.offer.hidden', '{count} you can’t view', { count: reason.hiddenByAccess })}</span>
+                      {/if}
+                    </li>
+                  {/each}
+                </ul>
+                {#if offerNotPublic}
+                  <!-- "Make it PUBLIC" is the most common fix, and visibility
+                       lives on the Settings tab — a link to existing settings,
+                       not a make-ready action (out of scope per #1850). -->
+                  <p class="mt-3 text-sm text-zinc-500">
+                    {t('agent.offer.fix.visibility', 'Visibility can be changed in')} <button type="button" class="text-indigo-600 hover:underline dark:text-indigo-400" onclick={() => (activeTab = 'settings')}>{t('agent.offer.fix.settings', 'Settings')}</button>.
+                  </p>
+                {/if}
+              </div>
+            {/if}
+          </div>
+        </section>
+      {/if}
       <AgentExtendedBy agentId={agent.id} requestedAfter={data.extendedAfter ?? null} result={data.extendedBy ?? { items: [], endCursor: null, hasMore: false, failed: true }} />
 
       <!-- Capabilities — removed per FR-013 (spec 006-asset-upload-redesign).
