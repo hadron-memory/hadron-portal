@@ -5,6 +5,7 @@ import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import { APP_KEY_IMPERSONATION_READ_ONLY, APP_KEY_MANAGERS_ONLY } from '$lib/server/app-key-refusal';
 import { AGENT_TOOLS_IMPERSONATION_READ_ONLY, AGENT_TOOLS_MANAGERS_ONLY } from './agent-tools-refusal';
 import {
+  AI_SERVICE_CONFIGS_QUERY,
   INSTALL_AGENT_INTO_APP_MUTATION,
   APP_NODES_QUERY,
   APP_QUERY,
@@ -119,7 +120,7 @@ const validSettings = {
 describe('load', () => {
   it('seeds the link-agent form with an explicit empty choice', async () => {
     // mockResolvedValue (not …Once): the loader makes SEVERAL paginated calls —
-    // AI configs and, since #974, the App's Worker staff.
+    // Complete-context consumers such as the App's Worker staff.
     mockFetchAllItems.mockResolvedValue([]);
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) {
@@ -157,6 +158,7 @@ describe('load', () => {
       if (query === APP_ORG_AGENT_GRANTS_QUERY) {
         return Promise.resolve({ organization: { id: 'org-1', agentOrgGrants: [] } });
       }
+      if (query === AI_SERVICE_CONFIGS_QUERY) return Promise.resolve({ aiServiceConfigs: { items: [], total: 0 } });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
       // #744: chat-root discovery for the Chats selector. Shares the appNodes

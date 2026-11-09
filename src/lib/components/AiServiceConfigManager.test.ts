@@ -13,7 +13,7 @@ import AiServiceConfigManager from './AiServiceConfigManager.svelte';
 import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 
 // The node lane has no `$app/*`; a server render never navigates.
-vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn() }));
+vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), beforeNavigate: vi.fn() }));
 
 function html(ownerType: 'AGENT' | 'ORGANIZATION' | 'APP') {
   return render(AiServiceConfigManager, { props: { ownerType, ownerId: 'x', configs: [] } }).body;
