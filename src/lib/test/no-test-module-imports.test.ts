@@ -48,7 +48,9 @@ function svelteScripts(src: string): string {
   const ast = parse(src, { modern: true });
   return [ast.module, ast.instance]
     .filter((s) => s != null)
-    .map((s) => src.slice(s.content.start, s.content.end))
+    // The parser sets source offsets on `content`; ESTree's Program type omits them.
+    .map((s) => s.content as unknown as { start: number; end: number })
+    .map((c) => src.slice(c.start, c.end))
     .join('\n;\n');
 }
 
