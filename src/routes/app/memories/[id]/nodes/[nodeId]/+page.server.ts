@@ -65,6 +65,7 @@ import {
   nodeVerifySchema,
   parseValidatedEdges,
   parseValidatedFlowRows,
+  isFullyQualifiedNodeUrnInput,
 } from './schema';
 
 type NodeMoveForm = Infer<typeof nodeMoveSchema, 'zod4'>;
@@ -749,6 +750,16 @@ async function saveNodeText(
 }
 
 
+/**
+ * A node address with its prefix and grammar normalized, so two spellings of
+ * the same node compare equal: the `hrn:node:` / `urn:node:` prefix may be
+ * absent, and a URN from an older screen may be v1 (`::`) where composeNodeUrn
+ * emits v2 (single colon, hrn:node:hadronmemory.com:specs:cor:urn:010:01).
+ */
+function bareNodeAddress(u: string): string {
+  return u.replace(/^(?:hrn|urn):node:/, '').split('::').join(':');
+}
+
 export const actions: Actions = {
   // #237 review follow-up: every mutating action below derives `memoryId`
   // from the node fetched by PK rather than from `params.gid`. The load
@@ -862,8 +873,19 @@ export const actions: Actions = {
     // redirect it. An occupied destination fails loudly with
     // NODE_ALREADY_EXISTS (#501). The other edits are already SAVED by then,
     // so a failed move says so rather than implying nothing happened.
+    //
+    // #1876: a pasted FULL node URN is the destination as written (same
+    // detection as the Move dialog): another memory moves across, this memory
+    // renames in place, the node's own address is no change. It is never
+    // composed as a loc beneath the source memory. A bare loc composes as before.
+    const locIsFullUrn = isFullyQualifiedNodeUrnInput(newLoc);
     const loc = newLoc && newLoc !== currentNode.loc ? newLoc : currentNode.loc;
-    if (loc !== currentNode.loc) {
+    const unchanged =
+      loc === currentNode.loc ||
+      (locIsFullUrn &&
+        !!currentNode.memory?.urn &&
+        bareNodeAddress(loc) === bareNodeAddress(composeNodeUrn(currentNode.memory.urn, currentNode.loc)));
+    if (!unchanged) {
       // `metaSaved` on every failure below: the edits ARE saved, and a failed
       // action does not rerun the page load, so the client reloads the node
       // itself on this flag rather than keep showing the pre-save metadata
@@ -875,7 +897,7 @@ export const actions: Actions = {
       try {
         await client.request(MOVE_NODE_MUTATION, {
           sourceRef: currentNode.id,
-          targetUrn: composeNodeUrn(currentNode.memory.urn, loc),
+          targetUrn: locIsFullUrn ? loc : composeNodeUrn(currentNode.memory.urn, loc),
         });
       } catch (e: unknown) {
         // An occupied destination is a 409 Conflict, not a 500 — matches the
@@ -1301,9 +1323,7 @@ export const actions: Actions = {
     //     hrn:node:hadronmemory.com:specs:cor:urn:010:01, while a URN pasted from an older screen or another
     //     tool may still be v1 (`::`). Both spellings denote the same node, so
     //     comparing them raw would miss the no-op and fire a pointless move.
-    const bare = (u: string) =>
-      u.replace(/^(?:hrn|urn):node:/, '').split('::').join(':');
-    if (bare(targetUrn) === bare(composeNodeUrn(node.memory.urn, node.loc))) {
+    if (bareNodeAddress(targetUrn) === bareNodeAddress(composeNodeUrn(node.memory.urn, node.loc))) {
       return message(form, { type: 'success', text: t('node-actions.move.noop', 'Node is already at that destination.') });
     }
 
