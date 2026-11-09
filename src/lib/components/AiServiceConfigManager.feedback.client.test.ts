@@ -216,6 +216,33 @@ describe('AI configuration acknowledgement (#303)', () => {
     expect(posts.filter((p) => p.action === 'update')).toEqual([]);
   });
 
+  it('closes a deleted row’s open editor even after the confirmation is cancelled in flight', async () => {
+    let releaseDelete!: (reply: Reply) => void;
+    stubFetch((body) => {
+      if (body.action === 'delete') return new Promise<Reply>((resolve) => { releaseDelete = resolve; });
+      return {};
+    });
+    const { target } = await open({ configs: [config()] });
+    editRow(target);
+    await settle();
+    menuDelete(target);
+    button(target, 'Delete').click();
+    await tick(2);
+
+    const question = [...target.querySelectorAll<HTMLSpanElement>('span')]
+      .find((el) => el.textContent?.trim() === aiConfigStrings.confirmQuestion())!;
+    const cancel = [...question.parentElement!.querySelectorAll<HTMLButtonElement>('button')]
+      .find((el) => el.textContent?.trim() === 'Cancel')!;
+    cancel.click();
+    await tick(2);
+    expect(target.querySelector('#ac-name')).not.toBeNull();
+    releaseDelete({});
+    await settle();
+
+    expect(target.querySelector('#ac-name')).toBeNull();
+    expect(posts.filter((p) => p.action === 'delete')).toEqual([{ action: 'delete', id: 'c1' }]);
+  });
+
   it('keeps a refused save open with its draft, then clears the old error on a valid retry', async () => {
     stubFetch((body) => body.action === 'create' && posts.filter((p) => p.action === 'create').length === 1
       ? { ok: false, body: { error: 'Name already exists.' } }

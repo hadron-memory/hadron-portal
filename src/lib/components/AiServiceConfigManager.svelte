@@ -1031,10 +1031,11 @@
       refreshFailedText: s.deleteRefreshFailed(name),
       refusalFallback: 'Failed to delete configuration',
       onSuccess: () => {
-        if (isCurrent(action)) {
-          confirmDeleteId = null;
-          if (editId === id) resetEditor();
-        }
+        if (isCurrent(action)) confirmDeleteId = null;
+        // Cancelling the confirmation supersedes ordinary feedback, not the
+        // committed delete. If this row was open, its editor must still close
+        // when the delete succeeds; only the owner visit fences that cleanup.
+        if (isOwnerVisitCurrent(action) && editId === id) resetEditor();
       },
     });
   }
