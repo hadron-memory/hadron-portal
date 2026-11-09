@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { invalidateAll } from '$app/navigation';
   import { testResultView, type AiConfigTestResult, type AiConfigTestView } from '$lib/ai-config-test';
   import { lookupOwn } from '$lib/lookup';
@@ -49,14 +49,16 @@
     // Standalone use predates the Section wrapper: keep its original refresh,
     // including the rejection path that used to reach the mutation catch.
     onCommitted = async (outcome) => {
-      if (outcome.uncertainText) standaloneRecovery.setUncertainty(outcome.ownerKey, outcome.uncertainText);
-      if (outcome.ownerKey !== `${ownerType}:${ownerId}` || destroyed) {
-        standaloneRecovery.defer(outcome);
+      const scope = outcome.recoveryScope ?? standaloneScope;
+      const recovery = recoveryFor(scope);
+      if (outcome.uncertainText) recovery.setUncertainty(outcome.ownerKey, outcome.uncertainText);
+      if (outcome.ownerKey !== `${ownerType}:${ownerId}` || scope !== standaloneScope || destroyed) {
+        recovery.defer(outcome);
         return;
       }
-      standaloneRecovery.discardDeferred(outcome);
+      recovery.discardDeferred(outcome);
       const mine = ++standaloneRefreshGeneration;
-      activeStandalone.set(outcome.ownerKey, { outcome, generation: mine });
+      activeStandalone.set(standaloneActiveKey(scope, outcome.ownerKey), { outcome, generation: mine, recoveryScope: scope });
       let failed = false;
       try {
         await withAiConfigTimeout(
@@ -66,19 +68,26 @@
       } catch {
         failed = true;
       }
-      if (destroyed || outcome.ownerKey !== `${ownerType}:${ownerId}` || mine !== standaloneRefreshGeneration) {
-        standaloneRecovery.defer(outcome);
-        finishStandaloneActive(outcome, mine);
+      if (destroyed || outcome.ownerKey !== `${ownerType}:${ownerId}` || scope !== standaloneScope || mine !== standaloneRefreshGeneration) {
+        const key = standaloneActiveKey(scope, outcome.ownerKey);
+        const active = activeStandalone.get(key);
+        // Owner/principal teardown already defers the active outcome. Re-deferring
+        // it here would resurrect work after a newer replay has succeeded.
+        if (active?.outcome === outcome && active.generation === mine) {
+          activeStandalone.delete(key);
+          recovery.defer(outcome);
+        }
         return;
       }
       if (!outcome.uncertainText) {
-        standaloneRecovery.setRefreshWarning(outcome.ownerKey, failed ? outcome.refreshFailedText : null);
+        recovery.setRefreshWarning(outcome.ownerKey, failed ? outcome.refreshFailedText : null);
       }
       finishStandaloneActive(outcome, mine);
     },
     onUncertain = (outcome) => {
-      standaloneRecovery.setUncertainty(outcome.ownerKey, outcome.text);
-      if (!outcome.reconcileOnly && outcome.ownerKey === `${ownerType}:${ownerId}` && !destroyed) return;
+      const scope = outcome.recoveryScope ?? standaloneScope;
+      recoveryFor(scope).setUncertainty(outcome.ownerKey, outcome.text);
+      if (!outcome.reconcileOnly && outcome.ownerKey === `${ownerType}:${ownerId}` && scope === standaloneScope && !destroyed) return;
       return onCommitted({
         ownerKey: outcome.ownerKey,
         mutationId: outcome.mutationId,
@@ -86,6 +95,7 @@
         successText: '',
         refreshFailedText: '',
         uncertainText: outcome.text,
+        recoveryScope: scope,
       });
     },
   }: {
@@ -146,13 +156,21 @@
   let standaloneWarning = $state<string | null>(null);
   let standaloneRefreshWarning = $state<string | null>(null);
   let standaloneRefreshGeneration = 0;
-  const standaloneRecovery = (() => getAiConfigRecoveryStore(`standalone:${currentUserId ?? ''}`))();
+  const standaloneScope = $derived(`standalone:${currentUserId ?? ''}`);
   const sharesStandaloneRecovery = $derived(onMutationPending === standaloneMutationPending);
-  const activeStandalone = new Map<string, { outcome: AiConfigCommitted; generation: number }>();
+  const activeStandalone = new Map<string, { outcome: AiConfigCommitted; generation: number; recoveryScope: string }>();
   let syncingStandaloneRecovery = false;
 
+  function recoveryFor(scope = standaloneScope) {
+    return getAiConfigRecoveryStore(scope);
+  }
+
+  function standaloneActiveKey(scope: string, key: string) {
+    return `${scope}\n${key}`;
+  }
+
   function standaloneMutationPending(outcome: AiConfigMutationPending) {
-    standaloneRecovery.setPending(outcome);
+    recoveryFor(outcome.recoveryScope).setPending(outcome);
   }
   const mutationLocked = $derived(uncertainMutation || mutationUncertain || standaloneRefreshWarning !== null);
   let error = $state<string | null>(null);
@@ -176,13 +194,14 @@
     ownerType: AiConfigOwnerType;
     ownerId: string;
     ownerGeneration: number;
+    recoveryScope: string;
     formFingerprint: string;
     signal: AbortSignal;
   };
-  type PendingMutation = { id: number; ownerKey: string };
+  type PendingMutation = { id: number; ownerKey: string; recoveryScope: string };
   let pendingMutations = $state<PendingMutation[]>([]);
   const localMutationPending = $derived(
-    pendingMutations.some((mutation) => mutation.ownerKey === ownerKey),
+    pendingMutations.some((mutation) => mutation.ownerKey === ownerKey && mutation.recoveryScope === standaloneScope),
   );
   const mutationBlocked = $derived(localMutationPending || mutationPending);
 
@@ -212,6 +231,7 @@
       ownerType: ownerAtVisit!.ownerType,
       ownerId: ownerAtVisit!.ownerId,
       ownerGeneration,
+      recoveryScope: standaloneScope,
       formFingerprint: formFingerprint(),
       signal: actionController.signal,
     };
@@ -221,7 +241,8 @@
     return (
       action.ownerKey === ownerKey &&
       action.ownerKey === `${ownerType}:${ownerId}` &&
-      action.ownerGeneration === ownerGeneration
+      action.ownerGeneration === ownerGeneration &&
+      action.recoveryScope === standaloneScope
     );
   }
 
@@ -233,8 +254,13 @@
     // Document-unique IDs keep same-owner registrations distinct across Manager
     // teardown/remount and user switches; settlement releases only its own.
     const id = nextAiConfigMutationId();
-    pendingMutations = [...pendingMutations, { id, ownerKey: action.ownerKey }];
-    onMutationPending({ ownerKey: action.ownerKey, mutationId: id, pending: true });
+    pendingMutations = [...pendingMutations, { id, ownerKey: action.ownerKey, recoveryScope: action.recoveryScope }];
+    onMutationPending({
+      ownerKey: action.ownerKey,
+      mutationId: id,
+      pending: true,
+      ...(sharesStandaloneRecovery ? { recoveryScope: action.recoveryScope } : {}),
+    });
     return id;
   }
 
@@ -243,7 +269,12 @@
     // owner change. A stale request must never clear another request's lock.
     const finished = pendingMutations.find((mutation) => mutation.id === id);
     pendingMutations = pendingMutations.filter((mutation) => mutation.id !== id);
-    if (finished) onMutationPending({ ownerKey: finished.ownerKey, mutationId: id, pending: false });
+    if (finished) onMutationPending({
+      ownerKey: finished.ownerKey,
+      mutationId: id,
+      pending: false,
+      ...(sharesStandaloneRecovery ? { recoveryScope: finished.recoveryScope } : {}),
+    });
   }
 
   function resetEditor() {
@@ -254,21 +285,28 @@
   }
 
   function finishStandaloneActive(outcome: AiConfigCommitted, generation: number) {
-    const active = activeStandalone.get(outcome.ownerKey);
+    const scope = outcome.recoveryScope ?? standaloneScope;
+    const key = standaloneActiveKey(scope, outcome.ownerKey);
+    const active = activeStandalone.get(key);
     if (active?.outcome === outcome && active.generation === generation) {
-      activeStandalone.delete(outcome.ownerKey);
+      activeStandalone.delete(key);
     }
   }
 
   function scheduleStandaloneRecovery(ownerKey: string, recover: () => void | Promise<void>) {
+    const scope = standaloneScope;
+    const recovery = recoveryFor(scope);
     const recoveryId = nextAiConfigRecoveryId();
-    standaloneRecovery.setPending({ ownerKey, mutationId: recoveryId, pending: true });
-    pendingMutations = standaloneRecovery.pending().map(({ mutationId, ownerKey: key }) => ({ id: mutationId, ownerKey: key }));
+    recovery.setPending({ ownerKey, mutationId: recoveryId, pending: true, recoveryScope: scope });
+    pendingMutations = [
+      ...pendingMutations.filter((mutation) => mutation.recoveryScope !== scope),
+      ...recovery.pending().map(({ mutationId, ownerKey: key }) => ({ id: mutationId, ownerKey: key, recoveryScope: scope })),
+    ];
     queueMicrotask(async () => {
       try {
         await recover();
       } finally {
-        standaloneRecovery.setPending({ ownerKey, mutationId: recoveryId, pending: false });
+        recovery.setPending({ ownerKey, mutationId: recoveryId, pending: false, recoveryScope: scope });
       }
     });
   }
@@ -277,18 +315,65 @@
     if (destroyed || syncingStandaloneRecovery || !sharesStandaloneRecovery) return;
     syncingStandaloneRecovery = true;
     try {
+      const scope = standaloneScope;
+      const recovery = recoveryFor(scope);
       const recoveryOwnerKey = `${ownerType}:${ownerId}`;
-      pendingMutations = standaloneRecovery.pending().map(({ mutationId, ownerKey: key }) => ({ id: mutationId, ownerKey: key }));
-      standaloneWarning = standaloneRecovery.uncertainty(recoveryOwnerKey);
+      pendingMutations = [
+        ...pendingMutations.filter((mutation) => mutation.recoveryScope !== scope),
+        ...recovery.pending().map(({ mutationId, ownerKey: key }) => ({ id: mutationId, ownerKey: key, recoveryScope: scope })),
+      ];
+      standaloneWarning = recovery.uncertainty(recoveryOwnerKey);
       uncertainMutation = standaloneWarning !== null;
-      standaloneRefreshWarning = standaloneRecovery.refreshWarning(recoveryOwnerKey);
-      const deferred = standaloneRecovery.takeDeferred(recoveryOwnerKey);
-      if (deferred) scheduleStandaloneRecovery(recoveryOwnerKey, () => onCommitted(deferred));
+      standaloneRefreshWarning = recovery.refreshWarning(recoveryOwnerKey);
+      const deferred = recovery.takeDeferred(recoveryOwnerKey);
+      if (deferred) {
+        // Preserve object identity: the store's WeakMap orders outcomes by it.
+        deferred.recoveryScope ??= scope;
+        scheduleStandaloneRecovery(recoveryOwnerKey, () => onCommitted(deferred));
+      }
     } finally {
       syncingStandaloneRecovery = false;
     }
   }
-  const stopStandaloneRecovery = standaloneRecovery.subscribe(syncStandaloneRecovery);
+
+  // Effects never run during SSR, so a server render neither creates nor
+  // subscribes a module-global recovery store. A principal switch unsubscribes
+  // the old scope and fences its in-flight readback before syncing the new one.
+  $effect(() => {
+    if (!sharesStandaloneRecovery) {
+      untrack(() => {
+        uncertainMutation = false;
+        standaloneWarning = null;
+        standaloneRefreshWarning = null;
+        pendingMutations = [];
+      });
+      return;
+    }
+    const scope = standaloneScope;
+    const recovery = recoveryFor(scope);
+    ownerGeneration++;
+    actionGeneration++;
+    actionController?.abort();
+    untrack(clearNotice);
+    resetEditor();
+    configFilter = '';
+    confirmDeleteId = null;
+    busy = false;
+    const stop = untrack(() => {
+      const unsubscribe = recovery.subscribe(syncStandaloneRecovery);
+      syncStandaloneRecovery();
+      return unsubscribe;
+    });
+    return () => {
+      standaloneRefreshGeneration++;
+      for (const [key, active] of activeStandalone) {
+        if (active.recoveryScope !== scope) continue;
+        recovery.defer(active.outcome);
+        activeStandalone.delete(key);
+      }
+      stop();
+    };
+  });
 
   // Track the scalar owner identity, not a refreshed configs/loader object.
   // Same-owner invalidation must preserve a pending draft and its outcome.
@@ -312,21 +397,21 @@
     }
     standaloneRefreshGeneration++;
     busy = false;
-    const active = activeStandalone.get(previousOwnerKey);
+    const activeKey = standaloneActiveKey(standaloneScope, previousOwnerKey);
+    const active = activeStandalone.get(activeKey);
     if (active) {
-      activeStandalone.delete(previousOwnerKey);
-      standaloneRecovery.defer(active.outcome);
+      activeStandalone.delete(activeKey);
+      recoveryFor(active.recoveryScope).defer(active.outcome);
     }
     syncStandaloneRecovery();
   });
 
   onDestroy(() => {
     destroyed = true;
-    for (const active of activeStandalone.values()) standaloneRecovery.defer(active.outcome);
+    for (const active of activeStandalone.values()) recoveryFor(active.recoveryScope).defer(active.outcome);
     activeStandalone.clear();
     actionGeneration++;
     actionController?.abort();
-    stopStandaloneRecovery();
   });
 
   const editing = $derived(editId ? (configs.find((c) => c.id === editId) ?? null) : null);
@@ -634,12 +719,23 @@
     if (isOwnerVisitCurrent(action)) {
       // Safety outcomes survive Cancel and newer actions in the same visit.
       uncertainMutation = true;
-      return onUncertain({ ownerKey: action.ownerKey, mutationId, text });
+      return onUncertain({
+        ownerKey: action.ownerKey,
+        mutationId,
+        text,
+        ...(sharesStandaloneRecovery ? { recoveryScope: action.recoveryScope } : {}),
+      });
     }
     // A → B → A must not publish the old visit into the new editor, but the
     // owner still needs reconciliation before replay can be safe. If another
     // owner is current, the callback defers that recovery until A is revisited.
-    return onUncertain({ ownerKey: action.ownerKey, mutationId, text, reconcileOnly: true });
+    return onUncertain({
+      ownerKey: action.ownerKey,
+      mutationId,
+      text,
+      reconcileOnly: true,
+      ...(sharesStandaloneRecovery ? { recoveryScope: action.recoveryScope } : {}),
+    });
   }
 
   function publishCommitted(action: ActionToken, successText: string, refreshFailedText: string, mutationId: number): void | Promise<void> {
@@ -650,6 +746,7 @@
       noticeGeneration: isOwnerVisitCurrent(action) ? action.noticeGeneration : -1,
       successText,
       refreshFailedText,
+      ...(sharesStandaloneRecovery ? { recoveryScope: action.recoveryScope } : {}),
     });
   }
 
@@ -726,12 +823,13 @@
       return;
     }
 
+    let createdId: string | null = null;
     busy = true;
     await runMutation({
       action,
       request: async () => {
         if (editId === null) {
-          await post({
+          const result = await post({
             action: 'create',
             ownerType: action.ownerType,
             ownerId: action.ownerId,
@@ -744,6 +842,14 @@
             endpoint: endpointInput.trim() || undefined,
             apiStyle: apiStyleInput || undefined,
           }, true);
+          const created = result.config;
+          if (created && typeof created === 'object' && !Array.isArray(created) && typeof (created as Record<string, unknown>).id === 'string' && (created as { id: string }).id.length > 0) {
+            createdId = (created as { id: string }).id;
+          } else if (isCurrent(action) && formFingerprint() !== action.formFingerprint) {
+            // The write may have committed, but without its id a preserved draft
+            // cannot safely become an update. Reconcile instead of recreating.
+            throw new UncertainMutationError();
+          }
         } else {
           const keyArg = resolveApiKeyAction({ removeKey: clearKey, enteredKey });
           // Absent = unchanged, null = back to the provider default.
@@ -768,8 +874,11 @@
       refusalFallback: 'Failed to save configuration',
       onSuccess: () => {
         // The request captured the old values. Close only if the reader did not
-        // make newer edits while it was in flight; otherwise keep that draft.
-        if (isCurrent(action) && formFingerprint() === action.formFingerprint) resetEditor();
+        // make newer edits while it was in flight. A preserved create draft is
+        // now an UPDATE of the row the server returned, never a second create.
+        if (!isCurrent(action)) return;
+        if (formFingerprint() === action.formFingerprint) resetEditor();
+        else if (createdId !== null) editId = createdId;
       },
     });
   }

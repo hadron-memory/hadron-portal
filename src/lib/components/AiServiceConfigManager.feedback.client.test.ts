@@ -1657,6 +1657,64 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(button(m.target, 'Save').disabled).toBe(true);
   });
 
+  it('keeps a standalone draft when only the onAction callback identity changes', async () => {
+    const m = await open({ onAction: () => 0 }, AiServiceConfigManager);
+    await startCreate(m.target, 'first');
+
+    m.props.onAction = () => 0;
+    await settle();
+    expect($<HTMLInputElement>(m.target, '#ac-name')!.value).toBe('first');
+    expect($<HTMLInputElement>(m.target, '#ac-key')!.value).toBe('synthetic-key');
+  });
+
+  it('clears standalone locks when recovery ownership changes', async () => {
+    stubFetch(async (body) => {
+      if (body.action === 'create') throw new Error('dropped response');
+      return {};
+    });
+    const m = await open({}, AiServiceConfigManager);
+    await startCreate(m.target, 'first');
+    button(m.target, 'Save').click();
+    await settle();
+    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-manager-feedback"]')!;
+    expect(region.textContent).toContain('couldn’t confirm the change went through');
+
+    m.props.onMutationPending = () => {};
+    await settle();
+    expect(region.textContent).not.toContain('couldn’t confirm the change went through');
+    expect(button(m.target, 'Save').disabled).toBe(false);
+  });
+
+  it('resyncs standalone recovery when the principal changes in place', async () => {
+    stubFetch(async (body) => {
+      if (body.action === 'create') throw new Error('dropped response');
+      return {};
+    });
+    const m = await open({ currentUserId: 'u1' }, AiServiceConfigManager);
+    await startCreate(m.target, 'first');
+    button(m.target, 'Save').click();
+    await settle();
+    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-manager-feedback"]')!;
+    expect(region.textContent).toContain('couldn’t confirm the change went through');
+
+    m.props.currentUserId = 'u2';
+    await settle();
+    expect(region.textContent).not.toContain('couldn’t confirm the change went through');
+    expect(m.target.querySelector('#ac-key')).toBeNull();
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(false);
+    button(m.target, 'Cancel').click();
+    await settle();
+
+    m.props.currentUserId = 'u1';
+    await settle();
+    expect(region.textContent).toContain('couldn’t confirm the change went through');
+    button(m.target, 'Add configuration').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(true);
+  });
+
   it('isolates standalone uncertainty and replay locks by principal', async () => {
     stubFetch(async (body) => {
       if (body.action === 'create') throw new Error('dropped response');
@@ -1785,6 +1843,50 @@ describe('AI configuration code-review lifecycle pins', () => {
     await settle();
     expect($<HTMLInputElement>(m.target, '#ac-model')!.value).toBe('glm-7');
     expect(feedback(m.target).textContent).toContain('Saved “default”.');
+  });
+
+  it('updates the created row when a preserved create draft is saved again', async () => {
+    let releaseCreate!: (reply: Reply) => void;
+    const created = config({ id: 'created-id', name: 'fast', model: 'glm-5' });
+    stubFetch((body) => {
+      if (body.action === 'create') return new Promise<Reply>((resolve) => { releaseCreate = resolve; });
+      return {};
+    }, () => ({ body: { configs: [created] } }));
+    const m = await open();
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await tick(2);
+
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-7');
+    releaseCreate({ body: { ok: true, config: created } });
+    await settle();
+    expect($<HTMLInputElement>(m.target, '#ac-model')!.value).toBe('glm-7');
+
+    button(m.target, 'Save').click();
+    await settle();
+    const writes = posts.filter((body) => body.action === 'create' || body.action === 'update');
+    expect(writes.map((body) => body.action)).toEqual(['create', 'update']);
+    expect(writes[1]).toMatchObject({ id: 'created-id', model: 'glm-7' });
+  });
+
+  it('locks a preserved create draft when the response omits the created id', async () => {
+    let releaseCreate!: (reply: Reply) => void;
+    stubFetch((body) => {
+      if (body.action === 'create') return new Promise<Reply>((resolve) => { releaseCreate = resolve; });
+      return {};
+    });
+    const m = await open({}, AiServiceConfigManager);
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await tick(2);
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-7');
+
+    releaseCreate({});
+    await settle();
+    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-manager-feedback"]')!;
+    expect(region.textContent).toContain('couldn’t confirm the change went through');
+    expect(button(m.target, 'Save').disabled).toBe(true);
+    expect(posts.filter((body) => body.action === 'create')).toHaveLength(1);
   });
 
   it('clears the previous owner search when the owner changes', async () => {
