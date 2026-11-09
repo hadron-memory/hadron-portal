@@ -17,9 +17,15 @@
   const fields = ['authorTask', 'validationTask', 'descriptionNode'] as const;
   type Field = typeof fields[number];
   const labels = { authorTask: t('config.author', 'Author task'), validationTask: t('config.validator', 'Validation task'), descriptionNode: t('config.description-node', 'Description node') };
-  // Replace this sparse override map as a value: Object.hasOwn on an absent
-  // proxy key does not subscribe the display to that key being added. Keep
-  // absence distinct from an explicit null (Clear) for inherited/edit values.
+  // `refs` is the sparse override map: a key is present only once the user has
+  // picked or cleared that field, and absence means "keep the seed / omit from
+  // the payload", which is different from an explicit null (Clear). It is a
+  // `$state.raw` value that is REPLACED, never mutated in place. With a deeply
+  // reactive object, the template's `Object.hasOwn(refs, field)` on a key that
+  // is not there yet subscribes to nothing in this Svelte version, so adding the
+  // key later does not re-render: Save sent the new value while the row still
+  // showed the old one. Evidence: portal#1804, and the finding
+  // hrn:node:hadronmemory.com:hadron-portal:findings:sparse-rule-reference-overrides-not-observed
   let refs = $state.raw<Partial<Record<Field, string | null>>>({});
   function setReference(field: Field, value: string | null) {
     refs = { ...refs, [field]: value };
