@@ -13,7 +13,10 @@
  * `import … from`, `export … from`, side-effect imports, `import type`,
  * literal dynamic `import()` and `require()`, including with comments between
  * tokens, and it ignores comments, strings and template literals that merely
- * mention an import. A `.svelte` file is scanned through its `<script>` blocks.
+ * mention an import. A `.svelte` file is scanned through the instance and
+ * module scripts that Svelte's own parser (`svelte/compiler` `parse`) finds, so
+ * a `<script>` inside an HTML comment or markup text is not code and is not read;
+ * a component that fails to parse fails this test loudly rather than being skipped.
  *
  * Limits: a specifier assembled at runtime is not seen, and only the `.test`
  * naming is recognized (the repo has no `.spec` or `__tests__` convention).
@@ -21,6 +24,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse } from 'svelte/compiler';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
@@ -30,7 +34,6 @@ const SCANNED = ['src', 'scripts'];
 const SOURCE = /\.(ts|js|mjs|cjs|svelte)$/;
 // `foo.test`, `foo.client.test`, `foo.test.ts`, `foo.client.test.js`, …
 const TEST_MODULE = /\.test(\.(ts|js|mjs|cjs))?$/;
-const SCRIPT_BLOCK = /<script\b[^>]*>([\s\S]*?)<\/script>/g;
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -40,9 +43,18 @@ function walk(dir: string): string[] {
   });
 }
 
+/** The text of a component's module and instance scripts, as the Svelte parser finds them. */
+function svelteScripts(src: string): string {
+  const ast = parse(src, { modern: true });
+  return [ast.module, ast.instance]
+    .filter((s) => s != null)
+    .map((s) => src.slice(s.content.start, s.content.end))
+    .join('\n;\n');
+}
+
 /** Every import specifier in `src` (a `.svelte` file is read through its scripts) that names a test module. */
 function testModuleImports(src: string, svelte = false): string[] {
-  const code = svelte ? [...src.matchAll(SCRIPT_BLOCK)].map((m) => m[1]).join('\n;\n') : src;
+  const code = svelte ? svelteScripts(src) : src;
   return ts
     .preProcessFile(code, true, true)
     .importedFiles.map((f) => f.fileName)
@@ -80,6 +92,7 @@ describe('no module imports a test module (portal#1573)', () => {
     expect(testModuleImports(`const m = await import(/* lazy */ './y.test');`)).toEqual(['./y.test']);
     expect(testModuleImports(`const m = require('./y.test');`)).toEqual(['./y.test']);
     expect(testModuleImports(`<script lang="ts">\n  import { A } from './y.test';\n</script>\n<p>{A}</p>`, true)).toEqual(['./y.test']);
+    expect(testModuleImports(`<script module>import './m.test';</script>\n<script>import './i.test';</script>`, true)).toEqual(['./m.test', './i.test']);
   });
 
   it('leaves non-test modules and mere mentions alone', () => {
@@ -93,6 +106,8 @@ describe('no module imports a test module (portal#1573)', () => {
     expect(testModuleImports(`const s = "import { A } from './y.test'";`)).toEqual([]);
     expect(testModuleImports('const t = `import "./y.test"`;')).toEqual([]);
     expect(testModuleImports(`<p>Never import './y.test' here.</p>`, true)).toEqual([]);
+    // George's delta probe at 652dc3a4: a script inside an HTML comment is prose.
+    expect(testModuleImports(`<!-- Example only: <script>import "./example.test";</script> --><p>Documentation only</p>`, true)).toEqual([]);
   });
 
   it('reports each offending file by its path under the root', () => {
