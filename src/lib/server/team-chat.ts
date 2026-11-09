@@ -277,10 +277,12 @@ export function chatSortKey(node: Pick<MemoryNode, 'nodeType'>): 'seq' | 'loc' {
   return node.nodeType === CHAT_NODE_TYPE ? 'seq' : 'loc';
 }
 
+type TranscriptMessageTypes = readonly [typeof PLATFORM_MESSAGE_NODE_TYPE, typeof LEGACY_MESSAGE_NODE_TYPE];
+
 /** #1569: only the authenticated root's platform type selects the union.
  * A default seq sort, a tag or a request parameter is not platform evidence.
  * Legacy reads remain unqualified; #2836 excludes chat-message by default. */
-export function chatMessageNodeTypes(root: { nodeType?: string | null }): string[] | undefined {
+export function chatMessageNodeTypes(root: { nodeType?: string | null }): TranscriptMessageTypes | undefined {
   return root.nodeType === CHAT_NODE_TYPE
     ? [PLATFORM_MESSAGE_NODE_TYPE, LEGACY_MESSAGE_NODE_TYPE]
     : undefined;
@@ -329,7 +331,7 @@ export async function loadChatMessages(
     /** `seq` for a platform chat, `loc` for a legacy one. See the docblock. */
     sort?: 'seq' | 'loc';
     /** Derived from the authenticated root; absent for legacy/unrelated reads. */
-    messageNodeTypes?: string[];
+    messageNodeTypes?: TranscriptMessageTypes;
   } = {},
 ): Promise<ChatPage> {
   const limit = opts.limit ?? CHAT_PAGE_SIZE;

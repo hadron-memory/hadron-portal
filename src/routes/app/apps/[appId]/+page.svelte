@@ -1,5 +1,6 @@
 <script lang="ts">
   import TabRow from '$lib/components/TabRow.svelte';
+  import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import AppRunsPanel from './runs/AppRunsPanel.svelte';
   import TaskIntegrations from './TaskIntegrations.svelte';
   import { taskHref } from '$lib/agent-tasks/handle';
@@ -756,11 +757,15 @@
   // the pointer panel below the table (omitted when this viewer cannot manage
   // the App, the pre-menu button's gate); Unlink submits the hidden form
   // below the table for the picked row.
+  let compilePanel = $state<{ reveal: () => void }>();
+  let compileChoice = $state<{ app: string; agent: string } | null>(null);
+  const compileAgent = $derived(compileChoice?.app === data.app.id ? installedAgents.find(a => a.id === compileChoice?.agent) : undefined);
   function agentRowActions(agent: InstalledAgent): NodeMenuAction[] {
     // #1684: a derived agent has no row, so Unlink has nothing to remove. Its
     // own way off the roster is removing the import; Install writes the row.
     const derived = installMarks[agent.id]?.kind === 'derived';
     return [
+      ...(data.canManageApp === true && !impersonating ? [{ id: 'compile-prompt', label: t('app.agents.compile', 'Update the prompt…') }] : []),
       { id: 'customisation', label: t('app.agents.customisation', 'Customisation…') },
       ...(data.canManageApp !== false
         ? [{
@@ -777,7 +782,13 @@
     ];
   }
   function onAgentAction(id: string, agent: InstalledAgent) {
-    if (id === 'customisation') {
+    if (id === 'compile-prompt') {
+      const appId = data.app.id;
+      compileChoice = { app: appId, agent: agent.id };
+      void tick().then(() => {
+        if (appId === data.app.id && compileAgent?.id === agent.id) compilePanel?.reveal();
+      });
+    } else if (id === 'customisation') {
       customisationChoice = { appRef: data.bootPointerAppKey, agentId: agent.id };
       const appKey = data.bootPointerAppKey;
       void tick().then(() => {
@@ -1059,13 +1070,20 @@
   // selection, and arrows would then move relative to a tab the user is not on.
   let tabNavigation = 0, tabNavigationPending = false, tabAlive = true;
   let tabNavigationHref: string | null = null;
+  let tabNavigationCancelled = false;
   onDestroy(() => { tabAlive = false; tabNavigation++; });
   beforeNavigate((navigation) => {
     // Any real navigation supersedes a pending tab choice, including chat
     // selection and A → B → A (the final App id alone cannot fence those).
     // The exact goto owned by focusTab is the one navigation not to reject.
     // Loader invalidation does not pass through beforeNavigate.
-    if (navigation.to?.url.href === tabNavigationHref) return;
+    if (navigation.to?.url.href === tabNavigationHref) {
+      // #1833: the busy guard above cancels this owned navigation while a post
+      // is in flight, and Kit then resolves goto() without committing. Record
+      // that so focusTab does not select a tab the router never reached.
+      if (channelPostBusy) tabNavigationCancelled = true;
+      return;
+    }
     tabNavigation++;
     // #1831: the superseded focusTab can no longer release its own latch
     // (its `finally` only clears when it still owns the epoch), so the
@@ -1101,7 +1119,10 @@
         if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
         ownNavigationHref = new URL(href, window.location.href).href;
         tabNavigationHref = ownNavigationHref;
+        tabNavigationCancelled = false;
         await goto(href, { keepFocus: true, noScroll: true });
+        // A cancelled navigation resolves without a commit: keep the current tab.
+        if (tabNavigationCancelled) return;
       }
       if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
       activeTab = id;
@@ -3152,6 +3173,11 @@
             {/if}
           {/snippet}
         </DataTable>
+        {#if compileAgent}
+          {#key `${data.bootPointerAppKey}:${compileAgent.id}`}
+            <BootInstallCompile bind:this={compilePanel} title={t('app.agents.compile-title', 'Boot prompt for {name} in this App', { name: compileAgent.name })} owner={{ level: 'app', app: data.app.id, agent: compileAgent.id }} canManage={data.canManageApp} {impersonating} />
+          {/key}
+        {/if}
         {#if customisationAgent}
           {#key `${data.bootPointerAppKey}\u0000${customisationAgent.id}`}
             <InstallCustomisation bind:this={customisationPanel} appRef={data.bootPointerAppKey} agent={customisationAgent} canManage={data.canManageApp ?? null} onClose={async () => {

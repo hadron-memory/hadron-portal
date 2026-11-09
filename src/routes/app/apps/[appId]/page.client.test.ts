@@ -1781,6 +1781,93 @@ it.each([true, false])('keeps a pending Channel post mounted through tab changes
 
 });
 
+describe('focusTab and a navigation the busy guard cancelled (#1833)', () => {
+  async function mountChats() {
+    setStubPage('http://localhost/app/apps/a1?tab=chats', { appId: 'a1' });
+    const base = await pageData();
+    const data = { ...base, initialTab: 'chats', selectedChatKey: 'other', selectedChannelId: 'other', selectedChannelMessages: [],
+      selectedChannelTotal: 0, selectedChannelError: false,
+      postChannelMessageForm: await superValidate({ channelRef: 'other' }, zod4(postTeamChatMessageSchema), { errors: false, id: 'channel:other' }),
+    };
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const textarea = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+    textarea.value = 'post during preload';
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    const result = await superValidate({ body: 'post during preload', channelRef: 'other' }, zod4(postTeamChatMessageSchema), { id: 'channel:other', errors: false });
+    result.message = { type: 'success', text: 'Posted.' };
+    return { m, form: textarea.closest('form')!, result };
+  }
+  /** Kit runs beforeNavigate for the owned goto; a guard that cancels makes goto resolve with no commit. */
+  const kitGoto = (cancel: ReturnType<typeof vi.fn>) => () => {
+    const navigation = {
+      type: 'goto', to: { url: new URL('/app/apps/a1?tab=runs', window.location.href) },
+      from: { url: new URL('http://localhost/app/apps/a1?tab=chats') }, cancel, willUnload: false,
+    };
+    for (const guard of navigationGuards.filter((entry) => entry.fn === 'beforeNavigate')) {
+      (guard.callback as (nav: unknown) => void)(navigation);
+    }
+  };
+  const selected = (m: Mounted<Record<string, unknown>>, id: string) => m.target.querySelector(`#tab-${id}`)?.getAttribute('aria-selected');
+
+  it('does not select Runs when the busy guard cancelled the owned navigation (post started during the preload)', async () => {
+    const { m, form, result } = await mountChats();
+    let releasePreload!: () => void;
+    navigationHooks.onPreloadData = () => new Promise((resolve) => {
+      releasePreload = () => resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    });
+    const cancel = vi.fn();
+    navigationHooks.onGoto = kitGoto(cancel);
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { form: result } }, async () => {
+      await tick(2);
+      releasePreload();
+      await tick(10);
+    });
+    await tick(5);
+
+    expect(cancel).toHaveBeenCalled();
+    expect(selected(m, 'chats')).toBe('true');
+    expect(selected(m, 'runs')).toBe('false');
+  });
+
+  it('control: with no post the owned navigation commits and Runs is selected', async () => {
+    const { m } = await mountChats();
+    navigationHooks.onPreloadData = () => Promise.resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    const cancel = vi.fn();
+    navigationHooks.onGoto = kitGoto(cancel);
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(10);
+
+    expect(cancel).not.toHaveBeenCalled();
+    expect(selected(m, 'runs')).toBe('true');
+  });
+
+  it('control: a post already busy before the click stops at entry, with no navigation', async () => {
+    const { m, form, result } = await mountChats();
+    await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { form: result } }, async () => {
+      await tick(2);
+      m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+      await tick(5);
+    });
+    expect(navigationCalls.filter((call) => call.fn === 'goto')).toHaveLength(0);
+    expect(selected(m, 'runs')).toBe('false');
+  });
+
+  it('control: a rejected goto keeps the current tab', async () => {
+    const { m } = await mountChats();
+    navigationHooks.onPreloadData = () => Promise.resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    navigationHooks.onGoto = () => Promise.reject(new Error('loader failed'));
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(10);
+    expect(selected(m, 'runs')).toBe('false');
+    expect(selected(m, 'chats')).toBe('true');
+  });
+});
+
 describe('Cast role follows the selected Agent (#1319)', () => {
   it('has no role input and updates the read-only role when the Agent changes', async () => {
     setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
