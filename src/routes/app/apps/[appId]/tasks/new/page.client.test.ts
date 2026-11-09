@@ -163,7 +163,7 @@ describe('create page: a warned create replaces the form', () => {
 // portal#1530 — the create page's min-tier help must carry the same qualified
 // sentence as the Edit panel (one key, one default), and the minTier control
 // must serialize unchanged: '' for "Any", the tier once selected.
-import { MIN_TIER_HELP } from '$lib/components/agent-tasks/TaskEditFields.client.test';
+import { MIN_TIER_HELP } from '$lib/test/minTierHelp';
 
 describe('create page: min-tier help (portal#1530)', () => {
   async function mountCreatePage() {
