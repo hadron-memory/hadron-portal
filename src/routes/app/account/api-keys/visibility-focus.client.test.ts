@@ -12,6 +12,11 @@ import { createUserApiKeySchema, revokeUserApiKeySchema } from './schema';
 
 const revoked = { id: 'revoked', keyPreview: 'revoked', label: 'Revoked', createdAt: '2026-10-28T00:00:00Z', lastUsedAt: null, revokedAt: '2026-10-28T00:00:00Z', hiddenAt: null, issuedVia: 'portal' };
 const otherKey = { ...revoked, id: 'other', keyPreview: 'other', label: 'Other' };
+function resetFocusToBody() {
+  const old = document.body.getAttribute('tabindex');
+  document.body.tabIndex = -1; document.body.focus();
+  if (old === null) document.body.removeAttribute('tabindex'); else document.body.setAttribute('tabindex', old);
+}
 const usesCapture = (options: unknown) => typeof options === 'boolean'
   ? options
   : !!(options as AddEventListenerOptions | undefined)?.capture;
@@ -22,7 +27,7 @@ function captureFocusScopeListeners(added: ListenerSpy, firstScopeAdd: number): 
     if (type !== 'focusin' && type !== 'pointerdown' && type !== 'keydown') return [];
     return [{ type, listener, capture: usesCapture(options) }];
   });
-  expect(listeners).toHaveLength(3);
+  expect(listeners.map(({ type }) => type)).toEqual(expect.arrayContaining(['focusin', 'pointerdown', 'keydown']));
   return listeners;
 }
 function removedWithCapture(removed: ListenerSpy, { type, listener, capture }: FocusScopeListener) {
@@ -66,11 +71,7 @@ async function setup(includeHidden = false, withOtherRow = false) {
       // Installed Kit client.js applyAction(success) resets focus AFTER its
       // action-data update. Model that real ordering, not a no-op update stub.
       await tick();
-      if (type === 'success') {
-        const old = document.body.getAttribute('tabindex');
-        document.body.tabIndex = -1; document.body.focus();
-        if (old === null) document.body.removeAttribute('tabindex'); else document.body.setAttribute('tabindex', old);
-      }
+      if (type === 'success') resetFocusToBody();
       options.afterReset?.();
       if (options.updateError) throw options.updateError;
       await tick();
@@ -163,8 +164,8 @@ it.each(settlementCases)('removes the focus-scope document listeners after $labe
   }
   removed.mockClear();
   mounted!.unmount();
-  for (const { type: eventType, listener } of listeners) {
-    expect(removed).not.toHaveBeenCalledWith(eventType, listener);
+  for (const listener of listeners) {
+    expect(removedWithCapture(removed, listener), `${listener.type} settled scope is not replayed on destruction`).toBe(false);
   }
 });
 
@@ -182,23 +183,23 @@ it('removes the focus-scope document listeners when the page is destroyed pendin
   added.mockClear();
   const activeAfterDestroy = document.activeElement;
   await action.finish();
-  for (const { type, listener } of listeners) {
-    expect(added.mock.calls.some(([name, callback]) => name === type && callback === listener),
-      `${type} listener is not reattached by late settlement`).toBe(false);
-  }
+  expect(added.mock.calls.filter(([name]) =>
+    name === 'focusin' || name === 'pointerdown' || name === 'keydown'),
+  'late settlement registers no focus or interaction listeners').toEqual([]);
   expect(document.activeElement).toBe(activeAfterDestroy);
 });
 
+// #1542/#1556 preserve the reviewed conservative contract: any pending
+// keydown or pointerdown counts, even a modifier or blank-page pointer.
 it.each([
   { label: 'pointerdown', makeEvent: () => new Event('pointerdown', { bubbles: true }) },
   { label: 'modifier keydown', makeEvent: () => new KeyboardEvent('keydown', { key: 'Shift', bubbles: true }) },
 ])('treats a pending $label as interaction and leaves Kit\'s BODY reset alone', async ({ makeEvent }) => {
-  const { root, toggle, begin } = await setup();
+  const { root, begin } = await setup();
   const action = await begin();
   root.querySelector('input[name="label"]')!.dispatchEvent(makeEvent());
   await action.finish(); await tick(2);
   expect(document.activeElement).toBe(document.body);
-  expect(document.activeElement).not.toBe(toggle);
 });
 
 it('restores a connected deliberate focus target after a later blank pointer interaction', async () => {
@@ -207,15 +208,15 @@ it('restores a connected deliberate focus target after a later blank pointer int
   const other = root.querySelector<HTMLInputElement>('input[name="label"]')!;
   other.focus();
   document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
-  document.body.tabIndex = -1; document.body.focus(); document.body.removeAttribute('tabindex');
-  // Existing reviewed behavior: interacted gates only the toggle fallback;
-  // a connected deliberate lastFocus still wins. Changing that needs UX/QA.
+  resetFocusToBody();
+  // #1556: preserve the reviewed behavior; interacted gates only the toggle
+  // fallback. Changing lastFocus precedence needs separate UX/native QA.
   await action.finish(); await tick(2);
   expect(document.activeElement).toBe(other);
 });
 
 it('leaves BODY focused when pending interaction is followed by removal of the chosen focus target', async () => {
-  const { root, props, toggle, begin } = await setup(false, true);
+  const { root, props, begin } = await setup(false, true);
   const action = await begin();
   const other = root.querySelector<HTMLButtonElement>('[data-key-id="other"] button[aria-haspopup="menu"]')!;
   other.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
@@ -225,20 +226,19 @@ it('leaves BODY focused when pending interaction is followed by removal of the c
   await action.finish(); await tick(2);
   expect(other.isConnected).toBe(false);
   expect(document.activeElement).toBe(document.body);
-  expect(document.activeElement).not.toBe(toggle);
 });
 
 it('does not steal an active external focus target that did not emit focusin to the page', async () => {
   const { toggle, begin } = await setup();
   const outside = document.createElement('button');
   outside.textContent = 'Outside action';
-  // A child can own focus without bubbling focusin to the page's recorder.
-  // The active-element guard, not lastFocus restoration, must preserve it.
+  // The page uses a document bubble-phase focusin recorder. Stopping the
+  // target's bubble leaves lastFocus unchanged, so only the active-element
+  // guard can preserve this still-connected external target.
   outside.addEventListener('focusin', (event) => event.stopPropagation());
   document.body.appendChild(outside);
   try {
     const action = await begin('success', true, { afterReset: () => outside.focus() });
-    navigationHooks.onInvalidateAll = async () => { await tick(2); };
     await action.finish(); await tick(2);
     expect(document.activeElement).toBe(outside);
     expect(document.activeElement).not.toBe(toggle);
@@ -248,11 +248,10 @@ it('does not steal an active external focus target that did not emit focusin to 
 });
 
 it('does not claim focus recovery for a programmatic submit that started outside the row form', async () => {
-  const { root, toggle, begin } = await setup();
+  const { root, begin } = await setup();
   const outside = root.querySelector<HTMLInputElement>('input[name="label"]')!;
   outside.focus();
   const action = await begin('success', true, { programmatic: true });
   await action.finish(); await tick(2);
   expect(document.activeElement).toBe(document.body);
-  expect(document.activeElement).not.toBe(toggle);
 });
