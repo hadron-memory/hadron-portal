@@ -15,7 +15,7 @@ import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 import type { AiServiceConfig } from '$lib/types';
 
 // The node lane has no `$app/*`; a server render never navigates.
-vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn() }));
+vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), beforeNavigate: vi.fn() }));
 
 const CONFIG = {
   id: 'cfg-1',
