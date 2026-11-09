@@ -1837,7 +1837,17 @@ export const CREATE_PERSONAL_AGENT_MUTATION = /* GraphQL */ `
 export const AGENT_QUERY = /* GraphQL */ `
   ${AGENT_FIELDS}
   query Agent($ref: ID!) {
-    agent(ref: $ref) { ...AgentFields clonedFromAgentRef }
+    agent(ref: $ref) {
+      ...AgentFields
+      clonedFromAgentRef
+      # portal#1850 (hrn:node:hadronmemory.com:specs:cor:dmo:050:19): manager-only, null for everyone else —
+      # the page renders nothing without it. Kept out of AgentFields (like
+      # registerDefaults) so surfaces sharing the fragment never select it.
+      offerReadiness {
+        ready
+        reasons { code count subjects { name } omittedByCap hiddenByAccess }
+      }
+    }
   }
 `;
 
