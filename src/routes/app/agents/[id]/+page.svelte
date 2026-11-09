@@ -527,6 +527,49 @@
   // and the warnings were confusing for the non-PUBLIC cases.
   const visibilityLabel: Record<string, string> = { PERSONAL: 'Personal', ORGANIZATION: 'Organization', PUBLIC: 'Public' };
 
+  // portal#1850 (hrn:node:hadronmemory.com:specs:cor:dmo:050:19): plain words for each offer-readiness reason
+  // code, one line per reason in the server's (clone refusal's) order. The
+  // fallback prints the raw code so a new server code is VISIBLE, never
+  // swallowed. Subjects render as names only — the contract exposes no id or
+  // URN to link (see AgentOfferSubject in $lib/types). "organization" is the
+  // portal's established spelling (the Visibility row says Organization); the
+  // count pluralises the subject-carrying reasons (UX #1859: a sentence about
+  // three memories should not say "a memory").
+  const offerReasonText = (reason: { code: string; count: number }): string => {
+    const one = reason.count === 1;
+    switch (reason.code) {
+      case 'AGENT_NOT_PUBLIC': return t('agent.offer.reason.not-public', 'Not public — another organization can only subscribe to, install or clone a PUBLIC Agent');
+      case 'AGENT_RETIRED': return t('agent.offer.reason.retired', 'This Agent is retired');
+      case 'CLONE_LINKED_MEMORY_ENCRYPTED': return one
+        ? t('agent.offer.reason.memory-encrypted.one', 'A linked memory is encrypted')
+        : t('agent.offer.reason.memory-encrypted.many', '{count} linked memories are encrypted', { count: reason.count });
+      case 'CLONE_LINKED_MEMORY_UNREADABLE': return one
+        ? t('agent.offer.reason.memory-unreadable.one', 'A linked memory is not readable by another organization')
+        : t('agent.offer.reason.memory-unreadable.many', '{count} linked memories are not readable by another organization', { count: reason.count });
+      case 'CLONE_BASE_UNUSABLE': return one
+        ? t('agent.offer.reason.base-unusable.one', 'The base Agent can’t be used by another organization')
+        : t('agent.offer.reason.base-unusable.many', '{count} base Agents can’t be used by another organization', { count: reason.count });
+      case 'CLONE_IMPORT_UNUSABLE': return one
+        ? t('agent.offer.reason.import-unusable.one', 'An imported Agent can’t be used by another organization')
+        : t('agent.offer.reason.import-unusable.many', '{count} imported Agents can’t be used by another organization', { count: reason.count });
+      default: return t('agent.offer.reason.unknown', 'Blocked: {code}', { code: reason.code });
+    }
+  };
+  // The names and counts after a reason sentence, " · "-separated: names the
+  // server chose to show, then the cap overflow, then the subjects even the
+  // manager may not read (counts only — the hidden line carries its own noun,
+  // never a dangling "N you can't view"; UX #1859).
+  const offerReasonDetail = (reason: { subjects: Array<{ name: string }>; omittedByCap: number; hiddenByAccess: number }): string => {
+    const parts: string[] = [];
+    if (reason.subjects.length > 0) parts.push(reason.subjects.map((s) => s.name).join(', '));
+    if (reason.omittedByCap > 0) parts.push(t('agent.offer.more', '+{count} more', { count: reason.omittedByCap }));
+    if (reason.hiddenByAccess > 0) parts.push(reason.hiddenByAccess === 1
+      ? t('agent.offer.hidden.one', '1 more item you can’t view')
+      : t('agent.offer.hidden.many', '{count} more items you can’t view', { count: reason.hiddenByAccess }));
+    return parts.join(' · ');
+  };
+  const offerNotPublic = $derived((agent.offerReadiness?.reasons ?? []).some((r) => r.code === 'AGENT_NOT_PUBLIC'));
+
   let selectMemoryOpen = $state(false);
 
   const memoryIdsInAgent = $derived(new Set((agent.memoryItems ?? []).map((item) => item.memory.id)));
@@ -924,6 +967,50 @@
         </div>
       </section>
 
+      <!-- portal#1850 (hrn:node:hadronmemory.com:specs:cor:dmo:050:19): whether another organisation could
+           subscribe to, install and clone this Agent. Manager-only by contract:
+           offerReadiness is null for every other caller (PUBLIC readers
+           included), and null renders NOTHING — no heading, no state line, no
+           empty section. -->
+      {#if agent.offerReadiness}
+        <section class="max-w-lg">
+          <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">{t('agent.offer.heading', 'Offering')}</h2>
+          <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
+            {#if agent.offerReadiness.ready}
+              <div class="flex items-start gap-2 px-5 py-3">
+                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400"><path d="M20 6 9 17l-5-5"></path></svg>
+                <div>
+                  <p class="text-sm font-medium text-emerald-700 dark:text-emerald-400">{t('agent.offer.ready', 'Ready to be offered')}</p>
+                  <p class="mt-0.5 text-sm text-zinc-500">{t('agent.offer.ready.detail', 'Another organization could subscribe to, install and clone this Agent as it stands.')}</p>
+                </div>
+              </div>
+            {:else}
+              <div class="px-5 py-3">
+                <div class="flex items-start gap-2">
+                  <!-- Amber state icon mirrors the ready check: the words carry the meaning, the shape matches it (UX #1859). -->
+                  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                  <p class="text-sm font-medium text-amber-700 dark:text-amber-400">{t('agent.offer.not-ready', 'Not ready to be offered')}</p>
+                </div>
+                <ul class="mt-2 space-y-1">
+                  <!-- Unkeyed: the server emits one reason per code, but a duplicate code key would be a Svelte runtime error, and nothing here reorders (BLIND #1859). -->
+                  {#each agent.offerReadiness.reasons as reason}
+                    {@const detail = offerReasonDetail(reason)}
+                    <li class="text-sm text-zinc-900 dark:text-white">{offerReasonText(reason)}{#if detail}<span class="text-zinc-500">: {detail}</span>{:else}.{/if}</li>
+                  {/each}
+                </ul>
+                {#if offerNotPublic}
+                  <!-- "Make it PUBLIC" is the most common fix, and visibility
+                       lives on the Settings tab — a link to existing settings,
+                       not a make-ready action (out of scope per #1850). -->
+                  <p class="mt-3 text-sm text-zinc-500">
+                    {t('agent.offer.fix.visibility', 'Visibility can be changed in')} <button type="button" class="text-indigo-600 hover:underline dark:text-indigo-400" onclick={() => (activeTab = 'settings')}>{t('agent.offer.fix.settings', 'Settings')}</button>.
+                  </p>
+                {/if}
+              </div>
+            {/if}
+          </div>
+        </section>
+      {/if}
       <AgentExtendedBy agentId={agent.id} requestedAfter={data.extendedAfter ?? null} result={data.extendedBy ?? { items: [], endCursor: null, hasMore: false, failed: true }} />
 
       <!-- Capabilities — removed per FR-013 (spec 006-asset-upload-redesign).

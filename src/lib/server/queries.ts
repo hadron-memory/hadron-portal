@@ -177,6 +177,19 @@ export const APP_FIELDS = /* GraphQL */ `
 // Queries
 // ---------------------------------------------------------------------------
 
+/**
+ * #1091, hrn:node:hadronmemory.com:specs:cor:aut:010:05: whether the credential THIS
+ * request presented authenticates. AUTHENTICATED, REFUSED (one answer for every
+ * cause, an ended sign-in included) or ANONYMOUS. Asked only after `me` answers
+ * null, never merged into ME_QUERY: a server without the field refuses the
+ * whole document, and `me` must keep working there.
+ */
+export const AUTHENTICATION_STATUS_QUERY = /* GraphQL */ `
+  query AuthenticationStatus {
+    authenticationStatus
+  }
+`;
+
 export const ME_QUERY = /* GraphQL */ `
   query Me {
     me {
@@ -1824,7 +1837,17 @@ export const CREATE_PERSONAL_AGENT_MUTATION = /* GraphQL */ `
 export const AGENT_QUERY = /* GraphQL */ `
   ${AGENT_FIELDS}
   query Agent($ref: ID!) {
-    agent(ref: $ref) { ...AgentFields clonedFromAgentRef }
+    agent(ref: $ref) {
+      ...AgentFields
+      clonedFromAgentRef
+      # portal#1850 (hrn:node:hadronmemory.com:specs:cor:dmo:050:19): manager-only, null for everyone else —
+      # the page renders nothing without it. Kept out of AgentFields (like
+      # registerDefaults) so surfaces sharing the fragment never select it.
+      offerReadiness {
+        ready
+        reasons { code count subjects { name } omittedByCap hiddenByAccess }
+      }
+    }
   }
 `;
 
