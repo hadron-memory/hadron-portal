@@ -13,6 +13,7 @@ import type { TeamChatFilter } from '$lib/team-chat-filter';
 import type { TeamChatMessage, TeamChatRefusal } from '$lib/types';
 import { AGENT_CHAT_KEY } from '$lib/app-chats';
 import Page from './+page.svelte';
+import { resetAiConfigRecoveryForTests } from '$lib/components/ai-config-recovery';
 import { message, pageData, runsPanel } from './app-page.fixture';
 import {
   createAppMemorySchema, addAgentSchema, castWorkerSchema, removeAppAgentSchema,
@@ -29,6 +30,7 @@ afterEach(() => {
   resetNavigationCalls();
   resetNavigationGuards();
   resetKitAppliedResults();
+  resetAiConfigRecoveryForTests();
   window.history.replaceState({}, '', '/');
 });
 
@@ -1121,7 +1123,8 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
     await tick(2);
     const configsPanel = m.target.querySelector('#panel-ai-configs')!;
-    expect(configsPanel.textContent).toContain('AI providers');
+    expect(configsPanel.textContent).toContain('AI provider configurations');
+    expect(configsPanel.textContent).toContain('Owned by Team');
     expect(m.target.querySelector('#panel-keys')).toBeNull();
 
     (m.target.querySelector('#tab-settings') as HTMLButtonElement).click();
@@ -1129,7 +1132,7 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     const settingsPanel = m.target.querySelector('#panel-settings')!;
     expect(settingsPanel.textContent).not.toContain('Generate Key');
     expect(settingsPanel.textContent).not.toContain('production-backend');
-    expect(settingsPanel.textContent).not.toContain('AI providers');
+    expect(settingsPanel.textContent).not.toContain('AI provider configurations');
   });
 
   // A fresh page (a full POST before hydration) is followed by SvelteKit
@@ -1390,6 +1393,304 @@ describe('Chats tab, no LLM config (#1007/#1008, Cody on #1034)', () => {
     await tick(2);
     expect(m.target.querySelector('[role="tab"][aria-selected="true"]')?.id).toBe('tab-ai-configs');
     expect(m.target.querySelector('#panel-ai-configs')).not.toBeNull();
+  });
+});
+
+describe('App AI configuration readback lifecycle', () => {
+  const masked = {
+    id: 'c1', name: 'default', ownerType: 'APP', ownerId: 'a1', provider: 'anthropic', model: 'claude-sonnet-5',
+    endpoint: null, effectiveEndpoint: 'https://api.anthropic.com/v1', apiStyle: null, effectiveApiStyle: null,
+    hasApiKey: true, apiKeyPreview: '…key', params: null, enabled: true,
+    createdAt: '2026-11-08T00:00:00Z', updatedAt: null,
+  };
+
+  async function mountAi(dataOver: Record<string, unknown> = {}) {
+    setStubPage('https://example.test/app/apps/a1?tab=ai-configs', { appId: 'a1' });
+    const data = await pageData();
+    const m = mountComponent(Page as never, reactiveProps({
+      data: {
+        ...data,
+        ...dataOver,
+        initialTab: 'ai-configs', selectedChatKey: AGENT_CHAT_KEY,
+        app: {
+          ...data.app, surfaces: ['chat'], agentId: 'ag1', agent: { id: 'ag1', name: 'Bot' },
+          agents: [{ id: 'ag1', name: 'Bot' }],
+        },
+        appChats: [{ key: AGENT_CHAT_KEY, label: 'Bot' }],
+        org: { id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com', members: [{ user: { id: 'u1' }, role: 'ADMIN' }] },
+      },
+      form: null,
+    }) as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(3);
+    return m;
+  }
+
+  function fillNewConfig(target: HTMLElement) {
+    const add = [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Add configuration')!;
+    add.click();
+    flushSync();
+    for (const [selector, value] of [['#ac-name', 'default'], ['#ac-model', 'claude-sonnet-5'], ['#ac-key', 'synthetic-key']] as const) {
+      const input = target.querySelector<HTMLInputElement>(selector)!;
+      input.value = value;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      flushSync();
+    }
+    ([...target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Save')!.click();
+  }
+
+  it('keeps a pending mutation, uncertainty and its replay lock while the AI tab is hidden', async () => {
+    let rejectCreate!: (error: Error) => void;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'create') return new Promise<Response>((_, reject) => { rejectCreate = reject; });
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi();
+    fillNewConfig(m.target);
+    await tick(3);
+    const panel = m.target.querySelector<HTMLElement>('#panel-ai-configs')!;
+    const region = m.target.querySelector<HTMLElement>('[data-testid="ai-config-feedback"]')!;
+
+    (m.target.querySelector('#tab-settings') as HTMLButtonElement).click();
+    await tick(3);
+    rejectCreate(new Error('dropped response'));
+    await tick(30);
+    expect(panel.hidden).toBe(true);
+    expect(region.isConnected).toBe(true);
+    expect(region.textContent).toContain('couldn’t confirm the change went through');
+
+    (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
+    await tick(3);
+    expect(panel.hidden).toBe(false);
+    expect(m.target.querySelector('[data-testid="ai-config-feedback"]')).toBe(region);
+    expect(region.textContent).toContain('couldn’t confirm the change went through');
+    expect(([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Save')!.disabled).toBe(true);
+  });
+
+  it('aborts a timed-out resolved-config fetch through the production callback', async () => {
+    vi.useFakeTimers();
+    let relatedSignal: AbortSignal | undefined;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string; signal?: AbortSignal }) => {
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
+        return { ok: true, json: async () => ({ configs: [] }) } as Response;
+      }
+      if (url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        relatedSignal = init?.signal;
+        return new Promise<Response>(() => {});
+      }
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'create') return { ok: true, json: async () => ({ ok: true }) } as Response;
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi();
+    fillNewConfig(m.target);
+    await tick(30);
+    expect(relatedSignal?.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(relatedSignal?.aborted).toBe(true);
+  });
+
+  it('does not lock an org admin out when the App-member-only Chat read is withheld', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
+        return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
+      }
+      if (url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        return { ok: true, json: async () => ({ withheld: true }) } as Response;
+      }
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'create') return { ok: true, json: async () => ({ ok: true }) } as Response;
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi({ chatConfigs: null });
+    fillNewConfig(m.target);
+    await tick(40);
+
+    const feedback = m.target.querySelector('[data-testid="ai-config-feedback"]')!;
+    expect(feedback.textContent).toContain('Saved “default”.');
+    expect(feedback.textContent).not.toContain('couldn’t be refreshed');
+    ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Add configuration')!.click();
+    await tick(3);
+    expect(([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Save')!.disabled).toBe(false);
+  });
+
+  it('refreshes both the owner grid and resolved Chat configs across create and delete', async () => {
+    let configs = [] as typeof masked[];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1' || url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        return { ok: true, json: async () => ({ configs }) } as Response;
+      }
+      if (url.startsWith('/api/agent-chat/list')) return { ok: true, json: async () => ({ chats: [] }) } as Response;
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'create') {
+        configs = [masked];
+        return { ok: true, json: async () => ({ ok: true, config: masked }) } as Response;
+      }
+      if (body.action === 'delete') {
+        configs = [];
+        return { ok: true, json: async () => ({ ok: true }) } as Response;
+      }
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi({ chatConfigs: null });
+    fillNewConfig(m.target);
+    await tick(40);
+    expect(m.target.querySelector('[data-testid="ai-config-feedback"]')!.textContent).toContain('Saved “default”.');
+
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    expect(m.target.querySelector('#chat-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
+
+    // Null loader reads are not identity tokens: App B must not inherit A's
+    // resolved list, and returning to A restores only A's working copy.
+    const appA = m.props.data as {
+      app: Record<string, unknown>;
+      chatConfigs: unknown;
+      appConfigs: unknown;
+    };
+    m.props.data = {
+      ...appA,
+      app: { ...appA.app, id: 'b1', agentId: 'ag2' },
+      chatConfigs: null,
+      appConfigs: [],
+    };
+    await tick(10);
+    expect(m.target.querySelector('#chat-config')).toBeNull();
+    appA.appConfigs = [masked];
+    m.props.data = appA;
+    await tick(10);
+    expect(m.target.querySelector('#chat-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
+
+    (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
+    await tick(3);
+    (m.target.querySelector('button[aria-label="Actions for default"]') as HTMLButtonElement).click();
+    flushSync();
+    ([...m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')]).find((x) => x.textContent?.trim() === 'Delete')!.click();
+    flushSync();
+    ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Delete')!.click();
+    await tick(40);
+    expect(m.target.querySelector('[data-testid="ai-config-feedback"]')!.textContent).toContain('Deleted “default”.');
+
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    expect(m.target.querySelector('#chat-config')).toBeNull();
+    expect(m.target.querySelector('#panel-chats')!.textContent).toContain('Connect an LLM provider to enable agent chat');
+  });
+
+  it('keeps recovery locked when a loader replacement drops the resolved-config readback', async () => {
+    let releaseRelated!: (reply: Response) => void;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
+        return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
+      }
+      if (url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        return new Promise<Response>((resolve) => { releaseRelated = resolve; });
+      }
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'create') return { ok: true, json: async () => ({ ok: true }) } as Response;
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi({ chatConfigs: [] });
+    fillNewConfig(m.target);
+    await tick(30);
+    expect(releaseRelated).toBeTypeOf('function');
+
+    const loader = m.props.data as Record<string, unknown>;
+    m.props.data = { ...loader, chatConfigs: [] };
+    await tick(5);
+    releaseRelated({ ok: true, json: async () => ({ configs: [masked] }) } as Response);
+    await tick(40);
+    expect(m.target.querySelector('[data-testid="ai-config-feedback"]')!.textContent).toContain('couldn’t be refreshed');
+  });
+
+  it('supersedes a resolved-config working copy on a same-App null loader generation', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1' || url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
+      }
+      if (url.startsWith('/api/agent-chat/list')) return { ok: true, json: async () => ({ chats: [] }) } as Response;
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'create') return { ok: true, json: async () => ({ ok: true }) } as Response;
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi({ chatConfigs: null });
+    fillNewConfig(m.target);
+    await tick(40);
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    expect(m.target.querySelector('#chat-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
+
+    const loader = m.props.data as Record<string, unknown>;
+    m.props.data = { ...loader, chatConfigs: null };
+    await tick(10);
+    expect(m.target.querySelector('#chat-config')).toBeNull();
+  });
+
+  it('masks stale resolved Chat configs when their readback fails after delete', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
+        return { ok: true, json: async () => ({ configs: [] }) } as Response;
+      }
+      if (url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        return { ok: false, status: 500, json: async () => ({ failed: true }) } as Response;
+      }
+      if (url.startsWith('/api/agent-chat/list')) return { ok: true, json: async () => ({ chats: [] }) } as Response;
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'delete') return { ok: true, json: async () => ({ ok: true }) } as Response;
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi({ chatConfigs: [masked], appConfigs: [masked] });
+    (m.target.querySelector('button[aria-label="Actions for default"]') as HTMLButtonElement).click();
+    flushSync();
+    ([...m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')]).find((x) => x.textContent?.trim() === 'Delete')!.click();
+    flushSync();
+    ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Delete')!.click();
+    await tick(40);
+
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    expect(m.target.querySelector('#chat-config')).toBeNull();
+  });
+
+  it('resets the Chat config selection when App or agent identity changes', async () => {
+    const fast = { ...masked, id: 'c2', name: 'fast' };
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.startsWith('/api/agent-chat/list')) return { ok: true, json: async () => ({ chats: [] }) } as Response;
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const m = await mountAi({ chatConfigs: [fast, masked] });
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    const picker = m.target.querySelector<HTMLSelectElement>('#chat-config')!;
+    picker.value = 'fast';
+    picker.dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+    expect(picker.value).toBe('fast');
+
+    const loader = m.props.data as { app: Record<string, unknown> };
+    m.props.data = {
+      ...loader,
+      app: { ...loader.app, id: 'b1', agentId: 'ag2' },
+      chatConfigs: [fast, masked],
+    };
+    await tick(10);
+    expect(m.target.querySelector<HTMLSelectElement>('#chat-config')!.value).toBe('default');
   });
 });
 
@@ -2430,6 +2731,35 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     expect(m.target.querySelector('#panel-runs')?.textContent).toContain('preloaded-run');
     expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('Loading runs…');
     expect(navigationCalls.filter((call) => call.fn === 'preloadData')).toHaveLength(1);
+  });
+
+  it('#1825 clears a retained Runs payload when the principal changes on the same App', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=runs', { appId: 'a1' });
+    const data = await pageData();
+    data.initialTab = 'runs';
+    data.runsPanel = await runsPanel('principal-one-run');
+    const props = reactiveProps({ data, form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(3);
+
+    // Control: an old-URL refresh without a Runs section retains the panel for
+    // the SAME principal, which is the #1795 behavior this key must preserve.
+    props.data = { ...props.data, runsPanel: null };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('principal-one-run');
+
+    props.data = { ...props.data, currentUserId: 'u2', runsPanel: null };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('principal-one-run');
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('Loading runs…');
+
+    // The old payload was cleared, not merely hidden: returning to the first
+    // principal without a fresh Runs response cannot resurrect it.
+    props.data = { ...props.data, currentUserId: 'u1', runsPanel: null };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('principal-one-run');
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('Loading runs…');
   });
 
   it.each(['newer tab', 'teardown', 'chat navigation', 'A-B-A navigation'] as const)('#1795 a completed stale preload does not navigate after %s', async (boundary) => {
