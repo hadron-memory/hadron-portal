@@ -1,0 +1,90 @@
+/** #1801 — fitOnPhone is client-reactive: a single-column table and its header
+ * shrink on a phone, while wide saved desktop layouts keep their TanStack size.
+ * A server render never runs the media-query effect or its teardown.
+ */
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { flushSync } from 'svelte';
+import { mountComponent } from '$lib/test/mountComponent';
+import Harness from '$lib/test/DataTableFitOnPhoneHarness.svelte';
+
+type Listener = (event: { matches: boolean }) => void;
+const mounted: Array<{ unmount: () => void }> = [];
+afterEach(() => {
+  while (mounted.length) mounted.pop()!.unmount();
+  vi.unstubAllGlobals();
+});
+
+function stubNarrow(initial: boolean) {
+  const listeners = new Set<Listener>();
+  const mq = {
+    matches: initial,
+    media: '(max-width: 639px)',
+    addEventListener: (_: string, listener: Listener) => listeners.add(listener),
+    removeEventListener: (_: string, listener: Listener) => listeners.delete(listener),
+  };
+  vi.stubGlobal('matchMedia', vi.fn((query: string) => query === mq.media ? mq : { matches: false, media: query, addEventListener() {}, removeEventListener() {} }));
+  return {
+    listeners,
+    set(matches: boolean) {
+      mq.matches = matches;
+      for (const listener of [...listeners]) listener({ matches });
+      flushSync();
+    },
+  };
+}
+
+function mount(fitOnPhone: boolean, multiColumn = false) {
+  const m = mountComponent(Harness, { fitOnPhone, multiColumn });
+  mounted.push(m);
+  flushSync();
+  return {
+    m,
+    table: m.target.querySelector<HTMLTableElement>('table')!,
+    header: m.target.querySelector<HTMLElement>('th')!,
+  };
+}
+
+describe('DataTable fitOnPhone', () => {
+  it('shrinks table and header on a phone, restores desktop size, and removes its listener on teardown', () => {
+    const media = stubNarrow(true);
+    const { m, table, header } = mount(true);
+    expect(media.listeners.size).toBe(1);
+    expect(table.style.width).toBe('100%');
+    expect(header.style.width).toBe('100%');
+    expect(m.target.querySelector('[role="separator"]')).toBeNull();
+
+    media.set(false);
+    expect(table.style.width).toBe('max(100%, 1600px)');
+    expect(header.style.width).toBe('1600px');
+    expect(m.target.querySelector('[role="separator"]')?.getAttribute('aria-valuenow')).toBe('1600');
+
+    m.unmount();
+    expect(media.listeners.size).toBe(0);
+  });
+
+  it('leaves a wide table on the TanStack sizing path when fitOnPhone is off', () => {
+    const media = stubNarrow(true);
+    const { m, table, header } = mount(false);
+    expect(table.style.width).toBe('max(100%, 1600px)');
+    expect(header.style.width).toBe('1600px');
+    expect(m.target.querySelector('[role="separator"]')).not.toBeNull();
+    expect(media.listeners.size).toBe(0);
+  });
+
+  it('keeps TanStack sizing and resize controls for a multi-column table on a phone', () => {
+    const media = stubNarrow(true);
+    const { m, table } = mount(true, true);
+    const headers = [...m.target.querySelectorAll<HTMLElement>('th')];
+    expect(table.style.width).toBe('max(100%, 2000px)');
+    expect(headers.map(header => header.style.width)).toEqual(['1600px', '400px']);
+    expect(m.target.querySelectorAll('[role="separator"]')).toHaveLength(2);
+    expect(media.listeners.size).toBe(1);
+  });
+
+  it('uses the initial match once without throwing when only legacy MediaQueryList APIs could exist', () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, media: '(max-width: 639px)' })));
+    const { table, header } = mount(true);
+    expect(table.style.width).toBe('100%');
+    expect(header.style.width).toBe('100%');
+  });
+});
