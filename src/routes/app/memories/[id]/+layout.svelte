@@ -12,7 +12,7 @@
   import ApproveAllDialog from '$lib/components/memory/ApproveAllDialog.svelte';
   import MintDialog from '$lib/components/memory/MintDialog.svelte';
   import { canSeeShares, isSharePrincipal } from '$lib/memory/can-manage-shares';
-  import { canAccessMemorySettings } from '$lib/memory/can-access-settings';
+  import { canAccessMemorySettings, canEditMemorySettings } from '$lib/memory/can-access-settings';
   import { scrollHint } from '$lib/scroll-hint';
   import type { OrgSummary } from '$lib/types';
   import type { LayoutData } from './$types';
@@ -23,7 +23,6 @@
 
   // ── #520: memory actions menu (⋯), mirroring the node-detail page ─────────
   const g = $derived(data.graph);
-  const readOnly = $derived(data.canWriteMemory !== true);
   // canDelete mirrors the Settings danger-zone gate (spec 013/034): owner-only
   // classes → the owner; other classes → an org ADMIN/OWNER; agent-system
   // memories are excluded (delete goes through the owning agent). The server
@@ -43,9 +42,23 @@
   const canAccessSettings = $derived(
     canAccessMemorySettings(g, data.user, !!data.org, data.orgReadFailed === true),
   );
+  const impersonating = $derived(data.impersonation != null);
+  // Keep Edit aligned with the destination's manage gate without granting
+  // node-write actions to a manage-only org admin.
+  const canEditSettings = $derived(canEditMemorySettings({
+    memory: g,
+    user: data.user,
+    orgAvailable: !!data.org,
+    orgReadFailed: data.orgReadFailed === true,
+    canManageMemory: data.canManageMemory === true,
+    canWriteMemory: data.canWriteMemory === true,
+    impersonating,
+    myMember,
+  }));
+  const readOnly = $derived(impersonating || data.canWriteMemory !== true);
   const memoryActions = $derived<NodeMenuAction[]>([
     { id: 'add-node', label: t('memory-actions.add-node', 'Add node') },
-    ...(canAccessSettings ? [{ id: 'edit', label: t('memory-actions.edit', 'Edit memory') }] : []),
+    ...(canEditSettings ? [{ id: 'edit', label: t('memory-actions.edit', 'Edit memory') }] : []),
     ...(cloneable ? [{ id: 'clone', label: t('memory-actions.clone', 'Clone memory') }] : []),
     // #992: system memories hold an agent's own state, not specs to approve.
     // portal#1088 (hadron-server#1637): encrypted memories are never approved.
@@ -53,7 +66,7 @@
     // #992 slice C: the server refuses encrypted memories outright.
     ...(g.class !== 'system' && !g.isEncrypted ? [{ id: 'mint', label: t('memory-actions.mint', 'Mint nodes') }] : []),
     ...(canDelete ? [{ id: 'delete', label: t('memory-actions.delete', 'Delete memory'), danger: true }] : []),
-  ].filter((action) => !readOnly || action.id === 'clone'));
+  ].filter((action) => !impersonating && (!readOnly || action.id === 'clone' || action.id === 'edit' || (action.id === 'delete' && canEditSettings))));
 
   // Clone dialog — mirrors the node Move dialog: a full target memory URN the
   // user can edit, with a "Select org" button that rewrites the org segment.
@@ -80,11 +93,19 @@
   // #992: Approve all (approveMemoryNodes), in its own dialog component.
   let approveAllOpen = $state(false);
   let mintOpen = $state(false);
+  $effect(() => {
+    if (!impersonating) return;
+    cloneOpen = false;
+    orgPickerOpen = false;
+    approveAllOpen = false;
+    mintOpen = false;
+  });
   // Bumped after a confirmed Approve all, so an active server filter in the
   // node list ("Not approved") re-runs instead of listing approved nodes.
   let approvalsVersion = $state(0);
 
   function onMenuSelect(id: string) {
+    if (impersonating) return;
     cloneOpen = false;
     cloneError = null;
     approveAllOpen = false;
@@ -112,6 +133,7 @@
   }
 
   async function submitClone() {
+    if (impersonating) return;
     const target = cloneTarget.trim();
     if (!target || cloning) return;
     cloning = true;

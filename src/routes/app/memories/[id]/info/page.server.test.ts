@@ -81,6 +81,13 @@ describe('memory Info owner attribution (#1846 slice A)', () => {
     expect(mockRequest).toHaveBeenCalledExactlyOnceWith(MEMORY_OWNER_PUBLIC_ORG_QUERY, { ref: 'org-1' });
   });
 
+  it('uses the known organization id for a valid legacy-scheme v2 memory URN', async () => {
+    mockRequest.mockResolvedValue({ publicOrganization: publicOrg });
+    const data = await infoData(ev({ memoryUrn: 'urn:mem:acme.com:docs' }));
+    expect(data.ownerAttribution).toEqual({ ...publicOrg, source: 'public' });
+    expect(mockRequest).toHaveBeenCalledExactlyOnceWith(MEMORY_OWNER_PUBLIC_ORG_QUERY, { ref: 'org-1' });
+  });
+
   it('preserves disclosed member attribution when member hydration fails', async () => {
     const organization = { id: 'org-1', name: 'Member Org', urn: 'hrn:org:member.test' };
     const data = await infoData(ev({ organization, orgReadFailed: true }));
@@ -117,6 +124,8 @@ describe('memory Info owner attribution (#1846 slice A)', () => {
   it('fails closed to no attribution for malformed or missing memory identity', async () => {
     mockRequest.mockResolvedValue({ publicOrganization: null });
     expect((await infoData(ev({ memoryUrn: 'hrn:node:acme.com:docs:tasks:one' }))).ownerAttribution).toBeNull();
+    expect((await infoData(ev({ memoryUrn: 'hrn:mem:acme.com:docs:extra' }))).ownerAttribution).toBeNull();
+    expect((await infoData(ev({ memoryUrn: 'urn:mem:acme.com:docs:extra' }))).ownerAttribution).toBeNull();
     expect((await infoData(ev({ memoryUrn: 'not-a-memory-urn' }))).ownerAttribution).toBeNull();
     expect((await infoData(ev({ memoryUrn: null }))).ownerAttribution).toBeNull();
     expect(mockRequest).not.toHaveBeenCalled();
@@ -138,6 +147,13 @@ describe('memory Info owner attribution (#1846 slice A)', () => {
     mockRequest.mockResolvedValue({ publicOrganization: publicOrg });
     const data = await infoData(ev({ memoryClass }));
     expect(data.ownerAttribution).toEqual({ ...publicOrg, source: 'public' });
+    expect(mockRequest).toHaveBeenCalledExactlyOnceWith(MEMORY_OWNER_PUBLIC_ORG_QUERY, { ref: 'org-1' });
+  });
+
+  it('returns no attribution for an org-anchored personal memory with a legacy URN when public attribution is unavailable', async () => {
+    mockRequest.mockResolvedValue({ publicOrganization: null });
+    const data = await infoData(ev({ memoryClass: 'personal', memoryUrn: 'hrn:memory:acme.com::docs' }));
+    expect(data.ownerAttribution).toBeNull();
     expect(mockRequest).toHaveBeenCalledExactlyOnceWith(MEMORY_OWNER_PUBLIC_ORG_QUERY, { ref: 'org-1' });
   });
 

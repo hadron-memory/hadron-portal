@@ -10,9 +10,14 @@ export type MemoryOwnerAttribution =
   | { urn: string; source: 'memory-urn' };
 
 function isLegacyMemoryUrn(value: string | null | undefined): boolean {
+  // The compatibility parser accepts flat v2 in either scheme, including
+  // shapes the strict attribution helper rejects. A valid legacy-scheme v2 may
+  // still use the known-id public lookup; malformed flat v2 must fail closed.
   if (typeof value !== 'string' || memoryOwnerOrgUrn(value)) return false;
   try {
-    return parseUrn(value).type === 'memory';
+    const parsed = parseUrn(value);
+    if (parsed.type !== 'memory') return false;
+    return !/^(?:hrn|urn):mem:/.test(value) || parsed.pathSegments.length === 2;
   } catch {
     return false;
   }

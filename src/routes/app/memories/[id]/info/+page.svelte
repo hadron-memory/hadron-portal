@@ -61,7 +61,7 @@
                 />
               </span>
             </span>
-          {:else if isOwnerOnly}
+          {:else if isOwnerOnly && !g.organizationId}
             {t('memory-info.only-you', 'Only you')}
           {:else}
             —

@@ -96,6 +96,16 @@ describe('memory Info owner attribution (#1846 slice A)', () => {
     expect(system).toContain('hrn:agent:acme.com:system');
   });
 
+  it('shows a dash, not Only you, when company attribution is unavailable for an org-anchored personal memory', () => {
+    const body = render(Page as never, { props: { data: data(
+      { class: 'personal', organizationId: 'org-1', userId: 'owner' },
+      { user: { id: 'owner' }, ownerAttribution: null },
+    ) } as never }).body;
+    const ownerRow = body.match(/Owner<\/span>[\s\S]*?(?=<div class="flex items-center justify-between)/)?.[0] ?? '';
+    expect(ownerRow).toContain('—');
+    expect(ownerRow).not.toContain('Only you');
+  });
+
   it('shows company attribution instead of Only you in an org-anchored personal Owner row', () => {
     const body = render(Page as never, { props: { data: data(
       { class: 'personal', organizationId: 'org-1', userId: 'owner' },

@@ -17,7 +17,7 @@ afterEach(() => {
 
 async function mountDirectEdit(
   user: typeof OWNER,
-  opts: { graph?: Partial<Memory>; org?: unknown; canManageMemory?: boolean; transferCanDelete?: boolean } = {},
+  opts: { graph?: Partial<Memory>; org?: unknown; canWriteMemory?: boolean; canManageMemory?: boolean; impersonation?: unknown; transferCanDelete?: boolean } = {},
 ) {
   const graph = settingsGraph({
     class: 'personal',
@@ -35,8 +35,9 @@ async function mountDirectEdit(
       owner: OWNER,
       org: opts.org ?? null,
       allOrgs: [],
-      canWriteMemory: true,
+      canWriteMemory: opts.canWriteMemory ?? true,
       canManageMemory: opts.canManageMemory ?? true,
+      impersonation: opts.impersonation ?? null,
       roleConfigAvailable: true,
       transferCanDelete: false,
       ...forms,
@@ -54,6 +55,9 @@ function expectClosedAndDisabled(target: HTMLElement) {
   expect(target.querySelector('form#graph-settings')).toBeNull();
   expect([...target.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Edit')).toBe(false);
   expect(target.querySelector('a[href$="/settings/node-roles"]')).toBeNull();
+  expect(target.querySelector<HTMLFieldSetElement>('form[action="?/updateVectorIndex"] fieldset')!.disabled).toBe(true);
+  expect(target.querySelector<HTMLFieldSetElement>('form[action="?/updateSchema"] fieldset')!.disabled).toBe(true);
+  expect(target.querySelector('form[action="?/updateMarketplaceListing"]')).toBeNull();
 }
 
 describe('memory Settings management gate (#1846)', () => {
@@ -75,6 +79,62 @@ describe('memory Settings management gate (#1846)', () => {
       org: { id: 'org-1', members: [{ user: { id: OWNER_ID }, role: 'CONTRIBUTOR' }] },
       canManageMemory: false,
     });
+    expectClosedAndDisabled(target);
+  });
+
+  it('preserves group org-admin controls when the access audit under-reports management', async () => {
+    const { target } = await mountDirectEdit(OWNER, {
+      graph: { class: 'group', organizationId: 'org-1', userId: null },
+      org: { id: 'org-1', members: [{ user: { id: OWNER_ID }, role: 'ADMIN' }] },
+      canWriteMemory: false,
+      canManageMemory: false,
+    });
+    expect(target.querySelector<HTMLFieldSetElement>('fieldset.space-y-8')!.disabled).toBe(false);
+    expect(target.querySelector('form#graph-settings')).not.toBeNull();
+    expect(target.querySelector<HTMLFieldSetElement>('form#graph-settings fieldset')!.disabled).toBe(false);
+    expect(target.querySelector<HTMLFieldSetElement>('form[action="?/updateVectorIndex"] fieldset')!.disabled).toBe(false);
+    expect(target.querySelector<HTMLFieldSetElement>('form[action="?/updateSchema"] fieldset')!.disabled).toBe(false);
+    expect(target.querySelector('a[href$="/settings/node-roles"]')).not.toBeNull();
+  });
+
+  it('does not give a platform admin Settings edits on another user’s App memory', async () => {
+    const { target } = await mountDirectEdit({ ...OWNER, roles: ['ADMIN'] }, {
+      graph: { class: 'app', organizationId: null, userId: 'another-owner' },
+      canManageMemory: false,
+    });
+    expectClosedAndDisabled(target);
+  });
+
+  it('keeps the combined owner access path open on a user-owned App memory', async () => {
+    const { target } = await mountDirectEdit(OWNER, {
+      graph: { class: 'app', organizationId: null, userId: null },
+      canWriteMemory: true,
+      canManageMemory: true,
+    });
+    expect(target.querySelector('form#graph-settings')).not.toBeNull();
+    expect(target.querySelector<HTMLFieldSetElement>('form#graph-settings fieldset')!.disabled).toBe(false);
+  });
+
+  it('does not treat a clone-inclusive manage grant as org Settings authority', async () => {
+    const { target } = await mountDirectEdit(OWNER, {
+      graph: { class: 'knowledge', organizationId: 'org-1', userId: null },
+      org: { id: 'org-1', members: [{ user: { id: OWNER_ID }, role: 'CONTRIBUTOR' }] },
+      canWriteMemory: false,
+      canManageMemory: true,
+    });
+    expect(target.querySelector<HTMLFieldSetElement>('fieldset.space-y-8')!.disabled).toBe(true);
+    expectClosedAndDisabled(target);
+  });
+
+  it('keeps read-only impersonation closed despite the org-admin role fallback', async () => {
+    const { target } = await mountDirectEdit(OWNER, {
+      graph: { class: 'group', organizationId: 'org-1', userId: null },
+      org: { id: 'org-1', members: [{ user: { id: OWNER_ID }, role: 'ADMIN' }] },
+      canWriteMemory: false,
+      canManageMemory: false,
+      impersonation: { sessionId: 'impersonation-1' },
+    });
+    expect(target.querySelector<HTMLFieldSetElement>('fieldset.space-y-8')!.disabled).toBe(true);
     expectClosedAndDisabled(target);
   });
 
