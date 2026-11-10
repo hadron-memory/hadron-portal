@@ -1,7 +1,7 @@
 import { redirect } from '@sveltejs/kit';
-import { env } from '$env/dynamic/public';
 import { randomBytes } from 'node:crypto';
 import { safeRedirect } from '$lib/safeRedirect';
+import { publicServerBaseUrl } from '$lib/public-server-base-url';
 import type { RequestHandler } from './$types';
 
 /**
@@ -10,7 +10,7 @@ import type { RequestHandler } from './$types';
  * only the browser holding the HttpOnly cookie can redeem it.
  */
 export const GET: RequestHandler = ({ url, cookies }) => {
-  const serverUrl = env.PUBLIC_SERVER_URL ?? 'http://localhost:4000';
+  const serverUrl = publicServerBaseUrl();
   const dest = safeRedirect(url.searchParams.get('redirect'));
 
   const clientState = randomBytes(32).toString('hex');

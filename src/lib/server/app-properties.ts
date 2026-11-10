@@ -93,7 +93,7 @@ export async function saveTaskIntegrations(client: GraphQLClient, appRef: string
     return {
       ok: false, code, currentRevision: null,
       path: code === 'TASK_INTEGRATION_INVALID' && typeof ext?.path === 'string' ? ext.path : null,
-      message: extractGqlError(e, t('app.integrations.error.save-failed', 'The settings could not be saved.'), TASK_INTEGRATION_REFUSALS),
+      message: extractGqlError(e, t('app.integrations.error.save-failed', 'The settings could not be saved.'), TASK_INTEGRATION_REFUSALS, { transport: 'fallback' }),
     };
   }
 }

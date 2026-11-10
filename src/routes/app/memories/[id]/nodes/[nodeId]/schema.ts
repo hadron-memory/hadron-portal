@@ -13,6 +13,10 @@ type ParsedEdges = Array<{ targetId: string; name?: string | null }>;
 
 function normalizedLoc(value: string, ctx: z.RefinementCtx): string {
   if (!value) return '';
+  // #1876: a fully-qualified node URN names a destination memory as well as a
+  // loc. Reducing it to its loc would silently drop the memory, so it passes
+  // through verbatim for the action to move by (as the Move dialog does).
+  if (isFullyQualifiedNodeUrnInput(value)) return value.trim();
   try {
     return cleanLocInput(value);
   } catch {

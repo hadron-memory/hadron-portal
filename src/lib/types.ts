@@ -5,13 +5,12 @@ import type { AssetSummary } from '$lib/api/assetUpload';
 export interface Memory {
   id: string;
   /**
-   * Owning org — NULL for a user-owned (org-less) memory (spec 047: personal /
-   * private memories created with no orgId, `ownerUserId` = caller). The
-   * `chk_memory_owner_xor` constraint makes org and user ownership mutually
-   * exclusive, so this is null exactly when the memory belongs to a user.
+   * Tenant organization, or null for an org-less memory. Personal/private
+   * memories may still be org-anchored while ALSO carrying the strict principal
+   * in `userId`; organizationId and userId are not mutually exclusive.
    */
   organizationId: string | null;
-  organization?: OrgSummary;
+  organization?: OrgSummary | null;
   urn: string;
   name: string;
   shortDescription: string | null;
@@ -66,6 +65,7 @@ export interface Memory {
   // selects it — treat `undefined` as "unknown", not as "refuses uploads", or a
   // slim projection would silently hide the affordance everywhere.
   acceptsUploads?: boolean;
+  /** Strict user principal for personal/private memories; independent of tenant organizationId. */
   userId?: string | null;
   userMemoryOfAgentId?: string | null;
   anonymousExpiresAt?: string | null;
@@ -117,7 +117,47 @@ export interface Agent {
   installationPolicy?: InstallationPolicy;
   imports?: AgentImport[];
   appCount?: number;
+  // portal#1850 (hrn:node:hadronmemory.com:specs:cor:dmo:050:19): manager-only; null for every other caller
+  // (PUBLIC readers included) and absent in projections that do not select it —
+  // the page renders nothing without it. Optional for the same reason as
+  // hasAiApiKey: treat undefined as "not selected", never as "not ready".
+  offerReadiness?: AgentOfferReadiness | null;
   createdAt: string;
+}
+
+// portal#1850: one blocking subject, named only because the manager may read
+// it. Name-only BY CONTRACT (hadron-server#2280): the server exposes no id and
+// no URN through this field — "nothing else about it is reachable" — so the
+// portal can render neither a link nor a Urn chip for a subject.
+export interface AgentOfferSubject {
+  name: string;
+}
+
+/** Every code the server emits today. Unknown codes stay possible at runtime — the UI renders them raw — so the union is open, not closed. */
+export type AgentOfferReasonCode =
+  | 'AGENT_NOT_PUBLIC'
+  | 'AGENT_RETIRED'
+  | 'CLONE_LINKED_MEMORY_ENCRYPTED'
+  | 'CLONE_LINKED_MEMORY_UNREADABLE'
+  | 'CLONE_BASE_UNUSABLE'
+  | 'CLONE_IMPORT_UNUSABLE'
+  | (string & {});
+
+export interface AgentOfferReason {
+  code: AgentOfferReasonCode;
+  /** Every blocked subject. subjects + omittedByCap + hiddenByAccess === count. */
+  count: number;
+  subjects: AgentOfferSubject[];
+  /** Readable subjects past the server's 20-name cap: counts only. */
+  omittedByCap: number;
+  /** Subjects the manager may not read: counts only, never named. */
+  hiddenByAccess: number;
+}
+
+export interface AgentOfferReadiness {
+  ready: boolean;
+  /** Every reason that holds, in the clone refusal's order. Empty exactly when ready. */
+  reasons: AgentOfferReason[];
 }
 
 export interface MemoryProvisioning {

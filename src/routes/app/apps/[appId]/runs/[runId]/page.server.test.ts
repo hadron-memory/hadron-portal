@@ -198,7 +198,7 @@ describe('run detail cancel action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns a typed error when cancellation fails', async () => {
+  it('returns the fallback copy, not the raw text, when cancellation fails in transport', async () => {
     mockRequest.mockRejectedValueOnce(new Error('already completed'));
     const { actions } = await import('./+page.server');
 
@@ -207,7 +207,7 @@ describe('run detail cancel action', () => {
     expect((result as { status: number }).status).toBe(500);
     expect(superFormFrom(result)?.message).toEqual({
       type: 'error',
-      text: 'already completed',
+      text: 'Failed to cancel run',
     });
   });
 });

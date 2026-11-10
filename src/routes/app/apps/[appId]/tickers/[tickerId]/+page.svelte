@@ -320,17 +320,17 @@
           {#if task.kind === 'failed'}
             <span role="alert" class="text-red-800 dark:text-red-300">
               {t('app.ticker.task.failed', 'Couldn’t load this ticker’s task.')}
-              <button type="button" onclick={refresh} class="ml-2 font-medium underline">{t('app.tickers.retry', 'Try again')}</button>
+              <button type="button" onclick={refresh} class="ml-2 py-1 font-medium underline">{t('app.tickers.retry', 'Try again')}</button>
             </span>
           {:else if task.value?.registerTaskLoc}
             <code class="break-all font-mono text-xs select-all">{task.value.registerTaskLoc}</code>
-            <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.task.each-worker', 'Each worker runs the task at this location in its own role, or the shared one.')}</p>
+            <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.task.each-worker', 'Each woken worker looks up the nearest readable runnable task in its Agent chain.')}</p>
           {:else}
             {t('app.ticker.task.none', 'No task you can see is mapped to this ticker.')}
             <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.task.fix', 'To hand its workers a task, map this code in the team Agent’s system memory.')}</p>
           {/if}
           {#if tk.tickCode}
-            <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.task.code', 'Code:')} <code class="break-all font-mono select-all">{tk.tickCode}</code></p>
+            <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.task.code', 'Ticker code:')} <code class="break-all font-mono select-all">{tk.tickCode}</code></p>
           {/if}
         </dd>
       </div>
@@ -431,7 +431,7 @@
     {:else if subscribers.kind === 'failed'}
       <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
         {t('app.ticker.subscribers.failed', 'Couldn’t load this ticker’s subscribers.')}
-        <button type="button" onclick={refresh} class="ml-2 font-medium underline">{t('app.tickers.retry', 'Try again')}</button>
+        <button type="button" onclick={refresh} class="ml-2 py-1 font-medium underline">{t('app.tickers.retry', 'Try again')}</button>
       </div>
     {:else if rows.length === 0 && !data.paged}
       <p role="status" class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-testid="subscribers-empty">

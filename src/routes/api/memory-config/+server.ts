@@ -34,8 +34,10 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
       if (a.op === 'read') return json({ value: await loadRulebook(client, a.memoryRef) }, { headers });
       const input = a.op === 'create' || a.op === 'update' ? ruleInput.parse(a.input) : {};
       if (a.op !== 'create' && !a.ref) throw new Error('Missing rule reference.');
-      await mutateRule(client, { ...a, memoryRef: a.memoryRef, input, impersonating });
-      return json({ saved: true }, { headers });
+      const outcome = await mutateRule(client, { ...a, memoryRef: a.memoryRef, input, impersonating });
+      // Advisories ride along with a success; a warning is never an error. Only a create or update answers any.
+      const warnings = a.op === 'create' || a.op === 'update' ? (outcome as { warnings: unknown }).warnings : undefined;
+      return json(warnings ? { saved: true, warnings } : { saved: true }, { headers });
     }
     if (a.kind === 'templates' && a.ownerType && a.ownerRef) {
       if (a.op === 'read') return json({ value: await loadTemplates(client, a.ownerType, a.ownerRef) }, { headers });

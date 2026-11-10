@@ -24,12 +24,13 @@ export const navigationCalls: NavigationCall[] = [];
  * proves what a control does when its OWN reload fails to navigate. Both are
  * cleared by `resetNavigationCalls`.
  */
-export const navigationHooks: { onInvalidateAll?: () => void | Promise<void>; onGoto?: () => void | Promise<void> } = {};
+export const navigationHooks: { onInvalidateAll?: () => void | Promise<void>; onGoto?: () => void | Promise<void>; onPreloadData?: () => unknown | Promise<unknown> } = {};
 
 export function resetNavigationCalls(): void {
   navigationCalls.length = 0;
   navigationHooks.onInvalidateAll = undefined;
   navigationHooks.onGoto = undefined;
+  navigationHooks.onPreloadData = undefined;
 }
 
 export function replaceState(...args: unknown[]): void {
@@ -94,7 +95,7 @@ export function invalidate(...args: unknown[]): Promise<void> {
   return Promise.resolve();
 }
 
-export function preloadData(...args: unknown[]): Promise<void> {
+export async function preloadData(...args: unknown[]): Promise<unknown> {
   navigationCalls.push({ fn: 'preloadData', args });
-  return Promise.resolve();
+  return await navigationHooks.onPreloadData?.();
 }

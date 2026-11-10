@@ -6,7 +6,6 @@
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import {
-  bootSourceSchema,
   bootCompileSchema,
   bootApproveSchema,
   addAgentMemorySchema,
@@ -52,7 +51,6 @@ export async function pageData(
     ),
     // portal#1377: no pointer; tests may supply a source explicitly.
     bootSource: { mode: 'legacy' } as import('$lib/server/boot-source').BootSourceView,
-    bootSourceForm: await superValidate({ nodeId: '', content: '', expectedRevision: 1 }, zod4(bootSourceSchema), { id: `bootSource:${id}`, errors: false }),
     bootCompileForm: await superValidate({}, zod4(bootCompileSchema), { id: `bootCompile:${id}`, errors: false }),
     bootApproveForm: await superValidate({ nodeId: '', revision: 1 }, zod4(bootApproveSchema), { id: `bootApprove:${id}`, errors: false }),
     registerDefaults,

@@ -14,7 +14,6 @@
   import type { SubmitFunction } from '@sveltejs/kit';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
-  import type { Worker } from '$lib/types';
   import type { PropertiesRead } from '$lib/server/app-properties';
   import {
     MAX_REPOSITORIES,
@@ -27,6 +26,7 @@
     type IntegrationDraft,
     type UnsupportedEntry,
     type LeadStatus,
+    type LeadWorker,
     type TaskIntegrationsResult,
   } from '$lib/task-integrations';
 
@@ -35,7 +35,7 @@
     /** `App.viewerManages`: true / false, or null when unknown (failed read). */
     manages: boolean | null;
     /** The App's staff from WORKERS_QUERY (retired included); null when that read failed. */
-    workers: Worker[] | null;
+    workers: LeadWorker[] | null;
   } = $props();
 
   const inputClass = 'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 pointer-coarse:min-h-11 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
@@ -172,13 +172,13 @@
     };
   };
 
-  type NamedLead = Exclude<LeadStatus, { kind: 'unknown' }>;
-  function leadName(s: NamedLead): string {
+  type ResolvedLead = Exclude<LeadStatus, { kind: 'unknown' }>;
+  function leadName(s: ResolvedLead): string {
     if (s.kind === 'missing') return t('app.integrations.lead.missing', 'Worker not in this App’s list');
     if (s.kind === 'unchecked') return t('app.integrations.lead.unchecked', 'Couldn’t check this worker');
     return s.name;
   }
-  function leadNote(s: NamedLead): string | null {
+  function leadNote(s: ResolvedLead): string | null {
     if (s.kind === 'retired') return t('app.integrations.lead.retired', 'No longer a live worker');
     if (s.kind === 'missing') return t('app.integrations.lead.missing-note', 'Can’t confirm it is still live.');
     if (s.kind === 'unchecked') return t('app.integrations.lead.unchecked-note', 'The worker list didn’t load, so we can’t tell if it is still live.');
@@ -398,9 +398,9 @@
                     {#if errors[lp]}<p id="{field(lp)}-error" role="alert" class={errorClass}>{errors[lp]}</p>{/if}
 
                     <label for={field(tp)} class="mt-3 mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('app.integrations.team-label', 'Label')}</label>
-                    <div class="flex gap-2">
-                      <input id={field(tp)} type="text" bind:value={team.label} aria-invalid={!!errors[tp]} aria-describedby={describedBy(tp)} class="{inputClass} {errors[tp] ? 'border-red-500' : ''}" />
-                      <button type="button" class={buttonClass} aria-label={t('app.integrations.remove-team-n', 'Remove team {label}', { label: team.label.trim() || String(j + 1) })} onclick={() => d.teams.splice(j, 1)}>{t('app.integrations.remove-team', 'Remove team')}</button>
+                    <div class="flex flex-wrap gap-2">
+                      <input id={field(tp)} type="text" bind:value={team.label} aria-invalid={!!errors[tp]} aria-describedby={describedBy(tp)} class="{inputClass} min-w-32 flex-1 {errors[tp] ? 'border-red-500' : ''}" />
+                      <button type="button" class="{buttonClass} min-w-0 max-w-full whitespace-normal break-words" aria-label={t('app.integrations.remove-team-n', 'Remove team {label}', { label: team.label.trim() || String(j + 1) })} onclick={() => d.teams.splice(j, 1)}>{t('app.integrations.remove-team', 'Remove team')}</button>
                     </div>
                     {#if errors[tp]}<p id="{field(tp)}-error" role="alert" class={errorClass}>{errors[tp]}</p>{/if}
                   </div>

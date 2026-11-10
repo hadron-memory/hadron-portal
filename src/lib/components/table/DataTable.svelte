@@ -162,7 +162,7 @@
                 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
                 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
                 <div
-                  class="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none hover:bg-indigo-400 focus:bg-indigo-400 focus:outline-none {header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
+                  class="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none hover:bg-indigo-400 focus:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-300 {header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
                   role="separator"
                   aria-orientation="vertical"
                   aria-label={tableStrings.resizeColumn()}

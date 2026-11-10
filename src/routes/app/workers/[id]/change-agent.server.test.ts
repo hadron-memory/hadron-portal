@@ -72,6 +72,37 @@ describe('changeWorkerAgent: each refusal in plain words, local to the result', 
     expect(a.refusal.outcomeUnknown).toBe(false);
   });
 
+  it('inactive grant names no unavailable remedy and stays a definite 409', async () => {
+    mockRequest.mockRejectedValue(gqlError('AGENT_ORG_GRANT_INACTIVE'));
+    const r = await run();
+    expect(r.status).toBe(409);
+    expect(r.data!.changeAgent.refusal).toEqual({
+      code: 'AGENT_ORG_GRANT_INACTIVE', outcomeUnknown: false,
+      message: 'This App’s organization has an inactive grant for that agent, so it can’t be used.',
+    });
+  });
+
+  // portal#1813 (hadron-server#3626): the personal App's owner no longer
+  // qualifies for its ORGANIZATION-visible Agent. That is a definite refusal,
+  // so it must not fall to the default's 502 "couldn't tell whether this
+  // worked". Same first sentence as #1786's chat copy, with this surface's
+  // action noun; no route back and no retry.
+  it('BOOT_PROMPT_INSTALL_LICENSE_INACTIVE is a definite 409 with its fixed copy', async () => {
+    const warn = vi.mocked(console.warn);
+    mockRequest.mockRejectedValue(gqlError('BOOT_PROMPT_INSTALL_LICENSE_INACTIVE'));
+    const r = await run();
+    expect(r.status).toBe(409);
+    expect(r.data!.changeAgent).toEqual({
+      key: 'w-1',
+      refusal: {
+        code: 'BOOT_PROMPT_INSTALL_LICENSE_INACTIVE',
+        outcomeUnknown: false,
+        message: 'The owner of this App no longer qualifies to use this organization Agent, so the agent can’t be changed. Trying again won’t help.',
+      },
+    });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it('FORBIDDEN does not read as "you do not manage this App"', async () => {
     mockRequest.mockRejectedValue(gqlError('FORBIDDEN'));
     expect((await run()).data!.changeAgent.refusal.message).not.toMatch(/manage/i);

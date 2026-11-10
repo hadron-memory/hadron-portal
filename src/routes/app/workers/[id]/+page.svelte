@@ -1,4 +1,6 @@
 <script lang="ts">
+  import TabRow from '$lib/components/TabRow.svelte';
+  import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import WorkerProfile from '$lib/components/WorkerProfile.svelte';
   import { workerInternalsVisible } from '$lib/worker-profile';
   import TerminalStatus from '$lib/components/TerminalStatus.svelte';
@@ -121,32 +123,8 @@
     showSource = data.initialView === 'source';
   });
 
-  async function focusTab(id: WorkerTabId) {
-    activeTab = id;
-    await tick();
-    document.getElementById(`tab-${id}`)?.focus();
-  }
-  function onTabKeydown(e: KeyboardEvent) {
-    const order = tabs.map((tt) => tt.id);
-    // Index from the tab RECEIVING the key, not from `activeTab` (@codex on
-    // #767). A `tabindex="-1"` button is still POINTER-focusable, so pressing
-    // on an unselected tab and dragging away before release leaves focus and
-    // selection diverged — and arrows computed from `activeTab` would then jump
-    // relative to a tab the user is not on.
-    const focusedId = (e.currentTarget as HTMLElement | null)?.id?.replace(/^tab-/, '');
-    const from = focusedId && order.includes(focusedId as WorkerTabId)
-      ? (focusedId as WorkerTabId)
-      : activeTab;
-    const i = order.indexOf(from);
-    // Left/Right ONLY: this tablist is HORIZONTAL (no aria-orientation),
-    // so Up/Down must keep their normal page-scrolling behaviour rather
-    // than changing section under a keyboard user who is just scrolling
-    // (@codex on #769).
-    if (e.key === 'ArrowRight') { e.preventDefault(); focusTab(order[(i + 1) % order.length]); }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); focusTab(order[(i - 1 + order.length) % order.length]); }
-    else if (e.key === 'Home') { e.preventDefault(); focusTab(order[0]); }
-    else if (e.key === 'End') { e.preventDefault(); focusTab(order[order.length - 1]); }
-  }
+
+
 
   const worker = $derived(data.worker);
   // portal#1492: this branch renders only for a reader who may see internals, so
@@ -235,39 +213,7 @@
       )}
     </p>
   </div>
-
-
-  <!-- Tabs (#758) — the ARIA tab pattern from src/routes/app/memories, NOT the
-       App detail page's strip, which is plain buttons with no
-       tablist/tab/tabpanel relationship (@codex on #767).
-
-       The horizontal scroll is kept from that strip and is load-bearing:
-       `shrink-0` + `whitespace-nowrap` make a narrow viewport SCROLL the tabs
-       rather than squeeze every label into an unreadable column. -->
-  <div
-    role="tablist"
-    aria-label={t('worker.tabs-label', 'Worker details')}
-    class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800"
-  >
-    {#each tabs as tab (tab.id)}
-      <button
-        type="button"
-        role="tab"
-        id="tab-{tab.id}"
-        aria-selected={activeTab === tab.id}
-        aria-controls="panel-{tab.id}"
-        tabindex={activeTab === tab.id ? 0 : -1}
-        onclick={() => (activeTab = tab.id)}
-        onkeydown={onTabKeydown}
-        class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
-          {activeTab === tab.id
-            ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-            : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
-      >
-        {tab.label}
-      </button>
-    {/each}
-  </div>
+  <TabRow items={tabs} active={activeTab} label={t('worker.tabs-label', 'Worker details')} onselect={(id) => activeTab = id as typeof activeTab} />
 
   {#if activeTab === 'profile'}
     <div id="panel-profile" role="tabpanel" aria-labelledby="tab-profile" tabindex="0" class="space-y-6 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
@@ -510,6 +456,11 @@
         />
         {/key}
       </section>
+      {#if data.worker.app?.id && data.worker.agent?.id}
+        {#key `${data.worker.id}:${data.worker.app.id}:${data.worker.agent.id}`}
+          <BootInstallCompile owner={{ level: 'worker', worker: data.worker.id, app: data.worker.app.id, agent: data.worker.agent.id }} canManage={data.canManageWorkerApp} impersonating={!!data.impersonation} />
+        {/key}
+      {/if}
       <!-- portal#1665: what this worker's OPEN session was served (hrn:node:hadronmemory.com:specs:cor:agt:040:03). Ids, revisions and
            hashes only; no heading or "none" text of its own, because an empty answer is the provider's
            concealment, not "no record". Keyed by the worker: this page component is reused A to B. -->

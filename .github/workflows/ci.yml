@@ -83,6 +83,10 @@ jobs:
       - name: Check memory Usage toolbar phone layout
         run: pnpm test:usage-toolbar-layout
 
+      # portal#1826: the Org Integrations Add/select/Configure row at 390px.
+      - name: Check Org Integrations add-row phone layout
+        run: pnpm test:org-integrations-row-layout
+
       # portal#1099: the Tickers views at 390px and 1280px.
       - name: Check Tickers phone layout
         run: pnpm test:tickers-layout
@@ -103,6 +107,11 @@ jobs:
       - name: Check Task integrations layout
         run: pnpm test:task-integrations-layout
 
+      # portal#1756: real App/worker prompt components at 390px and 1280px;
+      # synthetic transport only, including a concealed ID that must never render.
+      - name: Check boot prompt layout and concealed provenance
+        run: pnpm test:boot-install-layout
+
       # portal#1686: every compact Urn call-site configuration in real Chromium.
       - name: Check compact URN keyboard and touch layout
         run: pnpm test:urn-compact-layout
@@ -111,8 +120,14 @@ jobs:
       - name: Check Nodes tab lazy reads
         run: pnpm test:nodes-tab-lazy
 
+      - name: Check shared tab-row overflow and keyboard layout
+        run: pnpm test:tab-row-layout
+
       - name: Check App Runs table layout
         run: pnpm test:app-runs-layout
+
+      - name: Check disabled AI config row menu pointer access
+        run: pnpm test:ai-config-row-menu
 
       - name: Check invitation clipboard feedback
         run: pnpm test:invite-copy

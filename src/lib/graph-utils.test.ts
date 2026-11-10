@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { composeNodeUrn } from './urn/compose-node-urn';
 import { buildGraphViewData, graphNodeHref, scopeTreeEntriesToSearch, withoutHiddenTreeEntries } from './graph-utils';
 import { isHiddenNodeType } from './node-types';
 import type { TreeEntry } from './types';
@@ -98,4 +99,23 @@ describe('graphNodeHref (#1017)', () => {
 it('keeps a canonical node URN when its nested Memory record is withheld (#1043)', () => {
  const node = { id:'n',memoryId:'m',loc:'note',urn:'hrn:node:example.com:withheld:note',name:'Visible node',tags:[],outgoingEdges:[],incomingEdges:[],memory:null,nodeType:'info' };
  expect(buildGraphViewData([node as never]).topics[0].urn).toBe(node.urn);
+});
+
+// #1552: with BOTH inputs present (the node's own canonical urn and the owning
+// memory's urn + loc) the URN the graph shows agrees with composeNodeUrn, the one
+// composer of the node URN form (hrn:node:hadronmemory.com:specs:cor:urn:010:01). The
+// fixture is nontrivial: a multi-segment loc and a memory urn that is not a
+// prefix of the loc, so a wrong precedence or a wrong assembly order differs.
+describe('graph node URN parity with composeNodeUrn (#1552)', () => {
+  const memoryUrn = 'hrn:mem:example.com:docs';
+  const loc = 'guides:setup:install';
+  const base = { id: 'n', memoryId: 'm', loc, name: 'Install', tags: [], outgoingEdges: [], incomingEdges: [], memory: { id: 'm', urn: memoryUrn, name: 'Docs' }, nodeType: 'info' };
+  it('a stated canonical urn equals the composed one', () => {
+    const composed = composeNodeUrn(memoryUrn, loc);
+    expect(buildGraphViewData([{ ...base, urn: composed } as never]).topics[0].urn).toBe(composed);
+  });
+  it('an absent urn is assembled by composeNodeUrn from the memory urn and loc', () => {
+    expect(buildGraphViewData([{ ...base, urn: '' } as never]).topics[0].urn).toBe(composeNodeUrn(memoryUrn, loc));
+    expect(buildGraphViewData([{ ...base, urn: '', memory: null } as never], memoryUrn).topics[0].urn).toBe(composeNodeUrn(memoryUrn, loc));
+  });
 });

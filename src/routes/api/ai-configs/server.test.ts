@@ -5,23 +5,24 @@
  * client) and `$lib/server/llm/agentChatLlm` (callAgentChatLlm), import the
  * POST handler, and invoke it with a hand-rolled RequestEvent.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockRequest = vi.fn();
+const mockGqlClient = vi.fn();
 vi.mock('$lib/server/api', () => ({
-  gqlClient: () => ({ request: mockRequest }),
+  gqlClient: mockGqlClient,
 }));
 
 const mockCallAgentChatLlm = vi.fn();
 vi.mock('$lib/server/llm/agentChatLlm', () => ({ callAgentChatLlm: mockCallAgentChatLlm }));
 vi.mock('$lib/server/llm/agentChatLlm.js', () => ({ callAgentChatLlm: mockCallAgentChatLlm }));
 
-function ev(opts: { token?: string | null; body?: unknown }) {
+function ev(opts: { token?: string | null; body?: unknown; url?: string; signal?: AbortSignal }) {
   const token = opts.token === undefined ? 'test-token' : opts.token;
   return {
-    request: { json: async () => opts.body },
+    request: { json: async () => opts.body, signal: opts.signal ?? new AbortController().signal },
     locals: { token },
-    url: new URL('http://localhost/api/ai-configs'),
+    url: new URL(opts.url ?? 'http://localhost/api/ai-configs'),
   } as any;
 }
 
@@ -31,7 +32,13 @@ async function jsonOf(res: Response): Promise<any> {
 
 beforeEach(() => {
   mockRequest.mockReset();
+  mockGqlClient.mockReset();
+  mockGqlClient.mockReturnValue({ request: mockRequest });
   mockCallAgentChatLlm.mockReset();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('POST /api/ai-configs', () => {
@@ -360,5 +367,147 @@ describe('POST /api/ai-configs', () => {
     const { POST } = await import('./+server');
     const res = await POST(ev({ body: { action: 'explode' } }));
     expect(res.status).toBe(400);
+  });
+});
+
+describe('GET /api/ai-configs section readback', () => {
+  const maskedConfig = {
+    id: 'c1', name: 'default', ownerType: 'AGENT', ownerId: 'a1', provider: 'glm', model: 'glm-5',
+    endpoint: null, effectiveEndpoint: 'https://api.z.ai/api/paas/v4',
+    apiStyle: null, effectiveApiStyle: 'CHAT_COMPLETIONS',
+    hasApiKey: true, apiKeyPreview: '…abcd', params: null, enabled: true,
+    createdAt: '2026-09-26T00:00:00Z', updatedAt: null,
+  };
+
+  function hangUntilUpstreamAbort() {
+    mockRequest.mockImplementation(() => new Promise((_, reject) => {
+      const signal = mockGqlClient.mock.calls.at(-1)?.[1] as AbortSignal;
+      const fail = () => reject(new Error('upstream aborted'));
+      if (signal.aborted) fail();
+      else signal.addEventListener('abort', fail, { once: true });
+    }));
+  }
+
+  it('requires auth and both owner arguments, with no-store on every refusal', async () => {
+    const { GET } = await import('./+server');
+    const unauthenticated = await GET(ev({ token: null }));
+    expect(unauthenticated.status).toBe(401);
+    expect(unauthenticated.headers.get('cache-control')).toBe('no-store');
+    const missingOwner = await GET(ev({ url: 'http://localhost/api/ai-configs?ownerType=AGENT' }));
+    expect(missingOwner.status).toBe(400);
+    expect(missingOwner.headers.get('cache-control')).toBe('no-store');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('reads the same masked owner list with pagination and no-store', async () => {
+    mockRequest.mockResolvedValueOnce({ aiServiceConfigs: { items: [maskedConfig], total: 1 } });
+    const { GET } = await import('./+server');
+    const res = await GET(ev({ url: 'http://localhost/api/ai-configs?ownerType=AGENT&ownerId=a1' }));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await jsonOf(res)).toEqual({ configs: [maskedConfig] });
+    expect(mockGqlClient).toHaveBeenCalledTimes(1);
+    expect(mockGqlClient).toHaveBeenCalledWith('test-token', expect.any(AbortSignal));
+    expect(mockRequest.mock.calls[0][1]).toEqual({ ownerType: 'AGENT', ownerId: 'a1', limit: 200, offset: 0 });
+  });
+
+  it('reads the App chat resolution slice with the same masked fields', async () => {
+    mockRequest.mockResolvedValueOnce({ resolveAiServiceConfigs: [maskedConfig] });
+    const { GET } = await import('./+server');
+    const res = await GET(ev({ url: 'http://localhost/api/ai-configs?appRef=app1&agentRef=agent1' }));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await jsonOf(res)).toEqual({ configs: [maskedConfig] });
+    expect(mockGqlClient).toHaveBeenCalledTimes(1);
+    expect(mockGqlClient).toHaveBeenCalledWith('test-token', expect.any(AbortSignal));
+    expect(mockRequest.mock.calls[0][1]).toEqual({ appRef: 'app1', agentRef: 'agent1' });
+  });
+
+  it('rejects incomplete or mixed readback arguments without querying', async () => {
+    const { GET } = await import('./+server');
+    const incomplete = await GET(ev({ url: 'http://localhost/api/ai-configs?appRef=app1' }));
+    expect(incomplete.status).toBe(400);
+    expect(incomplete.headers.get('cache-control')).toBe('no-store');
+    const mixed = await GET(ev({ url: 'http://localhost/api/ai-configs?appRef=app1&agentRef=agent1&ownerType=APP&ownerId=app1' }));
+    expect(mixed.status).toBe(400);
+    expect(mixed.headers.get('cache-control')).toBe('no-store');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('distinguishes an App-membership refusal from a failed resolution read', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
+    });
+    const { GET } = await import('./+server');
+    const res = await GET(ev({ url: 'http://localhost/api/ai-configs?appRef=app1&agentRef=agent1' }));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await jsonOf(res)).toEqual({ withheld: true });
+  });
+
+  it('keeps a coded non-authorization resolution failure failed:true', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'synthetic failure', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] },
+    });
+    const { GET } = await import('./+server');
+    const res = await GET(ev({ url: 'http://localhost/api/ai-configs?appRef=app1&agentRef=agent1' }));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await jsonOf(res)).toEqual({ failed: true });
+  });
+
+  it('contains a failed resolution read as failed:true', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('synthetic resolution failure'));
+    const { GET } = await import('./+server');
+    const res = await GET(ev({ url: 'http://localhost/api/ai-configs?appRef=app1&agentRef=agent1' }));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await jsonOf(res)).toEqual({ failed: true });
+  });
+
+  it('contains a refused read in the page as failed:true', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('synthetic read failure'));
+    const { GET } = await import('./+server');
+    const res = await GET(ev({ url: 'http://localhost/api/ai-configs?ownerType=ORGANIZATION&ownerId=o1' }));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await jsonOf(res)).toEqual({ failed: true });
+  });
+
+  it('cancels the upstream read when the incoming request aborts', async () => {
+    hangUntilUpstreamAbort();
+    const incoming = new AbortController();
+    const { GET } = await import('./+server');
+    const pending = GET(ev({
+      url: 'http://localhost/api/ai-configs?ownerType=ORGANIZATION&ownerId=o1',
+      signal: incoming.signal,
+    }));
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+
+    incoming.abort();
+    const res = await pending;
+
+    expect(await jsonOf(res)).toEqual({ failed: true });
+    expect((mockGqlClient.mock.calls[0][1] as AbortSignal).aborted).toBe(true);
+  });
+
+  it('bounds the upstream read with a server-side deadline', async () => {
+    vi.useFakeTimers();
+    hangUntilUpstreamAbort();
+    const { GET } = await import('./+server');
+    const pending = GET(ev({ url: 'http://localhost/api/ai-configs?appRef=app1&agentRef=agent1' }));
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const res = await pending;
+
+    expect(await jsonOf(res)).toEqual({ failed: true });
+    expect((mockGqlClient.mock.calls[0][1] as AbortSignal).aborted).toBe(true);
   });
 });

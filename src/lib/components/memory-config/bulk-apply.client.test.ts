@@ -68,7 +68,7 @@ describe('entry and boundary', () => {
     (navigationGuards.find(g => g.fn === 'beforeNavigate')!.callback as (e: { cancel: () => void }) => void)({ cancel });
     expect(cancel).toHaveBeenCalledOnce();
     settleIt(answer([ok(0)]));
-    await settle(() => expect(panel.textContent).toContain('1 will change, 0 will be skipped, 0 can’t be applied'));
+    await settle(() => expect(panel.textContent).toContain('1 will change, 0 will change nothing, 0 can’t be applied'));
   });
   it('dims every control it disables, in the panel and behind it', async () => {
     let settleIt!: (v: unknown) => void;
@@ -152,12 +152,12 @@ describe('dry run first', () => {
     expect(sent(0)).toEqual({ kind: 'bulk', op: 'preview', ref: 't1', memoryRefs: ['m0', 'm1'] });
     expect(panel.querySelectorAll('tbody tr').length).toBe(2);
     expect(panel.textContent).toContain('Will be replaced');
-    expect(panel.textContent).toContain('1 will change, 0 will be skipped, 1 can’t be applied');
+    expect(panel.textContent).toContain('1 will change, 0 will change nothing, 1 can’t be applied');
     expect(panel.textContent).not.toMatch(/succeeded|failed/);
     expect(panel.textContent).toContain('This preview may differ from the apply if memories change in between.');
   });
-  it('says Apply sends the rows that can’t take the template, and only when there are any', async () => {
-    const note = 'Apply sends every memory in this list, including any that can’t take the template in this preview.';
+  it('says Apply sends the rows that can’t be applied, and only when there are any', async () => {
+    const note = 'Apply sends every memory in this list, including any that can’t be applied in this preview.';
     const m = mount(); const panel = open(m.target); pick(panel, 2);
     await preview(panel, [ok(0), bad(1, 'MEMORY_NOT_FOUND')]);
     expect(panel.textContent).toContain(note);
@@ -221,12 +221,12 @@ describe('summary counts what actually changes (#1763)', () => {
   it('a preview with an all-skipped row shows it apart from rows that change', async () => {
     const m = mount(); const panel = open(m.target); pick(panel, 3);
     await preview(panel, [ok(0, { outcome: 'SKIPPED_LOCKED' }), ok(1), bad(2, 'MEMORY_NOT_FOUND')]);
-    expect(panel.textContent).toContain('1 will change, 1 will be skipped, 1 can’t be applied');
+    expect(panel.textContent).toContain('1 will change, 1 will change nothing, 1 can’t be applied');
   });
   it('a row with some rules skipped and some applied counts as changing', async () => {
     const m = mount(); const panel = open(m.target); pick(panel, 1);
     await preview(panel, [ok(0, { entries: [{ role: 'review', outcome: 'SKIPPED_LOCKED' }, { role: 'author', outcome: 'APPLIED' }] })]);
-    expect(panel.textContent).toContain('1 will change, 0 will be skipped, 0 can’t be applied');
+    expect(panel.textContent).toContain('1 will change, 0 will change nothing, 0 can’t be applied');
   });
   it('the applied report carries the same split', async () => {
     const m = mount(); const panel = await applied(m.target, [0, 1, 2]);
@@ -259,10 +259,11 @@ describe('per-target truth', () => {
     expect(rows[3]).not.toContain('template changed');
     expect(panel.textContent).not.toMatch(/rolled back/i);
   });
-  it('shows warnings field by field, with no code-specific copy', async () => {
+  it('shows a warning in plain words per row, never the code or the field name', async () => {
     const m = mount(); const panel = open(m.target); pick(panel, 1);
     await preview(panel, [ok(0, { warnings: [{ code: 'TASK_LESS_VISIBLE', role: 'review', field: 'authorTask' }] })]);
-    expect(panel.textContent).toContain('review: authorTask — TASK_LESS_VISIBLE');
+    expect(panel.textContent).toContain('author task');
+    expect(panel.textContent).not.toContain('TASK_LESS_VISIBLE'); expect(panel.textContent).not.toContain('authorTask');
   });
 });
 
@@ -320,16 +321,79 @@ describe('search', () => {
     await new Promise(r => setTimeout(r, 300)); flushSync();
     return panel.querySelectorAll('tbody tr').length;
   };
-  it('finds what a row renders: a warning, and the earlier-apply mark', async () => {
+  it('finds what a row renders: the final warning copy and URN, outcome punctuation, and the earlier-apply mark', async () => {
+    const urn = 'hrn:node:acme.com:tasks:review-author';
+    const warningText = 'The author task of the “review” rule may not be readable by everyone who can read this memory:';
     const m = mount(); const panel = await applied(m.target, [0, 1]);
-    await apply(panel, answer([ok(0, { dryRun: false, warnings: [{ code: 'TASK_LESS_VISIBLE', role: 'review', field: 'authorTask' }] }), bad(1, 'CONFLICT')], false), 'Apply finished');
-    expect(await search(panel, 'TASK_LESS_VISIBLE')).toBe(1);
-    expect(await search(panel, 'authorTask')).toBe(1);
+    await apply(panel, answer([ok(0, { dryRun: false, warnings: [{ code: 'TASK_LESS_VISIBLE', role: 'review', field: 'authorTask', taskUrn: urn, taskState: 'OK' }] }), bad(1, 'CONFLICT')], false), 'Apply finished');
+    expect(panel.textContent).toContain(warningText);
+    expect(panel.textContent!.replace(/\s/g, '')).toContain(urn);
+    expect(panel.textContent).toContain('review: Added');
+    expect(panel.textContent).not.toContain('TASK_LESS_VISIBLE');
+    expect(panel.textContent).not.toContain('authorTask');
+    expect(await search(panel, warningText)).toBe(1);
+    expect(await search(panel, urn)).toBe(1);
+    expect(await search(panel, 'review: Added')).toBe(1);
+    expect(await search(panel, 'TASK_LESS_VISIBLE')).toBe(0);
+    expect(await search(panel, 'authorTask')).toBe(0);
     fetcher.mockResolvedValueOnce(answer([{ ...ok(0), memoryRef: 'm1' }]));
     expect(await search(panel, '')).toBe(2);
     button(panel, 'Retry failed')!.click();
     await settle(() => expect(panel.textContent).toContain('Preview: nothing has been changed'));
     expect(await search(panel, 'earlier apply')).toBe(1);
+  });
+
+  // #1808: two phrases the row visibly renders but rowText omitted, so a
+  // reader searching on-screen text lost the row. Negatives per
+  // hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable:
+  // a phrase must match only the rows that render it.
+  it('finds the visible empty-template copy after an ok apply, only on the row that renders it', async () => {
+    const m = mount(); const panel = open(m.target); pick(panel, 2);
+    await preview(panel, [ok(0, { entries: [] }), ok(1)]);
+    await apply(panel, answer([ok(0, { dryRun: false, entries: [] }), ok(1, { dryRun: false })], false), 'Apply finished');
+    expect(panel.textContent).toContain('This template has no rules.');
+    expect(await search(panel, 'This template has no rules.')).toBe(1);
+    expect(await search(panel, 'Current rules')).toBe(0);
+  });
+
+  it('finds the visible Current rules link after an unknown outcome', async () => {
+    const m = mount(); const panel = await applied(m.target, [0, 1]);
+    await apply(panel, Promise.reject(new TypeError('offline')), 'We don’t know');
+    expect(panel.textContent).toContain('Current rules');
+    expect(await search(panel, 'Current rules')).toBe(2);
+  });
+
+  // Blind P3 on 041f5e9fd: with earlier (settled) rows beside unknown rows,
+  // the link text must match only the rows that render it.
+  it('matches the Current rules link only on unknown rows, not earlier rows', async () => {
+    const m = mount(); const panel = await applied(m.target, [0, 1]);
+    await apply(panel, answer([ok(0, { dryRun: false }), bad(1, 'CONFLICT')], false), 'Apply finished');
+    fetcher.mockResolvedValueOnce(answer([{ ...ok(0), memoryRef: 'm1' }]));
+    button(panel, 'Retry failed')!.click();
+    await settle(() => expect(panel.textContent).toContain('Preview: nothing has been changed'));
+    await apply(panel, Promise.reject(new TypeError('offline')), 'We don’t know');
+    expect(panel.textContent).toContain('Current rules');
+    expect(await search(panel, 'Current rules')).toBe(1);
+    expect(await search(panel, 'earlier apply')).toBe(1);
+  });
+
+  async function panelWithEarlierRows() {
+    const m = mount(); const panel = await applied(m.target, [0, 1, 2]);
+    await apply(panel, answer([ok(0, { dryRun: false }), bad(1, 'CONFLICT'), bad(2, 'DUPLICATE_TARGET')], false), 'Apply finished');
+    fetcher.mockResolvedValueOnce(answer([{ ...ok(0), memoryRef: 'm1' }]));
+    button(panel, 'Retry failed')!.click();
+    await settle(() => expect(panel.textContent).toContain('Preview: nothing has been changed'));
+    return panel;
+  }
+
+  it('matches the normally spaced sequence across an earlier marker and a nonempty outcome', async () => {
+    const panel = await panelWithEarlierRows();
+    expect(await search(panel, 'From the earlier apply, not sent again review: Added')).toBe(1);
+  });
+
+  it('matches an earlier error and its marker in the cell’s reading order', async () => {
+    const panel = await panelWithEarlierRows();
+    expect(await search(panel, 'From the earlier apply, not sent again Already in the list. The earlier row took this memory.')).toBe(1);
   });
 });
 
@@ -436,5 +500,43 @@ describe('unknown outcome', () => {
     const rows = [...panel.querySelectorAll('tbody tr')].map(r => r.textContent ?? '');
     expect(rows.find(r => r.includes('Memory 01'))).toContain('Not known');
     expect(rows.find(r => r.includes('Memory 00'))).toContain('Added');
+  });
+});
+
+describe('#1764 less-visible task warning on bulk apply', () => {
+  const urn = 'hrn:node:acme.com:tasks:review-author';
+  const warn = { code: 'TASK_LESS_VISIBLE', role: 'review', field: 'authorTask', taskUrn: urn, taskState: 'OK' };
+  it('preview and real apply show the same copy per row, the preview does not block Apply, and the raw code never shows', async () => {
+    const m = mount(); const panel = open(m.target); pick(panel, 2);
+    const rowStatus = panel.querySelector('[data-bulk-row-status]');
+    expect(rowStatus).not.toBeNull(); expect(rowStatus?.textContent).not.toContain('author task');
+    await preview(panel, [ok(0, { warnings: [warn] }), ok(1)]);
+    expect(rowStatus?.textContent).toContain('author task');
+    expect(rowStatus?.textContent).not.toContain('Will be added');
+    const rowWarnings = [...panel.querySelectorAll('[data-task-warning]')].map(n => n.textContent);
+    expect(rowWarnings.length).toBe(1); expect(rowWarnings[0]).toContain('author task'); expect(rowWarnings[0]!.replace(/\s/g, '')).toContain(urn);
+    expect(panel.textContent).not.toContain('TASK_LESS_VISIBLE');
+    expect(button(panel, 'Apply')!.disabled).toBe(false);
+    await apply(panel, answer([ok(0, { dryRun: false, warnings: [warn] }), ok(1, { dryRun: false })], false), 'Apply finished');
+    expect([...panel.querySelectorAll('[data-task-warning]')].map(n => n.textContent)).toEqual(rowWarnings);
+    expect(panel.textContent).not.toContain('TASK_LESS_VISIBLE');
+  });
+  it('the row search matches the words the reader sees, not the code', async () => {
+    const m = mount(); const panel = open(m.target); pick(panel, 2);
+    await preview(panel, [ok(0, { warnings: [warn] }), ok(1)]);
+    const search = panel.querySelector<HTMLInputElement>('input[type=search], input[role=searchbox], input[placeholder*="earch"]')!;
+    search.value = 'author task'; search.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
+    await settle(() => { expect(panel.textContent).toContain('Memory 00'); expect(panel.textContent).not.toContain('Memory 01'); });
+  });
+  it('a null field or an unknown code renders a generic line and the answer stays a result', async () => {
+    const m = mount(); const panel = open(m.target); pick(panel, 1);
+    await preview(panel, [ok(0, { warnings: [{ ...warn, field: null }, { ...warn, code: 'NEW_CODE' }] })]);
+    expect(panel.querySelectorAll('[data-task-warning]').length).toBe(2);
+    expect(panel.textContent).not.toContain('NEW_CODE'); expect(panel.textContent).not.toContain('Not known');
+  });
+  it('an older answer without the new fields is still a legal result', async () => {
+    const m = mount(); const panel = open(m.target); pick(panel, 1);
+    await preview(panel, [ok(0, { warnings: [{ code: 'TASK_LESS_VISIBLE', role: 'review', field: 'authorTask' }] })]);
+    expect(panel.querySelectorAll('[data-task-warning]').length).toBe(1);
   });
 });

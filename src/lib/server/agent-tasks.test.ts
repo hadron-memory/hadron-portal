@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphQLClient } from 'graphql-request';
 import { AGENT_TASK_DETAIL_QUERY, APP_PEOPLE_QUERY, AGENT_ALARMS_QUERY, AGENT_TASK_ANCESTOR_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_REF_QUERY, AGENT_TASKS_BOARD_QUERY, PULL_REQUEST_READINESS_QUERY, TASK_REVIEW_EVENTS_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
 import { loadWriteCandidates, ALARMS_LIMIT, BOARD_LIMIT, HISTORY_LIMIT, loadAlarms, loadAncestors, loadBoard, loadHistory, loadReview, loadRoster, loadTree, hydrateTaskRefs, canonicalTaskId, HYDRATE_CONCURRENCY } from './agent-tasks';
+import { selectsFieldPath } from '$lib/test/graphql-selection';
 
 const request = vi.fn();
 const client = { request } as unknown as GraphQLClient;
@@ -324,7 +325,7 @@ describe('canonicalTaskId (the identity a write uses)', () => {
 
 describe('the task detail read (portal#1523)', () => {
   it('selects the requirements’ minimum model tier', () => {
-    expect(AGENT_TASK_DETAIL_QUERY).toMatch(/requirements\s*\{[^}]*\bminTier\b/);
+    expect(selectsFieldPath(AGENT_TASK_DETAIL_QUERY, 'AgentTaskDetail', ['agentTask', 'requirements', 'minTier'])).toBe(true);
   });
 });
 

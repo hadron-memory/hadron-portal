@@ -430,7 +430,10 @@ describe('Ticker page: the Task entry (portal#1384)', () => {
     expect(count(e, 'tasks:on-base-tick')).toBe(1);
     expect(count(e, 'tick.engineering')).toBe(1);
     expect(e).toMatch(/<(code|span)[^>]*font-mono[^>]*>[^<]*tasks:on-base-tick/);
-    expect(e).toContain('Each worker runs the task at this location in its own role, or the shared one.');
+    expect(e).toContain('Each woken worker looks up the nearest readable runnable task in its Agent chain.');
+    expect(e).not.toContain('Each worker runs the task at this location');
+    expect(e).toContain('Ticker code:');
+    expect(e).toMatch(/Ticker code:\s*<code[^>]*>tick\.engineering<\/code>/);
     expect(e).not.toContain('No task you can see');
   });
 
@@ -484,10 +487,10 @@ describe('Ticker page: the Task entry (portal#1384)', () => {
     }
   });
 
-  it('an empty code (a stale snapshot) omits the code line and raises no error', () => {
+  it('an empty code (malformed-response robustness: tickCode is String!, so an older server rejects the query) omits the code line and raises no error', () => {
     const e = entry(detail({ ticker: ticker({ tickCode: '' }) }));
     expect(e).toContain('tasks:on-base-tick');
-    expect(e).not.toMatch(/Code/);
+    expect(e).not.toMatch(/code:/i);
   });
 
   it('escapes markup in a loc and a code', () => {

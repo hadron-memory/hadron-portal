@@ -1,4 +1,6 @@
 <script lang="ts">
+  import TabRow from '$lib/components/TabRow.svelte';
+  import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import AppRunsPanel from './runs/AppRunsPanel.svelte';
   import TaskIntegrations from './TaskIntegrations.svelte';
   import { taskHref } from '$lib/agent-tasks/handle';
@@ -6,10 +8,10 @@
   import WorkerDeleteDialog from './WorkerDeleteDialog.svelte';
   import StopBanner from '$lib/components/stops/StopBanner.svelte';
   import { rosterOf } from '$lib/withheld';
-  import { env } from '$env/dynamic/public';
+  import { publicServerBaseUrl } from '$lib/public-server-base-url';
   import { tick, untrack, onDestroy } from 'svelte';
   import { applyAction } from '$app/forms';
-  import { beforeNavigate, goto, afterNavigate, invalidateAll, replaceState } from '$app/navigation';
+  import { beforeNavigate, goto, afterNavigate, invalidateAll, preloadData, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import JSZip from 'jszip';
@@ -119,6 +121,7 @@
   };
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
+  import { readResolvedAiConfigs } from '$lib/components/ai-config-readback';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import TerminalStatus from '$lib/components/TerminalStatus.svelte';
   import { terminalBadge, terminalCheckedAge, terminalSummary } from '$lib/workers/terminal';
@@ -131,7 +134,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
-  import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker } from '$lib/types';
+  import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker, AiServiceConfig } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import type { AppTabId } from './tab-intent';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
@@ -755,11 +758,15 @@
   // the pointer panel below the table (omitted when this viewer cannot manage
   // the App, the pre-menu button's gate); Unlink submits the hidden form
   // below the table for the picked row.
+  let compilePanel = $state<{ reveal: () => void }>();
+  let compileChoice = $state<{ app: string; agent: string } | null>(null);
+  const compileAgent = $derived(compileChoice?.app === data.app.id ? installedAgents.find(a => a.id === compileChoice?.agent) : undefined);
   function agentRowActions(agent: InstalledAgent): NodeMenuAction[] {
     // #1684: a derived agent has no row, so Unlink has nothing to remove. Its
     // own way off the roster is removing the import; Install writes the row.
     const derived = installMarks[agent.id]?.kind === 'derived';
     return [
+      ...(data.canManageApp === true && !impersonating ? [{ id: 'compile-prompt', label: t('app.agents.compile', 'Update the prompt…') }] : []),
       { id: 'customisation', label: t('app.agents.customisation', 'Customisation…') },
       ...(data.canManageApp !== false
         ? [{
@@ -776,7 +783,13 @@
     ];
   }
   function onAgentAction(id: string, agent: InstalledAgent) {
-    if (id === 'customisation') {
+    if (id === 'compile-prompt') {
+      const appId = data.app.id;
+      compileChoice = { app: appId, agent: agent.id };
+      void tick().then(() => {
+        if (appId === data.app.id && compileAgent?.id === agent.id) compilePanel?.reveal();
+      });
+    } else if (id === 'customisation') {
       customisationChoice = { appRef: data.bootPointerAppKey, agentId: agent.id };
       const appKey = data.bootPointerAppKey;
       void tick().then(() => {
@@ -839,19 +852,74 @@
   // linked, and an empty state otherwise.
   // 036-ai-service-config: configs resolvable for this app's chat context
   // (App→Agent→Org→Host, masked). Powers the picker + LLM-readiness gate.
-  const usableChatConfigs = $derived((data.chatConfigs ?? []).filter((c) => c.hasApiKey));
+  // AI-tab writes re-read this slice through the same section endpoint as the
+  // owner list. The raw working copy preserves the loader OBJECT identity token;
+  // any later full loader result supersedes it, including null → null results.
+  let chatConfigReread = $state.raw<{
+    against: PageData;
+    appRef: string;
+    agentRef: string;
+    configs: AiServiceConfig[] | null;
+  } | null>(null);
+  let chatConfigReads = 0;
+  const chatConfigs = $derived(
+    chatConfigReread &&
+    chatConfigReread.against === data &&
+    chatConfigReread.appRef === app.id &&
+    chatConfigReread.agentRef === app.agentId
+      ? chatConfigReread.configs
+      : data.chatConfigs,
+  );
+  async function refreshChatConfigs(signal?: AbortSignal): Promise<boolean> {
+    const agentRef = app.agentId;
+    if (!agentRef) return true;
+    const appRef = app.id;
+    const against = data;
+    const mine = ++chatConfigReads;
+    const read = await readResolvedAiConfigs(appRef, agentRef, signal);
+    if (read.status !== 'fresh') {
+      if (mine === chatConfigReads && appRef === app.id && agentRef === app.agentId && against === data) {
+        // Do not keep offering a deleted/disabled selection when the confirmed
+        // mutation's resolved read cannot be refreshed. Null retains the existing
+        // unknown-readiness behavior but removes the stale picker value.
+        chatConfigReread = { against, appRef, agentRef, configs: null };
+      }
+      // An org admin without App membership cannot read the Chat picker by
+      // contract. That withheld slice needs no recovery lock; transport and
+      // server failures still do.
+      return read.status === 'withheld';
+    }
+    const fresh = read.configs;
+    if (
+      mine !== chatConfigReads ||
+      appRef !== app.id ||
+      agentRef !== app.agentId ||
+      against !== data
+    ) return false;
+    chatConfigReread = { against, appRef, agentRef, configs: fresh };
+    return true;
+  }
+  const usableChatConfigs = $derived((chatConfigs ?? []).filter((c) => c.hasApiKey));
   // null chatConfigs = couldn't list (e.g. viewer isn't an App member) →
   // unknown → don't block the chat.
-  const llmReady = $derived(data.chatConfigs === null ? null : usableChatConfigs.length > 0);
+  const llmReady = $derived(chatConfigs === null ? null : usableChatConfigs.length > 0);
   const appChatRender = $derived(
     chooseAppChatTabRender({ surfaces: app.surfaces, agentId: app.agentId, agents: app.agents, llmReady }),
   );
   // Picker selection overlaid on the default (`default`, else first usable).
   let selectedConfigName = $state<string | null>(null);
+  const chatSelectionIdentity = $derived(`${app.id}:${app.agentId ?? ''}`);
+  let previousChatSelectionIdentity = '';
+  $effect(() => {
+    const next = chatSelectionIdentity;
+    if (next === previousChatSelectionIdentity) return;
+    previousChatSelectionIdentity = next;
+    selectedConfigName = null;
+  });
   // Validate the pick against the (possibly refreshed) usable set: if the
-  // selected config was deleted/disabled — e.g. edited on the AI Service
-  // Configs tab, then back to Chat where invalidateAll refetched chatConfigs — fall back to
-  // default → first rather than sending a name that no longer resolves.
+  // selected config was deleted/disabled on the AI Service Configs tab, the
+  // resolved-config working copy falls back to default → first rather than
+  // sending a name that no longer resolves.
   const effectiveConfigName = $derived(
     selectedConfigName && usableChatConfigs.some((c) => c.name === selectedConfigName)
       ? selectedConfigName
@@ -911,6 +979,34 @@
       const initial = (data.initialTab as TabId | null) ?? null;
       return tabForActionResult(form, initial) ?? initial ?? 'chats';
     }),
+  );
+  // #1795: an action's invalidateAll can use Kit's pre-navigation URL and
+  // answer AFTER a ?tab=runs navigation supplied this section. Retain that
+  // fresh payload through an old-URL refresh which has no Runs section at all.
+  // A real Runs response always replaces it; the App and principal keys prevent
+  // one App's panel from leaking into another App or account when this page
+  // component is reused. This is not a retry or a poll — it covers every action
+  // refresh, in either request order.
+  let retainedRuns = $state<{
+    appId: string;
+    principalId: string | null;
+    panel: NonNullable<PageData['runsPanel']>;
+  } | null>(null);
+  $effect(() => {
+    const principalId = data.currentUserId;
+    const panel = data.runsPanel;
+    const appId = app.id;
+    untrack(() => {
+      if (retainedRuns && retainedRuns.principalId !== principalId) retainedRuns = null;
+      if (panel) retainedRuns = { appId, principalId, panel };
+    });
+  });
+  const currentRunsPanel = $derived(
+    data.runsPanel ?? (
+      retainedRuns !== null && retainedRuns.appId === app.id && retainedRuns.principalId === data.currentUserId
+        ? retainedRuns.panel
+        : null
+    ),
   );
   const tabs = $derived<{ id: TabId; label: string }[]>([
     // #744: ONE "Chats" tab over every conversation the App has — the team
@@ -1043,38 +1139,72 @@
   // unselected tab and dragging away before release diverges focus from
   // selection, and arrows would then move relative to a tab the user is not on.
   let tabNavigation = 0, tabNavigationPending = false, tabAlive = true;
+  let tabNavigationHref: string | null = null;
+  let tabNavigationCancelled = false;
   onDestroy(() => { tabAlive = false; tabNavigation++; });
+  beforeNavigate((navigation) => {
+    // Any real navigation supersedes a pending tab choice, including chat
+    // selection and A → B → A (the final App id alone cannot fence those).
+    // The exact goto owned by focusTab is the one navigation not to reject.
+    // Loader invalidation does not pass through beforeNavigate.
+    if (navigation.to?.url.href === tabNavigationHref) {
+      // #1833: the busy guard above cancels this owned navigation while a post
+      // is in flight, and Kit then resolves goto() without committing. Record
+      // that so focusTab does not select a tab the router never reached.
+      if (channelPostBusy) tabNavigationCancelled = true;
+      return;
+    }
+    tabNavigation++;
+    // #1831: the superseded focusTab can no longer release its own latch
+    // (its `finally` only clears when it still owns the epoch), so the
+    // supersession releases it. A newer focusTab starts after this and
+    // re-latches; its own goto returned above.
+    tabNavigationPending = false;
+  });
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
-    const mine = ++tabNavigation, appId = app.id;
+    const mine = ++tabNavigation, appId = app.id, principalId = data.currentUserId;
+    let ownNavigationHref: string | null = null;
     try {
       // A second choice supersedes an in-flight Runs navigation, including
       // a choice of a normally local tab. Its loader URL must agree as well.
       if (id === 'runs' || tabNavigationPending) {
         tabNavigationPending = true;
-        await goto(`/app/apps/${encodeURIComponent(appId)}?tab=${id}`, { keepFocus: true, noScroll: true });
+        const href = `/app/apps/${encodeURIComponent(appId)}?tab=${id}`;
+        if (id === 'runs') {
+          try {
+            // #1795 QA: invalidateAll discards the pending navigation's load
+            // cache, so its fresh payload may never reach page.data at all.
+            // preloadData still resolves with that result; retain it before
+            // the real navigation, which reuses the preload when it can.
+            const result = await preloadData(href);
+            if (tabAlive && mine === tabNavigation && app.id === appId && data.currentUserId === principalId && result.type === 'loaded') {
+              const panel = result.data.runsPanel as PageData['runsPanel'];
+              if (panel) retainedRuns = { appId, principalId, panel };
+            }
+          } catch { /* The real navigation below owns and reports its own failure. */ }
+        }
+        // preloadData cannot be cancelled by a newer choice or teardown. Do
+        // not let its completion navigate back to a stale tab or App.
+        if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
+        ownNavigationHref = new URL(href, window.location.href).href;
+        tabNavigationHref = ownNavigationHref;
+        tabNavigationCancelled = false;
+        await goto(href, { keepFocus: true, noScroll: true });
+        // A cancelled navigation resolves without a commit: keep the current tab.
+        if (tabNavigationCancelled) return;
       }
       if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
       activeTab = id;
       await tick();
       if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id}`)?.focus();
     } catch { /* A failed navigation keeps the current tab; the router owns its error. */ }
-    finally { if (mine === tabNavigation) tabNavigationPending = false; }
+    finally {
+      if (ownNavigationHref && tabNavigationHref === ownNavigationHref) tabNavigationHref = null;
+      if (mine === tabNavigation) tabNavigationPending = false;
+    }
   }
-  function onTabKeydown(e: KeyboardEvent) {
-    const order = tabs.map((tt) => tt.id);
-    const focusedId = (e.currentTarget as HTMLElement | null)?.id?.replace(/^tab-/, '');
-    const from = focusedId && order.includes(focusedId as TabId) ? (focusedId as TabId) : activeTab;
-    const i = order.indexOf(from);
-    // Left/Right ONLY: this tablist is HORIZONTAL (no aria-orientation),
-    // so Up/Down must keep their normal page-scrolling behaviour rather
-    // than changing section under a keyboard user who is just scrolling
-    // (@codex on #769).
-    if (e.key === 'ArrowRight') { e.preventDefault(); focusTab(order[(i + 1) % order.length]); }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); focusTab(order[(i - 1 + order.length) % order.length]); }
-    else if (e.key === 'Home') { e.preventDefault(); focusTab(order[0]); }
-    else if (e.key === 'End') { e.preventDefault(); focusTab(order[order.length - 1]); }
-  }
+
 
   // URN slug helpers — slug is the part after the org URN's prefix.
   function slugOfUrn(urn: string): string {
@@ -1776,7 +1906,7 @@
   // #990: hadron-client is retired, so setup always talks to the server
   // directly; the old "With Client App" mode (localhost:3200, client hooks)
   // is gone.
-  const serverUrl = env.PUBLIC_SERVER_URL ?? 'http://localhost:4000';
+  const serverUrl = publicServerBaseUrl();
   const mcpUrl = $derived(serverUrl.includes('localhost') ? serverUrl + '/mcp' : serverUrl.replace(/\/$/, '') + '/mcp');
 
   function claudeCodeMcpConfig(url: string, apiKey: string) {
@@ -2053,94 +2183,18 @@
       </p>
     </div>
   {/if}
-
-  <!-- Tabs — #740: the strip scrolls horizontally instead of overflowing the
-       page. A team App showed seven of these when this was written (~570px
-       of tabs), and up to ten since Channels and #1007/#1008's App Keys and
-       AI Service Configs; at 375px they ran straight off the right edge and
-       took the panel bodies with them. `shrink-0` + `whitespace-nowrap` on each tab is what makes it
-       SCROLL rather than compress — without them flex squeezes every label
-       into an unreadable column instead. -->
   <!-- portal#1139: the stops in effect, prominent above the sections. -->
   <StopBanner live={data.liveStops} workers={(data.staff ?? []).map((w) => ({ id: w.id, name: w.name, urn: w.urn ?? null }))} href="/app/apps/{app.id}/stops" />
 
-  <div class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
-    <!-- #768 — the ARIA tab pattern. These controls swap mutually exclusive
-         panels IN PLACE, which is what role="tab" describes; the previous
-         `aria-current="page"` announced NAVIGATION and left the panels
-         programmatically unrelated to the strip.
-
-         The tablist is an inner flex box rather than this container, because
-         the other subroute links below must not sit
-         inside a tablist. -->
-    <div role="tablist" aria-label={t('app.tabs-label', 'App sections')} class="flex shrink-0">
-      {#each tabs as tab (tab.id)}
-        <button
-          type="button"
-          role="tab"
-          id="tab-{tab.id}"
-          aria-selected={activeTab === tab.id}
-          aria-controls="panel-{tab.id}"
-          tabindex={activeTab === tab.id ? 0 : -1}
-          onclick={() => { void focusTab(tab.id); }}
-          onkeydown={onTabKeydown}
-          class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
-            {activeTab === tab.id
-              ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-              : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
-        >
-          {tab.label}
-        </button>
-      {/each}
-    </div>
-    <!-- #942: Channels is a subroute too (its own forms and table), linked like Runs. -->
-    <a
-      href="/app/apps/{app.id}/channels"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.channels', 'Channels')}
-    </a>
-    <!-- #1052: Tasks is a subroute too: its reads refuse a non-participant
-         (APP_NOT_FOUND), and that must never reach this page's loader. -->
-    <a
-      href="/app/apps/{app.id}/tasks"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.tasks', 'Tasks')}
-    </a>
-    <!-- #1099: Tickers is a subroute for the same reason: a ticker read
-         answers a non-participant APP_NOT_FOUND. -->
-    <a
-      href="/app/apps/{app.id}/tickers"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.tickers', 'Tickers')}
-    </a>
-    <!-- #1139: Stops is a subroute: its reads answer a non-participant APP_NOT_FOUND,
-         and that must never reach this page's loader. -->
-    <a
-      href="/app/apps/{app.id}/stops"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.stops', 'Stops')}
-    </a>
-    <!-- #1649: the action register is a subroute: its read answers a non-participant
-         APP_NOT_FOUND, and that must never reach this page's loader. -->
-    <a
-      href="/app/apps/{app.id}/register"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.register', 'Action register')}
-    </a>
-    <!-- #1299: Automations is a subroute: its reads answer a reader who may not adopt
-         with nothing, and that must never reach this page's loader. -->
-    <a
-      href="/app/apps/{app.id}/automations"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.automations', 'Automations')}
-    </a>
-  </div>
+  <TabRow items={[
+    ...tabs,
+    { id: 'channels', label: t('app.tabs.channels', 'Channels'), href: `/app/apps/${app.id}/channels` },
+    { id: 'tasks', label: t('app.tabs.tasks', 'Tasks'), href: `/app/apps/${app.id}/tasks` },
+    { id: 'tickers', label: t('app.tabs.tickers', 'Tickers'), href: `/app/apps/${app.id}/tickers` },
+    { id: 'stops', label: t('app.tabs.stops', 'Stops'), href: `/app/apps/${app.id}/stops` },
+    { id: 'register', label: t('app.tabs.register', 'Action register'), href: `/app/apps/${app.id}/register` },
+    { id: 'automations', label: t('app.tabs.automations', 'Automations'), href: `/app/apps/${app.id}/automations` }
+  ]} active={activeTab} label={t('app.tabs-label', 'App sections')} onselect={(id) => { void focusTab(id as TabId); }} />
 
   <!-- ───────────── CHATS TAB (#744) ─────────────
        Every conversation the App has, behind one selector: the agent chat, the
@@ -2522,7 +2576,7 @@
        Append-only: no delete, no edit, no rename. -->
   {#if activeTab === 'runs'}
     <div role="tabpanel" id="panel-runs" aria-labelledby="tab-runs" tabindex="0" class="min-w-0 focus-visible:outline-2 focus-visible:outline-indigo-500">
-      {#if data.runsPanel}<AppRunsPanel data={data.runsPanel} {form} />{:else}<p role="status">{t('runs.loading', 'Loading runs…')}</p>{/if}
+      {#if currentRunsPanel}<AppRunsPanel data={currentRunsPanel} {form} />{:else}<p role="status">{t('runs.loading', 'Loading runs…')}</p>{/if}
     </div>
   {/if}
 
@@ -2541,6 +2595,7 @@
         </p>
       </div>
       <WorklogTable
+        serverPage={data.worklogPage}
         items={data.worklog ?? []}
         total={data.worklogTotal ?? 0}
         loadError={data.worklogError ?? false}
@@ -3189,6 +3244,16 @@
             {/if}
           {/snippet}
         </DataTable>
+        {#if compileAgent}
+          {#key `${data.bootPointerAppKey}:${compileAgent.id}`}
+            <BootInstallCompile bind:this={compilePanel} title={t('app.agents.compile-title', 'Boot prompt for {name} in this App', { name: compileAgent.name })} owner={{ level: 'app', app: data.app.id, agent: compileAgent.id }} canManage={data.canManageApp} {impersonating} onClose={async () => {
+              const label = t('app.agents.actions.label', 'Actions for {name}', { name: compileAgent.name });
+              compileChoice = null;
+              await tick();
+              document.querySelector<HTMLButtonElement>(`button[aria-label="${CSS.escape(label)}"]`)?.focus();
+            }} />
+          {/key}
+        {/if}
         {#if customisationAgent}
           {#key `${data.bootPointerAppKey}\u0000${customisationAgent.id}`}
             <InstallCustomisation bind:this={customisationPanel} appRef={data.bootPointerAppKey} agent={customisationAgent} canManage={data.canManageApp ?? null} onClose={async () => {
@@ -3432,24 +3497,28 @@
     </div>
   {/if}
 
-  <!-- ───────────── AI SERVICE CONFIGS TAB (#1008) ───────────── -->
-  {#if activeTab === 'ai-configs'}
-    <div id="panel-ai-configs" role="tabpanel" aria-labelledby="tab-ai-configs" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+  <!-- ───────────── AI SERVICE CONFIGS TAB (#1008) ─────────────
+       Keep the Section mounted while hidden: tab switches are not a full-page
+       readback, so pending writes, safety warnings and fresh rows must survive. -->
+  <div id="panel-ai-configs" role="tabpanel" aria-labelledby="tab-ai-configs" tabindex="0" hidden={activeTab !== 'ai-configs'} class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-8">
       <!-- AI providers (registry; consumers resolve a config by name) -->
       <section class="max-w-2xl">
         <AiServiceConfigSection
           ownerType="APP"
           ownerId={app.id}
+          ownerLabel={app.name}
+          ownerUrn={app.urn}
+          pagination={data.configsPage}
           configs={data.appConfigs ?? []}
           members={org?.members ?? []}
           currentUserId={data.currentUserId}
           configsError={data.configsError}
+          onRefreshed={refreshChatConfigs}
         />
       </section>
     </div>
-    </div>
-  {/if}
+  </div>
 
   <!-- ───────────── SETTINGS TAB ───────────── -->
   {#if activeTab === 'settings'}

@@ -113,7 +113,7 @@ try {
    await noOverflow('fifty chosen');
    const previewButton = panel.getByRole('button', { name: 'Preview', exact: true });
    await previewButton.scrollIntoViewIfNeeded(); await inViewport(previewButton, 'Preview at the cap'); await previewButton.click();
-   await panel.getByText('50 will change, 0 will be skipped, 0 can’t be applied').waitFor();
+   await panel.getByText('50 will change, 0 will change nothing, 0 can’t be applied').waitFor();
    await tableGeometry('cap preview', 50);
    const applyButton = panel.getByRole('button', { name: 'Apply and lock rules', exact: true });
    await applyButton.scrollIntoViewIfNeeded(); await inViewport(applyButton, 'Apply at the cap'); await applyButton.click();
@@ -139,7 +139,7 @@ try {
   await inViewport(panel.getByRole('button', { name: 'Remove Fixture memory 0', exact: true }), 'Remove');
   await noOverflow('selection');
   await panel.getByRole('button', { name: 'Preview', exact: true }).click();
-  await panel.getByText('4 will change, 1 will be skipped, 1 can’t be applied').waitFor();
+  await panel.getByText('4 will change, 1 will change nothing, 1 can’t be applied').waitFor();
   for (const name of ['Create template', 'Edit', 'Delete', 'Apply to a memory…', 'Apply to several memories…']) await dimmed(name);
   await noOverflow('preview');
   await tableGeometry('preview', 6);
