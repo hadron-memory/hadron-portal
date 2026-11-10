@@ -582,6 +582,24 @@ export interface OrgSummary {
   urn: string;
 }
 
+/** hrn:node:hadronmemory.com:specs:cor:acl:080:02 — the only resource shape exposed by a public organization. */
+export interface PublicResourceRef {
+  id: string;
+  name: string;
+  urn: string;
+  description: string | null;
+}
+
+/** A closed, non-member-safe projection; deliberately not an Organization. */
+export interface PublicOrganization {
+  id: string;
+  name: string;
+  urn: string;
+  listedOnMarketplace: boolean;
+  publicMemories: PublicResourceRef[];
+  publicAgents: PublicResourceRef[];
+}
+
 export interface Organization {
   id: string;
   name: string;

@@ -221,7 +221,7 @@
        chips a sibling reveal button instead of changing the anchor. -->
   <svelte:element
     this={linked ? 'a' : chipToggle ? 'button' : 'code'}
-    href={linked ? `/app/u/${displayFullUrn}` : undefined}
+    href={linked ? buildResolverUrl('', displayFullUrn) : undefined}
     type={chipToggle ? 'button' : undefined}
     role={chipToggle ? 'button' : undefined}
     aria-expanded={chipToggle ? expanded : undefined}

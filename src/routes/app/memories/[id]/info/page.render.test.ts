@@ -57,16 +57,16 @@ describe('memory Info owner attribution (#1846 slice A)', () => {
     expect(body).toContain('aria-label="Copy organization URL"');
   });
 
-  it('shows a discoverable non-member name and URN without an anchor', () => {
+  it('links a discoverable non-member name and URN to the sanitized profile (#1846 slice B)', () => {
     const body = render(Page as never, { props: { data: data({ organizationId: 'org-1' }, {
       ownerAttribution: { id: 'org-1', name: 'Acme <script>', urn: 'hrn:org:acme.com', source: 'public' },
     }) } as never }).body;
     expect(body).toContain('Acme &lt;script');
     expect(body).not.toContain('Acme <script>');
     expect(body).toContain('hrn:org:acme.com');
-    expect(body).not.toContain('href="/app/u/hrn:org:acme.com"');
+    expect(body).toContain('href="/app/u/hrn:org:acme.com"');
     expect(body).toContain('aria-label="Copy organization URN"');
-    expect(body).not.toContain('aria-label="Copy organization URL"');
+    expect(body).toContain('aria-label="Copy organization URL"');
   });
 
   it('shows only the plain canonical URN for an undiscoverable non-member', () => {
