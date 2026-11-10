@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy, untrack } from 'svelte';
   import { testResultView, type AiConfigTestResult, type AiConfigTestView } from '$lib/ai-config-test';
   import { lookupOwn } from '$lib/lookup';
   import { beforeNavigate, invalidateAll } from '$app/navigation';
@@ -13,6 +14,9 @@
   import ListPageNav from './ListPageNav.svelte';
   import type { ListPageNavigation } from '$lib/list-page';
   import NodeActionsMenu from './NodeActionsMenu.svelte';
+  import Urn from './Urn.svelte';
+  import { aiConfigReloadHref, parseAiConfig, withAiConfigTimeout } from './ai-config-readback';
+  import { getAiConfigRecoveryStore, nextAiConfigMutationId, nextAiConfigRecoveryId } from './ai-config-recovery';
   import {
     isValidConfigName,
     resolveKeyInput,
@@ -26,22 +30,101 @@
     endpointShapeError,
     inlineTestable,
     type AiApiStyle,
+    type AiConfigUncertain,
+    type AiConfigCommitted,
+    type AiConfigMutationPending,
   } from './ai-config-manager';
 
   let {
     pagination,
     ownerType,
     ownerId,
+    ownerLabel = null,
+    ownerUrn = null,
+    currentUserId,
     configs,
     canManage = false,
     allowTest = false,
+    mutationUncertain = false,
+    mutationPending = false,
+    onMutationPending = standaloneMutationPending,
+    onAction = standaloneAction,
+    // Standalone use predates the Section wrapper: keep its original refresh,
+    // including the rejection path that used to reach the mutation catch.
+    onCommitted = async (outcome) => {
+      const scope = outcome.recoveryScope ?? standaloneScope;
+      const recovery = recoveryFor(scope);
+      if (outcome.uncertainText) recovery.setUncertainty(outcome.ownerKey, outcome.uncertainText);
+      if (outcome.ownerKey !== `${ownerType}:${ownerId}` || scope !== standaloneScope || destroyed) {
+        recovery.defer(outcome);
+        return;
+      }
+      recovery.discardDeferred(outcome);
+      if (!outcome.uncertainText && outcome.noticeGeneration === standaloneNoticeGeneration) {
+        showStandaloneNotice(outcome.successText);
+      }
+      const mine = ++standaloneRefreshGeneration;
+      activeStandalone.set(standaloneActiveKey(scope, outcome.ownerKey), { outcome, generation: mine, recoveryScope: scope });
+      let failed = false;
+      try {
+        await withAiConfigTimeout(
+          () => invalidateAll(),
+          () => { throw new Error('AI configuration refresh timed out'); },
+        );
+      } catch {
+        failed = true;
+      }
+      if (destroyed || outcome.ownerKey !== `${ownerType}:${ownerId}` || scope !== standaloneScope || mine !== standaloneRefreshGeneration) {
+        const key = standaloneActiveKey(scope, outcome.ownerKey);
+        const active = activeStandalone.get(key);
+        // Owner/principal teardown already defers the active outcome. Re-deferring
+        // it here would resurrect work after a newer replay has succeeded.
+        if (active?.outcome === outcome && active.generation === mine) {
+          activeStandalone.delete(key);
+          recovery.defer(outcome);
+        }
+        return;
+      }
+      if (!outcome.uncertainText) {
+        recovery.setRefreshWarning(outcome.ownerKey, failed ? outcome.refreshFailedText : null);
+      }
+      finishStandaloneActive(outcome, mine);
+    },
+    onUncertain = (outcome) => {
+      const scope = outcome.recoveryScope ?? standaloneScope;
+      recoveryFor(scope).setUncertainty(outcome.ownerKey, outcome.text);
+      if (!outcome.reconcileOnly && outcome.ownerKey === `${ownerType}:${ownerId}` && scope === standaloneScope && !destroyed) return;
+      return onCommitted({
+        ownerKey: outcome.ownerKey,
+        mutationId: outcome.mutationId,
+        noticeGeneration: -1,
+        successText: '',
+        refreshFailedText: '',
+        uncertainText: outcome.text,
+        recoveryScope: scope,
+      });
+    },
   }: {
     pagination?: ListPageNavigation;
     ownerType: AiConfigOwnerType;
     ownerId: string;
+    /** The caller's already-loaded owner name; null omits the caption. */
+    ownerLabel?: string | null;
+    /** The same already-authorized owner's URN; null omits the chip. */
+    ownerUrn?: string | null;
+    /** Principal scope for standalone recovery; required so no two users share one scope. Section also keys remounts by it. */
+    currentUserId: string;
     configs: AiServiceConfig[];
     canManage?: boolean;
     allowTest?: boolean;
+    /** Section-owned uncertainty survives this manager being torn down. */
+    mutationUncertain?: boolean;
+    /** Section-owned in-flight lock survives manager teardown/remount. */
+    mutationPending?: boolean;
+    onMutationPending?: (outcome: AiConfigMutationPending) => void;
+    onAction?: () => number;
+    onCommitted?: (outcome: AiConfigCommitted) => void | Promise<void>;
+    onUncertain?: (outcome: AiConfigUncertain) => void | Promise<void>;
   } = $props();
 
   const WELL_KNOWN = ['default', 'fast', 'frontier'];
@@ -58,6 +141,7 @@
   // ── Form state ──
   let formOpen = $state(false);
   let editId = $state<string | null>(null); // null ⇒ create
+  let savedConfig = $state<AiServiceConfig | null>(null);
   let nameInput = $state('');
   let providerInput = $state<AiConfigProvider>('anthropic');
   let modelInput = $state('');
@@ -76,10 +160,318 @@
   type KnownEndpoint = { url: string; label: string; isDefault: boolean; note: string | null };
   let knownEndpoints = $state<KnownEndpoint[]>([]);
   let busy = $state(false);
+  let uncertainMutation = $state(false);
+  let standaloneWarning = $state<string | null>(null);
+  let standaloneRefreshWarning = $state<string | null>(null);
+  let standaloneNotice = $state<string | null>(null);
+  let standaloneNoticeGeneration = 0;
+  let standaloneNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+  let standaloneRefreshGeneration = 0;
+  let hadStandaloneScope = false;
+  const standaloneScope = $derived(`standalone:${currentUserId}`);
+  const sharesStandaloneRecovery = $derived(onMutationPending === standaloneMutationPending);
+  const activeStandalone = new Map<string, { outcome: AiConfigCommitted; generation: number; recoveryScope: string }>();
+  let syncingStandaloneRecovery = false;
+
+  function recoveryFor(scope = standaloneScope) {
+    return getAiConfigRecoveryStore(scope);
+  }
+
+  function standaloneActiveKey(scope: string, key: string) {
+    return `${scope}\n${key}`;
+  }
+
+  function standaloneMutationPending(outcome: AiConfigMutationPending) {
+    recoveryFor(outcome.recoveryScope).setPending(outcome);
+  }
+  const mutationLocked = $derived(uncertainMutation || mutationUncertain || standaloneRefreshWarning !== null);
   let error = $state<string | null>(null);
   // #937: one shape for both paths, so the result always reads the same way.
   let testResult = $state<AiConfigTestView | null>(null);
   let confirmDeleteId = $state<string | null>(null);
+  // Plain action generations fence visible editor feedback. The owner-visit
+  // generation additionally distinguishes A → B → A, where ownerKey matches
+  // again but the old request no longer belongs to the current editor.
+  let actionGeneration = 0;
+  let actionController: AbortController | null = null;
+  let ownerKey = $state('');
+  let ownerAtVisit: { ownerType: AiConfigOwnerType; ownerId: string } | null = null;
+  let ownerGeneration = 0;
+  let destroyed = false;
+
+  type ActionToken = {
+    generation: number;
+    noticeGeneration: number;
+    ownerKey: string;
+    ownerType: AiConfigOwnerType;
+    ownerId: string;
+    ownerGeneration: number;
+    recoveryScope: string;
+    standaloneRecovery: boolean;
+    onCommitted: (outcome: AiConfigCommitted) => void | Promise<void>;
+    onUncertain: (outcome: AiConfigUncertain) => void | Promise<void>;
+    formFingerprint: string;
+    signal: AbortSignal;
+  };
+  type PendingMutation = {
+    id: number;
+    ownerKey: string;
+    recoveryScope: string;
+    standaloneRecovery: boolean;
+    notify: (outcome: AiConfigMutationPending) => void;
+  };
+  let pendingMutations = $state<PendingMutation[]>([]);
+  const localMutationPending = $derived(
+    pendingMutations.some((mutation) => mutation.ownerKey === ownerKey && mutation.recoveryScope === standaloneScope),
+  );
+  const mutationBlocked = $derived(localMutationPending || mutationPending);
+
+  function standaloneAction(): number {
+    standaloneNoticeGeneration++;
+    if (standaloneNoticeTimer !== null) clearTimeout(standaloneNoticeTimer);
+    standaloneNoticeTimer = null;
+    standaloneNotice = null;
+    return standaloneNoticeGeneration;
+  }
+
+  function showStandaloneNotice(text: string) {
+    if (standaloneNoticeTimer !== null) clearTimeout(standaloneNoticeTimer);
+    standaloneNotice = text;
+    standaloneNoticeTimer = setTimeout(() => {
+      standaloneNotice = null;
+      standaloneNoticeTimer = null;
+    }, 6000);
+  }
+
+  function clearNotice(): number {
+    return onAction();
+  }
+
+  function formFingerprint(): string {
+    return JSON.stringify({
+      nameInput, providerInput, modelInput, apiKeyInput,
+      bedrockAccessKeyId, bedrockSecretAccessKey, bedrockRegion,
+      enabledInput, removeKey, paramsText, endpointInput, apiStyleInput, toolCalling,
+    });
+  }
+
+  function beginAction(): ActionToken {
+    const noticeGeneration = clearNotice();
+    busy = false;
+    // Only non-mutating Test reads consume this signal. Mutation writes keep
+    // their independent uncertainty semantics even when the editor closes.
+    actionController?.abort();
+    actionController = new AbortController();
+    return {
+      generation: ++actionGeneration,
+      noticeGeneration,
+      ownerKey,
+      ownerType: ownerAtVisit!.ownerType,
+      ownerId: ownerAtVisit!.ownerId,
+      ownerGeneration,
+      recoveryScope: standaloneScope,
+      standaloneRecovery: sharesStandaloneRecovery,
+      onCommitted,
+      onUncertain,
+      formFingerprint: formFingerprint(),
+      signal: actionController.signal,
+    };
+  }
+
+  function isOwnerVisitCurrent(action: ActionToken): boolean {
+    return (
+      !destroyed &&
+      action.ownerKey === ownerKey &&
+      action.ownerKey === `${ownerType}:${ownerId}` &&
+      action.ownerGeneration === ownerGeneration &&
+      action.recoveryScope === standaloneScope
+    );
+  }
+
+  function isCurrent(action: ActionToken): boolean {
+    return !destroyed && action.generation === actionGeneration && isOwnerVisitCurrent(action);
+  }
+
+  function trackMutation(action: ActionToken): number {
+    // Document-unique IDs keep same-owner registrations distinct across Manager
+    // teardown/remount and user switches; settlement releases only its own.
+    const id = nextAiConfigMutationId();
+    const notify = onMutationPending;
+    pendingMutations = [...pendingMutations, {
+      id,
+      ownerKey: action.ownerKey,
+      recoveryScope: action.recoveryScope,
+      standaloneRecovery: action.standaloneRecovery,
+      notify,
+    }];
+    notify({
+      ownerKey: action.ownerKey,
+      mutationId: id,
+      pending: true,
+      recoveryScope: action.recoveryScope,
+    });
+    return id;
+  }
+
+  function finishMutation(id: number) {
+    // Settlement always releases its own registration, even after Cancel or an
+    // owner change. A stale request must never clear another request's lock.
+    const finished = pendingMutations.find((mutation) => mutation.id === id);
+    pendingMutations = pendingMutations.filter((mutation) => mutation.id !== id);
+    if (finished) finished.notify({
+      ownerKey: finished.ownerKey,
+      mutationId: id,
+      pending: false,
+      ...(finished.standaloneRecovery ? { recoveryScope: finished.recoveryScope } : {}),
+    });
+  }
+
+  function resetEditor() {
+    formOpen = false;
+    editId = null;
+    savedConfig = null;
+    error = null;
+    testResult = null;
+  }
+
+  function finishStandaloneActive(outcome: AiConfigCommitted, generation: number) {
+    const scope = outcome.recoveryScope ?? standaloneScope;
+    const key = standaloneActiveKey(scope, outcome.ownerKey);
+    const active = activeStandalone.get(key);
+    if (active?.outcome === outcome && active.generation === generation) {
+      activeStandalone.delete(key);
+    }
+  }
+
+  function scheduleStandaloneRecovery(ownerKey: string, recover: () => void | Promise<void>) {
+    const scope = standaloneScope;
+    const recovery = recoveryFor(scope);
+    const recoveryId = nextAiConfigRecoveryId();
+    recovery.setPending({ ownerKey, mutationId: recoveryId, pending: true, recoveryScope: scope });
+    pendingMutations = [
+      ...pendingMutations.filter((mutation) => mutation.recoveryScope !== scope || !mutation.standaloneRecovery),
+      ...recovery.pending().map(({ mutationId, ownerKey: key }) => ({ id: mutationId, ownerKey: key, recoveryScope: scope, standaloneRecovery: true, notify: standaloneMutationPending })),
+    ];
+    queueMicrotask(async () => {
+      try {
+        await recover();
+      } finally {
+        recovery.setPending({ ownerKey, mutationId: recoveryId, pending: false, recoveryScope: scope });
+      }
+    });
+  }
+
+  function syncStandaloneRecovery() {
+    if (destroyed || syncingStandaloneRecovery || !sharesStandaloneRecovery) return;
+    syncingStandaloneRecovery = true;
+    try {
+      const scope = standaloneScope;
+      const recovery = recoveryFor(scope);
+      const recoveryOwnerKey = `${ownerType}:${ownerId}`;
+      pendingMutations = [
+        ...pendingMutations.filter((mutation) => mutation.recoveryScope !== scope || !mutation.standaloneRecovery),
+        ...recovery.pending().map(({ mutationId, ownerKey: key }) => ({ id: mutationId, ownerKey: key, recoveryScope: scope, standaloneRecovery: true, notify: standaloneMutationPending })),
+      ];
+      standaloneWarning = recovery.uncertainty(recoveryOwnerKey);
+      uncertainMutation = standaloneWarning !== null;
+      standaloneRefreshWarning = recovery.refreshWarning(recoveryOwnerKey);
+      const deferred = recovery.takeDeferred(recoveryOwnerKey);
+      if (deferred) {
+        // Preserve object identity: the store's WeakMap orders outcomes by it.
+        deferred.recoveryScope ??= scope;
+        scheduleStandaloneRecovery(recoveryOwnerKey, () => onCommitted(deferred));
+      }
+    } finally {
+      syncingStandaloneRecovery = false;
+    }
+  }
+
+  // Effects never run during SSR, so a server render neither creates nor
+  // subscribes a module-global recovery store. A principal switch unsubscribes
+  // the old scope and fences its in-flight readback before syncing the new one.
+  $effect(() => {
+    const scopeChanged = hadStandaloneScope;
+    hadStandaloneScope = true;
+    if (!sharesStandaloneRecovery) {
+      untrack(() => {
+        uncertainMutation = false;
+        standaloneWarning = null;
+        standaloneRefreshWarning = null;
+      });
+      return;
+    }
+    const scope = standaloneScope;
+    const recovery = recoveryFor(scope);
+    ownerGeneration++;
+    actionGeneration++;
+    actionController?.abort();
+    if (scopeChanged) untrack(clearNotice);
+    resetEditor();
+    configFilter = '';
+    confirmDeleteId = null;
+    busy = false;
+    const stop = untrack(() => {
+      const unsubscribe = recovery.subscribe(syncStandaloneRecovery);
+      syncStandaloneRecovery();
+      return unsubscribe;
+    });
+    return () => {
+      standaloneRefreshGeneration++;
+      for (const [key, active] of activeStandalone) {
+        if (active.recoveryScope !== scope) continue;
+        recovery.defer(active.outcome);
+        activeStandalone.delete(key);
+      }
+      stop();
+    };
+  });
+
+  // Track the scalar owner identity, not a refreshed configs/loader object.
+  // Same-owner invalidation must preserve a pending draft and its outcome.
+  $effect(() => {
+    const nextOwnerKey = `${ownerType}:${ownerId}`;
+    if (nextOwnerKey === ownerKey) return;
+    const previousOwnerKey = ownerKey;
+    ownerKey = nextOwnerKey;
+    ownerAtVisit = { ownerType, ownerId };
+    ownerGeneration++;
+    actionGeneration++;
+    actionController?.abort();
+    if (previousOwnerKey !== '') clearNotice();
+    resetEditor();
+    configFilter = '';
+    confirmDeleteId = null;
+    if (!sharesStandaloneRecovery) {
+      uncertainMutation = false;
+      standaloneWarning = null;
+      standaloneRefreshWarning = null;
+    }
+    standaloneRefreshGeneration++;
+    busy = false;
+    const activeKey = standaloneActiveKey(standaloneScope, previousOwnerKey);
+    const active = activeStandalone.get(activeKey);
+    if (active) {
+      activeStandalone.delete(activeKey);
+      recoveryFor(active.recoveryScope).defer(active.outcome);
+    }
+    syncStandaloneRecovery();
+  });
+
+  onDestroy(() => {
+    destroyed = true;
+    if (standaloneNoticeTimer !== null) clearTimeout(standaloneNoticeTimer);
+    standaloneNoticeTimer = null;
+    for (const active of activeStandalone.values()) recoveryFor(active.recoveryScope).defer(active.outcome);
+    activeStandalone.clear();
+    actionGeneration++;
+    actionController?.abort();
+  });
+
+  // The acknowledged write is the newest baseline this editor knows: a retained
+  // older row must not win, or a preserved draft diffs against stale fields and
+  // omits an endpoint/apiStyle:null that is still needed. openEdit, openCreate
+  // and resetEditor clear savedConfig, so it never outlives its editor session.
+  const editing = $derived(editId ? (savedConfig?.id === editId ? savedConfig : (configs.find((c) => c.id === editId) ?? null)) : null);
 
   // Keep a paged editor's source row in place, including browser Back/Forward.
   // Other surfaces retain their existing navigation behavior.
@@ -88,8 +480,6 @@
     if (from?.url.pathname === to?.url.pathname &&
         from?.url.searchParams.get('configOffset') !== to?.url.searchParams.get('configOffset')) cancel();
   });
-
-  const editing = $derived(editId ? (configs.find((c) => c.id === editId) ?? null) : null);
   const hasExistingKey = $derived(editing?.hasApiKey ?? false);
   const renamingWellKnown = $derived(
     !!editing && WELL_KNOWN.includes(editing.name) && nameInput.trim() !== editing.name,
@@ -259,13 +649,20 @@
   }
 
   function openCreate() {
+    beginAction();
     resetForm();
+    savedConfig = null;
     editId = null;
     formOpen = true;
   }
 
   function openEdit(c: AiServiceConfig) {
+    // The row is stale while its committed readback is pending. Opening it now
+    // would seed a full-field update that could revert the just-saved values.
+    if (mutationBlocked || mutationLocked) return;
+    beginAction();
     resetForm();
+    savedConfig = null;
     editId = c.id;
     nameInput = c.name;
     providerInput = c.provider;
@@ -285,10 +682,8 @@
   }
 
   function closeForm() {
-    formOpen = false;
-    editId = null;
-    error = null;
-    testResult = null;
+    beginAction();
+    resetEditor();
   }
 
   /** Stable JSON for comparing params: keys sorted at every level. */
@@ -325,18 +720,135 @@
     return canonicalJson(next.value ?? null) !== canonicalJson(c.params ?? null);
   }
 
-  async function post(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const res = await fetch('/api/ai-configs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+  class UncertainMutationError extends Error {
+    constructor() {
+      super('Request failed');
+    }
+  }
+
+  async function post(payload: Record<string, unknown>, uncertainMutation = false, parentSignal?: AbortSignal): Promise<Record<string, unknown>> {
+    let res: Response;
+    let body: unknown;
+    const request = (signal?: AbortSignal) => (async () => {
+      const response = await fetch('/api/ai-configs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal,
+      });
+      return { response, body: await response.json() as unknown };
+    })();
+    try {
+      if (uncertainMutation || parentSignal) {
+        ({ response: res, body } = await withAiConfigTimeout(
+          (signal) => request(signal),
+          () => {
+            if (uncertainMutation) throw new UncertainMutationError();
+            throw new Error(s.testTimedOut());
+          },
+          undefined,
+          parentSignal,
+        ));
+      } else {
+        ({ response: res, body } = await request());
+      }
+    } catch (cause) {
+      if (!uncertainMutation) throw cause;
+      // A dropped response, non-JSON proxy reply, or timeout says nothing about
+      // whether the mutation committed. Never present it as a safe refusal or
+      // leave an unexplained pending lock forever.
+      throw new UncertainMutationError();
+    }
+    const record = body && typeof body === 'object' && !Array.isArray(body)
+      ? body as Record<string, unknown>
+      : null;
+    if (uncertainMutation && (res.status >= 500 || (res.ok && record?.ok !== true))) {
+      // A 5xx may be upstream of a committed write. Likewise, a 2xx without the
+      // endpoint's explicit {ok:true} is not proof of success (or of refusal).
+      throw new UncertainMutationError();
+    }
+    if (!res.ok || record?.error) {
+      // A definitive 4xx refusal stays draft-local and safe to correct/retry.
+      throw new Error(String(record?.error ?? 'Request failed'));
+    }
+    return record ?? {};
+  }
+
+  type MutationOptions = {
+    action: ActionToken;
+    request: () => Promise<unknown>;
+    successText: string;
+    refreshFailedText: string;
+    refusalFallback: string;
+    onSuccess: () => void;
+  };
+
+  function publishUncertain(action: ActionToken, text: string, mutationId: number): void | Promise<void> {
+    if (isOwnerVisitCurrent(action)) {
+      // Safety outcomes survive Cancel and newer actions in the same visit.
+      uncertainMutation = true;
+      return action.onUncertain({
+        ownerKey: action.ownerKey,
+        mutationId,
+        text,
+        recoveryScope: action.recoveryScope,
+      });
+    }
+    // A → B → A must not publish the old visit into the new editor, but the
+    // owner still needs reconciliation before replay can be safe. If another
+    // owner is current, the callback defers that recovery until A is revisited.
+    return action.onUncertain({
+      ownerKey: action.ownerKey,
+      mutationId,
+      text,
+      reconcileOnly: true,
+      recoveryScope: action.recoveryScope,
     });
-    const body = await res.json();
-    if (!res.ok || body.error) throw new Error(body.error ?? 'Request failed');
-    return body;
+  }
+
+  function publishCommitted(action: ActionToken, successText: string, refreshFailedText: string, mutationId: number): void | Promise<void> {
+    return action.onCommitted({
+      ownerKey: action.ownerKey,
+      mutationId,
+      // Stale visits recover owner data but never publish an old success notice.
+      noticeGeneration: isOwnerVisitCurrent(action) ? action.noticeGeneration : -1,
+      successText,
+      refreshFailedText,
+      recoveryScope: action.recoveryScope,
+    });
+  }
+
+  async function runMutation(options: MutationOptions) {
+    const { action } = options;
+    const pendingMutation = trackMutation(action);
+    try {
+      try {
+        await options.request();
+      } catch (e) {
+        if (e instanceof UncertainMutationError) {
+          // Reconcile-only recovery retains the pending registration until its
+          // bounded readback finishes; settlement must not open a replay gap.
+          await publishUncertain(action, s.mutationUnconfirmed(), pendingMutation);
+        } else if (isCurrent(action)) {
+          error = e instanceof Error ? e.message : options.refusalFallback;
+        }
+        return;
+      }
+      options.onSuccess();
+      // A confirmed write still has stale rows until recovery finishes. Keep
+      // the pending lock without delaying the Section's immediate success note.
+      await publishCommitted(action, options.successText, options.refreshFailedText, pendingMutation);
+    } finally {
+      finishMutation(pendingMutation);
+      if (isCurrent(action)) busy = false;
+    }
   }
 
   async function save() {
+    if (mutationBlocked || mutationLocked) return;
+    const action = beginAction();
+    error = null;
+    testResult = null;
     const name = nameInput.trim();
     if (!isValidConfigName(name)) {
       error = s.invalidName();
@@ -379,52 +891,76 @@
       return;
     }
 
+    let createdId: string | null = null;
     busy = true;
-    error = null;
-    testResult = null;
-    try {
-      if (editId === null) {
-        await post({
-          action: 'create',
-          ownerType,
-          ownerId,
-          name,
-          provider: providerInput,
-          model: modelInput.trim(),
-          apiKey: enteredKey || undefined,
-          params: paramsValue,
-          enabled: enabledInput,
-          endpoint: endpointInput.trim() || undefined,
-          apiStyle: apiStyleInput || undefined,
-        });
-      } else {
-        const keyArg = resolveApiKeyAction({ removeKey: clearKey, enteredKey });
-        // Absent = unchanged, null = back to the provider default.
-        const endpoint = fieldChange(editing?.endpoint, endpointInput);
-        const apiStyle = fieldChange<AiApiStyle>(editing?.apiStyle, apiStyleInput);
-        await post({
-          action: 'update',
-          id: editId,
-          name,
-          provider: providerInput,
-          model: modelInput.trim(),
-          params: paramsValue,
-          enabled: enabledInput,
-          ...keyArg,
-          ...(endpoint !== undefined ? { endpoint } : {}),
-          ...(apiStyle !== undefined ? { apiStyle } : {}),
-        });
-      }
-      closeForm();
-      await invalidateAll();
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to save configuration';
-    } finally {
-      busy = false;
-    }
+    await runMutation({
+      action,
+      request: async () => {
+        if (editId === null) {
+          const result = await post({
+            action: 'create',
+            ownerType: action.ownerType,
+            ownerId: action.ownerId,
+            name,
+            provider: providerInput,
+            model: modelInput.trim(),
+            apiKey: enteredKey || undefined,
+            params: paramsValue,
+            enabled: enabledInput,
+            endpoint: endpointInput.trim() || undefined,
+            apiStyle: apiStyleInput || undefined,
+          }, true);
+          const saved = parseAiConfig(result.config);
+          if (saved) {
+            createdId = saved.id;
+            savedConfig = saved;
+          } else if (isCurrent(action) && formFingerprint() !== action.formFingerprint) {
+            // The write may have committed, but without a complete saved row a
+            // preserved draft cannot safely become an update. Reconcile it.
+            throw new UncertainMutationError();
+          }
+        } else {
+          const keyArg = resolveApiKeyAction({ removeKey: clearKey, enteredKey });
+          // Absent = unchanged, null = back to the provider default.
+          const endpoint = fieldChange(editing?.endpoint, endpointInput);
+          const apiStyle = fieldChange<AiApiStyle>(editing?.apiStyle, apiStyleInput);
+          const result = await post({
+            action: 'update',
+            id: editId,
+            name,
+            provider: providerInput,
+            model: modelInput.trim(),
+            params: paramsValue,
+            enabled: enabledInput,
+            ...keyArg,
+            ...(endpoint !== undefined ? { endpoint } : {}),
+            ...(apiStyle !== undefined ? { apiStyle } : {}),
+          }, true);
+          const saved = parseAiConfig(result.config);
+          if (saved) savedConfig = saved;
+          else if (isCurrent(action) && formFingerprint() !== action.formFingerprint) {
+            throw new UncertainMutationError();
+          }
+        }
+      },
+      successText: s.saveSuccess(name),
+      refreshFailedText: s.saveRefreshFailed(name),
+      refusalFallback: 'Failed to save configuration',
+      onSuccess: () => {
+        // The request captured the old values. Close only if the reader did not
+        // make newer edits while it was in flight. A preserved create draft is
+        // now an UPDATE of the row the server returned, never a second create.
+        if (!isCurrent(action)) return;
+        if (formFingerprint() === action.formFingerprint) resetEditor();
+        else if (createdId !== null) editId = createdId;
+      },
+    });
   }
 
   async function test() {
+    const action = beginAction();
+    error = null;
+    testResult = null;
     // Save refuses a blank model, so Test does too: otherwise an edited-away
     // model would silently test the saved one and could report success.
     if (!modelInput.trim()) {
@@ -440,8 +976,6 @@
       bedrockRegion,
     });
     busy = true;
-    error = null;
-    testResult = null;
     try {
       if (editing) {
         // #937: a SAVED config, of ANY owner kind, tests BY ID through the
@@ -474,7 +1008,8 @@
           }
           override.params = params.value;
         }
-        const res = (await post({ action: 'testSaved', id: editing.id, override })) as { result: AiConfigTestResult };
+        const res = (await post({ action: 'testSaved', id: editing.id, override }, false, action.signal)) as { result: AiConfigTestResult };
+        if (!isCurrent(action)) return;
         testResult = testResultView(res.result);
       } else if (!inlineTestable({ provider: providerInput, endpoint: endpointInput, apiStyle: apiStyleInput })) {
         // The portal's own client would test a different host than a run uses.
@@ -486,7 +1021,8 @@
           provider: providerInput,
           model: modelInput.trim(),
           apiKey: enteredKey,
-        })) as { ok: boolean; provider?: string; model?: string; reply?: string; error?: string };
+        }, false, action.signal)) as { ok: boolean; provider?: string; model?: string; reply?: string; error?: string };
+        if (!isCurrent(action)) return;
         testResult = r.ok
           ? { ok: true, headline: t('ai-config.test.ok.inline', '✓ Works: {provider} / {model}.', { provider: r.provider ?? '', model: r.model ?? '' }), details: r.reply ? [t('ai-config.test.reply', 'Reply: “{reply}”', { reply: r.reply })] : [] }
           : { ok: false, headline: r.error ?? t('ai-config.test.error.unknown', 'The test failed.'), details: [] };
@@ -494,31 +1030,97 @@
         error = s.testNeedsKey();
       }
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Test failed';
+      if (isCurrent(action)) error = e instanceof Error ? e.message : 'Test failed';
     } finally {
-      busy = false;
+      if (isCurrent(action)) busy = false;
     }
   }
 
-  async function doDelete(id: string) {
-    busy = true;
+  async function doDelete(id: string, name: string) {
+    if (mutationBlocked || mutationLocked) return;
+    const action = beginAction();
     error = null;
-    try {
-      await post({ action: 'delete', id });
-      confirmDeleteId = null;
-      await invalidateAll();
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to delete configuration';
-    } finally {
-      busy = false;
-    }
+    busy = true;
+    await runMutation({
+      action,
+      request: () => post({ action: 'delete', id }, true),
+      successText: s.deleteSuccess(name),
+      refreshFailedText: s.deleteRefreshFailed(name),
+      refusalFallback: 'Failed to delete configuration',
+      onSuccess: () => {
+        if (isCurrent(action)) confirmDeleteId = null;
+        // Cancelling the confirmation supersedes ordinary feedback, not the
+        // committed delete. If this row was open, its editor must still close
+        // when the delete succeeds; only the owner visit fences that cleanup.
+        if (isOwnerVisitCurrent(action) && editId === id) resetEditor();
+      },
+    });
+  }
+
+  function armDelete(id: string) {
+    beginAction();
+    error = null;
+    confirmDeleteId = id;
+  }
+
+  function cancelDelete() {
+    // Cancel supersedes ordinary acknowledgement, not the committed readback.
+    beginAction();
+    confirmDeleteId = null;
   }
 </script>
 
 <section>
+  <div data-testid="ai-config-manager-feedback" role="status" aria-live="polite" aria-atomic="true">
+    {#if standaloneWarning}
+      <div
+        class="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+      >
+        {standaloneWarning}
+        <a href={aiConfigReloadHref()} data-sveltekit-reload class="ml-1 underline">{s.reloadPage()}</a>
+      </div>
+    {/if}
+    {#if standaloneRefreshWarning}
+      <div
+        class="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+      >
+        {standaloneRefreshWarning}
+        <a href={aiConfigReloadHref()} data-sveltekit-reload class="ml-1 underline">{s.reloadPage()}</a>
+      </div>
+    {/if}
+    {#if standaloneNotice}
+      <div
+        class="mb-3 rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300"
+      >
+        {standaloneNotice}
+      </div>
+    {/if}
+    {#if mutationBlocked && !mutationLocked}
+      <p data-testid="ai-config-recovery-pending" class="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
+        {s.recoveryPending()}
+      </p>
+    {/if}
+  </div>
+  <!-- Always mounted so a refusal is announced whether it came from the open
+       editor or a row action; only the alert's content changes. -->
+  <div data-testid="ai-config-error-feedback" role="alert" aria-live="assertive" aria-atomic="true">
+    {#if error}
+      <div
+        class="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+      >
+        {error}
+      </div>
+    {/if}
+  </div>
   <div class="mb-3 flex items-start justify-between gap-4">
     <div>
       <h2 class="font-semibold text-zinc-900 dark:text-white">{s.heading()}</h2>
+      {#if ownerLabel}
+        <p class="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">{s.ownerCaption(ownerLabel)}</p>
+        {#if ownerUrn}
+          <div class="mt-1 max-w-full"><Urn value={ownerUrn} size={10} compact label={ownerLabel} /></div>
+        {/if}
+      {/if}
       <p class="mt-0.5 text-sm text-zinc-500">{s.subheading()}</p>
       {#if ownerType === 'AGENT'}
         <p class="mt-1 text-xs text-zinc-400">{s.agentDefaultHint()}</p>
@@ -535,19 +1137,14 @@
     {/if}
   </div>
 
-  {#if error && !formOpen}
-    <div
-      class="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
-    >
-      {error}
-    </div>
-  {/if}
-
   <!-- Add / edit form -->
   {#if formOpen}
     <div
       class="mb-4 space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900"
     >
+      {#if editing}
+        <h3 class="text-sm font-medium text-zinc-900 dark:text-white">{s.editorTitle(editing.name)}</h3>
+      {/if}
       <div>
         <label for="ac-name" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
           {s.nameLabel()}
@@ -744,13 +1341,6 @@
         <p class="mt-1 text-xs text-zinc-400">{s.paramsHint()}</p>
       </div>
 
-      {#if error}
-        <div
-          class="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
-        >
-          {error}
-        </div>
-      {/if}
       {#if testResult}
         <div
           class="rounded-md border px-3 py-2 text-xs {testResult.ok
@@ -768,7 +1358,7 @@
         <button
           type="button"
           onclick={save}
-          disabled={busy}
+          disabled={busy || mutationBlocked || mutationLocked}
           class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
         >
           {busy ? s.savingButton() : s.saveButton()}
@@ -838,15 +1428,15 @@
                 <span class="text-xs text-zinc-500">{s.confirmQuestion()}</span>
                 <button
                   type="button"
-                  onclick={() => doDelete(c.id)}
-                  disabled={busy}
+                  onclick={() => doDelete(c.id, c.name)}
+                  disabled={busy || mutationBlocked || mutationLocked}
                   class="rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-500 disabled:opacity-50"
                 >
                   {s.deleteButton()}
                 </button>
                 <button
                   type="button"
-                  onclick={() => (confirmDeleteId = null)}
+                  onclick={cancelDelete}
                   class="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
                 >
                   {s.cancelButton()}
@@ -863,7 +1453,7 @@
                 ]}
                 onselect={(id) => {
                   if (id === 'edit') openEdit(c);
-                  else confirmDeleteId = c.id;
+                  else armDelete(c.id);
                 }}
                 label={s.actionsLabel(c.name)}
                 fixed

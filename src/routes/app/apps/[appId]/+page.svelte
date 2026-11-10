@@ -121,6 +121,7 @@
   };
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
+  import { readResolvedAiConfigs } from '$lib/components/ai-config-readback';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import TerminalStatus from '$lib/components/TerminalStatus.svelte';
   import { terminalBadge, terminalCheckedAge, terminalSummary } from '$lib/workers/terminal';
@@ -133,7 +134,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
-  import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker } from '$lib/types';
+  import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker, AiServiceConfig } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import type { AppTabId } from './tab-intent';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
@@ -851,19 +852,74 @@
   // linked, and an empty state otherwise.
   // 036-ai-service-config: configs resolvable for this app's chat context
   // (App→Agent→Org→Host, masked). Powers the picker + LLM-readiness gate.
-  const usableChatConfigs = $derived((data.chatConfigs ?? []).filter((c) => c.hasApiKey));
+  // AI-tab writes re-read this slice through the same section endpoint as the
+  // owner list. The raw working copy preserves the loader OBJECT identity token;
+  // any later full loader result supersedes it, including null → null results.
+  let chatConfigReread = $state.raw<{
+    against: PageData;
+    appRef: string;
+    agentRef: string;
+    configs: AiServiceConfig[] | null;
+  } | null>(null);
+  let chatConfigReads = 0;
+  const chatConfigs = $derived(
+    chatConfigReread &&
+    chatConfigReread.against === data &&
+    chatConfigReread.appRef === app.id &&
+    chatConfigReread.agentRef === app.agentId
+      ? chatConfigReread.configs
+      : data.chatConfigs,
+  );
+  async function refreshChatConfigs(signal?: AbortSignal): Promise<boolean> {
+    const agentRef = app.agentId;
+    if (!agentRef) return true;
+    const appRef = app.id;
+    const against = data;
+    const mine = ++chatConfigReads;
+    const read = await readResolvedAiConfigs(appRef, agentRef, signal);
+    if (read.status !== 'fresh') {
+      if (mine === chatConfigReads && appRef === app.id && agentRef === app.agentId && against === data) {
+        // Do not keep offering a deleted/disabled selection when the confirmed
+        // mutation's resolved read cannot be refreshed. Null retains the existing
+        // unknown-readiness behavior but removes the stale picker value.
+        chatConfigReread = { against, appRef, agentRef, configs: null };
+      }
+      // An org admin without App membership cannot read the Chat picker by
+      // contract. That withheld slice needs no recovery lock; transport and
+      // server failures still do.
+      return read.status === 'withheld';
+    }
+    const fresh = read.configs;
+    if (
+      mine !== chatConfigReads ||
+      appRef !== app.id ||
+      agentRef !== app.agentId ||
+      against !== data
+    ) return false;
+    chatConfigReread = { against, appRef, agentRef, configs: fresh };
+    return true;
+  }
+  const usableChatConfigs = $derived((chatConfigs ?? []).filter((c) => c.hasApiKey));
   // null chatConfigs = couldn't list (e.g. viewer isn't an App member) →
   // unknown → don't block the chat.
-  const llmReady = $derived(data.chatConfigs === null ? null : usableChatConfigs.length > 0);
+  const llmReady = $derived(chatConfigs === null ? null : usableChatConfigs.length > 0);
   const appChatRender = $derived(
     chooseAppChatTabRender({ surfaces: app.surfaces, agentId: app.agentId, agents: app.agents, llmReady }),
   );
   // Picker selection overlaid on the default (`default`, else first usable).
   let selectedConfigName = $state<string | null>(null);
+  const chatSelectionIdentity = $derived(`${app.id}:${app.agentId ?? ''}`);
+  let previousChatSelectionIdentity = '';
+  $effect(() => {
+    const next = chatSelectionIdentity;
+    if (next === previousChatSelectionIdentity) return;
+    previousChatSelectionIdentity = next;
+    selectedConfigName = null;
+  });
   // Validate the pick against the (possibly refreshed) usable set: if the
-  // selected config was deleted/disabled — e.g. edited on the AI Service
-  // Configs tab, then back to Chat where invalidateAll refetched chatConfigs — fall back to
-  // default → first rather than sending a name that no longer resolves.
+  // selected config was deleted/disabled on the AI Service Configs tab, the
+  // resolved-config working copy falls back to default → first rather than
+  // sending a name that no longer resolves.
   const effectiveConfigName = $derived(
     selectedConfigName && usableChatConfigs.some((c) => c.name === selectedConfigName)
       ? selectedConfigName
@@ -927,16 +983,30 @@
   // #1795: an action's invalidateAll can use Kit's pre-navigation URL and
   // answer AFTER a ?tab=runs navigation supplied this section. Retain that
   // fresh payload through an old-URL refresh which has no Runs section at all.
-  // A real Runs response always replaces it; the App key prevents A's panel
-  // from leaking into B when this page component is reused. This is not a
-  // retry or a poll — it covers every action refresh, in either request order.
-  let retainedRuns = $state<{ appId: string; panel: NonNullable<PageData['runsPanel']> } | null>(null);
+  // A real Runs response always replaces it; the App and principal keys prevent
+  // one App's panel from leaking into another App or account when this page
+  // component is reused. This is not a retry or a poll — it covers every action
+  // refresh, in either request order.
+  let retainedRuns = $state<{
+    appId: string;
+    principalId: string | null;
+    panel: NonNullable<PageData['runsPanel']>;
+  } | null>(null);
   $effect(() => {
+    const principalId = data.currentUserId;
     const panel = data.runsPanel;
-    if (panel) retainedRuns = { appId: app.id, panel };
+    const appId = app.id;
+    untrack(() => {
+      if (retainedRuns && retainedRuns.principalId !== principalId) retainedRuns = null;
+      if (panel) retainedRuns = { appId, principalId, panel };
+    });
   });
   const currentRunsPanel = $derived(
-    data.runsPanel ?? (retainedRuns?.appId === app.id ? retainedRuns.panel : null),
+    data.runsPanel ?? (
+      retainedRuns !== null && retainedRuns.appId === app.id && retainedRuns.principalId === data.currentUserId
+        ? retainedRuns.panel
+        : null
+    ),
   );
   const tabs = $derived<{ id: TabId; label: string }[]>([
     // #744: ONE "Chats" tab over every conversation the App has — the team
@@ -1093,7 +1163,7 @@
   });
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
-    const mine = ++tabNavigation, appId = app.id;
+    const mine = ++tabNavigation, appId = app.id, principalId = data.currentUserId;
     let ownNavigationHref: string | null = null;
     try {
       // A second choice supersedes an in-flight Runs navigation, including
@@ -1108,9 +1178,9 @@
             // preloadData still resolves with that result; retain it before
             // the real navigation, which reuses the preload when it can.
             const result = await preloadData(href);
-            if (tabAlive && mine === tabNavigation && app.id === appId && result.type === 'loaded') {
+            if (tabAlive && mine === tabNavigation && app.id === appId && data.currentUserId === principalId && result.type === 'loaded') {
               const panel = result.data.runsPanel as PageData['runsPanel'];
-              if (panel) retainedRuns = { appId, panel };
+              if (panel) retainedRuns = { appId, principalId, panel };
             }
           } catch { /* The real navigation below owns and reports its own failure. */ }
         }
@@ -3427,25 +3497,28 @@
     </div>
   {/if}
 
-  <!-- ───────────── AI SERVICE CONFIGS TAB (#1008) ───────────── -->
-  {#if activeTab === 'ai-configs'}
-    <div id="panel-ai-configs" role="tabpanel" aria-labelledby="tab-ai-configs" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+  <!-- ───────────── AI SERVICE CONFIGS TAB (#1008) ─────────────
+       Keep the Section mounted while hidden: tab switches are not a full-page
+       readback, so pending writes, safety warnings and fresh rows must survive. -->
+  <div id="panel-ai-configs" role="tabpanel" aria-labelledby="tab-ai-configs" tabindex="0" hidden={activeTab !== 'ai-configs'} class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-8">
       <!-- AI providers (registry; consumers resolve a config by name) -->
       <section class="max-w-2xl">
         <AiServiceConfigSection
           ownerType="APP"
           ownerId={app.id}
+          ownerLabel={app.name}
+          ownerUrn={app.urn}
           pagination={data.configsPage}
           configs={data.appConfigs ?? []}
           members={org?.members ?? []}
           currentUserId={data.currentUserId}
           configsError={data.configsError}
+          onRefreshed={refreshChatConfigs}
         />
       </section>
     </div>
-    </div>
-  {/if}
+  </div>
 
   <!-- ───────────── SETTINGS TAB ───────────── -->
   {#if activeTab === 'settings'}

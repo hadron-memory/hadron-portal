@@ -381,6 +381,8 @@
     <AiServiceConfigSection
       ownerType="ORGANIZATION"
       ownerId={org.id}
+      ownerLabel={org.name}
+      ownerUrn={org.urn}
       configs={data.configs}
       members={org.members ?? []}
       currentUserId={data.currentUserId}

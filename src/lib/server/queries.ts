@@ -4894,20 +4894,18 @@ export const BOOT_SOURCE_QUERY = /* GraphQL */ `
 export const BOOT_COMPILED_QUERY = /* GraphQL */ `
   query BootCompiled($ref: ID!) {
     node(ref: $ref, raw: true) {
-      id urn revision content
+      id urn memoryId revision content
       approvalStatus { state approval { revision } }
       lintWarnings(first: 50) { items { kind position text targetUrn pinnedRevision newerRevision workerField } total nextCursor }
     }
   }
 `;
 
-// portal#1667 — the saved source as this reader can read it. raw: false, so never
-// feed an editor from it: includes are filled in by the server, as the reader, and a
-// target the reader can't have comes back as the server's notice. Revisions can't be
-// pinned here, so `revision` is what says which one was resolved.
-export const BOOT_RESOLVED_SOURCE_QUERY = /* GraphQL */ `
-  query BootResolvedSource($ref: ID!, $memoryRef: ID!) {
-    node(ref: $ref, memoryRef: $memoryRef, raw: false) { id revision content }
+// portal#1485 — the source's approval for the workflow's optional review step. Its own
+// request: the client throws on any error in a response, and this status is advisory.
+export const BOOT_SOURCE_APPROVAL_QUERY = /* GraphQL */ `
+  query BootSourceApproval($ref: ID!) {
+    node(ref: $ref, raw: true) { id revision approvalStatus { state approval { revision } } }
   }
 `;
 

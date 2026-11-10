@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import AiServiceConfigManager from './AiServiceConfigManager.svelte';
+import { resetAiConfigRecoveryForTests } from './ai-config-recovery';
 import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 import type { AiServiceConfig } from '$lib/types';
 
@@ -18,6 +19,7 @@ const GLM_ENDPOINTS = [
 
 let posts: Array<Record<string, unknown>>;
 beforeEach(() => {
+  resetAiConfigRecoveryForTests();
   posts = [];
   vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
     const body = JSON.parse(init.body) as Record<string, unknown>;
@@ -48,7 +50,7 @@ function config(over: Partial<AiServiceConfig> = {}): AiServiceConfig {
 
 async function open(props: { ownerType?: string; configs?: AiServiceConfig[] } = {}) {
   const m = mountComponent(AiServiceConfigManager as never, {
-    ownerType: props.ownerType ?? 'ORGANIZATION', ownerId: 'o1', configs: props.configs ?? [], canManage: true, allowTest: true,
+    ownerType: props.ownerType ?? 'ORGANIZATION', ownerId: 'o1', currentUserId: 'u1', configs: props.configs ?? [], canManage: true, allowTest: true,
   } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick();
@@ -148,6 +150,8 @@ describe('openai-compatible', () => {
     await settle();
     button(root, 'Save').click();
     await settle();
+    await tick(60); // remount only after the committed update's recovery settles
+    flushSync();
     let update = posts.find((p) => p.action === 'update')!;
     expect(update).toMatchObject({ provider: 'glm', endpoint: null });
     expect(update).toHaveProperty('params', null); // cleared, not "unchanged"
@@ -201,6 +205,8 @@ describe('a saved glm config', () => {
     await settle();
     button(root, 'Save').click();
     await settle();
+    await tick(60); // the committed update now retains pending until invalidateAll resolves
+    flushSync();
     expect('endpoint' in posts.find((p) => p.action === 'update')!).toBe(false);
 
     editRow(root);
