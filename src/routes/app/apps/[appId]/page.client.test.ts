@@ -332,6 +332,58 @@ describe('Worker agents tab (#1009)', () => {
     expect(columnTexts(target, 'Task')[1]).toBe('—');
   });
 
+  it.each(['Sample Holder', 'hrn:user:acme.com:sample-holder'])('finds a worker by displayed holder identity: %s (#1168)', async (needle) => {
+    const target = await mountStaff([worker({ heldByUserId: 'u9' })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: {
+        id: 'u9', name: 'Sample Holder', handle: 'sample-holder', urn: 'hrn:user:acme.com:sample-holder',
+      } }) },
+    });
+    expect(columnTexts(target, 'Name held by')[0]).toContain('Sample Holder');
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    search.value = needle;
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(2);
+    expect(names(target)).toContain('Ada');
+  });
+
+  it.each(['self', 'other'])('renders the authorized %s holder name and copyable URN (#1168)', async (kind) => {
+    const target = await mountStaff([worker({ heldByUserId: kind === 'self' ? 'u1' : 'u9' })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: {
+        id: kind === 'self' ? 'u1' : 'u9', name: 'Sample Holder', handle: 'sample-holder', urn: 'hrn:user:acme.com:sample-holder',
+      } }) },
+    });
+    const cell = target.querySelector('tbody tr')!;
+    expect(columnTexts(target, 'Name held by')[0]).toContain('Sample Holder');
+    expect(cell.querySelector('[title="hrn:user:acme.com:sample-holder"]')).not.toBeNull();
+  });
+
+  it.each([null, { id: 'u9', name: null, handle: null, urn: null }])('keeps a masked holder unnamed and unsearchable (#1168)', async (holder) => {
+    const target = await mountStaff([worker({ heldByUserId: 'u9' })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: holder }) },
+    });
+    expect(columnTexts(target, 'Name held by')[0]).toContain('Held by another member');
+    expect(target.querySelector('[title="hrn:user:acme.com:sample-holder"]')).toBeNull();
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    search.value = 'Sample Holder';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(2);
+    expect(names(target)).toEqual([]);
+  });
+
+  it.each([null, undefined])('does not search an undisclosed holder projection (#1168)', async (heldByUserId) => {
+    const target = await mountStaff([worker({ heldByUserId })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: {
+        id: 'u9', name: 'Sample Holder', handle: 'sample-holder', urn: 'hrn:user:acme.com:sample-holder',
+      } }) },
+    });
+    expect(columnTexts(target, 'Name held by')[0]).toBe('—');
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    search.value = 'Sample Holder';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(2);
+    expect(names(target)).toEqual([]);
+  });
+
   // Greta LOCAL P2 on portal#1375: a current task the loader could not resolve is
   // "Task unavailable": no link, no stale title, unsearchable, and not the "no task" dash.
   it('an unresolved current task is neutral “Task unavailable”, unlinked and unsearchable; a resolved one is found by its handle', async () => {

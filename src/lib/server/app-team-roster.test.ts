@@ -12,6 +12,8 @@ const entry = (id: string, over: Record<string, unknown> = {}) => ({
   checkStatus: { status: 'OK', pendingReason: null },
   pausedUntil: null,
   currentTask: null,
+  heldBy: null,
+  heldAt: null,
   ...over,
 });
 const client = (impl: () => unknown) => ({ request: vi.fn(async () => impl()) }) as never;
@@ -76,6 +78,14 @@ describe('loadAppTeamRoster (#1168)', () => {
     }
     expect(r.byWorker.w4.currentTask).toBeNull();
     expect(r.byWorker.w4.currentTaskUnavailable).toBeUndefined();
+  });
+
+  it('carries the holder identity through unchanged (hadron-server#2223)', async () => {
+    const heldBy = { id: 'u1', handle: 'sample-holder', urn: 'hrn:user:acme.com:sample-holder', name: 'Sample Holder' };
+    const r = await loadAppTeamRoster(client(() => ({ teamRoster: { workers: [entry('w1', { heldBy, heldAt: '2026-10-11T04:46:36Z' }), entry('w2')] } })), 'app-1');
+    if (r.kind !== 'ok') throw new Error('expected ok');
+    expect(r.byWorker.w1.heldBy).toEqual(heldBy);
+    expect(r.byWorker.w2.heldBy).toBeNull();
   });
 
   it('a refusal (APP_NOT_FOUND, FORBIDDEN) is hidden, not an empty roster', async () => {
