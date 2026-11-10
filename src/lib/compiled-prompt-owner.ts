@@ -10,19 +10,19 @@
  *   cannot tell apart, so this resolves to the App only.
  */
 export type CompiledPromptOwner =
-  | { kind: 'agent'; name: string | null; href: string }
+  | { kind: 'agent'; name: string | null; urn: string | null; href: string }
   | { kind: 'install'; href: string }
   | null;
 
 type MemoryOwnerFields = {
   class?: string | null;
   appId?: string | null;
-  agent?: { id?: string | null; name?: string | null } | null;
+  agent?: { id?: string | null; urn?: string | null; name?: string | null } | null;
 };
 
 export function compiledPromptOwner(memory: MemoryOwnerFields | null | undefined): CompiledPromptOwner {
   if (!memory || memory.class !== 'system') return null;
   if (memory.appId) return { kind: 'install', href: `/app/apps/${encodeURIComponent(memory.appId)}` };
-  if (memory.agent?.id) return { kind: 'agent', name: memory.agent.name ?? null, href: `/app/agents/${encodeURIComponent(memory.agent.id)}` };
+  if (memory.agent?.id) return { kind: 'agent', name: memory.agent.name ?? null, urn: memory.agent.urn ?? null, href: `/app/agents/${encodeURIComponent(memory.agent.id)}` };
   return null;
 }

@@ -60,7 +60,7 @@
         {#snippet cell(cell, item)}
           {#if cell.column.id === 'name'}
             {#if item.urn && item.name}<span>{item.name}</span> <Urn value={item.urn} type="node" linked={linkSources} />{:else}{item.omitted && !uniformUnavailable ? t('boot.provenance.omitted', 'name not loaded') : t('boot.provenance.unavailable', 'Not available to you')}{/if}
-            <div class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('boot.provenance.detail', 'Revision {n}, depth {d}', { n: item.revNo, d: item.depth })}{item.pruned === true ? ` · ${t('boot.provenance.pruned', 'No longer kept')}` : ''}</div>
+            <div class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('boot.provenance.detail', 'Revision {n}, depth {d}', { n: item.revNo, d: item.depth })}{item.pruned === true ? ` · ${t('boot.provenance.pruned', 'No longer kept')}` : ''} · {t('boot.provenance.occurrence', '{kind}, order {order}', { kind: item.kind, order: item.order })}</div>
           {:else if cell.column.id === 'selection'}
             {settingsText(item.selection)}
           {:else if cell.column.id === 'pruned'}

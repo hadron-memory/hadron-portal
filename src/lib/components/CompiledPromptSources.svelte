@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '$lib/i18n/t';
+  import Urn from './Urn.svelte';
   import BootProvenance from './BootProvenance.svelte';
   import type { CompiledPromptOwner } from '$lib/compiled-prompt-owner';
 
@@ -14,7 +15,7 @@
   <p class="text-sm text-zinc-600 dark:text-zinc-300" data-testid="compiled-prompt-hint">{t('node.compiled-prompt.sources-hint', 'This compiled boot prompt is generated from the sources listed below, so it is read-only. To change it, edit those sources on their own node pages like any other node, then recompile and approve the new revision. It does not change what is served until it is approved.')}</p>
   <p class="text-sm text-zinc-600 dark:text-zinc-300" data-testid="compiled-prompt-recompile">
     {#if owner?.kind === 'agent'}
-      {t('node.compiled-prompt.recompile-agent-before', 'Recompile it from the boot prompt section on the page of')} <a href={owner.href} class={linkClass}>{owner.name ?? t('node.compiled-prompt.agent-fallback', 'its Agent')}</a>{t('node.compiled-prompt.recompile-after', ', then approve the new revision.')}
+      {t('node.compiled-prompt.recompile-agent-before', 'Recompile it from the boot prompt section on the page of')} <a href={owner.href} class={linkClass}>{owner.name ?? t('node.compiled-prompt.agent-fallback', 'its Agent')}</a>{#if owner.urn} <Urn value={owner.urn} type="agent" />{/if}{t('node.compiled-prompt.recompile-after', ', then approve the new revision.')}
     {:else if owner?.kind === 'install'}
       {t('node.compiled-prompt.recompile-install-before', 'Recompile it from the install compile panel on')} <a href={owner.href} class={linkClass}>{t('node.compiled-prompt.app-page', 'the App’s page')}</a> {t('node.compiled-prompt.recompile-install-after', '(or the worker’s page, for a customised worker), then approve the new revision.')}
     {:else}

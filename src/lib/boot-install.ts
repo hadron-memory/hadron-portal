@@ -26,7 +26,7 @@ export function servedNowText(value: Serve, owner: CompileOwner, nodeId: string)
     ? t('boot.install.worker-serve', 'This worker’s next bind would get revision {n} of {prompt}.', { n: s.servedRevSeq, prompt })
     : t('boot.install.app-serve', 'A worker without its own prompt, a chat or a run started now would get revision {n} of {prompt}.', { n: s.servedRevSeq, prompt });
 }
-export type ProvenanceRow = { name: string | null; urn: string | null; omitted: boolean; depth: number; revNo: number; selection: { rev: number | null; approved: boolean; signed: boolean }; pruned: boolean | null };
+export type ProvenanceRow = { name: string | null; urn: string | null; omitted: boolean; kind: string; order: number; depth: number; revNo: number; selection: { rev: number | null; approved: boolean; signed: boolean }; pruned: boolean | null };
 export type ProvenancePage = { items: ProvenanceRow[]; total: number; hasMore: boolean; pruned: boolean; offset: number };
 export type InstallCompiled = { id: string; urn: string; revision: number; content: string; pending: boolean; lint: { items: { kind: string; position: number; text: string }[]; total: number } | null };
 export type InstallCompileView = { key: string; compiled: InstallCompiled | null; compiledReadFailed?: boolean; source: { id: string; urn: string; name: string; memoryId: string } | null; canStart: boolean; pointerMatches: boolean | null };
