@@ -672,7 +672,7 @@ async function loadChildren(
  * Failures are CODES under `<field>Failed`, which the page localizes; the old
  * version returned prose the page never showed.
  */
-const NODE_WRITE_REFUSALS = ['BAD_USER_INPUT', 'NODE_WRITE_CONFLICT', 'ROLE_GOVERNED', 'NODE_ALREADY_EXISTS', 'CONFLICT', 'SESSION_EXPIRED', 'FORBIDDEN'] as const;
+const NODE_WRITE_REFUSALS = ['BAD_USER_INPUT', 'NODE_WRITE_CONFLICT', 'ROLE_GOVERNED', 'BOOT_PROMPT_COMPILED_WRITE', 'BOOT_PROMPT_WORKER_SESSION_REFUSED', 'NODE_ALREADY_EXISTS', 'CONFLICT', 'SESSION_EXPIRED', 'FORBIDDEN'] as const;
 
 async function saveNodeText(
   field: 'content' | 'abstract',
@@ -743,7 +743,11 @@ async function saveNodeText(
     const include = includeRefusalOf(e);
     if (include) return fail(400, { [failed]: { code: 'include', detail: includeRefusalText(include) } });
     const detail = nodeWriteErrorText(e, 'Save failed', NODE_WRITE_REFUSALS);
-    if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') return fail(400, { [failed]: { code: 'rejected', detail } });
+    // portal#1899: the server's typed boot-prompt refusals (a compiled prompt is written only by a
+    // compile; a worker session never edits a boot prompt) wrote nothing and are the user's to act on,
+    // so they are a rejection with the server's words, not an internal failure.
+    const code = extractGqlErrorCode(e);
+    if (code === 'BAD_USER_INPUT' || code === 'BOOT_PROMPT_COMPILED_WRITE' || code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED') return fail(400, { [failed]: { code: 'rejected', detail } });
     return fail(500, { [failed]: { code: 'failed', detail } });
   }
   return { [`${field}Saved`]: true };
