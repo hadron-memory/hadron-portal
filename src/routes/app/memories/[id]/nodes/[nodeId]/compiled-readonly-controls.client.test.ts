@@ -135,3 +135,32 @@ describe('portal#1901: a compiled-boot-prompt node offers no write controls; sou
     });
   }
 });
+
+const REVS = [3, 2].map((n) => ({ id: `r${n}`, revNo: n, nodeId: 'leaf-pk', loc: 'foo', name: 'Foo', alias: null, description: null, tags: [], editedBy: null, revLabel: null, changedFields: [], createdAt: '2026-10-01T00:00:00Z' }));
+describe('portal#1901: what a compiled node keeps', () => {
+  it('keeps clear-history and delete-revision (deleting history is not writing compiled text) but drops restore', async () => {
+    const { target } = await mountPage('history', { ...COMPILED, revisions: REVS });
+    await tick(); flushSync();
+    const clear = named(target, 'Clear');
+    expect(enabled(clear).length, 'Clear history').toBe(1);
+    const trigger = target.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"][aria-label*="evision"], #panel-history button[aria-haspopup="menu"]');
+    expect(trigger, 'revision row menu').not.toBeNull();
+    trigger!.click(); flushSync(); await tick();
+    expect(enabled(named(target, 'Delete')).length, 'delete revision').toBe(1);
+    expect(enabled(named(target, 'Restore')).length, 'restore').toBe(0);
+  });
+  it('keeps restore on a source node (positive control)', async () => {
+    const { target } = await mountPage('history', { ...SOURCE, revisions: REVS });
+    await tick(); flushSync();
+    const trigger = target.querySelector<HTMLButtonElement>('#panel-history button[aria-haspopup="menu"]');
+    trigger!.click(); flushSync(); await tick();
+    expect(enabled(named(target, 'Restore')).length).toBe(1);
+    expect(enabled(named(target, 'Delete')).length).toBe(1);
+  });
+  it('keeps Duplicate and Download in the actions menu', async () => {
+    const { target } = await mountPage('content', { ...COMPILED });
+    await openMenu(target);
+    expect(enabled(named(target, 'Duplicate')).length).toBe(1);
+    expect(enabled(named(target, 'Download')).length).toBe(1);
+  });
+});

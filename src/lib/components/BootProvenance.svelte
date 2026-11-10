@@ -6,7 +6,7 @@
   import Urn from './Urn.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
-  let { nodeId, revision, headingLevel = 3 }: { nodeId: string; revision: number; headingLevel?: 3 | 4 } = $props();
+  let { nodeId, revision, headingLevel = 3, linkSources = false, uniformUnavailable = false }: { nodeId: string; revision: number; headingLevel?: 3 | 4; linkSources?: boolean; uniformUnavailable?: boolean } = $props();
   let page = $state<ProvenancePage | null>(null);
   let failed = $state(false), busy = $state(false), offset = $state(0);
   let epoch = 0;
@@ -59,7 +59,7 @@
       <DataTable {table} listKey="boot-prompt-provenance" searchPlaceholder={t('boot.provenance.search', 'Search this page…')} searchAriaLabel={t('boot.provenance.search-label', 'Search provenance on this page')} showSearch={false} showFooter={false}>
         {#snippet cell(cell, item)}
           {#if cell.column.id === 'name'}
-            {#if item.urn && item.name}<span>{item.name}</span> <Urn value={item.urn} type="node" />{:else}{item.omitted ? t('boot.provenance.omitted', 'name not loaded') : t('boot.provenance.unavailable', 'Not available to you')}{/if}
+            {#if item.urn && item.name}<span>{item.name}</span> <Urn value={item.urn} type="node" linked={linkSources} />{:else}{item.omitted && !uniformUnavailable ? t('boot.provenance.omitted', 'name not loaded') : t('boot.provenance.unavailable', 'Not available to you')}{/if}
             <div class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('boot.provenance.detail', 'Revision {n}, depth {d}', { n: item.revNo, d: item.depth })}{item.pruned === true ? ` · ${t('boot.provenance.pruned', 'No longer kept')}` : ''}</div>
           {:else if cell.column.id === 'selection'}
             {settingsText(item.selection)}
