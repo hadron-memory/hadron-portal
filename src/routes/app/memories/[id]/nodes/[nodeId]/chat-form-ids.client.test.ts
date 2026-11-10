@@ -42,6 +42,7 @@ import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { beginEnhanced } from '$lib/test/stubs/app-forms';
 import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
+import { announcedAlertText } from '$lib/test/announcedAlertText';
 import {
   LEGACY_THREAD_PROBE_QUERY,
   NODES_BY_LOC_PREFIX_QUERY,
@@ -356,7 +357,7 @@ describe('#1522 chat send form identity', () => {
     });
     expect(deliverRejections).toEqual([]);
 
-    expect(host.target.querySelector('[role="alert"]')).toBeNull();
+    expect(announcedAlertText(host.target)).toBeNull();
     expect(host.target.textContent).not.toContain('Failed to send message');
     expectChatThreadWarningPolicy();
   });
@@ -434,7 +435,7 @@ describe('#1522 chat send form identity', () => {
     expect(deliverRejections).toEqual([]);
 
     // B's composer neither banners A's failure…
-    expect(target.querySelector('[role="alert"]')).toBeNull();
+    expect(announcedAlertText(target)).toBeNull();
     expect(target.textContent).not.toContain('Failed to send message');
     // …nor takes A's half-written text as its draft. On main the shared id
     // let B's live form consume A's result wholesale.
@@ -458,7 +459,7 @@ describe('#1522 chat send form identity', () => {
       await tick();
     });
     expect(remountRejections).toEqual([]);
-    expect(target.querySelector('[role="alert"]')).toBeNull();
+    expect(announcedAlertText(target)).toBeNull();
     const fresh = target.querySelector<HTMLTextAreaElement>('textarea[name="content"]');
     expect(fresh).not.toBeNull();
     expect(fresh!.value).not.toBe('written for A');
@@ -511,7 +512,7 @@ describe('#1522 chat send form identity', () => {
     flushSync();
     await tick();
 
-    expect(m.target.querySelector('[role="alert"]')?.textContent).toContain('Failed to send message');
+    expect(announcedAlertText(m.target)).toContain('Failed to send message');
   });
 
   // #957, pinned for THIS composer now that the seed is id-gated: a SUCCESSFUL
@@ -570,7 +571,7 @@ describe('#1522 chat send form identity', () => {
     const reSeeded = second.target.querySelector<HTMLTextAreaElement>('textarea[name="content"]');
     expect(reSeeded).not.toBeNull();
     expect(reSeeded!.value).toBe('');
-    expect(second.target.querySelector('[role="alert"]')).toBeNull();
+    expect(announcedAlertText(second.target)).toBeNull();
   });
 
   // #1567: retaining a refused draft on remount must not make that draft
@@ -608,7 +609,7 @@ describe('#1522 chat send form identity', () => {
 
       const first = await mountAgain();
       await type(first, 'refused seed draft'); await send(first, 'refused seed draft', false);
-      expect(first.target.querySelector('[role="alert"]')?.textContent).toContain('Send refused.');
+      expect(announcedAlertText(first.target)).toContain('Send refused.');
       close(first); // tab away; action data remains on the page
       const second = await mountAgain();
       expect(area(second).value).toBe('refused seed draft'); // failure preservation is still live
@@ -627,7 +628,7 @@ describe('#1522 chat send form identity', () => {
       close(second);
       const third = await mountAgain();
       expect(area(third).value).toBe(''); // successful action data must never reseed
-      expect(third.target.querySelector('[role="alert"]')).toBeNull();
+      expect(announcedAlertText(third.target)).toBeNull();
     },
   );
 
@@ -671,7 +672,7 @@ describe('#1522 chat send form identity', () => {
       const send = async (content: string, kind: 'success' | 'refused' | 'invalid' | 'fielderror') => {
         const finish = await begin(); await deliver(finish, result(content, kind));
       };
-      const alert = () => m.target.querySelector('[role="alert"]')?.textContent ?? null;
+      const alert = () => announcedAlertText(m.target);
       return { m, area, submit, result, type, begin, deliver, send, alert, props, formId };
     }
     const SURFACES = ['node', 'standalone'] as const;
@@ -839,7 +840,7 @@ describe('#1522 chat send form identity', () => {
     await tick();
     flushSync();
     await tick();
-    expect(m.target.querySelector('[role="alert"]')?.textContent).toContain('Failed to send message');
+    expect(announcedAlertText(m.target)).toContain('Failed to send message');
   });
 
   // The chat page's own key, same probe — and Gil's BLIND P3 in the same
@@ -896,7 +897,7 @@ describe('#1522 chat send form identity', () => {
     await tick();
     flushSync();
     await tick();
-    expect(m.target.querySelector('[role="alert"]')?.textContent).toContain('Failed to send message');
+    expect(announcedAlertText(m.target)).toContain('Failed to send message');
   });
 
   // Celine's QA leg 2 (portal#1568): the REAL router still logged one

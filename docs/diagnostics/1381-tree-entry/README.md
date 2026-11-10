@@ -14,6 +14,14 @@ Use an available display (this run used Xvfb). The runner builds a production/mi
 
 The fixture preloads entries before the timed click. The initial view is a placeholder for an already-loaded memory; clicking Enter Tree mounts TreeView. This isolates **component entry with cached data**, not the authenticated Nodes route or MemoryBrowser switching/teardown. CSS is TreeView's compiled component CSS plus a fixed 1000×720 pane; the whole app stylesheet/chrome is not loaded. Viewport 1280×900. All measured runs assert document.visibilityState=visible and document.hasFocus()=true before/after. Virtual foreground on Xvfb is not a physical user display.
 
+### Real-browser Tab pin (#1566)
+
+The same fixture also backs a keyboard regression for the windowed tree (#1488 / PR #1564): focus a row, scroll the scroller far away, press Tab and Shift+Tab in real Chromium, and assert focus lands on the row at index +-1, the scroller moved to it, and the mounted rows surround it. It needs no display (headless) and no clean tree:
+
+```sh
+node scripts/diagnostics/tree-entry/tab-pin.mjs /absolute/scratch/tab-pin
+```
+
 ## Source and dataset
 
 Measured source: clean committed `60c9a7e82308e27079ac9a3b9f3a011039725772` (production TreeView/graph-utils remain unchanged from main `184bd51474160d9ec3f45fc6681985f9635fc60a`). The source hash map in [results.json](results.json) matches the committed runner, harness, generator and production component bytes. The runner records HEAD and git status, refuses a dirty checkout, and verifies both again after measurement. Its repository root is derived from its own file location; this batch was launched from outside the checkout to exercise that path. Later evidence/documentation commits do not change measured source hashes.

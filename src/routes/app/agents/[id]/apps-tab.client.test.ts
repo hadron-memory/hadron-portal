@@ -140,3 +140,14 @@ describe('agent Apps tab (#472)', () => {
     expect(m.target.querySelector('[role="alert"]')?.textContent ?? '').toContain('may be incomplete');
   });
 });
+
+
+it('#1408 Agent exposes its selected panel through the shared tab semantics', async () => {
+  const { target } = await mountApps({ installedApps: [] });
+  const selected = target.querySelector('[role="tab"][aria-selected="true"]');
+  const panel = target.querySelector('[role="tabpanel"]');
+  expect(selected).not.toBeNull();
+  expect(panel).not.toBeNull();
+  expect(selected!.getAttribute('aria-controls')).toBe(panel!.id);
+  expect(panel!.getAttribute('aria-labelledby')).toBe(selected!.id);
+});

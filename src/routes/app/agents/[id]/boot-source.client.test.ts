@@ -182,6 +182,22 @@ describe('portal#1377 S1 boot prompt tab modes', () => {
     expect(hidden(root, 'revision')).toBe('6');
     expect(hidden(root, 'nodeId')).toBe('c6');
   });
+  it('the real enhanced Approve form submits the revision displayed after a loader refresh', async () => {
+    const { submitEnhanced } = await import('$lib/test/stubs/app-forms');
+    const { setStubPage, resetStubPage } = await import('$lib/test/stubs/app-stores');
+    setStubPage('http://localhost/app/agents/a');
+    try {
+      const { root, refresh } = await refreshable();
+      await refresh(6);
+      const form = root.querySelector<HTMLFormElement>('form[action="?/approveBootPrompt"]')!;
+      expect(new FormData(form).get('nodeId')).toBe('c6');
+      expect(new FormData(form).get('revision')).toBe('6');
+      const submission = await submitEnhanced(form, true);
+      expect(submission.cancelled).toBe(false);
+      expect(submission.formData.get('nodeId')).toBe('c6');
+      expect(submission.formData.get('revision')).toBe('6');
+    } finally { resetStubPage(); }
+  });
   it('a compiled-only refresh keeps a dirty source draft', async () => {
     const { root, refresh } = await refreshable();
     const ta = area(root)!;
