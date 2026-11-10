@@ -4,7 +4,7 @@ import type { Infer } from 'sveltekit-superforms';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
+import { classifyGqlError, extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
 import { runStartError, runStartStatus } from '$lib/server/run-start-error';
 import { runAgentChoice } from '$lib/run-agent';
 import type { InstalledAgent } from '$lib/app-installed-agents';
@@ -654,6 +654,16 @@ async function loadChildren(
   }
 }
 
+/** portal#1899: the only error-code text a save log may carry: a bounded wire code, else a fixed marker. */
+function boundedLogCode(code: string | null): string {
+  if (!code) return 'no-code';
+  return /^[A-Z][A-Z0-9_]{0,63}$/.test(code) ? code : 'unrecognized';
+}
+/** User-facing text for a failed save read/write. A plain (non-GraphQL) Error's message is never shown: it can carry anything. */
+function saveFailureDetail(e: unknown, fallback: string): string {
+  return classifyGqlError(e).kind === 'transport' ? fallback : nodeWriteErrorText(e, fallback, NODE_WRITE_REFUSALS);
+}
+
 /**
  * #927 — the inline Content and Abstract saves.
  *
@@ -690,7 +700,8 @@ async function saveNodeText(
   try {
     ({ node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: nodeRef }));
   } catch (e: unknown) {
-    return fail(500, { [failed]: { code: 'failed', detail: nodeWriteErrorText(e, 'Failed to read the node', NODE_WRITE_REFUSALS) } });
+    console.error('[node-detail] save failed:', { op: `update-${field}`, stage: 'read', code: boundedLogCode(extractGqlErrorCode(e)) });
+    return fail(500, { [failed]: { code: 'failed', detail: saveFailureDetail(e, 'Failed to read the node') } });
   }
   if (!node) return fail(404, { [failed]: { code: 'not-found', detail: null } });
 
@@ -742,8 +753,17 @@ async function saveNodeText(
     // say so with the server's words, the tag and the next step.
     const include = includeRefusalOf(e);
     if (include) return fail(400, { [failed]: { code: 'include', detail: includeRefusalText(include) } });
-    const detail = nodeWriteErrorText(e, 'Save failed', NODE_WRITE_REFUSALS);
-    if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') return fail(400, { [failed]: { code: 'rejected', detail } });
+    const detail = saveFailureDetail(e, 'Save failed');
+    // portal#1899: the server's typed boot-prompt refusals (a compiled prompt is written only by a
+    // compile; a worker session never edits a boot prompt) wrote nothing and are the user's to act on,
+    // so they are a typed 4xx rejection, not an internal failure. The wire text is never forwarded:
+    // the page words each fixed code itself (localized).
+    const code = extractGqlErrorCode(e);
+    if (code === 'BOOT_PROMPT_COMPILED_WRITE') return fail(400, { [failed]: { code: 'compiled-prompt', detail: null } });
+    if (code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED') return fail(400, { [failed]: { code: 'boot-prompt-governed', detail: null } });
+    if (code === 'BAD_USER_INPUT') return fail(400, { [failed]: { code: 'rejected', detail } });
+    // The unclassified path keeps a bounded log: operation, stage and error code only, never the wire text, variables or content.
+    console.error('[node-detail] save failed:', { op: `update-${field}`, stage: 'write', code: boundedLogCode(code) });
     return fail(500, { [failed]: { code: 'failed', detail } });
   }
   return { [`${field}Saved`]: true };
