@@ -4894,7 +4894,7 @@ export const BOOT_COMPILED_QUERY = /* GraphQL */ `
 // request: the client throws on any error in a response, and this status is advisory.
 export const BOOT_SOURCE_APPROVAL_QUERY = /* GraphQL */ `
   query BootSourceApproval($ref: ID!) {
-    node(ref: $ref, raw: true) { id approvalStatus { state approval { revision } } }
+    node(ref: $ref, raw: true) { id revision approvalStatus { state approval { revision } } }
   }
 `;
 

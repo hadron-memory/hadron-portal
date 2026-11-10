@@ -1,7 +1,7 @@
 import type { GraphQLClient } from 'graphql-request';
 import { extractGqlErrorCode } from './gqlError';
 import { AGENT_BOOT_POINTER_QUERY, AGENT_BOOT_START_QUERY, BOOT_COMPILED_QUERY, BOOT_SOURCE_APPROVAL_QUERY, BOOT_SOURCE_LINT_QUERY, BOOT_SOURCE_QUERY } from './queries';
-import { approvalView, type ApprovalView, type NodeApprovalStatus } from '$lib/node-approval';
+import { approvalView, bindApprovalToRevision, type ApprovalView, type NodeApprovalRead, type NodeApprovalStatus } from '$lib/node-approval';
 import type { PointerRead } from '$lib/boot-prompt-pointer';
 
 /** The fixed address of an Agent's boot-prompt source node. */
@@ -89,18 +89,22 @@ export async function readCompiled(client: Pick<GraphQLClient, 'request'>, ref: 
   }
 }
 
-/** portal#1485: its own read, so a fault here costs only the step 2 status, never the tab. */
-async function readSourceApproval(client: Pick<GraphQLClient, 'request'>, id: string): Promise<ApprovalView> {
+/**
+ * portal#1485: its own read, so a fault here costs only the step 2 status, never the tab.
+ * It runs after the source read, so an edit (and an approval of it) can land in between:
+ * the status is bound to the revision shown, and one describing another revision is CHANGED.
+ */
+async function readSourceApproval(client: Pick<GraphQLClient, 'request'>, id: string, shownRevision: number): Promise<ApprovalView> {
   try {
-    const n = (await client.request<{ node: { approvalStatus: NodeApprovalStatus | null } | null }>(BOOT_SOURCE_APPROVAL_QUERY, { ref: id })).node;
-    return approvalView({ ok: true, value: n?.approvalStatus ?? null });
+    const n = (await client.request<{ node: NodeApprovalRead | null }>(BOOT_SOURCE_APPROVAL_QUERY, { ref: id })).node;
+    return approvalView(bindApprovalToRevision(n, shownRevision));
   } catch {
     return approvalView({ ok: false });
   }
 }
 
 async function sourceView(client: Pick<GraphQLClient, 'request'>, node: NonNullable<SourceNode>, memoryId: string): Promise<SourceView> {
-  return { id: node.id, urn: node.urn, memoryId, revision: node.revision, content: node.content ?? '', approval: await readSourceApproval(client, node.id) };
+  return { id: node.id, urn: node.urn, memoryId, revision: node.revision, content: node.content ?? '', approval: await readSourceApproval(client, node.id, node.revision) };
 }
 
 export async function readBootSource(
@@ -133,7 +137,7 @@ export async function readBootSource(
     return { mode: 'unknown' };
   }
   if (!pointer.ref) {
-    // portal#1378: a source started for a pointer-less Agent is edited here until its first compile sets the pointer.
+    // portal#1378: a source started for a pointer-less Agent shows here (edited on its node page) until its first compile sets the pointer.
     return node
       ? { mode: 'source', node: await sourceView(client, node, systemMemoryId), compiled: null, noPointer: true }
       : { mode: 'legacy', canStart: true };

@@ -2,7 +2,7 @@
 // The source is edited on its own node page; the tab keeps Compile and Approve.
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
-import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import type { BootSourceView, CompiledView, LintItem } from '$lib/server/boot-source';
 import Page from './+page.svelte';
 import { pageData } from './page-fixture';
@@ -16,7 +16,8 @@ const compiled = (over: Partial<CompiledView> = {}): CompiledView => ({
 });
 const approved = { state: 'APPROVED' as const, tone: 'approved' as const, approval: { revision: 3 } as never, canApprove: false };
 const notApproved = { state: 'NOT_APPROVED' as const, tone: 'neutral' as const, approval: null, canApprove: true };
-const source = (c: CompiledView | null = compiled(), revision = 3, approval: typeof approved | typeof notApproved = approved): BootSourceView => ({
+const changed = { state: 'CHANGED' as const, tone: 'neutral' as const, approval: null, canApprove: false };
+const source = (c: CompiledView | null = compiled(), revision = 3, approval: typeof approved | typeof notApproved | typeof changed = approved): BootSourceView => ({
   mode: 'source', node: { id: 'n1', urn: 'hrn:node:ada:sys:boot:source', memoryId: 'mem-sys', revision, content: '# Boot\n', approval }, compiled: c,
 });
 
@@ -70,6 +71,11 @@ describe('portal#1485 intro and workflow', () => {
     expect(step(root, 'review')!.textContent).toMatch(/optional/i);
     expect(step(root, 'review')!.textContent).toContain('Not approved');
     expect(step(root, 'review')!.querySelector('a')?.getAttribute('href')).toBe('/app/memories/mem-sys/nodes/n1');
+  });
+  it('step 2 says the status changed, not a status for another revision, when the approval read moved on', async () => {
+    const { root } = await open(source(compiled(), 3, changed));
+    expect(step(root, 'review')!.textContent).toContain('Approval status changed; reload to see it');
+    expect(step(root, 'review')!.textContent).not.toMatch(/Revision \d+ of the source is approved/);
   });
 });
 
@@ -134,11 +140,11 @@ describe('portal#1485 warnings', () => {
     const { root, swap } = await open(source());
     expect(outdated(root)).toBeNull();
     const refresh = [...step(root, 'edit')!.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Refresh')!;
+    // The reload itself delivers what the server answers after the source got revision 4 on its node page.
+    navigationHooks.onInvalidateAll = () => swap(source(compiled({ lint: { items: [recompile], total: 1, nextCursor: null } }), 4, notApproved));
     refresh.click();
-    await tick(5);
+    await tick(10);
     expect(navigationCalls.map((c) => c.fn)).toContain('invalidateAll');
-    // What the reload brings back after the source got revision 4 (approved or not) on its node page.
-    await swap(source(compiled({ lint: { items: [recompile], total: 1, nextCursor: null } }), 4, notApproved));
     expect(step(root, 'edit')!.textContent).toContain('revision 4');
     expect(step(root, 'review')!.textContent).toContain('Not approved');
     expect(outdated(root)).not.toBeNull();
