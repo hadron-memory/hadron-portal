@@ -2,6 +2,7 @@
   import TabRow from '$lib/components/TabRow.svelte';
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import AppRunsPanel from './runs/AppRunsPanel.svelte';
+  import { APP_DISPLAY_PAGE_SIZE, appListNavigation } from './app-list-pages';
   import TaskIntegrations from './TaskIntegrations.svelte';
   import { taskHref } from '$lib/agent-tasks/handle';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
@@ -899,6 +900,9 @@
     chatConfigReread = { against, appRef, agentRef, configs: fresh };
     return true;
   }
+  function configPageNavigation(offset: number, count: number, total: number) {
+    return appListNavigation(new URL(window.location.href), 'configOffset', 'ai-configs', offset, count, total);
+  }
   const usableChatConfigs = $derived((chatConfigs ?? []).filter((c) => c.hasApiKey));
   // null chatConfigs = couldn't list (e.g. viewer isn't an App member) →
   // unknown → don't block the chat.
@@ -908,7 +912,7 @@
   );
   // Picker selection overlaid on the default (`default`, else first usable).
   let selectedConfigName = $state<string | null>(null);
-  const chatSelectionIdentity = $derived(`${app.id}:${app.agentId ?? ''}`);
+  const chatSelectionIdentity = $derived(`${data.currentUserId ?? ''}:${app.id}:${app.agentId ?? ''}`);
   let previousChatSelectionIdentity = '';
   $effect(() => {
     const next = chatSelectionIdentity;
@@ -980,6 +984,18 @@
       return tabForActionResult(form, initial) ?? initial ?? 'chats';
     }),
   );
+  // Mount the AI Section on its FIRST visit, then retain that same instance
+  // while its tab is hidden. The key prevents an already-visited App/principal
+  // from eagerly mounting the next, still-unvisited one.
+  const aiConfigTabKey = $derived(`${data.currentUserId ?? ''}:${app.id}`);
+  let visitedAiConfigTabKey = $state<string | null>(null);
+  $effect(() => {
+    if (activeTab === 'ai-configs') visitedAiConfigTabKey = aiConfigTabKey;
+  });
+  const mountAiConfigSection = $derived(
+    activeTab === 'ai-configs' || visitedAiConfigTabKey === aiConfigTabKey,
+  );
+
   // #1795: an action's invalidateAll can use Kit's pre-navigation URL and
   // answer AFTER a ?tab=runs navigation supplied this section. Retain that
   // fresh payload through an old-URL refresh which has no Runs section at all.
@@ -1072,7 +1088,9 @@
   // that result has already chosen the tab (above, and the routing effects
   // below), and the action URL has no `?tab=` for the loader to agree with.
   afterNavigate((nav) => {
-    if (!(nav.type === 'enter' && form)) {
+    const staleOwnedTab = nav.to?.url.href === tabNavigationHref && data.currentUserId !== tabNavigationPrincipalId;
+    if (staleOwnedTab) tabNavigationCancelled = true;
+    if (!staleOwnedTab && !(nav.type === 'enter' && form)) {
       activeTab = (data.initialTab as TabId | null) ?? 'chats';
     }
     chatMaximized = data.initialChatFullView;
@@ -1140,8 +1158,12 @@
   // selection, and arrows would then move relative to a tab the user is not on.
   let tabNavigation = 0, tabNavigationPending = false, tabAlive = true;
   let tabNavigationHref: string | null = null;
+  let tabNavigationPrincipalId: string | null | undefined;
   let tabNavigationCancelled = false;
   onDestroy(() => { tabAlive = false; tabNavigation++; });
+  function noteOwnedTabNavigationCancelled() {
+    tabNavigationCancelled = true;
+  }
   beforeNavigate((navigation) => {
     // Any real navigation supersedes a pending tab choice, including chat
     // selection and A → B → A (the final App id alone cannot fence those).
@@ -1186,21 +1208,25 @@
         }
         // preloadData cannot be cancelled by a newer choice or teardown. Do
         // not let its completion navigate back to a stale tab or App.
-        if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
+        if (!tabAlive || mine !== tabNavigation || app.id !== appId || data.currentUserId !== principalId) return;
         ownNavigationHref = new URL(href, window.location.href).href;
         tabNavigationHref = ownNavigationHref;
+        tabNavigationPrincipalId = principalId;
         tabNavigationCancelled = false;
         await goto(href, { keepFocus: true, noScroll: true });
         // A cancelled navigation resolves without a commit: keep the current tab.
         if (tabNavigationCancelled) return;
       }
-      if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
+      if (!tabAlive || mine !== tabNavigation || app.id !== appId || data.currentUserId !== principalId) return;
       activeTab = id;
       await tick();
-      if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id}`)?.focus();
+      if (tabAlive && mine === tabNavigation && app.id === appId && data.currentUserId === principalId) document.getElementById(`tab-${id}`)?.focus();
     } catch { /* A failed navigation keeps the current tab; the router owns its error. */ }
     finally {
-      if (ownNavigationHref && tabNavigationHref === ownNavigationHref) tabNavigationHref = null;
+      if (ownNavigationHref && tabNavigationHref === ownNavigationHref) {
+        tabNavigationHref = null;
+        tabNavigationPrincipalId = undefined;
+      }
       if (mine === tabNavigation) tabNavigationPending = false;
     }
   }
@@ -3498,11 +3524,13 @@
   {/if}
 
   <!-- ───────────── AI SERVICE CONFIGS TAB (#1008) ─────────────
-       Keep the Section mounted while hidden: tab switches are not a full-page
-       readback, so pending writes, safety warnings and fresh rows must survive. -->
+       Mount on the first visit, then keep that Section alive while hidden:
+       tab switches are not a full-page readback, so pending writes, safety
+       warnings, fresh rows and unsaved drafts must survive. -->
   <div id="panel-ai-configs" role="tabpanel" aria-labelledby="tab-ai-configs" tabindex="0" hidden={activeTab !== 'ai-configs'} class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-8">
       <!-- AI providers (registry; consumers resolve a config by name) -->
+      {#if mountAiConfigSection}
       <section class="max-w-2xl">
         <AiServiceConfigSection
           ownerType="APP"
@@ -3510,13 +3538,17 @@
           ownerLabel={app.name}
           ownerUrn={app.urn}
           pagination={data.configsPage}
+          pageSize={APP_DISPLAY_PAGE_SIZE}
+          pageNavigation={configPageNavigation}
           configs={data.appConfigs ?? []}
           members={org?.members ?? []}
           currentUserId={data.currentUserId}
           configsError={data.configsError}
           onRefreshed={refreshChatConfigs}
+          onNavigationCancelled={noteOwnedTabNavigationCancelled}
         />
       </section>
+      {/if}
     </div>
   </div>
 

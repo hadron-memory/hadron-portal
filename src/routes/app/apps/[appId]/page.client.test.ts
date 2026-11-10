@@ -1410,8 +1410,8 @@ describe('App AI configuration readback lifecycle', () => {
     const m = mountComponent(Page as never, reactiveProps({
       data: {
         ...data,
-        ...dataOver,
         initialTab: 'ai-configs', selectedChatKey: AGENT_CHAT_KEY,
+        ...dataOver,
         app: {
           ...data.app, surfaces: ['chat'], agentId: 'ag1', agent: { id: 'ag1', name: 'Bot' },
           agents: [{ id: 'ag1', name: 'Bot' }],
@@ -1438,6 +1438,35 @@ describe('App AI configuration readback lifecycle', () => {
     }
     ([...target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Save')!.click();
   }
+
+  it('mounts the AI Section on first visit, retains it while hidden, and does not mount an unvisited App', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.startsWith('/api/agent-chat/list')) return { ok: true, json: async () => ({ chats: [] }) } as Response;
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const m = await mountAi({ initialTab: 'chats', appConfigs: [masked], chatConfigs: [masked] });
+    expect(m.target.querySelector('#panel-ai-configs')).not.toBeNull();
+    expect(m.target.querySelector('[data-testid="ai-config-feedback"]')).toBeNull();
+
+    (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
+    await tick(10);
+    const region = m.target.querySelector('[data-testid="ai-config-feedback"]');
+    expect(region).not.toBeNull();
+
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    expect(m.target.querySelector('[data-testid="ai-config-feedback"]')).toBe(region);
+
+    const loader = m.props.data as { app: Record<string, unknown> };
+    m.props.data = {
+      ...loader,
+      app: { ...loader.app, id: 'b1' },
+      appConfigs: [masked],
+      initialTab: 'chats',
+    };
+    await tick(10);
+    expect(m.target.querySelector('[data-testid="ai-config-feedback"]')).toBeNull();
+  });
 
   it('keeps a pending mutation, uncertainty and its replay lock while the AI tab is hidden', async () => {
     let rejectCreate!: (error: Error) => void;
@@ -1520,6 +1549,47 @@ describe('App AI configuration readback lifecycle', () => {
     ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Add configuration')!.click();
     await tick(3);
     expect(([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Save')!.disabled).toBe(false);
+  });
+
+  it('replaces a previously fresh Chat working copy when the next resolved read is withheld', async () => {
+    let resolvedRead: 'fresh' | 'withheld' = 'fresh';
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
+        return { ok: true, json: async () => ({ configs: resolvedRead === 'fresh' ? [masked] : [] }) } as Response;
+      }
+      if (url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        return { ok: true, json: async () => resolvedRead === 'withheld' ? { withheld: true } : { configs: [masked] } } as Response;
+      }
+      if (url.startsWith('/api/agent-chat/list')) return { ok: true, json: async () => ({ chats: [] }) } as Response;
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'create' || body.action === 'delete') {
+        return { ok: true, json: async () => ({ ok: true, ...(body.action === 'create' ? { config: masked } : {}) }) } as Response;
+      }
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi({ chatConfigs: null });
+    fillNewConfig(m.target);
+    await tick(40);
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    expect(m.target.querySelector('#chat-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
+
+    resolvedRead = 'withheld';
+    (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
+    await tick(3);
+    (m.target.querySelector('button[aria-label="Actions for default"]') as HTMLButtonElement).click();
+    flushSync();
+    ([...m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')]).find((x) => x.textContent?.trim() === 'Delete')!.click();
+    flushSync();
+    ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Delete')!.click();
+    await tick(40);
+
+    expect(m.target.querySelector('[data-testid="ai-config-feedback"]')!.textContent).not.toContain('couldn’t be refreshed');
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    expect(m.target.querySelector('#chat-config')).toBeNull();
   });
 
   it('refreshes both the owner grid and resolved Chat configs across create and delete', async () => {
@@ -1689,6 +1759,27 @@ describe('App AI configuration readback lifecycle', () => {
       app: { ...loader.app, id: 'b1', agentId: 'ag2' },
       chatConfigs: [fast, masked],
     };
+    await tick(10);
+    expect(m.target.querySelector<HTMLSelectElement>('#chat-config')!.value).toBe('default');
+  });
+
+  it('resets the Chat config selection when the principal changes on the same App and agent', async () => {
+    const fast = { ...masked, id: 'c2', name: 'fast' };
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.startsWith('/api/agent-chat/list')) return { ok: true, json: async () => ({ chats: [] }) } as Response;
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const m = await mountAi({ chatConfigs: [fast, masked], currentUserId: 'u1' });
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    const picker = m.target.querySelector<HTMLSelectElement>('#chat-config')!;
+    picker.value = 'fast';
+    picker.dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+    expect(picker.value).toBe('fast');
+
+    const loader = m.props.data as Record<string, unknown>;
+    m.props.data = { ...loader, currentUserId: 'u2' };
     await tick(10);
     expect(m.target.querySelector<HTMLSelectElement>('#chat-config')!.value).toBe('default');
   });
@@ -2760,6 +2851,64 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     await tick(3);
     expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('principal-one-run');
     expect(m.target.querySelector('#panel-runs')?.textContent).toContain('Loading runs…');
+  });
+
+  it('#1825 a principal change during Runs preload does not navigate or select the tab', async () => {
+    const { m, props } = await openCast();
+    const preloaded = await runsPanel('principal-one-preload');
+    let releasePreload!: () => void;
+    navigationHooks.onPreloadData = () => new Promise((resolve) => {
+      releasePreload = () => resolve({ type: 'loaded', status: 200, data: { runsPanel: preloaded } });
+    });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+
+    props.data = { ...props.data, currentUserId: 'u2' };
+    await tick(3);
+    releasePreload();
+    await tick(20);
+
+    expect(navigationCalls.filter((call) => call.fn === 'goto')).toHaveLength(0);
+    expect(m.target.querySelector('#tab-runs')?.getAttribute('aria-selected')).not.toBe('true');
+    expect(m.target.querySelector('#panel-runs')?.textContent ?? '').not.toContain('principal-one-preload');
+  });
+
+  it.each([
+    { principal: 'u1', selected: true },
+    { principal: 'u2', selected: false },
+  ])('#1825 applies a completed Runs navigation only for its issuing principal ($principal)', async ({ principal, selected }) => {
+    const { m, props } = await openCast();
+    const preloaded = await runsPanel('principal-navigation-completion');
+    navigationHooks.onPreloadData = async () => ({ type: 'loaded', status: 200, data: { runsPanel: preloaded } });
+    let releaseGoto!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { releaseGoto = resolve; });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(3);
+
+    // Replace the loader object and fire the REAL afterNavigate path at the
+    // same lifecycle position in BOTH legs. The same-principal control proves
+    // URL-driven selection is live; the changed-principal leg fences both that
+    // callback and the awaited goto continuation.
+    props.data = { ...props.data, currentUserId: principal };
+    await tick(3);
+    props.data = { ...props.data, initialTab: 'runs', runsPanel: preloaded };
+    const destination = new URL(
+      String(navigationCalls.find((call) => call.fn === 'goto')!.args[0]),
+      window.location.href,
+    );
+    for (const guard of navigationGuards.filter((entry) => entry.fn === 'afterNavigate')) {
+      (guard.callback as (nav: unknown) => void)({
+        type: 'goto',
+        to: { url: destination },
+        from: { url: new URL('https://example.test/app/apps/a1?tab=staff') },
+      });
+    }
+    releaseGoto();
+    await tick(20);
+
+    expect(navigationCalls.filter((call) => call.fn === 'goto')).toHaveLength(1);
+    expect(m.target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe(String(selected));
+    expect(m.target.querySelector('#panel-runs')?.textContent?.includes('principal-navigation-completion') ?? false).toBe(selected);
   });
 
   it.each(['newer tab', 'teardown', 'chat navigation', 'A-B-A navigation'] as const)('#1795 a completed stale preload does not navigate after %s', async (boundary) => {

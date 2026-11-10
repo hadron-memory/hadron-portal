@@ -49,6 +49,7 @@
     mutationPending = false,
     onMutationPending = standaloneMutationPending,
     onAction = standaloneAction,
+    onNavigationCancelled = () => {},
     // Standalone use predates the Section wrapper: keep its original refresh,
     // including the rejection path that used to reach the mutation catch.
     onCommitted = async (outcome) => {
@@ -123,6 +124,8 @@
     mutationPending?: boolean;
     onMutationPending?: (outcome: AiConfigMutationPending) => void;
     onAction?: () => number;
+    /** A paged editor cancelled a route change; the tab owner must stop too. */
+    onNavigationCancelled?: () => void;
     onCommitted?: (outcome: AiConfigCommitted) => void | Promise<void>;
     onUncertain?: (outcome: AiConfigUncertain) => void | Promise<void>;
   } = $props();
@@ -146,6 +149,7 @@
   let savedConfig = $state<AiServiceConfig | null>(null);
   let savedConfigGeneration = 0;
   let editorGeneration = 0;
+  let editorOperationGeneration = 0;
   let nameInput = $state('');
   let providerInput = $state<AiConfigProvider>('anthropic');
   let modelInput = $state('');
@@ -218,6 +222,7 @@
     ownerId: string;
     ownerGeneration: number;
     editorGeneration: number;
+    editorOperationGeneration: number;
     recoveryScope: string;
     standaloneRecovery: boolean;
     onCommitted: (outcome: AiConfigCommitted) => void | Promise<void>;
@@ -268,9 +273,10 @@
     });
   }
 
-  function beginAction(): ActionToken {
+  function beginAction(editorOperation = false): ActionToken {
     const noticeGeneration = clearNotice();
     busy = false;
+    if (editorOperation) editorOperationGeneration++;
     // Only non-mutating Test reads consume this signal. Mutation writes keep
     // their independent uncertainty semantics even when the editor closes.
     actionController?.abort();
@@ -283,6 +289,7 @@
       ownerId: ownerAtVisit!.ownerId,
       ownerGeneration,
       editorGeneration,
+      editorOperationGeneration,
       recoveryScope: standaloneScope,
       standaloneRecovery: sharesStandaloneRecovery,
       onCommitted,
@@ -305,6 +312,10 @@
 
   function isEditorCurrent(action: ActionToken): boolean {
     return isOwnerVisitCurrent(action) && action.editorGeneration === editorGeneration;
+  }
+
+  function isEditorOperationCurrent(action: ActionToken): boolean {
+    return isEditorCurrent(action) && action.editorOperationGeneration === editorOperationGeneration;
   }
 
   function isCurrent(action: ActionToken): boolean {
@@ -514,7 +525,10 @@
   beforeNavigate(({ from, to, cancel }) => {
     if (!pagination || !(formOpen || busy || confirmDeleteId !== null)) return;
     if (from?.url.pathname === to?.url.pathname &&
-        from?.url.searchParams.get('configOffset') !== to?.url.searchParams.get('configOffset')) cancel();
+        from?.url.searchParams.get('configOffset') !== to?.url.searchParams.get('configOffset')) {
+      onNavigationCancelled();
+      cancel();
+    }
   });
 
   const hasExistingKey = $derived(editing?.hasApiKey ?? false);
@@ -823,6 +837,7 @@
     successText: string;
     refreshFailedText: string;
     refusalFallback: string;
+    acknowledged?: AiConfigCommitted['acknowledged'];
     onSuccess: () => void;
   };
 
@@ -849,7 +864,7 @@
     });
   }
 
-  function publishCommitted(action: ActionToken, successText: string, refreshFailedText: string, mutationId: number): void | Promise<void> {
+  function publishCommitted(action: ActionToken, successText: string, refreshFailedText: string, mutationId: number, acknowledged?: AiConfigCommitted['acknowledged']): void | Promise<void> {
     return action.onCommitted({
       ownerKey: action.ownerKey,
       mutationId,
@@ -858,6 +873,7 @@
       successText,
       refreshFailedText,
       recoveryScope: action.recoveryScope,
+      acknowledged,
     });
   }
 
@@ -872,7 +888,7 @@
           // Reconcile-only recovery retains the pending registration until its
           // bounded readback finishes; settlement must not open a replay gap.
           await publishUncertain(action, s.mutationUnconfirmed(), pendingMutation);
-        } else if (isEditorCurrent(action)) {
+        } else if (isEditorOperationCurrent(action)) {
           error = e instanceof Error ? e.message : options.refusalFallback;
         }
         return;
@@ -880,7 +896,7 @@
       options.onSuccess();
       // A confirmed write still has stale rows until recovery finishes. Keep
       // the pending lock without delaying the Section's immediate success note.
-      await publishCommitted(action, options.successText, options.refreshFailedText, pendingMutation);
+      await publishCommitted(action, options.successText, options.refreshFailedText, pendingMutation, options.acknowledged);
     } finally {
       finishMutation(pendingMutation);
       if (isCurrent(action)) busy = false;
@@ -889,7 +905,7 @@
 
   async function save() {
     if (mutationBlocked || mutationLocked) return;
-    const action = beginAction();
+    const action = beginAction(true);
     error = null;
     testResult = null;
     const name = nameInput.trim();
@@ -935,9 +951,11 @@
     }
 
     let createdId: string | null = null;
+    const acknowledgement: { saved?: AiServiceConfig; created: boolean } = { created: editId === null };
     busy = true;
     await runMutation({
       action,
+      acknowledged: acknowledgement,
       request: async () => {
         if (editId === null) {
           const result = await post({
@@ -955,11 +973,13 @@
           }, true);
           const saved = parseAiConfig(result.config);
           if (saved) {
+            acknowledgement.saved = saved;
             createdId = saved.id;
             acknowledgeSavedConfig(action, saved);
-          } else if (isEditorCurrent(action) && formFingerprint() !== action.formFingerprint) {
-            // The write may have committed, but without a complete saved row a
-            // preserved draft cannot safely become an update. Reconcile it.
+          } else if (isEditorCurrent(action) && (formFingerprint() !== action.formFingerprint || !isEditorOperationCurrent(action))) {
+            // A preserved editor needs the created row's identity even when its
+            // visible draft is unchanged: a newer Test keeps that editor open,
+            // so another Save without the id would issue a second CREATE.
             throw new UncertainMutationError();
           }
         } else {
@@ -984,6 +1004,7 @@
           }, true);
           const saved = parseAiConfig(result.config);
           if (saved) {
+            acknowledgement.saved = saved;
             acknowledgeSavedConfig(action, saved);
           } else if (isEditorCurrent(action) && formFingerprint() !== action.formFingerprint) {
             throw new UncertainMutationError();
@@ -994,23 +1015,27 @@
       refreshFailedText: s.saveRefreshFailed(name),
       refusalFallback: 'Failed to save configuration',
       onSuccess: () => {
-        // The request captured the old values. Close only if the reader did not
-        // make newer edits while it was in flight. A preserved create draft is
-        // now an UPDATE of the row the server returned, never a second create.
-        // Arming/cancelling another row's Delete is a new ACTION, but it does
-        // not replace this editor or invalidate its acknowledged identity.
+        // A preserved create draft is now an UPDATE of the row the server
+        // returned, even when a newer Test keeps this editor open. Close only
+        // when neither the draft nor the Save/Test operation was superseded.
+        // Arming/cancelling another row's Delete does not invalidate either.
         if (!isEditorCurrent(action)) return;
-        if (formFingerprint() === action.formFingerprint) {
-          resetEditor();
-        } else if (createdId !== null) {
+        if (createdId !== null) {
           editId = createdId;
+          // A newer Test of the formerly-unsaved row may have demanded Save
+          // first. That synchronous guidance is stale once this Save supplies
+          // the id; do not clear any other operation's refusal.
+          if (error === s.testSaveFirst()) error = null;
+        }
+        if (isEditorOperationCurrent(action) && formFingerprint() === action.formFingerprint) {
+          resetEditor();
         }
       },
     });
   }
 
   async function test() {
-    const action = beginAction();
+    const action = beginAction(true);
     error = null;
     testResult = null;
     // Save refuses a blank model, so Test does too: otherwise an edited-away
@@ -1100,6 +1125,7 @@
     busy = true;
     await runMutation({
       action,
+      acknowledged: { deletedId: id },
       request: () => post({ action: 'delete', id }, true),
       successText: s.deleteSuccess(name),
       refreshFailedText: s.deleteRefreshFailed(name),

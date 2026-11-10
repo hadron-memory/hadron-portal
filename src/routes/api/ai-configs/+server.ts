@@ -79,6 +79,17 @@ function endpointArgs(src: { endpoint?: string | null; apiStyle?: string | null 
   };
 }
 
+function knownMutationRefusal(e: unknown): Response | null {
+  const code = extractGqlErrorCode(e);
+  if (code === 'FORBIDDEN') {
+    return json({ error: t('ai-config.error.forbidden', 'You do not have permission to change AI service configurations.') }, { status: 403 });
+  }
+  if (code === 'NOT_FOUND' || code === 'AiServiceConfigNotFoundError') {
+    return json({ error: t('ai-config.error.not-found', 'The AI configuration or its owner could not be found.') }, { status: 404 });
+  }
+  return null;
+}
+
 const TEST_SYSTEM =
   'You are a test assistant. Reply with exactly one short sentence confirming you are reachable.';
 
@@ -149,6 +160,25 @@ export const GET: RequestHandler = async ({ locals, url, request }) => {
     }
 
     try {
+      const rawLimit = url.searchParams.get('limit');
+      const rawOffset = url.searchParams.get('offset');
+      if ((rawLimit === null) !== (rawOffset === null)) {
+        return json({ error: 'limit and offset are required together' }, { status: 400, headers });
+      }
+      if (rawLimit !== null && rawOffset !== null) {
+        if (!/^\d+$/.test(rawLimit) || !/^\d+$/.test(rawOffset)) {
+          return json({ error: 'limit and offset must be non-negative integers' }, { status: 400, headers });
+        }
+        const limit = Number(rawLimit);
+        const offset = Number(rawOffset);
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || !Number.isSafeInteger(offset) || offset > 2147483647) {
+          return json({ error: 'limit must be 1–100 and offset must be a GraphQL Int non-negative integer' }, { status: 400, headers });
+        }
+        const data = await readback.client.request<{
+          aiServiceConfigs: { items: AiServiceConfig[]; total: number };
+        }>(AI_SERVICE_CONFIGS_QUERY, { ownerType, ownerId, limit, offset });
+        return json({ configs: data.aiServiceConfigs.items, total: data.aiServiceConfigs.total }, { headers });
+      }
       const configs = await fetchAllItems<AiServiceConfig>(
         readback.client,
         AI_SERVICE_CONFIGS_QUERY,
@@ -208,6 +238,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         );
         return json({ ok: true, config: data.createAiServiceConfig });
       } catch (e) {
+        const refusal = knownMutationRefusal(e);
+        if (refusal) return refusal;
         const code = extractGqlErrorCode(e);
         if (code === 'DuplicateAiServiceConfigNameError') {
           return json({ error: t('ai-config.error.duplicate-name', 'An AI configuration with this name already exists for this owner.') }, { status: 409 });
@@ -250,6 +282,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         );
         return json({ ok: true, config: data.updateAiServiceConfig });
       } catch (e) {
+        const refusal = knownMutationRefusal(e);
+        if (refusal) return refusal;
         const code = extractGqlErrorCode(e);
         if (code === 'DuplicateAiServiceConfigNameError') {
           return json({ error: t('ai-config.error.duplicate-name', 'An AI configuration with this name already exists for this owner.') }, { status: 409 });
@@ -268,7 +302,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       try {
         await client.request(DELETE_AI_SERVICE_CONFIG_MUTATION, { id: body.id });
         return json({ ok: true });
-      } catch {
+      } catch (e) {
+        const refusal = knownMutationRefusal(e);
+        if (refusal) return refusal;
         return json({ error: t('ai-config.error.delete-failed', 'Failed to delete AI configuration.') }, { status: 500 });
       }
     }

@@ -363,6 +363,29 @@ describe('POST /api/ai-configs', () => {
     expect((await jsonOf(res)).error).toBe('Could not load the known endpoints.');
   });
 
+  it.each(['create', 'update', 'delete'])('keeps an upstream authorization refusal definitive for %s', async (action) => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
+    });
+    const { POST } = await import('./+server');
+    const res = await POST(ev({ body: {
+      action,
+      ownerType: 'ORGANIZATION', ownerId: 'o1', id: 'c1', name: 'default', provider: 'glm', model: 'glm-5',
+    } }));
+    expect(res.status).toBe(403);
+    expect((await jsonOf(res)).error).toContain('do not have permission');
+  });
+
+  it.each(['NOT_FOUND', 'AiServiceConfigNotFoundError'])('keeps an upstream missing-row refusal definitive: %s', async (code) => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Not found', extensions: { code } }] },
+    });
+    const { POST } = await import('./+server');
+    const res = await POST(ev({ body: { action: 'delete', id: 'c1' } }));
+    expect(res.status).toBe(404);
+    expect((await jsonOf(res)).error).toContain('could not be found');
+  });
+
   it('rejects unknown actions', async () => {
     const { POST } = await import('./+server');
     const res = await POST(ev({ body: { action: 'explode' } }));
@@ -410,6 +433,36 @@ describe('GET /api/ai-configs section readback', () => {
     expect(mockGqlClient).toHaveBeenCalledTimes(1);
     expect(mockGqlClient).toHaveBeenCalledWith('test-token', expect.any(AbortSignal));
     expect(mockRequest.mock.calls[0][1]).toEqual({ ownerType: 'AGENT', ownerId: 'a1', limit: 200, offset: 0 });
+  });
+
+  it('reads exactly one requested owner page with its total', async () => {
+    mockRequest.mockResolvedValueOnce({ aiServiceConfigs: { items: [maskedConfig], total: 21 } });
+    const { GET } = await import('./+server');
+    const res = await GET(ev({ url: 'http://localhost/api/ai-configs?ownerType=APP&ownerId=app1&limit=20&offset=20' }));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await jsonOf(res)).toEqual({ configs: [maskedConfig], total: 21 });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    expect(mockRequest.mock.calls[0][1]).toEqual({ ownerType: 'APP', ownerId: 'app1', limit: 20, offset: 20 });
+  });
+
+  it.each([
+    'limit=20',
+    'offset=20',
+    'limit=0&offset=0',
+    'limit=101&offset=0',
+    'limit=-1&offset=0',
+    'limit=20&offset=-1',
+    'limit=1.5&offset=0',
+    'limit=20&offset=1.5',
+    'limit=20&offset=2147483648',
+  ])('rejects an incomplete or invalid page query: %s', async (page) => {
+    const { GET } = await import('./+server');
+    const res = await GET(ev({ url: `http://localhost/api/ai-configs?ownerType=APP&ownerId=app1&${page}` }));
+    expect(res.status).toBe(400);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(mockRequest).not.toHaveBeenCalled();
   });
 
   it('reads the App chat resolution slice with the same masked fields', async () => {

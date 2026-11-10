@@ -2,10 +2,14 @@
 // Extracted from the component so the credential-encoding and apiKey
 // keep/clear/replace logic can be unit-tested without a DOM.
 
-import type { AiConfigProvider } from '$lib/types';
+import type { AiConfigProvider, AiServiceConfig } from '$lib/types';
 import { aiConfigStrings as s } from '$lib/i18n/ai-config-strings';
 
-export type AiConfigCommitted = { ownerKey: string; mutationId?: number; noticeGeneration: number; successText: string; refreshFailedText: string; uncertainText?: string; recoveryScope?: string };
+export type AiConfigAcknowledgement =
+  | { saved: AiServiceConfig; created: boolean; deletedId?: never }
+  | { saved?: never; created: boolean; deletedId?: never }
+  | { saved?: never; created?: never; deletedId: string };
+export type AiConfigCommitted = { ownerKey: string; mutationId?: number; noticeGeneration: number; successText: string; refreshFailedText: string; uncertainText?: string; recoveryScope?: string; acknowledged?: AiConfigAcknowledgement };
 export type AiConfigUncertain = { ownerKey: string; mutationId?: number; text: string; reconcileOnly?: boolean; recoveryScope?: string };
 export type AiConfigMutationPending = { ownerKey: string; mutationId: number; pending: boolean; recoveryScope?: string };
 

@@ -8,7 +8,7 @@
   import type { ListPageNavigation } from '$lib/list-page';
   import AiServiceConfigManager from './AiServiceConfigManager.svelte';
   import Urn from './Urn.svelte';
-  import { aiConfigReloadHref, readAiConfigs, withAiConfigTimeout } from './ai-config-readback';
+  import { aiConfigReloadHref, readAiConfigPage, readAiConfigs, withAiConfigTimeout } from './ai-config-readback';
   import { getAiConfigRecoveryStore, nextAiConfigRecoveryId } from './ai-config-recovery';
   import { aiConfigStrings as s } from '$lib/i18n/ai-config-strings';
   import type { AiConfigCommitted, AiConfigMutationPending, AiConfigUncertain } from './ai-config-manager';
@@ -16,6 +16,8 @@
 
   let {
     pagination,
+    pageSize,
+    pageNavigation,
     ownerType,
     ownerId,
     ownerLabel = null,
@@ -26,8 +28,13 @@
     configsError = false,
     allowTest = true,
     onRefreshed = () => true,
+    onNavigationCancelled = () => {},
   }: {
     pagination?: ListPageNavigation;
+    /** Requested server page size, not the possibly-short served count. */
+    pageSize?: number;
+    /** Rebuild rows and continuation links from one fresh page snapshot. */
+    pageNavigation?: (offset: number, count: number, total: number) => ListPageNavigation;
     ownerType: AiConfigOwnerType;
     ownerId: string;
     /** Already-authorized owner name supplied by the caller; never fetched here. */
@@ -43,6 +50,7 @@
     allowTest?: boolean;
     /** Refresh another loader slice; settle on abort so timed-out work is released. */
     onRefreshed?: (signal: AbortSignal) => boolean | Promise<boolean>;
+    onNavigationCancelled?: () => void;
   } = $props();
 
   const canManage = $derived(
@@ -95,11 +103,17 @@
     against: AiServiceConfig[];
     ownerKey: string;
     configs: AiServiceConfig[];
+    pagination?: ListPageNavigation;
   } | null>(null);
   const visibleConfigs = $derived(
     reread && reread.against === configs && reread.ownerKey === currentOwnerKey()
       ? reread.configs
       : configs,
+  );
+  const visiblePagination = $derived(
+    reread && reread.against === configs && reread.ownerKey === currentOwnerKey() && reread.pagination
+      ? reread.pagination
+      : pagination,
   );
 
   function clearTransient() {
@@ -125,6 +139,28 @@
 
   function currentOwnerKey(): string {
     return `${ownerType}:${ownerId}`;
+  }
+
+  function canonical(value: unknown): string {
+    return JSON.stringify(value, (_key, nested) => nested && typeof nested === 'object' && !Array.isArray(nested)
+      ? Object.fromEntries(Object.keys(nested as Record<string, unknown>).sort().map((key) => [key, (nested as Record<string, unknown>)[key]]))
+      : nested);
+  }
+
+  function acknowledgedFresh(outcome: AiConfigCommitted, fresh: AiServiceConfig[], page: ListPageNavigation | undefined): boolean {
+    const acknowledged = outcome.acknowledged;
+    if (!acknowledged) return true;
+    if (acknowledged.deletedId) return fresh.every((config) => config.id !== acknowledged.deletedId);
+    // A create need not belong to the page the reader was already viewing.
+    // Updates and deletes, however, must reconcile the row on that page.
+    if (acknowledged.created && page) return true;
+    const acknowledgedSaved = acknowledged.saved;
+    if (!acknowledgedSaved) return true;
+    const saved = fresh.find((config) => config.id === acknowledgedSaved.id);
+    // A readback can omit a newly-created or moved row while the editor uses
+    // the complete mutation acknowledgement as its baseline. If the row IS
+    // present, however, an older version is not evidence of recovery.
+    return saved === undefined || canonical(saved) === canonical(acknowledgedSaved);
   }
 
   function refreshRelated(controller: AbortController): Promise<boolean> {
@@ -173,13 +209,28 @@
     }
 
     const against = configs;
+    const page = pagination;
+    const requestedPageSize = pageSize;
+    const navigationForPage = pageNavigation;
     const mine = ++readbacks;
     activeCommitted.set(outcome.ownerKey, { outcome, readback: mine });
     relatedController?.abort();
     const controller = new AbortController();
     relatedController = controller;
     const related = refreshRelated(controller);
-    const fresh = await readAiConfigs(ownerType, ownerId, controller.signal);
+    let freshConfigs: AiServiceConfig[] | null = null;
+    let freshPagination: ListPageNavigation | undefined;
+    if (page) {
+      if (requestedPageSize && navigationForPage) {
+        const freshPage = await readAiConfigPage(ownerType, ownerId, requestedPageSize, page.offset, controller.signal);
+        if (freshPage) {
+          freshConfigs = freshPage.configs;
+          freshPagination = navigationForPage(page.offset, freshPage.configs.length, freshPage.total);
+        }
+      }
+    } else {
+      freshConfigs = await readAiConfigs(ownerType, ownerId, controller.signal);
+    }
     if (mine !== readbacks) {
       finishActive(outcome, mine);
       return;
@@ -192,11 +243,13 @@
       return;
     }
 
-    // The owner list is useful on its own. Do not let a slow or hung related
-    // loader slice hold back fresh rows until the shared timeout expires.
-    const ownerFresh = fresh !== null && against === configs;
-    if (fresh !== null && ownerFresh) {
-      reread = { against, ownerKey: outcome.ownerKey, configs: fresh };
+    // Apply rows and navigation from the SAME page snapshot. A short served
+    // count is not the requested size, and a full-inventory read can never be
+    // combined with the old offset/total/continuation links.
+    const ownerFresh = freshConfigs !== null && against === configs && (!page || freshPagination !== undefined)
+      && acknowledgedFresh(outcome, freshConfigs, page);
+    if (freshConfigs !== null && ownerFresh) {
+      reread = { against, ownerKey: outcome.ownerKey, configs: freshConfigs, pagination: freshPagination };
     }
 
     const relatedFresh = await related;
@@ -366,7 +419,7 @@
 {:else}
   {#key currentUserId}
     <AiServiceConfigManager
-      {pagination}
+      pagination={visiblePagination}
       {ownerType}
       {ownerId}
       {ownerLabel}
@@ -379,6 +432,7 @@
       {mutationPending}
       {onMutationPending}
       {onAction}
+      {onNavigationCancelled}
       {onCommitted}
       {onUncertain}
     />

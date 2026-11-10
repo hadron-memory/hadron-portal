@@ -4,6 +4,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import {
   navigationCalls,
+  navigationGuards,
   navigationHooks,
   resetNavigationCalls,
 } from '$lib/test/stubs/app-navigation';
@@ -12,6 +13,7 @@ import AiServiceConfigManager from './AiServiceConfigManager.svelte';
 import { getAiConfigRecoveryStore, resetAiConfigRecoveryForTests } from './ai-config-recovery';
 import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 import type { AiServiceConfig } from '$lib/types';
+import { appListNavigation } from '../../routes/app/apps/[appId]/app-list-pages';
 
 type Props = Record<string, unknown>;
 type Reply = { ok?: boolean; status?: number; body?: Record<string, unknown> | null };
@@ -81,6 +83,10 @@ async function open(
 ) {
   const m = mountComponent(component as never, reactiveProps({
     ownerType: 'ORGANIZATION', ownerId: 'o1', configs: [], canManage: true, allowTest: true,
+    pageSize: 20,
+    pageNavigation: (offset: number, count: number, total: number) => appListNavigation(
+      new URL('https://example.test/app/apps/a1'), 'configOffset', 'ai-configs', offset, count, total,
+    ),
     members: [{ user: { id: 'u1' }, role: 'ADMIN' }], currentUserId: 'u1',
     ...props,
   }) as never) as Mounted<Props>;
@@ -993,6 +999,111 @@ describe('AI configuration review fix pins', () => {
     expect(onRefreshed).toHaveBeenCalledTimes(1);
     expect(relatedSignal?.aborted).toBe(true);
     expect(feedback(target).textContent).toContain('couldn’t be refreshed');
+  });
+
+  it.each([0, 20])('refreshes one served page and its navigation atomically while preserving a newer draft (offset %i)', async (offset) => {
+    const all = Array.from({ length: 21 }, (_, index) => config({
+      id: `c${index}`, name: `config-${index}`, model: `model-${index}`,
+    }));
+    const page = all.slice(offset, offset + 20);
+    let releaseUpdate!: (reply: Reply) => void;
+    stubFetch((body) => body.action === 'update'
+      ? new Promise<Reply>((resolve) => { releaseUpdate = resolve; })
+      : {}, (url) => {
+        const parsed = new URL(url, 'https://example.test');
+        const readOffset = Number(parsed.searchParams.get('offset'));
+        const readLimit = Number(parsed.searchParams.get('limit'));
+        return { body: {
+          configs: all.slice(readOffset, readOffset + readLimit),
+          total: all.length,
+        } };
+      });
+    const { target } = await open({
+      configs: page,
+      pagination: {
+        offset, count: page.length, total: all.length,
+        previousHref: offset > 0 ? '/previous' : null,
+        nextHref: offset === 0 ? '/next' : null,
+      },
+    });
+    editRow(target, page[0]!.name);
+    button(target, 'Save').click();
+    await tick(2);
+    set($<HTMLInputElement>(target, '#ac-model')!, 'newer-unsaved-model');
+    releaseUpdate({ body: { ok: true, config: page[0] } });
+    await settle();
+
+    const rowFromOtherPage = offset === 0 ? all[20]! : all[0]!;
+    expect(target.querySelector(`button[aria-label="${aiConfigStrings.actionsLabel(rowFromOtherPage.name)}"]`)).toBeNull();
+    expect(target.querySelector(`button[aria-label="${aiConfigStrings.actionsLabel(page[0]!.name)}"]`)).not.toBeNull();
+    expect(readbacks).toHaveLength(1);
+    expect(new URL(readbacks[0]!, 'https://example.test').searchParams.get('limit')).toBe('20');
+    expect(new URL(readbacks[0]!, 'https://example.test').searchParams.get('offset')).toBe(String(offset));
+    expect(feedback(target).textContent).not.toContain('couldn’t be refreshed');
+    expect($<HTMLInputElement>(target, '#ac-model')!.value).toBe('newer-unsaved-model');
+    expect(button(target, 'Save').disabled).toBe(false);
+    const nav = target.querySelector('nav')!;
+    expect(nav.textContent?.replace(/\s+/g, ' ')).toContain(offset === 0 ? '1–20 of 21' : '21–21 of 21');
+    // Navigation is deliberately disabled while the preserved draft is open.
+    button(target, 'Cancel').click();
+    await tick(2);
+    expect(nav.querySelector('a[rel="next"]')?.getAttribute('href') ?? null).toBe(offset === 0 ? '/app/apps/a1?tab=ai-configs&configOffset=20' : null);
+    expect(nav.querySelector('a[rel="prev"]')?.getAttribute('href') ?? null).toBe(offset === 0 ? null : '/app/apps/a1?tab=ai-configs');
+  });
+
+  it('keeps replay locked when a syntactically valid update readback is stale', async () => {
+    const original = config({ model: 'glm-5' });
+    const saved = { ...original, model: 'glm-6', updatedAt: '2026-11-09T00:00:00Z' };
+    stubFetch((body) => body.action === 'update'
+      ? { body: { ok: true, config: saved } }
+      : {}, () => ({ body: { configs: [original] } }));
+    const { target } = await open({ configs: [original] });
+    editRow(target);
+    set($<HTMLInputElement>(target, '#ac-model')!, 'glm-6');
+    button(target, 'Save').click();
+    await settle();
+
+    expect(feedback(target).textContent).toContain('couldn’t be refreshed');
+    button(target, 'Add configuration').click();
+    await settle();
+    expect(button(target, 'Save').disabled).toBe(true);
+  });
+
+  it('keeps replay locked when a syntactically valid delete readback still contains the row', async () => {
+    const original = config();
+    stubFetch((body) => body.action === 'delete'
+      ? { body: { ok: true } }
+      : {}, () => ({ body: { configs: [original] } }));
+    const { target } = await open({ configs: [original] });
+    menuDelete(target);
+    button(target, 'Delete').click();
+    await settle();
+
+    expect(feedback(target).textContent).toContain('couldn’t be refreshed');
+    button(target, 'Add configuration').click();
+    await settle();
+    expect(button(target, 'Save').disabled).toBe(true);
+  });
+
+  it('reports a paged editor’s cancelled route change to the tab owner', async () => {
+    const onNavigationCancelled = vi.fn();
+    const { target } = await open({
+      configs: [config()],
+      pagination: { offset: 20, count: 1, total: 21, previousHref: '/previous', nextHref: null },
+      onNavigationCancelled,
+    });
+    editRow(target);
+    const cancel = vi.fn();
+    const navigation = {
+      from: { url: new URL('https://example.test/app/apps/a1?tab=ai-configs&configOffset=20') },
+      to: { url: new URL('https://example.test/app/apps/a1?tab=runs') },
+      cancel,
+    };
+    for (const guard of navigationGuards.filter((entry) => entry.fn === 'beforeNavigate')) {
+      (guard.callback as (nav: unknown) => void)(navigation);
+    }
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(onNavigationCancelled).toHaveBeenCalledTimes(1);
   });
 
   it('holds replay while reconciling an uncertain result from an earlier A visit', async () => {
@@ -2437,6 +2548,128 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(m.target.querySelector('#ac-name')).toBeNull();
     expect(m.target.textContent).not.toContain('couldn’t confirm the change went through');
     expect(posts.filter((body) => body.action === 'update')).toHaveLength(1);
+  });
+
+  it('keeps the editor open when a newer Test supersedes an unchanged Save', async () => {
+    let releaseUpdate!: (reply: Reply) => void;
+    let releaseTest!: (reply: Reply) => void;
+    stubFetch((body) => {
+      if (body.action === 'update') return new Promise<Reply>((resolve) => { releaseUpdate = resolve; });
+      if (body.action === 'testSaved') return new Promise<Reply>((resolve) => { releaseTest = resolve; });
+      return {};
+    });
+    const m = await open({ configs: [config(), config({ id: 'c2', name: 'other' })], onCommitted: async () => {} }, AiServiceConfigManager);
+    editRow(m.target);
+    await settle();
+    button(m.target, 'Save').click();
+    await tick(2);
+    menuDelete(m.target, 'other');
+    cancelDelete(m.target);
+    button(m.target, 'Test').click();
+    await tick(2);
+
+    releaseUpdate({ body: { ok: true } });
+    await settle();
+    expect(m.target.querySelector('#ac-name')).not.toBeNull();
+
+    releaseTest({ body: { ok: true, result: {
+      ok: true, provider: 'glm', model: 'glm-5', endpoint: null, apiStyle: 'CHAT_COMPLETIONS',
+      latencyMs: 1, reply: 'ok', error: null,
+      used: { provider: 'SAVED', model: 'SAVED', endpoint: 'SAVED', apiStyle: 'SAVED', key: 'SAVED' },
+    } } });
+    await settle();
+    expect(m.target.textContent).toContain('Works');
+  });
+
+  it('does not let an old Save refusal overwrite a newer successful Test', async () => {
+    let releaseUpdate!: (reply: Reply) => void;
+    let releaseTest!: (reply: Reply) => void;
+    stubFetch((body) => {
+      if (body.action === 'update') return new Promise<Reply>((resolve) => { releaseUpdate = resolve; });
+      if (body.action === 'testSaved') return new Promise<Reply>((resolve) => { releaseTest = resolve; });
+      return {};
+    });
+    const m = await open({ configs: [config(), config({ id: 'c2', name: 'other' })] }, AiServiceConfigManager);
+    editRow(m.target);
+    await settle();
+    button(m.target, 'Save').click();
+    await tick(2);
+    menuDelete(m.target, 'other');
+    cancelDelete(m.target);
+    button(m.target, 'Test').click();
+    await tick(2);
+
+    releaseTest({ body: { ok: true, result: {
+      ok: true, provider: 'glm', model: 'glm-5', endpoint: null, apiStyle: 'CHAT_COMPLETIONS',
+      latencyMs: 1, reply: 'ok', error: null,
+      used: { provider: 'SAVED', model: 'SAVED', endpoint: 'SAVED', apiStyle: 'SAVED', key: 'SAVED' },
+    } } });
+    await settle();
+    releaseUpdate({ ok: false, status: 400, body: { error: 'old Save refusal' } });
+    await settle();
+
+    expect(m.target.textContent).toContain('Works');
+    expect(m.target.textContent).not.toContain('old Save refusal');
+  });
+
+  it('locks an unchanged create preserved by a newer Test when the response omits the created row', async () => {
+    let releaseCreate!: (reply: Reply) => void;
+    stubFetch((body) => {
+      if (body.action === 'create') return new Promise<Reply>((resolve) => { releaseCreate = resolve; });
+      return {};
+    });
+    const m = await open({ configs: [config({ id: 'other', name: 'other' })] });
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await tick(2);
+    menuDelete(m.target, 'other');
+    cancelDelete(m.target);
+    button(m.target, 'Test').click();
+    await tick(2);
+
+    releaseCreate({ body: { ok: true } });
+    await settle();
+    expect(m.target.querySelector('#ac-name')).not.toBeNull();
+    expect(feedback(m.target).textContent).toContain('couldn’t confirm the change went through');
+    expect(button(m.target, 'Save').disabled).toBe(true);
+    expect(posts.filter((body) => body.action === 'create')).toHaveLength(1);
+    expect(posts.filter((body) => body.action === 'update')).toHaveLength(0);
+  });
+
+  it('clears save-first guidance when a create completes behind a newer Test', async () => {
+    let releaseCreate!: (reply: Reply) => void;
+    const created = config({ id: 'created-id', name: 'fast', model: 'glm-5' });
+    stubFetch((body) => {
+      if (body.action === 'create') return new Promise<Reply>((resolve) => { releaseCreate = resolve; });
+      if (body.action === 'testSaved') return { body: { ok: true, result: {
+        ok: true, provider: 'glm', model: 'glm-5', endpoint: null, apiStyle: 'CHAT_COMPLETIONS',
+        latencyMs: 1, reply: 'ok', error: null,
+        used: { provider: 'SAVED', model: 'SAVED', endpoint: 'SAVED', apiStyle: 'SAVED', key: 'SAVED' },
+      } } };
+      return {};
+    });
+    const m = await open({ configs: [config({ id: 'other', name: 'other' })] });
+    await startCreate(m.target, 'fast');
+    set($<HTMLSelectElement>(m.target, '#ac-provider')!, 'glm');
+    button(m.target, 'Save').click();
+    await tick(2);
+    menuDelete(m.target, 'other');
+    cancelDelete(m.target);
+    button(m.target, 'Test').click();
+    await tick(2);
+    expect(m.target.textContent).toContain('Save this configuration first');
+
+    releaseCreate({ body: { ok: true, config: created } });
+    await settle();
+    expect(m.target.querySelector('#ac-name')).not.toBeNull();
+    expect(m.target.textContent).not.toContain('Save this configuration first');
+
+    button(m.target, 'Test').click();
+    await settle();
+    expect(posts.filter((body) => body.action === 'testSaved')).toEqual([
+      expect.objectContaining({ id: 'created-id' }),
+    ]);
+    expect(m.target.textContent).toContain('Works');
   });
 
   it('refreshes the fallback baseline after a preserved update', async () => {

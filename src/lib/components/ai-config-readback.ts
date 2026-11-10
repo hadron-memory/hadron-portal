@@ -134,6 +134,26 @@ export async function readAiConfigs(
   return parseAiConfigList(await readPayload(`${AI_CONFIGS_ENDPOINT}?${query}`, signal));
 }
 
+export type AiConfigPageRead = { configs: AiServiceConfig[]; total: number };
+
+/** Re-read exactly the served page and its total; never drain a paginated owner. */
+export async function readAiConfigPage(
+  ownerType: AiConfigOwnerType,
+  ownerId: string,
+  limit: number,
+  offset: number,
+  signal?: AbortSignal,
+): Promise<AiConfigPageRead | null> {
+  const query = new URLSearchParams({ ownerType, ownerId, limit: String(limit), offset: String(offset) });
+  const body = await readPayload(`${AI_CONFIGS_ENDPOINT}?${query}`, signal);
+  const configs = parseAiConfigList(body);
+  const total = body && typeof body === 'object' && !Array.isArray(body)
+    ? (body as { total?: unknown }).total
+    : null;
+  if (configs === null || configs.length > limit || typeof total !== 'number' || !Number.isSafeInteger(total) || total < 0) return null;
+  return { configs, total };
+}
+
 export type ResolvedAiConfigRead =
   | { status: 'fresh'; configs: AiServiceConfig[] }
   | { status: 'withheld' }
