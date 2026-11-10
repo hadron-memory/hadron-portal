@@ -163,7 +163,7 @@
   // portal#1901: a compiled node has no write door at all on this page (content, abstract, name/meta, data,
   // properties, storage, flow, edges, move, restore, node delete). Approve, verify, signatures, duplicate and the
   // reads stay, and so do delete-revision and clear-history: deleting history is not writing compiled text
-  // (cor:dmo:150:07), so those keep `readOnly`. The predicate is the node type, never the shared `boot-prompt` role.
+  // (hrn:node:hadronmemory.com:specs:cor:dmo:150:07), so those keep `readOnly`. The predicate is the node type, never the shared `boot-prompt` role.
   const writeLocked = $derived(readOnly || isCompiledPrompt);
   let isEditing = $state(false);
 
