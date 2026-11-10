@@ -76,20 +76,33 @@ const buttonNamed = (target: HTMLElement, label: string) =>
   Array.from(target.querySelectorAll('button')).find((b) => b.textContent?.trim() === label);
 // portal#1899: a compiled boot prompt's text and abstract are read-only with the source/recompile hint;
 // an ordinary node keeps its editors.
+const areaOf = (target: HTMLElement, tab: 'content' | 'abstract') =>
+  target.querySelector<HTMLTextAreaElement>(tab === 'abstract' ? 'textarea[maxlength="2000"]' : 'textarea');
+async function openSourceAndDirty(target: HTMLElement, tab: 'content' | 'abstract') {
+  const toggle = buttonNamed(target, 'Source');
+  expect(toggle).toBeDefined();
+  toggle!.click(); flushSync();
+  const area = areaOf(target, tab);
+  expect(area).not.toBeNull();
+  // A dirty draft, so a disabled Save is attributable to the compiled guard and not to "nothing changed".
+  area!.value = 'edited draft'; area!.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
+  const save = buttonNamed(target, 'Save');
+  expect(save).toBeDefined();
+  return { area: area!, save: save! };
+}
 for (const tab of ['content', 'abstract'] as const) {
   it(`${tab}: a compiled-boot-prompt is read-only with the recompile hint`, async () => {
     const { target } = await mountPage(tab, 'compiled-boot-prompt');
     expect(target.querySelector('[data-testid="compiled-prompt-hint"]')?.textContent).toMatch(/boot source and compile again/);
-    buttonNamed(target, 'Source')?.click(); flushSync();
-    const area = target.querySelector<HTMLTextAreaElement>(tab === 'abstract' ? 'textarea[maxlength="2000"]' : 'textarea');
-    if (area) expect(area.readOnly).toBe(true);
-    expect(buttonNamed(target, 'Save')?.disabled ?? true).toBe(true);
+    const { area, save } = await openSourceAndDirty(target, tab);
+    expect(area.readOnly).toBe(true);
+    expect(save.disabled).toBe(true);
   });
   it(`${tab}: an ordinary node keeps its editor and no hint`, async () => {
     const { target } = await mountPage(tab, 'info');
     expect(target.querySelector('[data-testid="compiled-prompt-hint"]')).toBeNull();
-    buttonNamed(target, 'Source')?.click(); flushSync();
-    const area = target.querySelector<HTMLTextAreaElement>(tab === 'abstract' ? 'textarea[maxlength="2000"]' : 'textarea')!;
+    const { area, save } = await openSourceAndDirty(target, tab);
     expect(area.readOnly).toBe(false);
+    expect(save.disabled).toBe(false);
   });
 }
