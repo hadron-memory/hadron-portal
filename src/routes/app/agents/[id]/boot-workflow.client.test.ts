@@ -73,7 +73,7 @@ describe('portal#1485 intro and workflow', () => {
   });
 });
 
-describe('portal#1485 no editor in the tab', () => {
+describe('portal#1485 no editor in the tab (the action\'s removal is pinned in boot-source-action.test.ts)', () => {
   it('has no textarea, no saveBootSource form and no Save button', async () => {
     const { root } = await open(source());
     expect(tab(root).querySelector('textarea')).toBeNull();
@@ -81,11 +81,6 @@ describe('portal#1485 no editor in the tab', () => {
     expect(buttons(tab(root))).not.toContain('Save');
     expect(buttons(tab(root))).not.toContain('Cancel');
     expect(tab(root).querySelector('[contenteditable]')).toBeNull();
-  });
-  it('the page no longer handles a saveBootSource POST', async () => {
-    const { actions } = await import('./+page.server');
-    expect(Object.keys(actions)).not.toContain('saveBootSource');
-    expect(Object.keys(actions)).toEqual(expect.arrayContaining(['compileBootPrompt', 'approveBootPrompt', 'startBootSource']));
   });
 });
 
