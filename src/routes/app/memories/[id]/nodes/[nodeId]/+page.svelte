@@ -154,7 +154,10 @@
   let showSource = $state(false);
   let confirmDelete = $state(false);
   let copied = $state(false);
-  const readOnly = $derived(data.canWriteMemory === false);
+  // portal#1899: a compiled boot prompt is written only by a compile (hrn:node:hadronmemory.com:specs:cor:agt:040:11, :12);
+  // a save is always refused, so its text and abstract are shown read-only with a pointer to the source.
+  const isCompiledPrompt = $derived(node.nodeType === 'compiled-boot-prompt');
+  const readOnly = $derived(data.canWriteMemory === false || isCompiledPrompt);
   let isEditing = $state(false);
 
   // Inline editing. #927: each text editor is a draft based on the revision it
@@ -208,6 +211,10 @@
               'Your edit was not saved: the server reported a conflicting change{detail}. This text is unchanged and your edit is still here, so you can save again.',
               { detail: detail ? ` (${detail})` : '' },
             );
+      case 'compiled-prompt':
+        return t('node.text.save.compiled-prompt', 'A compiled boot prompt is never edited directly. Edit the boot source and compile again. Nothing was saved.');
+      case 'boot-prompt-governed':
+        return t('node.text.save.boot-prompt-governed', 'A worker session cannot edit a boot prompt; its manager does that. Nothing was saved.');
       case 'no-baseline':
         return t('node.text.save.no-baseline', 'This editor lost track of the version it opened. Copy your edit and reload the page.');
       case 'not-found':
@@ -3173,6 +3180,9 @@
 
     <!-- ═══ CONTENT TAB ═══ -->
     {#if activeTab === 'content'}
+      {#if isCompiledPrompt}
+        <p class="mb-2 text-sm text-zinc-500 dark:text-zinc-400" data-testid="compiled-prompt-hint">{t('node.compiled-prompt.hint', 'This compiled boot prompt is read-only. Edit the boot source and compile again.')}</p>
+      {/if}
       <div class="flex items-center justify-between">
         <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
           <button

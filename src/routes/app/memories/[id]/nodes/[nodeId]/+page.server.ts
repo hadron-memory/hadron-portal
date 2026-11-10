@@ -672,7 +672,7 @@ async function loadChildren(
  * Failures are CODES under `<field>Failed`, which the page localizes; the old
  * version returned prose the page never showed.
  */
-const NODE_WRITE_REFUSALS = ['BAD_USER_INPUT', 'NODE_WRITE_CONFLICT', 'ROLE_GOVERNED', 'BOOT_PROMPT_COMPILED_WRITE', 'BOOT_PROMPT_WORKER_SESSION_REFUSED', 'NODE_ALREADY_EXISTS', 'CONFLICT', 'SESSION_EXPIRED', 'FORBIDDEN'] as const;
+const NODE_WRITE_REFUSALS = ['BAD_USER_INPUT', 'NODE_WRITE_CONFLICT', 'ROLE_GOVERNED', 'NODE_ALREADY_EXISTS', 'CONFLICT', 'SESSION_EXPIRED', 'FORBIDDEN'] as const;
 
 async function saveNodeText(
   field: 'content' | 'abstract',
@@ -747,11 +747,10 @@ async function saveNodeText(
     // compile; a worker session never edits a boot prompt) wrote nothing and are the user's to act on,
     // so they are a rejection with the server's words, not an internal failure.
     const code = extractGqlErrorCode(e);
-    if (code === 'BOOT_PROMPT_COMPILED_WRITE') {
-      // Nothing was written and none ever will be by a save (cor:agt:040:11/:12): point at the way that works.
-      return fail(400, { [failed]: { code: 'rejected', detail: `${detail} ${t('node.compiled-boot-prompt.edit-source', 'Edit the boot source and compile again.')}` } });
-    }
-    if (code === 'BAD_USER_INPUT' || code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED') return fail(400, { [failed]: { code: 'rejected', detail } });
+    // Fixed codes, never the server's text: the page words them (and localizes them).
+    if (code === 'BOOT_PROMPT_COMPILED_WRITE') return fail(400, { [failed]: { code: 'compiled-prompt', detail: null } });
+    if (code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED') return fail(400, { [failed]: { code: 'boot-prompt-governed', detail: null } });
+    if (code === 'BAD_USER_INPUT') return fail(400, { [failed]: { code: 'rejected', detail } });
     // The unclassified path keeps its log (code only: never the wire text or variables).
     console.error('[node-detail] save failed:', code ?? 'no-code');
     return fail(500, { [failed]: { code: 'failed', detail } });

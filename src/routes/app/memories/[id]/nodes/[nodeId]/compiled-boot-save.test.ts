@@ -22,13 +22,16 @@ async function save(code: string, message: string) {
 }
 describe('portal#1899 compiled boot prompt save', () => {
   it.each([
-    ['BOOT_PROMPT_COMPILED_WRITE', 'BOOT_PROMPT_COMPILED_WRITE: a generic update cannot change a compiled boot prompt. A compiled boot prompt is written only by a compile.'],
-    ['BOOT_PROMPT_WORKER_SESSION_REFUSED', 'BOOT_PROMPT_WORKER_SESSION_REFUSED: a worker session never edits a boot prompt (update); its manager does it as themselves.'],
-  ])('%s is a 4xx rejection carrying the server words', async (code, message) => {
-    const r = await save(code, message);
+    ['BOOT_PROMPT_COMPILED_WRITE', 'compiled-prompt'],
+    ['BOOT_PROMPT_WORKER_SESSION_REFUSED', 'boot-prompt-governed'],
+  ])('%s is a 400 with a fixed code and no server text', async (code, fixed) => {
+    const r = await save(code, `${code}: private wire prose`);
     expect(r.status).toBe(400);
-    expect(r.data.contentFailed.code).toBe('rejected');
-    expect(r.data.contentFailed.detail).toContain(message);
-    if (code === 'BOOT_PROMPT_COMPILED_WRITE') expect(r.data.contentFailed.detail).toMatch(/boot source and compile again/);
+    expect(r.data.contentFailed).toEqual({ code: fixed, detail: null });
+  });
+  it('an unclassified failure stays a 500 and logs only the code', async () => {
+    const r = await save('SOMETHING_NEW', 'private wire prose');
+    expect(r.status).toBe(500);
+    expect(JSON.stringify((console.error as unknown as { mock: { calls: unknown[] } }).mock.calls)).not.toContain('private wire prose');
   });
 });
