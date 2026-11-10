@@ -132,6 +132,14 @@ describe('portal#1901: the compiled node page explains itself and lists its sour
     expect(links.filter((h) => h?.includes('hrn:node:')).length).toBe(1);
   });
 
+  it('portal#1901: shows each occurrence\'s kind and order, and the owner Agent\'s URN beside its name', async () => {
+    stubProvenance(() => pageOf([row('Persona source', 'hrn:node:acme.com:mem-a:boot:persona', { kind: 'include', order: 2 })]));
+    const { target } = await mountPage('content', { ...COMPILED, graph: SYSTEM_AGENT });
+    await settle();
+    expect(text(target.querySelector('[data-testid="compiled-prompt-sources"] table')!)).toMatch(/include, order 2/);
+    expect(text(target.querySelector('[data-testid="compiled-prompt-recompile"]')!)).toMatch(/acme\.com:helper/);
+  });
+
   it('repeats a source per occurrence, with no merging by name', async () => {
     stubProvenance(() => pageOf([SRC_A, row('Persona source', 'hrn:node:acme.com:mem-a:boot:persona', { depth: 1, revNo: 5 })]));
     const { target } = await mountPage('content', { ...COMPILED });
