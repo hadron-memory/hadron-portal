@@ -25,7 +25,7 @@
   const nodeHref = (memoryId: string, id: string) => `/app/memories/${encodeURIComponent(memoryId)}/nodes/${encodeURIComponent(id)}`;
   const sourceHref = $derived(nodeHref(source.memoryId, source.id));
   // The server returns compiled lint only to whoever may compile, and the warning's
-  // remedy is a compile, so it is shown only to a manager (cor:agt:040:13).
+  // remedy is a compile, so it is shown only to a manager (hrn:node:hadronmemory.com:specs:cor:agt:040:13).
   const outdated = $derived(canManage !== false && !!compiled?.lint?.items.some((w) => w.kind === 'RECOMPILE_AVAILABLE'));
 
   const compile = superForm(untrack(() => compileSubmitted ?? compileInitial), { resetForm: false, clearOnSubmit: 'none', invalidateAll: 'force' });
