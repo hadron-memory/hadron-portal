@@ -140,7 +140,7 @@ describe('portal#1711 — link values', () => {
   });
 });
 
-// portal#1711 5c — the App action grammar (cor:agt:110:01, Proposed,
+// portal#1711 5c — the App action grammar (hrn:node:hadronmemory.com:specs:cor:agt:110:01, Proposed,
 // presentation-only): app + slug + one or more name parts; lowercase
 // letters/digits/hyphens; a part starts alphanumeric; an intermediate name
 // part may end with a hyphen; the whole code ends alphanumeric and is at most

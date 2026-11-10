@@ -77,7 +77,7 @@ export function isNodeUrn(value: string): boolean {
 
 /**
  * portal#1711 5c — an App-defined action's type IS its code
- * (hadron-server#3449), shaped per cor:agt:110:01 (**Proposed**,
+ * (hadron-server#3449), shaped per hrn:node:hadronmemory.com:specs:cor:agt:110:01 (**Proposed**,
  * presentation-only — this matcher decides how a code is displayed, never
  * whether it is refused, and must not be cited as Decided event law):
  * the literal `app`, a slug, then one or more name parts, lowercase letters,

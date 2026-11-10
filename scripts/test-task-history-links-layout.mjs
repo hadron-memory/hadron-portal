@@ -169,7 +169,7 @@ try {
 
       // Screenshots are evidence, not test input, and nothing interactive follows a
       // capture on its page: fresh pages, after every assertion (see
-      // findings:playwright-screenshots-after-layout-assertions).
+      // hrn:node:hadronmemory.com:hadron-portal:findings:playwright-screenshots-after-layout-assertions).
       if (process.env.TH_SHOTS) {
         const shotPage = await browser.newPage({ viewport: { width, height: 844 }, hasTouch: coarse });
         await shotPage.route('**/__blank', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>layout</title>' }));
