@@ -59,3 +59,16 @@ export function t(id: string, defaultText: string, vars?: TemplateVars): string 
   // For now the default is the only shipped value.
   return vars ? fill(defaultText, vars) : defaultText;
 }
+
+/**
+ * Split a message around ONE placeholder so a caller can render markup (a link)
+ * where the translator put it: `splitAt('See {link}.', 'link')` → `['See ', '.']`.
+ * A sentence with an inline link is one message, not lead/link/tail keys that
+ * freeze the link's position (portal#1415). A message without the placeholder
+ * returns its whole text before and nothing after.
+ */
+export function splitAt(message: string, name: string): [string, string] {
+  const token = `{${name}}`;
+  const i = message.indexOf(token);
+  return i < 0 ? [message, ''] : [message.slice(0, i), message.slice(i + token.length)];
+}

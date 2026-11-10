@@ -5,6 +5,7 @@
  * agent stays rejected as cross-org; unknown agents stay not-found.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import { ORGANIZATIONS_QUERY, AGENT_PUBLIC_QUERY, ORG_APPS_FOR_REGISTER_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
@@ -68,6 +69,7 @@ describe('install target resolution — PUBLIC marketplace path (#486)', () => {
       defaultName: string;
       defaultUrnSlug: string;
     };
+    expectDistinctFormIds(result, 2);
     expect(result.agent.id).toBe('foreign-agent');
     expect(result.defaultName).toBe('Concierge');
     expect(result.defaultUrnSlug).toBe('concierge');

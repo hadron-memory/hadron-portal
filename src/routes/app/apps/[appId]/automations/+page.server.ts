@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { loadTasksApp } from '$lib/server/agent-tasks';
 import { loadAutomationApprovals } from '$lib/server/automation-approval';
+import { loadSchedules } from '$lib/server/automation-schedule';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -9,8 +10,9 @@ import type { PageServerLoad } from './$types';
  * route, like Runs, Tasks and Tickers, so a read the server refuses never
  * reaches the App page's loader.
  *
- * Read-only: the approval itself lives on each automation's page. No `actions`
- * export, and a test pins that.
+ * Read-only: the approval itself lives on each automation's page, and a schedule is made and changed on its own
+ * (portal#1701). No `actions` export here, and a test pins that. Timing comes from `agentSchedules` (cron, runAt and
+ * timezone); the approvals list carries a server-built headline that quotes the cron, which a schedule row does not show.
  */
 
 // automationApprovals' cursor is base64url; anything else cannot have come from it.
@@ -26,5 +28,6 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const after = url.searchParams.get('after') || null;
   if (after !== null && !CURSOR.test(after)) throw error(400, 'That page of automations does not exist.');
 
-  return { app, approvals: await loadAutomationApprovals(client, app.id, after), after };
+  const [approvals, schedules] = await Promise.all([loadAutomationApprovals(client, app.id, after), loadSchedules(client, app.id)]);
+  return { app, approvals, after, schedules };
 };

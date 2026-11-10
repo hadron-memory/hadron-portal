@@ -4,6 +4,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
   import { approvalHref, listStateLabel, type ApprovalRow } from '$lib/automation/approval';
+  import { timingFromSchedule, timingSentence } from '$lib/automation/schedule-timing';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
 
@@ -19,6 +20,18 @@
   const basePath = $derived(`/app/apps/${data.app.id}`);
   const appsHref = $derived(data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps');
   const rows = $derived<ApprovalRow[]>(data.approvals.rows);
+  // portal#1701: a schedule row says when it runs in a plain sentence, in the schedule's own zone. The server's
+  // headline for a schedule quotes its cron, so a schedule row never shows it: with no matching schedule (a reader who
+  // may not read schedules) the row simply has no timing.
+  const scheduleById = $derived(new Map(data.schedules.schedules.map((s) => [s.id, s])));
+  function subtitle(r: ApprovalRow): string {
+    if (r.triggerKind !== 'SCHEDULE') return r.headline;
+    const s = scheduleById.get(r.triggerRef);
+    if (!s) return '';
+    const timing = timingFromSchedule(s);
+    const when = timing ? timingSentence(timing, s.timezone) : '';
+    return s.enabled ? when : [t('app.automations.paused', 'Paused'), when].filter(Boolean).join(' · ');
+  }
   const manualOmitted = $derived(data.approvals.omitted.some((o) => o.triggerKind === 'MANUAL'));
 
   const kindLabel = (kind: ApprovalRow['triggerKind']) =>
@@ -27,7 +40,7 @@
   let globalFilter = $state('');
   // Search reaches everything the row shows: the name, the server's sentence, the type and the status.
   const columns: PortalColumnDef<ApprovalRow>[] = [
-    { id: 'name', accessorFn: (r) => `${r.name} ${r.headline}`, header: t('app.automations.col.name', 'Automation'), enableHiding: false, size: 360 },
+    { id: 'name', accessorFn: (r) => `${r.name} ${subtitle(r)}`, header: t('app.automations.col.name', 'Automation'), enableHiding: false, size: 360 },
     { id: 'kind', accessorFn: (r) => kindLabel(r.triggerKind), header: t('app.automations.col.kind', 'Starts'), size: 120 },
     { id: 'state', accessorFn: (r) => listStateLabel(r.state), header: t('app.automations.col.state', 'Status'), size: 180 },
   ];
@@ -52,13 +65,17 @@
     { label: t('app.automations.crumb.automations', 'Automations') },
   ]} />
 
-  <div>
-    <h1 class="text-xl font-bold text-zinc-900 dark:text-white">
-      <span class="font-normal text-zinc-400">{t('app.automations.title.prefix', 'Automations:')}</span> {data.app.name}
-    </h1>
-    <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-      {t('app.automations.intro', 'A schedule or a webhook starts work on its own. It runs only after you approve it.')}
-    </p>
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h1 class="text-xl font-bold text-zinc-900 dark:text-white">
+        <span class="font-normal text-zinc-400">{t('app.automations.title.prefix', 'Automations:')}</span> {data.app.name}
+      </h1>
+      <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+        {t('app.automations.intro', 'A schedule or a webhook starts work on its own. It runs only once it is approved; a schedule you create here is approved by creating it.')}
+      </p>
+    </div>
+    <!-- Offered to everyone: the server decides who may create (an organization admin), and the refusal is in plain words. -->
+    <a href="{basePath}/automations/new-schedule" class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500">{t('app.automations.new-schedule', 'New schedule')}</a>
   </div>
 
   {#if rows.length === 0}
@@ -78,7 +95,9 @@
         {#if cell.column.id === 'name'}
           <div class="flex min-w-0 flex-col">
             <a href={approvalHref(data.app.id, row.triggerKind, row.triggerRef)} class="truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.name}</a>
-            <span class="truncate text-xs text-zinc-500 dark:text-zinc-400" title={row.headline}>{row.headline}</span>
+            {#if subtitle(row)}
+              <span class="truncate text-xs text-zinc-500 dark:text-zinc-400" title={subtitle(row)}>{subtitle(row)}</span>
+            {/if}
           </div>
         {:else if cell.column.id === 'kind'}
           <span class="whitespace-nowrap">{kindLabel(row.triggerKind)}</span>

@@ -7,6 +7,7 @@ import {
   TEAM_CHAT_MESSAGES_QUERY,
 } from '$lib/server/queries';
 import { TEAM_CHAT_LOC } from '$lib/app-chats';
+import { NO_TEAM_FILTER, filterVariablesOf, type TeamChatFilter } from '$lib/team-chat-filter';
 import type { MemoryNode, TeamChatMessage } from '$lib/types';
 
 // A chat node holds a message thread one level down, under `<chat.loc>:messages:`.
@@ -195,6 +196,22 @@ export function chatPostTarget(
   return { kind: 'none' };
 }
 
+/**
+ * portal#1525: is this chat node the App's team CHANNEL — the surface Holger
+ * ruled reads as a Channel (portal#1482)? `platform` names the POST path
+ * (`createTeamChatMessage`), not "is a Channel"; this predicate is the one
+ * name for that equivalence, so routes branching on it never restate the rule
+ * (and a future kind added to `ChatPostTarget` cannot silently re-classify a
+ * Channel in a route that never mentions it). Same inputs as `chatPostTarget`;
+ * ask it, don't re-derive it.
+ */
+export function isTeamChannelChat(
+  node: Pick<MemoryNode, 'tags' | 'nodeType' | 'loc'> & { memory?: { appId?: string | null } | null },
+  opts: { legacyThread?: boolean } = {},
+): boolean {
+  return chatPostTarget(node, opts).kind === 'platform';
+}
+
 export type ChatMessage = {
   id: string;
   name: string;
@@ -260,15 +277,50 @@ export function chatSortKey(node: Pick<MemoryNode, 'nodeType'>): 'seq' | 'loc' {
   return node.nodeType === CHAT_NODE_TYPE ? 'seq' : 'loc';
 }
 
+type TranscriptMessageTypes = readonly [typeof PLATFORM_MESSAGE_NODE_TYPE, typeof LEGACY_MESSAGE_NODE_TYPE];
+
+/** #1569: only the authenticated root's platform type selects the union.
+ * A default seq sort, a tag or a request parameter is not platform evidence.
+ * Legacy reads remain unqualified; #2836 excludes chat-message by default. */
+export function chatMessageNodeTypes(root: { nodeType?: string | null }): TranscriptMessageTypes | undefined {
+  return root.nodeType === CHAT_NODE_TYPE
+    ? [PLATFORM_MESSAGE_NODE_TYPE, LEGACY_MESSAGE_NODE_TYPE]
+    : undefined;
+}
+
 export type ChatPage = {
   messages: ChatMessage[];
-  /** The server's count of nodes under the prefix — not of messages. */
+  /** The server's count in the selected prefix/type domain — not of direct bubbles. */
   total: number;
   /** Is there anything before this window? Drives the scroll-up affordance. */
   hasOlder: boolean;
   /** Node offset this window started at; pass `before` to walk further back. */
   offset: number;
 };
+
+/**
+ * A locating read returned a node an earlier read of the same attempt already
+ * returned, for an offset the browse contract says is disjoint. The locator
+ * retries once (#1820: an insert below the read frontier shifts the frontier
+ * row into the next window honestly on roots no live Channel protects) and
+ * names the server a liar only when the repeat recurs — see the retry note in
+ * `loadChatMessages`.
+ */
+class OverlappingPageError extends Error {
+  // Logs otherwise print `Error` for a named rejection; the class name is the
+  // diagnosis (#1820 review).
+  override name = 'OverlappingPageError';
+}
+
+/**
+ * The gallop ran to the offset cap without a short read: the server never ran
+ * short of a full page. Unlike a repeat or a failed request, this has no
+ * honest transient reading — a server that always answers full pages will do
+ * so again — so the locator does NOT spend a second gallop on it.
+ */
+class NeverShortError extends Error {
+  override name = 'NeverShortError';
+}
 
 /**
  * Load a WINDOW of a chat's messages, newest-last, ending at the tail by default.
@@ -281,8 +333,8 @@ export type ChatPage = {
  *     atom is an ISO timestamp (`2026-06-21T223100Z-author`) and therefore
  *     lexicographically chronological.
  *
- * The two never mix within one chat, which is what makes a single sort key
- * per chat a total order.
+ * A chat root may contain both generations (including adopted history). The
+ * provider places null seq rows last and breaks ties by loc; retain that order.
  *
  * **`loc` is NOT a safe key for a platform chat, and that is not obvious.** The
  * server pads the seq atom to three digits (`chatRoot.ts`, `padStart(3, '0')`),
@@ -302,6 +354,8 @@ export async function loadChatMessages(
     before?: number;
     /** `seq` for a platform chat, `loc` for a legacy one. See the docblock. */
     sort?: 'seq' | 'loc';
+    /** Derived from the authenticated root; absent for legacy/unrelated reads. */
+    messageNodeTypes?: TranscriptMessageTypes;
   } = {},
 ): Promise<ChatPage> {
   const limit = opts.limit ?? CHAT_PAGE_SIZE;
@@ -317,17 +371,245 @@ export async function loadChatMessages(
   // scroll-up cost two round trips and one of them was guaranteed waste. The
   // count comes back with whichever window we actually want.
   const sort = opts.sort ?? 'seq';
+  // One domain for count, tail correction and every older window. Conditional
+  // spread preserves exact legacy variables: omission, never null or a default.
+  const messageFilter = opts.messageNodeTypes ? { nodeTypes: opts.messageNodeTypes } : {};
   const firstOffset = opts.before === undefined ? 0 : Math.max(0, opts.before - fetchCount);
-  const first = await client.request<{
-    findNodes: { total: number | null; hits: Array<{ node: MemoryNode }> };
-  }>(NODES_BY_LOC_PREFIX_QUERY, {
-    memoryId,
-    locPrefix: prefix,
-    limit: fetchCount,
-    offset: firstOffset,
-    sort,
-  });
-  const total = first.findNodes.total ?? first.findNodes.hits.length;
+  const readPage = (offset: number, readCount: number) =>
+    client.request<{
+      // `total` can be ABSENT (undefined), not null — not from a conforming
+      // GraphQL server (a selected nullable field whose resolver omits the
+      // value serializes as null; an unknown selection fails validation — both
+      // verified on #1820's delta), but a malformed or non-GraphQL response
+      // shape reaches here undefined. `typeof === 'number'` below admits real
+      // numbers only, so absence locates rather than arithmeticking on NaN.
+      findNodes: { total?: number | null; hits: Array<{ node: MemoryNode }> };
+    }>(NODES_BY_LOC_PREFIX_QUERY, {
+      memoryId,
+      locPrefix: prefix,
+      limit: readCount,
+      offset,
+      sort,
+      ...messageFilter,
+    });
+  // `let`, not `const`: the locate's retry REPLACES this snapshot. Every
+  // premise built on it — the full-page lower bound, the reusable first
+  // window, the repeat-check seed — belongs to a moment a mid-locate shift
+  // can invalidate (#1820: a shrink racing the retry kept serving the stale
+  // page as the whole thread).
+  let first = await readPage(firstOffset, fetchCount);
+  // #1581: a plain findNodes browse carries no count — `total` is null for
+  // filter+sort paging (the count flag is an internal object-store argument
+  // since hadron-server#2514, not a public one; NodeSort has no descending
+  // order to read a tail from, either). Collapsing null to `hits.length`
+  // mistook the FIRST page for the whole thread: a chat past one page opened on
+  // its oldest messages and the tail correction never ran — with the end
+  // collapsed to the page size, `offset === firstOffset` held and the
+  // correction was skipped by construction. Without a count, the end is
+  // LOCATED: gallop outward by pages until a read comes back short (the end is
+  // inside that page — exact), and when a read comes back EMPTY (the thread is
+  // an exact page multiple), narrow the remaining gap with single-node reads.
+  // Every request stays bounded by the fetch count — no drain — and the probe
+  // count is logarithmic in the thread's length.
+  //
+  // Under a misbehaving server the probes REJECT rather than trust or degrade:
+  // a failed read fails the load (as a failed tail correction always did — a
+  // transcript whose tail cannot be located is an error state, never a
+  // silently shorter thread), a server that repeats an already-read node is
+  // named, and one that never runs short of a full page is cut off. Each
+  // rejection is exact and pinned by a test.
+  // `let` for the same reason as `first`: the retry re-records from the
+  // fresh first page, so no pre-shift segment is ever stitched into a window.
+  let segments: Array<{ start: number; hits: Array<{ node: MemoryNode }> }> = [
+    { start: firstOffset, hits: first.findNodes.hits },
+  ];
+  // Every read is recorded; assembledWindow consumes the probes' records, and
+  // a record added after assembly (the final window fetch) is simply unused.
+  const recordedRead = async (offset: number, readCount: number) => {
+    const hits = (
+      await client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
+        NODES_BY_LOC_PREFIX_QUERY,
+        { memoryId, locPrefix: prefix, limit: readCount, offset, sort, ...messageFilter },
+      )
+    ).findNodes.hits;
+    segments.push({ start: offset, hits });
+    return hits;
+  };
+
+  // The offset variable is GraphQL Int — 32-bit signed — so a probe past
+  // 2^31-1 dies in variable coercion with an unnamed transport error. The cap
+  // must sit BELOW that boundary, or the gallop never reaches its own named
+  // rejection. 2^30 is still a billion nodes; the server imposes no offset
+  // ceiling of its own ("#437 … No offset ceiling" in the schema; out-of-range
+  // offsets page empty), and the cap keeps `end` far inside float64's exact
+  // range, where `end - fetchCount` still means what it says.
+  const MAX_LOCATE_OFFSET = 2 ** 30;
+
+  const locateThreadEnd = async (): Promise<number> => {
+    // One locating attempt. Windows are disjoint against a stable list
+    // (offsets double from fetchCount, so each window starts at or past the
+    // previous one's end; a binary-search mid lands in the unread gap (lo,
+    // hi)) and the browse orders by seq (append-only, NULLS LAST, loc-broken
+    // ties), not by a volatile score. On a list that shifts UNDER the locate,
+    // though, a repeat is not yet a liar: see the retry below.
+    // No parameters: every premise derives from `first`, the page THIS
+    // attempt starts on — the retry replaces it before calling through, so
+    // the seed and the lower bound below are the fresh attempt's own, never
+    // the absorbed attempt's. (Both callers check the page came back full
+    // before locating — the primary path's `else` arm, the retry's
+    // short-page early return — which is what makes the bound below a
+    // proof rather than an assumption.)
+    const attempt = async (): Promise<number> => {
+      // Every node id any locating read of THIS attempt has returned.
+      const seenIds = new Set(first.findNodes.hits.map((h) => h.node.id));
+      const readOnce = async (offset: number, readCount: number) => {
+        const hits = await recordedRead(offset, readCount);
+        const repeat = hits.find((h) => seenIds.has(h.node.id));
+        if (repeat) {
+          throw new OverlappingPageError(
+            `findNodes returned an overlapping page (node ${repeat.node.id} already read) for the disjoint offset ${offset} under ${prefix}`,
+          );
+        }
+        for (const h of hits) seenIds.add(h.node.id);
+        return hits;
+      };
+      // `lo` is the highest node index proven to exist: the full first page
+      // above proves firstOffset..firstOffset+its last row exist (firstOffset
+      // is 0 here — the gallop only runs on an unpaged read — but the code
+      // says so, it does not assume it).
+      let lo = firstOffset + first.findNodes.hits.length - 1;
+      let probeOffset = firstOffset + fetchCount;
+      for (;;) {
+        if (probeOffset > MAX_LOCATE_OFFSET) {
+          throw new NeverShortError(
+            `findNodes never ran short of a full page below offset ${MAX_LOCATE_OFFSET} under ${prefix}`,
+          );
+        }
+        const probe = await readOnce(probeOffset, fetchCount);
+        if (probe.length === fetchCount) {
+          lo = probeOffset + fetchCount - 1;
+          probeOffset *= 2;
+          continue;
+        }
+        if (probe.length > 0) {
+          return probeOffset + probe.length; // the end is inside this page: exact
+        }
+        // Empty: the end lies in (lo, probeOffset]. A message may land while the
+        // probes run; the search still terminates at the then-current end — the
+        // same staleness a numeric total already has.
+        let hi = probeOffset;
+        while (hi - lo > 1) {
+          const mid = Math.floor((lo + hi) / 2);
+          if ((await readOnce(mid, 1)).length > 0) lo = mid;
+          else hi = mid;
+        }
+        return lo + 1;
+      }
+    };
+    // The first attempt seeds the repeat check with the first read's ids: a
+    // server clamping offsets to a fixed page is named at once — clamping
+    // EVERY offset on the first probe, clamping only out-of-range ones on the
+    // second, when the fixed page comes round again.
+    try {
+      return await attempt();
+    } catch (error) {
+      if (error instanceof NeverShortError) throw error;
+      // Two shapes get exactly one retry (#1820: the honest repeat and the
+      // transient blip).
+      //
+      // A REPEAT is not always a lying server. On a chat root no LIVE Channel
+      // protects — a legacy record thread, which this reader browses whenever
+      // the root's type says chat — the server admits writes that insert
+      // below the tail mid-locate: restoreNode puts a soft-deleted message
+      // back at its old seq position (it names no seq, so the SEQ_PROTECTED
+      // gate that otherwise makes seq insert-assigned and immutable does not
+      // refuse it), and cloneNode copies a source seq onto a new row at an
+      // existing position. Either shifts every later row down, and the window
+      // at the read frontier then repeats an already-read id HONESTLY.
+      //
+      // A FAILED REQUEST is not always a broken server either: one transient
+      // transport failure used to fail the whole load (N5).
+      //
+      // The retry RESTARTS FROM A FRESH FIRST READ, not from attempt 1's
+      // leftovers (#1820 review): every premise attempt 1 enjoyed belonged
+      // to its snapshot, and a shift invalidates them together. Re-issuing
+      // the first page re-proves the lower bound (a full fresh page proves
+      // its last row; a SHORT one IS the end — ON THE RETRY a shrink below
+      // the fetch count cannot slide under it, and a shrink to empty cannot
+      // either; attempt 1 alone keeps its pre-shift bound, and a shrink
+      // landing during the FIRST gallop's probes ends that attempt at a
+      // stale end with no repeat to catch it — the locate's pre-existing
+      // snapshot skew, unchanged by this retry and pinned as accepted by its
+      // own test), re-seeds the repeat check against the CURRENT list
+      // (restoring clamp-detection parity — an empty seed let a clamp's
+      // first lie read as fresh), and re-records the segments and the
+      // reusable first window from it, so nothing pre-shift is ever stitched
+      // into a window or served as one. A fresh read that fails, or a repeat
+      // or failure on the retry itself, rejects as before — with the first
+      // error chained as `cause`, so the root cause survives the absorbed
+      // attempt. The fresh read sits INSIDE the retry's try below for
+      // exactly that reason: its failure is a retry failure like any other,
+      // not an escape past the cause chain.
+      //
+      // One exposure the assembly KEEPS from the primary path: the fresh
+      // first page and a later probe are two reads at two moments, and a
+      // delete that lands between them shifts rows up with no repeat to
+      // name it — the assembled window can be silently a row short at the
+      // seam. The repeat detector checks what a read RETURNS against what
+      // earlier reads returned; it cannot check what the list LOST between
+      // reads. Every multi-request window assembly has this exposure; the
+      // locator narrows it (the retry collapses the epoch) but cannot
+      // eliminate it short of a server-side count.
+      console.warn(
+        `chat tail locate retrying once under ${prefix} after ${
+          error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+        }`,
+      );
+      try {
+        first = await readPage(firstOffset, fetchCount);
+        segments = [{ start: firstOffset, hits: first.findNodes.hits }];
+        const freshTotal = first.findNodes.total;
+        if (typeof freshTotal === 'number') {
+          // The server now reports a count — trust it exactly as the primary
+          // path trusts the first read's: neither cross-checks it, so the
+          // retry's trust is parity, not new optimism.
+          return freshTotal;
+        }
+        if (first.findNodes.hits.length < fetchCount) {
+          return firstOffset + first.findNodes.hits.length;
+        }
+        return await attempt();
+      } catch (retryError) {
+        if (
+          retryError instanceof Error &&
+          error instanceof Error &&
+          retryError.cause === undefined
+        ) {
+          retryError.cause = error;
+        }
+        throw retryError;
+      }
+    }
+  };
+
+  const reportedTotal = first.findNodes.total;
+  let total: number;
+  if (typeof reportedTotal === 'number') {
+    total = reportedTotal;
+  } else if (opts.before !== undefined || first.findNodes.hits.length < fetchCount) {
+    // A short first read IS the whole thread: a null total cannot say so, but a
+    // page that came back short can — nothing between findNodes' take and these
+    // hits can drop a row (the overfetch filter runs after them), so short can
+    // only mean the end. With `before`, the count is simply UNKNOWN: the window
+    // is named, no probe runs, and `total` reports the window's own node span —
+    // a floor, not the thread's count. No current caller reads `total` on this
+    // path (chat-older returns none; ChatThread takes none from older windows);
+    // a future one must locate, not trust it. Neither case probes; both keep
+    // one request.
+    total = first.findNodes.hits.length;
+  } else {
+    total = await locateThreadEnd();
+  }
 
   // Where this window starts. `before` walks backwards from a previous window's
   // cursor; absent, we want the TAIL — the newest page — which is the end of a
@@ -345,21 +627,34 @@ export async function loadChatMessages(
   // page the reader already had, with `hasOlder: true` so it would have looped.
   // The hits start at `offset`, so the window is the first `end - offset` of
   // them.
+  //
+  // #1581: the probes already paid for most of the located window — the first
+  // read plus a short gallop page IS the thread's whole tail. Assemble
+  // [offset, end) from the recorded reads when they cover it with no gap, and
+  // only fall back to a fresh request across one. A thread between one and two
+  // pages — the common grown chat, and the issue's own fixture — then opens in
+  // two requests, not three. (A failed fetch — probe or window — still throws,
+  // exactly as the tail-correction request always did: a transcript that cannot
+  // be read is an error, never a silently shorter one.)
+  const assembledWindow = (from: number, to: number): Array<{ node: MemoryNode }> | null => {
+    if (to <= from) return null; // not a window; let the caller fetch
+    const out: Array<{ node: MemoryNode }> = [];
+    let at = from;
+    while (at < to) {
+      // Each hit advances `at` by at least one, so this cannot loop.
+      const seg = segments.find((s) => s.start <= at && s.start + s.hits.length > at);
+      if (!seg) return null; // a gap: not covered
+      out.push(...seg.hits.slice(at - seg.start, to - seg.start));
+      at = seg.start + seg.hits.length;
+    }
+    return out.length === to - from ? out : null;
+  };
+
   const hits =
     offset === firstOffset
       ? first.findNodes.hits.slice(0, end - offset)
-      : (
-          await client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
-            NODES_BY_LOC_PREFIX_QUERY,
-            {
-              memoryId,
-              locPrefix: prefix,
-              limit: Math.min(fetchCount, end - offset),
-              offset,
-              sort,
-            },
-          )
-        ).findNodes.hits;
+      : (assembledWindow(offset, end) ??
+        (await recordedRead(offset, Math.min(fetchCount, end - offset))));
 
   const messages = hits
     .map((h) => h.node)
@@ -370,24 +665,10 @@ export async function loadChatMessages(
       return MESSAGE_NODE_TYPES.includes(n.nodeType);
     });
 
-  // #793 (@copilot on PR #797): sort on the SAME key the server paged by.
-  //
-  // This used to fall back to `createdAt` for a legacy chat while the server
-  // ordered by `loc`. Two orders over one window is fine while the window is
-  // the whole thread — the client's order is what renders — and wrong once
-  // PAGED: the trim below takes "the last N" of the CLIENT order, while the
-  // cursor describes a position in the SERVER order. If the two ever disagree
-  // (a legacy `createdAt` edited, backfilled, or simply not matching its loc
-  // timestamp) the window and the cursor describe different slices, and the
-  // next page silently skips or repeats messages.
-  //
-  // `loc` is a total order on a legacy thread for the same reason it is the
-  // paging key: the atom is an ISO timestamp.
-  messages.sort((a, b) =>
-    sort === 'seq'
-      ? (a.seq ?? 0) - (b.seq ?? 0)
-      : a.loc.localeCompare(b.loc),
-  );
+  // Preserve provider hit order through filtering, trim and cursor derivation.
+  // In a mixed chat the provider orders seq ASC NULLS LAST, loc ASC. Treating
+  // null as zero here moves legacy rows across the trim boundary: the next
+  // offset then skips a message or repeats one. No presentation re-sort either.
 
   // #793: trim to the PAGE SIZE after filtering.
   //
@@ -550,11 +831,12 @@ const TEAM_CHAT_TAIL_CURSOR = 2147483647;
 export async function loadTeamChatTail(
   client: GraphQLClient,
   appRef: string,
+  filter: TeamChatFilter = NO_TEAM_FILTER,
 ): Promise<{ items: TeamChatMessage[]; total: number }> {
   return client
     .request<{ teamChatMessages: { items: TeamChatMessage[]; total: number } }>(
       TEAM_CHAT_MESSAGES_QUERY,
-      { appRef, beforeSeq: TEAM_CHAT_TAIL_CURSOR, limit: TEAM_CHAT_PAGE_SIZE },
+      { appRef, beforeSeq: TEAM_CHAT_TAIL_CURSOR, limit: TEAM_CHAT_PAGE_SIZE, ...filterVariablesOf(filter) },
     )
     .then((r) => r.teamChatMessages);
 }
@@ -581,11 +863,12 @@ export async function loadTeamChatOlder(
   appRef: string,
   beforeSeq: number,
   limit = TEAM_CHAT_PAGE_SIZE,
+  filter: TeamChatFilter = NO_TEAM_FILTER,
 ): Promise<{ items: TeamChatMessage[]; total: number }> {
   return client
     .request<{ teamChatMessages: { items: TeamChatMessage[]; total: number } }>(
       TEAM_CHAT_MESSAGES_QUERY,
-      { appRef, beforeSeq, limit },
+      { appRef, beforeSeq, limit, ...filterVariablesOf(filter) },
     )
     .then((r) => r.teamChatMessages);
 }
@@ -600,11 +883,35 @@ export async function loadTeamChatNewer(
   client: GraphQLClient,
   appRef: string,
   sinceSeq: number,
+  filter: TeamChatFilter = NO_TEAM_FILTER,
 ): Promise<{ items: TeamChatMessage[]; total: number }> {
   return client
     .request<{ teamChatMessages: { items: TeamChatMessage[]; total: number } }>(
       TEAM_CHAT_MESSAGES_QUERY,
-      { appRef, sinceSeq, limit: TEAM_CHAT_PAGE_SIZE },
+      { appRef, sinceSeq, limit: TEAM_CHAT_PAGE_SIZE, ...filterVariablesOf(filter) },
     )
     .then((r) => r.teamChatMessages);
+}
+
+/**
+ * The server's typed refusal of a team filter (#1137), or null for any other
+ * failure.
+ *
+ * `TEAM_CHAT_TEAM_HEAD_INVALID` is the ONE shape the server answers an unknown,
+ * retired-and-unavailable or foreign head with, deliberately non-oracular: its
+ * fixed text does not say which. The portal shows that text as-is and never
+ * retries the read unfiltered (a fallback would show more than the reader asked
+ * for under a filter they believe is on), and adds no candidate list of its own.
+ * Any other failure stays a degraded read, not a refusal the reader is told
+ * about (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
+ */
+export const TEAM_CHAT_HEAD_REFUSAL_CODE = 'TEAM_CHAT_TEAM_HEAD_INVALID';
+
+export function teamChatRefusalOf(e: unknown): { code: string; message: string } | null {
+  const errors = (e as { response?: { errors?: Array<{ message?: unknown; extensions?: { code?: unknown } }> } })
+    ?.response?.errors;
+  const first = Array.isArray(errors) ? errors[0] : undefined;
+  if (first?.extensions?.code !== TEAM_CHAT_HEAD_REFUSAL_CODE) return null;
+  if (typeof first.message !== 'string' || first.message === '') return null;
+  return { code: TEAM_CHAT_HEAD_REFUSAL_CODE, message: first.message };
 }

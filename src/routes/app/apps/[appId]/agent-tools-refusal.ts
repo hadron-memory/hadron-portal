@@ -33,5 +33,5 @@ export function agentToolsRefusal(e: unknown, fallback: string): { status: 403 |
   const code = extractGqlErrorCode(e);
   if (code === 'FORBIDDEN') return { status: 403, text: AGENT_TOOLS_MANAGERS_ONLY() };
   if (code === 'IMPERSONATION_READ_ONLY') return { status: 403, text: AGENT_TOOLS_IMPERSONATION_READ_ONLY() };
-  return { status: 500, text: extractGqlError(e, fallback) };
+  return { status: 500, text: extractGqlError(e, fallback, [], { transport: 'fallback' }) };
 }

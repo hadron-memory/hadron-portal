@@ -9,6 +9,7 @@ it('renders inherited Markdown with the node sanitizer and updates reused views'
   const props = reactiveProps({ data: {
     agent: { id: 'child', name: 'Child', urn: 'hrn:agent:example.com:child', systemMemoryId: 'child-memory' },
     node: { id: 'node', name: 'Ship', loc: 'tasks:ship', urn: 'hrn:node:example.com:base:tasks:ship', content: '## Steps\n\n1. **Review**\n\n| Severity | Meaning |\n| --- | --- |\n| P1 | Broken |\n\n<script>danger()</script><style>body { display:none }</style><div class="fixed inset-0" style="position:fixed;color:red">Safe formatting</div><form method="POST" action="?/delete"><button>Submit</button></form>', inheritedFrom: { agentId: 'base', agentUrn: 'hrn:agent:example.com:base' } },
+    register: { kind: 'unavailable' },
   } });
   mounted = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
   await tick();

@@ -6,6 +6,7 @@
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import PropertiesEditor from '$lib/components/PropertiesEditor.svelte';
+  import NodeRoleCreateInput from '$lib/components/NodeRoleCreateInput.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { declaredObjectType, objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
   import { deriveDefaultLoc } from '$lib/create-node/derive-default-loc';
@@ -57,6 +58,9 @@
   // manually-edited so name-derivation doesn't clobber it. untrack snapshots
   // the seed once (data won't change without a reload).
   let locManuallyEdited = $state(untrack(() => !!data.prefillLoc || !!form?.form));
+  // portal#1656: the sibling page was capped or could not be read, so the
+  // suggested loc was not checked against every sibling.
+  const suggestionMayCollide = $derived(!!data.siblingsPartial && !locManuallyEdited && !!$formData.name);
 
   const ABSTRACT_MAX = 2000;
   let showAdvancedTypes = $state(untrack(() => initialForm.data.nodeType === 'system' || initialForm.data.nodeType === 'reference'));
@@ -129,8 +133,14 @@
   const inputClass =
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
 
-  function onLocInput(e: Event) {
+  // #1477: ONE handler sets the flag and stores the value, in that order. With
+  // `bind:value` the store write ran in bind's own listener, and a real
+  // keystroke drains microtasks before the root-delegated `oninput` fires — so
+  // the derive effect saw the cleared Loc with the flag still false and wrote
+  // the Name slug back over the user's edit.
+  function onLocInput(e: Event & { currentTarget: HTMLInputElement }) {
     locManuallyEdited = true;
+    $formData.loc = e.currentTarget.value;
   }
 
   // Toggling "advanced types" OFF while system/reference is selected
@@ -198,10 +208,10 @@
         name="loc"
         type="text"
         required
-        bind:value={$formData.loc}
+        value={$formData.loc}
         oninput={onLocInput}
         aria-invalid={!!locError}
-        aria-describedby={locError ? 'locError locHint' : 'locHint'}
+        aria-describedby={[locError ? 'locError' : '', 'locHint', suggestionMayCollide ? 'locMayCollide' : ''].filter(Boolean).join(' ')}
         {...$constraints.loc}
         class="{inputClass} {locError ? 'border-red-500 focus:border-red-500' : ''}"
         placeholder="e.g. sort-imports"
@@ -209,6 +219,11 @@
       <p id="locHint" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
         {createNodeStrings.locHint()}
       </p>
+      {#if suggestionMayCollide}
+        <p id="locMayCollide" data-testid="loc-may-collide" class="mt-1 text-xs text-amber-700 dark:text-amber-400">
+          {t('create-node.loc-may-collide', 'Not checked against every node at this level, so this loc may already exist. Creating the node checks it.')}
+        </p>
+      {/if}
       {#if locError}
         <p id="locError" class="mt-1 text-xs text-red-600 dark:text-red-400">{locError}</p>
       {/if}
@@ -280,6 +295,8 @@
         {/if}
       </div>
     {/if}
+
+    <NodeRoleCreateInput bind:value={$formData.role} rules={data.roleRules} {inputClass} />
 
     <div>
       <label for="description" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">

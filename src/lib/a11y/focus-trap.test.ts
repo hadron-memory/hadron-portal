@@ -310,3 +310,83 @@ describe('focusTrap — clicking text inside the dialog (#938)', () => {
     expect(dialog.getAttribute('tabindex')).toBe('0');
   });
 });
+
+describe('focusTrap — initial-focus preference (#1599)', () => {
+  // Both review seats on portal#1599 hit the same P2: SelectUser's Close
+  // button precedes its search input in the DOM, so the trap's
+  // first-tabbable landing put focus on Close — typing went nowhere and
+  // Enter closed the picker. The remedy (their proposal): a dialog can mark
+  // the wanted landing with `data-initial-focus`, and the trap — never a
+  // child action, which corrupts the opener capture (#1305) — prefers it.
+  // Only the LANDING changes; the Tab cycle keeps DOM order.
+
+  it('focuses the control marked data-initial-focus over the first tabbable', () => {
+    byId('mid').setAttribute('data-initial-focus', '');
+    focusTrap(dialog);
+    expect(document.activeElement).toBe(byId('mid'));
+  });
+
+  it('still captures the opener before moving focus to the marked control', () => {
+    byId('mid').setAttribute('data-initial-focus', '');
+    const trap = focusTrap(dialog);
+    expect(document.activeElement).toBe(byId('mid')); // not the opener, and not #first
+    trap.destroy();
+    expect(document.activeElement).toBe(opener); // the real opener was captured first
+  });
+
+  it('ignores a marked control the tabbable filter would drop, falling back to the first tabbable', () => {
+    // A disabled marked control must not be focused — the mark is a
+    // preference among FOCUSABLE controls, not an override of focusability.
+    byId('mid').setAttribute('data-initial-focus', '');
+    byId('mid').setAttribute('disabled', '');
+    focusTrap(dialog);
+    expect(document.activeElement).toBe(byId('first'));
+  });
+
+  it('keeps the Tab cycle in DOM order: Tab from the last control reaches the first tabbable, not the marked one', () => {
+    byId('mid').setAttribute('data-initial-focus', '');
+    focusTrap(dialog);
+    byId('last').focus();
+    dialog.dispatchEvent(tabKey());
+    expect(document.activeElement).toBe(byId('first'));
+  });
+});
+
+describe('focusTrap — suspend/resume for a dialog stacked on top (#1582)', () => {
+  it('a suspended trap does not pull focus back while the dialog above is open', () => {
+    // The QA P2 RangeError: two live document-level focusin guards re-trigger
+    // each other. The lower trap must stand down completely while the upper
+    // dialog is open — this is the suspend() half; SelectNode's client test
+    // pins the composed two-dialog behavior.
+    const trap = focusTrap(dialog);
+    trap.suspend();
+    const behind = byId('behind');
+    behind.focus();
+    behind.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    expect(document.activeElement).toBe(behind);
+  });
+
+  it('resume() recaptures a focus that escaped to an outside element', () => {
+    const trap = focusTrap(dialog);
+    trap.suspend();
+    byId('behind').focus();
+    trap.resume();
+    expect(document.activeElement).toBe(byId('first'));
+  });
+
+  it('resume() leaves a <body> focus to the host dialog — that hole is the host\'s to close (#1582 BLIND delta P2)', () => {
+    // The body exemption is DELIBERATE and load-bearing: pulling focus here
+    // would race the host dialog's own restoration, and a focus that lands
+    // on <body> via element REMOVAL fires no focusin the guard could have
+    // seen anyway. SelectNode pairs this trap with an effect that recaptures
+    // a body focus itself plus a window-capture Escape fallback. Changing
+    // the exemption breaks that division of labor — if body focus must be
+    // pulled, change the host component too.
+    const trap = focusTrap(dialog);
+    trap.suspend();
+    byId('first').blur();
+    expect(document.activeElement).toBe(document.body);
+    trap.resume();
+    expect(document.activeElement).toBe(document.body);
+  });
+});

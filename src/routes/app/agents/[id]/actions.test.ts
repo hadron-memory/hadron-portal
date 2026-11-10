@@ -135,7 +135,7 @@ describe('agent detail actions', () => {
     expect(result).toMatchObject({ status: 500 });
     expect(superFormFrom(result)?.message).toEqual({
       type: 'error',
-      text: 'Agent memory already exists',
+      text: 'Something went wrong on our side.',
     });
   });
 

@@ -26,9 +26,9 @@ function page(data: Record<string, unknown>) {
   return render(Page as never, {
     props: {
       data: { app, view: 'board', filter: 'active', alarmFilter: 'open', boardLimit: 200, alarmsLimit: 2000,
-        loadedAt: '2026-10-16T01:00:00Z', impersonating: null, board: null, roster: null, alarms: null, titles: {}, ...data },
+        loadedAt: '2026-10-16T01:00:00Z', impersonating: null, board: null, roster: null, alarms: null, refs: {}, ...data },
     },
-  } as never).body;
+  } as never).body.replace(/<!--[\s\S]*?-->/g, ''); // Ignore Svelte snippet anchors; they are not visible link text.
 }
 
 describe('sub-navigation', () => {
@@ -54,9 +54,9 @@ describe('sub-navigation', () => {
 });
 
 describe('roster', () => {
-  const roster = (workers: unknown[]) => ({ view: 'roster', roster: { kind: 'ok', value: { asOf: '2026-10-16T00:00:00Z', workers } }, titles: { t1: 'Ship it' } });
+  const roster = (workers: unknown[]) => ({ view: 'roster', roster: { kind: 'ok', value: { asOf: '2026-10-16T00:00:00Z', workers } }, refs: { t1: { id: 't1', handle: 'AT3.405', title: 'Ship it' } } });
 
-  it('sorts by attention, names each state, and puts titles on task ids', () => {
+  it('sorts by attention, names each state, puts titles and handles on task ids, and says unavailable for one it cannot resolve', () => {
     const html = page(roster([
       entry({ worker: worker('a', 'Avery'), state: 'AVAILABLE' }),
       entry({ worker: worker('y', 'Yuri'), state: 'YOUR_MOVE', alarms: ['e1', 'e2'], unreactedChildTask: 't1' }),
@@ -67,8 +67,13 @@ describe('roster', () => {
     expect(order).toEqual([...order].sort((x, y) => x - y));
     expect(html).toContain('Your move');
     expect(html).toContain('2 unacknowledged alarm(s)');
-    expect(html).toContain('href="/app/apps/app-1/tasks/t1"');
-    expect(html).toContain('Task 01a13cc6');
+    // portal#1349: the link points at the immutable handle, with the handle as a quiet chip.
+    expect(html).toContain('href="/app/apps/app-1/tasks/AT3.405"');
+    expect(html).toContain('data-task-handle');
+    expect(html).toContain('>AT3.405</code>');
+    expect(html).toContain('Task unavailable');
+    expect(html).not.toContain('01a13cc6');
+    expect(html).not.toContain('tasks/01a13cc6aaaaaaaa');
     expect(html).toContain('Quiet');
     expect(html).toContain('Its session reported no model family');
   });
@@ -92,14 +97,14 @@ describe('alarms', () => {
     wakes: [{ chainIndex: 0, dueAt: '2026-10-15T10:00:00Z', wokenAt: '2026-10-15T10:00:00Z', owner: holger }], ...over,
   });
   const alarms = (list: unknown[], alarmFilter = 'open', capped = false) =>
-    ({ view: 'alarms', alarmFilter, alarms: { kind: 'ok', value: { alarms: list, capped } }, titles: { t1: 'Ship it' } });
+    ({ view: 'alarms', alarmFilter, alarms: { kind: 'ok', value: { alarms: list, capped } }, refs: { t1: { id: 't1', handle: 'AT3.405', title: 'Ship it' } } });
 
   it('open by default: acknowledged alarms are hidden; an open one shows the CLI line and no button', () => {
     const html = page(alarms([a('e1'), a('e2', { type: 'assignment.unassignable', acknowledgedAt: '2026-10-15T11:00:00Z', acknowledgedBy: holger })]));
     expect(html).toContain('Not started');
     expect(html).not.toContain('Couldn’t be assigned');
     expect(html).toContain('hadron team alarm ack e1');
-    expect(html).toContain('href="/app/apps/app-1/tasks/t1"');
+    expect(html).toContain('href="/app/apps/app-1/tasks/AT3.405"');
     expect(html).not.toMatch(/<button[^>]*>\s*Acknowledge/);
     expect(html).not.toMatch(/<form/);
   });
@@ -114,8 +119,8 @@ describe('alarms', () => {
   // (an inline truncate never truncates); and Status sits before them so the
   // open state and its ack command are on screen at 1280.
   it('keeps a long task title in its cell, and puts Status before Concerns and Woke', () => {
-    const html = page({ ...alarms([a('e1')]), titles: { t1: 'T'.repeat(300) } });
-    expect(html).toMatch(/<a href="\/app\/apps\/app-1\/tasks\/t1" class="block max-w-full truncate/);
+    const html = page({ ...alarms([a('e1')]), refs: { t1: { id: 't1', handle: 'AT3.405', title: 'T'.repeat(300) } } });
+    expect(html).toMatch(/<a href="\/app\/apps\/app-1\/tasks\/AT3\.405" class="min-w-0 truncate/);
     const at = (h: string) => html.indexOf(`>${h}<`);
     expect(at('Status')).toBeGreaterThan(-1);
     expect(at('Status')).toBeLessThan(at('Concerns'));

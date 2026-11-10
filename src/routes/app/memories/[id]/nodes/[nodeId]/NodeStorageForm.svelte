@@ -527,7 +527,7 @@
         aria-describedby={noWriteDoor ? 'no-write-door' : undefined}
         class="rounded-lg bg-amber-500 px-6 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {$submitting ? t('node-storage.saving', 'Saving…') : t('node-storage.save', 'Save')}
+        {$submitting ? t('node-storage.saving', 'Saving…') : actionError ? t('node.save.retry', 'Retry') : t('node-storage.save', 'Save')}
       </button>
       {#if actionSuccess}
         <span role="status" class="text-sm text-green-600 dark:text-green-400">{actionSuccess}</span>

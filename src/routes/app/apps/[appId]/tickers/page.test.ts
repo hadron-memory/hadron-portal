@@ -1,23 +1,29 @@
 /**
  * portal#1099 — the Tickers list, a ticker page and the Wake-ups panel,
  * rendered on the server. S7a is read-only (Holger via Vera, team chat
- * #11540): no view renders a write control.
+ * #11540): no view renders a write control, except the Delivery section's own
+ * form for a manager (portal#1141 slice A).
  */
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'svelte/server';
 
+vi.mock('$app/forms', () => ({ enhance: () => ({}) }));
 vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), goto: vi.fn(), beforeNavigate: () => {} }));
 vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false, version: 'test' }));
+// portal#1497: the on/off control reads the page store (its refresh fence), the
+// same one-line store the other node-lane table tests use.
+vi.mock('$app/stores', () => ({ page: { subscribe: (fn: (v: unknown) => void) => (fn({ url: new URL('http://x/') }), () => {}) } }));
 import List from './+page.svelte';
 import Detail from './[tickerId]/+page.svelte';
 import WakeUpsPanel from '$lib/components/tickers/WakeUpsPanel.svelte';
 
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
 const settings = { kind: 'ok', value: { minCadenceSeconds: 120, selfSubscribeCadenceSeconds: 600, liveCap: 20, dailyWakeBudget: 480, dailyWakeBudgetDerived: true } };
+const delivery = { kind: 'ok', value: { batchWindowSeconds: 120, busyDelaySeconds: 600, stuckWindowSeconds: 900, standbyEnabled: false, standbyEffective: false } };
 const LOADED = '2026-10-16T10:00:00Z';
 
 const ticker = (over: Record<string, unknown> = {}) => ({
-  id: 'tk-1', name: 'engineering', slug: 'engineering', urn: 'hrn:ticker:acme.com:team:engineering',
+  id: 'tk-1', name: 'engineering', slug: 'engineering', tickCode: 'tick.engineering', urn: 'hrn:ticker:acme.com:team:engineering',
   enabled: true, cadenceSeconds: 600, anchorAt: '2026-10-01T00:00:00Z',
   nextTickAt: '2026-10-16T10:10:00Z', lastTickAt: '2026-10-16T10:00:00Z',
   quietHours: { timezone: 'Europe/Berlin', windows: [{ days: [1, 2, 3, 4, 5], from: '22:00', to: '07:00' }] },
@@ -27,17 +33,36 @@ const ticker = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-function list(over: Record<string, unknown> = {}) {
+// portal#1151 (S7b): the New ticker and Edit ticker sections are the ticker writes, pinned in
+// write-forms.test.ts. These tests are about the READ views, so those sections are cut out here.
+const WRITE_SECTION = /<section[^>]*data-testid="ticker-(create|edit)-section"[\s\S]*?<\/section>/;
+const readView = (html: string) => html.replace(WRITE_SECTION, '');
+
+function listFull(over: Record<string, unknown> = {}) {
   return render(List as never, {
-    props: { data: { app, tickers: { kind: 'ok', value: [] }, settings, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null, ...over } },
+    props: { data: { app, tickers: { kind: 'ok', value: [] }, settings, delivery, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null, ...over } },
   } as never).body;
 }
+const list = (over: Record<string, unknown> = {}) => readView(listFull(over));
 
 /**
  * No write control: no form, no named form field (the grid's own search box
  * is chrome, not a field), and no button or link naming an S7b write.
  */
-function expectReadOnly(html: string) {
+function expectReadOnly(rendered: string) {
+  // portal#1141 A: the list now carries the Delivery section, whose form is its own write
+  // (pinned in its tests below). This helper is about the TICKER views, so that section is cut out.
+  // portal#1497: the ticker page's own controls are writes too — the on/off form
+  // beside the badge, the Add-subscriber chooser under the list, each row's
+  // Remove — pinned in controls.client.test.ts / controls.server.test.ts. They
+  // are cut the same way; what this helper still guards is that nothing ELSE
+  // writes. (Server render only: each cut is flat in SSR — a control's result
+  // markup mounts client-side after a submit.)
+  const html = rendered
+    .replace(/<section[^>]*data-testid="delivery-settings"[\s\S]*?<\/section>/, '')
+    .replace(/<div[^>]*data-testid="ticker-enabled-control"[\s\S]*?<\/div>/, '')
+    .replace(/<div[^>]*data-testid="ticker-add-subscriber"[\s\S]*?<\/div>/, '')
+    .replace(/<button[^>]*data-testid="ticker-remove-[^"]*"[^>]*>[\s\S]*?<\/button>/g, '');
   expect(html).not.toMatch(/<form/);
   expect(html).not.toMatch(/<(input|select|textarea)[^>]*\bname=/);
   expect(html).not.toMatch(/<(button|a)\b[^>]*>\s*(Create ticker|Edit|Disable|Enable|Delete|Add subscriber|Remove|Subscribe|Pause|Resume|Give scope|Take scope back|Save)\b/i);
@@ -49,7 +74,7 @@ describe('Tickers list', () => {
     expect(html).toContain('No tickers yet.');
     expect(html).toContain('A mention already makes a worker due at once, unless its mentions are off or it is paused.');
     expect(html).toContain('A router delivers the wake-ups. This page only decides who is due and when.');
-    expect(html).toContain('use the MCP tool hadron_ticker_create');
+    expect(html).not.toContain('hadron_ticker_create');
     expect(html).not.toMatch(/tickers (already )?wake/i);
     expectReadOnly(html);
   });
@@ -92,6 +117,24 @@ describe('Tickers list', () => {
     expect(html).not.toContain('No tickers yet.');
   });
 
+  // portal#1141 A: the Delivery section is the one write on this page, offered to every participant
+  // (the server's refusal answers anyone who may not; no client rights check).
+  it('offers exactly one form, the Delivery one; the ticker settings stay read-only', () => {
+    const html = list();
+    expect(html.match(/<form/g)).toHaveLength(1);
+    expect(html).toContain('action="?/delivery"');
+    expect(html).toContain('Save delivery settings');
+    expect(html).toContain('Only whoever manages the App can change these settings.');
+    expect(html).toContain('data-testid="ticker-settings"');
+    expect(html).not.toContain('name="standbyEnabled"');
+  });
+
+  it('a support session gets the Delivery values without a form', () => {
+    const html = list({ impersonating: 'Rae' });
+    expect(html).not.toMatch(/<form/);
+    expect(html).toContain('Busy delay (seconds)');
+  });
+
   it('shows the App’s settings read-only, saying who can change them', () => {
     const html = list();
     expect(html).toContain('Fastest ticker: every 2 min');
@@ -102,17 +145,23 @@ describe('Tickers list', () => {
   });
 });
 
-function detail(over: Record<string, unknown> = {}) {
+function detailFull(over: Record<string, unknown> = {}) {
   return render(Detail as never, {
     props: {
       data: {
         app, ticker: ticker(), settings, paged: false, loadedAt: LOADED, impersonating: null,
+        tickerTask: { kind: 'ok', value: { registerTaskLoc: 'tasks:on-base-tick' } },
+        // portal#1497: the Add-subscriber chooser's one roster read, ok by
+        // default here (its own bad states are the client controls' tests).
+        roster: { kind: 'ok', workers: [{ id: 'w-dara', name: 'Dara', urn: 'hrn:worker:acme.com:team:dara' }] },
+        user: null,
         subscribers: { kind: 'ok', value: { items: [], hasNextPage: false, endCursor: null } },
         ...over,
       },
     },
   } as never).body;
 }
+const detail = (over: Record<string, unknown> = {}) => readView(detailFull(over));
 
 describe('Ticker page', () => {
   it('shows the facts, read-only', () => {
@@ -139,8 +188,20 @@ describe('Ticker page', () => {
   });
 
   // Uma's P3-1 on #1136: say where changes are made, not only who may make them.
-  it('says changes are made through MCP for now', () => {
-    expect(detail()).toContain('In the portal this is read-only for now; use the MCP tools (hadron_ticker_update, hadron_ticker_subscribe) to change it.');
+  // portal#1497 D4: the portal controls replaced portal#1498's CLI commands for
+  // these operations — the ticker page names no MCP tool and carries no hadron
+  // ticker command; the controls are the surface. The Wake-ups tab keeps its
+  // commands (D3: no writes there), pinned in its own describe below. The
+  // who-sentences stay: hrn:node:hadronmemory.com:specs:cor:agt:080:18 above the on/off control (pinned by
+  // 'shows the facts'), hrn:node:hadronmemory.com:specs:cor:agt:080:20 beside the subscriber controls.
+  it('carries the controls, not CLI commands: no MCP tool, no hadron ticker command', () => {
+    const html = detail();
+    expect(html).not.toContain('hadron_');
+    expect(html).not.toContain('hadron ticker update');
+    expect(html).not.toContain('hadron ticker subscribe');
+    expect(html).not.toContain('hadron ticker unsubscribe');
+    expect(html).toContain('data-testid="ticker-enabled-control"');
+    expect(html).toContain('data-testid="ticker-subscriber-who"');
   });
 
   it('no subscribers reads “Nobody follows this ticker yet.”', () => {
@@ -212,8 +273,30 @@ describe('Wake-ups panel', () => {
     expect(html).toContain('effectiveCadenceSeconds');
   });
 
-  it('says wake settings are changed through MCP for now', () => {
-    expect(panel()).toContain('In the portal this is read-only for now; use the MCP tool hadron_worker_wake_settings to change it.');
+  // portal#1496 (MCP cut P1): the CLI commands, each with a setting operand.
+  it('gives the CLI commands to change wake settings, naming no MCP tool', () => {
+    const html = panel({ worker: { retiredAt: null, id: 'w-liam', urn: 'hrn:worker:acme.com:team:liam' } });
+    expect(html).not.toContain('hadron_');
+    for (const setting of ['--mentions off', '--mentions immediate', '--clear-pause', '--paused-until &lt;RFC3339>']) {
+      expect(html).toContain(`hadron team wake-settings set --worker hrn:worker:acme.com:team:liam ${setting}`);
+    }
+  });
+
+  // hrn:node:hadronmemory.com:specs:cor:agt:080:21: mentions and pause only;
+  // subscriptions follow hrn:node:hadronmemory.com:specs:cor:agt:080:20.
+  it('says who may change mentions and pause, not subscriptions', () => {
+    const html = panel({ worker: { retiredAt: null, id: 'w-liam', urn: 'hrn:worker:acme.com:team:liam' } });
+    expect(html).toContain('Only the worker itself, its holder, or whoever manages the App can change its mentions or pause.');
+    expect(html).not.toContain('mentions, pause or subscriptions');
+  });
+
+  it('falls back to the worker id when it has no URN, and quotes what the shell would split', () => {
+    expect(panel({ worker: { retiredAt: null, id: 'w-liam', urn: null } })).toContain('hadron team wake-settings set --worker w-liam --mentions off');
+    expect(panel({ worker: { retiredAt: null, id: "w liam's", urn: null } })).toContain("hadron team wake-settings set --worker 'w liam'\\''s' --mentions off");
+  });
+
+  it('renders no command with an empty operand when the worker has neither URN nor id', () => {
+    expect(panel()).not.toContain('hadron team wake-settings');
   });
 
   it('a non-participant sees the inline state, not the worker’s settings', () => {
@@ -331,5 +414,95 @@ describe('ticker reasons (portal#1144)', () => {
     expect(unknown).toContain('SOMETHING_NEW');
     expect(unknown).toContain('(unrecognised)');
     expect(detail({ ticker: reasoned([]) })).toContain('Never fires (no reasons)');
+  });
+});
+
+// portal#1384 (T-P1): the Task entry. The portal shows what the server returns and nothing it
+// would have to invent: no node fetch, no URN built from a loc, no mapping editor.
+describe('Ticker page: the Task entry (portal#1384)', () => {
+  const entry = (html: string) => html.match(/<div[^>]*data-testid="ticker-task"[\s\S]*?<\/dd>/)?.[0] ?? '';
+  const count = (hay: string, needle: string) => hay.split(needle).length - 1;
+  const noLoc = { kind: 'ok', value: { registerTaskLoc: null } };
+
+  it('mapped: the loc once in mono, the code once, and the line that each worker runs its own role’s task', () => {
+    const e = entry(detail());
+    expect(e).not.toBe('');
+    expect(count(e, 'tasks:on-base-tick')).toBe(1);
+    expect(count(e, 'tick.engineering')).toBe(1);
+    expect(e).toMatch(/<(code|span)[^>]*font-mono[^>]*>[^<]*tasks:on-base-tick/);
+    expect(e).toContain('Each woken worker looks up the nearest readable runnable task in its Agent chain.');
+    expect(e).not.toContain('Each worker runs the task at this location');
+    expect(e).toContain('Ticker code:');
+    expect(e).toMatch(/Ticker code:\s*<code[^>]*>tick\.engineering<\/code>/);
+    expect(e).not.toContain('No task you can see');
+  });
+
+  it('no loc: says so, gives the code and how to fix it, and shows no loc, URN chip or empty chip', () => {
+    const e = entry(detail({ tickerTask: noLoc }));
+    expect(e).toContain('No task you can see is mapped to this ticker.');
+    expect(count(e, 'tick.engineering')).toBe(1);
+    expect(e).toContain('map this code in the team Agent’s system memory');
+    expect(e).not.toContain('tasks:on-base-tick');
+    expect(e).not.toContain('Each worker runs');
+    expect(e).not.toMatch(/data-testid="urn/);
+    expect(e).not.toMatch(/<(code|span)[^>]*>\s*<\/(code|span)>/);
+  });
+
+  it('never invents a URN or a node link, in either state', () => {
+    for (const tickerTask of [{ kind: 'ok', value: { registerTaskLoc: 'tasks:on-base-tick' } }, noLoc]) {
+      const e = entry(detail({ tickerTask }));
+      expect(e).not.toBe('');
+      expect(e).not.toContain('hrn:node:');
+      expect(e).not.toContain('/app/u/');
+      expect(e).not.toMatch(/<a\b/);
+    }
+  });
+
+  it('shows tickCode as the server gave it; two copies with different names and slugs share one code', () => {
+    const a = entry(detail({ ticker: ticker({ name: 'Eng A', slug: 'eng-a', tickCode: 'tick.shared' }) }));
+    const b = entry(detail({ ticker: ticker({ name: 'Eng B', slug: 'eng-b', tickCode: 'tick.shared' }) }));
+    expect(count(a, 'tick.shared')).toBe(1);
+    expect(count(b, 'tick.shared')).toBe(1);
+    expect(a).not.toContain('tick.eng-a');
+    expect(b).not.toContain('tick.eng-b');
+  });
+
+  it('a failed task read says it could not load, with a retry, and never reads as “no task mapped”', () => {
+    const html = detail({ tickerTask: { kind: 'failed' } });
+    const e = entry(html);
+    expect(e).toContain('Couldn’t load this ticker’s task.');
+    expect(e).toContain('Try again');
+    expect(e).not.toContain('No task you can see');
+    // the rest of the page is intact
+    expect(html).toContain('data-testid="ticker-facts"');
+    expect(html).toContain('Nobody follows this ticker yet.');
+  });
+
+  it('a read that says nothing about this ticker (not-participant, or the ticker gone) renders no Task entry and claims no mapping', () => {
+    for (const tickerTask of [{ kind: 'not-participant' }, { kind: 'ok', value: null }]) {
+      const html = detail({ tickerTask });
+      expect(html).not.toContain('data-testid="ticker-task"');
+      expect(html).not.toContain('No task you can see');
+      expect(html).toContain('data-testid="ticker-facts"');
+    }
+  });
+
+  it('an empty code (malformed-response robustness: tickCode is String!, so an older server rejects the query) omits the code line and raises no error', () => {
+    const e = entry(detail({ ticker: ticker({ tickCode: '' }) }));
+    expect(e).toContain('tasks:on-base-tick');
+    expect(e).not.toMatch(/code:/i);
+  });
+
+  it('escapes markup in a loc and a code', () => {
+    const e = entry(detail({ ticker: ticker({ tickCode: 'tick.<img src=x>' }), tickerTask: { kind: 'ok', value: { registerTaskLoc: 'a:<script>x</script>' } } }));
+    expect(e).not.toContain('<script>');
+    expect(e).not.toContain('<img');
+    expect(e).toContain('&lt;script>');
+  });
+
+  it('stays read-only', () => {
+    expectReadOnly(detail());
+    expectReadOnly(detail({ tickerTask: noLoc }));
+    expectReadOnly(detail({ tickerTask: { kind: 'failed' } }));
   });
 });

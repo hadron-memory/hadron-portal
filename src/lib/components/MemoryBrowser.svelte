@@ -16,12 +16,13 @@
   import { objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
   import type { Memory, MemoryNode, TreeEntry, SearchHitMeta } from '$lib/types';
   import type { NodeColumnRow } from '$lib/node-columns';
+  import type { AppScopedMemory } from '$lib/app-memory-scope';
 
   /** Build the URL to a node's detail page, or empty if memory context is missing */
   function nodeHref(node: MemoryNode, base: string): string {
     if (base) return `${base}/nodes/${node.id}`;
     // #260: memory pages are org-less, so the fallback needs only the memory id.
-    const memId = node.memory?.id;
+    const memId = memoryIdentity(node)?.id;
     if (memId) return `/app/memories/${memId}/nodes/${node.id}`;
     return '';
   }
@@ -34,6 +35,7 @@
     readOnly = false,
     writableMemoryIds = [],
     scopeMemoryIds = [],
+    scopeMemories = [],
     forcedView,
     memory = null,
     refreshKey = 0,
@@ -61,6 +63,8 @@
      * recovered from basePath).
      */
     scopeMemoryIds?: string[];
+    /** Authorized leaf identities; never fabricate a nested Memory record. */
+    scopeMemories?: Pick<AppScopedMemory, 'memoryId' | 'memoryUrn' | 'name'>[];
     /** When set (the #266 tab layout), fixes the view and hides the toggle. */
     forcedView?: 'graph' | 'nodes';
     /**
@@ -79,6 +83,11 @@
      */
     refreshKey?: number;
   } = $props();
+
+  const scopeIdentity = $derived(new Map(scopeMemories.map(row => [row.memoryId, { id: row.memoryId, urn: row.memoryUrn, name: row.name }])));
+  function memoryIdentity(node: MemoryNode) {
+    return scopeIdentity.get(node.memoryId) ?? node.memory ?? null;
+  }
 
   const writableSet = $derived(new Set(writableMemoryIds));
 
@@ -775,7 +784,7 @@
   });
 
   // ── Filters ───────────────────────────────────────────────────────────
-  const availableMemoryUrns = $derived([...new Set(nodes.map((n) => n.memory?.urn ?? ''))].filter(Boolean).sort());
+  const availableMemoryUrns = $derived([...new Set([...scopeMemories.map(m => m.memoryUrn), ...nodes.map(n => memoryIdentity(n)?.urn ?? '')])].filter(Boolean).sort());
   const availableNodeTypes = $derived([...new Set(nodes.map((n) => n.nodeType ?? 'info'))].sort());
   const availableTags = $derived([...new Set(nodes.flatMap((n) => n.tags ?? []))].sort());
 
@@ -907,7 +916,7 @@
   }
   const filteredNodes = $derived(
     displayNodes.filter((n) => {
-      if (activeMemoryUrns.size > 0 && !activeMemoryUrns.has(n.memory?.urn ?? '')) return false;
+      if (activeMemoryUrns.size > 0 && !activeMemoryUrns.has(memoryIdentity(n)?.urn ?? '')) return false;
       if (activeNodeTypes.size > 0 && !activeNodeTypes.has(n.nodeType ?? 'info')) return false;
       if (activeTags.size > 0 && !(n.tags ?? []).some((t) => activeTags.has(t))) return false;
       return true;
@@ -983,7 +992,7 @@
   // ── Derived views ─────────────────────────────────────────────────────
   // Derive single memory URN for loc normalization (only when all nodes share one memory)
   const singleMemoryUrn = $derived.by(() => {
-    const urns = new Set(filteredNodes.map((n) => n.memory?.urn).filter(Boolean));
+    const urns = new Set(filteredNodes.map((n) => memoryIdentity(n)?.urn).filter(Boolean));
     return urns.size === 1 ? [...urns][0] : undefined;
   });
   // #706: the graph is built from `visibleNodes`, not `filteredNodes` — it was
@@ -1009,7 +1018,7 @@
     // actually renders. On `filteredNodes` a hidden node still voted — it could
     // tip `hasMultiMemory` on for a memory with nothing visible in it, and
     // `locToType` could colour a FOLDER by the type of a node not on screen.
-    const memoryUrns = [...new Set(visibleNodes.map((n) => n.memory?.urn ?? ''))].filter(Boolean);
+    const memoryUrns = [...new Set(visibleNodes.map((n) => memoryIdentity(n)?.urn ?? ''))].filter(Boolean);
     const hasMultiMemory = multiMemory && memoryUrns.length > 1;
     const hasMultiTypeFilter = activeNodeTypes.size > 1;
 
@@ -1032,9 +1041,9 @@
 
     for (const n of visibleNodes) {
       idToType[n.id] = n.nodeType ?? 'info';
-      idToMemory[n.id] = n.memory?.name ?? n.memory?.urn ?? '';
+      idToMemory[n.id] = memoryIdentity(n)?.name ?? memoryIdentity(n)?.urn ?? '';
       locToType[n.loc] = n.nodeType ?? 'info';
-      locToMemory[n.loc] = n.memory?.name ?? n.memory?.urn ?? '';
+      locToMemory[n.loc] = memoryIdentity(n)?.name ?? memoryIdentity(n)?.urn ?? '';
       if (readOnly || writableSet.size > 0) {
         idToReadOnly[n.id] = readOnly || !writableSet.has(n.memoryId);
       }
@@ -1071,7 +1080,7 @@
   const memoryColors = ['#58a6ff', '#3fb950', '#d29922', '#bc8cff', '#f97583', '#56d4dd'];
   const memoryColorMap = $derived.by(() => {
     const map: Record<string, string> = {};
-    const urns = [...new Set(nodes.map((n) => n.memory?.urn ?? ''))];
+    const urns = [...new Set(nodes.map((n) => memoryIdentity(n)?.urn ?? ''))];
     urns.forEach((u, i) => { map[u] = memoryColors[i % memoryColors.length]; });
     return map;
   });
@@ -1079,8 +1088,9 @@
   // Memory name lookup + read-only status by URN
   const memoryNameMap = $derived.by(() => {
     const map: Record<string, string> = {};
+    for (const row of scopeMemories) map[row.memoryUrn] = row.name;
     for (const n of nodes) {
-      if (n.memory?.urn && n.memory.name) map[n.memory.urn] = n.memory.name;
+      if (memoryIdentity(n)?.urn && memoryIdentity(n)!.name) map[memoryIdentity(n)!.urn] = memoryIdentity(n)!.name;
     }
     return map;
   });
@@ -1088,7 +1098,7 @@
     if (writableSet.size === 0) return {} as Record<string, boolean>;
     const map: Record<string, boolean> = {};
     for (const n of nodes) {
-      if (n.memory?.urn) map[n.memory.urn] = !writableSet.has(n.memoryId);
+      if (memoryIdentity(n)?.urn) map[memoryIdentity(n)!.urn] = !writableSet.has(n.memoryId);
     }
     return map;
   });
@@ -1663,9 +1673,11 @@
           <!-- hideSearch: the single search box lives in MemoryBrowser now
                (issue #355 — was two boxes); NodeList's own box would be the
                redundant second field. -->
+          <!-- portal#1346: embedding badges follow the browsed memory's vectorIndexEnabled. `memory` is
+               single-memory pages only, so agent/app browsers (several memories) show none by design. -->
           <NodeList
             nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} snippets={searchSnippets} meta={searchMeta} deletedIds={searchDeletedIds}
-            showColumns onvisiblenodes={showColumnsFor} columnData={nodeColumns.rows} signingOffered={nodeColumns.signing !== false} columnsLoading={nodeColumns.loading} columnsFailed={nodeColumns.failed} onretrycolumns={() => void nodeColumns.retry()}
+            showColumns embeddingEnabled={memory?.vectorIndexEnabled === true} onvisiblenodes={showColumnsFor} columnData={nodeColumns.rows} signingOffered={nodeColumns.signing !== false} columnsLoading={nodeColumns.loading} columnsFailed={nodeColumns.failed} onretrycolumns={() => void nodeColumns.retry()}
           />
         </div>
       {/if}

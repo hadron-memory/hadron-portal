@@ -22,8 +22,7 @@ interface RecoveryEdge {
   target: (DeletedEndpoint & { deletedAt: string | null }) | null;
 }
 
-const PAGE = 200;
-const MAX_PAGES = 10;
+const CHUNK_SIZE = 200;
 
 export async function deletedEdgeEndpoints(
   client: ReturnType<typeof gqlClient>,
@@ -36,21 +35,22 @@ export async function deletedEdgeEndpoints(
   const pick = (ep: RecoveryEdge['source']): DeletedEndpoint | undefined =>
     ep?.deletedAt ? { id: ep.id, urn: ep.urn, loc: ep.loc, name: ep.name } : undefined;
   try {
-    const seen = new Set<string>();
-    for (let page = 0; page < MAX_PAGES; page++) {
+    // #1412: ask only for this node's missing edge endpoints, never scan the
+    // whole memory. A sparse batch is complete; later batches still need reading.
+    const ids = [...wanted];
+    for (let start = 0; start < ids.length; start += CHUNK_SIZE) {
+      const edgeIds = ids.slice(start, start + CHUNK_SIZE);
       const r = await client.request<{ recoveryEdges?: { items: RecoveryEdge[]; total: number } | null }>(
-        RECOVERY_EDGES_QUERY, { memoryRef, limit: PAGE, offset: page * PAGE },
+        RECOVERY_EDGES_QUERY, { memoryRef, edgeIds, limit: edgeIds.length },
       );
       const items = r?.recoveryEdges?.items;
       if (!items) return {};
       for (const item of items) {
         if (!wanted.has(item.id)) continue;
-        seen.add(item.id);
         const source = pick(item.source);
         const target = pick(item.target);
         if (source || target) found[item.id] = { ...(source ? { source } : {}), ...(target ? { target } : {}) };
       }
-      if (items.length < PAGE || seen.size === wanted.size) break;
     }
   } catch {
     return {};

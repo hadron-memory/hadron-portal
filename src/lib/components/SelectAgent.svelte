@@ -3,8 +3,10 @@
   // SelectMemory.svelte (same TanStack adapter, modal chrome, untrack reset);
   // agents have a display URN so rows use the Urn component, like SelectMemory.
   import type { PortalColumnDef } from '$lib/table/features';
+  import { pickerStrings } from '$lib/i18n/picker-strings';
   import { untrack } from 'svelte';
   import { focusTrap } from '$lib/a11y/focus-trap';
+  import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
   import { t } from '$lib/i18n/t';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
@@ -80,11 +82,9 @@
     open = false;
   }
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (open && e.key === 'Escape') {
-      open = false;
-    }
-  }
+  // Escape: consumed at this dialog's own layer — the shared helper owns the
+  // layering contract and the guards (src/lib/a11y/dialog-escape.ts).
+  const escapeFallback = { close: () => { open = false; } };
 
   // Reset search + pagination whenever the modal closes. `open` is the only
   // tracked dependency; the reset itself runs untracked because
@@ -101,8 +101,6 @@
   });
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -114,8 +112,10 @@
       aria-label={t('select-agent.title', 'Choose an agent')}
       tabindex="-1"
       use:focusTrap
+      use:dialogEscapeFallback={escapeFallback}
       class="w-full max-w-2xl rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 flex flex-col"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => consumeEscapeAtDialog(e, escapeFallback)}
       style="max-height: 70vh;"
     >
       <!-- Header with search. The input must NOT focus itself via an action:
@@ -169,9 +169,10 @@
                     <button
                       type="button"
                       onclick={() => select(row.original)}
-                      class="rounded bg-indigo-500 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-600 dark:bg-indigo-600 dark:hover:bg-indigo-700"
+                      aria-label={pickerStrings.selectNamed(row.original.name)}
+                      class="rounded bg-indigo-500 px-3 py-1 text-xs font-medium text-white pointer-coarse:min-h-11 hover:bg-indigo-600 dark:bg-indigo-600 dark:hover:bg-indigo-700"
                     >
-                      Select
+                      {pickerStrings.select()}
                     </button>
                   </td>
                 </tr>

@@ -10,7 +10,8 @@
 import { t } from './t';
 
 export const aiConfigStrings = {
-  heading: (): string => t('ai-config.heading', 'AI providers'),
+  heading: (): string => t('ai-config.heading', 'AI provider configurations'),
+  ownerCaption: (name: string): string => t('ai-config.owner-caption', 'Owned by {name}', { name }),
   subheading: (): string =>
     t(
       'ai-config.subheading',
@@ -37,6 +38,8 @@ export const aiConfigStrings = {
   testButton: (): string => t('ai-config.test', 'Test'),
   saveButton: (): string => t('ai-config.save', 'Save'),
   savingButton: (): string => t('ai-config.saving', 'Saving…'),
+  recoveryPending: (): string =>
+    t('ai-config.recovery-pending', 'Checking configurations before you can make another change…'),
   cancelButton: (): string => t('ai-config.cancel', 'Cancel'),
 
   noKey: (): string => t('ai-config.no-key', 'No key'),
@@ -94,6 +97,8 @@ export const aiConfigStrings = {
   modelRequired: (): string => t('ai-config.model-required', 'Provider and model are required.'),
   testNeedsKey: (): string =>
     t('ai-config.test-needs-key', 'Enter a key to test this configuration.'),
+  testTimedOut: (): string =>
+    t('ai-config.test-timed-out', 'The test timed out. Try again.'),
 
   /**
    * Hint shown on the AGENT surface (#924). The agent page has no Chat tab any
@@ -126,4 +131,15 @@ export const aiConfigStrings = {
   /** #1020 review: the inline confirm keeps the irreversibility visible —
    * the menu item's title is invisible to keyboard and touch users. */
   confirmQuestion: (): string => t('ai-config.confirm-question', 'Delete? This cannot be undone.'),
+
+  editorTitle: (name: string): string => t('ai-config.editor-title', '“{name}”', { name }),
+  saveSuccess: (name: string): string => t('ai-config.save-success', 'Saved “{name}”.', { name }),
+  deleteSuccess: (name: string): string => t('ai-config.delete-success', 'Deleted “{name}”.', { name }),
+  saveRefreshFailed: (name: string): string =>
+    t('ai-config.save-refresh-failed', 'Saved “{name}”, but the configurations couldn’t be refreshed.', { name }),
+  deleteRefreshFailed: (name: string): string =>
+    t('ai-config.delete-refresh-failed', 'Deleted “{name}”, but the configurations couldn’t be refreshed.', { name }),
+  reloadPage: (): string => t('ai-config.reload-page', 'Reload page'),
+  mutationUnconfirmed: (): string =>
+    t('ai-config.mutation-unconfirmed', 'We couldn’t confirm the change went through. Reload to check before trying again.'),
 };

@@ -1,5 +1,7 @@
 <script lang="ts">
+  import TabRow from '$lib/components/TabRow.svelte';
   import { locOfSameMemoryTarget } from '$lib/urn/move-destination';
+  import { Expand } from 'lucide-svelte';
   import MoveLocationInput from '$lib/components/MoveLocationInput.svelte';
   import CappedNotice from '$lib/components/CappedNotice.svelte';
   import { formatPortalDate, formatPortalDateTime } from '$lib/format-portal-date';
@@ -7,11 +9,11 @@
   import { invalidateAll, goto } from '$app/navigation';
   import { canonicalJson, parseDataSource, parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
   import { displayJson, JsonDraft, SIGNED_OUT, submitJsonDraft, syncDraftWith } from '$lib/json-draft.svelte';
-  import { deserialize } from '$app/forms';
+  import { deserialize, enhance } from '$app/forms';
   import { signinRedirectLocation } from '$lib/forms/signin-redirect';
   import { submitTextDraft, syncTextDraftWith, TextDraft } from '$lib/text-draft.svelte';
   import { abstractPlaceholder, abstractSearchHint } from '$lib/abstract-search-hint';
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -24,6 +26,7 @@
   import NodeList from '$lib/components/NodeList.svelte';
   import ChatThread from '$lib/components/ChatThread.svelte';
   import SelectMemory from '$lib/components/SelectMemory.svelte';
+  import { scheduleTypeahead, targetUrnOptions, type TypeaheadNode } from '$lib/memory/node-typeahead';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { isOwnershipChainUrn, moveHintGrammar } from '$lib/urn/move-hint-grammar';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
@@ -76,10 +79,10 @@
     type ExtractionRow,
   } from '$lib/flow/extraction';
   import { fillViewport } from '$lib/fill-viewport';
-  import { scrollHint } from '$lib/scroll-hint';
-  import type { NodeEdge, NodeRevision } from '$lib/types';
+  import type { MemoryNode, NodeEdge, NodeEdgeRemoval, NodeRevision } from '$lib/types';
   import type { PageData, ActionData } from './$types';
   import NodeStorageForm from './NodeStorageForm.svelte';
+  import { readMoreChildren } from './children-page';
   import {
     isFullyQualifiedNodeUrnInput,
     nodeApproveSchema,
@@ -151,7 +154,12 @@
   let showSource = $state(false);
   let confirmDelete = $state(false);
   let copied = $state(false);
+  // portal#1899: a compiled boot prompt is written only by a compile (hrn:node:hadronmemory.com:specs:cor:agt:040:11, :12);
+  // a save is always refused, so its text and abstract are shown read-only with a pointer to the source.
+  const isCompiledPrompt = $derived(node.nodeType === 'compiled-boot-prompt');
   const readOnly = $derived(data.canWriteMemory === false);
+  // Only the text editors; move, delete, history and the other doors keep their existing behavior (out of scope).
+  const textReadOnly = $derived(readOnly || isCompiledPrompt);
   let isEditing = $state(false);
 
   // Inline editing. #927: each text editor is a draft based on the revision it
@@ -205,6 +213,10 @@
               'Your edit was not saved: the server reported a conflicting change{detail}. This text is unchanged and your edit is still here, so you can save again.',
               { detail: detail ? ` (${detail})` : '' },
             );
+      case 'compiled-prompt':
+        return t('node.text.save.compiled-prompt', 'A compiled boot prompt is never edited directly. Edit the boot source and compile again. Nothing was saved.');
+      case 'boot-prompt-governed':
+        return t('node.text.save.boot-prompt-governed', 'A worker session cannot edit a boot prompt; its manager does that. Nothing was saved.');
       case 'no-baseline':
         return t('node.text.save.no-baseline', 'This editor lost track of the version it opened. Copy your edit and reload the page.');
       case 'not-found':
@@ -266,6 +278,7 @@
         if (!stillOurs()) return;
         contentDraft.reseed({ id: node.id, value: node.content, revision: contentRevision() });
         showSource = false;
+        if (stillOurs()) void restoreSaveFocus(() => contentSourceToggle, stillOurs);
       } else if (result.code === 'changed') {
         // Load the newer version under the kept draft: Rendered now shows it,
         // and the draft learns whether it was THIS field that moved.
@@ -280,7 +293,10 @@
     } catch {
       if (stillOurs()) contentSaveError = textSaveErrorText('failed', null, true);
     } finally {
-      if (seq === contentSaveSeq) saving = false;
+      if (seq === contentSaveSeq) {
+        saving = false;
+        if (showSource && stillOurs()) void restoreSaveFocus(() => contentSaveButton, stillOurs);
+      }
     }
   }
 
@@ -324,6 +340,27 @@
   // the viewport without pushing its Save button off-screen.
   let contentSaveRow = $state<HTMLElement | null>(null);
   let abstractSaveRow = $state<HTMLElement | null>(null);
+  // #1446: a successful save closes its editor, which unmounts the focused Save
+  // button and would drop focus to <body>. The Source toggle stays mounted and
+  // is the control that reopens the editor, so focus moves there.
+  let contentSourceToggle = $state<HTMLButtonElement | null>(null);
+  let abstractSourceToggle = $state<HTMLButtonElement | null>(null);
+  let contentSaveButton = $state<HTMLButtonElement | null>(null);
+  let abstractSaveButton = $state<HTMLButtonElement | null>(null);
+  // Where focus goes once a save settles, on success (the Source toggle) and on
+  // refusal (Save). Save is disabled while a save is in flight, and a browser
+  // blurs a focused control the moment it is disabled, so focus is on <body>
+  // when the save settles unless the user has moved it (QA on #1563). Take it
+  // only from <body>; never from a control the user chose.
+  async function restoreSaveFocus(button: () => HTMLButtonElement | null, stillOurs: () => boolean) {
+    await tick();
+    // The render this awaits can be a navigation to another node; the save that
+    // started here must not move focus in that node's editor.
+    if (!stillOurs()) return;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    button()?.focus();
+  }
   // #936: what the abstract does for THIS memory's search, if anything.
   const abstractHint = $derived(abstractSearchHint(data.graph));
   let copiedAbstract = $state(false);
@@ -367,6 +404,7 @@
         if (!stillOurs()) return;
         abstractDraft.reseed({ id: node.id, value: node.abstract, revision: node.revision });
         showAbstractSource = false;
+        if (stillOurs()) void restoreSaveFocus(() => abstractSourceToggle, stillOurs);
       } else if (result.code === 'changed') {
         await invalidateAll();
         if (!stillOurs()) return;
@@ -379,7 +417,10 @@
     } catch {
       if (stillOurs()) abstractSaveError = textSaveErrorText('failed', null, true);
     } finally {
-      if (seq === abstractSaveSeq) savingAbstract = false;
+      if (seq === abstractSaveSeq) {
+        savingAbstract = false;
+        if (showAbstractSource && stillOurs()) void restoreSaveFocus(() => abstractSaveButton, stillOurs);
+      }
     }
   }
 
@@ -663,11 +704,19 @@
   );
   // Same-memory nodes for the output-target datalist (any URN can still be
   // typed — flows may write to another memory in the org).
-  const outputTargetOptions = $derived(
-    (data.graphNodes ?? [])
-      .filter((n) => n.memoryId === data.graph.id && n.id !== node.id)
-      .map((n) => ({ urn: data.graph.urn ? composeNodeUrn(data.graph.urn, n.loc) : n.loc, name: n.name ?? n.loc })),
+  // Fetched on demand as the user types (portal#1433): the layout carries no
+  // node list (portal#1524). No hits is "no suggestions", never "no nodes".
+  let outputTargetHits = $state<TypeaheadNode[]>([]);
+  $effect(() =>
+    scheduleTypeahead({
+      query: outputWriteTo,
+      memoryId: data.graph.id,
+      selfId: node.id,
+      skip: isFullyQualifiedNodeUrnInput,
+      onHits: (hits) => (outputTargetHits = hits),
+    }),
   );
+  const outputTargetOptions = $derived(targetUrnOptions(outputTargetHits, data.graph.urn, composeNodeUrn));
 
   const initialFlowForm = untrack(() => submittedForm<NodeUpdateFlowForm>(form, 'updateFlow') as NodeUpdateFlowSuperform | null ?? data.flowForm);
   const {
@@ -870,8 +919,10 @@
     'testFlow',
     $testFlowMessage,
     $testFlowErrors,
-    ['_kind', 'appId', 'orgId', 'payload'],
+    ['_kind', 'appId', 'orgId', 'agentRef', 'payload'],
   ));
+  // The Agent picker shows only for an App with several installed Agents (#1444).
+  const testFlowAgents = $derived(testFlowApps.find((a) => a.id === $testFlowFormData.appId)?.agents ?? null);
   const flowActionError = $derived(scopedActionError<NodeUpdateFlowForm>(
     form,
     'updateFlow',
@@ -1050,7 +1101,8 @@
   // #793: scroll-up pagination for the Chat tab. Same endpoint and the same
   // null-vs-empty contract as the full-screen view — the two must not drift,
   // since they are two windows onto one thread and a reader moves between them
-  // with the "Full-screen chat" button.
+  // with the full-screen entry (the "Full-screen chat" button on agent/other
+  // chats, the icon-only expand control on a team Channel — portal#1525).
   let olderCursor = $state<number>(0);
   $effect(() => {
     const o = data.chatOffset ?? 0;
@@ -1574,6 +1626,11 @@
   // `team-chat` tag) — read it rather than re-deriving, so the tab can't
   // disagree with the load that fetched (or skipped) the thread.
   const isChat = $derived(!!data.isChat);
+  // portal#1525: also the server's own predicate — the App's canonical team
+  // channel (chatPostTarget platform kind), so the entry button below can
+  // never disagree with where a post would land. Every other chat keeps the
+  // text entry.
+  const isTeamChannel = $derived(!!data.isTeamChannel);
   // Also the server's own predicate (chatPostTarget) — the composer shows
   // exactly when the send action would accept a post.
   const canPostChat = $derived(!!data.canPostChat);
@@ -1592,6 +1649,18 @@
   let editingEdges = $state(false);
   let editableEdges = $state<EditableEdge[]>([]);
   let newEdgeTargetQuery = $state('');
+  // portal#1433: suggestions for the edge target as the user types, from the
+  // bounded node search. Choosing one fills the loc; the target is still
+  // resolved exactly at submit (`addEditableEdge`).
+  let edgeTargetHits = $state<TypeaheadNode[]>([]);
+  $effect(() =>
+    scheduleTypeahead({
+      query: newEdgeTargetQuery,
+      memoryId: data.graph.id,
+      selfId: node.id,
+      onHits: (hits) => (edgeTargetHits = hits),
+    }),
+  );
   let newEdgeName = $state('');
 
   // #656: an outgoing edge whose target sits in a memory the caller can't read
@@ -1613,10 +1682,19 @@
       }));
     newEdgeTargetQuery = '';
     newEdgeName = '';
+    addEdgeError = null;
+    edgeEditorSession += 1;
+    resolvingEdgeTarget = false;
     editingEdges = true;
   }
 
   function cancelEditEdges() {
+    // A lookup still in flight belongs to the editor that sent it: a later
+    // answer must not land in this (or the next) editing session. Opening an
+    // editor bumps the same counter, so a node change is fenced by the next
+    // node's own "Edit edges" (the editor closes on a node change).
+    edgeEditorSession += 1;
+    resolvingEdgeTarget = false;
     editingEdges = false;
     editableEdges = [];
   }
@@ -1625,21 +1703,38 @@
     editableEdges = editableEdges.filter((_, i) => i !== idx);
   }
 
-  function addEditableEdge() {
-    // Match the target by loc against graphNodes (loaded on the page already).
-    const candidates = data.graphNodes ?? [];
-    const q = newEdgeTargetQuery.trim().toLowerCase();
-    if (!q) return;
-    const target = candidates.find(
-      (n) => n.loc.toLowerCase() === q || n.name?.toLowerCase() === q,
-    ) ?? candidates.find(
-      (n) => n.loc.toLowerCase().includes(q) || (n.name ?? '').toLowerCase().includes(q),
-    );
-    if (!target) {
-      addEdgeError = `No node found matching "${newEdgeTargetQuery}"`;
+  let resolvingEdgeTarget = $state(false);
+  let edgeEditorSession = 0;
+  async function addEditableEdge() {
+    // portal#1524: resolve the typed loc by ONE per-node read at submit (no
+    // node list to match against). "No node found" is said only when the read
+    // says so; a failed read says it failed.
+    const q = newEdgeTargetQuery.trim();
+    if (!q || resolvingEdgeTarget) return;
+    resolvingEdgeTarget = true;
+    addEdgeError = null;
+    const session = edgeEditorSession;
+    // The request owns the name typed when it was sent, not the live field.
+    const edgeName = newEdgeName.trim();
+    let target: { id: string; loc: string; name: string | null } | null = null;
+    try {
+      const res = await fetch(`/api/nodes/resolve?memoryId=${encodeURIComponent(data.graph.id)}&ref=${encodeURIComponent(q)}`);
+      if (!res.ok) throw new Error('lookup failed');
+      const body = (await res.json()) as { found: boolean; node?: { id: string; loc: string; name: string | null } };
+      if (session !== edgeEditorSession) return;
+      target = body.found && body.node ? body.node : null;
+      if (!target) {
+        addEdgeError = `No node found matching "${q}"`;
+        return;
+      }
+    } catch {
+      if (session === edgeEditorSession) addEdgeError = t('node-detail.edge-target-lookup-failed', 'Could not look that node up. Try again.');
       return;
+    } finally {
+      if (session === edgeEditorSession) resolvingEdgeTarget = false;
     }
-    if (editableEdges.some((e) => e.targetId === target.id && e.name === newEdgeName.trim())) {
+    if (!target) return;
+    if (editableEdges.some((e) => e.targetId === target.id && e.name === edgeName)) {
       addEdgeError = 'That edge already exists';
       return;
     }
@@ -1649,11 +1744,12 @@
         targetId: target.id,
         targetName: target.name ?? target.loc,
         targetLoc: target.loc,
-        name: newEdgeName.trim(),
+        name: edgeName,
       },
     ];
-    newEdgeTargetQuery = '';
-    newEdgeName = '';
+    // Leave anything the reader typed while the lookup was out.
+    if (newEdgeTargetQuery.trim() === q) newEdgeTargetQuery = '';
+    if (newEdgeName.trim() === edgeName) newEdgeName = '';
     addEdgeError = null;
   }
 
@@ -1823,6 +1919,33 @@
     });
   });
 
+  // portal#1355: edge-removal audit entries (server#2562, hrn:node:hadronmemory.com:specs:cor:dmo:010:04) —
+  // the same streamed-promise pattern as the revisions above, for the same
+  // reasons: client-rendered (the History tab isn't SSR'd), and every
+  // resolution is checked against the promise now current so a late answer
+  // for the node the reader navigated away from can't land on this one.
+  let removalRows = $state<NodeEdgeRemoval[]>([]);
+  let removalsLoaded = $state(false);
+  let removalsFailed = $state(false);
+  let removalsCapped = $state(false);
+  $effect(() => {
+    const p = data.edgeRemovals; // track the current navigation's promise
+    // Node A's rows or failure must not read as node B's history while B's
+    // promise is pending (portal#1356 BLIND review, P2) — reset the display
+    // synchronously, the way the provenance effect does.
+    removalRows = [];
+    removalsFailed = false;
+    removalsLoaded = false;
+    removalsCapped = false;
+    p.then((res) => {
+      if (data.edgeRemovals !== p) return;
+      removalRows = res.items;
+      removalsCapped = res.capped === true;
+      removalsFailed = !res.ok; // distinguish "none recorded" from "couldn't load"
+      removalsLoaded = true;
+    });
+  });
+
   // #914: authorship + advisory validation. Both are streamed and resolve to a
   // result that may be { ok: false }. Each resolution is checked against the
   // promise now current, so a late answer for the node the reader navigated
@@ -1865,6 +1988,33 @@
     });
   });
   const signatureState = $derived(signaturesView(signatureResult));
+  // portal#1022 links half: whether to offer the Sign affordance at all. Same
+  // streamed-and-guarded shape, fed by the loader's capability answer — the
+  // very promise that gates the signature query, so the button and the
+  // status read can never disagree about whether signing is offered.
+  let signingOn = $state<boolean | null>(null);
+  $effect(() => {
+    const p = data.signingOffered;
+    signingOn = null;
+    p.then((on) => {
+      if (data.signingOffered === p) signingOn = on;
+    });
+  });
+  // One click, one request: the default enhance leaves the button live for
+  // the round trip, and a second click would mint a second signing request.
+  // update() in try/finally — the delete-form pattern — so a redirecting or
+  // throwing result still re-enables (or navigates away entirely).
+  let requestingSignature = $state(false);
+  function requestSignatureEnhance() {
+    requestingSignature = true;
+    return async ({ update }: { update: (opts?: { reset?: boolean }) => Promise<void> }) => {
+      try {
+        await update({ reset: false });
+      } finally {
+        requestingSignature = false;
+      }
+    };
+  }
   // portal#1014: the node's discussion and its open-feedback summary, streamed
   // and checked the same way. The tab's own writes update the summary too.
   let discussion = $state<Discussion | null | undefined>(undefined);
@@ -2015,6 +2165,54 @@
     },
   });
 
+  // ── portal#1355 — edge-removal audit entries in their own DataTable ────────
+  // hrn:node:hadronmemory.com:specs:cor:dmo:010:04: an entry is an audit record, never a revision, so it gets
+  // its own list (and its own listKey) under the revisions table rather than
+  // masquerading as a History row. No row actions — there is nothing to do
+  // with an entry; it is a trace.
+  let removalFilter = $state('');
+  // hrn:node:hadronmemory.com:specs:cor:dmo:010:04: today only TARGET_HARD_DELETED exists. An unknown code
+  // renders verbatim rather than being guessed at — a loud unknown beats a
+  // silent wrong label.
+  function removalReasonText(r: NodeEdgeRemoval): string {
+    if (r.reason === 'TARGET_HARD_DELETED') return t('node.history.removals.reason.target-hard-deleted', 'Target was hard-deleted');
+    return r.reason;
+  }
+  const removalColumns: PortalColumnDef<NodeEdgeRemoval>[] = [
+    { accessorFn: (r) => revisionDateMs(r.createdAt), id: 'when', header: t('node.history.removals.col.when', 'When'), size: 200 },
+    { accessorFn: (r) => `${r.edgeName ?? ''} ${r.edgeLoc ?? ''}`, id: 'edge', header: t('node.history.removals.col.edge', 'Edge'), size: 240 },
+    // The loc is the addressable part; the stable id is the only handle that
+    // survives the delete, so both ride along (the id also carries the search).
+    { accessorFn: (r) => `${r.targetLoc ?? ''} ${r.targetId}`, id: 'target', header: t('node.history.removals.col.target', 'Removed target'), size: 240 },
+    { accessorFn: (r) => removalReasonText(r), id: 'reason', header: t('node.history.removals.col.reason', 'Reason'), enableSorting: false, size: 200 },
+    { accessorFn: (r) => r.removedBy ?? '', id: 'removedBy', header: t('node.history.removals.col.removed-by', 'Deleted by'), size: 180 },
+  ];
+  const removalTable = createSvelteTable<NodeEdgeRemoval>({
+    get data() {
+      return removalRows;
+    },
+    columns: removalColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: {
+      get globalFilter() {
+        return removalFilter;
+      },
+    },
+    onGlobalFilterChange: (u) => {
+      removalFilter = typeof u === 'function' ? u(removalFilter) : u;
+    },
+    // #820, same as the revisions table: sort by epoch, match the rendered text.
+    globalFilterFn: makeGlobalFilterFn<NodeEdgeRemoval>({}, {
+      when: (row) => `${formatPortalDateTime(row.createdAt)} ${row.createdAt}`,
+    }),
+    initialState: {
+      pagination: { pageIndex: 0, pageSize: 20 },
+      sorting: [{ id: 'when', desc: true }], // most recent first
+    },
+  });
+
   // #529 row actions (Display / Restore / Delete) + Clear-all. The per-row menu
   // is a SINGLE fixed-positioned popover (anchored to the clicked ⋯ button), so
   // it isn't clipped by the DataTable's overflow-auto scroll container.
@@ -2081,23 +2279,46 @@
   }
 
   // Children: direct children of this node's loc
-  const children = $derived(
-    (data.graphNodes ?? [])
-      .filter((n) => {
-        if (n.loc === node.loc) return false;
-        if (!n.loc.startsWith(node.loc + ':')) return false;
-        const rest = n.loc.slice(node.loc.length + 1);
-        return !rest.includes(':');
-      })
-      .sort((a, b) => {
-        if (a.seq !== null && b.seq !== null) return a.seq - b.seq;
-        if (a.seq !== null) return -1;
-        if (b.seq !== null) return 1;
-        return a.loc.localeCompare(b.loc);
-      })
-  );
+  // portal#1656: the loader's first page of 20 (`data.children`, read with
+  // `childrenOf`), plus the pages "Show more" read since, in the server's
+  // sibling order: never re-sorted here. Null is a FAILED read
+  // (`data.childrenUnavailable`), NOT "no children": the section says so.
+  // Pages read by "Show more" belong to the loader page they extend: new page
+  // data (any reload) replaces them, and a page that lands after it is dropped.
+  let morePages = $state.raw<{ against: unknown; rows: MemoryNode[]; hasMore: boolean } | null>(null);
+  let morePendingFor = $state.raw<unknown>(null);
+  let moreFailedFor = $state.raw<unknown>(null);
+  const extraChildren = $derived(morePages && morePages.against === data.children ? morePages : null);
+  const children = $derived([...((data.children ?? []) as unknown as MemoryNode[]),
+        ...(extraChildren?.rows ?? [])]);
+  // A full page never passes for the whole list: the count says "20+".
+  const childrenHasMore = $derived(extraChildren ? extraChildren.hasMore : !!data.childrenHasMore);
+  const moreChildrenLoading = $derived(morePendingFor !== null && morePendingFor === data.children);
+  const moreChildrenFailed = $derived(moreFailedFor !== null && moreFailedFor === data.children);
+  async function showMoreChildren() {
+    const against = data.children;
+    if (!against || moreChildrenLoading || !childrenHasMore) return;
+    const offset = children.length;
+    morePendingFor = against;
+    moreFailedFor = null;
+    const page = await readMoreChildren(basePath, node.id, offset);
+    if (morePendingFor === against) morePendingFor = null;
+    // A page read against older page data writes nothing: keying the render
+    // would hide it, but the one shared slot holds the NEWER page's own rows
+    // or failure, and overwriting it loses them
+    // (hrn:node:hadronmemory.com:hadron-portal:findings:keyed-render-slot-does-not-reject-stale-writes).
+    if (against !== data.children) return;
+    if (!page) {
+      moreFailedFor = against;
+      return;
+    }
+    morePages = { against, rows: [...(extraChildren?.rows ?? []), ...page.children], hasMore: page.hasMore };
+  }
   const hasChildren = $derived(children.length > 0);
-  const childrenReorderable = $derived(children.some((c) => c.seq !== null));
+  // Reorder rewrites the position of every row it is given, so it is offered
+  // only on the whole list: on a partial one it would renumber the rows shown
+  // and leave the rest where they were.
+  const childrenReorderable = $derived(!childrenHasMore && children.some((c) => c.seq !== null));
   let childDragError = $state<string | null>(null);
   // #309: the children list defaults to the full grid; reordering is a separate
   // mode because drag order is incompatible with sort/filter/pagination.
@@ -2127,7 +2348,8 @@
     isComment
       // portal#1175: a comment is feedback, not a node to author. It keeps its
       // text (and any children), and its facts move to a read-only Info tab.
-      ? ['info', 'content', ...(hasChildren ? (['children'] as NodeTab[]) : [])]
+      ? ['info', 'content',
+        ...(hasChildren ? (['children'] as NodeTab[]) : [])]
       : [
           ...(isChat ? (['chat'] as NodeTab[]) : []),
           'content',
@@ -2212,6 +2434,7 @@
       skillExportOpen = false;
       testFlowOpen = false;
       $testFlowFormData.appId = '';
+      $testFlowFormData.agentRef = '';
       $testFlowFormData.orgId = data.org?.id ?? '';
       $testFlowFormData.payload = '';
       moveOpen = false;
@@ -2266,7 +2489,7 @@
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{createParentActionError}</div>
   {/if}
   {#each data.breadcrumb.slice(0, -1) as seg}
-    {#if !seg.nodeId}
+    {#if !seg.nodeId && data.ancestorsKnown}
       <form method="POST" action="?/createParent" use:createParentEnhance novalidate class="inline">
         <input type="hidden" name="_kind" value="createParent" />
         <input type="hidden" name="loc" value={seg.path} />
@@ -2357,6 +2580,41 @@
       </div>
       <!-- portal#1022: passkey signatures (hadron-server#1864); renders nothing with nothing to report. -->
       <NodeSignatures view={signatureState} />
+      {#if signingOn}
+        <!-- portal#1022 links half (hrn:node:hadronmemory.com:specs:cor:dmo:130:08):
+             the portal's whole leg is to create the signing request and hand
+             over the server-hosted ceremony page's link — the ceremony itself
+             never runs here. The hidden revision input, like the approval
+             forms above, pins the request to the text on screen.
+
+             No readOnly gate, deliberately:
+             hrn:node:hadronmemory.com:specs:cor:dmo:130:03 gives ANY reader
+             the right to request ("anyone who may read the node"), and the
+             requester need not be the signer — so the affordance is not
+             hidden from view-only readers the way writer actions are. The
+             copy says what the click does (a request, then the server's
+             page), never "Sign", which a reader the ceremony would refuse
+             could not finish. -->
+        <form method="POST" action="?/requestSignature" use:enhance={requestSignatureEnhance} class="mt-1" data-testid="request-signature-form">
+          <input type="hidden" name="revision" value={node.revision} />
+          <button
+            type="submit"
+            data-testid="request-signature"
+            disabled={requestingSignature}
+            title={t('node.signatures.request.hint', 'Creates a signing request and opens the server-hosted signing page for this revision.')}
+            class="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            {t('node.signatures.request.action', 'Request a signature…')}
+          </button>
+        </form>
+      {/if}
+      <!-- Live region stays mounted; only its content changes — a region that
+           mounts populated announces nothing
+           (hrn:node:hadronmemory.com:hadron-portal:review:live-region-persistent-not-conditionally-mounted).
+           empty:hidden keeps the always-present region from taking a line. -->
+      <p role="alert" data-testid="signature-request-error" class="mt-1 empty:hidden text-xs text-red-700 dark:text-red-300">
+        {#if typeof form?.requestSignatureError === 'string'}{form.requestSignatureError}{/if}
+      </p>
       {/if}
       {#if approveActionError || verifyActionError}
         <p role="alert" data-testid="approval-error" class="mt-1 text-xs text-red-700 dark:text-red-300">{approveActionError ?? verifyActionError}</p>
@@ -2403,13 +2661,27 @@
     </div>
     <div class="shrink-0 flex items-start gap-2">
       {#if isChat}
-        <!-- The Chat tab below is the inline view; this is the full-screen one. -->
-        <a
-          href="{basePath}/nodes/{node.id}/chat"
-          class="rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-500"
-        >
-          Full-screen chat
-        </a>
+        <!-- The Chat tab below is the inline view; this is the full-screen one.
+             portal#1525: a team CHANNEL takes an icon-only entry (an icon is
+             sufficient; no label — #1525), so the accessible name IS the
+             label. Every other chat keeps the text button unchanged. -->
+        {#if isTeamChannel}
+          <a
+            href="{basePath}/nodes/{node.id}/chat"
+            aria-label={t('node.chat.open-fullscreen-channel', 'Open full-screen channel')}
+            title={t('node.chat.open-fullscreen-channel', 'Open full-screen channel')}
+            class="rounded-md bg-green-600 p-2 text-white hover:bg-green-500"
+          >
+            <Expand class="h-4 w-4" aria-hidden="true" />
+          </a>
+        {:else}
+          <a
+            href="{basePath}/nodes/{node.id}/chat"
+            class="rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-500"
+          >
+            {t('node.chat.open-fullscreen', 'Full-screen chat')}
+          </a>
+        {/if}
       {/if}
       <!-- #503: the "⋯" menu is the single entry point for node actions;
            each item opens one of the panels/dialogs below. -->
@@ -2453,6 +2725,7 @@
                     id="testFlowApp"
                     name="appId"
                     bind:value={$testFlowFormData.appId}
+                    onchange={() => ($testFlowFormData.agentRef = '')}
                     class={inputClass}
                     aria-invalid={$testFlowErrors.appId?.[0] ? 'true' : undefined}
                   >
@@ -2463,6 +2736,22 @@
                   </select>
                   <p class="mt-1 text-xs text-zinc-400">The run uses this App's budgets and permissions.</p>
                 </div>
+                {#if testFlowAgents}
+                  <div>
+                    <label for="testFlowAgent" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">{t('node-actions.test-flow.agent', 'Run as Agent')}</label>
+                    <select
+                      id="testFlowAgent"
+                      name="agentRef"
+                      bind:value={$testFlowFormData.agentRef}
+                      class={inputClass}
+                    >
+                      <option value="" disabled>{t('node-actions.test-flow.agent-pick', 'Choose an Agent…')}</option>
+                      {#each testFlowAgents as agent (agent.id)}
+                        <option value={agent.id}>{agent.name}</option>
+                      {/each}
+                    </select>
+                  </div>
+                {/if}
                 <div>
                   <label for="testFlowPayload" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">Test payload (optional JSON)</label>
                   <textarea
@@ -2790,142 +3079,84 @@
        `node.asset` is null for every ordinary node AND when the pointer dangles
        (the asset was deleted), so this one check covers both. -->
   {#if node.asset}
-    <NodeAssetCard asset={node.asset} />
+    {#key node.asset.id}
+      <NodeAssetCard asset={node.asset} />
+    {/key}
   {/if}
 
-  <!-- Tabs: Content | Abstract | Children (when present) | Edges | Settings -->
+  <!-- Shared sections retain node-kind membership and read-availability cues. -->
   <div class="border-t border-zinc-200 pt-4 dark:border-zinc-800">
-    <!-- #858: keep tabs in their own horizontal scroller at phone widths.
-         #1086: `scrollHint` fades the edge with more tabs past it and keeps the
-         active tab (a `?tab=` deep link included) scrolled into view. -->
-    <div class="scroll-hint mb-3 flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800" use:scrollHint={activeTab}>
-      <!-- Chat nodes only: the thread as bubbles, same view as /chat. -->
-      {#if isChat}
-        <button
-          data-active={activeTab === 'chat' || undefined}
-          class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'chat' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-          onclick={() => activeTab = 'chat'}
-        >Chat
+    <div class="mb-3">
+      <TabRow items={[
+        ...(isChat ? [{ id: 'chat', label: t('node.tabs.chat', 'Chat') }] : []),
+        ...(isComment ? [{ id: 'info', label: t('node.tabs.info', 'Info') }] : []),
+        { id: 'content', label: t('node.tabs.content', 'Content') },
+        ...(commentable ? [{ id: 'discussion', label: t('node.tabs.discussion', 'Discussion') }] : []),
+        ...(!isComment ? [{ id: 'abstract', label: t('node.tabs.abstract', 'Abstract') }] : []),
+        ...(!isComment ? [{ id: 'data', label: t('node.tabs.data', 'Data') }] : []),
+        ...(!isComment ? [{ id: 'properties', label: t('node.tabs.properties', 'Properties') }] : []),
+        ...(!isComment ? [{ id: 'flow', label: t('node.tabs.flow', 'Flow') }] : []),
+        ...(hasChildren ? [{ id: 'children', label: t('node.tabs.children', 'Children') }] : []),
+        ...(!isComment ? [{ id: 'references', label: t('node.tabs.references', 'Edges') }] : []),
+        ...(!isComment ? [{ id: 'history', label: t('node.tabs.history', 'Revisions') }] : []),
+        ...(!isComment ? [{ id: 'settings', label: t('node.tabs.settings', 'Settings') }] : [])
+      ]} active={activeTab} label={t('node.tabs-label', 'Node sections')} onselect={(id) => activeTab = id as typeof activeTab}>
+        {#snippet itemLabel(tab)}
+          {#if tab.id === 'chat'}{t('node.tabs.chat', 'Chat')}
           {#if chatMessages.length}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{chatMessages.length}</span>{/if}
-        </button>
-      {/if}
-      <!-- portal#1175: a comment's facts, read-only (the Settings content). -->
-      {#if isComment}
-        <button
-          data-active={activeTab === 'info' || undefined}
-          class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'info' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-          onclick={() => activeTab = 'info'}
-        >{t('node.info.tab', 'Info')}</button>
-      {/if}
-      <!-- Always shown (#256) — an empty node still needs an authoring
-           surface, or there's no portal path to add content. Mirrors the
-           Abstract tab's always-on treatment below. -->
-      <button
-        data-active={activeTab === 'content' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'content' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'content'}
-      >Content
+        {:else if tab.id === 'info'}{t('node.info.tab', 'Info')}
+          {:else if tab.id === 'content'}{t('node.tabs.content', 'Content')}
         {#if !hasContent}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
-      </button>
-      {#if commentable}
-        <button
-          data-active={activeTab === 'discussion' || undefined}
-          class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'discussion' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-          onclick={() => activeTab = 'discussion'}
-        >{t('comments.tab', 'Discussion')}
+      {:else if tab.id === 'discussion'}{t('comments.tab', 'Discussion')}
           <!-- Uma (#6998): the badge counts every discussion; amber while any is open. -->
           {#if discussionCount(commentSummary) > 0}
             <span class="ml-1 rounded-full px-1.5 text-xs {(commentSummary?.openThreads ?? 0) > 0
               ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
               : 'bg-zinc-200 dark:bg-zinc-800'}">{discussionCount(commentSummary)}</span>
           {/if}
-        </button>
-      {/if}
-      {#if !isComment}
-      <!-- Always shown — an empty abstract still needs an authoring surface
-           (a vector-index source where the memory says so, #936), same rationale as Content (#256). -->
-      <button
-        data-active={activeTab === 'abstract' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'abstract' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'abstract'}
-      >Abstract
+        {:else if tab.id === 'abstract'}{t('node.tabs.abstract', 'Abstract')}
         {#if !hasAbstract}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
-      </button>
-      <!-- Always shown — Node.data is free-form JSON; an empty node still
-           needs an authoring surface, same rationale as Content/Abstract. -->
-      <button
-        data-active={activeTab === 'data' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'data' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'data'}
-      >Data
+      {:else if tab.id === 'data'}{t('node.tabs.data', 'Data')}
         {#if !hasData}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
-      </button>
-      <!-- #518: Node.properties — structured key-value metadata, often
-           server-set provenance. Always shown for discoverability, and since
-           #1031 its editor lives on the tab itself. -->
-      <button
-        data-active={activeTab === 'properties' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'properties' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'properties'}
-      >{t('node.properties.tab', 'Properties')}
+      {:else if tab.id === 'properties'}{t('node.properties.tab', 'Properties')}
         {#if !hasProperties}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
-      </button>
-      <!-- Always shown (#478) — turning a plain node into a flow node (extract
-           fields, write output) needs an authoring surface. -->
-      <button
-        data-active={activeTab === 'flow' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'flow' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'flow'}
-      >Flow
+      {:else if tab.id === 'flow'}{t('node.tabs.flow', 'Flow')}
         {#if !hasFlowConfig}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
-      </button>
-      {/if}
-      {#if hasChildren}
-        <button
-          data-active={activeTab === 'children' || undefined}
-          class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'children' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-          onclick={() => activeTab = 'children'}
-        >Children <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{children.length}</span></button>
-      {/if}
-      {#if !isComment}
-      <button
-        data-active={activeTab === 'references' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'references' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'references'}
-      >Edges
+      {:else if tab.id === 'children'}{t('node.tabs.children', 'Children')} <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{children.length}{childrenHasMore ? '+' : ''}</span>{:else if tab.id === 'references'}{t('node.tabs.references', 'Edges')}
         {#if hasReferences}
           <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{node.outgoingEdges.length + node.incomingEdges.length}</span>
         {/if}
-      </button>
-      <!-- Comments keep no revision history (server#1727). -->
-      <button
-        data-active={activeTab === 'history' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'history' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'history'}
-      >{t('node.history.tab', 'Revisions')}</button>
-      <button
-        data-active={activeTab === 'settings' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'settings' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'settings'}
-      >Settings</button>
-      {/if}
+      {:else if tab.id === 'history'}{t('node.history.tab', 'Revisions')}
+          {:else if tab.id === 'settings'}{t('node.tabs.settings', 'Settings')}{/if}
+        {/snippet}
+      </TabRow>
+      {#if !hasChildren && data.childrenUnavailable}<span data-testid="children-unavailable" title={t('node-detail.children-unavailable-reason', 'The children could not be read')} class="text-sm italic text-zinc-500">{t('node-detail.children-unavailable', 'Children unavailable')}</span>{/if}
     </div>
 
+    <div role="tabpanel" id="panel-{activeTab}" aria-labelledby="tab-{activeTab}" tabindex="0">
     <!-- ═══ CHAT TAB ═══ -->
     {#if activeTab === 'chat'}
       <div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
-        <ChatThread
-          messages={chatMessages}
-          {basePath}
-          {form}
-          {memoryUrn}
-          sendForm={data.sendChatMessageForm}
-          action="?/sendChatMessage"
-          canPost={canPostChat}
-          hasOlder={data.chatHasOlder ?? false}
-          onLoadOlder={loadOlderChat}
-          heightClass="h-[calc(100vh-24rem)] min-h-[24rem]"
-        />
+        <!-- #1522: keyed by the send form's node-scoped id. A same-route hop to
+             another node keeps this component mounted, which would leave a
+             live superForm holding node A's id against node B's results (and
+             B's drafts in A's composer). The key remounts the thread when the
+             identity changes — the boot-prompt editor's pattern — so the form
+             instance, its id and the node always agree. -->
+        {#key data.sendChatMessageForm.id}
+          <ChatThread
+            messages={chatMessages}
+            {basePath}
+            {form}
+            {memoryUrn}
+            sendForm={data.sendChatMessageForm}
+            action="?/sendChatMessage"
+            canPost={canPostChat}
+            hasOlder={data.chatHasOlder ?? false}
+            onLoadOlder={loadOlderChat}
+            heightClass="h-[calc(100vh-24rem)] min-h-[24rem]"
+          />
+        {/key}
       </div>
     {/if}
 
@@ -2951,6 +3182,9 @@
 
     <!-- ═══ CONTENT TAB ═══ -->
     {#if activeTab === 'content'}
+      {#if isCompiledPrompt}
+        <p class="mb-2 text-sm text-zinc-500 dark:text-zinc-400" data-testid="compiled-prompt-hint">{t('node.compiled-prompt.hint', 'This compiled boot prompt is read-only. Edit the boot source and compile again.')}</p>
+      {/if}
       <div class="flex items-center justify-between">
         <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
           <button
@@ -2959,6 +3193,7 @@
           >Rendered</button>
           {#if canEditContent}
           <button
+            bind:this={contentSourceToggle}
             class="px-2 py-1 text-xs {showSource ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
             onclick={() => showSource = true}
           >Source</button>
@@ -2986,7 +3221,7 @@
             use:fillViewport={contentSaveRow}
             class="block w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
             placeholder={createNodeStrings.contentSourcePlaceholder()}
-            readonly={readOnly}
+            readonly={textReadOnly}
             bind:value={contentDraft.text}
           ></textarea>
           <div bind:this={contentSaveRow} class="mt-2 flex flex-wrap items-center justify-end gap-2">
@@ -3004,10 +3239,11 @@
               >{t('node.text.conflict.load-newer', 'Discard my edit and load the newer version')}</button>
             {/if}
             <button
+              bind:this={contentSaveButton}
               onclick={saveContent}
-              disabled={readOnly || saving || !contentDraft.dirty}
+              disabled={textReadOnly || saving || !contentDraft.dirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
-            >{saving ? 'Saving...' : 'Save'}</button>
+            >{saving ? t('node.text.saving', 'Saving…') : contentSaveError ? t('node.save.retry', 'Retry') : t('node.text.save', 'Save')}</button>
           </div>
           {#if contentSaveError}
             <p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{contentSaveError}</p>
@@ -3039,6 +3275,9 @@
 
     <!-- ═══ ABSTRACT TAB ═══ -->
     {#if activeTab === 'abstract'}
+      {#if isCompiledPrompt}
+        <p class="mb-2 text-sm text-zinc-500 dark:text-zinc-400" data-testid="compiled-prompt-hint">{t('node.compiled-prompt.hint', 'This compiled boot prompt is read-only. Edit the boot source and compile again.')}</p>
+      {/if}
       <div class="flex items-center justify-between">
         <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
           <button
@@ -3046,6 +3285,7 @@
             onclick={() => showAbstractSource = false}
           >Rendered</button>
           <button
+            bind:this={abstractSourceToggle}
             class="px-2 py-1 text-xs {showAbstractSource ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
             onclick={() => showAbstractSource = true}
           >Source</button>
@@ -3070,7 +3310,7 @@
             maxlength={ABSTRACT_MAX}
             placeholder={abstractPlaceholder()}
             aria-describedby={abstractHint ? 'node-abstract-search-hint' : undefined}
-            readonly={readOnly}
+            readonly={textReadOnly}
             bind:value={abstractDraft.text}
           ></textarea>
           <div bind:this={abstractSaveRow} class="mt-2 flex flex-wrap items-center justify-between gap-2">
@@ -3089,10 +3329,11 @@
                 >{t('node.text.conflict.load-newer', 'Discard my edit and load the newer version')}</button>
               {/if}
               <button
+                bind:this={abstractSaveButton}
                 onclick={saveAbstract}
-                disabled={readOnly || savingAbstract || !abstractDraft.dirty}
+                disabled={textReadOnly || savingAbstract || !abstractDraft.dirty}
                 class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
-              >{savingAbstract ? 'Saving...' : 'Save'}</button>
+              >{savingAbstract ? t('node.text.saving', 'Saving…') : abstractSaveError ? t('node.save.retry', 'Retry') : t('node.text.save', 'Save')}</button>
             </div>
           </div>
           <!-- #936: derived from THIS memory's vector config; no claim when
@@ -3199,7 +3440,7 @@
               onclick={saveData}
               disabled={readOnly || savingData || !dataParse.ok || !dataDirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
-            >{savingData ? t('node.data.source.saving', 'Saving…') : t('node.data.source.save', 'Save')}</button>
+            >{savingData ? t('node.data.source.saving', 'Saving…') : dataSaveError ? t('node.save.retry', 'Retry') : t('node.data.source.save', 'Save')}</button>
           </div>
           {#if dataSaveError}
             <p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{dataSaveError}</p>
@@ -3307,7 +3548,7 @@
               onclick={saveProperties}
               disabled={readOnly || savingProperties || !propertiesParse.ok || !propertiesDirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
-            >{savingProperties ? t('node.properties.source.saving', 'Saving…') : t('node.properties.source.save', 'Save')}</button>
+            >{savingProperties ? t('node.properties.source.saving', 'Saving…') : propertiesSaveError ? t('node.save.retry', 'Retry') : t('node.properties.source.save', 'Save')}</button>
           </div>
           {#if propertiesSaveError}
             <p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{propertiesSaveError}</p>
@@ -3524,7 +3765,7 @@
                   type="text"
                   bind:value={outputWriteTo}
                   list="flow-writeto-options"
-                  placeholder={t('node.flow.output.write-to.placeholder', 'org::memory::reports:daily')}
+                  placeholder={t('node.flow.output.write-to.placeholder', moveHintGrammar(outputWriteTo))}
                   class="w-full rounded border px-2 py-1 font-mono text-xs dark:bg-zinc-900 dark:text-white {outputWriteToValid ? 'border-zinc-300 dark:border-zinc-700' : 'border-red-400 dark:border-red-700'}"
                 />
                 <datalist id="flow-writeto-options">
@@ -3534,7 +3775,7 @@
                 </datalist>
                 {#if !outputWriteToValid}
                   <p class="mt-1 text-xs text-red-500">
-                    {t('node.flow.output.write-to.invalid', 'Must be a fully-qualified node URN (org::memory::loc), or empty.')}
+                    {t('node.flow.output.write-to.invalid', 'Must be a fully-qualified node URN, or empty.')}
                   </p>
                 {/if}
               </div>
@@ -3595,14 +3836,14 @@
       {/if}
       <!-- #309: remount on mode switch — NodeList reads enableSorting/
            enableColumnResizing (= !orderable) once at table construction. -->
-      {#key reorderMode}
+      {#key reorderMode && childrenReorderable}
         <NodeList
           nodes={children}
           {basePath}
           memoryUrn={data.graph.urn ?? ''}
-          orderable={reorderMode}
-          listKey={reorderMode ? undefined : 'node-children'}
-          onreorder={reorderMode
+          orderable={reorderMode && childrenReorderable}
+          listKey={reorderMode && childrenReorderable ? undefined : 'node-children'}
+          onreorder={reorderMode && childrenReorderable
             ? async (orderedLocs) => {
                 if (reordering) return;
                 reordering = true;
@@ -3637,6 +3878,26 @@
             : undefined}
         />
       {/key}
+      {#if childrenHasMore}
+        <!-- portal#1656: the next 20, only when the user asks (hrn:node:hadronmemory.com:specs:cor:api:120:04). -->
+        <div class="mt-3 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            data-testid="children-show-more"
+            disabled={moreChildrenLoading}
+            aria-busy={moreChildrenLoading || undefined}
+            onclick={showMoreChildren}
+            class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          >{moreChildrenLoading ? t('node-detail.children-loading-more', 'Loading…') : t('node-detail.children-show-more', 'Show more')}</button>
+          <span role="status" class="text-xs text-zinc-500 dark:text-zinc-400">
+            {#if moreChildrenFailed}
+              <span data-testid="children-more-failed" class="text-amber-700 dark:text-amber-400">{t('node-detail.children-more-failed', "Couldn't load more children. Try again.")}</span>
+            {:else}
+              {t('node-detail.children-showing-first', 'Showing the first {count}', { count: children.length })}
+            {/if}
+          </span>
+        </div>
+      {/if}
     {/if}
 
     <!-- ═══ EDGES TAB ═══
@@ -3750,8 +4011,14 @@
               <div class="flex-1 min-w-[200px]">
                 <label for="newEdgeTarget" class="mb-1 block text-xs text-zinc-500">Target (loc or name)</label>
                 <input id="newEdgeTarget" type="text" bind:value={newEdgeTargetQuery}
+                  list="newEdgeTarget-options"
                   placeholder="e.g. specs:auth:jwt"
                   class="{inputClass} font-mono text-xs" />
+                <datalist id="newEdgeTarget-options">
+                  {#each edgeTargetHits as hit (hit.id)}
+                    <option value={hit.loc}>{hit.name ?? hit.loc}</option>
+                  {/each}
+                </datalist>
               </div>
               <div class="w-40">
                 <label for="newEdgeName" class="mb-1 block text-xs text-zinc-500">Name (optional)</label>
@@ -3861,6 +4128,75 @@
           {/snippet}
         </DataTable>
         </div>
+      {/if}
+
+      <!-- ═══ portal#1355 — edge-removal audit entries (server#2562,
+           hrn:node:hadronmemory.com:specs:cor:dmo:010:04) ═══ Edges a hard delete of their target removed from
+           THIS node: an audit record, never a revision (revisions stay
+           snapshots of the node's own fields), so it renders as its own list
+           under the revisions table. Hidden while empty and while streaming —
+           an absence of entries is not news — but a FAILED read says so: the
+           streamed result is discriminated precisely so a silent [] can't mask
+           an error as an absent audit trail. -->
+      {#if removalsFailed || removalRows.length > 0}
+        <section class="mt-8" aria-labelledby="edge-removals-heading">
+          <div class="mb-3 flex items-center justify-between gap-3">
+            <h3 id="edge-removals-heading" class="text-sm font-semibold text-zinc-700 dark:text-zinc-200">{t('node.history.removals.heading', 'Removed edges')}</h3>
+            {#if removalsCapped}<CappedNotice shown={removalRows.length} what={t('capped.edge-removals', 'removed-edge entries (the newest)')} />{/if}
+          </div>
+          {#if removalsFailed}
+            <div class="rounded-lg border border-amber-300 bg-amber-50 p-6 text-center dark:border-amber-800 dark:bg-amber-950">
+              <p class="text-sm text-amber-800 dark:text-amber-300">{t('node.history.removals.load-failed', "Couldn't load the removed-edges audit — the node service returned an error. This is not the same as none recorded; try refreshing.")}</p>
+            </div>
+          {:else}
+          <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">{t('node.history.removals.intro', 'Edges removed from this node when their target was hard-deleted, most recent first. Each entry is an audit record, not a revision.')}</p>
+          <div class="space-y-3">
+            <DataTable
+              table={removalTable}
+              listKey="node:edge-removals"
+              searchPlaceholder={t('node.history.removals.search', 'Search removed edges…')}
+              searchAriaLabel={t('node.history.removals.search', 'Search removed edges…')}
+              bind:globalFilter={removalFilter}
+              maxHeight="max(200px, calc(100vh - 28rem))"
+            >
+            {#snippet cell(cell, r)}
+              {#if cell.column.id === 'when'}
+                <span class="whitespace-nowrap text-zinc-600 dark:text-zinc-400" title={r.createdAt}>{formatPortalDateTime(r.createdAt)}</span>
+              {:else if cell.column.id === 'edge'}
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-zinc-700 dark:text-zinc-300">{r.edgeName ?? '—'}</span>
+                  {#if r.edgeLoc}
+                    <code class="text-xs text-zinc-500 dark:text-zinc-400">{r.edgeLoc}</code>
+                  {:else}
+                    <span class="text-xs italic text-zinc-500 dark:text-zinc-400">{t('node.history.removals.withheld-edge', 'Not shown')}</span>
+                  {/if}
+                </div>
+              {:else if cell.column.id === 'target'}
+                <div class="flex flex-col gap-0.5">
+                  {#if r.targetLoc}
+                    <code class="text-xs text-zinc-600 dark:text-zinc-400">{r.targetLoc}</code>
+                  {:else}
+                    <span class="text-xs italic text-zinc-500 dark:text-zinc-400">{t('node.history.removals.withheld', "Not shown: it was in a memory you can't read.")}</span>
+                  {/if}
+                  <!-- The stable id is the one handle that outlives the delete. -->
+                  <code class="text-xs text-zinc-500 dark:text-zinc-400">{r.targetId}</code>
+                </div>
+              {:else if cell.column.id === 'reason'}
+                <span class="text-zinc-600 dark:text-zinc-400" title={r.reason}>{removalReasonText(r)}</span>
+              {:else if cell.column.id === 'removedBy'}
+                {#if r.removedBy}
+                  <!-- removedBy is a bare actor id (no resolution field in the
+                       SDL) — shown verbatim rather than guessed at. -->
+                  <code class="text-xs text-zinc-500 dark:text-zinc-400" title={t('node.history.removals.removed-by-title', 'The actor id a soft delete would record (a user, app or client)')}>{r.removedBy}</code>
+                {:else}
+                  <span class="text-zinc-400">—</span>
+                {/if}
+              {/if}
+            {/snippet}
+          </DataTable>
+          </div>
+          {/if}
+        </section>
       {/if}
     {/if}
 
@@ -3982,7 +4318,7 @@
               </div>
               <div class="flex gap-3">
                 <button type="submit" disabled={readOnly || $updateMetaSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-40">
-                  {$updateMetaSubmitting ? t('node.meta.saving', 'Saving...') : t('node.meta.save', 'Save')}
+                  {$updateMetaSubmitting ? t('node.meta.saving', 'Saving...') : $updateMetaMessage?.type === 'error' ? t('node.save.retry', 'Retry') : t('node.meta.save', 'Save')}
                 </button>
                 <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
               </div>
@@ -4064,20 +4400,20 @@
         <!-- Data now has its own top-level tab (Rendered/Source + editing);
              the former read-only block here would just duplicate it. -->
 
-        <!-- Danger zone -->
+        <!-- Delete. #1834: no "Danger zone" caption for a single node; the confirm
+             reads top to bottom, with the warning, the subtree choice, then the buttons. -->
         {#if !readOnly}
         <section class="border-t border-zinc-200 pt-6 dark:border-zinc-800">
-          <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
           {#if !confirmDelete}
             <button disabled={readOnly} onclick={() => { $deleteFormData.hard = false; $deleteFormData.recursive = false; confirmDelete = true; }} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
               Delete node
             </button>
           {:else}
-            <form method="POST" action="?/delete" use:deleteEnhance class="flex items-center gap-2" novalidate>
+            <form method="POST" action="?/delete" use:deleteEnhance class="space-y-3" novalidate>
               <input type="hidden" name="_kind" value={$deleteFormData._kind} />
-              <span class="text-sm text-red-500">{deleteNodeStrings.confirmPrompt(node.name)}</span>
+              <p class="text-sm text-red-500">{deleteNodeStrings.confirmPrompt(node.name)}</p>
               {#if deleteRefusedDescendants > 0}
-                <label class="flex items-center gap-1.5 text-sm text-zinc-700 dark:text-zinc-300">
+                <label class="flex flex-wrap items-center gap-1.5 text-sm text-zinc-700 dark:text-zinc-300">
                   <input type="checkbox" name="recursive" value="true" bind:checked={$deleteFormData.recursive}
                     class="rounded border-zinc-300 text-red-600 focus:ring-red-500 dark:border-zinc-600 dark:bg-zinc-800" />
                   {t('node-actions.delete.also-descendants', 'Also delete its descendants')}
@@ -4088,12 +4424,14 @@
                   </span>
                 </label>
               {/if}
-              <button
-                type="submit"
-                disabled={readOnly || $deleteSubmitting}
-                class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >{$deleteSubmitting ? t('node-actions.delete.deleting', 'Deleting...') : 'Yes, delete'}</button>
-              <button type="button" onclick={() => confirmDelete = false} class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+              <div class="flex items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={readOnly || $deleteSubmitting}
+                  class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >{$deleteSubmitting ? t('node-actions.delete.deleting', 'Deleting...') : 'Yes, delete'}</button>
+                <button type="button" onclick={() => confirmDelete = false} class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+              </div>
             </form>
             {#if deleteActionError}
               <p role="alert" class="mt-2 text-xs text-red-500">{deleteActionError}</p>
@@ -4103,7 +4441,8 @@
         {/if}
       </div>
     {/if}
-  </div>
+      </div>
+</div>
 </div>
 
 <!-- portal#696: attach a file to this node. Outside the page wrapper because it

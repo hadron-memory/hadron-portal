@@ -10,6 +10,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { HAND_BACK_TEXT_MAX, parseHandBack } from '$lib/agent-tasks/hand-back';
 import TaskActionBar from './TaskActionBar.svelte';
 
 const dara = { id: 'w1', kind: 'WORKER' as const, name: 'Dara', urn: 'hrn:worker:acme.com:team:dara' };
@@ -43,6 +44,16 @@ async function mountBar(over: Record<string, unknown> = {}, props: Record<string
 }
 const button = (root: HTMLElement, text: string) =>
   [...root.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === text)!;
+/** Presence by label, for absence checks that must not lean on `button`'s undefined-on-miss (Gaia's P3 on #1839). */
+const hasButton = (root: HTMLElement, text: string) =>
+  [...root.querySelectorAll<HTMLButtonElement>('button')].some((b) => b.textContent?.trim() === text);
+
+/** The parser's own invalid refusal for a (code, text) pair — fixtures derive, never hand-copy (Gaia's P3 on #1839). */
+function deriveInvalid(code: string, text: string) {
+  const parsed = parseHandBack(code, text);
+  if (!('invalid' in parsed)) throw new Error(`fixture: expected an invalid refusal for ${JSON.stringify({ code, text: text.slice(0, 30) })}`);
+  return parsed.invalid;
+}
 
 describe('TaskActionBar', () => {
   it('Cancel… opens a confirmation focused on Keep task, listing only what is true; Escape closes it and returns focus', async () => {
@@ -132,6 +143,18 @@ describe('TaskActionBar', () => {
     const panel = root.querySelector('#task-panel-cancel')!;
     const heading = root.querySelector(`#${panel.getAttribute('aria-labelledby')}`);
     expect(heading?.textContent).toContain('Cancel “Ship it”?');
+  });
+
+  // portal#1583 item 4 (Gloria's BLIND P3 on #1577): the hand-back heading's {title}
+  // interpolation, in its own test (Gaia's P3 on #1839: one panel per test, like the
+  // heading convention above). Mutant: drop the { title: task.title } argument in the
+  // component → renders “Hand back “”?” → red.
+  it('names the hand-back panel by its heading, with the task title interpolated', async () => {
+    const hb = await mountBar({ assignee: holger, status: 'STARTED' }, { viewerId: 'u1' });
+    button(hb, 'Hand back…').click();
+    await tick(2);
+    const hbPanel = hb.querySelector('#task-panel-handBack')!;
+    expect(hb.querySelector(`#${hbPanel.getAttribute('aria-labelledby')}`)?.textContent).toContain('Hand back “Ship it”?');
   });
 
   // Uma's P3-4: "Task created." gets focus, like every other result line.
@@ -349,6 +372,252 @@ describe('TaskActionBar', () => {
     it('a success with no warnings shows none', async () => {
       const root = await reassign({ action: 'reassign', ok: true, committedWithError: false, warnings: [], more: 0 });
       expect(root.querySelector('[data-testid="task-warnings"]')).toBeNull();
+    });
+  });
+
+  // portal#1571 (hrn:node:hadronmemory.com:specs:cor:agt:050:29): the assignee hands a started task back.
+  describe('Hand back…', () => {
+    const mine = { assignee: holger, status: 'STARTED' };
+
+    it('is offered to the started task’s assignee who is the viewer, and to nobody else', async () => {
+      expect(button(await mountBar(mine, { viewerId: 'u1' }), 'Hand back…')).toBeTruthy();
+      expect(button(await mountBar(mine, { viewerId: 'u2' }), 'Hand back…')).toBeUndefined();
+      expect(button(await mountBar(mine), 'Hand back…')).toBeUndefined();
+      expect(button(await mountBar({ status: 'STARTED' }, { viewerId: 'w1' }), 'Hand back…')).toBeUndefined();
+      expect(button(await mountBar({ ...mine, status: 'PENDING' }, { viewerId: 'u1' }), 'Hand back…')).toBeUndefined();
+    });
+
+    it('opens a dialog that says what happens, with the five reasons, none chosen, and a “Hand back” button', async () => {
+      const root = await mountBar(mine, { viewerId: 'u1' });
+      button(root, 'Hand back…').click();
+      await tick(2);
+      const panel = root.querySelector('#task-panel-handBack')!;
+      expect(panel.getAttribute('aria-labelledby')).toBeTruthy();
+      expect(panel.textContent).toContain('The task goes back to the queue with no assignee, and your reason is shown on it.');
+      expect(panel.textContent).not.toMatch(/won.t be given it again|excluded/i);
+      const select = panel.querySelector<HTMLSelectElement>('select[name="code"]')!;
+      expect(select.required).toBe(true);
+      expect(select.value).toBe('');
+      expect([...select.options].filter((o) => o.value).map((o) => [o.value, o.textContent?.trim()])).toEqual([
+        ['MISSING_INPUT', 'Missing input'], ['CANNOT_DO', 'Can’t do it'], ['REFUSED', 'Refused'], ['OUT_OF_SCOPE', 'Out of scope'], ['DUPLICATE', 'Duplicate'],
+      ]);
+      const text = panel.querySelector<HTMLTextAreaElement>('textarea[name="text"]')!;
+      expect(text.hasAttribute('maxlength')).toBe(false);
+      expect(panel.querySelector('form')?.getAttribute('action') ?? panel.getAttribute('action')).toBe('?/handBack');
+      expect([...panel.querySelectorAll('button[type="submit"]')].map((b) => b.textContent?.trim())).toEqual(['Hand back']);
+    });
+
+    it('a refusal stays in the panel verbatim, with its code, and nothing reloads', async () => {
+      const root = await mountBar(mine, { viewerId: 'u1' });
+      button(root, 'Hand back…').click();
+      await tick(2);
+      const message = 'Only the task’s assignee hands it back.';
+      await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('#task-panel-handBack')!, {
+        type: 'failure', status: 403, data: { action: 'handBack', refusal: { kind: 'refused', code: 'TASK_NOT_ASSIGNEE', message } },
+      });
+      await tick(2);
+      const alert = root.querySelector('#task-panel-handBack [role="alert"]');
+      expect(alert?.textContent).toContain('Not changed');
+      expect(alert?.textContent).toContain(`“${message}”`);
+      expect(alert?.textContent).toContain('TASK_NOT_ASSIGNEE');
+      expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
+    });
+
+    it('a success reloads, closes the panel and says the task is back in the queue', async () => {
+      const root = await mountBar(mine, { viewerId: 'u1' });
+      button(root, 'Hand back…').click();
+      await tick(2);
+      await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('#task-panel-handBack')!, {
+        type: 'success', status: 200, data: { action: 'handBack', ok: true },
+      });
+      await tick(3);
+      expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
+      expect(root.querySelector('#task-panel-handBack')).toBeNull();
+      expect(root.querySelector('[role="status"]')?.textContent).toContain('Handed back: it’s back in the queue.');
+    });
+
+    it('after the reload (PENDING, no assignee) the bar no longer offers hand-back', async () => {
+      const props = reactiveProps<Record<string, unknown>>({
+        task: task(mine), canWrite: true, impersonating: null, candidates, openChildren: { count: 0, capped: false }, viewerId: 'u1',
+      });
+      const m = mountComponent(TaskActionBar as never, props as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(2);
+      expect(button(m.target, 'Hand back…')).toBeTruthy();
+      props.task = task({ status: 'PENDING', assignee: null, queued: true });
+      await tick(3);
+      expect(button(m.target, 'Hand back…')).toBeUndefined();
+    });
+
+    // Gizelle's P3 / Charles's P3 on #1577: a native maxlength counts raw text and makes the server's
+    // trimmed-length message unreachable, so the textarea carries none; parseHandBack owns the cap.
+    it('leaves the length cap to the parser: the textarea has no native maxlength', async () => {
+      const root = await mountBar(mine, { viewerId: 'u1' });
+      button(root, 'Hand back…').click();
+      await tick(2);
+      expect(root.querySelector('#hand-back-text')?.hasAttribute('maxlength')).toBe(false);
+    });
+
+    // Gizelle's P2 on #1577: an open hand-back draft belongs to the task and eligibility it was opened under.
+    describe('an open draft', () => {
+      async function openDraft() {
+        const props = reactiveProps<Record<string, unknown>>({
+          task: task(mine), canWrite: true, impersonating: null, candidates, openChildren: { count: 0, capped: false }, viewerId: 'u1',
+        });
+        const m = mountComponent(TaskActionBar as never, props as never) as Mounted<Record<string, unknown>>;
+        mounted.push(m);
+        await tick(2);
+        button(m.target, 'Hand back…').click();
+        await tick(2);
+        const text = m.target.querySelector<HTMLTextAreaElement>('#hand-back-text')!;
+        text.value = 'reason for A';
+        text.dispatchEvent(new Event('input', { bubbles: true }));
+        return { props, root: m.target };
+      }
+
+      it('closes when the bar moves to another started task of the same assignee', async () => {
+        const { props, root } = await openDraft();
+        // Gaia's P2-1 on #1839: the removed textContent check ('not toContain reason for A')
+        // was vacuous — a one-way-bound textarea's value never reaches textContent — and a raw
+        // DOM draft never enters `values` either. The one state that COULD pre-fill task B's
+        // panel is `values` populated by a submit, so post task A's draft first: a refused
+        // submit leaves the panel open with values = { code, text } from the FormData.
+        const form = root.querySelector<HTMLFormElement>('#task-panel-handBack')!;
+        form.querySelector<HTMLSelectElement>('select[name="code"]')!.value = 'MISSING_INPUT';
+        await submitEnhancedWithResult(form, {
+          type: 'failure', status: 500, data: { action: 'handBack' },
+        });
+        await tick(2);
+        expect(root.querySelector('#task-panel-handBack')).not.toBeNull();
+        props.task = task({ ...mine, id: 't2', title: 'Task B' });
+        await tick(3);
+        flushSync();
+        expect(root.querySelector('#task-panel-handBack')).toBeNull();
+        // Re-open Hand back on task B: the draft starts empty (openPanel resets values),
+        // never task A's text or reason. Mutant: openPanel skips the values reset → red.
+        button(root, 'Hand back…').click();
+        await tick(2);
+        expect(root.querySelector<HTMLTextAreaElement>('#hand-back-text')?.value).toBe('');
+        expect(root.querySelector<HTMLSelectElement>('select[name="code"]')?.value).toBe('');
+      });
+
+      // portal#1583 item 2 (Gloria's BLIND delta on #1577): each closure must be pinned to the
+      // ELIGIBILITY effect, not to the section unmounting or a task-id change. The task keeps its
+      // id (so the task-id branch cannot fire) and the actions strip still renders its other
+      // buttons, so only the eligibility effect can have closed the panel.
+      it('closes when the same task becomes PENDING', async () => {
+        const { props, root } = await openDraft();
+        props.task = task({ status: 'PENDING', assignee: null, queued: true });
+        await tick(3);
+        flushSync();
+        expect(root.querySelector('[data-testid="task-actions"]')).not.toBeNull();
+        expect(hasButton(root, 'Hand back…')).toBe(false);
+        expect(root.querySelector('#task-panel-handBack')).toBeNull();
+        // Gaia's P2-2 on #1839: re-eligible with the SAME id, then still closed — a
+        // markup-independent mutant kill. If the eligibility effect were removed, the panel
+        // never closed and is open again here (the button's return proves the strip is live);
+        // only the effect, which closes and never reopens, passes both halves.
+        props.task = task(mine);
+        await tick(3);
+        flushSync();
+        expect(button(root, 'Hand back…')).toBeTruthy();
+        expect(root.querySelector('#task-panel-handBack')).toBeNull();
+      });
+
+      it('closes when the same task is reassigned away from the viewer', async () => {
+        const { props, root } = await openDraft();
+        props.task = task({ status: 'STARTED', assignee: { ...holger, id: 'u2' } });
+        await tick(3);
+        flushSync();
+        expect(root.querySelector('[data-testid="task-actions"]')).not.toBeNull();
+        expect(hasButton(root, 'Hand back…')).toBe(false);
+        expect(root.querySelector('#task-panel-handBack')).toBeNull();
+        // Gaia's P2-2 on #1839, same shape as the PENDING test above.
+        props.task = task(mine);
+        await tick(3);
+        flushSync();
+        expect(button(root, 'Hand back…')).toBeTruthy();
+        expect(root.querySelector('#task-panel-handBack')).toBeNull();
+      });
+
+      // portal#1583 item 1 (Gloria's BLIND delta on #1577): “draft intact” is the textarea's
+      // VALUE, not just the panel's existence. Mutant: clear the draft on a re-render → red.
+      it('stays open, draft intact, when the same eligible task re-renders', async () => {
+        const { props, root } = await openDraft();
+        props.task = task({ ...mine, updatedAt: '2026-10-21T10:00:00Z' });
+        await tick(3);
+        flushSync();
+        expect(root.querySelector('#task-panel-handBack')).not.toBeNull();
+        expect(root.querySelector<HTMLTextAreaElement>('#hand-back-text')?.value).toBe('reason for A');
+      });
+
+      // portal#1583 item 3 (Gloria's BLIND P3 on #1577): the invalid-refusal branch — the panel
+      // stays open, the sentence shows inline (never the “Not changed” refusal alert), focus
+      // moves to the field the branch names, and the draft survives the refusal (item 1's
+      // mutant: clear the draft on refusal → the value assertion goes red). The fixture is the
+      // one invalid field:'text' the contract can produce — parseHandBack's too-long refusal
+      // (text is optional, so there is no minimum) — derived from the parser itself (Gaia's P3
+      // on #1839: no hand-copied message to drift), in the exact shape writeFailure sends
+      // ({ action, refusal, values }, status 400). The controls are one-way bound; the raw
+      // .value assignments are what the submit's FormData reads.
+      // Mutant: remove the branch's guard → focus never reaches hand-back-text → red.
+      it('an invalid refusal (text over the cap) keeps the panel and draft, shows the sentence inline, and focuses the field it names', async () => {
+        const { root } = await openDraft();
+        const form = root.querySelector<HTMLFormElement>('#task-panel-handBack')!;
+        const select = form.querySelector<HTMLSelectElement>('select[name="code"]')!;
+        select.value = 'MISSING_INPUT';
+        const tooLong = 'a'.repeat(HAND_BACK_TEXT_MAX + 1);
+        const textEl = form.querySelector<HTMLTextAreaElement>('#hand-back-text')!;
+        textEl.value = tooLong;
+        const invalid = deriveInvalid('MISSING_INPUT', tooLong);
+        expect(invalid.field).toBe('text');
+        await submitEnhancedWithResult(form, {
+          type: 'failure', status: 400,
+          data: { action: 'handBack', refusal: { kind: 'invalid', ...invalid }, values: { code: 'MISSING_INPUT', text: tooLong } },
+        });
+        await tick(2);
+        // Gaia's P3 on #1839: re-query after the submit; the pre-submit references are for
+        // setting up the FormData, not for reading the re-rendered panel.
+        const panel = root.querySelector<HTMLFormElement>('#task-panel-handBack')!;
+        const alert = panel.querySelector('[role="alert"]');
+        expect(alert?.textContent).toContain(invalid.message);
+        expect(alert?.textContent).not.toContain('Not changed');
+        expect(panel.querySelector<HTMLTextAreaElement>('#hand-back-text')!.getAttribute('aria-invalid')).toBe('true');
+        expect(panel.querySelector<HTMLSelectElement>('select[name="code"]')!.getAttribute('aria-invalid')).toBeNull();
+        expect(document.activeElement?.id).toBe('hand-back-text');
+        expect(panel.querySelector<HTMLTextAreaElement>('#hand-back-text')!.value).toBe(tooLong);
+        expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
+      });
+
+      // portal#1583 item 3, the branch's other arm: parseHandBack refuses field:'code' (“Choose a
+      // reason.”) when the posted code is unknown — exactly this form's state, the select left on
+      // its disabled placeholder. The refusal is derived from the parser, and the checks mirror
+      // the text-cap test above (Gaia's P3 on #1839: same assertions both arms).
+      // Mutant: drop the `: 'hand-back-code'` focus arm → red.
+      it('an invalid refusal (no reason chosen) focuses the select and marks it, not the text', async () => {
+        const { root } = await openDraft();
+        const form = root.querySelector<HTMLFormElement>('#task-panel-handBack')!;
+        const invalid = deriveInvalid('', 'reason for A');
+        expect(invalid.field).toBe('code');
+        await submitEnhancedWithResult(form, {
+          type: 'failure', status: 400,
+          data: {
+            action: 'handBack',
+            refusal: { kind: 'invalid', ...invalid },
+            values: { code: '', text: 'reason for A' },
+          },
+        });
+        await tick(2);
+        const panel = root.querySelector<HTMLFormElement>('#task-panel-handBack')!;
+        const alert = panel.querySelector('[role="alert"]');
+        expect(alert?.textContent).toContain(invalid.message);
+        expect(alert?.textContent).not.toContain('Not changed');
+        expect(panel.querySelector<HTMLSelectElement>('select[name="code"]')!.getAttribute('aria-invalid')).toBe('true');
+        expect(panel.querySelector<HTMLTextAreaElement>('#hand-back-text')!.getAttribute('aria-invalid')).toBeNull();
+        expect(document.activeElement?.id).toBe('hand-back-code');
+        expect(panel.querySelector<HTMLTextAreaElement>('#hand-back-text')!.value).toBe('reason for A');
+        expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
+      });
     });
   });
 });

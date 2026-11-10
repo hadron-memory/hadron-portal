@@ -4,12 +4,12 @@
   import { t } from '$lib/i18n/t';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
-  import { marked } from 'marked';
+  import { renderChatMarkdown } from '$lib/markdown/chat-markdown';
   import DOMPurify from 'dompurify';
   import Urn from '$lib/components/Urn.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { scopedActionError } from '$lib/forms/scoped-message';
-  import { submittedForm } from '$lib/forms/submitted-form';
+  import { failedSubmission } from '$lib/forms/submitted-form';
   import { sendChatMessageSchema } from '$lib/forms/chat-message-schema';
 
   type SendChatMessageForm = Infer<typeof sendChatMessageSchema, 'zod4'>;
@@ -20,6 +20,11 @@
     author: string;
     content: string;
     createdAt: string;
+    /** The server's ordering key, atomically allocated with the insert
+     *  (hrn:node:hadronmemory.com:specs:cor:agt:020:04). Null on a legacy
+     *  thread, which predates it — never invented client-side (seq has gaps
+     *  by design: it is a watermark, not a count). */
+    seq?: number | null;
     nodeData?: { loc?: string } | null;
   };
 
@@ -36,6 +41,7 @@
     canPost = true,
     hasOlder = false,
     onLoadOlder,
+    showSeq = false,
   }: {
     messages?: ChatThreadMessage[];
     basePath: string;
@@ -47,6 +53,11 @@
     /** False when there is no App to post through — the thread reads, but the
      *  composer would have nowhere to send. */
     canPost?: boolean;
+    /** portal#1525: render the server seq per message. Opt-in so the one
+     *  surface that shows it (the team-Channel full-screen view) turns it on
+     *  and every other consumer of this component — the node page's inline
+     *  Chat tab, agent chats — is unchanged. */
+    showSeq?: boolean;
     /** #793: is there history before the loaded window? Drives scroll-up. */
     hasOlder?: boolean;
     /** #793: fetch the page BEFORE the current window. The route owns HOW to
@@ -117,8 +128,14 @@
   let hoveredMessageId = $state<string | null>(null);
   let isBrowser = $state(false);
 
+  // #1522 (r1's page-form-prop pin): seed from the parent's submitted action
+  // data only when that data is THIS surface+node's FAILED submission. Both
+  // chat send surfaces share the `_kind`, so `_kind` alone cannot tell whose
+  // result it is (the id gate); and a SUCCESSFUL submission holds the text
+  // just sent, which would re-fill the composer on every remount (#957 —
+  // `resetForm` then resets TO it). Falls back to the loader's fresh form.
   const initialSendForm = untrack(
-    () => (submittedForm<SendChatMessageForm>(form, 'sendChatMessage') as SendChatMessageSuperform | null) ?? sendForm,
+    () => failedSubmission<SendChatMessageForm>(form, 'sendChatMessage', sendForm.id) ?? sendForm,
   );
   const {
     form: sendFormData,
@@ -126,6 +143,7 @@
     message: sendMessage,
     submitting: sendSubmitting,
     enhance: sendEnhance,
+    reset: resetSend,
   } = superForm<SendChatMessageForm, App.Superforms.Message, SendChatMessageForm>(initialSendForm, {
     validators: zod4Client(sendChatMessageSchema),
     validationMethod: 'oninput',
@@ -134,6 +152,35 @@
     invalidateAll: true,
     clearOnSubmit: 'none',
     resetForm: true,
+    onUpdated: ({ form: updated }) => {
+      if (updated.valid && updated.message?.type !== 'error') {
+        // #1567: a refused draft is a mount seed, not a successful reset
+        // target. Rebase on the loader's clean form, as TeamChatThread does,
+        // so neither this success nor a later reset restores the old draft.
+        resetSend({ newState: sendForm.data, keepMessage: true });
+      }
+    },
+    // #1522 QA (portal#1568, Celine's leg 2): superforms' duplicate-id check
+    // logs a warning whenever an id registers while the SAME id is still live.
+    // Svelte tears the outgoing page down AFTER the incoming page initializes,
+    // and kit (2.55) only replaces the `$app/stores` page value on popstate —
+    // so across forward navigations every form in the app shares one registry
+    // set, and a navigation boundary between two mounts of this thread opens a
+    // same-id live window that the check reads as a duplicate. It is a false
+    // positive, not a data defect: the send ids are surface-AND-node scoped
+    // (`sendChatMessage:<nodeId>` / `sendMessage:<nodeId>`, pinned distinct by
+    // chat-form-ids.client.test.ts), and a late result is delivered only to
+    // its own form (the same file's id-fence legs; QA legs 1/3/4 on the real
+    // browser stack). The same heuristic also flags a dozen unrelated node
+    // page forms on back navigation, on main and on this branch alike. The
+    // distinctness the warning existed to catch is test-pinned, so silence it
+    // HERE rather than re-scoping ids to dodge a mount-order artifact — and
+    // the same test file pins this decision: two live ChatThreads (the
+    // router's transition window) must log nothing.
+    // hrn:node:hadronmemory.com:hadron-portal:findings:superforms-duplicate-id-page-epoch
+    // This also skips duplicate-id registration: silence from a single thread
+    // is not distinct-id coverage. The tests pin the option and ids separately.
+    warnings: { duplicateId: false },
   });
   const sendError = $derived(
     scopedActionError<SendChatMessageForm>(form, 'sendChatMessage', $sendMessage, $sendErrors, ['content', '_kind']),
@@ -145,7 +192,7 @@
     // ever populated with sanitized HTML — never raw attacker-controlled
     // markdown during SSR or the pre-hydration client render.
     if (!isBrowser || !text) return '';
-    return DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
+    return DOMPurify.sanitize(renderChatMarkdown(text));
   }
 
   onMount(async () => {
@@ -251,12 +298,27 @@
             </span>
           </div>
 
-          <!-- Message column -->
-          <div class="flex-1">
+          <!-- Message column. `min-w-0` (portal#1525 fix head): the hover
+               message-URN anchor below is `flex-shrink-0`, so without this the
+               column's min-content width is the full URN and long ones push
+               the bubbles past a 390px viewport — same failure the header had. -->
+          <div class="min-w-0 flex-1">
             <!-- Author and URN on same row, top-aligned -->
             <div class="flex justify-between items-start gap-2 mb-1">
               <div class="text-sm font-semibold text-zinc-900 dark:text-white">
                 {msg.author || 'Unknown'}
+                <!-- portal#1525: the server's seq, only where asked for. Same
+                     rationale as TeamChatThread: seq is how the team addresses
+                     messages to each other, in the CLI (--reply-to) and in
+                     prose ("seq 14"). It is content, not debug output. Null
+                     renders nothing — a legacy thread has no seq, and a
+                     client-invented number would lie about a watermark. -->
+                {#if showSeq && msg.seq != null}
+                  <!-- data-seq: the assertion hook — "no seq renders" is
+                       `[data-seq]` count 0, not a textContent scan for '#'
+                       (which hrefs and ids also contain). -->
+                  <span data-seq={msg.seq} class="ml-1 font-mono text-xs font-normal text-zinc-400 dark:text-zinc-500">#{msg.seq}</span>
+                {/if}
               </div>
               {#if msgUrn}
                 <!-- The chip is hover-revealed, but it stays in the tab order:

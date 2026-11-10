@@ -105,7 +105,7 @@ export type AutomationWrite = { ok: true } | { ok: false; reason: 'stale' } | { 
  * to ClientError.message, which graphql-request fills with the whole request (the operation and the trigger ref).
  * The page shows a fixed sentence for '' (portal#1301).
  */
-function ownWords(e: unknown): string {
+export function ownWords(e: unknown): string {
   const message = (e as { response?: { errors?: { message?: unknown }[] } } | null)?.response?.errors?.[0]?.message;
   return typeof message === 'string' ? message.trim() : '';
 }

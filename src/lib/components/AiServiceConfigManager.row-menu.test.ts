@@ -15,7 +15,7 @@ import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 import type { AiServiceConfig } from '$lib/types';
 
 // The node lane has no `$app/*`; a server render never navigates.
-vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn() }));
+vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), beforeNavigate: vi.fn() }));
 
 const CONFIG = {
   id: 'cfg-1',
@@ -38,7 +38,7 @@ const CONFIG = {
 
 function body() {
   return render(AiServiceConfigManager, {
-    props: { ownerType: 'ORGANIZATION', ownerId: 'org-1', configs: [CONFIG], canManage: true },
+    props: { ownerType: 'ORGANIZATION', ownerId: 'org-1', currentUserId: 'u1', configs: [CONFIG], canManage: true },
   }).body;
 }
 

@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
 import { AGENT_TASKS_APP_QUERY } from '$lib/server/queries';
 import { AUTOMATION_APPROVALS_QUERY } from '$lib/server/automation-approval';
+import { AGENT_SCHEDULES_QUERY } from '$lib/server/automation-schedule';
 
 const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
@@ -31,7 +32,12 @@ async function loadList(search = '') {
     url: new URL(`http://localhost/app/apps/app-1/automations${search}`),
   } as never)) as Record<string, unknown>;
 }
-const answer = (page: unknown) => async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { automationApprovals: page });
+const schedule = (over: Record<string, unknown> = {}) => ({
+  id: 'sch-1', name: 'Nightly digest', entryNodeUrn: 'hrn:node:acme.com:ops:digest', cron: '0 6 * * *', runAt: null, timezone: 'UTC', enabled: true,
+  nextRunAt: null, lastRunAt: null, userId: 'u1', createdBy: 'u1', ...over,
+});
+const answer = (page: unknown, schedules: unknown[] = []) => async (q: string) =>
+  q === AGENT_TASKS_APP_QUERY ? { app } : q === AGENT_SCHEDULES_QUERY ? { agentSchedules: { total: schedules.length, items: schedules } } : { automationApprovals: page };
 
 describe('list loader', () => {
   it('reads the App’s page and carries the server’s rows, cursor and omission as sent', async () => {
@@ -41,6 +47,23 @@ describe('list loader', () => {
     expect(r.approvals).toEqual({ kind: 'ok', ...page });
     const call = request.mock.calls.find((c) => c[0] === AUTOMATION_APPROVALS_QUERY)!;
     expect(call[1]).toEqual({ appRef: 'app-1', after: null });
+  });
+
+  it('carries the App\'s schedules so a schedule row can say when it runs (portal#1701)', async () => {
+    request.mockImplementation(answer({ rows: [row()], nextCursor: null, omitted: [MANUAL] }, [schedule()]));
+    const r = await loadList();
+    expect(r.schedules).toEqual({ visible: true, schedules: [expect.objectContaining({ id: 'sch-1', cron: '0 6 * * *', timezone: 'UTC' })] });
+    expect(request.mock.calls.find((c) => c[0] === AGENT_SCHEDULES_QUERY)![1]).toMatchObject({ appRef: 'app-1' });
+  });
+
+  it('a reader who may not read schedules still gets the approvals, with no timing', async () => {
+    request.mockImplementation(async (q: string) => {
+      if (q === AGENT_SCHEDULES_QUERY) throw gqlError('FORBIDDEN');
+      return answer({ rows: [row()], nextCursor: null, omitted: [MANUAL] })(q);
+    });
+    const r = await loadList();
+    expect(r.schedules).toEqual({ visible: false, schedules: [] });
+    expect((r.approvals as { rows: unknown[] }).rows).toHaveLength(1);
   });
 
   it('passes the cursor from the URL back to the server untouched', async () => {

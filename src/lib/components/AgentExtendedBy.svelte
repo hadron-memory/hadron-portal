@@ -1,30 +1,77 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { invalidateAll } from '$app/navigation';
   import DataTable from './table/DataTable.svelte';
   import Urn from './Urn.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
   import type { AgentExtensions, AgentIdentity } from '$lib/server/agent-profile';
+  import { parseExtensions, RETRY_TIMEOUT_MS } from '$lib/agent-extensions';
   import { t } from '$lib/i18n/t';
 
   let { agentId, result, requestedAfter = null }: { agentId: string; result: AgentExtensions; requestedAfter?: string | null } = $props();
   const baseHref = $derived(`/app/agents/${encodeURIComponent(agentId)}`);
   const firstHref = $derived(`${baseHref}#extended-by`);
   const retryHref = $derived(requestedAfter === null ? baseHref : `${baseHref}?extendedAfter=${encodeURIComponent(requestedAfter)}`);
+  // #1503: the section-owned re-read behind Retry. Retry must not re-run the
+  // page's loaders (invalidateAll): SvelteKit turns a failed __data.json into
+  // the root error page rendered over the Agent page, and the call resolves
+  // instead of rejecting, so no catch could ever run. This endpoint answers
+  // with the same AgentExtensions the page loader produces.
+  const retrySrc = $derived(requestedAfter === null ? `${baseHref}/extended-by` : `${baseHref}/extended-by?after=${encodeURIComponent(requestedAfter)}`);
   let section: HTMLElement;
   let retrying = $state(false);
+  const retryingLabel = t('agent.extended-by.retrying', 'Retrying…');
+  // #1503: the section renders a working copy. Retry swaps it from the
+  // section's own endpoint; a loader-produced replacement of the `result` prop
+  // (Next/First navigation, a parent refresh) supersedes any local retry.
+  // The initial capture is deliberate; the effect below carries every later
+  // prop replacement. Same pattern as BootPromptPointer.
+  // svelte-ignore state_referenced_locally
+  let view = $state(result);
+  $effect(() => { view = result; });
+  const failedText = $derived(!view.failed || retrying ? '' : requestedAfter === null
+    ? t('agent.extended-by.failed-first', 'Could not load extending Agents. Retry this page.')
+    : t('agent.extended-by.failed', 'Could not load extending Agents. Retry this page, or return to the first page.'));
+  // Refuse a malformed payload before rendering it (see $lib/agent-extensions):
+  // anything that is not a well-formed AgentExtensions is a failed read.
+  // A pending re-read is aborted when the section unmounts, and its result is
+  // applied only if the section still shows the page it was issued for — a
+  // First-page/Back navigation mid-read must not be clobbered by the stale page.
+  let abortRetry: (() => void) | undefined;
+  $effect(() => {
+    return () => { abortRetry?.(); };
+  });
   async function retry(event: MouseEvent) {
+    // Modified links retain native tab/window/download behavior, even while a
+    // plain retry is pending. Browsers deliver middle clicks through auxclick.
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     if (retrying) return;
     retrying = true;
+    const forSrc = retrySrc;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
+    // Bound the browser's whole leg, fetch and body read alike (#1560 review):
+    // the endpoint bounds its own upstream read, but a stalled connection here
+    // would otherwise hold "Retrying…" forever with the alert blanked.
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    if (controller) deadline = setTimeout(() => controller.abort(), RETRY_TIMEOUT_MS);
+    abortRetry = () => { if (deadline !== undefined) clearTimeout(deadline); controller?.abort(); };
     try {
-      await invalidateAll();
+      const response = await fetch(retrySrc, { headers: { accept: 'application/json' }, signal: controller?.signal });
+      if (!response.ok) throw new Error(`extended-by reload failed (${response.status})`);
+      const fresh = parseExtensions(await response.json());
+      if (!fresh) throw new Error('extended-by reload returned a malformed payload');
+      if (section?.isConnected && retrySrc === forSrc) view = fresh;
     } catch {
-      // Keep the existing failed-read feedback if the route itself cannot reload.
+      // Keep the failed-read alert; the page and its URL are untouched.
     } finally {
+      if (deadline !== undefined) clearTimeout(deadline);
+      abortRetry = undefined;
       retrying = false;
-      if (section?.isConnected) section.focus();
+      // Focus follows the page the retry was issued for, exactly like the data:
+      // a re-read discarded by an in-page navigation must not steal focus from
+      // the page the reader is on now either (#1560 review).
+      if (section?.isConnected && retrySrc === forSrc) section.focus();
     }
   }
   const columns: PortalColumnDef<AgentIdentity>[] = [
@@ -33,7 +80,7 @@
   ];
   let filter = $state('');
   const table = createSvelteTable<AgentIdentity>({
-    get data() { return result.items; },
+    get data() { return view.items; },
     columns,
     enableColumnResizing: true,
     columnResizeMode: 'onChange',
@@ -47,19 +94,32 @@
   const pageIdentity = $derived(JSON.stringify([agentId, requestedAfter]));
   $effect(() => {
     pageIdentity;
-    untrack(() => { filter = ''; table.setPageIndex(0); });
+    untrack(() => {
+      // A re-read issued for another page cannot serve this one — abort it
+      // instead of letting it hold "Retrying…" over the page the reader moved
+      // to (#1560 review). No-op when nothing is pending.
+      abortRetry?.();
+      filter = '';
+      table.setPageIndex(0);
+    });
   });
 </script>
 
 <section bind:this={section} id="extended-by" tabindex="-1" class="min-w-0 space-y-3" aria-labelledby="extended-by-heading">
   <h2 id="extended-by-heading" class="font-semibold">{t('agent.extended-by.heading', 'Extended by')}</h2>
-  <p class="text-sm text-zinc-500">{t('agent.extended-by.scope', 'Agents you can read that directly extend this Agent. Search and sorting apply to this server page. Search resets when you change server pages.')}</p>
-  {#if result.failed}
-    <p role="alert" class="text-sm text-red-600 dark:text-red-400">{requestedAfter === null
-      ? t('agent.extended-by.failed-first', 'Could not load extending Agents. Retry this page.')
-      : t('agent.extended-by.failed', 'Could not load extending Agents. Retry this page, or return to the first page.')}</p>
-  {:else if result.items.length === 0}
-    <p class="text-sm text-zinc-500">{result.hasMore
+  <!-- #1311: the status and the alert are mounted before any retry, so assistive
+       technology is already watching them, and they share one wrapper so an
+       empty alert adds no gap. The alert empties while a retry is pending and
+       refills if the retry fails again: an identical failure is announced anew
+       without remounting the table. -->
+  <div>
+    <p class="text-sm text-zinc-500">{t('agent.extended-by.scope', 'Agents you can read that directly extend this Agent. Search and sorting apply to this server page. Search resets when you change server pages.')}</p>
+    <p id="extended-by-alert" role="alert" class={failedText ? 'mt-3 text-sm text-red-600 dark:text-red-400' : 'text-sm text-red-600 dark:text-red-400'}>{failedText}</p>
+    <p id="extended-by-status" role="status" class="sr-only">{retrying ? retryingLabel : ''}</p>
+  </div>
+  <!-- A failed read is never "no extending Agents": its words are in the alert above. -->
+  {#if !view.failed && view.items.length === 0}
+    <p class="text-sm text-zinc-500">{view.hasMore
       ? t('agent.extended-by.incomplete', 'No readable Agents on this page. Continue to check for more results.')
       : requestedAfter === null
         ? t('agent.extended-by.empty-first', 'No Agents you can read extend this Agent.')
@@ -75,14 +135,14 @@
       {/snippet}
   </DataTable>
   <nav class="flex flex-wrap gap-4 text-sm" aria-label={t('agent.extended-by.paging', 'Extending Agents pages')}>
-    {#if result.failed}
-      <a class="text-indigo-600 hover:underline dark:text-indigo-400" href={retryHref} data-sveltekit-reload onclick={retry} aria-disabled={retrying}>{t('agent.extended-by.retry', 'Retry')}</a>
+    {#if view.failed}
+      <a class="text-indigo-600 hover:underline dark:text-indigo-400" href={retryHref} data-sveltekit-reload onclick={retry} aria-disabled={retrying}>{retrying ? retryingLabel : t('agent.extended-by.retry', 'Retry')}</a>
     {/if}
     {#if requestedAfter !== null}
       <a class="text-indigo-600 hover:underline dark:text-indigo-400" href={firstHref}>{t('agent.extended-by.first', 'First page')}</a>
     {/if}
-    {#if !result.failed && result.hasMore && result.endCursor}
-      <a class="text-indigo-600 hover:underline dark:text-indigo-400" href="{baseHref}?extendedAfter={encodeURIComponent(result.endCursor)}#extended-by">{t('agent.extended-by.next', 'Next 20 extending Agents')}</a>
+    {#if !view.failed && view.hasMore && view.endCursor}
+      <a class="text-indigo-600 hover:underline dark:text-indigo-400" href="{baseHref}?extendedAfter={encodeURIComponent(view.endCursor)}#extended-by">{t('agent.extended-by.next', 'Next 20 extending Agents')}</a>
     {/if}
   </nav>
 </section>

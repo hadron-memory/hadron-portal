@@ -159,3 +159,40 @@ describe('create page: a warned create replaces the form', () => {
     expect(m.target.querySelector('[data-testid="task-created"]')).toBeNull();
   });
 });
+
+// portal#1530 — the create page's min-tier help must carry the same qualified
+// sentence as the Edit panel (one key, one default), and the minTier control
+// must serialize unchanged: '' for "Any", the tier once selected.
+import { MIN_TIER_HELP } from '$lib/test/minTierHelp';
+
+describe('create page: min-tier help (portal#1530)', () => {
+  async function mountCreatePage() {
+    const m = mountComponent(Page as never, {
+      data: { app, candidates: { workers: [], people: [] }, roles: [], families: [], canWrite: true, impersonating: null },
+      form: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return m.target as HTMLElement;
+  }
+
+  it('with "Any" selected, qualifies the exclusion to a selected minimum and serializes no minimum', async () => {
+    const root = await mountCreatePage();
+    expect(root.querySelector('#new-min-tier-help')!.textContent).toBe(MIN_TIER_HELP);
+    const select = root.querySelector<HTMLSelectElement>('#new-min-tier')!;
+    expect(select.value).toBe('');
+    const form = root.querySelector<HTMLFormElement>('form')!;
+    expect(new FormData(form).get('minTier')).toBe('');
+  });
+
+  it('with a minimum picked, shows the same sentence and serializes the tier', async () => {
+    const root = await mountCreatePage();
+    expect(root.querySelector('#new-min-tier-help')!.textContent).toBe(MIN_TIER_HELP);
+    const select = root.querySelector<HTMLSelectElement>('#new-min-tier')!;
+    select.value = 'mid';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(2);
+    const form = root.querySelector<HTMLFormElement>('form')!;
+    expect(new FormData(form).get('minTier')).toBe('mid');
+  });
+});

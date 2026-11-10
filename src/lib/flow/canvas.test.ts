@@ -125,3 +125,61 @@ describe('conditionTextOf', () => {
     expect(text).toContain('"+"');
   });
 });
+
+describe('buildFlowCanvas — script nodes (#1597, hrn:node:hadronmemory.com:specs:cor:agt:010:04)', () => {
+  const build = (data: unknown) =>
+    buildFlowCanvas([{ id: 's', loc: 'flow:s', name: 'S', kind: 'flow', data }], []).nodes[0];
+
+  it('projects a script node to its tool, args KEYS and no both-bodies flag', () => {
+    const n = build({ script: { call: { tool: 'hadron_find_nodes', args: { query: 'secret-literal', limit: 3 } } } });
+    expect(n.script).toEqual({ tool: 'hadron_find_nodes', argKeys: ['query', 'limit'], bothBodies: false, argsInvalid: false });
+  });
+
+  it('never ships args VALUES to the client', () => {
+    const n = build({ script: { call: { tool: 't', args: { query: 'secret-literal' } } } });
+    expect(JSON.stringify(n)).not.toContain('secret-literal');
+  });
+
+  it('a node without script has script null and is otherwise unchanged', () => {
+    const n = build({ tools: ['hadron_create_node'] });
+    expect(n.script).toBeNull();
+    expect(n.tools).toEqual(['hadron_create_node']);
+  });
+
+  it('flags both bodies when script sits with tools or extractionSpec, even an empty list', () => {
+    const call = { tool: 't' };
+    expect(build({ script: { call }, tools: ['x'] }).script?.bothBodies).toBe(true);
+    expect(build({ script: { call }, extractionSpec: [{ field: 'a' }] }).script?.bothBodies).toBe(true);
+    expect(build({ script: { call }, tools: [] }).script?.bothBodies).toBe(true);
+  });
+
+  it('tolerates a script with no usable call.tool or non-object args', () => {
+    expect(build({ script: {} }).script).toEqual({ tool: null, argKeys: [], bothBodies: false, argsInvalid: false });
+    expect(build({ script: { call: { tool: 't', args: [1] } } }).script?.argKeys).toEqual([]);
+  });
+});
+
+describe('buildFlowCanvas — script call.args validity (#1612, mirrors the server load refusal)', () => {
+  const argsInvalid = (call: Record<string, unknown>) =>
+    buildFlowCanvas([{ id: 's', loc: 'flow:s', name: 'S', kind: 'flow', data: { script: { call } } }], []).nodes[0].script
+      ?.argsInvalid;
+
+  it.each([
+    ['null', null],
+    ['an array', [1]],
+    ['a string', 'x'],
+    ['a number', 3],
+  ])('flags args that is %s', (_label, args) => {
+    expect(argsInvalid({ tool: 't', args })).toBe(true);
+  });
+
+  it('does not flag absent args or an empty object', () => {
+    expect(argsInvalid({ tool: 't' })).toBe(false);
+    expect(argsInvalid({ tool: 't', args: {} })).toBe(false);
+  });
+
+  it('a non-object args never contributes arg keys', () => {
+    const n = buildFlowCanvas([{ id: 's', loc: 'flow:s', name: 'S', kind: 'flow', data: { script: { call: { tool: 't', args: ['a'] } } } }], []).nodes[0];
+    expect(n.script?.argKeys).toEqual([]);
+  });
+});

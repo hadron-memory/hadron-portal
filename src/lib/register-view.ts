@@ -4,17 +4,13 @@
  *
  * `attendeeRegister` resolves one winning row per Channel: App over
  * organization, then Worker over Agent over everyone, never unioned (spec 049
- * §4.3). Its `canRead` / `canPost` / `disclosure` are computed for the CALLER
- * (hadron-server resolveRegister's actor is the request, not the attendee).
- * So they are NOT the attendee's access, and this view never presents them
- * that way. What it shows:
- * - which Channel, in which mode, counting which messages;
- * - WHY that row wins (their own row, their agent's, or everyone's) and who
- *   set it;
- * - how far the attendee has read (`lastSeenSeq` against the Channel's
- *   watermark `lastSeq`), as of the moment it was loaded;
- * - facts about the Channel itself (deleted), and about the VIEWER only when
- *   worded as the viewer's ("its memory isn't visible to you").
+ * §4.3). Since server #1560, `canRead` / `canPost` / `disclosure` are
+ * computed for the ATTENDEE (a Worker's eligible holder or an Agent's App
+ * principal). Viewer access separately gates `hostMemoryUrn`: standing is
+ * worded only when that host memory is visible. A register entry grants no
+ * access; the server's host-memory gates decide the standing.
+ * The winning row, its provenance and the attendee's read watermark remain
+ * independent facts; lastSeq is a watermark, never an unread count.
  */
 import { t } from '$lib/i18n/t';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
@@ -100,11 +96,31 @@ export function readUpToLabel(r: RegisterViewRow): string {
   return t('app.channels.effective.read.partial', 'Read up to #{seen} of #{last}', { seen: String(r.lastSeenSeq), last: String(last) });
 }
 
-/** A fact about the Channel, or about the VIEWER worded as theirs; never the attendee's access. */
+/** Viewer masking comes before attendee standing; deleted channels keep their existing note. */
 export function noteLabel(r: RegisterViewRow): string {
   if (r.channel.deleted) return t('app.channels.effective.note.deleted', 'Channel deleted');
   if (r.channel.hostMemoryUrn === null) return t('app.channels.effective.note.hidden', 'Its memory isn’t visible to you');
-  return '';
+  switch (r.disclosure) {
+    case 'HOST_MEMORY_NOT_READABLE':
+      return t('app.channels.effective.note.unreadable', 'They cannot read its host memory');
+    case 'HOST_MEMORY_NOT_WRITABLE':
+      return t('app.channels.effective.note.unwritable', 'They cannot write its host memory (watch only)');
+    case 'CHANNEL_DELETED':
+      return t('app.channels.effective.note.deleted', 'Channel deleted');
+    case 'DRIVER_NOT_PARTICIPANT':
+      return t('app.channels.effective.note.driver', 'Their driver is not a participant of the host App (watch only)');
+    case 'UNKNOWN_ACTOR':
+      return t('app.channels.effective.note.unknown-actor', 'Their posting rights cannot be evaluated (no eligible driver)');
+    case 'IMPERSONATION':
+      return t('app.channels.effective.note.impersonation', 'Their support view is read only');
+    case null:
+      return r.canRead && r.canPost === true
+        ? t('app.channels.effective.note.allowed', 'They can read and post')
+        : '';
+    default:
+      // A new server reason needs deliberate wording, never an access inference.
+      return '';
+  }
 }
 
 export function effectiveRows(view: RegisterViewRow[], kind: AttendeeKind = 'worker'): EffectiveRow[] {

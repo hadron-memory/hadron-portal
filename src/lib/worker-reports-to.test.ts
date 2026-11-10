@@ -48,3 +48,29 @@ describe('reportsToSortKey', () => {
     expect(reportsToSortKey(reportsToOf({ reportsToWorkerId: 'w-gone' }, roster))).toBe('w-gone');
   });
 });
+
+// ── hadron-portal#1149: the placement readback ───────────────────────────────
+import { teamPlacementOf } from './worker-reports-to';
+
+describe('teamPlacementOf (#1149)', () => {
+  it('null or absent is WITHHELD: never UNSET, never NO_TEAM', () => {
+    expect(teamPlacementOf({ teamPlacement: null })).toEqual({ kind: 'withheld' });
+    expect(teamPlacementOf({})).toEqual({ kind: 'withheld' });
+    expect(teamPlacementOf(null)).toEqual({ kind: 'withheld' });
+  });
+
+  it('keeps UNSET, NO_TEAM and REPORTS_TO distinct', () => {
+    expect(teamPlacementOf({ teamPlacement: 'UNSET' })).toEqual({ kind: 'unset' });
+    expect(teamPlacementOf({ teamPlacement: 'NO_TEAM' })).toEqual({ kind: 'no-team' });
+    expect(teamPlacementOf({ teamPlacement: 'REPORTS_TO' })).toEqual({ kind: 'reports-to' });
+  });
+
+  it('a null reportsTo pointer is not evidence of an explicit No team', () => {
+    expect(teamPlacementOf({ teamPlacement: null, reportsToWorkerId: null })).toEqual({ kind: 'withheld' });
+    expect(teamPlacementOf({ teamPlacement: 'UNSET', reportsToWorkerId: null })).toEqual({ kind: 'unset' });
+  });
+
+  it('an unrecognised value is withheld rather than guessed', () => {
+    expect(teamPlacementOf({ teamPlacement: 'SOMETHING_NEW' as never })).toEqual({ kind: 'withheld' });
+  });
+});

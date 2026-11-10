@@ -58,7 +58,7 @@ async function mountTab(tab: string, over: { app?: Record<string, unknown>; data
   const data = {
     app: {
       id: 'a1', urn: 'hrn:app:acme.com:team', name: 'Team', appType: 'WORKSTATION', role: 'OWNER',
-      surfaces: [], agentId: 'ag1', agent: { ...agentOne, installationPolicy: { memberRoles: ['reader'], maxMembers: 'unlimited' } },
+      surfaces: [], agentId: 'ag1', availableMemberRoles: ['reader'], agent: { ...agentOne, installationPolicy: { memberRoles: ['reader'], maxMembers: 'unlimited' } },
       agents: [agentOne, agentTwo], memberCount: 1,
       createUserPermission: 'DENY', identifyUserMethod: 'USER_ID', sessionTimeoutSeconds: 3600, anonymousTtlDays: 14,
       createdAt: '2026-01-01T00:00:00.000Z',
@@ -66,7 +66,7 @@ async function mountTab(tab: string, over: { app?: Record<string, unknown>; data
     },
     org: null, availableAgents: [agentOne, { id: 'ag3', urn: 'hrn:agent:acme.com:extra', name: 'Extra' }],
     staff: [], staffError: false, members: [{ appId: 'a1', userId: 'u2', role: 'reader', user: reader }],
-    teamChatMessages: [], teamChatTotal: 0, teamChatError: false,
+    teamChatMessages: [], teamChatTotal: 0, teamChatError: false, teamFilter: { kind: 'none' }, teamFilterInvalid: false, teamChatRefusal: null,
     appChats: [{ key: 'chats:team', label: 'Team chat' }], chatsError: false,
     selectedChatKey: 'chats:team', initialTab: tab, initialChatFullView: false,
     chatConfigs: [], appConfigs: [], worklog: [], worklogTotal: 0, worklogError: false,
@@ -95,6 +95,15 @@ describe('App page tab strip (#1005, #1006)', () => {
     expect(labels).not.toContain('Worker agents');
   });
 
+  it('mounts Runs as a real App tab with its own panel', async () => {
+    const target = await mountTab('runs');
+    const tab = target.querySelector('#tab-runs');
+    expect(tab?.getAttribute('role')).toBe('tab');
+    expect(tab?.getAttribute('aria-selected')).toBe('true');
+    expect(target.querySelector('#panel-runs')?.getAttribute('role')).toBe('tabpanel');
+    expect(target.querySelector('a[href="/app/apps/a1/runs"]')).toBeNull();
+  });
+
   it('keeps the `staff` id behind the renamed worker tab: a label is not an address', async () => {
     const target = await mountTab('chats');
     expect(target.querySelector('#tab-staff')?.textContent?.trim()).toBe('AI Team');
@@ -102,7 +111,7 @@ describe('App page tab strip (#1005, #1006)', () => {
     expect(target.querySelector('#tab-agents')?.textContent?.trim()).toBe('Agents');
   });
 
-  // #1052: Tasks is a sub-route like Runs and Channels: a link styled as a
+  // #1052: Tasks is a sub-route like Channels: a link styled as a
   // tab, not an in-page panel, so a task read's refusal never reaches this page.
   it('links to the Tasks sub-route', async () => {
     const target = await mountTab('chats');
@@ -301,7 +310,7 @@ describe('Agents tab: boot-prompt pointers (portal#1142 S8)', () => {
     expect(panel.textContent).toContain('Boot prompt for Critic in this App');
     expect(panel.querySelector<HTMLInputElement>('input[name="agentRef"]')!.value).toBe('ag2');
     expect(panel.querySelector('form')!.getAttribute('action')).toBe('?tab=agents&/setAppAgentBootPrompt');
-    expect(panel.textContent).toContain('Pointers are recorded but not used to start agents yet.');
+    expect(panel.textContent).toContain('Agents start with the newest approved revision of the compiled prompt named by the highest set pointer: the worker’s, else the App’s, else the Agent’s.');
   });
 
   it('a result for one row never shows on another, and a refused draft stays on its own row', async () => {

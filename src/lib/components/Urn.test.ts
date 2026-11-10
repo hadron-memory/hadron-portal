@@ -154,6 +154,28 @@ describe('Urn.svelte — linked chip (#826)', () => {
   });
 });
 
+// #1360 — an action URN (hrn:action:<root>:<agent-slug>:<code>, server#2610)
+// is labelled `action`, not the `unknown` fallback, and its resolver link and
+// copy-URL button are live now that /app/u/ opens the register entry.
+describe('Urn.svelte — action URN chip (#1360)', () => {
+  const ACTION = 'hrn:action:hadronmemory.com:hadron-dev-team:gate-an-issue';
+
+  it('labels the chip `action` and shows the bare root:agent:code', () => {
+    const { body } = render(Urn, { props: { value: ACTION } });
+    expect(body).toContain('action:');
+    expect(body).not.toContain('unknown');
+    expect(body).toContain('hadronmemory.com:hadron-dev-team:gate-an-issue');
+  });
+
+  it('keeps the label and links to the resolver when given the bare form plus a type', () => {
+    const { body } = render(Urn, {
+      props: { value: 'hadronmemory.com:hadron-dev-team:gate-an-issue', type: 'action', linked: true },
+    });
+    expect(body).toContain('action:');
+    expect(body).toContain(`href="/app/u/${ACTION}"`);
+  });
+});
+
 describe('Urn — a labelled chip names its copy buttons (@codex on #917)', () => {
   it('says WHAT it copies when given a label, and keeps the plain names without one', () => {
     const labelled = render(Urn, { props: { value: 'hrn:node:acme.com:ops:x', label: 'message' } }).body;
@@ -172,5 +194,28 @@ describe('Urn.svelte — safe inside a <form> (portal#945)', () => {
     const buttons = body.match(/<button\b[^>]*>/g) ?? [];
     expect(buttons.length).toBeGreaterThanOrEqual(2);
     for (const b of buttons) expect(b).toContain('type="button"');
+  });
+});
+
+// #1604 item 2. The tap-to-reveal toggle is decided on the client (the pointer
+// is only known there), so the server render is the fine-pointer chip for
+// every compact URN: no toggle in the SSR'd HTML, and so no hydration flip of
+// a linked chip. Coarse/narrow unlinked toggles and the #1686 linked sibling
+// toggle are pinned in Urn.client.test.ts and the real-Chromium matrix.
+describe('Urn.svelte — compact chips server-render without a reveal toggle (#1604)', () => {
+  it('a linked compact chip renders as a link with no aria-expanded', () => {
+    const { body } = render(Urn, {
+      props: { value: 'hrn:mem:hadronmemory.com:hadron-dev-team', type: 'memory', compact: true, linked: true },
+    });
+    expect(body).toMatch(/<a\b[^>]*href="\/app\/u\/hrn:mem:hadronmemory\.com:hadron-dev-team"/);
+    expect(body).not.toContain('aria-expanded');
+  });
+
+  it('an unlinked compact chip renders as plain code with no aria-expanded', () => {
+    const { body } = render(Urn, {
+      props: { value: 'hrn:mem:hadronmemory.com:hadron-dev-team', type: 'memory', compact: true },
+    });
+    expect(body).toMatch(/<code\b/);
+    expect(body).not.toContain('aria-expanded');
   });
 });

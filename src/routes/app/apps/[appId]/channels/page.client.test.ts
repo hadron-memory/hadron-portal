@@ -4,6 +4,7 @@
  * and every chrome string goes through t().
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { submitEnhanced } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
@@ -30,7 +31,7 @@ function channel(over: Record<string, unknown> = {}) {
   return {
     id: 'ch-team', name: 'Team chat', description: null, kind: 'CHAT', loc: 'chats:team',
     chatRootUrn: 'hrn:node:acme.com:team-shared:chats:team', chatRootNodeId: 'root-1',
-    lastSeq: 12, lastMessageAt: null, createdAt: '2026-09-01T00:00:00Z', memory: SHARED, ...over,
+    lastSeq: 12, lastMessageAt: null, createdAt: '2026-09-01T00:00:00Z', memoryId: 'mem-shared', memory: SHARED, ...over,
   };
 }
 
@@ -59,6 +60,16 @@ async function html(channels: unknown[]) {
 describe('Channels page', () => {
   it('a Channel with a flat address shows it as a URN chip', async () => {
     expect(await html([channel()])).toContain('hrn:node:acme.com:team-shared:chats:team');
+  });
+
+  it('renders a Channel whose host memory record is concealed (#2509): no crash, link by memoryId, host withheld', async () => {
+    const body = await html([channel({ id: 'ch-x', name: 'Release', loc: 'chats:x', memoryId: 'mem-other', memory: null })]);
+    // The channel itself is still listed…
+    expect(body).toContain('Release');
+    // …its chat root stays reachable through the non-null memoryId…
+    expect(body).toContain('href="/app/memories/mem-other/nodes/root-1"');
+    // …and the concealed host renders as withheld prose, never an empty URN chip.
+    expect(body).toContain('Memory not shown');
   });
 
   it('with no chatRootUrn it shows the id, never the memory-relative loc', async () => {
@@ -287,7 +298,15 @@ describe('Channels page', () => {
     const regTable = [...target.querySelectorAll('table')].find((tb) => tb.querySelector('form[action="?/removeAttendance"], button') && tb.textContent?.includes('Set by'))!;
     let grid: HTMLElement = regTable;
     while (!grid.querySelector('details')) grid = grid.parentElement!;
-    // The Columns menu lists only hideable columns (its <details> is in the DOM while closed).
+    // The Columns menu lists only hideable columns. Its dropdown content
+    // renders only while open (#1587: the open layer arms the shared Escape
+    // fallback on that same `{#if open}` block), so open it before querying
+    // the labels — jsdom never fires the `toggle` event itself.
+    const details = grid.querySelector('details')!;
+    details.querySelector('summary')!.click();
+    details.dispatchEvent(new Event('toggle'));
+    flushSync();
+    expect(details.open).toBe(true);
     const toggles = [...grid.querySelectorAll('details label')].map((l) => l.textContent?.trim());
     expect(toggles).toContain('Set by'); // the menu is really there
     expect(toggles).not.toContain('Takes part as');

@@ -8,7 +8,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import EscapeHostHarness from '$lib/test/EscapeHostHarness.svelte';
 import SelectAgent from './SelectAgent.svelte';
+import { clearDictionary, rowSelectButtons, usePickerLocale } from '$lib/test/i18n-dictionary';
+
+// #1605: a test locale on the t() boundary; empty, t() is unchanged.
+vi.mock('$lib/i18n/t', async (importOriginal) =>
+  (await import('$lib/test/i18n-dictionary')).withDictionary(await importOriginal()));
 
 const agents = [
   { id: 'a1', name: 'Atlas', urn: 'hrn:agent:acme.com:team:atlas', description: 'maps things' },
@@ -152,5 +158,91 @@ describe('SelectAgent: dialog semantics (#1279)', () => {
     flushSync();
     expect(picked).toStrictEqual(agents[0]);
     expect(overlay()).toBeNull();
+  });
+});
+
+describe('SelectAgent: Escape closes one layer only (#1584)', () => {
+  const hostDialog = () => document.querySelector<HTMLElement>('[data-host-dialog]');
+
+  function openInHost() {
+    const m = mountComponent(EscapeHostHarness, {
+      child: SelectAgent,
+      childProps: { agents, onselect: () => {}, open: true },
+    });
+    mounted.push(m);
+    return m;
+  }
+
+  it('one Escape inside the picker closes the picker, not the host dialog around it', async () => {
+    const above = vi.fn();
+    window.addEventListener('keydown', above); // registered before the picker opened
+    let host: ReturnType<typeof openInHost>;
+    try {
+      host = openInHost();
+      await tick(2);
+      expect(overlay()).not.toBeNull();
+      const input = overlay()!.querySelector('input');
+      input!.focus(); // a real press starts at the search box
+      input!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+      flushSync();
+      expect(overlay()).toBeNull(); // exactly one layer closed: the picker's
+      expect(hostDialog()).not.toBeNull(); // the host keeps its layer
+      expect(above).not.toHaveBeenCalled(); // the earlier-registered listener never fired
+      expect((host.instance.hostEscapes as () => number)()).toBe(0); // the host's own listener never fired
+      // Positive control at this same position: the host's listener is LIVE —
+      // the next press, with nothing left to consume it, closes the host.
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      flushSync();
+      expect(hostDialog()).toBeNull();
+      expect((host.instance.hostEscapes as () => number)()).toBe(1);
+    } finally {
+      window.removeEventListener('keydown', above);
+    }
+  });
+
+  it('Escape with focus outside the picker still closes it — the fallback, shielding the host', async () => {
+    const above = vi.fn();
+    window.addEventListener('keydown', above);
+    let host: ReturnType<typeof openInHost>;
+    try {
+      host = openInHost();
+      await tick(2);
+      (document.activeElement as HTMLElement | null)?.blur?.(); // focus never entered the picker
+      expect(document.activeElement).toBe(document.body);
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+      flushSync();
+      expect(overlay()).toBeNull();
+      expect(hostDialog()).not.toBeNull();
+      expect(above).not.toHaveBeenCalled();
+      expect((host.instance.hostEscapes as () => number)()).toBe(0);
+    } finally {
+      window.removeEventListener('keydown', above);
+    }
+  });
+});
+
+// #1605: the per-row Select is localized and carries a distinct accessible
+// name per row (WCAG label-in-name: it starts with the visible label), so a
+// screen-reader user tabbing the list hears which entity each one picks.
+describe('SelectAgent: per-row Select (#1605)', () => {
+  afterEach(clearDictionary);
+  it('is localized and named after its agent', async () => {
+    usePickerLocale();
+    openModal();
+    await tick(2);
+    const buttons = rowSelectButtons('.fixed.inset-0 tbody tr');
+    const names = agents.map((x) => x.name);
+    for (const b of buttons) expect(b.textContent?.trim()).toBe('Wählen');
+    // Label in name (WCAG 2.5.3): the name contains what is on screen.
+    for (const b of buttons) expect(b.getAttribute('aria-label')).toContain(b.textContent?.trim());
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toStrictEqual(names.map((n) => `Wählen ${n}`));
+    expect(new Set(buttons.map((b) => b.getAttribute('aria-label'))).size).toBe(names.length);
+    // The 44px coarse-pointer target (jsdom has no layout; the real-Chromium
+    // stacked layout script measures SelectMemory's).
+    for (const b of buttons) expect(b.classList.contains('pointer-coarse:min-h-11')).toBe(true);
   });
 });

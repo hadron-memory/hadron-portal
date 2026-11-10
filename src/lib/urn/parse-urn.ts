@@ -69,6 +69,10 @@ export {
   // call site yet; re-exported so the shared corpus finds them, same policy.
   composeTickerUrnV2,
   composeAgentTaskUrnV2,
+  // urn-lib-js 0.0.18 — `hrn:action:<root>:<agent-slug>:<code>` (hadron-server#2610).
+  // The resolver and chip need no composer; it is re-exported so the shared
+  // conformance corpus finds it, same policy as above (#1360).
+  composeActionUrnV2,
   isValidSlug,
   composeSecretUrnV2,
   composeAppRunUrnV2,

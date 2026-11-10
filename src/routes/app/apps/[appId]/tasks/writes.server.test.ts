@@ -8,9 +8,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
 import {
   AGENT_TASKS_APP_QUERY,
+  AGENT_TASK_REF_QUERY,
   ASSIGN_AGENT_TASK_MUTATION,
   CANCEL_AGENT_TASK_MUTATION,
   CREATE_AGENT_TASK_MUTATION,
+  HAND_BACK_AGENT_TASK_MUTATION,
   MAKE_AGENT_TASK_READY_MUTATION,
   PARK_AGENT_TASK_MUTATION,
   REASSIGN_AGENT_TASK_MUTATION,
@@ -21,7 +23,16 @@ const request = vi.fn();
 // extensions. By default it answers what `request` would, with no extensions.
 const rawRequest = vi.fn();
 const delegate = async (q: string, v: unknown) => ({ data: await request(q, v), extensions: undefined, status: 200 });
-vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request, rawRequest }) }));
+// portal#1349: a write first resolves the route's task to its canonical id (the App
+// read, then the readable-task gate). That resolution answers here; everything else
+// reaches `request`, so the assertions about mutations are unchanged.
+const resolver = vi.fn(async (_q: string, v: { id: string }) => ({ agentTask: { id: v.id === 'AT3.405' || v.id.endsWith(':AT3.405') ? 'canon-1' : v.id, appId: 'app-1' } }));
+const gated = async (q: string, v?: unknown) => {
+  if (q === AGENT_TASKS_APP_QUERY) return { app };
+  if (q === AGENT_TASK_REF_QUERY) return resolver(q, v as { id: string });
+  return request(q, v);
+};
+vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: gated, rawRequest }) }));
 
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
 const gqlError = (code: string, message: string) => ({ response: { errors: [{ message, extensions: { code } }] } });
@@ -49,7 +60,51 @@ async function taskActions() {
 
 describe('task page actions', () => {
   it('the page has exactly these write actions', async () => {
-    expect(Object.keys(await taskActions()).sort()).toEqual(['assign', 'cancel', 'park', 'ready', 'reassign']);
+    expect(Object.keys(await taskActions()).sort()).toEqual(['addBlocker', 'assign', 'cancel', 'edit', 'handBack', 'park', 'priority', 'ready', 'reassign', 'removeBlocker']);
+  });
+
+  // portal#1571 (hadron-server#2651, hrn:node:hadronmemory.com:specs:cor:agt:050:29)
+  it('handBack calls handBackAgentTask with the route’s task id and the chosen code and text', async () => {
+    request.mockResolvedValue({});
+    expect(await (await taskActions()).handBack(event({ code: 'MISSING_INPUT', text: ' no key ' }))).toEqual({ action: 'handBack', ok: true });
+    expect(request).toHaveBeenLastCalledWith(HAND_BACK_AGENT_TASK_MUTATION, { taskRef: 't1', reason: { code: 'MISSING_INPUT', text: 'no key' } });
+    expect(HAND_BACK_AGENT_TASK_MUTATION).toContain('handBackAgentTask(taskRef: $taskRef, reason: $reason)');
+  });
+
+  it('handBack leaves the text out when it is blank', async () => {
+    request.mockResolvedValue({});
+    await (await taskActions()).handBack(event({ code: 'DUPLICATE', text: '   ' }));
+    expect(request).toHaveBeenLastCalledWith(HAND_BACK_AGENT_TASK_MUTATION, { taskRef: 't1', reason: { code: 'DUPLICATE' } });
+  });
+
+  it.each([[''], ['SHRUG']])('handBack with the code %j asks the server nothing', async (code) => {
+    const r = (await (await taskActions()).handBack(event({ code, text: 'x' }))) as { status: number; data: Record<string, unknown> };
+    expect(r.status).toBe(400);
+    expect(r.data).toMatchObject({ action: 'handBack', refusal: { kind: 'invalid', field: 'code' } });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('handBack with text over 2,000 characters asks the server nothing', async () => {
+    const r = (await (await taskActions()).handBack(event({ code: 'REFUSED', text: 'x'.repeat(2001) }))) as { data: Record<string, unknown> };
+    expect(r.data).toMatchObject({ action: 'handBack', refusal: { kind: 'invalid', field: 'text' } });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['TASK_NOT_ASSIGNEE', 403],
+    ['TASK_INVALID_TRANSITION', 409],
+    ['TASK_ENDED', 409],
+  ])('handBack surfaces %s as a %i refusal with the server’s sentence', async (code, status) => {
+    request.mockRejectedValueOnce(gqlError(code, `server says ${code}`));
+    const r = (await (await taskActions()).handBack(event({ code: 'REFUSED', text: '' }))) as { status: number; data: Record<string, unknown> };
+    expect(r.status).toBe(status);
+    expect(r.data).toMatchObject({ action: 'handBack', refusal: { kind: 'refused', code, message: `server says ${code}` } });
+  });
+
+  it('handBack in an impersonation session writes nothing', async () => {
+    const r = (await (await taskActions()).handBack(event({ code: 'REFUSED' }, { by: 'admin' }))) as { data: Record<string, unknown> };
+    expect(r.data).toMatchObject({ action: 'handBack' });
+    expect(request).not.toHaveBeenCalled();
   });
 
   // portal#1143
@@ -166,6 +221,17 @@ describe('create action (tasks/new)', () => {
         requirements: { role: 'portal-engineer', familyIn: ['claude'] }, source: 'https://x.test/1', tags: ['a', 'b'],
       },
     });
+  });
+
+  it('a minimum model tier is sent in the requirements; Any sends none (portal#1523)', async () => {
+    answer({ createAgentTask: { id: 't9' } });
+    await expect(create({ title: 'T', start: 'now', owner: 'me', assignee: 'nobody', minTier: 'mid' })).rejects.toMatchObject({ status: 303 });
+    expect(request).toHaveBeenLastCalledWith(CREATE_AGENT_TASK_MUTATION, expect.objectContaining({ input: expect.objectContaining({ requirements: { minTier: 'mid' } }) }));
+    request.mockClear();
+    answer({ createAgentTask: { id: 't9' } });
+    await expect(create({ title: 'T', start: 'now', owner: 'me', assignee: 'nobody', minTier: '' })).rejects.toMatchObject({ status: 303 });
+    const input = (request.mock.calls.find((c) => c[0] === CREATE_AGENT_TASK_MUTATION)![1] as { input: Record<string, unknown> }).input;
+    expect(input).not.toHaveProperty('requirements');
   });
 
   it('a backlog task sends BACKLOG and no assignee or requirements, even if the hidden fields hold some', async () => {
@@ -350,7 +416,7 @@ describe('create action: warnings (portal#1214)', () => {
   it('a create with warnings is answered in place, not redirected', async () => {
     rawRequest.mockResolvedValueOnce(answered({ createAgentTask: { id: 't9' } }, [warning('createAgentTask', 'task.create.no-source')]));
     expect(await create()).toEqual({
-      created: { id: 't9' }, committedWithError: false, more: 0,
+      created: { id: 't9', handle: null }, committedWithError: false, more: 0,
       warnings: [{ code: 'task.create.no-source', text: 'text for task.create.no-source' }],
     });
   });
@@ -369,7 +435,7 @@ describe('create action: warnings (portal#1214)', () => {
     rawRequest.mockRejectedValueOnce(committedError([warning('createAgentTask', 'task.create.no-source')]));
     const r = await create();
     expect(r).toEqual({
-      created: { id: null }, committedWithError: true, more: 0,
+      created: { id: null, handle: null }, committedWithError: true, more: 0,
       warnings: [{ code: 'task.create.no-source', text: 'text for task.create.no-source' }],
     });
     expect(JSON.stringify(r)).not.toContain('PRIVATE-SENTINEL');
@@ -392,5 +458,62 @@ describe('create action: warnings (portal#1214)', () => {
     const r = (await create()) as { status: number; data: Record<string, unknown> };
     expect(r.status).toBe(400);
     expect(r.data).toMatchObject({ refusal: { kind: 'refused', code: 'TASK_OWNER_INVALID', message: 'No such owner.' }, values: { title: 'T' } });
+  });
+});
+
+// portal#1349: the identity a write sends is the server's canonical id for THIS App's route.
+describe('task page actions: handle routes', () => {
+  const at = (taskId: string) => ({ ...(event({}) as unknown as Record<string, unknown>), params: { appId: 'app-1', taskId } }) as never;
+
+  it('a write from a handle URL sends the canonical id, never the URL segment', async () => {
+    request.mockResolvedValue({});
+    await (await taskActions()).park(at('AT3.405'));
+    expect(request).toHaveBeenLastCalledWith(PARK_AGENT_TASK_MUTATION, { taskId: 'canon-1' });
+    expect(resolver).toHaveBeenLastCalledWith(AGENT_TASK_REF_QUERY, { id: 'hrn:agenttask:acme.com:team:AT3.405' });
+  });
+
+  it('a planning write from a handle URL sends the canonical id as its taskRef', async () => {
+    const fd = new FormData();
+    fd.append('priority', '2');
+    const e = { ...(at('AT3.405') as unknown as Record<string, unknown>), request: { formData: async () => fd } } as never;
+    await (await taskActions()).priority(e);
+    expect(rawRequest).toHaveBeenLastCalledWith(expect.stringContaining('setAgentTaskPriority'), { taskRef: 'canon-1', priority: 2 });
+  });
+
+  it('another App’s qualified handle writes nothing and resolves nothing', async () => {
+    request.mockResolvedValue({});
+    resolver.mockClear();
+    await expect((await taskActions()).cancel(at('hrn:agenttask:acme.com:other:AT3.405'))).rejects.toMatchObject({ status: 404 });
+    expect(resolver).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  // Dorian's BLIND P2: the resolution read can refuse or fail, not only answer null.
+  it.each(['FORBIDDEN', 'NOT_FOUND', 'TASK_NOT_FOUND', 'APP_NOT_FOUND'])('a %s refusal resolving the task is the same neutral 404 and writes nothing', async (code) => {
+    request.mockResolvedValue({});
+    resolver.mockRejectedValueOnce(gqlError(code, 'Forbidden'));
+    await expect((await taskActions()).cancel(at('AT3.405'))).rejects.toMatchObject({ status: 404, body: { message: 'Task not found, or you can’t see it' } });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a transport failure', new TypeError('fetch failed')],
+    ['an unknown server fault', gqlError('INTERNAL_SERVER_ERROR', 'secret sql')],
+  ])('%s resolving the task is the uncertain write failure, with the values, and writes nothing', async (_label, failure) => {
+    request.mockResolvedValue({});
+    resolver.mockRejectedValueOnce(failure);
+    const fd = new FormData();
+    fd.append('priority', '2');
+    const e = { ...(at('AT3.405') as unknown as Record<string, unknown>), request: { formData: async () => fd } } as never;
+    expect(await (await taskActions()).priority(e)).toMatchObject({ status: 502, data: { refusal: { kind: 'uncertain' }, values: { priority: '2' } } });
+    expect(rawRequest).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('a task the server resolves into another App writes nothing', async () => {
+    request.mockResolvedValue({});
+    resolver.mockResolvedValueOnce({ agentTask: { id: 'canon-9', appId: 'app-2' } });
+    await expect((await taskActions()).cancel(at('t1'))).rejects.toMatchObject({ status: 404 });
+    expect(request).not.toHaveBeenCalled();
   });
 });

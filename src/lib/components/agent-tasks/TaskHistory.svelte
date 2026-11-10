@@ -52,12 +52,31 @@
             {@const sentence = eventSentence(e, people)}
             {#if sentence.known}
               <span>{sentence.text}</span>
+              {#each sentence.links ?? [] as l (l.label)}
+                <span class="text-xs text-zinc-500 dark:text-zinc-400">{l.label}:
+                  {#if l.href}
+                    <a href={l.href} target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:underline dark:text-indigo-300">{l.value}</a>
+                  {:else}
+                    <code class="font-mono">{l.value}</code>
+                  {/if}
+                </span>
+              {/each}
             {:else}
               <code class="font-mono text-xs">{sentence.type}</code>
               <span class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.history.unknown', 'This kind of event isn’t described in the portal yet.')}</span>
             {/if}
           {/if}
         </div>
+        {#if !alarm}
+          {@const detailed = eventSentence(e, people)}
+          {#if detailed.known && detailed.detail}
+            <!-- An App's own payload: opaque and readable by every participant, so it is text in a disclosure, never markup. -->
+            <details class="mt-1 text-xs" data-testid="event-payload">
+              <summary class="cursor-pointer text-zinc-600 pointer-coarse:min-h-11 dark:text-zinc-400">{t('app.tasks.history.payload', 'Payload')}</summary>
+              <pre class="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-zinc-100 p-2 font-mono text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">{detailed.detail}</pre>
+            </details>
+          {/if}
+        {/if}
         {#if alarm}
           <ul class="mt-1 space-y-0.5 text-xs text-zinc-600 dark:text-zinc-400">
             {#each sortedWakes(e) as w (w.chainIndex)}

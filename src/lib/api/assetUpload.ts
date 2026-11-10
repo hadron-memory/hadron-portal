@@ -74,6 +74,26 @@ export interface AssetSummary {
    * (an anonymous request holds no session key, so those are never hotlinkable).
    */
   publicUrl: string | null;
+  /**
+   * #1131: the stored per-asset opt-in behind `publicUrl`. STORED POLICY, not
+   * proof of publication — serving also needs the deployment gate
+   * (`publicLinkAvailable`) and a live CLEAN asset in an unencrypted memory.
+   */
+  publicLinkEnabled: boolean;
+  /**
+   * #1131: whether THIS caller may switch the link now. The server's answer
+   * (the memory's manager, never a mere writer; false in an encrypted or
+   * session memory); the portal never recomputes it and never reads it as a
+   * download right.
+   */
+  canManagePublicLink: boolean;
+  /**
+   * #1131: whether the deployment serves public links at all
+   * (ASSET_PUBLIC_HOTLINK_ENABLED). Hide the switch when false. Never infer this
+   * from `publicUrl`: a null URL also means no canonical origin or a non-CLEAN
+   * asset.
+   */
+  publicLinkAvailable: boolean;
 }
 
 export interface UploadAssetOptions {
@@ -261,4 +281,21 @@ export async function deleteAsset(assetId: string): Promise<void> {
     body: JSON.stringify({ assetId }),
   });
   if (!res.ok) throw await asUploadError(res);
+}
+
+/**
+ * #1131: turn one asset's public link on or off. Resolves to the asset as the
+ * server now holds it — flag, capability and URL — so the caller refreshes from
+ * the answer, never from what it asked for. A refusal throws `AssetUploadError`
+ * carrying the wire `code`; the caller maps it to fixed copy and keeps showing
+ * the prior state.
+ */
+export async function setAssetPublicLink(assetId: string, enabled: boolean): Promise<AssetSummary> {
+  const res = await fetch('/api/assets/public-link', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assetId, enabled }),
+  });
+  if (!res.ok) throw await asUploadError(res);
+  return res.json();
 }

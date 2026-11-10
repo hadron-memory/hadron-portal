@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { onMount, tick, untrack } from 'svelte';
+  import { Check } from 'lucide-svelte';
+  import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
-  import { marked } from 'marked';
+  import { renderChatMarkdown } from '$lib/markdown/chat-markdown';
   import DOMPurify from 'dompurify';
   import { scopedActionError } from '$lib/forms/scoped-message';
   import { failedSubmission } from '$lib/forms/submitted-form';
@@ -20,6 +21,7 @@
     indexBySeq,
     replyPreviewOf,
     type DayLabel,
+    type TeamChatFilterFocusRequest,
   } from './team-chat-thread';
   import { clampProbe } from './clamp-probe';
   import {
@@ -27,9 +29,12 @@
     forwardPageCount,
     isAtBottom,
     mergeTranscript,
+    resumeTranscript,
+    type TranscriptView,
     scrollTopAfterPrepend,
   } from '$lib/team-chat-refresh';
-  import type { TeamChatMessage } from '$lib/types';
+  import { NO_TEAM_FILTER, filterKeyOf, type TeamChatFilter } from '$lib/team-chat-filter';
+  import type { TeamChatMessage, TeamChatRefusal } from '$lib/types';
 
   type PostTeamChatMessageForm = Infer<typeof postTeamChatMessageSchema, 'zod4'>;
   type PostTeamChatMessageSuperform = SuperValidated<
@@ -39,16 +44,16 @@
   >;
 
   /**
-   * The App's TEAM CHAT (hadron-portal#732) — the shared thread its workers and
+   * The shared Channel thread (#732/#1033), including the App's default team chat.
+   * The App's shared thread is where its workers and
    * members post to. Not to be confused with a CHAT SESSION, which is the
    * conversation a human is having with an agent; that is the Chat tab, a
    * different surface with a different backing operation.
    *
    * Deliberately absent, and it is not an oversight (see #732):
    *   - No LLM composer. Nothing appends a model turn to the team's record.
-   *   - No delete and no rename. The chat is a canonical well-known loc with a
-   *     bootstrap contract; a portal user must not be able to destroy or
-   *     re-title the team's record.
+   *   - No delete and no rename here. Channel management has its own controls;
+   *     the default team chat also has a protected bootstrap contract.
    */
   let {
     messages = [],
@@ -62,7 +67,23 @@
     pollMs = TEAM_CHAT_POLL_MS,
     workerUrns = null,
     onLoadOlder,
+    draft,
+    onDraftChange,
+    onSubmittingChange,
+    viewState,
+    onViewStateChange,
+    filter = NO_TEAM_FILTER,
+    filterInvalid = false,
+    refusal = null,
+    onSelectTeam,
+    filterFocusRequest = $bindable(null),
+    onFilterAnnouncement,
   }: {
+    viewState?: TranscriptView;
+    onViewStateChange?: (view: TranscriptView) => void;
+    onSubmittingChange?: (submitting: boolean) => void;
+    draft?: { body: string; replyToSeq?: string };
+    onDraftChange?: (draft: { body: string; replyToSeq?: string }) => void;
     messages?: TeamChatMessage[];
     /** The SERVER's count, which may exceed what was fetched. */
     total?: number;
@@ -78,7 +99,7 @@
      *  the data rather than invalidating is the whole point of #785: a tick
      *  must not be able to re-run the page's fatal load paths. Omit to disable
      *  polling entirely. */
-    onRefresh?: (sinceSeq?: number) => Promise<{ items: TeamChatMessage[]; total: number; loadFailed: boolean } | null>;
+    onRefresh?: (sinceSeq?: number) => Promise<{ items: TeamChatMessage[]; total: number; loadFailed: boolean; refusal?: TeamChatRefusal } | null>;
     /** Poll period in ms; 0 or less disables the timer. */
     pollMs?: number;
     /**
@@ -91,12 +112,30 @@
      *  `onRefresh` — the route owns HOW to read, this component owns WHEN (the
      *  scroll threshold) and the anchoring. Null on failure, so a transient
      *  error is retried rather than being read as the start of the thread. */
-    onLoadOlder?: (beforeSeq: number) => Promise<{ items: TeamChatMessage[]; total: number } | null>;
+    onLoadOlder?: (beforeSeq: number) => Promise<{ items: TeamChatMessage[]; total: number } | { refusal: TeamChatRefusal } | null>;
+    /**
+     * #1137: the team filter the transcript above was read UNDER. It is URL
+     * state owned by the route — this component never filters rows it holds, it
+     * only shows the filter and asks for another one via `onSelectTeam`. A new
+     * filter arrives as new `messages`/`total` props, which is what drops any
+     * read still in flight under the old one.
+     */
+    filter?: TeamChatFilter;
+    /** The `?team=` value was malformed, so NOTHING was read (never the unfiltered thread). */
+    filterInvalid?: boolean;
+    /** The server's typed refusal of the head, shown verbatim; null otherwise. */
+    refusal?: TeamChatRefusal | null;
+    /** Ask for a different filter ('none' clears). Omit and the filter UI is read-only. */
+    onSelectTeam?: (next: TeamChatFilter) => void;
+    /** Parent-owned when a route keys/remounts this thread on filter changes. */
+    filterFocusRequest?: TeamChatFilterFocusRequest | null;
+    /** Route owner keeps its live region outside a keyed thread. */
+    onFilterAnnouncement?: (text: string) => void;
   } = $props();
 
   let messagesEl: HTMLDivElement | null = $state(null);
   let isBrowser = $state(false);
-  let replyTo = $state<number | null>(null);
+  const matchingSubmission = $derived((form as { form?: { id?: string } } | null)?.form?.id === postForm.id ? form : null);
 
   const initialPostForm = untrack(
     () =>
@@ -104,8 +143,8 @@
       // action data holds the body just sent, and seeding from it re-filled the
       // composer with that message on every remount (tab switch) — and made it
       // the value `resetForm` restored after the next post.
-      (failedSubmission<PostTeamChatMessageForm>(form, 'postTeamChatMessage') as PostTeamChatMessageSuperform | null) ??
-      postForm,
+      (failedSubmission<PostTeamChatMessageForm>(matchingSubmission, 'postTeamChatMessage') as PostTeamChatMessageSuperform | null) ??
+      (draft ? { ...postForm, data: { ...postForm.data, body: draft.body, replyToSeq: draft.replyToSeq } } : postForm),
   );
   const {
     form: postFormData,
@@ -117,6 +156,11 @@
   } = superForm<PostTeamChatMessageForm, App.Superforms.Message, PostTeamChatMessageForm>(
     initialPostForm,
     {
+      id: untrack(() => postForm.id),
+      // Opt-in cached composers own their draft. A page-store subscription
+      // must still deliver action results, but must not reseed an unsent
+      // draft from the loader's empty form when this thread remounts.
+      applyAction: untrack(() => onDraftChange ? 'never' : true),
       validators: zod4Client(postTeamChatMessageSchema),
       validationMethod: 'oninput',
       scrollToError: 'smooth',
@@ -129,7 +173,8 @@
         // failure would silently downgrade a retried reply into a top-level
         // message, which the user has no way to notice.
         if (f.valid && f.message?.type !== 'error') {
-          replyTo = null;
+          $postFormData.replyToSeq = undefined;
+          onDraftChange?.({ body: '' });
           // #957: `resetForm` has just reset to the form's INITIAL data, which is
           // a failed post's draft when the composer was seeded from one. Re-base
           // the initial state on the empty form, so a sent message never comes
@@ -144,8 +189,13 @@
       },
     },
   );
+  $effect(() => {
+    const submitting = $postSubmitting;
+    untrack(() => onSubmittingChange?.(submitting));
+  });
+  const replyTo = $derived($postFormData.replyToSeq ? Number($postFormData.replyToSeq) : null);
   const postError = $derived(
-    scopedActionError<PostTeamChatMessageForm>(form, 'postTeamChatMessage', $postMessage, $postErrors, [
+    scopedActionError<PostTeamChatMessageForm>(matchingSubmission, 'postTeamChatMessage', $postMessage, $postErrors, [
       'body',
       '_kind',
     ]),
@@ -158,7 +208,9 @@
   // This holds the ACCUMULATED transcript: bounded forward polls and backward
   // pages merge into it, seeded from the prop on the first update.
   //
-  // FRESH PAGE DATA ALWAYS WINS. `dataGeneration` is bumped whenever the prop
+  // FRESH PAGE DATA STARTS A NEW GENERATION. The default standalone surface
+  // takes the fresh window; opt-in Channel views retain loaded history and
+  // forward-poll any gap instead of silently joining disjoint windows. `dataGeneration` is bumped whenever the prop
   // changes (navigation, or the `invalidateAll` a successful post does) and a
   // poll result is discarded if the generation moved while it was in flight.
   // Without that, a poll started before a post could resolve after it and
@@ -166,22 +218,47 @@
   // until the next tick — and the same race across client-side navigation could
   // briefly render the previous App's thread (Codex on #786). The invalidation
   // #754 used had no such window; isolating the read created one.
+  const restoredView = untrack(() => viewState);
+  let firstWindow = true;
+  const filterKey = $derived(filterKeyOf(filter));
+  let previousFilterKey = untrack(() => filterKey);
   let polled = $state<{ items: readonly TeamChatMessage[]; total: number } | null>(null);
   // The server's `sinceSeq` total is cursor-scoped. Keep the unreceived part
   // of the previous page so each subsequent poll adds only genuinely new posts
   // to the full-thread count (including posts made while catching up).
   let pendingNewerCount = $state(0);
   let dataGeneration = $state(0);
+  // #1137: the server's typed head refusal as it arrived on a poll or an older
+  // page, after the initial load. It belongs to the generation that read it:
+  // fresh page data (a new filter, App or post) clears it below.
+  let liveRefusal = $state<TeamChatRefusal | null>(null);
   $effect(() => {
     // Depend on BOTH props; do not read `polled` or `dataGeneration` here, or
     // this effect would re-run on its own writes
     // (hrn:node:hadronmemory.com:hadron-portal:review:no-read-modify-write-state-in-effect).
     messages;
     total;
+    loadError;
+    filterKey;
     untrack(() => {
       dataGeneration += 1;
-      polled = null;
-      pendingNewerCount = 0;
+      const filterChanged = previousFilterKey !== filterKey;
+      previousFilterKey = filterKey;
+      liveRefusal = null;
+      if (onViewStateChange && !loadError) {
+        const previous = filterChanged ? null : polled ?? (firstWindow && restoredView ? { items: restoredView.items, total: restoredView.total } : null);
+        const resumed = resumeTranscript(previous, messages, total);
+        pendingNewerCount = resumed === previous ? (firstWindow ? restoredView?.pendingNewer ?? 0 : pendingNewerCount) : 0;
+        polled = resumed;
+        if (firstWindow && restoredView && !filterChanged) {
+          olderRemainingCount = restoredView.olderRemaining;
+          olderExhausted = restoredView.olderExhausted;
+        } else if (firstWindow || filterChanged) {
+          olderRemainingCount = Math.max(0, total - messages.length);
+          olderExhausted = false;
+        }
+      } else { polled = null; pendingNewerCount = 0; }
+      firstWindow = false;
     });
   });
   // #793: a plain read, because the accumulation happens at the POLL SITE. The
@@ -216,9 +293,12 @@
   $effect(() => {
     messages;
     total;
+    filterKey;
     untrack(() => {
-      olderExhausted = false;
-      olderRemainingCount = Math.max(0, total - messages.length);
+      if (!onViewStateChange) {
+        olderExhausted = false;
+        olderRemainingCount = Math.max(0, total - messages.length);
+      }
     });
   });
   // The cursor is the LOWEST seq on screen. No arithmetic and no stored offset:
@@ -229,7 +309,7 @@
   // can make total === page length even though an older message exists. A seq
   // above 1 permits one backward probe; an empty response marks exhaustion.
   const canLoadOlder = $derived(
-    !!onLoadOlder && !olderExhausted && oldestSeq !== null && (shownOlderRemaining > 0 || oldestSeq > 1),
+    !!onLoadOlder && !filterInvalid && !liveRefusal && !olderExhausted && oldestSeq !== null && (shownOlderRemaining > 0 || oldestSeq > 1),
   );
 
   const LOAD_OLDER_THRESHOLD_PX = 400;
@@ -250,6 +330,11 @@
       const page = await onLoadOlder!(cursor);
       if (page === null) return; // failed, not exhausted — retry on the next scroll
       if (untrack(() => dataGeneration) !== startedAt) return; // a different thread now
+      if ('refusal' in page) {
+        // An answer, not a blip: say so and stop reading under this filter.
+        liveRefusal = page.refusal;
+        return;
+      }
       if (page.items.length === 0) {
         olderExhausted = true;
         olderRemainingCount = 0;
@@ -288,13 +373,97 @@
   // only part of the thread. Say so rather than implying it is complete.
   const truncated = $derived(shownTotal > shownMessages.length);
 
+  // #1137: the filter control. Offered only where tags have actually been
+  // OBSERVED — on a loaded row, or because a filter is already on — and never
+  // from a server flag the portal does not read (default-OFF: with tagging off
+  // `teamTags` is null everywhere, and a control promising a result would lie).
+  const tagsObserved = $derived(shownMessages.some((m) => (m.teamTags?.length ?? 0) > 0));
+  const showFilterBar = $derived(!!onSelectTeam && (filter.kind !== 'none' || filterInvalid || tagsObserved));
+  // A head's label is a post-time DISPLAY snapshot: it can collide and go
+  // stale, so it is looked up for display only, never used as identity.
+  const activeTeamLabel = $derived.by(() => {
+    if (filter.kind !== 'team') return null;
+    for (const m of shownMessages) {
+      const hit = m.teamTags?.find((tag) => tag.headId === filter.headRef);
+      if (hit) return hit.label;
+    }
+    return null;
+  });
+  // Focus only an explicitly requested filter once its route-owned value is applied.
+  // Polls and loader refreshes never move focus. A superseding choice/unmount
+  // cancels the post-tick continuation; a person who moved elsewhere keeps focus.
+  let filterBarEl: HTMLDivElement | undefined = $state();
+  let composerEl: HTMLTextAreaElement | undefined = $state();
+  let filterAnnouncement = $state('');
+  function selectTeam(next: TeamChatFilter, label?: string) {
+    if (!onSelectTeam) return;
+    filterFocusRequest = { key: filterKeyOf(next), label, opener: document.activeElement };
+    onSelectTeam(next);
+  }
+  function rememberFilterFocus(event: FocusEvent) {
+    const request = filterFocusRequest;
+    if (!request) return;
+    request.movedFocus = event.target === request.opener ? undefined
+      : event.target === composerEl ? 'composer' : 'elsewhere';
+  }
+  $effect(() => {
+    const requested = filterFocusRequest;
+    const applied = filterKey;
+    const navigation = requested?.navigation;
+    // Read each outcome on every run; the route may apply a refused/invalid
+    // response while goto is still pending. A URL key alone is not success.
+    const invalid = filterInvalid;
+    const initialRefusal = refusal;
+    const currentRefusal = liveRefusal;
+    const failedRead = shownLoadError;
+    const failed = invalid || !!initialRefusal || !!currentRefusal || failedRead;
+    if (!requested || navigation === 'pending') return;
+    if (requested.key !== applied && !failed && navigation !== 'complete') return;
+    let cancelled = false;
+    void tick().then(() => {
+      if (cancelled || !messagesEl || filterFocusRequest !== requested || filterKey !== applied) return;
+      if (failed || requested.key !== applied) {
+        // Consume failed and abandoned choices silently: the existing error
+        // UI explains them. No success announcement now or on later history.
+        filterAnnouncement = '';
+        onFilterAnnouncement?.('');
+        filterFocusRequest = null;
+        return;
+      }
+      const selected = filterBarEl?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')
+        ?? composerEl;
+      if (document.activeElement === requested.opener || document.activeElement === document.body) {
+        if (requested.movedFocus === 'composer') composerEl?.focus();
+        else if (requested.movedFocus !== 'elsewhere') selected?.focus();
+      }
+      filterAnnouncement = filter.kind === 'team'
+        ? t('app.team-chat.filter.announcement.team', 'Team filter selected: {team}.', { team: requested.label ?? activeTeamLabel ?? t('app.team-chat.filter.selected-team', 'Selected team') })
+        : filter.kind === 'untagged'
+          ? t('app.team-chat.filter.announcement.untagged', 'Showing messages with no team tag recorded.')
+          : t('app.team-chat.filter.announcement.all', 'All messages selected.');
+      onFilterAnnouncement?.(filterAnnouncement);
+      filterFocusRequest = null;
+    }).catch(() => {
+      if (filterFocusRequest === requested) filterFocusRequest = null;
+      console.warn('[team-chat] filter feedback could not be updated');
+    });
+    return () => { cancelled = true; };
+  });
+  const filtered = $derived(filter.kind !== 'none');
+  // Tags are keyed by `headId`, and two snapshots of one head on a message would
+  // otherwise collide as keyed-each siblings.
+  function uniqueTags(tags: readonly { headId: string; label: string }[]) {
+    const seen = new Set<string>();
+    return tags.filter((tag) => (seen.has(tag.headId) ? false : (seen.add(tag.headId), true)));
+  }
+
   function renderMarkdown(text: string): string {
     // DOMPurify needs a real DOM and cannot run under SSR. Emit nothing until
     // mounted so the {@html} sink is only ever fed sanitized HTML, never raw
     // author-controlled markdown during SSR or the pre-hydration render
     // (hrn:node:hadronmemory.com:hadron-portal:review:sanitize-html-with-dompurify).
     if (!isBrowser || !text) return '';
-    return DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
+    return DOMPurify.sanitize(renderChatMarkdown(text));
   }
 
   function scrollToBottom() {
@@ -304,7 +473,15 @@
   onMount(async () => {
     isBrowser = true;
     await tick();
-    scrollToBottom();
+    if (restoredView && !restoredView.atBottom && messagesEl) messagesEl.scrollTop = restoredView.scrollTop;
+    else scrollToBottom();
+  });
+  onDestroy(() => {
+    if (isBrowser && onViewStateChange && !shownLoadError) onViewStateChange({
+      items: $state.snapshot(shownMessages), total: shownTotal,
+      scrollTop: messagesEl?.scrollTop ?? lastScrollTop, atBottom: stickToBottom,
+      olderExhausted, olderRemaining: shownOlderRemaining, pendingNewer: pendingNewerCount,
+    });
   });
 
   // #754: stick to the newest message only for a reader who is ALREADY at the
@@ -316,8 +493,8 @@
   // Read via `untrack`: this effect must fire on `messages`, not on the reader
   // scrolling. Without it, scrolling would re-run the effect and scroll them
   // back down — a scroll position that fights the person holding the mouse.
-  let stickToBottom = $state(true);
-  let lastScrollTop = 0;
+  let stickToBottom = $state(untrack(() => restoredView?.atBottom ?? true));
+  let lastScrollTop = restoredView?.scrollTop ?? 0;
   function onTranscriptScroll() {
     const movedUp = !!messagesEl && messagesEl.scrollTop < lastScrollTop;
     lastScrollTop = messagesEl?.scrollTop ?? 0;
@@ -371,7 +548,9 @@
   // The injection itself survived because its second reason is the durable one:
   // it makes the poll drivable in a test with no router and no endpoint.
   $effect(() => {
-    if (!isBrowser || !onRefresh || pollMs <= 0) return;
+    // #1137: an invalid filter reads nothing, and a refused head is not retried
+    // (never unfiltered either): the reader chooses All messages explicitly.
+    if (!isBrowser || !onRefresh || pollMs <= 0 || filterInvalid) return;
     // One refresh at a time. If a refetch outlives the period the timer would
     // stack them, and the slow case is exactly the case where piling on more is
     // worst (Copilot on #784). Under #754 each tick was a full page load, which
@@ -381,7 +560,7 @@
     let inFlight = false;
     const fire = async () => {
       if (typeof document !== 'undefined' && document.hidden) return;
-      if (inFlight) return;
+      if (inFlight || untrack(() => liveRefusal || refusal)) return;
       inFlight = true;
       // #785: the composer needs no protection here any more. #754 polled by
       // invalidating the page load, which re-synced superForm from a fresh form
@@ -401,7 +580,9 @@
         // failed — the loud-error-over-silent-fallback rule, and
         // `hrn:node:hadronmemory.com:hadron-portal:review:a-fallback-asserts-what-it-was-written-for`: `items: []`
         // means "we could not read", not "there are no messages".
-        if (next && !next.loadFailed && untrack(() => dataGeneration) === startedAt) {
+        if (next?.loadFailed && next.refusal && untrack(() => dataGeneration) === startedAt) {
+          liveRefusal = next.refusal;
+        } else if (next && !next.loadFailed && untrack(() => dataGeneration) === startedAt) {
           // ACCUMULATE against the last displayed page. A forward cursor makes
           // a small poll window continuous even when a hidden tab missed more
           // than 20 posts. `dataGeneration` still clears it on fresh page data.
@@ -439,7 +620,8 @@
   });
 
   function startReply(seq: number) {
-    replyTo = seq;
+    $postFormData.replyToSeq = String(seq);
+    onDraftChange?.({ body: $postFormData.body, replyToSeq: String(seq) });
     document.getElementById('team-chat-body')?.focus();
   }
 
@@ -581,7 +763,76 @@
   }
 </script>
 
-<div class="flex flex-col {heightClass}">
+<div class="flex flex-col {heightClass}" onfocusin={rememberFilterFocus}>
+  {#if !onFilterAnnouncement}<span data-testid="team-chat-filter-status" class="sr-only" aria-live="polite" aria-atomic="true">{filterAnnouncement}</span>{/if}
+  {#if showFilterBar}
+    <!-- #1137: the team filter. Display and request only — the read happens on
+         the server, and nothing here widens what the viewer may see. -->
+    <!-- The rule sits on this wrapper, not on the flex row: this is a filter
+         bar, not a tab strip, and a `flex` + `border-b` element is what the
+         tab-strip gate reads as a rail. -->
+    <div class="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+    <div
+      data-testid="team-chat-filter"
+      bind:this={filterBarEl}
+      class="flex flex-wrap items-center gap-2 px-6 py-2 text-xs"
+    >
+      <span class="font-medium text-zinc-600 dark:text-zinc-300" id="team-chat-filter-label">
+        {t('app.team-chat.filter.label', 'Team')}
+      </span>
+      <div role="group" aria-labelledby="team-chat-filter-label" class="flex flex-wrap items-center gap-1">
+        <button
+          type="button"
+          aria-pressed={filter.kind === 'none' && !filterInvalid}
+          onclick={() => selectTeam(NO_TEAM_FILTER)}
+          class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border px-2 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 {filter.kind === 'none' && !filterInvalid
+            ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-200'
+            : 'border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
+        >
+          {#if filter.kind === 'none' && !filterInvalid}<Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />{/if}
+          {t('app.team-chat.filter.all', 'All messages')}
+        </button>
+        {#if filter.kind === 'team'}
+          <button
+            type="button"
+            aria-pressed="true"
+            data-testid="team-chat-filter-active"
+            onclick={() => selectTeam(NO_TEAM_FILTER)}
+            class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border border-indigo-500 bg-indigo-50 px-2 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-200"
+          >
+            <Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />
+            {activeTeamLabel ?? t('app.team-chat.filter.selected-team', 'Selected team')}
+            <span aria-hidden="true">×</span>
+            <span class="sr-only">{t('app.team-chat.filter.clear', 'Clear the team filter')}</span>
+          </button>
+        {/if}
+        <button
+          type="button"
+          aria-pressed={filter.kind === 'untagged'}
+          onclick={() => selectTeam({ kind: 'untagged' })}
+          class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border px-2 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 {filter.kind === 'untagged'
+            ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-200'
+            : 'border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
+        >
+          {#if filter.kind === 'untagged'}<Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />{/if}
+          {t('app.team-chat.filter.untagged', 'No team tag recorded')}
+        </button>
+      </div>
+      {#if tagsObserved}<span class="text-zinc-500 dark:text-zinc-400">{t('app.team-chat.filter.hint', 'Choose a team by clicking a tag on a message.')}</span>{/if}
+      {#if filter.kind === 'team'}
+        <!-- Count-free on purpose: no exact count of untagged history exists to
+             state, and a guessed one would be a claim about the team. -->
+        <span class="text-zinc-500 dark:text-zinc-400" data-testid="team-chat-filter-note">
+          {t('app.team-chat.filter.note.team', 'Messages posted before team tagging carry no tag and are not shown.')}
+        </span>
+      {:else if filter.kind === 'untagged'}
+        <span class="text-zinc-500 dark:text-zinc-400" data-testid="team-chat-filter-note">
+          {t('app.team-chat.filter.note.untagged', 'Showing messages with no team tag recorded.')}
+        </span>
+      {/if}
+    </div>
+    </div>
+  {/if}
   <div
     bind:this={messagesEl}
     onscroll={onTranscriptScroll}
@@ -602,14 +853,38 @@
       </button>
     {:else if shownMessages.length > 0 && shownOlderRemaining === 0}
       <p class="py-1 text-center text-xs text-zinc-500 dark:text-zinc-400">
-        {t('team-chat.start-of-conversation', 'Start of the conversation')}
+        {filtered
+          ? t('team-chat.start-of-view', 'No earlier messages in this view')
+          : t('team-chat.start-of-conversation', 'Start of the conversation')}
       </p>
     {/if}
-    {#if shownLoadError}
+    {#if filterInvalid}
+      <!-- #1137: a malformed ?team= reads NOTHING. It is not the unfiltered
+           thread and not an empty team. -->
+      <div role="alert" data-testid="team-chat-filter-invalid" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+        {t('app.team-chat.filter.invalid', 'That team filter is not valid, so nothing was loaded. Choose All messages to see the chat.')}
+      </div>
+    {:else if liveRefusal || (shownLoadError && refusal)}
+      <!-- The server's own typed, non-oracular refusal, verbatim. No retry
+           without the filter, and no candidate list of other teams. -->
+      <div role="alert" data-testid="team-chat-filter-refused" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+        {(liveRefusal ?? refusal)?.message}
+      </div>
+      <p data-testid="team-chat-filter-refused-help" class="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{onSelectTeam ? t('app.team-chat.filter.refused-help', 'Choose All messages to leave this team filter, or ask an App manager to check access.') : t('app.team-chat.filter.refused-readonly-help', 'Ask an App manager to check access.')}</p>
+    {:else if shownLoadError}
       <!-- "Couldn't load" and "nothing here" are different statements; the
            empty state below must never be shown for a failed fetch. -->
       <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
         {t('app.team-chat.load-error', 'Could not load the team chat. This is a loading failure, not an empty chat — reload to try again.')}
+      </div>
+    {:else if shownMessages.length === 0 && filtered}
+      <!-- Filtered and empty reads as THAT, never as a quiet team. -->
+      <div class="flex h-full items-center justify-center text-center">
+        <p data-testid="team-chat-filter-empty" class="text-zinc-500 dark:text-zinc-400">
+          {filter.kind === 'untagged'
+            ? t('app.team-chat.filter.empty.untagged', 'No messages without a team tag.')
+            : t('app.team-chat.filter.empty.team', 'No messages with this team tag.')}
+        </p>
       </div>
     {:else if shownMessages.length === 0}
       <div class="flex h-full items-center justify-center text-center">
@@ -628,7 +903,7 @@
           {#if pendingNewerCount > 0}
             {t('app.team-chat.catching-up', 'Loading newer messages…')}
           {:else}
-            {t('app.team-chat.truncated', 'Showing the most recent messages of')}
+            {t('app.team-chat.partial', 'Showing part of this conversation; total messages:')}
             {shownTotal}.
           {/if}
         </p>
@@ -741,6 +1016,27 @@
               <time datetime={msg.at} title={isBrowser ? formatAt(msg.at) : undefined} class="text-xs text-zinc-400 dark:text-zinc-500">
                 {row.time}
               </time>
+
+              <!-- #1137: stored team tags. `headId` is the identity (the click
+                   sets the filter to it); `label` is the post-time display
+                   snapshot and is never used to look a worker up or to link.
+                   null (absent or withheld) and [] draw nothing: no chip, and no
+                   "untagged"/"private" claim. -->
+              {#if msg.teamTags && msg.teamTags.length > 0}
+                <span data-testid="team-chat-tags" class="flex flex-wrap items-center gap-1">
+                  {#each uniqueTags(msg.teamTags) as tag (tag.headId)}
+                    <button
+                      type="button"
+                      data-testid="team-chat-tag"
+                      aria-pressed={filter.kind === 'team' && filter.headRef === tag.headId}
+                      disabled={!onSelectTeam}
+                      onclick={() => selectTeam({ kind: 'team', headRef: tag.headId }, tag.label)}
+                      title={t('app.team-chat.tag.filter', 'Show only messages with this team tag')}
+                      class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 text-zinc-600 enabled:hover:bg-zinc-200 aria-pressed:border-indigo-500 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:enabled:hover:bg-zinc-700 dark:aria-pressed:border-indigo-400 dark:aria-pressed:bg-indigo-950 dark:aria-pressed:text-indigo-200"
+                    >{#if filter.kind === 'team' && filter.headRef === tag.headId}<Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />{/if}{tag.label}</button>
+                  {/each}
+                </span>
+              {/if}
 
               <!-- min-w-0 + max-w-full on both spans: on a narrow screen the chip
                    (always shown there) wraps to its own line and TRUNCATES — Urn
@@ -872,14 +1168,15 @@
   <div class="border-t border-zinc-200 bg-zinc-50 px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
     <form method="POST" {action} use:postEnhance novalidate>
       <input type="hidden" name="_kind" value={$postFormData._kind} />
-      <input type="hidden" name="replyToSeq" value={replyTo ?? ''} />
+      <input type="hidden" name="channelRef" value={$postFormData.channelRef ?? ''} />
+      <input type="hidden" name="replyToSeq" value={$postFormData.replyToSeq ?? ''} />
 
       {#if replyTo !== null}
         <div class="mb-2 flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
           <span>{t('app.team-chat.replying-to', 'Replying to')} <span class="font-mono">#{replyTo}</span></span>
           <button
             type="button"
-            onclick={() => (replyTo = null)}
+            onclick={() => { $postFormData.replyToSeq = undefined; onDraftChange?.({ body: $postFormData.body }); }}
             class="rounded px-1.5 py-0.5 text-zinc-500 hover:bg-zinc-200 dark:text-zinc-400 dark:hover:bg-zinc-700"
           >
             {t('app.team-chat.cancel-reply', 'Cancel reply')}
@@ -890,9 +1187,12 @@
       <div class="flex gap-3">
         <textarea
           id="team-chat-body"
+          data-testid="team-chat-composer"
+          bind:this={composerEl}
           name="body"
           bind:value={$postFormData.body}
-          placeholder={t('app.team-chat.composer.placeholder', 'Post to the team chat… (Ctrl/Cmd+Enter to send). Mention a teammate with @name.')}
+          oninput={(event) => onDraftChange?.({ body: event.currentTarget.value, replyToSeq: replyTo === null ? undefined : String(replyTo) })}
+          placeholder={postForm.data.channelRef ? t('app.channel.composer.placeholder', 'Post to this chat… (Ctrl/Cmd+Enter to send).') : t('app.team-chat.composer.placeholder', 'Post to the team chat… (Ctrl/Cmd+Enter to send). Mention a teammate with @name.')}
           rows="3"
           disabled={$postSubmitting}
           onkeydown={handleKeydown}

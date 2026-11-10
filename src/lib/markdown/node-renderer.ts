@@ -96,8 +96,9 @@ export function createNodeMarkdownRenderer(
   MarkedClass: typeof Marked,
   wikilinks: WikilinkMap,
   strings: WikilinkStrings,
+  options: { qualifiedOnly?: boolean } = {},
 ): Marked {
-  return new MarkedClass({ extensions: [wikilinkExtension(wikilinks, strings)] });
+  return new MarkedClass({ extensions: [wikilinkExtension(wikilinks, strings, options)] });
 }
 
 export function renderNodeMarkdown(renderer: Marked, source: string): string {

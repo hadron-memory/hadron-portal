@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
 import { isLocalPath } from '$lib/safeRedirect';
 
-type UrnKind = 'memory' | 'node' | 'agent' | 'org' | 'app' | 'user' | 'worker';
+type UrnKind = 'memory' | 'node' | 'agent' | 'org' | 'app' | 'user' | 'worker' | 'action';
 
 const mockRequest = vi.fn();
 
@@ -161,6 +161,19 @@ describe('/app/u/[urn] — redirects each kind to its canonical page', () => {
     const r = await expectRedirect('hrn:worker:alice:solo-app:iris');
     expect(r.location).toBe('/app/workers/w-2');
   });
+
+  // #1360 / hadron-server#2610. resolveUrn answers kind 'action' for
+  // `hrn:action:<root>:<agent-slug>:<code>`, with `id` the register entry's node
+  // and `memoryId` the Agent's system memory. Without a case here a copied
+  // action link landed on "No canonical portal page for "action" URNs".
+  it('redirects an action URN to its register entry node page (same as a node)', async () => {
+    mockRequest.mockResolvedValueOnce({
+      resolveUrn: { kind: 'action', id: 'reg-1', memoryId: 'sys-9', organizationId: null },
+    });
+    const r = await expectRedirect('hrn:action:hadronmemory.com:hadron-dev-team:gate-an-issue');
+    expect(r.status).toBe(307);
+    expect(r.location).toBe('/app/memories/sys-9/nodes/reg-1');
+  });
 });
 
 // #761 — the resolver rewrites the PATH; it must not also discard the caller's
@@ -191,8 +204,8 @@ describe('/app/u/[urn] — the redirect carries the query string', () => {
   });
 
   it('preserves the query for EVERY resolved kind, not just the App', async () => {
-    // All seven kinds funnel through one redirect, so this asserts the property
-    // where it actually lives rather than trusting one kind to speak for six.
+    // All eight kinds funnel through one redirect, so this asserts the property
+    // where it actually lives rather than trusting one kind to speak for seven.
     const cases: Array<[UrnKind, Record<string, string | null>, string]> = [
       ['memory', { id: 'mem-1' }, '/app/memories/mem-1'],
       ['node', { id: 'node-1', memoryId: 'mem-9' }, '/app/memories/mem-9/nodes/node-1'],
@@ -201,6 +214,7 @@ describe('/app/u/[urn] — the redirect carries the query string', () => {
       ['user', { id: 'user-1' }, '/app/user/user-1'],
       ['app', { id: 'app-1' }, '/app/apps/app-1'],
       ['worker', { id: 'w-1' }, '/app/workers/w-1'],
+      ['action', { id: 'reg-1', memoryId: 'sys-9' }, '/app/memories/sys-9/nodes/reg-1'],
     ];
     for (const [kind, ids, path] of cases) {
       mockRequest.mockResolvedValueOnce({
@@ -222,6 +236,35 @@ describe('/app/u/[urn] — the redirect carries the query string', () => {
     expect(r.location).toBe(
       '/app/apps/app-1?tab=worklog&worklogKind=pr&worklogRef=owner%2Frepo%23371',
     );
+  });
+
+  it('resolves the decoded form of an encoded chat-wikilink URN (#1512)', async () => {
+    // SvelteKit hands the loader the DECODED param; the chat href carries it as
+    // one encoded segment (`..%2F..%2F`), so the resolver sees the original URN.
+    const urn = 'hrn:node:a.com:m:../../../settings/tokens';
+    mockRequest.mockResolvedValueOnce({
+      resolveUrn: { kind: 'node', id: 'n1', memoryId: 'm1', organizationId: null },
+    });
+    const r = await expectRedirect(urn);
+    expect(r.status).toBe(307);
+    expect(mockRequest.mock.calls[0][1]).toEqual({ urn });
+  });
+
+  it('keeps the signin redirect inside /app/u/ for a URN containing a slash (#1512)', async () => {
+    mockRequest.mockRejectedValueOnce(
+      new ClientError(
+        {
+          errors: [{ message: 'rejected', extensions: { code: 'UNAUTHENTICATED' } }],
+          status: 200,
+        } as unknown as ClientError['response'],
+        { query: 'query', variables: {} },
+      ),
+    );
+    const r = await expectRedirect('hrn:node:a.com:m:../../../settings/tokens');
+    const dest = new URL(`http://localhost${r.location}`).searchParams.get('redirect')!;
+    const u = new URL(dest, 'http://localhost/app/team-chat');
+    expect(u.pathname.startsWith('/app/u/')).toBe(true);
+    expect(u.pathname.slice('/app/u/'.length)).not.toContain('/');
   });
 
   it('carries the query through the signin round-trip, encoded once', async () => {
@@ -262,6 +305,40 @@ describe('/app/u/[urn] — unresolvable and inaccessible URNs 404', () => {
       resolveUrn: { kind: 'node', id: 'node-1', memoryId: null, organizationId: null },
     });
     const r = await expectError('urn:node:acme.com::dev::x');
+    expect(r.status).toBe(500);
+  });
+
+  // #1360: an unknown, foreign-tenant, unreadable or malformed action URN is
+  // the server's null — the SAME neutral answer as any other unknown URN. The
+  // page draws no finer distinction, so none of these may leak "action" or a
+  // kind-specific sentence, and each message must differ only by the URN echoed.
+  it.each([
+    ['unknown code', 'hrn:action:hadronmemory.com:hadron-dev-team:no-such-code'],
+    ['foreign tenant', 'hrn:action:other-tenant.example:their-team:secret-code'],
+    ['malformed (missing code segment)', 'hrn:action:hadronmemory.com:hadron-dev-team'],
+  ])('404s a %s action URN with the neutral not-found text', async (_n, urn) => {
+    mockRequest.mockResolvedValueOnce({ resolveUrn: null });
+    const load = await importLoad();
+    let e: { status?: number; body?: { message?: string } } = {};
+    try {
+      await load(ev(urn));
+    } catch (err) {
+      e = err as typeof e;
+    }
+    expect(e.status).toBe(404);
+    expect(e.body?.message).toBe(
+      `No resource found for "${urn}", or you do not have access to it. ` +
+        `Possible causes: a typo in the identifier, a resource that was deleted or renamed, ` +
+        `one that is not visible to you, or a URN spelling this deployment does not resolve.`,
+    );
+    expect(e.body?.message).not.toContain('No canonical portal page');
+  });
+
+  it('500s (not a broken redirect) when an action resolves without a memoryId', async () => {
+    mockRequest.mockResolvedValueOnce({
+      resolveUrn: { kind: 'action', id: 'reg-1', memoryId: null, organizationId: null },
+    });
+    const r = await expectError('hrn:action:hadronmemory.com:hadron-dev-team:gate-an-issue');
     expect(r.status).toBe(500);
   });
 

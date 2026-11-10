@@ -6,12 +6,13 @@
   import { formatPortalDate } from '$lib/format-portal-date';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
+  import SyncReportDetail from '$lib/components/SyncReportDetail.svelte';
   import SyncErrorDetail from '$lib/components/SyncErrorDetail.svelte';
+  import Urn from '$lib/components/Urn.svelte';
 
   let { data }: { data: PageData } = $props();
   const g = $derived(data.graph);
-  const org = $derived(data.org);
-  const nodeCount = $derived(data.graphNodes?.length ?? 0);
+  const ownerAttribution = $derived(data.ownerAttribution);
 
   const isAgentSystem = $derived(g.class === 'system');
   const isOwnerOnly = $derived(g.class === 'personal' || g.class === 'private');
@@ -36,13 +37,32 @@
     <div class={card}>
       <div class="flex items-center justify-between px-5 py-3">
         <span class={rowLabel}>{t('memory-info.owner', 'Owner')}</span>
-        <span class={rowValue}>
+        <span class={`${rowValue} min-w-0`}>
           {#if isAgentSystem && g.agent}
-            <a href={`/app/agents/${g.agent.id}`} class="text-indigo-600 hover:underline dark:text-indigo-300">{g.agent.name}</a>
-          {:else if isOwnerOnly}
+            <span class="min-w-0 text-right">
+              <a href={`/app/agents/${g.agent.id}`} class="text-indigo-600 hover:underline dark:text-indigo-300">{g.agent.name}</a>
+              <span class="mt-1 flex justify-end">
+                <Urn value={g.agent.urn} type="agent" compact linked label={g.agent.name} />
+              </span>
+            </span>
+          {:else if ownerAttribution}
+            <span class="min-w-0 text-right">
+              {#if ownerAttribution.source !== 'memory-urn'}
+                <span class="block break-words">{ownerAttribution.name}</span>
+              {/if}
+              <span class="flex justify-end" class:mt-1={ownerAttribution.source !== 'memory-urn'}>
+                <Urn
+                  value={ownerAttribution.urn}
+                  type="org"
+                  compact={ownerAttribution.source !== 'memory-urn'}
+                  linked={ownerAttribution.source === 'member'}
+                  copyUrl={ownerAttribution.source === 'member'}
+                  label={t('memory-info.organization', 'organization')}
+                />
+              </span>
+            </span>
+          {:else if isOwnerOnly && !g.organizationId}
             {t('memory-info.only-you', 'Only you')}
-          {:else if org}
-            {org.name}
           {:else}
             —
           {/if}
@@ -107,6 +127,7 @@
           <span class={rowLabel}>{t('memory-info.sync-status', 'Sync status')}</span>
           <span class={rowValue}>{g.syncStatus ?? '—'}{#if g.lastSyncedAt} &middot; {formatPortalDate(g.lastSyncedAt)}{/if}</span>
         </div>
+      <SyncReportDetail lastSyncReport={g.lastSyncReport} syncStatus={g.syncStatus} lastSyncedAt={g.lastSyncedAt} listKey="memories:info:sync-outcomes" />
         {#if g.syncStatus === 'ERROR'}
           <SyncErrorDetail syncError={g.syncError} />
         {/if}
@@ -117,12 +138,9 @@
   <!-- Stats -->
   <section>
     <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">{t('memory-info.stats', 'Stats')}</h2>
-    <div class={card}>
-      <div class="flex items-center justify-between px-5 py-3">
-        <span class={rowLabel}>{t('memory-info.nodes', 'Nodes')}</span>
-        <span class={rowValue}>{nodeCount.toLocaleString('en-US')}</span>
-      </div>
-    </div>
+    <!-- portal#1524: the node count is hidden, not shown as 0. The memory
+         layout no longer loads the node list, and the server's own total is not
+         a count while the list is off, so no number here would be true. -->
     <p class="mt-2 text-xs text-zinc-400">
       {t('memory-info.deferred-stats', 'Edge count, last use, and the agents/apps that include this memory are coming soon.')}
     </p>

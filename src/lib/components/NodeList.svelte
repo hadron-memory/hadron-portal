@@ -8,6 +8,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
+  import NodeEmbeddingBadges from './NodeEmbeddingBadges.svelte';
   import { nodeListHref } from '$lib/node-list-links';
   import ViewTabs from './table/ViewTabs.svelte';
   import TableFrame from './table/TableFrame.svelte';
@@ -25,10 +26,12 @@
     onreorder,
     listKey,
     hideSearch = false,
+    viewMemoryId = '',
     snippets = {},
     meta = {},
     deletedIds = [],
     showColumns = false,
+    embeddingEnabled = false,
     columnData = {},
     columnsLoading = 0,
     columnsFailed = 0,
@@ -45,6 +48,8 @@
     listKey?: string;
     /** Hide the built-in search box (the owner provides search — issue #355). */
     hideSearch?: boolean;
+    /** The memory this list is shown for: a row from another memory is marked inherited. */
+    viewMemoryId?: string;
     /**
      * #430: nodeId → best matching-passage snippet, from a semantic search.
      * When present for a row, rendered under the node name. Empty in browse.
@@ -63,6 +68,11 @@
      * their three columns. Fixed at mount, like the rest of the column set.
      */
     showColumns?: boolean;
+    /**
+     * portal#1346: the browsed memory is vector-indexed, so a row may carry the
+     * pending/failed embedding badge from its (lazily loaded) columns.
+     */
+    embeddingEnabled?: boolean;
     /** nodeId → that node's extra columns, as they load. A node absent here has not loaded. */
     columnData?: Record<string, NodeColumnRow>;
     /** How many nodes' columns are still being read. */
@@ -106,8 +116,9 @@
   }
 
   function nodeUrn(node: MemoryNode): string {
-    // Some queries don't populate node.memory. Render bare loc rather than throw
-    // and take down the whole list (data-shape concern, fixed at the loader).
+    // The node's own authorized identity survives a withheld Memory record.
+    if (node.urn) return node.urn;
+    // Older/slim reads may not select it; preserve their existing fallback.
     const u = memoryUrn || node.memory?.urn || '';
     return u && node.loc ? composeNodeUrn(u, node.loc) : node.loc;
   }
@@ -390,6 +401,9 @@
                           <span class="ml-1 text-xs tabular-nums text-zinc-400">#{n.seq}</span>
                         {/if}
                       </span>
+                      {#if viewMemoryId && n.memoryId && n.memoryId !== viewMemoryId}
+                        <span data-testid="node-inherited" class="shrink-0 rounded bg-zinc-100 px-1.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{t('nodes-tab.inherited', 'inherited')}</span>
+                      {/if}
                       {#if deletedSet.has(n.id)}
                         <span data-testid="node-deleted" class="shrink-0 rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{t('node.deleted.badge', 'Deleted')}</span>
                       {/if}
@@ -444,6 +458,9 @@
                       {/if}
                     </div>
                     <div class="mt-0.5 truncate"><Urn value={nodeUrn(n)} type="node" size={8} /></div>
+                    {#if c?.embedding}
+                      <NodeEmbeddingBadges enabled={embeddingEnabled} pendingAt={c.embedding.pendingAt} failedAt={c.embedding.failedAt} error={c.embedding.error} />
+                    {/if}
                     {#if hit && n.comment}
                       <!-- portal#1015: feedback, never content of its target: its author, the
                            node it concerns, and the revision it was written against

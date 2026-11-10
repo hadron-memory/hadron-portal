@@ -32,6 +32,12 @@
     searchPlaceholder,
     searchAriaLabel,
     globalFilter = $bindable(''),
+    headerOpen = $bindable(false),
+    showSearch = true,
+    showFooter = true,
+    showPageSize = true,
+    initialColumnsOnly = false,
+    sortButtons = false,
     maxHeight = 'max(200px, calc(100vh - 23rem))',
     rowClass,
     rowAttrs,
@@ -42,6 +48,15 @@
     searchPlaceholder: string;
     searchAriaLabel: string;
     globalFilter?: string;
+    /** Callers may reveal the existing filter before a guarded focus handoff. */
+    headerOpen?: boolean;
+    /** Server-filtered callers supply their own search control. */
+    showSearch?: boolean;
+    /** Server-paged callers (a page of a larger list) draw their own Previous/Next and total. */
+    showFooter?: boolean;
+    showPageSize?: boolean;
+    initialColumnsOnly?: boolean;
+    sortButtons?: boolean;
     /** Scroll-container max-height. The rem offset is tuned per page to
      *  its chrome height; keep the 200px floor (short-viewport guard). */
     maxHeight?: string;
@@ -54,7 +69,6 @@
     cell: Snippet<[PortalCell<T, unknown>, T]>;
   } = $props();
 
-  let headerOpen = $state(false);
   const active = $derived(globalFilter.trim() !== '');
 
   const pageSize = $derived(table.atoms.pagination.get().pageSize);
@@ -81,11 +95,13 @@
      TableFrame). The view strip takes the remaining width (flex-1) so its
      "+ New view" button lands next to Columns; bordered=false since it no
      longer sits on its own line. -->
-<TableFrame {active} bind:open={headerOpen}>
+<TableFrame {active} {showSearch} bind:open={headerOpen}>
   {#snippet controls()}
+{#if showSearch}
 <input type="text" placeholder={searchPlaceholder} aria-label={searchAriaLabel} bind:value={globalFilter}
     class="min-w-[10rem] max-w-sm rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
-  <ViewTabs {table} {listKey} bordered={false} class="min-w-[14rem] flex-1" />
+  {/if}
+  <ViewTabs {table} {listKey} {initialColumnsOnly} bordered={false} class="min-w-[14rem] flex-1" />
   <ColumnToggle {table} />
   {/snippet}
 
@@ -101,18 +117,20 @@
             <th
               class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''}"
               style="width: {header.getSize()}px;"
-              tabindex={header.column.getCanSort() ? 0 : undefined}
+              tabindex={!sortButtons && header.column.getCanSort() ? 0 : undefined}
               aria-sort={header.column.getIsSorted() === 'asc' ? 'ascending' : header.column.getIsSorted() === 'desc' ? 'descending' : undefined}
-              onclick={header.column.getToggleSortingHandler()}
+              onclick={sortButtons ? undefined : header.column.getToggleSortingHandler()}
               onkeydown={(e) => {
-                if (header.column.getCanSort() && (e.key === 'Enter' || e.key === ' ')) {
+                if (!sortButtons && header.column.getCanSort() && (e.key === 'Enter' || e.key === ' ')) {
                   e.preventDefault();
                   header.column.getToggleSortingHandler()?.(e);
                 }
               }}
             >
               <div class="flex min-w-0 items-center gap-1">
-                <span class="min-w-0 truncate">{header.column.columnDef.header}</span>
+                {#if sortButtons && header.column.getCanSort()}
+                  <button type="button" class="min-h-11 min-w-0 truncate text-left focus-visible:outline-2 focus-visible:outline-indigo-500" onclick={header.column.getToggleSortingHandler()}>{header.column.columnDef.header}</button>
+                {:else}<span class="min-w-0 truncate">{header.column.columnDef.header}</span>{/if}
                 {#if header.column.getCanSort()}
                   <span class={header.column.getIsSorted() ? 'text-indigo-500' : 'text-zinc-300 dark:text-zinc-700'}>{sortIndicator(header.column.getIsSorted())}</span>
                 {/if}
@@ -125,7 +143,7 @@
                 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
                 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
                 <div
-                  class="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none hover:bg-indigo-400 focus:bg-indigo-400 focus:outline-none {header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
+                  class="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none hover:bg-indigo-400 focus:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-300 {header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
                   role="separator"
                   aria-orientation="vertical"
                   aria-label={tableStrings.resizeColumn()}
@@ -166,16 +184,17 @@
      and cannot shrink beside Previous/Next, so a no-wrap footer pushed the
      document 14px wide on a 390px phone. Wrapping keeps every control in
      flow and reachable instead. -->
+{#if showFooter}
 <div data-testid="table-footer" class="flex flex-wrap items-center justify-between gap-3">
-  <span class="text-sm text-zinc-500">{pageCount > 1 ? tableStrings.pageOf(pageIndex + 1, pageCount) : ''}</span>
+  <span aria-current="page" class="text-sm text-zinc-500">{pageCount > 1 ? tableStrings.pageOf(pageIndex + 1, pageCount) : ''}</span>
   <div class="flex flex-wrap items-center gap-2">
-    <select value={pageSize} onchange={(e) => table.setPageSize(Number((e.target as HTMLSelectElement).value))}
+    {#if showPageSize}<select value={pageSize} onchange={(e) => table.setPageSize(Number((e.target as HTMLSelectElement).value))}
       aria-label={tableStrings.rowsPerPage()}
       class="rounded-lg border border-zinc-300 !bg-zinc-100 px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:!bg-zinc-800 dark:text-white">
       {#each [10, 20, 50, 100] as size}
         <option value={size}>{tableStrings.perPage(size)}</option>
       {/each}
-    </select>
+    </select>{/if}
     {#if pageCount > 1}
       <button disabled={!table.getCanPreviousPage()} onclick={() => table.previousPage()}
         class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">{tableStrings.previous()}</button>
@@ -184,3 +203,4 @@
     {/if}
   </div>
 </div>
+{/if}

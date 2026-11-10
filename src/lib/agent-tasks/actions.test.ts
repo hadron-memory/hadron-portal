@@ -5,7 +5,7 @@
  * PENDING task only (hrn:node:hadronmemory.com:specs:cor:agt:050:02, R6 A).
  */
 import { describe, expect, it } from 'vitest';
-import { cancelConsequences, taskActions } from './actions';
+import { cancelConsequences, taskActionLabel, taskActions } from './actions';
 import type { AgentTaskRow } from './types';
 
 const dara = { id: 'w1', kind: 'WORKER' as const, name: 'Dara', urn: 'hrn:worker:acme.com:team:dara' };
@@ -18,11 +18,11 @@ const task = (over: Partial<AgentTaskRow & { closeSessionWhenDone: boolean }> = 
 
 describe('taskActions', () => {
   it.each([
-    ['BACKLOG', false, null, ['ready', 'assign', 'cancel']],
-    ['PENDING', true, null, ['assign', 'park', 'cancel']],
-    ['PENDING', false, null, ['assign', 'park', 'cancel']],
-    ['PENDING', false, dara, ['reassign', 'cancel']],
-    ['STARTED', false, dara, ['reassign', 'cancel']],
+    ['BACKLOG', false, null, ['ready', 'assign', 'edit', 'cancel']],
+    ['PENDING', true, null, ['assign', 'park', 'edit', 'cancel']],
+    ['PENDING', false, null, ['assign', 'park', 'edit', 'cancel']],
+    ['PENDING', false, dara, ['reassign', 'edit', 'cancel']],
+    ['STARTED', false, dara, ['reassign', 'edit', 'cancel']],
     ['FINISHED', false, dara, []],
     ['CANCELLED', false, null, []],
   ] as const)('%s (queued=%s) offers %j', (status, queued, assignee, actions) => {
@@ -40,6 +40,18 @@ describe('taskActions', () => {
         expect(offered).toBe(status === 'PENDING' && assignee === null);
       }
     }
+  });
+});
+
+describe('Edit details (portal#1357)', () => {
+  it('is offered on every non-ended task and on no ended or unknown one', () => {
+    for (const status of ['BACKLOG', 'PENDING', 'STARTED'] as const) {
+      for (const assignee of [null, dara]) expect(taskActions(task({ status, assignee }))).toContain('edit');
+    }
+    for (const status of ['FINISHED', 'CANCELLED', 'PAUSED'] as const) expect(taskActions(task({ status: status as never }))).not.toContain('edit');
+  });
+  it('is labelled "Edit details"', () => {
+    expect(taskActionLabel('edit')).toBe('Edit details');
   });
 });
 
@@ -76,5 +88,36 @@ describe('cancelConsequences', () => {
     expect(cancelConsequences(task(), { count: 0, capped: false, unknown: true })).toContain(
       'We couldn’t check for open subtasks. They aren’t cancelled either way.',
     );
+  });
+});
+
+describe('Hand back (portal#1571, cor:agt:050:29)', () => {
+  const holgerAsAssignee = { id: 'u1', kind: 'USER' as const, name: 'Holger', urn: null };
+  const rae = { id: 'u2', kind: 'USER' as const, name: 'Rae', urn: null };
+
+  it('is offered to the viewer who is the assignee of a STARTED task, and says so first', () => {
+    expect(taskActions(task({ status: 'STARTED', assignee: holgerAsAssignee }), 'u1')).toEqual(['handBack', 'reassign', 'edit', 'cancel']);
+  });
+
+  it('is never offered without a viewer id', () => {
+    expect(taskActions(task({ status: 'STARTED', assignee: holgerAsAssignee }))).not.toContain('handBack');
+    expect(taskActions(task({ status: 'STARTED', assignee: holgerAsAssignee }), null)).not.toContain('handBack');
+    expect(taskActions(task({ status: 'STARTED', assignee: holgerAsAssignee }), '')).not.toContain('handBack');
+  });
+
+  it('is not offered for another person’s task, a WORKER assignee (even with a matching id), or no assignee', () => {
+    expect(taskActions(task({ status: 'STARTED', assignee: rae }), 'u1')).not.toContain('handBack');
+    expect(taskActions(task({ status: 'STARTED', assignee: { ...dara, id: 'u1' } }), 'u1')).not.toContain('handBack');
+    expect(taskActions(task({ status: 'STARTED', assignee: null }), 'u1')).not.toContain('handBack');
+  });
+
+  it('is offered on no state but STARTED', () => {
+    for (const status of ['BACKLOG', 'PENDING', 'FINISHED', 'CANCELLED', 'PAUSED'] as const) {
+      expect(taskActions(task({ status: status as never, assignee: holgerAsAssignee }), 'u1')).not.toContain('handBack');
+    }
+  });
+
+  it('is labelled “Hand back…”', () => {
+    expect(taskActionLabel('handBack')).toBe('Hand back…');
   });
 });
