@@ -17,13 +17,21 @@ describe('PR-protocol events', () => {
 
   it('pr.frozen names the short head and links the pull request', () => {
     expect(eventSentence(ev('pr.frozen', { head: HEAD, pullRequest: PR }))).toEqual({
-      known: true, text: 'froze the pull request at 92bc8ad', links: [{ label: 'Pull request', value: PR, href: PR }],
+      known: true, text: 'froze the pull request at 92bc8ad', links: [{ label: 'Pull request', kind: 'url', value: PR }],
     });
   });
 
-  it('review.seat.assigned names the slot and head, and whom it supersedes', () => {
+  // portal#1711: supersedes names a sibling seat TASK, not a person; the sentence
+  // no longer folds it into the text — it rides the links row (id → link, else text).
+  it('review.seat.assigned names the slot and head, and the task it supersedes', () => {
     expect(eventSentence(ev('review.seat.assigned', { slot: 'blind', head: HEAD, supersedes: null }))).toEqual({ known: true, text: 'assigned the blind seat at 92bc8ad' });
-    expect(eventSentence(ev('review.seat.assigned', { slot: 'blind', head: HEAD, supersedes: 'blind-1' }))).toEqual({ known: true, text: 'assigned the blind seat at 92bc8ad, replacing blind-1' });
+    expect(eventSentence(ev('review.seat.assigned', { slot: 'blind', head: HEAD, supersedes: '0123456789abcdef0123456789abcdef' }))).toEqual({
+      known: true, text: 'assigned the blind seat at 92bc8ad',
+      links: [{ label: 'replacing', kind: 'task', value: '01234567', id: '0123456789abcdef0123456789abcdef' }],
+    });
+    expect(eventSentence(ev('review.seat.assigned', { slot: 'blind', head: HEAD, supersedes: 'blind-1' }))).toEqual({
+      known: true, text: 'assigned the blind seat at 92bc8ad', links: [{ label: 'replacing', kind: 'text', value: 'blind-1' }],
+    });
   });
 
   it('review.verdict names verdict, slot and head, and links the node and receipt when present', () => {
@@ -32,8 +40,8 @@ describe('PR-protocol events', () => {
       known: true,
       text: 'recorded APPROVE for the local seat at 92bc8ad',
       links: [
-        { label: 'Review node', value: 'hrn:node:acme.com:m:reviews:x', href: null },
-        { label: 'Receipt', value: receipt, href: receipt },
+        { label: 'Review node', kind: 'nodeUrn', value: 'hrn:node:acme.com:m:reviews:x' },
+        { label: 'Receipt', kind: 'url', value: receipt },
       ],
     });
     expect(eventSentence(ev('review.verdict', { slot: 'qa', head: HEAD, verdict: 'CARRY', node: null, receipt: null }))).toEqual({ known: true, text: 'recorded CARRY for the qa seat at 92bc8ad' });
@@ -45,7 +53,7 @@ describe('PR-protocol events', () => {
 
   it('a non-web link value is shown as text, never an href (no javascript: link)', () => {
     const s = eventSentence(ev('pr.frozen', { head: HEAD, pullRequest: 'javascript:alert(1)' }));
-    expect(s).toMatchObject({ known: true, links: [{ value: 'javascript:alert(1)', href: null }] });
+    expect(s).toMatchObject({ known: true, links: [{ kind: 'text', value: 'javascript:alert(1)' }] });
   });
 
   it('a malformed payload still gives a sentence and never throws', () => {

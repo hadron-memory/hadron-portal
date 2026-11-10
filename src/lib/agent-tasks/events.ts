@@ -1,16 +1,22 @@
 import { t } from '$lib/i18n/t';
+import { parseUrnV2, UrnParseError } from '$lib/urn/parse-urn';
 import { partyName } from './status';
 import type { AgentTaskParty, AgentTeamEvent } from './types';
 
 /**
- * portal#1052 — how one task's history reads (design §5.3).
+ * portal#1052 — how one task's history reads (design §5.3); portal#1711 — what
+ * a value an event names may be.
  *
  * Each entry is an actor plus a sentence built from `type` and `payload`.
  * The type strings are hadron-server 4c55560a's (`src/lib/agentTasks/events.ts`:
  * TASK_EVENT_TYPES, ASSIGNMENT_EVENT_TYPES, ALARM_EVENT_TYPES, and
- * `task.session-end-requested`). A payload carries ids, counts, outcome words
- * and flags only, never text, so the names come from the event's own parties
- * (`actor`, `subjectWorker`), not from the payload.
+ * `task.session-end-requested`). Those closed platform events carry facts the
+ * platform defines — ids, short heads, slot ids, outcome words, family and
+ * verdict words, links, and a `supersedes` sibling seat task id — never prose,
+ * so names come from the event's own parties (`actor`, `subjectWorker`), not
+ * from the payload. An App action's own payload (`app.<slug>.<name>…` types,
+ * hadron-server#3449) is the App's: opaque, readable by every participant, and
+ * shown as text only — never markup, never interpreted, never fetched.
  *
  * A type the portal doesn't describe gets no guessed sentence: it shows the
  * raw type and says so.
@@ -28,22 +34,86 @@ export function eventActor(e: Pick<AgentTeamEvent, 'actor' | 'actorRunId'>): Eve
   return { kind: 'hadron' };
 }
 
-/** A value an event names (a pull request, a review node, a receipt). `href` is set only for a web URL; anything else is shown as text. */
-export interface EventLink { label: string; value: string; href: string | null }
+/**
+ * One value an event names — a pull request, a review node, a receipt, or a
+ * superseded sibling seat task. The url check comes first and no value can be
+ * two kinds: an https URL's protocol is never `hrn:`, and a v2 URN's is never
+ * `https:`. Anything a value is not — malformed, other protocol, relative,
+ * non-node URN, non-id — is `text`: no fabricated href, chip or name.
+ */
+export type EventLink =
+  | { label: string; kind: 'url'; value: string }
+  | { label: string; kind: 'nodeUrn'; value: string }
+  | { label: string; kind: 'task'; value: string; id: string }
+  | { label: string; kind: 'text'; value: string };
 
 export type EventSentence =
   | { known: true; text: string; links?: EventLink[]; detail?: string }
   | { known: false; type: string };
 
-/** hadron-server#3449 (hrn:node:hadronmemory.com:specs:cor:agt:110:01): `app.<slug>.<name>`, three atoms at least, so the two-atom `app.*` platform types never match. */
-const APP_ACTION_CODE = /^app\.[a-z0-9-]+(\.[a-z0-9][a-z0-9-]*)+$/;
+/**
+ * portal#1711: a value is a web link only when it parses as a URL whose
+ * protocol is exactly `https:` (the parser lowercases the scheme, so
+ * `HTTPS://` stays valid). Malformed values, `https://` with no host, `http:`,
+ * `javascript:`, `data:` and relative paths all fail and stay text.
+ */
+export function httpsHref(value: string): string | null {
+  try {
+    return new URL(value).protocol === 'https:' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** portal#1711: a value the v2 grammar parses as a type-`node` URN (a review node); every other value, URN or not, is text. */
+export function isNodeUrn(value: string): boolean {
+  try {
+    return parseUrnV2(value).type === 'node';
+  } catch (e) {
+    if (e instanceof UrnParseError) return false;
+    throw e;
+  }
+}
+
+/**
+ * portal#1711 5c — an App-defined action's type IS its code
+ * (hadron-server#3449), shaped per cor:agt:110:01 (**Proposed**,
+ * presentation-only — this matcher decides how a code is displayed, never
+ * whether it is refused, and must not be cited as Decided event law):
+ * the literal `app`, a slug, then one or more name parts, lowercase letters,
+ * digits and hyphens; every part starts with a letter or digit; an
+ * intermediate name part may end with a hyphen; the slug starts and ends
+ * alphanumeric; the whole code ends with a letter or digit and is at most 64
+ * characters. The two-atom platform types (`app.credential-act`,
+ * `app.manager-act`) never match, and a code the grammar rejects keeps the
+ * unknown/raw rendering (ruling 0060 tolerance).
+ */
+const APP_ACTION_CODE = /^app\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9][a-z0-9-]*)+$/;
+const isAppActionCode = (code: string): boolean => code.length <= 64 && APP_ACTION_CODE.test(code) && /[a-z0-9]$/.test(code);
+
+/** A task id as the platform mints it: exactly 32 hex characters. */
+const TASK_ID = /^[0-9a-f]{32}$/;
 
 const shortHead = (v: unknown): string | null => (typeof v === 'string' && /^[0-9a-f]{7,40}$/i.test(v) ? v.slice(0, 7) : null);
 
 function link(label: string, v: unknown): EventLink | null {
   const value = str(v);
   if (!value) return null;
-  return { label, value, href: /^https:\/\//i.test(value) ? value : null };
+  if (httpsHref(value)) return { label, kind: 'url', value };
+  if (isNodeUrn(value)) return { label, kind: 'nodeUrn', value };
+  return { label, kind: 'text', value };
+}
+
+/**
+ * portal#1711: `supersedes` names a sibling seat TASK, never a person or
+ * worker. Only an exact 32-hex task id becomes a link (the component builds
+ * the `{basePath}/tasks/{id}` href); a handle or anything else stays text, and
+ * nothing is fetched.
+ */
+function replacingLink(v: string | null): EventLink | null {
+  if (!v) return null;
+  const label = t('app.tasks.history.link.replacing', 'replacing');
+  return TASK_ID.test(v) ? { label, kind: 'task', value: v.slice(0, 8), id: v } : { label, kind: 'text', value: v };
 }
 
 /** The sentence plus the links it names; no `links` key at all when there are none. */
@@ -184,11 +254,10 @@ export function eventSentence(
     case 'review.seat.assigned': {
       const slot = str(p.slot);
       const head = shortHead(p.head);
-      const supersedes = str(p.supersedes);
       const base = slot && head
         ? t('app.tasks.history.seat-assigned', 'assigned the {slot} seat at {head}', { slot, head })
         : t('app.tasks.history.seat-assigned-bare', 'assigned a review seat');
-      return { known: true, text: supersedes ? t('app.tasks.history.seat-replacing', '{base}, replacing {old}', { base, old: supersedes }) : base };
+      return withLinks(base, [replacingLink(str(p.supersedes))]);
     }
     case 'review.verdict': {
       const verdict = str(p.verdict);
@@ -207,10 +276,12 @@ export function eventSentence(
     }
     default: {
       // hadron-server#3449: an App-defined action's type IS its code; the App's own payload sits under `payload`.
-      if (APP_ACTION_CODE.test(e.type)) {
+      // portal#1711 5e: a payload object with no keys gets no disclosure at all.
+      if (isAppActionCode(e.type)) {
         const text = t('app.tasks.history.app-action', 'recorded {code}', { code: e.type });
         const own = p.payload;
-        return own && typeof own === 'object' && !Array.isArray(own) ? { known: true, text, detail: JSON.stringify(own, null, 2) } : { known: true, text };
+        const hasKeys = !!own && typeof own === 'object' && !Array.isArray(own) && Object.keys(own).length > 0;
+        return hasKeys ? { known: true, text, detail: JSON.stringify(own, null, 2) } : { known: true, text };
       }
       return { known: false, type: e.type };
     }
