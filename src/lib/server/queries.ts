@@ -260,6 +260,7 @@ export const MEMORY_BY_ID_QUERY = /* GraphQL */ `
   query MemoryById($ref: ID!) {
     memory(ref: $ref) {
       ...MemoryFields
+      organization { urn }
       subscriptions {
         id
         role
@@ -619,6 +620,16 @@ export const MEMORY_LAYOUT_ORG_QUERY = /* GraphQL */ `
         role
         user { id }
       }
+    }
+  }
+`;
+
+export const MEMORY_OWNER_PUBLIC_ORG_QUERY = /* GraphQL */ `
+  query MemoryOwnerPublicOrg($ref: ID!) {
+    publicOrganization(ref: $ref) {
+      id
+      name
+      urn
     }
   }
 `;
@@ -4770,13 +4781,13 @@ export const APP_SHARED_MEMORY_QUERY = /* GraphQL */ `
 `;
 
 /**
- * #942: may the caller write this memory? `resource` MUST be the memory's
- * `hrn:mem:` URN: a bare id is read as an AiServiceConfig id and answers
- * NOT_FOUND.
+ * #942: may the caller write or manage this memory? `resource` MUST be the
+ * memory's `hrn:mem:` URN: a bare id is read as an AiServiceConfig id and
+ * answers NOT_FOUND.
  */
 export const SELF_CAN_WRITE_QUERY = /* GraphQL */ `
   query SelfCanWrite($user: ID!, $resource: ID!) {
-    effectiveAccess(user: $user, resource: $resource) { canWrite }
+    effectiveAccess(user: $user, resource: $resource) { canWrite canManage }
   }
 `;
 

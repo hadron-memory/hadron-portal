@@ -8,10 +8,11 @@
   import type { PageData } from './$types';
   import SyncReportDetail from '$lib/components/SyncReportDetail.svelte';
   import SyncErrorDetail from '$lib/components/SyncErrorDetail.svelte';
+  import Urn from '$lib/components/Urn.svelte';
 
   let { data }: { data: PageData } = $props();
   const g = $derived(data.graph);
-  const org = $derived(data.org);
+  const ownerAttribution = $derived(data.ownerAttribution);
 
   const isAgentSystem = $derived(g.class === 'system');
   const isOwnerOnly = $derived(g.class === 'personal' || g.class === 'private');
@@ -36,13 +37,32 @@
     <div class={card}>
       <div class="flex items-center justify-between px-5 py-3">
         <span class={rowLabel}>{t('memory-info.owner', 'Owner')}</span>
-        <span class={rowValue}>
+        <span class={`${rowValue} min-w-0`}>
           {#if isAgentSystem && g.agent}
-            <a href={`/app/agents/${g.agent.id}`} class="text-indigo-600 hover:underline dark:text-indigo-300">{g.agent.name}</a>
-          {:else if isOwnerOnly}
+            <span class="min-w-0 text-right">
+              <a href={`/app/agents/${g.agent.id}`} class="text-indigo-600 hover:underline dark:text-indigo-300">{g.agent.name}</a>
+              <span class="mt-1 flex justify-end">
+                <Urn value={g.agent.urn} type="agent" compact linked label={g.agent.name} />
+              </span>
+            </span>
+          {:else if ownerAttribution}
+            <span class="min-w-0 text-right">
+              {#if ownerAttribution.source !== 'memory-urn'}
+                <span class="block break-words">{ownerAttribution.name}</span>
+              {/if}
+              <span class="flex justify-end" class:mt-1={ownerAttribution.source !== 'memory-urn'}>
+                <Urn
+                  value={ownerAttribution.urn}
+                  type="org"
+                  compact={ownerAttribution.source !== 'memory-urn'}
+                  linked={ownerAttribution.source === 'member'}
+                  copyUrl={ownerAttribution.source === 'member'}
+                  label={t('memory-info.organization', 'organization')}
+                />
+              </span>
+            </span>
+          {:else if isOwnerOnly && !g.organizationId}
             {t('memory-info.only-you', 'Only you')}
-          {:else if org}
-            {org.name}
           {:else}
             —
           {/if}

@@ -68,11 +68,11 @@ async function renderSettings(opts: {
         user: opts.user ?? OWNER,
         ownerUserId: opts.ownerUserId === undefined ? OWNER_ID : opts.ownerUserId,
         owner: opts.ownerUserId === null ? null : { id: OWNER_ID, handle: 'holger', name: 'Holger' },
-        org: opts.orgRole
-          ? { id: 'org-1', members: [{ user: { id: (opts.user ?? OWNER).id }, role: opts.orgRole }] }
-          : null,
+        org: { id: 'org-1', members: [{ user: { id: (opts.user ?? OWNER).id }, role: opts.orgRole ?? 'ADMIN' }] },
         allOrgs: [],
         transferCanDelete: opts.transferCanDelete ?? false,
+        canWriteMemory: true,
+        canManageMemory: true,
         form,
         vectorForm,
         marketplaceForm,
