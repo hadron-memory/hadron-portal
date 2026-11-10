@@ -33,6 +33,8 @@ describe('portal#1899 compiled boot prompt save', () => {
   it('an unclassified failure stays a 500 and logs only the code', async () => {
     const r = await save('SOMETHING_NEW', 'private wire prose');
     expect(r.status).toBe(500);
+    expect(JSON.stringify(r)).not.toContain('private wire prose');
+    expect(r.data.contentFailed.detail).toBe('Something went wrong on our side.');
     // The log shape is pinned: exactly operation, stage and code, so no content or wire text can ride along.
     expect((console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls).toEqual([['[node-detail] save failed:', { op: 'update-content', stage: 'write', code: 'SOMETHING_NEW' }]]);
   });
@@ -44,9 +46,19 @@ describe('portal#1899 compiled boot prompt save', () => {
     expect(calls).toEqual([['[node-detail] save failed:', { op: 'update-content', stage, code: 'no-code' }]]);
   });
   it('an out-of-shape wire code is logged as a fixed marker, never as itself', async () => {
-    const r = await save('some wire prose with content', 'x');
+    const r = await save('some wire prose with content', 'private wire prose');
     expect(r.status).toBe(500);
+    expect(JSON.stringify(r)).not.toContain('private wire prose');
+    expect(JSON.stringify(r)).not.toContain('some wire prose with content');
     const calls = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls;
     expect(calls).toEqual([['[node-detail] save failed:', { op: 'update-content', stage: 'write', code: 'unrecognized' }]]);
+  });
+  it('a GraphQL error with no code shows the generic copy, never its message', async () => {
+    const r = await save('', 'private wire prose');
+    expect(r.status).toBe(500);
+    expect(JSON.stringify(r)).not.toContain('private wire prose');
+    expect(r.data.contentFailed.detail).toBe('Something went wrong on our side.');
+    const calls = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect(calls).toEqual([['[node-detail] save failed:', { op: 'update-content', stage: 'write', code: 'no-code' }]]);
   });
 });
