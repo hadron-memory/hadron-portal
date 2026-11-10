@@ -157,7 +157,9 @@
   // portal#1899: a compiled boot prompt is written only by a compile (hrn:node:hadronmemory.com:specs:cor:agt:040:11, :12);
   // a save is always refused, so its text and abstract are shown read-only with a pointer to the source.
   const isCompiledPrompt = $derived(node.nodeType === 'compiled-boot-prompt');
-  const readOnly = $derived(data.canWriteMemory === false || isCompiledPrompt);
+  const readOnly = $derived(data.canWriteMemory === false);
+  // Only the text editors; move, delete, history and the other doors keep their existing behavior (out of scope).
+  const textReadOnly = $derived(readOnly || isCompiledPrompt);
   let isEditing = $state(false);
 
   // Inline editing. #927: each text editor is a draft based on the revision it
@@ -3219,7 +3221,7 @@
             use:fillViewport={contentSaveRow}
             class="block w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
             placeholder={createNodeStrings.contentSourcePlaceholder()}
-            readonly={readOnly}
+            readonly={textReadOnly}
             bind:value={contentDraft.text}
           ></textarea>
           <div bind:this={contentSaveRow} class="mt-2 flex flex-wrap items-center justify-end gap-2">
@@ -3239,7 +3241,7 @@
             <button
               bind:this={contentSaveButton}
               onclick={saveContent}
-              disabled={readOnly || saving || !contentDraft.dirty}
+              disabled={textReadOnly || saving || !contentDraft.dirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
             >{saving ? t('node.text.saving', 'Saving…') : contentSaveError ? t('node.save.retry', 'Retry') : t('node.text.save', 'Save')}</button>
           </div>
@@ -3273,6 +3275,9 @@
 
     <!-- ═══ ABSTRACT TAB ═══ -->
     {#if activeTab === 'abstract'}
+      {#if isCompiledPrompt}
+        <p class="mb-2 text-sm text-zinc-500 dark:text-zinc-400" data-testid="compiled-prompt-hint">{t('node.compiled-prompt.hint', 'This compiled boot prompt is read-only. Edit the boot source and compile again.')}</p>
+      {/if}
       <div class="flex items-center justify-between">
         <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
           <button
@@ -3305,7 +3310,7 @@
             maxlength={ABSTRACT_MAX}
             placeholder={abstractPlaceholder()}
             aria-describedby={abstractHint ? 'node-abstract-search-hint' : undefined}
-            readonly={readOnly}
+            readonly={textReadOnly}
             bind:value={abstractDraft.text}
           ></textarea>
           <div bind:this={abstractSaveRow} class="mt-2 flex flex-wrap items-center justify-between gap-2">
@@ -3326,7 +3331,7 @@
               <button
                 bind:this={abstractSaveButton}
                 onclick={saveAbstract}
-                disabled={readOnly || savingAbstract || !abstractDraft.dirty}
+                disabled={textReadOnly || savingAbstract || !abstractDraft.dirty}
                 class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
               >{savingAbstract ? t('node.text.saving', 'Saving…') : abstractSaveError ? t('node.save.retry', 'Retry') : t('node.text.save', 'Save')}</button>
             </div>
