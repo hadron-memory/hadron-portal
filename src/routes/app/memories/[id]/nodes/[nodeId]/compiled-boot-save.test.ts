@@ -28,6 +28,7 @@ describe('portal#1899 compiled boot prompt save', () => {
     const r = await save(code, message);
     expect(r.status).toBe(400);
     expect(r.data.contentFailed.code).toBe('rejected');
-    expect(r.data.contentFailed.detail).toBe(message);
+    expect(r.data.contentFailed.detail).toContain(message);
+    if (code === 'BOOT_PROMPT_COMPILED_WRITE') expect(r.data.contentFailed.detail).toMatch(/boot source and compile again/);
   });
 });
