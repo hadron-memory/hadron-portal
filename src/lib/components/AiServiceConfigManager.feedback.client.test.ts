@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { flushSync } from 'svelte';
+import { flushSync, type ComponentProps } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import {
@@ -75,7 +75,7 @@ function config(over: Partial<AiServiceConfig> = {}): AiServiceConfig {
   };
 }
 
-async function open(props: Props = {}, component = AiServiceConfigSection) {
+async function open(props: Props = {}, component: unknown = AiServiceConfigSection) {
   const m = mountComponent(component as never, reactiveProps({
     ownerType: 'ORGANIZATION', ownerId: 'o1', configs: [], canManage: true, allowTest: true,
     members: [{ user: { id: 'u1' }, role: 'ADMIN' }], currentUserId: 'u1',
@@ -2111,6 +2111,43 @@ describe('AI configuration code-review lifecycle pins', () => {
     releaseUpdate({ body: { ok: true, config: { ...created, name: 'renamed', model: 'glm-6', hasApiKey: false } } });
     await settle();
     expect(m.target.querySelector('h3')?.textContent).toContain('renamed');
+  });
+
+  it('prefers the acknowledged saved row over an older retained row as the update baseline', async () => {
+    // Readback RETAINS the older row (no endpoint). The user saves an explicit
+    // endpoint, then clears it while that write is pending. The next save must
+    // compare against the acknowledged row and send endpoint:null.
+    let releaseUpdate!: (reply: Reply) => void;
+    const older = config({ id: 'c1', name: 'default', endpoint: null });
+    stubFetch((body) => {
+      if (body.action === 'update') return new Promise<Reply>((resolve) => { releaseUpdate = resolve; });
+      return {};
+    });
+    const m = await open({ configs: [older] }, AiServiceConfigManager);
+    editRow(m.target);
+    await settle();
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://new.example');
+    button(m.target, 'Save').click();
+    await tick(2);
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, '');
+    releaseUpdate({ body: { ok: true, config: { ...older, endpoint: 'https://new.example' } } });
+    await settle();
+    expect(m.props.configs).toEqual([older]);
+
+    button(m.target, 'Save').click();
+    await settle();
+    const updates = posts.filter((body) => body.action === 'update');
+    expect(updates).toHaveLength(2);
+    expect(updates[0]).toMatchObject({ id: 'c1', endpoint: 'https://new.example' });
+    expect(updates[1]).toMatchObject({ id: 'c1', endpoint: null });
+  });
+
+  it('requires a principal identity for the standalone manager', () => {
+    // Type-level pin (enforced by `pnpm check`): an optional currentUserId would
+    // let every standalone instance share one `standalone:` recovery scope.
+    // @ts-expect-error currentUserId is required
+    const missing: ComponentProps<typeof AiServiceConfigManager> = { ownerType: 'ORGANIZATION', ownerId: 'o1', configs: [] };
+    expect(missing).toBeDefined();
   });
 
   it('locks a preserved create draft when the response omits the created id', async () => {

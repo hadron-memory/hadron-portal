@@ -41,7 +41,7 @@
     ownerId,
     ownerLabel = null,
     ownerUrn = null,
-    currentUserId = null,
+    currentUserId,
     configs,
     canManage = false,
     allowTest = false,
@@ -112,8 +112,8 @@
     ownerLabel?: string | null;
     /** The same already-authorized owner's URN; null omits the chip. */
     ownerUrn?: string | null;
-    /** Principal scope for standalone recovery; Section also keys remounts by it. */
-    currentUserId?: string | null;
+    /** Principal scope for standalone recovery; required so no two users share one scope. Section also keys remounts by it. */
+    currentUserId: string;
     configs: AiServiceConfig[];
     canManage?: boolean;
     allowTest?: boolean;
@@ -168,7 +168,7 @@
   let standaloneNoticeTimer: ReturnType<typeof setTimeout> | null = null;
   let standaloneRefreshGeneration = 0;
   let hadStandaloneScope = false;
-  const standaloneScope = $derived(`standalone:${currentUserId ?? ''}`);
+  const standaloneScope = $derived(`standalone:${currentUserId}`);
   const sharesStandaloneRecovery = $derived(onMutationPending === standaloneMutationPending);
   const activeStandalone = new Map<string, { outcome: AiConfigCommitted; generation: number; recoveryScope: string }>();
   let syncingStandaloneRecovery = false;
@@ -467,7 +467,11 @@
     actionController?.abort();
   });
 
-  const editing = $derived(editId ? (configs.find((c) => c.id === editId) ?? (savedConfig?.id === editId ? savedConfig : null)) : null);
+  // The acknowledged write is the newest baseline this editor knows: a retained
+  // older row must not win, or a preserved draft diffs against stale fields and
+  // omits an endpoint/apiStyle:null that is still needed. openEdit, openCreate
+  // and resetEditor clear savedConfig, so it never outlives its editor session.
+  const editing = $derived(editId ? (savedConfig?.id === editId ? savedConfig : (configs.find((c) => c.id === editId) ?? null)) : null);
 
   // Keep a paged editor's source row in place, including browser Back/Forward.
   // Other surfaces retain their existing navigation behavior.

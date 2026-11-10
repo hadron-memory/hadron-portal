@@ -363,7 +363,7 @@
   >
     {s.loadError()}
   </div>
-{:else}
+{:else if currentUserId}
   {#key currentUserId}
     <AiServiceConfigManager
       {pagination}
