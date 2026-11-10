@@ -12,6 +12,7 @@
   import ApproveAllDialog from '$lib/components/memory/ApproveAllDialog.svelte';
   import MintDialog from '$lib/components/memory/MintDialog.svelte';
   import { canSeeShares, isSharePrincipal } from '$lib/memory/can-manage-shares';
+  import { canAccessMemorySettings } from '$lib/memory/can-access-settings';
   import { scrollHint } from '$lib/scroll-hint';
   import type { OrgSummary } from '$lib/types';
   import type { LayoutData } from './$types';
@@ -28,19 +29,20 @@
   // memories are excluded (delete goes through the owning agent). The server
   // resolver is the trust boundary; this only hides the affordance.
   const myMember = $derived(data.org?.members?.find((m) => m.user?.id === data.user?.id));
-  const isStrictOwner = $derived(
-    (g.class === 'personal' || g.class === 'private') && isSharePrincipal(g, data.user),
-  );
+  const isOwnerOnly = $derived(g.class === 'personal' || g.class === 'private');
+  const isStrictOwner = $derived(isOwnerOnly && isSharePrincipal(g, data.user));
   const canDelete = $derived(
     g.class !== 'system' &&
-      (g.class === 'personal' || g.class === 'private'
+      (isOwnerOnly
         ? isStrictOwner
         : myMember?.role === 'ADMIN' || myMember?.role === 'OWNER'),
   );
   // cloneMemory rejects system + encrypted sources — hide Clone there.
   const cloneable = $derived(g.class !== 'system' && !g.isEncrypted);
 
-  const canAccessSettings = $derived(!g.organizationId || !!data.org || data.orgReadFailed === true || isStrictOwner);
+  const canAccessSettings = $derived(
+    canAccessMemorySettings(g, data.user, !!data.org, data.orgReadFailed === true),
+  );
   const memoryActions = $derived<NodeMenuAction[]>([
     { id: 'add-node', label: t('memory-actions.add-node', 'Add node') },
     ...(canAccessSettings ? [{ id: 'edit', label: t('memory-actions.edit', 'Edit memory') }] : []),

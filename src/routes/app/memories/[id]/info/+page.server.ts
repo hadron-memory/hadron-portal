@@ -2,11 +2,21 @@ import { gqlClient } from '$lib/server/api';
 import { MEMORY_OWNER_PUBLIC_ORG_QUERY } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import { memoryOwnerOrgUrn } from '$lib/urn/memory-owner-attribution';
+import { parseUrn } from '$lib/urn/parse-urn';
 import type { PageServerLoad } from './$types';
 
 export type MemoryOwnerAttribution =
   | { id: string; name: string; urn: string; source: 'member' | 'public' }
   | { urn: string; source: 'memory-urn' };
+
+function isLegacyMemoryUrn(value: string | null | undefined): boolean {
+  if (typeof value !== 'string' || memoryOwnerOrgUrn(value)) return false;
+  try {
+    return parseUrn(value).type === 'memory';
+  } catch {
+    return false;
+  }
+}
 
 // Only the Info tab needs non-member attribution. Keeping this read out of the
 // shared memory layout avoids a second organization round trip on every other
@@ -15,7 +25,7 @@ export const load: PageServerLoad = async ({ parent, locals }) => {
   const { graph, org, orgReadFailed } = await parent();
   let ownerAttribution: MemoryOwnerAttribution | null = null;
 
-  if (graph.organizationId && graph.class !== 'personal' && graph.class !== 'private') {
+  if (graph.organizationId) {
     if (org) {
       const { id, name, urn } = org;
       ownerAttribution = { id, name, urn, source: 'member' };
@@ -26,7 +36,8 @@ export const load: PageServerLoad = async ({ parent, locals }) => {
       ownerAttribution = { id, name, urn, source: 'member' };
     } else {
       const fallbackUrn = memoryOwnerOrgUrn(graph.urn);
-      if (fallbackUrn && (graph.class !== 'system' || !graph.agent)) {
+      const legacyMemoryUrn = isLegacyMemoryUrn(graph.urn);
+      if ((fallbackUrn || legacyMemoryUrn) && (graph.class !== 'system' || !graph.agent)) {
         const client = gqlClient(locals.token);
         let publicOrganization: Pick<Organization, 'id' | 'name' | 'urn'> | null = null;
         try {
@@ -41,7 +52,7 @@ export const load: PageServerLoad = async ({ parent, locals }) => {
         if (publicOrganization) {
           const { id, name, urn } = publicOrganization;
           ownerAttribution = { id, name, urn, source: 'public' };
-        } else {
+        } else if (fallbackUrn) {
           ownerAttribution = { urn: fallbackUrn, source: 'memory-urn' };
         }
       }

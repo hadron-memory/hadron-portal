@@ -27,12 +27,14 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
   // #646: ask the same server gate writes use; a share role alone cannot
   // account for another grant. Failure keeps reading available, never editing.
   let canWriteMemory = false;
+  let canManageMemory = false;
   if (locals.user?.id) {
     try {
-      const access = await client.request<{ effectiveAccess: { canWrite: boolean } }>(SELF_CAN_WRITE_QUERY, {
+      const access = await client.request<{ effectiveAccess: { canWrite: boolean; canManage: boolean } }>(SELF_CAN_WRITE_QUERY, {
         user: locals.user.id, resource: memory.urn,
       });
       canWriteMemory = access.effectiveAccess.canWrite === true;
+      canManageMemory = access.effectiveAccess.canManage === true;
     } catch {
       console.warn('[memory-layout] write access unavailable');
     }
@@ -54,7 +56,7 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
         .request<{ organization: MemoryLayoutOrg | null }>(MEMORY_LAYOUT_ORG_QUERY, { ref: memory.organizationId })
         .catch((cause) => {
           const code = extractGqlErrorCode(cause);
-          orgReadFailed = code !== 'FORBIDDEN' && code !== 'NOT_FOUND' && code !== 'ORGANIZATION_NOT_FOUND';
+          orgReadFailed = code !== 'FORBIDDEN' && code !== 'UNAUTHENTICATED' && code !== 'NOT_FOUND' && code !== 'ORGANIZATION_NOT_FOUND';
           return { organization: null };
         })
     : { organization: null };
@@ -64,6 +66,7 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
     orgReadFailed,
     graph: memory,
     canWriteMemory,
+    canManageMemory,
     // portal#1524 (Holger, 2026-10-31): the node list is deliberately NOT
     // loaded, which is a different state from "the load failed"
     // (`nodesFailed`, which shows an error banner) and from "this memory has no

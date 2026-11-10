@@ -78,9 +78,10 @@ describe('#668 Sharing tab visibility', () => {
   it('withholds it from anyone else — the #839 P1', () => {
     const html = renderLayout({ user: STRANGER });
     expect(html).not.toContain(SHARING_TAB);
-    // The rest of the tab strip is intact, so this is the Sharing tab being
-    // withheld rather than the layout failing to render.
-    expect(html).toContain(`href="/app/memories/mem-1/settings"`);
+    // The rest of the tab strip is intact, but a non-principal also gets no
+    // owner-only Settings surface (#1846 review).
+    expect(html).toContain(`href="/app/memories/mem-1/nodes"`);
+    expect(html).not.toContain(`href="/app/memories/mem-1/settings"`);
   });
 
   it('offers it to a platform admin, mirroring the resolver', () => {

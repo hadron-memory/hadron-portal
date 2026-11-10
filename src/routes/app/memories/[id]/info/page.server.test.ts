@@ -74,6 +74,13 @@ describe('memory Info owner attribution (#1846 slice A)', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  it('uses the known organization id for public attribution when a legacy URN has no v2 fallback', async () => {
+    mockRequest.mockResolvedValue({ publicOrganization: publicOrg });
+    const data = await infoData(ev({ memoryUrn: 'hrn:memory:acme.com::docs' }));
+    expect(data.ownerAttribution).toEqual({ ...publicOrg, source: 'public' });
+    expect(mockRequest).toHaveBeenCalledExactlyOnceWith(MEMORY_OWNER_PUBLIC_ORG_QUERY, { ref: 'org-1' });
+  });
+
   it('preserves disclosed member attribution when member hydration fails', async () => {
     const organization = { id: 'org-1', name: 'Member Org', urn: 'hrn:org:member.test' };
     const data = await infoData(ev({ organization, orgReadFailed: true }));
@@ -110,6 +117,7 @@ describe('memory Info owner attribution (#1846 slice A)', () => {
   it('fails closed to no attribution for malformed or missing memory identity', async () => {
     mockRequest.mockResolvedValue({ publicOrganization: null });
     expect((await infoData(ev({ memoryUrn: 'hrn:node:acme.com:docs:tasks:one' }))).ownerAttribution).toBeNull();
+    expect((await infoData(ev({ memoryUrn: 'not-a-memory-urn' }))).ownerAttribution).toBeNull();
     expect((await infoData(ev({ memoryUrn: null }))).ownerAttribution).toBeNull();
     expect(mockRequest).not.toHaveBeenCalled();
   });
@@ -126,10 +134,11 @@ describe('memory Info owner attribution (#1846 slice A)', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('does not fetch company attribution that an owner-only row ignores', async () => {
-    const data = await infoData(ev({ memoryClass: 'personal' }));
-    expect(data.ownerAttribution).toBeNull();
-    expect(mockRequest).not.toHaveBeenCalled();
+  it.each(['personal', 'private'])('attributes an org-anchored %s memory to its company', async (memoryClass) => {
+    mockRequest.mockResolvedValue({ publicOrganization: publicOrg });
+    const data = await infoData(ev({ memoryClass }));
+    expect(data.ownerAttribution).toEqual({ ...publicOrg, source: 'public' });
+    expect(mockRequest).toHaveBeenCalledExactlyOnceWith(MEMORY_OWNER_PUBLIC_ORG_QUERY, { ref: 'org-1' });
   });
 
   it('keeps attribution for a system-class memory whose agent link is detached', async () => {

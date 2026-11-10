@@ -45,8 +45,6 @@
                 <Urn value={g.agent.urn} type="agent" compact linked label={g.agent.name} />
               </span>
             </span>
-          {:else if isOwnerOnly}
-            {t('memory-info.only-you', 'Only you')}
           {:else if ownerAttribution}
             <span class="min-w-0 text-right">
               {#if ownerAttribution.source !== 'memory-urn'}
@@ -63,6 +61,8 @@
                 />
               </span>
             </span>
+          {:else if isOwnerOnly}
+            {t('memory-info.only-you', 'Only you')}
           {:else}
             —
           {/if}

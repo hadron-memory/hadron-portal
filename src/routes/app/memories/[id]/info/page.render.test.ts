@@ -85,7 +85,7 @@ describe('memory Info owner attribution (#1846 slice A)', () => {
     const malformed = render(Page as never, { props: { data: data({ organizationId: 'org-1' }) } as never }).body;
     expect(malformed).toMatch(/Owner<\/span>[\s\S]*?—/);
 
-    const personal = render(Page as never, { props: { data: data({ class: 'personal', organizationId: null }) } as never }).body;
+    const personal = render(Page as never, { props: { data: data({ class: 'personal', organizationId: null, userId: 'owner' }, { user: { id: 'owner' } }) } as never }).body;
     expect(personal).toContain('Only you');
 
     const system = render(Page as never, { props: { data: data({
@@ -94,5 +94,21 @@ describe('memory Info owner attribution (#1846 slice A)', () => {
     expect(system).toContain('href="/app/agents/agent-1"');
     expect(system).toContain('System Agent');
     expect(system).toContain('hrn:agent:acme.com:system');
+  });
+
+  it('shows company attribution instead of Only you in an org-anchored personal Owner row', () => {
+    const body = render(Page as never, { props: { data: data(
+      { class: 'personal', organizationId: 'org-1', userId: 'owner' },
+      {
+        user: { id: 'owner' },
+        ownerAttribution: { id: 'org-1', name: 'Acme', urn: 'hrn:org:acme.com', source: 'member' },
+      },
+    ) } as never }).body;
+    const ownerRow = body.match(/Owner<\/span>[\s\S]*?(?=<div class="flex items-center justify-between)/)?.[0] ?? '';
+    expect(ownerRow).toContain('Acme');
+    expect(ownerRow).toContain('hrn:org:acme.com');
+    expect(ownerRow).not.toContain('Only you');
+    // Access remains principal-scoped even though the Owner row names the org.
+    expect(body).toContain('Only you');
   });
 });

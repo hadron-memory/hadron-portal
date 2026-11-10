@@ -104,16 +104,21 @@ describe('memory-detail layout — no node-list drain (portal#1524)', () => {
 
 
 describe('reader-shared memory controls (#646)', () => {
-  it.each([false, true])('carries the server write decision %s for the current user and memory URN', async (canWrite) => {
+  it.each([
+    { canWrite: false, canManage: false },
+    { canWrite: true, canManage: false },
+    { canWrite: true, canManage: true },
+  ])('carries independent server write/manage decisions for the current user and memory URN', async ({ canWrite, canManage }) => {
     routeMock({});
     const normal = mockRequest.getMockImplementation()!;
     mockRequest.mockImplementation((q, v) => q === SELF_CAN_WRITE_QUERY
-      ? Promise.resolve({ effectiveAccess: { canWrite } }) : normal(q, v));
+      ? Promise.resolve({ effectiveAccess: { canWrite, canManage } }) : normal(q, v));
     const event = ev();
     event.locals.user = { id: 'reader-user' } as any;
     const data = await (await importLoad())(event) as any;
     expect(mockRequest).toHaveBeenCalledWith(SELF_CAN_WRITE_QUERY, { user: 'reader-user', resource: 'org::mem' });
     expect(data.canWriteMemory).toBe(canWrite);
+    expect(data.canManageMemory).toBe(canManage);
   });
   it('keeps the memory readable but offers no writes when the access check fails', async () => {
     routeMock({});
@@ -125,6 +130,7 @@ describe('reader-shared memory controls (#646)', () => {
     const data = await (await importLoad())(event) as any;
     expect(data.graph.id).toBe('mem-1');
     expect(data.canWriteMemory).toBe(false);
+    expect(data.canManageMemory).toBe(false);
   });
 });
 
@@ -166,7 +172,7 @@ describe('memory layout payload slimming (portal#1429)', () => {
     expect(data.orgReadFailed).toBe(false);
   });
 
-  it('maps a member-query FORBIDDEN to non-membership, not an outage', async () => {
+  it.each(['FORBIDDEN', 'UNAUTHENTICATED'])('maps a member-query %s to non-membership, not an outage', async (code) => {
     routeMock({});
     const normal = mockRequest.getMockImplementation()!;
     mockRequest.mockImplementation((q, v) => {
@@ -174,7 +180,7 @@ describe('memory layout payload slimming (portal#1429)', () => {
         memory: { id: 'mem-1', urn: 'hrn:mem:acme.com:mem', name: 'Mem', organizationId: 'org-1', organization: { id: 'org-1', name: 'Org' } },
       });
       if (q === MEMORY_LAYOUT_ORG_QUERY) return Promise.reject({
-        response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
+        response: { errors: [{ message: code, extensions: { code } }] },
       });
       return normal(q, v);
     });

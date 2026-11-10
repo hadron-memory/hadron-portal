@@ -5,10 +5,9 @@ import type { AssetSummary } from '$lib/api/assetUpload';
 export interface Memory {
   id: string;
   /**
-   * Owning org — NULL for a user-owned (org-less) memory (spec 047: personal /
-   * private memories created with no orgId, `ownerUserId` = caller). The
-   * `chk_memory_owner_xor` constraint makes org and user ownership mutually
-   * exclusive, so this is null exactly when the memory belongs to a user.
+   * Tenant organization, or null for an org-less memory. Personal/private
+   * memories may still be org-anchored while ALSO carrying the strict principal
+   * in `userId`; organizationId and userId are not mutually exclusive.
    */
   organizationId: string | null;
   organization?: OrgSummary | null;
@@ -66,6 +65,7 @@ export interface Memory {
   // selects it — treat `undefined` as "unknown", not as "refuses uploads", or a
   // slim projection would silently hide the affordance everywhere.
   acceptsUploads?: boolean;
+  /** Strict user principal for personal/private memories; independent of tenant organizationId. */
   userId?: string | null;
   userMemoryOfAgentId?: string | null;
   anonymousExpiresAt?: string | null;

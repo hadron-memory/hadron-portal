@@ -54,6 +54,8 @@ async function renderSettings(graph: Memory, ref = 'mem-1') {
       allOrgs: [],
       transferCanDelete: false,
       canWriteMemory: true,
+      canManageMemory: true,
+      orgReadFailed: true,
       ...forms,
     } as never,
     form: null as never,
