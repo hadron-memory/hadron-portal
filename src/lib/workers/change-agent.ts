@@ -32,7 +32,7 @@ export function changeAgentRefusal(code: string | null): ChangeAgentRefusal & { 
     case 'WORKER_AGENT_NOT_INSTALLED':
       return known(400, 'not-installed', 'That agent isn’t installed in this App. Install it first, or choose another.');
     case 'AGENT_ORG_GRANT_INACTIVE':
-      return known(409, 'grant-inactive', 'This App’s organization has an inactive grant for that agent, so it can’t be used. Ask the organization to restore the grant.');
+      return known(409, 'grant-inactive', 'This App’s organization has an inactive grant for that agent, so it can’t be used.');
     case 'AGENT_ORG_GRANT_REQUIRED':
       return known(409, 'grant-required', 'This App’s organization needs a grant for that agent before it can be used.');
     case 'BOOT_PROMPT_GRANT_REQUIRED':

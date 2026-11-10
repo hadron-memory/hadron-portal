@@ -227,6 +227,51 @@ describe('TreeView bounded window (#1381)', () => {
         expect(padTop(target)).toBe(`${(2800 - 20) * 28 + 4}px`);
         done();
       });
+
+      // #1566: removing the element above the tree moves the tree too, with no
+      // resize of anything still observed. The MutationObserver must re-measure.
+      it('a banner above the tree being removed moves the window with no scroll event', async () => {
+        vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+        const { scroller, target, above, done } = mountInScroller({ banner: true });
+        scrollTo(scroller, 28 * 3000);
+        above.px = 28 * 200;
+        resized(above.el!);
+        expect(padTop(target)).toBe(`${(2800 - 20) * 28 + 4}px`);
+        above.el!.remove();
+        above.px = 0;
+        await Promise.resolve();
+        flushSync();
+        expect(padTop(target)).toBe(`${(3000 - 20) * 28 + 4}px`);
+        done();
+      });
+
+      // #1566: a preceding sibling of an ancestor of the tree (one level up,
+      // between the scroller and the tree's wrapper) resizing moves the tree.
+      it('a sibling above an ancestor of the tree resizing moves the window with no scroll event', () => {
+        vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+        const scroller = document.createElement('div');
+        scroller.style.overflowY = 'auto';
+        document.body.appendChild(scroller);
+        let top = 0;
+        Object.defineProperty(scroller, 'scrollTop', { get: () => top, set: (v: number) => { top = v; }, configurable: true });
+        Object.defineProperty(scroller, 'clientHeight', { get: () => 600, configurable: true });
+        const aboveAncestor = document.createElement('p');
+        const wrapper = document.createElement('section');
+        scroller.append(aboveAncestor, wrapper);
+        const target = document.createElement('div');
+        wrapper.appendChild(target);
+        const instance = mount(TreeView as never, { target, props: { entries: bigTree(), basePath: '/app/memories/m1' } });
+        flushSync();
+        let px = 0;
+        (target.querySelector('nav') as HTMLElement).getBoundingClientRect = () => ({ top: -top + px } as DOMRect);
+        scrollTo(scroller, 28 * 3000);
+        expect(padTop(target)).toBe(`${(3000 - 20) * 28 + 4}px`);
+        px = 28 * 200;
+        resized(aboveAncestor);
+        expect(padTop(target)).toBe(`${(2800 - 20) * 28 + 4}px`);
+        unmount(instance);
+        scroller.remove();
+      });
     });
 
     it('keeps the focused row mounted after it scrolls out of the window', () => {

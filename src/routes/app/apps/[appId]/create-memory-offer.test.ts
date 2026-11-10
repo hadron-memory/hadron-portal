@@ -4,7 +4,7 @@
  * reads the viewer's manage right on the App; the server stays the gate.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { APP_QUERY, APP_MEMBERS_QUERY, SELF_CAN_MANAGE_QUERY } from '$lib/server/queries';
+import { APP_QUERY, APP_DETAIL_ORG_QUERY, APP_MEMBERS_QUERY, SELF_CAN_MANAGE_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
@@ -79,4 +79,47 @@ it('loader carries the scope and reuses it for a user-owned App creation panel w
   expect(result.appMemories).toEqual([{id:'free',urn:'hrn:mem:example.com:free',name:'Free',description:null,appId:'app-1'}]);
   expect(vi.mocked(fetchAllItems).mock.calls.filter(c=>c[1]===APP_MEMORY_SCOPE_QUERY)).toHaveLength(1);
  }finally { vi.mocked(fetchAllItems).mockResolvedValue([]); }
+});
+
+// #1552: an org App's creation panel keeps the descriptions the org memory list
+// carries, while appMemoryScope stays the complete authorized scope. The two
+// sets differ on purpose here (a described app memory the scope lacks, and
+// scope rows the org list lacks), so substituting either for the other fails.
+it('org-App loader keeps creation-panel description rows distinct from the full scope (#1552)', async () => {
+  const { fetchAllItems } = await import('$lib/server/paginate');
+  const { APP_MEMORIES_QUERY, APP_MEMORY_SCOPE_QUERY } = await import('./app-memories');
+  const orgRows = [
+    { id: 'described', urn: 'hrn:mem:example.com:described', name: 'Described', description: 'Shared notes', appId: 'app-1' },
+    { id: 'elsewhere', urn: 'hrn:mem:example.com:elsewhere', name: 'Elsewhere', description: 'Other App', appId: 'app-2' },
+  ];
+  const scopeRows = [
+    { memoryId: 'team', memoryUrn: 'hrn:mem:example.com:team', name: 'Team', class: 'app', viewerCanWrite: true, sources: [{ kind: 'TEAM_SPACE', agentId: null }] },
+    { memoryId: 'free', memoryUrn: 'hrn:mem:example.com:free', name: 'Free', class: 'app', viewerCanWrite: true, sources: [{ kind: 'APP_MEMORY', agentId: null }] },
+  ];
+  vi.mocked(fetchAllItems).mockImplementation(async (_client, query) =>
+    query === APP_MEMORIES_QUERY ? orgRows : query === APP_MEMORY_SCOPE_QUERY ? scopeRows : []);
+  try {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === APP_QUERY) return { app: { ...APP, organizationId: 'org-1' } };
+      if (query === APP_DETAIL_ORG_QUERY) return { organization: { id: 'org-1', name: 'Org', urn: 'hrn:org:example.com', members: [] } };
+      if (query === APP_MEMBERS_QUERY) return { app: { members: [] } };
+      if (query === SELF_CAN_MANAGE_QUERY) return { effectiveAccess: { canManage: true } };
+      return {};
+    });
+    const { load } = await import('./+page.server');
+    const result = (await load({
+      params: { id: 'org-1', appId: 'app-1' },
+      locals: { token: 'tok', user: { id: 'user-1' } },
+      parent: async () => ({}),
+      depends: () => {},
+      url: new URL('http://localhost/app/apps/app-1'),
+    } as unknown as Parameters<typeof load>[0])) as Record<string, unknown>;
+    // description rows: this App's org memories only, descriptions intact
+    expect(result.appMemories).toEqual([orgRows[0]]);
+    // full scope: exactly the authorized leaves, not the org list
+    expect(result.appMemoryScope).toEqual(scopeRows);
+  } finally {
+    vi.mocked(fetchAllItems).mockReset();
+    vi.mocked(fetchAllItems).mockResolvedValue([]);
+  }
 });

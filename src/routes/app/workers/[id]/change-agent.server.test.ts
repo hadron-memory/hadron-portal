@@ -72,6 +72,16 @@ describe('changeWorkerAgent: each refusal in plain words, local to the result', 
     expect(a.refusal.outcomeUnknown).toBe(false);
   });
 
+  it('inactive grant names no unavailable remedy and stays a definite 409', async () => {
+    mockRequest.mockRejectedValue(gqlError('AGENT_ORG_GRANT_INACTIVE'));
+    const r = await run();
+    expect(r.status).toBe(409);
+    expect(r.data!.changeAgent.refusal).toEqual({
+      code: 'AGENT_ORG_GRANT_INACTIVE', outcomeUnknown: false,
+      message: 'This App’s organization has an inactive grant for that agent, so it can’t be used.',
+    });
+  });
+
   // portal#1813 (hadron-server#3626): the personal App's owner no longer
   // qualifies for its ORGANIZATION-visible Agent. That is a definite refusal,
   // so it must not fall to the default's 502 "couldn't tell whether this

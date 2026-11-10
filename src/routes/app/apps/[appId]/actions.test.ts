@@ -636,7 +636,7 @@ describe('addAgent action', () => {
     };
 
     it.each([
-      ['AGENT_ORG_GRANT_INACTIVE', 'This App’s organization has an inactive grant for that agent, so it can’t be installed. Ask the organization to restore the grant.'],
+      ['AGENT_ORG_GRANT_INACTIVE', 'This App’s organization has an inactive grant for that agent, so it can’t be installed.'],
       ['AGENT_ORG_GRANT_REQUIRED', 'This App’s organization needs a grant for that agent before it can be installed.'],
     ])('%s shows portal copy, never the server’s, at status 500', async (code, text) => {
       const result = await refuse(refusal(code));

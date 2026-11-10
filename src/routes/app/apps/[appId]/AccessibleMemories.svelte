@@ -15,8 +15,10 @@
         : source.kind === 'INHERITED_BASE' ? t('app.memory-scope.inherited', 'Inherited base')
         : source.kind === 'TEAM_SPACE' ? t('app.memory-scope.team-space', 'Team space')
         : source.kind === 'APP_MEMORY' ? t('app.memory-scope.app-memory', 'App memory') : source.kind;
-      // Source kinds are sufficient provenance. Never resolve or expose a
-      // source Agent identity just because its id appears on a scope leaf.
+      // Source kinds are sufficient provenance. Do not render or resolve an
+      // unreadable Agent's identity just because its id appears on a scope
+      // leaf. The id itself is not secret: the authorized scope payload carries
+      // it on purpose, and this view neither hides nor redacts it.
       return kind;
     }).join(t('app.memory-scope.separator', ', '));
   }

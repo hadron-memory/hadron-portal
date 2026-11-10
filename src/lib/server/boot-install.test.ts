@@ -11,10 +11,30 @@ describe('portal#1666 install compile boundary', () => {
     expect(result.text).toContain('Built revision 3');
     expect(result.text).toContain('Couldn’t read');
   });
-  it('a changed worker identity refuses before any write', async () => {
-    const request = vi.fn().mockResolvedValue({ worker: { ...worker.worker, agent: { id: 'other' } } });
+  it.each([
+    ['worker', { id: 'other' }],
+    ['App', { app: { id: 'other' } }],
+    ['Agent', { agent: { id: 'other' } }],
+  ])('a changed worker %s identity refuses before any write', async (_arm, change) => {
+    const request = vi.fn().mockResolvedValue({ worker: { ...worker.worker, ...change } });
     expect((await writeInstallPrompt({ request } as never, owner, { intent: 'start' }, false)).text).toContain('changed');
     expect(request).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    ['non-integer revNo', { node: { id: 'c' }, revNo: '3' }],
+    ['missing node id', { node: {}, revNo: 3 }],
+    ['empty node id', { node: { id: '' }, revNo: 3 }],
+  ])('a resolved compile with %s is unknown and never reads serving', async (_shape, malformed) => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(worker)
+      .mockResolvedValueOnce({ compileWorkerBootPrompt: malformed })
+      .mockResolvedValueOnce({ worker: { bootPromptServe: null } })
+      .mockResolvedValueOnce(worker);
+    const result = await writeInstallPrompt({ request } as never, owner, { intent: 'compile' }, false);
+    expect(result.ok).toBe(false);
+    expect(result.text).toContain('Couldn’t confirm whether the prompt was built');
+    expect(result.text).not.toContain('Nothing changed');
+    expect(request).toHaveBeenCalledTimes(2);
   });
   it('impersonation refuses before any GraphQL request', async () => {
     const request = vi.fn();
@@ -28,12 +48,13 @@ describe('portal#1666 install compile boundary', () => {
     expect(request.mock.calls[1][0]).not.toContain('updateNode');
     expect(request.mock.calls[1][1]).toEqual({ input: { install: { appRef: 'a', agentRef: 'g' }, loc: 'boot:workers:w:source', name: 'Worker boot prompt source', role: 'boot-prompt', content: '' } });
   });
-  it('strips unreadable and deleted source identifiers from the transport', async () => {
-    const item = (nodeId: string) => ({ nodeId, depth: 1, revNo: 2, selection: { rev: null, approved: true, signed: false }, pruned: null });
-    const request = vi.fn().mockResolvedValueOnce({ compiledPromptProvenance: { items: [item('hidden'), item('deleted')], total: 23, hasMore: true, pruned: false } }).mockResolvedValueOnce({ nodeBatch: { nodes: [], unavailable: ['hidden', 'deleted'], omitted: [] } });
+  it('strips unreadable and deleted source identifiers and retention from the transport, but keeps truncation omission', async () => {
+    // hrn:node:hadronmemory.com:specs:cor:api:040: omission is response-size truncation, disjoint from unavailable refs.
+    const item = (nodeId: string) => ({ nodeId, depth: 1, revNo: 2, selection: { rev: null, approved: true, signed: false }, pruned: true });
+    const request = vi.fn().mockResolvedValueOnce({ compiledPromptProvenance: { items: [item('hidden'), item('deleted'), item('dropped')], total: 23, hasMore: true, pruned: false } }).mockResolvedValueOnce({ nodeBatch: { nodes: [], unavailable: ['hidden', 'deleted'], omitted: ['dropped'] } });
     const page = await readProvenance({ request } as never, 'c', 3, 0);
-    expect(page?.items[0]).toEqual(page?.items[1]);
-    expect(JSON.stringify(page)).not.toMatch(/hidden|deleted/);
+    expect(page?.items.map(row => ({ omitted: row.omitted, pruned: row.pruned }))).toEqual([{ omitted: false, pruned: null }, { omitted: false, pruned: null }, { omitted: true, pruned: null }]);
+    expect(JSON.stringify(page)).not.toMatch(/hidden|deleted|dropped/);
     expect(request.mock.calls[1][0]).not.toContain('content');
     expect(page?.hasMore).toBe(true);
   });
@@ -45,6 +66,14 @@ describe('compile and approval outcomes', () => {
     const request = vi.fn().mockResolvedValueOnce(worker).mockRejectedValueOnce(code ? error(code) : new Error('socket'));
     const result = await writeInstallPrompt({ request } as never, owner, { intent: 'compile' }, false);
     expect(result.ok).toBe(false); expect(result.text).toContain('Couldn’t confirm whether'); expect(result.text).not.toContain('Nothing changed');
+  });
+  it('CONFLICT has its fixed retry copy and no serving read or serving tail', async () => {
+    const request = vi.fn().mockResolvedValueOnce(worker).mockRejectedValueOnce(error('CONFLICT')).mockResolvedValueOnce({ worker: { bootPromptServe: { refusal: null, served: { compiledNodeId: 'c', servedRevSeq: 3, pointerLevel: 'WORKER' } } } });
+    const result = await writeInstallPrompt({ request } as never, owner, { intent: 'compile' }, false);
+    expect(result).toMatchObject({ ok: false, status: 409, text: 'The prompt couldn’t be built right now. Try again.' });
+    expect(result.text).not.toContain('Nothing changed');
+    expect(result.text).not.toContain('would get');
+    expect(request).toHaveBeenCalledTimes(2);
   });
   it('source loc race refuses create without an update or retry', async () => {
     const request = vi.fn().mockResolvedValueOnce(worker).mockRejectedValueOnce(error('NodeLocConflictError'));
@@ -69,6 +98,14 @@ describe('compile and approval outcomes', () => {
     const result = await writeInstallPrompt({ request } as never, owner, { intent: 'approve', nodeId: 'foreign', revision: 3 }, false);
     expect(result.ok).toBe(false); expect(request).toHaveBeenCalledTimes(7);
   });
+  it('a stale approval revision cannot reach approveNode even when the node still matches', async () => {
+    const request = approvalClient();
+    const result = await writeInstallPrompt({ request } as never, owner, { intent: 'approve', nodeId: 'c', revision: 2 }, false);
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    expect(result.text).toContain('This prompt changed');
+    expect(request).toHaveBeenCalledTimes(7);
+    expect(request.mock.calls.some(([doc]) => String(doc).includes('approveNode'))).toBe(false);
+  });
   it('approval sends the exact displayed revision and states open sessions keep theirs', async () => {
     const request = approvalClient().mockResolvedValueOnce({ approveNode: {} }).mockResolvedValueOnce({ worker: { bootPromptServe: { served: { compiledNodeId: 'c', servedRevSeq: 3, pointerLevel: 'WORKER' }, refusal: null } } });
     const result = await writeInstallPrompt({ request } as never, owner, { intent: 'approve', nodeId: 'c', revision: 3 }, false);
@@ -86,6 +123,26 @@ describe('App scope and source reads', () => {
     expect(request.mock.calls[1][1]).toEqual({ appRef: 'a', agentRef: 'g' });
     expect(result.text).toContain('Built revision 2. It isn’t approved yet.');
     expect(result.text).toContain('no approved revision is available');
+  });
+  it('a changed App identity refuses before compile', async () => {
+    const request = vi.fn().mockResolvedValueOnce({ app: { id: 'other', appAgents: [{ agent: { id: 'g' }, bootPromptRef: null }] } });
+    const result = await writeInstallPrompt({ request } as never, { level: 'app', app: 'a', agent: 'g' }, { intent: 'compile' }, false);
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    expect(result.text).toContain('changed');
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+  it('an App response without the requested Agent membership refuses before compile', async () => {
+    const request = vi.fn().mockResolvedValueOnce({ app: { id: 'a', appAgents: [{ agent: { id: 'other' }, bootPromptRef: null }] } });
+    const result = await writeInstallPrompt({ request } as never, { level: 'app', app: 'a', agent: 'g' }, { intent: 'compile' }, false);
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    expect(result.text).toContain('changed');
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+  it('start is refused for an App owner without creating a node', async () => {
+    const request = vi.fn().mockResolvedValueOnce({ app: { id: 'a', appAgents: [{ agent: { id: 'g' }, bootPromptRef: null }] } });
+    const result = await writeInstallPrompt({ request } as never, { level: 'app', app: 'a', agent: 'g' }, { intent: 'start' }, false);
+    expect(result).toMatchObject({ ok: false, status: 400, text: 'A worker is required.' });
+    expect(request.mock.calls.some(([doc]) => String(doc).includes('createNode'))).toBe(false);
   });
   it('failed existence read never offers a start', async () => {
     const { readInstallPrompt } = await import('./boot-install');

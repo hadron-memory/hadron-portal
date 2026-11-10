@@ -13,7 +13,8 @@ export function mountBootInstall(target: HTMLElement, variant: 'app' | 'worker' 
       const selection = { rev: null, approved: true, signed: false };
       return Response.json({ page: { offset: 0, total: 3, hasMore: false, pruned: false, items: [
         { name: 'Engineering safety and collaboration', urn: 'hrn:node:example.com:policies:engineering:safety', omitted: false, depth: 0, revNo: 3, selection, pruned: false },
-        { name: null, urn: null, omitted: false, depth: 1, revNo: 2, selection, pruned: null },
+        // This concealed row really carries an ID: the layout assertion must fail if it is exposed.
+        { nodeId: 'private-node-id', name: null, urn: null, omitted: false, depth: 1, revNo: 2, selection, pruned: null },
         { name: 'Previous operating guide', urn: 'hrn:node:example.com:policies:guide', omitted: false, depth: 1, revNo: 1, selection, pruned: true },
       ] } });
     }

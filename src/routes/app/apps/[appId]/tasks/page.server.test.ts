@@ -4,6 +4,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AGENT_ALARMS_QUERY, AGENT_TASK_DETAIL_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_TREE_QUERY, AGENT_TASKS_APP_QUERY, PULL_REQUEST_READINESS_QUERY, TASK_REVIEW_EVENTS_QUERY, AGENT_TASKS_BOARD_QUERY, AGENT_TASK_REF_QUERY, TASK_DEPENDENCIES_QUERY, TEAM_COMPOSITION_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
 import { markStreamHandled } from '$lib/mark-stream-handled';
+import { selectsFieldPath } from '$lib/test/graphql-selection';
 
 const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
@@ -232,7 +233,7 @@ describe('task loader', () => {
       return { agentTask: null };
     });
     const r = await loadDetail();
-    expect(AGENT_TASK_DETAIL_QUERY).toMatch(/\bproperties\b/);
+    expect(selectsFieldPath(AGENT_TASK_DETAIL_QUERY, 'AgentTaskDetail', ['agentTask', 'properties'])).toBe(true);
     expect(request).toHaveBeenCalledWith(AGENT_TASK_DETAIL_QUERY, expect.anything());
     expect((r.task as { properties: unknown }).properties).toEqual(own);
   });
