@@ -100,6 +100,26 @@ describe('TeamChatThread — your own post (#1916)', () => {
     expect(m.target.textContent).toContain('body 52');
   });
 
+  it('after the jump, history before the new tail is still reachable (the restored "start of conversation" does not carry over)', async () => {
+    const onLoadOlder = vi.fn(async (beforeSeq: number) => ({ items: range(beforeSeq - 20, beforeSeq - 1), total: beforeSeq - 1 }));
+    const { m, props } = await mountRestored({ onLoadOlder });
+    const olderButton = () => Array.from(m.target.querySelectorAll('button')).find((b) => b.textContent?.includes('Load earlier messages'));
+    // Positive control: the restored view says it is at the start of the conversation.
+    expect(olderButton()).toBeUndefined();
+
+    navigationHooks.onInvalidateAll = () => {
+      props.messages = [...range(52, 70), mine(71)];
+      props.total = 71;
+    };
+    const ok = await posted(MINE, { type: 'success', text: 'Posted to the team chat.' });
+    await submitEnhancedWithResult(formOf(m), { type: 'success', status: 200, data: { form: ok } });
+    await tick(4);
+    expect(m.target.textContent).toContain(MINE);
+    expect(olderButton()).toBeDefined();
+    olderButton()!.click();
+    await vi.waitFor(() => expect(onLoadOlder).toHaveBeenCalledWith(52));
+  });
+
   it('keeps the restored window when fresh page data with a gap arrives WITHOUT a post (the reader keeps their place)', async () => {
     const { m, props } = await mountRestored();
     props.messages = [...range(52, 70), mine(71)];
