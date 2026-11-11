@@ -57,9 +57,16 @@ it('stops at total or no progress, with a route back from a now-empty old page',
 });
 
 it('retains a forward probe when a full page races a lagging count', () => {
-  const page = appListNavigation(new URL('https://example.test/app/apps/a'), 'worklogOffset', 'worklog', 0, 20, 19);
-  expect(page.total).toBe(20);
-  expect(page.nextHref).toContain('worklogOffset=20');
+  const lagging = appListNavigation(new URL('https://example.test/app/apps/a'), 'worklogOffset', 'worklog', 0, 20, 19);
+  expect(lagging.total).toBe(20);
+  expect(lagging.nextHref).toContain('worklogOffset=20');
+  const equal = appListNavigation(new URL('https://example.test/app/apps/a'), 'worklogOffset', 'worklog', 0, 20, 20);
+  expect(equal.nextHref).toContain('worklogOffset=20');
+});
+
+it('does not probe beyond an exact final full page', () => {
+  const page = appListNavigation(new URL('https://example.test/app/apps/a'), 'worklogOffset', 'worklog', 0, 20, 20, { hasMore: false });
+  expect(page.nextHref).toBeNull();
 });
 
 // #1875 records existing race-only behavior, not a history-retrace promise.

@@ -337,7 +337,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
         total: page.total,
         hasMore: page.hasMore,
         nodeId: node.id,
-        page: appListNavigation(url, 'revisionsOffset', 'history', revisionsOffset, page.items.length, page.total),
+        page: appListNavigation(url, 'revisionsOffset', 'history', revisionsOffset, page.items.length, page.total, { hasMore: page.hasMore }),
       };
     } catch (e) {
       console.warn('[node-detail] revision history failed:', e);

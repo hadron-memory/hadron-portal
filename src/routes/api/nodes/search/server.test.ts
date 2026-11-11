@@ -62,6 +62,14 @@ describe('/api/nodes/search (#429)', () => {
     expect(vars).toMatchObject({ createdBy: 'u1', query: null, mode: null, memoryIds: ['m1'] });
   });
 
+  it('forwards nodeTypes and tags as whole-scope filter-only dimensions', async () => {
+    mockRequest.mockResolvedValue(findNodesResult(1, 1));
+    await POST(ev({ memoryIds: ['m1'], filter: { nodeTypes: ['task'], tags: ['beta'] } }));
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({
+      nodeTypes: ['task'], tags: ['beta'], query: null, mode: null, memoryIds: ['m1'],
+    });
+  });
+
   it('forwards updatedAfter + sort', async () => {
     mockRequest.mockResolvedValue(findNodesResult(1));
     await POST(ev({ memoryIds: ['m1'], filter: { updatedAfter: '2026-07-01T00:00:00.000Z' }, sort: 'updatedAt' }));

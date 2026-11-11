@@ -1,6 +1,6 @@
 import { APP_DISPLAY_PAGE_SIZE, appListOffset, appListNavigation } from './app-list-pages';
 import { loadAppRunsPage, loadAppRunsExtras } from '$lib/server/app-runs-page';
-import { flowRoots } from '$lib/flow/flows';
+import { flowPageSummaries } from '$lib/flow/flows';
 import { runAppFlow } from '$lib/server/run-app-flow';
 import { readChannelPage, postToChannel } from '$lib/server/channel-chat';
 import { withRegisteredChannels } from '$lib/app-chats';
@@ -45,6 +45,7 @@ import {
   CREATE_APP_KEY_MUTATION,
   REVOKE_APP_KEY_MUTATION,
   DELETE_APP_MUTATION,
+  APP_NODES_QUERY,
   APP_NODES_PAGE_QUERY,
   APP_CHANNELS_QUERY,
   AI_SERVICE_CONFIGS_QUERY,
@@ -111,6 +112,10 @@ import {
 import { loadLiveStops } from '$lib/server/stop-signals';
 import type { ReleaseWorkerMessage } from './schema';
 import { readHoldStale, type HoldStale } from './hold-stale';
+
+// Flow summaries are a complete-graph consumer, not a display-list read.
+// Keep the established graph window; any lower bound it leaves is labelled.
+const APP_FLOW_GRAPH_LIMIT = 500;
 
 type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
 type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
@@ -953,14 +958,35 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // not gain an entry that cannot render.
   const registeredChannels = await fetchAllItems<import('$lib/types').Channel>(client, APP_CHANNELS_QUERY, 'channels', { appRef: params.appId })
     .catch(() => null);
-  const appChats = withRegisteredChannels(
+  let appChats = withRegisteredChannels(
     buildAppChatList(chatRoots?.items ?? [], { hasAgentChat: !!app.agentId }), registeredChannels ?? [],
     (app as typeof app & { defaultChannel?: { id: string } | null }).defaultChannel?.id,
   );
-  const { selected: selectedChat, requestedMissing: chatNotFound } = resolveSelectedChat(
-    appChats,
-    requestedChat,
-  );
+  let chatSelection = resolveSelectedChat(appChats, requestedChat);
+  let requestedChatLookupFailed = false;
+  // A deep link addresses one root, not whichever 20-root window happens to be
+  // loaded. One targeted page handles arbitrary root locs without letting a
+  // pasted prefix trigger an unbounded sequential drain.
+  if (chatSelection.requestedMissing && requestedChat && requestedChat !== 'agent chat' && requestedChat !== 'chats:team' && registeredChannels !== null) {
+    const page = await client.request<{ appNodesPage: { items: MemoryNode[]; total: number; hasMore: boolean } }>(APP_CHAT_ROOTS_PAGE_QUERY, {
+      appRef: params.appId, limit: 200, offset: 0, locPrefix: requestedChat,
+    }).then((r) => r.appNodesPage).catch((e) => {
+      console.warn(`[app-chats] requested chat-root fetch failed for ${requestedChat}:`, e);
+      requestedChatLookupFailed = true;
+      return null;
+    });
+    const requestedRoot = page?.items.find((n) => n.loc === requestedChat) ?? null;
+    if (page?.hasMore && !requestedRoot) requestedChatLookupFailed = true;
+    if (requestedRoot) {
+      appChats = withRegisteredChannels(
+        buildAppChatList([...(chatRoots?.items ?? []), requestedRoot], { hasAgentChat: !!app.agentId }),
+        registeredChannels,
+        (app as typeof app & { defaultChannel?: { id: string } | null }).defaultChannel?.id,
+      );
+      chatSelection = resolveSelectedChat(appChats, requestedChat);
+    }
+  }
+  const { selected: selectedChat, requestedMissing: chatNotFound } = chatSelection;
 
   // Registered Channels use the addressed operation and the same envelope as
   // the default team chat. Unregistered old roots retain their node transcript;
@@ -987,14 +1013,24 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     superValidate(zod4(createAppMemorySchema), { id: `createAppMemory:${app.id}`, errors: false }),
   ]);
 
-  const runsSection = initialTab === 'runs' ? await loadAppRunsPage(client, params.appId, url.searchParams) : null;
-  const runsExtras = initialTab === 'runs' ? await loadAppRunsExtras(client, params.appId) : null;
+  const [runsSection, runsExtras, flowGraph] = initialTab === 'runs'
+    ? await Promise.all([
+        loadAppRunsPage(client, params.appId, url.searchParams),
+        loadAppRunsExtras(client, params.appId),
+        client.request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: APP_FLOW_GRAPH_LIMIT })
+          .then((r) => r.appNodes)
+          .catch((e) => {
+            console.warn(`[app-runs] Flow graph fetch failed for ${params.appId}:`, e);
+            return null;
+          }),
+      ])
+    : [null, null, null];
   return {
     runsPanel: runsSection && runsExtras ? {
       ...runsSection,
       app,
-      flows: flowRoots(nodesData.items),
-      flowsPage: appListNavigation(url, 'appNodesOffset', 'runs', appNodesOffset, nodesData.items.length, nodesData.total),
+      flows: flowPageSummaries(nodesData.items, flowGraph ?? []),
+      flowsPage: appListNavigation(url, 'appNodesOffset', 'runs', appNodesOffset, nodesData.items.length, nodesData.total, { hasMore: nodesData.hasMore }),
       ...runsExtras,
     } : null,
     appMemoryScope,
@@ -1007,7 +1043,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     availableAgentsError,
     subscribedAgentsError,
     appNodes: nodesData.items,
-    appNodesPage: appListNavigation(url, 'appNodesOffset', 'memory', appNodesOffset, nodesData.items.length, nodesData.total),
+    appNodesPage: appListNavigation(url, 'appNodesOffset', 'memory', appNodesOffset, nodesData.items.length, nodesData.total, { hasMore: nodesData.hasMore }),
     chatConfigs,
     appConfigs: configsData?.items ?? [],
     configsPage: appListNavigation(url, 'configOffset', 'ai-configs', configOffset, configsData?.items.length ?? 0, configsData?.total ?? 0),
@@ -1040,8 +1076,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // chat is neither the team chat nor the agent chat. `chatsError` is the
     // discovery failing — distinct from an App that genuinely has one chat.
     appChats,
-    chatsError: chatRoots === null || registeredChannels === null,
-    chatRootsPage: appListNavigation(url, 'chatRootsOffset', 'chats', chatRootsOffset, chatRoots?.items.length ?? 0, chatRoots?.total ?? 0, { clearParams: ['chat'] }),
+    chatsError: chatRoots === null || registeredChannels === null || requestedChatLookupFailed,
+    chatRootsError: chatRoots === null,
+    channelsError: registeredChannels === null,
+    chatRootsPage: appListNavigation(url, 'chatRootsOffset', 'chats', chatRootsOffset, chatRoots?.items.length ?? 0, chatRoots?.total ?? 0, { clearParams: ['chat'], hasMore: chatRoots?.hasMore }),
     selectedChannelId: selectedChat?.channelId ?? null,
     selectedChannelMessages: selectedChannelMessages?.items ?? [],
     selectedChannelTotal: selectedChannelMessages?.total ?? 0,

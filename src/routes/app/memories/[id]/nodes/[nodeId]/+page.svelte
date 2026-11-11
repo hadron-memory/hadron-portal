@@ -2147,6 +2147,11 @@
     },
     columns: revisionColumns,
     manualPagination: true,
+    // nodeRevisionsPage owns newest-first order. Its API has no history-wide
+    // search/sort arguments, so do not offer page-local substitutes for them.
+    manualSorting: true,
+    manualFiltering: true,
+    enableSorting: false,
     enableMultiSort: false,
     enableColumnResizing: true,
     columnResizeMode: 'onChange',
@@ -2169,7 +2174,6 @@
     }),
     initialState: {
       pagination: { pageIndex: 0, pageSize: 20 },
-      sorting: [{ id: 'when', desc: true }], // most recent first
     },
   });
 
@@ -4092,6 +4096,7 @@
             table={revisionTable}
             listKey="node:history"
             showFooter={false}
+            showSearch={false}
             searchPlaceholder={t('node.history.search', 'Search history…')}
             searchAriaLabel={t('node.history.search', 'Search history…')}
             bind:globalFilter={revisionFilter}

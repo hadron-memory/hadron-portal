@@ -1,8 +1,8 @@
 import { gqlClient } from '$lib/server/api';
 import { loadTasksApp } from '$lib/server/agent-tasks';
 import { loadAppRunsPage, loadAppRunsExtras } from '$lib/server/app-runs-page';
-import { APP_NODES_PAGE_QUERY } from '$lib/server/queries';
-import { flowRoots, type FlowGraphNode } from '$lib/flow/flows';
+import { APP_NODES_QUERY, APP_NODES_PAGE_QUERY } from '$lib/server/queries';
+import { flowPageSummaries, type FlowGraphNode } from '$lib/flow/flows';
 import { APP_DISPLAY_PAGE_SIZE, appListNavigation, appListOffset } from '../app-list-pages';
 import { error, redirect } from '@sveltejs/kit';
 import { withQuery } from '$lib/safeRedirect';
@@ -17,7 +17,7 @@ export const load: PageServerLoad = async ({ params, url, request, locals, paren
     const app = await loadTasksApp(client, params.appId);
     if (!app) error(404, 'App not found');
     const appNodesOffset = appListOffset(url.searchParams, 'appNodesOffset');
-    const [section, extras, nodes] = await Promise.all([
+    const [section, extras, nodes, graph] = await Promise.all([
       loadAppRunsPage(client, params.appId, url.searchParams), loadAppRunsExtras(client, params.appId),
       client.request<{ appNodesPage: { items: FlowGraphNode[]; total: number; hasMore: boolean } }>(APP_NODES_PAGE_QUERY, {
         appRef: params.appId, limit: APP_DISPLAY_PAGE_SIZE, offset: appNodesOffset,
@@ -25,12 +25,18 @@ export const load: PageServerLoad = async ({ params, url, request, locals, paren
         console.warn('[app-runs] legacy Flows read failed', e);
         return { items: [] as FlowGraphNode[], total: 0, hasMore: false };
       }),
+      client.request<{ appNodes: FlowGraphNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: 500 })
+        .then((r) => r.appNodes)
+        .catch((e) => {
+          console.warn('[app-runs] Flow graph read failed', e);
+          return [] as FlowGraphNode[];
+        }),
     ]);
     return { legacyPanel: {
       ...section, ...extras,
       app: { ...app, organizationId: app.organizationId ?? null },
-      flows: flowRoots(nodes.items),
-      flowsPage: appListNavigation(url, 'appNodesOffset', 'runs', appNodesOffset, nodes.items.length, nodes.total),
+      flows: flowPageSummaries(nodes.items, graph),
+      flowsPage: appListNavigation(url, 'appNodesOffset', 'runs', appNodesOffset, nodes.items.length, nodes.total, { hasMore: nodes.hasMore }),
     } };
   }
   await parent(); // The layout must finish its active-organisation cookie write first.

@@ -115,8 +115,8 @@ describe('History tab paging (portal#1881)', () => {
     expect(target.querySelector<HTMLAnchorElement>('nav[aria-label="Revision pages"] a[rel="next"]')?.getAttribute('href')).toContain('revisionsOffset=20');
   });
 
-  it('has no continuation or capped notice when every revision fits one page', async () => {
-    revisionCount = 19;
+  it.each([19, 20])('has no continuation or capped notice when every revision fits one page (%i)', async (count) => {
+    revisionCount = count;
     const { target } = await mountPage('?tab=history');
     expect(target.textContent).not.toContain(NOTICE);
     expect(target.querySelector('nav[aria-label="Revision pages"] a[rel="next"]')).toBeNull();
@@ -187,18 +187,12 @@ it('renders History timestamps with the Info date style and retains seconds (#11
   expect(document.body.textContent).toContain('Oct 19, 2026, 1:04:05 PM');
 });
 
-it('matches both the displayed History timestamp and its raw wire value (#1167)', async () => {
-  revisionCount = 1;
-  revisionCreatedAt = new Date(2026, 9, 19, 13, 4, 5).toISOString();
+it('does not offer page-local History search or sorting as history-wide operations', async () => {
+  revisionCount = 100;
   const m = await mountPage('?tab=history');
-  const search = m.target.querySelector<HTMLInputElement>('input[aria-label="Search history…"]')!;
-  expect(search).not.toBeNull();
-  for (const query of ['Oct 19, 2026, 1:04:05 PM', revisionCreatedAt]) {
-    search.value = query;
-    search.dispatchEvent(new Event('input', { bubbles: true }));
-    await settle();
-    expect(m.target.querySelectorAll('button[aria-label="Revision actions"]')).toHaveLength(1);
-  }
+  expect(m.target.querySelector('input[aria-label="Search history…"]')).toBeNull();
+  expect(m.target.querySelector('[aria-sort]')).toBeNull();
+  expect(m.target.querySelectorAll('button[aria-label="Revision actions"]')).toHaveLength(20);
 });
 
 it('uses the same timestamp in the restore confirmation without restoring (#1167)', async () => {

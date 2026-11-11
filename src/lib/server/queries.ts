@@ -3146,8 +3146,8 @@ export const APP_CHAT_ROOTS_QUERY = /* GraphQL */ `
 `;
 
 export const APP_CHAT_ROOTS_PAGE_QUERY = /* GraphQL */ `
-  query AppChatRootsPage($appRef: ID!, $limit: Int, $offset: Int) {
-    appNodesPage(appRef: $appRef, filter: { nodeType: "chat" }, limit: $limit, offset: $offset) {
+  query AppChatRootsPage($appRef: ID!, $limit: Int, $offset: Int, $locPrefix: String) {
+    appNodesPage(appRef: $appRef, filter: { nodeType: "chat", locPrefix: $locPrefix }, limit: $limit, offset: $offset) {
       total
       hasMore
       items {
@@ -3375,6 +3375,8 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
     $approvalState: NodeApprovalState
     $minted: Boolean
     $contentScope: NodeContentScope
+    $nodeTypes: [String!]
+    $tags: [String!]
     $sortProperty: NodePropertySort
     $limit: Int
   ) {
@@ -3409,6 +3411,8 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
         # both, applied by the server BEFORE ranking, paging and the result cap.
         # Null is the server default, CONTENT.
         contentScope: $contentScope
+        nodeTypes: $nodeTypes
+        tags: $tags
       }
     ) {
       hits {

@@ -1611,7 +1611,8 @@ describe('worklog loading (#733)', () => {
    * argument so the existing single-purpose calls read unchanged.
    */
   function stubAll(worklog: Record<string, unknown> | Error) {
-    const chatRoots = (worklog as Record<string, unknown>)?.appChatRoots;
+    const configuredChatRoots = (worklog as Record<string, unknown>)?.appChatRoots;
+    const chatRoots = Array.isArray(configuredChatRoots) || configuredChatRoots instanceof Error ? configuredChatRoots : undefined;
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });

@@ -14,7 +14,7 @@ export function appListOffset(params: URLSearchParams, key: string): number {
 /** Both queries return an ordered { items, total } page; never auto-drain a display list. */
 export function appListNavigation(
   url: URL, key: string, tab: 'worklog' | 'ai-configs' | 'memory' | 'runs' | 'chats' | 'history', offset: number, count: number, total: number,
-  options: { clearParams?: string[] } = {},
+  options: { clearParams?: string[]; hasMore?: boolean } = {},
 ): ListPageNavigation {
   function href(next: number) {
     const params = new URLSearchParams(url.searchParams);
@@ -38,6 +38,10 @@ export function appListNavigation(
     // window before this one always starts at offset - PAGE_SIZE, whatever
     // this page served — or nothing, if this page is empty after deletes.
     previousHref: offset > 0 ? href(Math.max(0, offset - APP_DISPLAY_PAGE_SIZE)) : null,
-    nextHref: count > 0 && (next < total || count === APP_DISPLAY_PAGE_SIZE) && next <= MAX_OFFSET ? href(next) : null,
+    // A full page probes forward unless the server explicitly says it is the
+    // end. Without hasMore, even total===count can lag a newly arrived row;
+    // an exact hasMore=false must not offer an empty page
+    // (hrn:node:hadronmemory.com:specs:cor:api:120:04).
+    nextHref: count > 0 && (next < total || (count === APP_DISPLAY_PAGE_SIZE && options.hasMore !== false)) && next <= MAX_OFFSET ? href(next) : null,
   };
 }

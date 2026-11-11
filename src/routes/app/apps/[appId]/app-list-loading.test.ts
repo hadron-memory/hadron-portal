@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getOperationAST, parse } from 'graphql';
 import type { AiServiceConfig, TeamWorkItem } from '$lib/types';
+import type { FlowGraphNode } from '$lib/flow/flows';
 const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
 
@@ -62,6 +63,7 @@ beforeEach(() => {
       case 'AgentTasksApp': return { app: { id: APP_ID, name: 'App', urn: 'hrn:app:example.test:demo', organizationId: null } };
       case 'AppInstalledAgents': return { app: { appAgents: [] } };
       case 'TeamChatMessages': return { teamChatMessages: { items: [], total: 0 } };
+      case 'NodesByLocPrefix': return { findNodes: { hits: [], total: 0 } };
       case 'AppKeys': case 'AppKeyScopes': return { appKeysPage: { items: [], total: 0, hasMore: false } };
       case 'SelfCanManage': return { effectiveAccess: { canManage: false } };
       case 'AppViewerManages': return { app: { viewerManages: false } };
@@ -124,7 +126,8 @@ describe('App display-list request boundaries (#1758)', () => {
     expect(calls.filter(c => c.name === 'AppChatRootsPage').map(c => c.variables)).toEqual([
       expect.objectContaining({ appRef: APP_ID, limit: 20, offset: 0 }),
     ]);
-    expect(calls.filter(c => ['AppNodes', 'AppChatRoots'].includes(c.name))).toEqual([]);
+    expect(calls.filter(c => c.name === 'AppNodes')).toHaveLength(1); // complete Flow graph, not the display list
+    expect(calls.filter(c => c.name === 'AppChatRoots')).toEqual([]);
     expect(result.appNodes).toHaveLength(20);
     expect(result.appNodesPage).toMatchObject({ offset: 0, count: 20, total: 45 });
     expect(result.chatRootsPage).toMatchObject({ offset: 0, count: 20, total: 25 });
@@ -141,6 +144,66 @@ describe('App display-list request boundaries (#1758)', () => {
     expect(result.appNodesPage).toMatchObject({ offset: 20, count: 20, total: 45 });
     expect(result.chatRootsPage).toMatchObject({ offset: 20, count: 5, total: 25 });
   });
+  it('resolves a legacy chat deep link outside the current root page', async () => {
+    const result = await loadPage('?tab=chats&chat=chats%3A24');
+    expect(result.chatNotFound).toBe(false);
+    expect(result.selectedChatKey).toBe('chats:24');
+    const targeted = calls.filter(c => c.name === 'AppChatRootsPage' && c.variables.locPrefix === 'chats:24');
+    expect(targeted.map(c => c.variables)).toEqual([expect.objectContaining({ offset: 0, limit: 200 })]);
+  });
+
+  it('resolves a later-page chat root whose loc has no chats: prefix', async () => {
+    const base = request.getMockImplementation()!;
+    const support = { id: 'support', loc: 'support', name: 'Support', memoryId: 'memory-a', nodeType: 'chat' };
+    request.mockImplementation(async (document: string, variables: Variables = {}) => {
+      const name = getOperationAST(parse(document))?.name?.value;
+      if (name === 'AppChatRootsPage' && variables.locPrefix === 'support') {
+        calls.push({ name, variables });
+        return { appNodesPage: { items: [support], total: 1, hasMore: false } };
+      }
+      return base(document, variables);
+    });
+    const result = await loadPage('?tab=chats&chat=support');
+    expect(result.chatNotFound).toBe(false);
+    expect(result.selectedChatKey).toBe('support');
+    expect(calls.filter(c => c.name === 'AppChatRootsPage' && c.variables.locPrefix === 'support')).toHaveLength(1);
+  });
+  it('counts Flow steps against the complete graph, not the 20-row display page', async () => {
+    const root: FlowGraphNode = { ...nodes[0], id: 'flow-root', loc: 'flow:root', name: 'Root', isRunnable: true };
+    const middle: FlowGraphNode = { ...nodes[1], id: 'flow-middle', loc: 'flow:middle', name: 'Middle', isRunnable: true };
+    const last: FlowGraphNode = { ...nodes[2], id: 'flow-last', loc: 'flow:last', name: 'Last', isRunnable: true };
+    root.outgoingEdges = [{ name: 'next', loc: 'flow:root:next:middle', target: { id: middle.id, loc: middle.loc, name: middle.name } }];
+    root.incomingEdges = [];
+    middle.outgoingEdges = [{ name: 'next', loc: 'flow:middle:next:last', target: { id: last.id, loc: last.loc, name: last.name } }];
+    middle.incomingEdges = [{ name: 'next', loc: 'flow:root:next:middle', source: { id: root.id, loc: root.loc, name: root.name } }];
+    last.outgoingEdges = [];
+    last.incomingEdges = [{ name: 'next', loc: 'flow:middle:next:last', source: { id: middle.id, loc: middle.loc, name: middle.name } }];
+    const base = request.getMockImplementation()!;
+    request.mockImplementation(async (document: string, variables: Variables = {}) => {
+      const name = getOperationAST(parse(document))?.name?.value;
+      if (name === 'AppNodesPage') return { appNodesPage: { items: [root], total: 3, hasMore: true } };
+      if (name === 'AppNodes') return { appNodes: [root, middle, last] };
+      return base(document, variables);
+    });
+    const result = await loadPage('?tab=runs');
+    expect(result.runsPanel).toMatchObject({ flows: [{ entry: { id: 'flow-root' }, stepCount: 3, stepCountComplete: true }] });
+  });
+  it('bounds an unresolved prefixed deep link to one lookup and discloses uncertainty', async () => {
+    const base = request.getMockImplementation()!;
+    request.mockImplementation(async (document: string, variables: Variables = {}) => {
+      const name = getOperationAST(parse(document))?.name?.value;
+      if (name === 'AppChatRootsPage' && variables.locPrefix === 'chats:a') {
+        calls.push({ name, variables });
+        return { appNodesPage: { items: legacyChatRoots.slice(0, 20), total: 1000, hasMore: true } };
+      }
+      return base(document, variables);
+    });
+    const result = await loadPage('?tab=chats&chat=chats%3Aa');
+    expect(result.chatNotFound).toBe(true);
+    expect(result.chatsError).toBe(true);
+    expect(calls.filter(c => c.name === 'AppChatRootsPage' && c.variables.locPrefix === 'chats:a')).toHaveLength(1);
+  });
+
   it('retains complete staff and channel identity contexts, including rows beyond 200', async () => {
     const result = await loadPage();
     expect(result.staff).toHaveLength(201);

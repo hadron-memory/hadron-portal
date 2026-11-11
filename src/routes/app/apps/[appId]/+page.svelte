@@ -11,6 +11,7 @@
   import { publicServerBaseUrl } from '$lib/public-server-base-url';
   import { tick, untrack, onDestroy } from 'svelte';
   import { applyAction } from '$app/forms';
+  import { page } from '$app/stores';
   import { beforeNavigate, goto, afterNavigate, invalidateAll, preloadData, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -1132,12 +1133,20 @@
     }
   }
   // The post action URL REPLACES the query string (see the comment on the
-  // form), so it must carry the view too, or a non-enhanced POST would land
-  // the reader back in the tab view with their place lost.
-  const chatRootsActionSlice = $derived(data.chatRootsPage?.offset > 0 ? `&chatRootsOffset=${data.chatRootsPage.offset}` : '');
-  const teamChatAction = $derived(
-    `?tab=chats&chat=chats%3Ateam${chatRootsActionSlice}${chatMaximized ? '&view=full' : ''}&/postTeamChatMessage`,
-  );
+  // form), so it must carry the COMPLETE current location: team filter, full
+  // view, selected chat and every independent list offset.
+  function chatActionUrl(action: 'postTeamChatMessage' | 'postChannelMessage', chatKey: string, full = false): string {
+    const params = new URLSearchParams($page.url.searchParams);
+    params.set('tab', 'chats');
+    params.set('chat', chatKey);
+    if (data.chatRootsPage?.offset > 0 && !params.has('chatRootsOffset')) {
+      params.set('chatRootsOffset', String(data.chatRootsPage.offset));
+    }
+    if (full) params.set('view', 'full'); else params.delete('view');
+    return `?${params.toString()}&/${action}`;
+  }
+  const teamChatAction = $derived(chatActionUrl('postTeamChatMessage', TEAM_CHAT_LOC, chatMaximized));
+  const channelChatAction = $derived(chatActionUrl('postChannelMessage', data.selectedChatKey ?? ''));
 
   // #768 — roving focus for the tab strip. Only the selected tab is in the
   // sequential tab order, so the strip is ONE stop rather than one per tab, and
@@ -2247,7 +2256,7 @@
         <Urn value={data.selectedChatKey} type="node" />
       {/if}
     </div>
-    {#if data.chatRootsPage && !data.chatsError}
+    {#if data.chatRootsPage && !data.chatRootsError}
       <ListPageNav page={data.chatRootsPage} label={t('app.chats.pages', 'Chat pages')} />
     {/if}
 
@@ -2518,7 +2527,7 @@
           <ChannelChatThread appId={app.id} {channelId} messages={data.selectedChannelMessages}
             total={data.selectedChannelTotal} loadError={data.selectedChannelError}
             postForm={data.postChannelMessageForm} {form} {workerUrns}
-            action={`?tab=chats&chat=${encodeURIComponent(data.selectedChatKey ?? '')}${chatRootsActionSlice}&/postChannelMessage`}
+            action={channelChatAction}
             onSubmittingChange={(submitting) => { channelPostBusy = submitting; }}
             viewState={channelViews[channelStateKey]} onViewStateChange={(view) => { channelViews[channelStateKey] = view; }}
             draft={channelDrafts[channelStateKey]} onDraftChange={(draft) => { channelDrafts[channelStateKey] = draft; }} />
@@ -3410,10 +3419,14 @@
     {#if memoryScope === null}
       <p role="alert" class="mb-3 text-sm text-red-600 dark:text-red-400">{t('app.memory-scope.failed', 'Could not load accessible memories. Reload to try again.')}</p>
     {/if}
-    <MemoryBrowser nodes={data.appNodes ?? []} multiMemory={true} scopeMemoryIds={(memoryScope ?? []).map((m) => m.memoryId)} scopeMemories={memoryScope ?? []} />
-    {#if data.appNodesPage}
-      <ListPageNav page={data.appNodesPage} label={t('app.memory-node.pages', 'Memory node pages')} />
-    {/if}
+    <MemoryBrowser
+      nodes={data.appNodes ?? []}
+      multiMemory={true}
+      scopeMemoryIds={(memoryScope ?? []).map((m) => m.memoryId)}
+      scopeMemories={memoryScope ?? []}
+      serverPage={data.appNodesPage ?? null}
+      pageLabel={t('app.memory-node.pages', 'Memory node pages')}
+    />
     </div>
   {/if}
 

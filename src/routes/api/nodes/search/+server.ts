@@ -84,6 +84,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       approvalState?: unknown;
       minted?: unknown;
       contentScope?: unknown;
+      nodeTypes?: unknown;
+      tags?: unknown;
     };
     sort?: unknown;
     sortProperty?: unknown;
@@ -134,6 +136,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     ? (filter!.contentScope as ContentScope)
     : null;
   const contentScope = requestedScope === 'COMMENTS' || requestedScope === 'ALL' ? requestedScope : null;
+  const nodeTypes = Array.isArray(filter?.nodeTypes)
+    ? [...new Set(filter.nodeTypes.filter((v): v is string => typeof v === 'string' && v.length > 0))].slice(0, 20)
+    : null;
+  const tags = Array.isArray(filter?.tags)
+    ? [...new Set(filter.tags.filter((v): v is string => typeof v === 'string' && v.length > 0))]
+    : null;
+  const nodeTypeFilter = nodeTypes?.length ? nodeTypes : null;
+  const tagFilter = tags?.length ? tags : null;
   const sortProp = parseSortProperty(sortProperty);
   if (sortProp === 'invalid') {
     return json({ error: 'Invalid sort.' }, { status: 400 });
@@ -150,7 +160,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const lexical = findMode === 'keyword' || findMode === 'regex';
   const searchFields = lexical && fieldSet.length > 0 ? fieldSet : null;
 
-  const hasFilter = !!(createdBy || updatedAfter || updatedBefore || includeDeleted || objectType || where || approvalState || minted !== null || contentScope);
+  const hasFilter = !!(createdBy || updatedAfter || updatedBefore || includeDeleted || objectType || where || approvalState || minted !== null || contentScope || nodeTypeFilter || tagFilter);
   // Nothing to do → let the client browse the already-loaded set. (A bare
   // loc/seq sort with no query/filter is also a client-side reorder; a
   // property sort is server-only — the slim loaded set has no properties.)
@@ -204,6 +214,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       approvalState,
       minted,
       contentScope,
+      nodeTypes: nodeTypeFilter,
+      tags: tagFilter,
       limit: resultLimit,
     });
 

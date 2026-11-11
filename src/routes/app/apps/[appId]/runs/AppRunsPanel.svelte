@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { page } from '$app/stores';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import AppRunsTable from '$lib/components/AppRunsTable.svelte';
@@ -45,9 +46,16 @@
     runFormData.update((current) => ({ ...current, agentRef: '' }), { taint: false });
   });
   const runActionError = $derived(scopedActionError<RunAppFlowForm>(form, 'runFlow', $runMessage, $runErrors, ['entryUrn', 'agentRef', '_kind']));
-  // A native action replaces the query string. Keep the reader on the same
-  // server-paged Flow slice after either an enhanced or unenhanced POST.
-  const runAction = $derived(`?tab=runs${data.flowsPage.offset > 0 ? `&appNodesOffset=${data.flowsPage.offset}` : ''}&/run`);
+  // A native action replaces the query string. Carry the COMPLETE current Runs
+  // location — Flow offset, Runs page, status and sort — through either POST path.
+  const runAction = $derived.by(() => {
+    const params = new URLSearchParams($page.url.searchParams);
+    params.set('tab', 'runs');
+    if (data.flowsPage.offset > 0 && !params.has('appNodesOffset')) {
+      params.set('appNodesOffset', String(data.flowsPage.offset));
+    }
+    return `?${params.toString()}&/run`;
+  });
 
   function prepareRun(entryUrn: string) {
     runFormData.update((current) => ({ ...current, entryUrn }), { taint: false });
@@ -96,7 +104,9 @@
               <div class="mt-0.5"><Urn value={flow.entry.urn} type="node" size={10} /></div>
             </div>
             <span class="text-xs text-zinc-500 dark:text-zinc-400">
-              {flow.stepCount} {t('flows.steps', 'steps')}{#if flow.branchCount > 1} · {flow.branchCount} {t('flows.branches', 'branches')}{/if}
+              {flow.stepCountComplete === false
+                ? t('flows.steps-at-least', 'at least {count} steps', { count: flow.stepCount })
+                : `${flow.stepCount} ${t('flows.steps', 'steps')}`}{#if flow.branchCount > 1} · {flow.branchCount} {t('flows.branches', 'branches')}{/if}
             </span>
             <!-- Click updates before Superforms client validation; submit covers keyboard/requestSubmit paths. -->
             <form method="POST" action={runAction} use:runEnhance onsubmit={() => prepareRun(flow.entry.urn)} novalidate>

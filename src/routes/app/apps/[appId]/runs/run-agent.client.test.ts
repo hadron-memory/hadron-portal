@@ -2,7 +2,7 @@
  * portal#1444 — the choice reaches the form a Run button submits. SSR cannot
  * see this: the hidden agentRef follows the picker's store only once mounted.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
@@ -10,6 +10,9 @@ import { mountComponent, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { runAppFlowSchema } from './schema';
 import Page from './AppRunsPanel.svelte';
+import { setStubPage } from '$lib/test/stubs/app-stores';
+
+beforeEach(() => setStubPage('http://localhost/app/apps/app-1?tab=runs', { appId: 'app-1' }));
 
 const mounted: Mounted<Record<string, unknown>>[] = [];
 afterEach(() => {
@@ -96,5 +99,20 @@ describe('runs page: Agent picker (#1444)', () => {
     const t = await navigateAtoB(agents);
     expect(t.querySelector<HTMLSelectElement>('#runAgent')!.value).toBe('');
     expect(hidden(t)!.value).toBe('');
+  });
+
+  it('the Run action preserves the Runs page, filters, sort and Flow offset', async () => {
+    setStubPage('http://localhost/app/apps/app-1?tab=runs&page=3&status=FAILED&sort=createdAt&dir=asc&appNodesOffset=20', { appId: 'app-1' });
+    const t = await mountRuns(agents);
+    const action = t.querySelector('form')!.getAttribute('action')!;
+    const [query, named] = action.slice(1).split('&/');
+    const params = new URLSearchParams(query);
+    expect(named).toBe('run');
+    expect(params.get('tab')).toBe('runs');
+    expect(params.get('page')).toBe('3');
+    expect(params.get('status')).toBe('FAILED');
+    expect(params.get('sort')).toBe('createdAt');
+    expect(params.get('dir')).toBe('asc');
+    expect(params.get('appNodesOffset')).toBe('20');
   });
 });
