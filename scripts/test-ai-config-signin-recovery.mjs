@@ -4,6 +4,23 @@ import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
 
+// Storage is checked by keys and getItem values. localStorage is shared per
+// origin; sessionStorage must be checked independently for each tab.
+async function storedEntries(page) {
+  return page.evaluate(() => {
+    const entries = store => Array.from({ length: store.length }, (_, index) => {
+      const key = store.key(index);
+      return [key, store.getItem(key)];
+    });
+    return { local: entries(localStorage), session: entries(sessionStorage) };
+  });
+}
+function assertNoDraftStorage(stores) {
+  for (const entries of [stores.local, stores.session]) for (const marker of ['synthetic-unused-key', 'recovery-check', 'synthetic-model']) {
+    assert(!JSON.stringify(entries).includes(marker), 'Draft/key must stay in component memory');
+  }
+}
+
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, plugins: [{
   name: 'ai-config-navigation-stub', enforce: 'pre',
   transform(code, id) { return id.endsWith('/AiServiceConfigManager.svelte') ? code.replace("from '$app/navigation'", "from '$lib/test/stubs/app-navigation'") : null; },
@@ -15,7 +32,7 @@ try {
   const css = await (await fetch(new URL('/src/app.css?direct', origin))).text();
   browser = await chromium.launch({ headless: true });
   for (const touch of [false, true]) for (const dark of [false, true]) {
-    const context = await browser.newContext({ viewport: { width: touch ? 390 : 1280, height: 900 }, hasTouch: touch, isMobile: touch });
+    const context = await browser.newContext({ viewport: { width: touch ? 390 : 1280, height: touch ? 740 : 900 }, hasTouch: touch, isMobile: touch });
     let writes = 0;
     let refuse = true;
     let freshUser = 'fixture-user';
@@ -72,8 +89,10 @@ try {
     // No scripted focus: recovery must hand real keyboard/touch attention here.
     await page.waitForFunction(() => document.activeElement?.getAttribute('href')?.startsWith('/signin?'), null, { timeout: 5000 });
     const alertBox = await page.getByTestId('ai-config-error-feedback').boundingBox();
-    assert(alertBox && alertBox.y >= 0 && alertBox.y + alertBox.height <= 900, 'Recovery alert is in the actual viewport without a manual scroll');
+    assert(alertBox && alertBox.y >= 0 && alertBox.y + alertBox.height <= (touch ? 740 : 900), 'Recovery alert is in the actual viewport without a manual scroll');
     assert.equal(await link.evaluate(el => document.activeElement === el), true);
+    assertNoDraftStorage(await storedEntries(page));
+    await page.evaluate(() => sessionStorage.setItem('opener-only', 'nonsecret-opener-probe'));
     const popupWait = context.waitForEvent('page');
     if (touch) await link.tap(); else await page.keyboard.press('Enter');
     const popup = await popupWait;
@@ -81,7 +100,11 @@ try {
     assert.equal(await popup.evaluate(() => window.opener), null);
     assert.equal(new URL(popup.url()).searchParams.get('redirect'), '/__ai_recovery_fixture');
     assert.equal(await popup.locator('#ac-key').count(), 0);
-    assert.equal(await popup.evaluate(() => localStorage.length + sessionStorage.length), await page.evaluate(() => localStorage.length + sessionStorage.length));
+    const popupStores = await storedEntries(popup);
+    assertNoDraftStorage(popupStores);
+    assertNoDraftStorage(await storedEntries(page));
+    assert(!JSON.stringify(popupStores.session).includes('nonsecret-opener-probe'), 'No opener sessionStorage clone into the new tab');
+    assert.equal(await page.evaluate(() => sessionStorage.getItem('opener-only')), 'nonsecret-opener-probe');
     await popup.close(); await page.bringToFront();
     assert.equal(await model.evaluate(el => el.isConnected), true);
     assert.equal(await page.locator('#ac-key').inputValue(), 'synthetic-unused-key');

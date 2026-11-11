@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { testResultView, type AiConfigTestResult, type AiConfigTestView } from '$lib/ai-config-test';
   import { lookupOwn } from '$lib/lookup';
   import { safeRedirect } from '$lib/safeRedirect';
@@ -115,6 +115,8 @@
   const mutationLocked = $derived(uncertainMutation || mutationUncertain);
   let error = $state<string | null>(null);
   let signinHref = $state<string | null>(null);
+  let signinLink = $state<HTMLAnchorElement | null>(null);
+  let errorRegion = $state<HTMLDivElement | null>(null);
   // #937: one shape for both paths, so the result always reads the same way.
   let testResult = $state<AiConfigTestView | null>(null);
   let confirmDeleteId = $state<string | null>(null);
@@ -128,7 +130,29 @@
   let ownerGeneration = 0;
   let destroyed = false;
 
+  // BODY can be platform blur or a newer blank-page click. Track both focus
+  // and pointer intent without a reactive counter or an automatic replay.
+  let attentionVersion = 0;
+  type Attention = { version: number; element: Element | null };
+  const captureAttention = (): Attention => ({ version: attentionVersion, element: document.activeElement });
+  async function restoreAttention(
+    target: () => HTMLElement | null,
+    current: () => boolean,
+    attention: Attention,
+    reveal = false,
+  ) {
+    await tick();
+    // Recheck ownership AFTER rendering, before looking up a reused binding.
+    if (!current() || attention.version !== attentionVersion) return;
+    if (document.activeElement !== document.body && document.activeElement !== attention.element) return;
+    const element = target();
+    if (!element?.isConnected || element.matches(':disabled')) return;
+    if (reveal) errorRegion?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    element.focus({ preventScroll: true });
+  }
+
   type ActionToken = {
+    attention: Attention;
     generation: number;
     noticeGeneration: number;
     ownerKey: string;
@@ -165,7 +189,7 @@
     void verifyDraftPrincipal();
   }
 
-  function discardPrincipalDraft() {
+  function discardPrincipalDraft(attention: Attention) {
     actionGeneration++;
     actionController?.abort();
     resetEditor();
@@ -173,11 +197,17 @@
     confirmDeleteId = null;
     busy = false;
     error = s.principalChanged();
+    const generation = actionGeneration;
+    const owner = ownerKey;
+    const user = currentUserId;
+    const message = error;
+    void restoreAttention(() => errorRegion, () => !destroyed && generation === actionGeneration && owner === ownerKey && user === currentUserId && error === message, attention, true);
   }
 
   async function verifyDraftPrincipal(): Promise<boolean> {
     const captured = draftPrincipal;
     if (!captured || destroyed) return false;
+    const attention = captureAttention();
     const sequence = ++identitySequence;
     identityController?.abort();
     const controller = new AbortController();
@@ -193,7 +223,7 @@
       if (!current()) return false;
       const principal = data.principal;
       if (captured.selectedContext !== selectedContext || captured.userId !== currentUserId) {
-        discardPrincipalDraft();
+        discardPrincipalDraft(attention);
         return false;
       }
       // Anonymous/refused is not a different identity. Keep the in-memory
@@ -205,7 +235,7 @@
       if (fresh.principalType === 'USER' && (typeof fresh.userId !== 'string' || fresh.appId !== null)) throw new Error('Identity unavailable');
       if (fresh.principalType === 'APP' && (fresh.userId !== null || typeof fresh.appId !== 'string')) throw new Error('Identity unavailable');
       if (fresh.principalType !== 'USER' || fresh.userId !== captured.userId) {
-        discardPrincipalDraft();
+        discardPrincipalDraft(attention);
         return false;
       }
       return true;
@@ -213,7 +243,10 @@
       if (current()) error = s.principalUnavailable();
       return false;
     } finally {
-      if (sequence === identitySequence) identityChecking = false;
+      if (sequence === identitySequence) {
+        identityChecking = false;
+        void restoreAttention(() => attention.element instanceof HTMLElement ? attention.element : null, current, attention);
+      }
     }
   }
 
@@ -221,8 +254,21 @@
     const onFocus = () => {
       if (formOpen || confirmDeleteId !== null) void verifyDraftPrincipal();
     };
+    const onFocusIn = (event: FocusEvent) => {
+      if (event.target !== document.body) attentionVersion++;
+    };
+    const onPointer = (event: PointerEvent) => {
+      const focused = document.activeElement;
+      if (!(focused && focused !== document.body && event.target instanceof Node && focused.contains(event.target))) attentionVersion++;
+    };
     window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
+    window.addEventListener('focusin', onFocusIn, true);
+    window.addEventListener('pointerdown', onPointer, true);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('focusin', onFocusIn, true);
+      window.removeEventListener('pointerdown', onPointer, true);
+    };
   });
 
   function clearNotice(): number {
@@ -238,6 +284,7 @@
   }
 
   function beginAction(): ActionToken {
+    const attention = captureAttention();
     signinHref = null;
     const noticeGeneration = clearNotice();
     busy = false;
@@ -246,6 +293,7 @@
     actionController?.abort();
     actionController = new AbortController();
     return {
+      attention,
       generation: ++actionGeneration,
       noticeGeneration,
       ownerKey,
@@ -746,7 +794,10 @@
       await publishCommitted(action, options.successText, options.refreshFailedText, pendingMutation);
     } finally {
       finishMutation(pendingMutation);
-      if (isCurrent(action)) busy = false;
+      if (isCurrent(action)) {
+        busy = false;
+        if (signinHref) void restoreAttention(() => signinLink, () => isCurrent(action) && signinHref !== null, action.attention, true);
+      }
     }
   }
 
@@ -993,14 +1044,14 @@
   </div>
   <!-- Always mounted so a refusal is announced whether it came from the open
        editor or a row action; only the alert's content changes. -->
-  <div data-testid="ai-config-error-feedback" role="alert" aria-live="assertive" aria-atomic="true">
+  <div bind:this={errorRegion} tabindex="-1" data-testid="ai-config-error-feedback" role="alert" aria-live="assertive" aria-atomic="true">
     {#if error}
       <div
         class="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
       >
         <p>{error}</p>
         {#if signinHref}
-          <a href={signinHref} target="_blank" rel="noopener noreferrer"
+          <a bind:this={signinLink} href={signinHref} target="_blank" rel="noopener noreferrer"
             class="mt-1 inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
           >{s.signinNewTab()}</a>
           <p>{s.signinReturn()}</p>

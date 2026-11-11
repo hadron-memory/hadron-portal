@@ -1935,7 +1935,13 @@ describe('#1898 follow-ups', () => {
     expect(link?.textContent).toContain('new tab');
     const originalInput = m.target.querySelector('#ac-model');
     const originalKey = $<HTMLInputElement>(m.target, '#ac-key')?.value;
-    expect(JSON.stringify([localStorage, sessionStorage])).not.toContain('synthetic-key');
+    for (const store of [localStorage, sessionStorage]) {
+      const entries = Array.from({ length: store.length }, (_, index) => {
+        const key = store.key(index)!;
+        return [key, store.getItem(key)];
+      });
+      expect(JSON.stringify(entries)).not.toContain('synthetic-key');
+    }
     // Returning from a cancelled/successful tab does not replay or reload.
     window.dispatchEvent(new Event('focus'));
     document.dispatchEvent(new Event('visibilitychange'));
@@ -2149,6 +2155,30 @@ describe('#1898 follow-ups', () => {
     expect(document.activeElement).toBe(attention === 'control' ? cancel : document.body);
     expect(scroll).not.toHaveBeenCalled();
     expect(region.querySelector('a')).not.toBeNull();
+  });
+
+  it('does not focus a reused alert after an owner change at the render boundary', async () => {
+    const m = await open({}, AiServiceConfigManager); await startCreate(m.target);
+    let release!: (r: Reply) => void;
+    principalReadHandler = () => new Promise<Reply>(r => { release = r; });
+    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-error-feedback"]')!;
+    const scroll = vi.fn(); region.scrollIntoView = scroll;
+    const observer = new MutationObserver(() => {
+      if (!region.textContent?.includes('The draft was discarded.')) return;
+      observer.disconnect();
+      m.props.ownerId = 'o2';
+      flushSync();
+    });
+    observer.observe(region, { subtree: true, childList: true });
+    try {
+      const submit = button(m.target, 'Save'); submit.focus();
+      window.dispatchEvent(new Event('focus')); await settle(); blurDisabledSubmit();
+      release({ body: { principal: { principalType: 'USER', userId: 'different', appId: null } } }); await settle();
+      expect(m.props.ownerId).toBe('o2');
+      expect(region.textContent?.trim()).toBe('');
+      expect(document.activeElement).toBe(document.body);
+      expect(scroll).not.toHaveBeenCalled();
+    } finally { observer.disconnect(); }
   });
 
 });
