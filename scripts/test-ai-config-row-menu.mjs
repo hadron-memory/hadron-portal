@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
+import { assertActionAtScrollEdges } from './lib/ai-config-browser.mjs';
 
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, plugins: [{
   name: 'ai-config-navigation-stub', enforce: 'pre',
@@ -49,10 +50,10 @@ try {
       }]));
     });
     assert(await page.evaluate(query => matchMedia(query).matches, width === 390 ? '(pointer: coarse)' : '(pointer: fine)'), `${label}: expected ${width === 390 ? 'coarse' : 'fine'} pointer`);
-    await page.evaluate(async mode => {
+    await page.evaluate(async ({ mode, longName }) => {
       const { mountAiConfigRows } = await import('/src/lib/test/fixtures/ai-config-row-menu-harness.ts');
-      mountAiConfigRows(document.getElementById('fixture'), mode === 'long-name' ? 'enabled' : mode, mode === 'long-name' ? 'x' + '_'.repeat(63) : undefined);
-    }, mode);
+      mountAiConfigRows(document.getElementById('fixture'), mode === 'long-name' ? 'enabled' : mode, mode === 'long-name' ? longName : undefined);
+    }, { mode, longName });
     for (const [name, enabled] of targets) {
       const where = `${label}/${name}`;
       const trigger = page.getByRole('button', { name: `Actions for ${name}`, exact: true });
@@ -118,11 +119,10 @@ try {
         assert.equal(await rowBg(), want.custom, `${where}: row recolored by the custom class`);
         assert.equal(await stickyBg(), want.custom, `${where}: sticky cell follows a custom row background class`);
         await row.evaluate((el, [add, base]) => { el.classList.remove(add); el.classList.add(base); }, dark ? ['dark:bg-amber-900', 'dark:bg-zinc-950'] : ['bg-amber-100', 'bg-white']);
-        const scroller = page.getByTestId('data-table-scroller');
-        await scroller.evaluate(el => { el.scrollLeft = el.scrollWidth; });
-        const [viewport, action] = await Promise.all([scroller.boundingBox(), trigger.boundingBox()]);
-        assert(viewport && action && action.x >= viewport.x && action.x + action.width <= viewport.x + viewport.width, `${where}: reordered Actions remains inside scroller at far right`);
       }
+      // #1956: both scroll extremes before each menu action (subsumes the
+      // single far-right containment check this loop used to run inline).
+      if (width === 390) await assertActionAtScrollEdges(page, trigger, where);
       await trigger.click();
       const edit = page.getByRole('menuitem', { name: 'Edit', exact: true });
       await edit.waitFor();
@@ -138,17 +138,12 @@ try {
       assert.equal(await nameInput.inputValue(), name, `${where}: Edit opens this row`);
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
       await nameInput.waitFor({ state: 'detached', timeout: 2000 });
-      if (width === 390) {
-        const scroller = page.getByTestId('data-table-scroller');
-        await scroller.evaluate(el => { el.scrollLeft = el.scrollWidth; });
-        const [viewport, action] = await Promise.all([scroller.boundingBox(), trigger.boundingBox()]);
-        assert(viewport && action && action.x >= viewport.x && action.x + action.width <= viewport.x + viewport.width, `${where}: reordered Actions remains inside scroller at far right`);
-      }
+      if (width === 390) await assertActionAtScrollEdges(page, trigger, where);
       await trigger.click();
       await page.getByRole('menuitem', { name: 'Delete', exact: true }).click({ timeout: 2000 });
       const question = row.getByText(`Delete the “${name}” configuration? This cannot be undone.`, { exact: true });
       await question.waitFor();
-      const container = width === 390 ? page.getByTestId('data-table-scroller') : question.locator('xpath=ancestor::td');
+      const container = width === 390 ? page.getByTestId('data-table-scroller') : question.locator('xpath=ancestor::td[1]');
       const [viewport, text] = await Promise.all([container.boundingBox(), question.boundingBox()]);
       assert(viewport && text && text.x >= viewport.x && text.x + text.width <= viewport.x + viewport.width, `${where}: full named confirmation fits inside its available column`);
       assert(await question.evaluate(el => el.scrollWidth <= el.clientWidth + 1), `${where}: full name wraps without hidden text`);

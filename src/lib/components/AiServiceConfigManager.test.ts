@@ -1,4 +1,3 @@
-import { managerCallbacks } from '$lib/test/ai-config-manager';
 /**
  * #924 — the AGENT surface's hint about which configuration the agent uses.
  *
@@ -8,14 +7,11 @@ import { managerCallbacks } from '$lib/test/ai-config-manager';
  * claim cannot come back, and so it does not overclaim that every App uses the
  * agent's `default`.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { managerCallbacks } from '$lib/test/ai-config-manager-callbacks';
+import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import AiServiceConfigManager from './AiServiceConfigManager.svelte';
 import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
-
-// The node lane has no `$app/*`; a server render never navigates.
-vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), beforeNavigate: vi.fn() }));
-
 
 function html(ownerType: 'AGENT' | 'ORGANIZATION' | 'APP') {
   return render(AiServiceConfigManager, { props: { ...managerCallbacks(), ownerType, ownerId: 'x', currentUserId: 'u1', configs: [] } }).body;
