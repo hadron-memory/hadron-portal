@@ -171,15 +171,26 @@ describe('portal#1912 Refresh when the reload rejects', () => {
     const unhandled = await captureUnhandledRejections(async () => { refreshButton(root).click(); await tick(5); });
     expect(unhandled).toEqual([]);
     expect(tab(root).querySelector('[data-boot-refresh-error]')?.getAttribute('role')).toBe('alert');
+    expect(tab(root).querySelector('[data-boot-refresh-error]')?.textContent).toMatch(/Couldn’t refresh/);
     expect(refreshButton(root).disabled).toBe(false);
     expect(refreshButton(root).getAttribute('aria-busy')).toBe('false');
     navigationHooks.onInvalidateAll = undefined;
     refreshButton(root).click(); await tick(5);
-    expect(tab(root).querySelector('[data-boot-refresh-error]')).toBeNull();
+    expect(tab(root).querySelector('[data-boot-refresh-error]')?.textContent).toBe('');
   });
-  it('shows no error when the reload succeeds', async () => {
+  it('keeps the alert region mounted and empty until a reload fails, and the same node holds the text', async () => {
+    const { root } = await open(source());
+    const region = tab(root).querySelector('[data-boot-refresh-error]')!;
+    expect(region.getAttribute('role')).toBe('alert');
+    expect(region.textContent).toBe('');
+    navigationHooks.onInvalidateAll = () => Promise.reject(new Error('reload failed'));
+    await captureUnhandledRejections(async () => { refreshButton(root).click(); await tick(5); });
+    expect(tab(root).querySelector('[data-boot-refresh-error]')).toBe(region);
+    expect(region.textContent).toMatch(/Couldn’t refresh/);
+  });
+  it('shows no error text when the reload succeeds', async () => {
     const { root } = await open(source());
     refreshButton(root).click(); await tick(5);
-    expect(tab(root).querySelector('[data-boot-refresh-error]')).toBeNull();
+    expect(tab(root).querySelector('[data-boot-refresh-error]')?.textContent).toBe('');
   });
 });

@@ -82,7 +82,8 @@
         <a data-boot-edit href={sourceHref} target="_blank" rel="noopener noreferrer" class={linkButton}>{canManage === false ? t('agent.boot.open-source', 'Open the source') : t('agent.boot.edit-source', 'Edit the source')}</a>
         <button type="button" onclick={refresh} disabled={refreshing} aria-busy={refreshing} class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900">{refreshing ? t('agent.boot.refreshing', 'Refreshing...') : t('agent.boot.refresh', 'Refresh')}</button>
       </div>
-      {#if refreshFailed}<p data-boot-refresh-error role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{t('agent.boot.refresh-failed', 'Couldn’t refresh. Press Refresh to try again.')}</p>{/if}
+      <!-- Always mounted: a live region that is inserted already holding its text is not reliably announced. -->
+      <p data-boot-refresh-error role="alert" class="text-sm text-red-600 dark:text-red-400" class:mt-2={refreshFailed}>{#if refreshFailed}{t('agent.boot.refresh-failed', 'Couldn’t refresh. Press Refresh to try again.')}{/if}</p>
       <BootSourceLint {agentId} nodeId={source.id} {shown} refresh={0} savedText={source.content} savedRevision={source.revision} />
     </li>
 
