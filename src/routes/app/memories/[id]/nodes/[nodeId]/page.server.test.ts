@@ -870,8 +870,11 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     }))) as { status: number };
 
     expect(result.status).toBe(409);
-    // The other edits are already saved by then, and the error says so.
-    expect(superFormFrom(result)?.errors?.loc?.[0]).toBe('Saved, but the node was not moved: Target loc is already occupied');
+    // The other edits are already saved by then, and the error says so, and
+    // where the node still is (#1989).
+    expect(superFormFrom(result)?.errors?.loc?.[0]).toBe(
+      'Saved, but the node was not moved: Target loc is already occupied. It is still at hrn:node:hadronmemory.com:portal-test:source.',
+    );
     expect(mockRequest).toHaveBeenCalledTimes(3);
     // …and it flags the partial save, so the page reloads the node (@codex on #929).
     expect((result as unknown as { data: { metaSaved?: boolean } }).data.metaSaved).toBe(true);

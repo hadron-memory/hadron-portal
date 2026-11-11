@@ -1,0 +1,194 @@
+/**
+ * #1989 — Save's move refusal must survive the reload that follows it.
+ *
+ * Settings → Edit → a new loc → Save runs updateMeta: the metadata update
+ * commits, then the move is refused (here NODE_ALREADY_EXISTS, the occupied
+ * destination a tombstone also causes). The action answers 409 with
+ * `metaSaved`, and the page reloads so it shows what was saved. In SvelteKit 2
+ * that reload drops the action's `form` (`_invalidate` rebuilds props without
+ * it), so superForm rebinds from the fresh loader form: the typed loc went back
+ * to the node's old one and the refusal disappeared. The user saw the editor
+ * "return to its old loc without a visible refusal" (Cooper's QA on #1977).
+ *
+ * This mounts the REAL page with data from the REAL loader, builds the failure
+ * with the REAL action, and models the reload as kit does it: fresh loader
+ * data through the page store, the action `form` gone.
+ *
+ * ## What this harness does and does NOT prove
+ *
+ * It proves the REFUSAL half: with the action `form` gone, the page's own alert
+ * went empty on main (red), and the page-held refusal keeps it (green).
+ *
+ * It does NOT reproduce superForm's rebind from page data. Measured: a fresh
+ * loader form with the same id and `loc: 'foo'` pushed through the page store
+ * leaves the input at the typed loc, with or without the fix — the same limit
+ * `storage-form-reseed.client.test.ts` records. So the "draft not reverted"
+ * assertion below is NOT discriminating here; the loc re-apply after the
+ * reseed is pinned by the browser QA leg the #1989 gate requires.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { flushSync } from 'svelte';
+import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { page, resetStubPage, setStubPage } from '$lib/test/stubs/app-stores';
+import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { MOVE_NODE_MUTATION, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import Page from './+page.svelte';
+import { actions, load } from './+page.server';
+
+const mockRequest = vi.fn();
+vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
+vi.mock('$lib/server/guards', () => ({ requireNonConsumer: vi.fn().mockResolvedValue(undefined) }));
+
+const NODE = {
+  id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo', name: 'Foo', revision: 4,
+  nodeType: 'info', alias: null, description: null, content: 'body', abstract: 'sum',
+  tokens: null, tags: [], seq: null, data: null, properties: null,
+  objectType: null, ownerRepo: null, role: null,
+  isRunnable: false, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
+  outgoingEdges: [], incomingEdges: [],
+  memory: { id: 'mem-A', urn: 'hrn:mem:acme.com:mem-a' },
+};
+const PARENT = {
+  canWriteMemory: true,
+  graph: { id: 'mem-A', urn: 'hrn:mem:acme.com:mem-a', name: 'Mem A', class: 'org', isEncrypted: false, schema: null },
+  graphNodes: [{ id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo', name: 'Foo', nodeType: 'info', tags: [] }],
+  isConsumerMode: false,
+  activeOrgId: 'org-1',
+  user: { id: 'u1' },
+};
+const HREF = 'http://localhost/app/memories/mem-A/nodes/leaf-pk?tab=settings';
+const OCCUPIED = Object.assign(new Error('occupied'), {
+  response: { errors: [{ message: 'A node already occupies loc taken', extensions: { code: 'NODE_ALREADY_EXISTS' } }] },
+});
+
+const mounted: Array<Mounted<Record<string, unknown>>> = [];
+beforeEach(() => {
+  mockRequest.mockReset();
+  mockRequest.mockImplementation(async (doc: string) => {
+    if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY || doc === NODE_DATA_READ_QUERY) return { node: NODE };
+    if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+    if (doc === MOVE_NODE_MUTATION) throw OCCUPIED;
+    return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
+  });
+  resetNavigationCalls();
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+});
+afterEach(() => {
+  while (mounted.length) mounted.pop()!.unmount();
+  delete navigationHooks.onInvalidateAll;
+  vi.unstubAllGlobals();
+  resetStubPage();
+  document.body.innerHTML = '';
+});
+
+async function loaderData() {
+  const data = (await load({
+    params: { id: 'mem-A', nodeId: 'leaf-pk' },
+    locals: { token: 'tok' },
+    url: new URL(HREF),
+    parent: vi.fn().mockResolvedValue(PARENT),
+  } as never)) as Record<string, unknown>;
+  return { ...PARENT, ...data };
+}
+
+async function mountSettings() {
+  setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+  const data = await loaderData();
+  page.update((p) => ({ ...p, data }));
+  const props = reactiveProps<Record<string, unknown>>({ data, form: null });
+  const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+  mounted.push(m);
+  if (!m.target.isConnected) document.body.appendChild(m.target);
+  await tick();
+  flushSync();
+  // The reload, as kit runs it: fresh loader data, and no action `form`.
+  navigationHooks.onInvalidateAll = async () => {
+    const fresh = await loaderData();
+    page.update((p) => ({ ...p, data: fresh, form: null }));
+    props.data = fresh;
+    props.form = null;
+  };
+  return m;
+}
+
+/** The real action's answer to a Save that renames the node and moves it to `loc`. */
+async function realRefusal(loc: string) {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries({ _kind: 'updateMeta', name: 'Foo renamed', nodeType: 'info', description: '', alias: '', seq: '', tags: '', loc })) fd.set(k, v);
+  const r = (await (actions as Record<string, (e: never) => Promise<unknown>>).updateMeta({
+    request: { formData: async () => fd },
+    params: { id: 'mem-A', nodeId: 'leaf-pk' },
+    locals: { token: 'tok' },
+  } as never)) as { status: number; data: Record<string, unknown> };
+  return r;
+}
+
+/** The metadata form's own alert, found by role, not by a test id main never had. */
+const metaAlert = (target: HTMLElement) =>
+  target.querySelector('form[action="?/updateMeta"] > [role="alert"]');
+
+const buttonNamed = (target: HTMLElement, label: string) =>
+  Array.from(target.querySelectorAll('button')).find((b) => b.textContent?.trim() === label);
+
+async function settle() {
+  for (let i = 0; i < 10; i++) await tick();
+  flushSync();
+}
+
+describe('a refused move after a committed Save stays visible (#1989)', () => {
+  it('the action says the edits saved, nothing moved, and where the node still is', async () => {
+    const r = await realRefusal('taken');
+    expect(r.status).toBe(409);
+    expect(r.data.metaSaved).toBe(true);
+    const errors = (r.data.form as { errors: { loc?: string[] } }).errors;
+    expect(errors.loc?.[0]).toBe(
+      'Saved, but the node was not moved: A node already occupies loc taken. It is still at hrn:node:acme.com:mem-a:foo.',
+    );
+  });
+
+  it('keeps the refusal and the typed loc across the reload that reseeds the form', async () => {
+    const m = await mountSettings();
+    buttonNamed(m.target, 'Edit')!.click();
+    flushSync();
+    const locInput = () => m.target.querySelector<HTMLInputElement>('#editLoc');
+    locInput()!.value = 'taken';
+    locInput()!.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+
+    const r = await realRefusal('taken');
+    await submitEnhancedWithResult(m.target.querySelector<HTMLFormElement>('form[action="?/updateMeta"]')!, {
+      type: 'failure', status: r.status, data: r.data,
+    });
+    await settle();
+
+    expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true); // the reload ran
+    // Not discriminating in this harness (see the header): the browser leg pins it.
+    expect(locInput()?.value).toBe('taken');
+    const alert = metaAlert(m.target);
+    expect(alert?.textContent).toContain('Saved, but the node was not moved');
+    expect(alert?.textContent).toContain('It is still at hrn:node:acme.com:mem-a:foo.');
+    expect(m.target.querySelector('[data-testid="node-loc-move-warning"]')).not.toBe(null);
+    // No follow-up write: the page issued no second move on its own.
+    expect(mockRequest.mock.calls.filter(([q]) => q === MOVE_NODE_MUTATION)).toHaveLength(1);
+  });
+
+  it('Cancel clears the kept refusal', async () => {
+    const m = await mountSettings();
+    buttonNamed(m.target, 'Edit')!.click();
+    flushSync();
+    const r = await realRefusal('taken');
+    await submitEnhancedWithResult(m.target.querySelector<HTMLFormElement>('form[action="?/updateMeta"]')!, {
+      type: 'failure', status: r.status, data: r.data,
+    });
+    await settle();
+    expect(metaAlert(m.target)).not.toBe(null);
+    buttonNamed(m.target, 'Cancel')!.click();
+    flushSync();
+    buttonNamed(m.target, 'Edit')!.click();
+    flushSync();
+    expect(metaAlert(m.target)).toBe(null);
+  });
+});
