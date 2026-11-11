@@ -155,6 +155,14 @@ describe('runs list (#478)', () => {
     expect(body).not.toContain('action="?tab=runs&amp;/run"');
   });
 
+  it('#1881: a now-empty later page keeps Previous reachable', async () => {
+    const body = await renderPage([], null, [], { flowsPage: { offset: 40, count: 0, total: 45, previousHref: '/app/apps/app-1?tab=runs&appNodesOffset=20', nextHref: null } });
+    expect(body).toContain('No flows on this page');
+    expect(body).toContain('aria-label="Flow pages"');
+    expect(body).toContain('rel="prev"');
+    expect(body).toContain('href="/app/apps/app-1?tab=runs&amp;appNodesOffset=20"');
+  });
+
   it('#1881: an actually empty App has no Flows section', async () => {
     const body = await renderPage([], null, [], { flowsPage: { offset: 0, count: 0, total: 0, previousHref: null, nextHref: null } });
     expect(body).not.toContain('Showing the first');

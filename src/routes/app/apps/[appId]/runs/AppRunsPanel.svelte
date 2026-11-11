@@ -58,7 +58,7 @@
   <!-- Flows this app can start (#483) — derived: runnable entry nodes with
        routing edges. The Run button mints a MANUAL run; payloads live on the
        node page's Test-flow panel. -->
-  {#if data.flows.length > 0 || data.flowsPage.count > 0}
+  {#if data.flows.length > 0 || data.flowsPage.total > 0}
     <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
       <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('flows.title', 'Flows')}</h2>
       <p class="mt-1 text-xs text-zinc-400">
