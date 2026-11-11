@@ -13952,11 +13952,11 @@ type Query {
   ): [AgentTask!]!
 
   """
-  #1705 — a team App's event stream (hrn:node:hadronmemory.com:specs:cor:agt:050:11), in (createdAt, id)
-  order. To read the next page pass after: the id of the last event you
-  read; the cursor is the (createdAt, id) pair, so events sharing a
-  timestamp are never skipped. since is a coarse time filter (strictly
-  after), not a continuation. limit defaults to 20 (cap 200).
+  #1705 / #3933 — a team App's event stream in (createdAt, id) order.
+  Default oldest-first: continue with after, the last event id read.
+  newestFirst: true starts at the newest end; continue older with before.
+  Both directions retain the id tie-break for equal timestamps.
+  since is a coarse time filter, not a continuation. limit defaults to 20 (cap 200).
   task.warning, task.edited and task.properties-changed are passive history (never wake, suppress a wake or count as activity); payload is {code}, changed field names only, or (task.properties-changed) the size and SHA-256 of the canonical JSON of the old and new properties, never their content.
   """
   agentTeamEvents(
@@ -13964,6 +13964,8 @@ type Query {
     The id of the last event read: the page continues strictly after it. An id that is not an event of this App is refused BAD_USER_INPUT.
     """
     after: ID
+    before: ID
+    newestFirst: Boolean
     alarmsOnly: Boolean
     appRef: ID!
 

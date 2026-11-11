@@ -8,7 +8,7 @@ describe('1935 newest-end alarms paging', () => {
     const all = Array.from({ length: 2105 }, (_, i) => ({ id: `alarm-${2105 - i}` }));
     const request = vi.fn(async (_query, vars) => {
       // Reject the old forward walk, not a timing-dependent infinite fixture.
-      if (!AGENT_ALARMS_QUERY.includes('newestFirst: true')) throw new Error('oldest-first read');
+      if (!vars.newestFirst) throw new Error('oldest-first read');
       const start = vars.before ? all.findIndex(a => a.id === vars.before) + 1 : 0;
       return { agentTeamEvents: all.slice(start, start + vars.limit) };
     });
@@ -27,10 +27,33 @@ describe('1935 newest-end alarms paging', () => {
     expect(seen).toEqual(all.map(a => a.id));
     expect(new Set(seen).size).toBe(2105);
     expect(request).toHaveBeenCalledTimes(106);
-    expect(request.mock.calls[0][1]).toEqual({ appRef: 'app', before: undefined, limit: 21 });
+    expect(request.mock.calls[0][1]).toEqual({ appRef: 'app', before: undefined, after: undefined, newestFirst: true, limit: 21 });
     expect(request.mock.calls[1][1].before).toBe('alarm-2086');
     expect(AGENT_ALARMS_QUERY).toContain('alarmsOnly: true');
-    expect(AGENT_ALARMS_QUERY).not.toContain('after:');
+    expect(AGENT_ALARMS_QUERY).toContain('before: $before');
+  });
+
+  it('Previous retraces the immediately preceding page and Newest has no further previous page', async () => {
+    const all = Array.from({ length: 65 }, (_, i) => ({ id: `alarm-${65 - i}` }));
+    const request = vi.fn(async (_query, vars) => {
+      if (vars.after) {
+        const at = all.findIndex(a => a.id === vars.after);
+        return { agentTeamEvents: all.slice(0, at).reverse().slice(0, vars.limit) };
+      }
+      const at = vars.before ? all.findIndex(a => a.id === vars.before) + 1 : 0;
+      return { agentTeamEvents: all.slice(at, at + vars.limit) };
+    });
+    const client = { request } as unknown as GraphQLClient;
+    const first = await loadAlarms(client, 'app');
+    const second = await loadAlarms(client, 'app', 'alarm-46');
+    const third = await loadAlarms(client, 'app', 'alarm-26');
+    expect(third.kind).toBe('ok');
+    if (third.kind !== 'ok') throw new Error('read failed');
+    const back = await loadAlarms(client, 'app', undefined, third.value.previousAfter!);
+    expect(back).toEqual(second);
+    const top = await loadAlarms(client, 'app', undefined, 'alarm-45');
+    expect(top).toEqual(first);
+    expect(request.mock.calls[3][1]).toMatchObject({ after: 'alarm-25', before: undefined, newestFirst: false, limit: 21 });
   });
 
   it('never turns a failed or refused older page into a complete empty page', async () => {
