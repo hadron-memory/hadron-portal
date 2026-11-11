@@ -1173,8 +1173,17 @@
     // re-latches; its own goto returned above.
     tabNavigationPending = false;
   });
+  // #1936: the templates manager guards its draft against ROUTE changes (beforeNavigate); choosing
+  // another App tab is local and never reaches that guard, so ask the same question here. The
+  // navigating choices (Runs, Templates, a pending navigation) do reach it, and ask once.
+  let templatesLeaveMessage = $state<string | null>(null);
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
+    const local = () => !(id === 'runs' || id === 'node-role-templates' || tabNavigationPending);
+    if (local() && activeTab === 'node-role-templates' && id !== activeTab && templatesLeaveMessage) {
+      if (!window.confirm(templatesLeaveMessage)) return;
+      templatesLeaveMessage = null;
+    }
     const mine = ++tabNavigation, appId = app.id, principalId = data.currentUserId;
     let ownNavigationHref: string | null = null;
     try {
@@ -2594,7 +2603,7 @@
 
   {#if activeTab === 'node-role-templates'}
     <div id="panel-node-role-templates" role="tabpanel" aria-labelledby="tab-node-role-templates" tabindex="0" class="min-w-0 focus-visible:outline-2 focus-visible:outline-indigo-500">
-      {#if data.templatesPanel}<AppNodeRoleTemplates data={data.templatesPanel} />{:else}<p role="status">{t('config.templates-loading', 'Loading templates…')}</p>{/if}
+      {#if data.templatesPanel}<AppNodeRoleTemplates data={data.templatesPanel} bind:leaveMessage={templatesLeaveMessage} />{:else}<p role="status">{t('config.templates-loading', 'Loading templates…')}</p>{/if}
     </div>
   {/if}
 
