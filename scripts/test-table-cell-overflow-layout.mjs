@@ -175,7 +175,9 @@ try {
     await target.click(); await page.getByRole('menuitem',{name:'Delete',exact:true}).click();
     const row = page.locator('tbody tr').filter({hasText:'LongConfigNameWithFortyUnbrokenCharacters1'});
     await row.getByText('Delete? This cannot be undone.',{exact:true}).waitFor();
-    const clipped = await row.locator('td').last().evaluate(td=>td.scrollWidth>td.clientWidth+1); assert.equal(clipped,false,'inline confirmation not clipped');
+    const confirmationCell = row.locator('td').last();
+    assert.equal(await confirmationCell.getByText('Delete? This cannot be undone.',{exact:true}).count(),1,'clipping oracle inspects the actual confirmation cell after reorder');
+    const clipped = await confirmationCell.evaluate(td=>td.scrollWidth>td.clientWidth+1); assert.equal(clipped,false,'inline confirmation not clipped');
     await row.getByRole('button',{name:'Cancel',exact:true}).click();
    } else if (kind === 'alarms') {
     await page.evaluate(()=>{window.copied=[]; Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async value=>window.copied.push(value)}})});
