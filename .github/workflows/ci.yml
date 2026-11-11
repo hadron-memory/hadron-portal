@@ -146,7 +146,8 @@ jobs:
 
       # #1932: full-graph Check exceeded the hosted ~2 GiB default. The
       # measured 4 GiB bound is Check-only; its preload reports sampled heap
-      # and process peak RSS in the job summary, warning above 75% heap.
+      # and process peak RSS in the job summary; either warns above 75%
+      # of the heap budget (RSS is conservative and includes native memory).
       # No files/diagnostics are excluded; failure still fails this step.
       - name: Check
         run: pnpm check

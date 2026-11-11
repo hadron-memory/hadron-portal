@@ -1,6 +1,9 @@
 /**
  * #1932: preload only the svelte-check process, not sync, pnpm or Build.
- * Main-thread heapUsed is sampled every 200 ms (transient peaks can be missed).
+ * Main-thread heapUsed is sampled every 200 ms; synchronous checking can block
+ * sampling for its entire duration, not just brief peaks. The sampled value is
+ * a lower bound, NOT the actual heap high-water mark. Peak RSS is maintained
+ * by the kernel and supplies an independent warning when sampling is blocked.
  * resourceUsage().maxRSS is the process high-water RSS, including native memory;
  * it is not the V8 heap ceiling. Neither measurement is runner-wide memory.
  * Reports on normal exit, including failed diagnostics. A fatal V8 abort may

@@ -21,6 +21,7 @@ and end-to-end gate; local Node patch versions are not claimed identical.
 | Unchanged control | 2048 MiB | 134 (V8 OOM) | 49.61 s | fatal abort, no exit-hook report | 2343608 KiB (2289 MiB) |
 | Candidate 1 | 4096 MiB | 0, 0 errors / 0 warnings | 34.26 s | 2058 / 4144 MiB (50%) | 2817408 KiB (2751 MiB) |
 | Candidate 2 | 4096 MiB | 0, 0 errors / 0 warnings | 35.28 s | 2057 / 4144 MiB (50%) | 2821048 KiB (2755 MiB) |
+| Candidate 3 (final telemetry) | 4096 MiB | 0, 0 errors / 0 warnings | 31.48 s | 2143 / 4144 MiB (52%) | 2760960 KiB (2696 MiB) |
 
 The control uses `NODE_OPTIONS=--max-old-space-size=2048 pnpm check` on the
 unchanged script, to reproduce the hosted heap ceiling rather than this local
@@ -41,12 +42,16 @@ Hosted control references (preserve failed attempts, not merely retries):
 `check-heap-peak.mjs` samples main-thread heapUsed every 200 ms and reports it
 alongside the **process** high-water RSS, both on stdout and in the CI job
 summary. RSS includes native allocations; it is neither the heap ceiling nor
-runner-wide memory. Sampling can miss brief heap peaks. A fatal V8 abort can
+runner-wide memory. Synchronous type checking can prevent all timer samples during a long phase,
+so the sampled heap value is a lower bound and can miss sustained pressure,
+not just brief peaks. Kernel peak RSS remains observable during such work. A fatal V8 abort can
 skip exit hooks, so absence of a report never means success: retain the raw
 OOM and process exit status.
 
-A GitHub warning above **75% of the heap limit** exposes later growth before
-another ceiling increase. Reporting and summary-write failures do not turn a
+A GitHub warning when either sampled heap or kernel peak process RSS exceeds
+**75% of the heap limit** exposes later growth. Comparing RSS (which includes
+native memory) with the heap budget is deliberately conservative; it is not
+a claim about V8 occupancy or the runner memory limit. Reporting and summary-write failures do not turn a
 failed checker into success; regression tests preserve nonzero exit codes,
 one main-thread report, worker silence and the warning boundary. Build's
 existing memory ceiling/report is unchanged. `check:watch` is outside this
