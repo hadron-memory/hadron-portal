@@ -137,6 +137,7 @@
   import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker, AiServiceConfig } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import type { AppTabId } from './tab-intent';
+  import AppNodeRoleTemplates from './AppNodeRoleTemplates.svelte';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
   import { reportsToOf, reportsToSortKey, teamPlacementOf } from '$lib/worker-reports-to';
@@ -1072,6 +1073,9 @@
     { id: 'keys', label: t('app.tabs.keys', 'App Keys') },
     { id: 'ai-configs', label: t('app.tabs.ai-configs', 'AI Service Configs') },
     { id: 'settings', label: 'Settings' },
+    // #1936: the former /node-role-templates page, in place. Shown to everyone who
+    // saw the old link (the page itself); writes stay gated on `canManage`.
+    { id: 'node-role-templates', label: t('config.templates', 'Node-role templates') },
     ...(!hasChatSurface ? [{ id: 'client' as TabId, label: 'Client' }] : []),
   ]);
   $effect(() => {
@@ -1181,14 +1185,27 @@
     // re-latches; its own goto returned above.
     tabNavigationPending = false;
   });
+  // #1936: the templates manager guards its draft against ROUTE changes (beforeNavigate), but a
+  // declined route change only cancels the router: this function would still select the tab and
+  // unmount the draft (LOCAL P2 D1). So the page asks first, for every way out of the tab, and
+  // clears the manager's copy of the question so its own route guard does not ask a second time.
+  // If we then do not land on the chosen tab, the question is put back with the draft.
+  let templatesLeaveMessage = $state<string | null>(null);
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
+    let asked: string | null = null;
+    if (activeTab === 'node-role-templates' && id !== activeTab && templatesLeaveMessage) {
+      if (!window.confirm(templatesLeaveMessage)) return;
+      asked = templatesLeaveMessage;
+      templatesLeaveMessage = null;
+    }
+    let landed = false;
     const mine = ++tabNavigation, appId = app.id, principalId = data.currentUserId;
     let ownNavigationHref: string | null = null;
     try {
       // A second choice supersedes an in-flight Runs navigation, including
       // a choice of a normally local tab. Its loader URL must agree as well.
-      if (id === 'runs' || tabNavigationPending) {
+      if (id === 'runs' || id === 'node-role-templates' || tabNavigationPending) {
         tabNavigationPending = true;
         const href = `/app/apps/${encodeURIComponent(appId)}?tab=${id}`;
         if (id === 'runs') {
@@ -1215,6 +1232,7 @@
         if (tabNavigationCancelled) return;
       }
       if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
+      landed = true;
       activeTab = id;
       await tick();
       if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id}`)?.focus();
@@ -1222,6 +1240,7 @@
     finally {
       if (ownNavigationHref && tabNavigationHref === ownNavigationHref) tabNavigationHref = null;
       if (mine === tabNavigation) tabNavigationPending = false;
+      if (asked && !landed && tabAlive && activeTab === 'node-role-templates') templatesLeaveMessage = asked;
     }
   }
 
@@ -2120,7 +2139,6 @@
     } finally { downloading = false; }
   }
 </script>
-<a data-sveltekit-preload-data="off" href={`/app/apps/${encodeURIComponent(data.app.id)}/node-role-templates`} class="inline-flex min-h-11 items-center text-indigo-700 underline dark:text-indigo-300">{t('config.templates', 'Node-role templates')}</a>
 
 
 <svelte:head><title>{app.name} · Apps · {org ? `${org.name} · ` : ''}Hadron</title></svelte:head>
@@ -2598,6 +2616,12 @@
   {#if activeTab === 'runs'}
     <div role="tabpanel" id="panel-runs" aria-labelledby="tab-runs" tabindex="0" class="min-w-0 focus-visible:outline-2 focus-visible:outline-indigo-500">
       {#if currentRunsPanel}<AppRunsPanel data={currentRunsPanel} {form} />{:else}<p role="status">{t('runs.loading', 'Loading runs…')}</p>{/if}
+    </div>
+  {/if}
+
+  {#if activeTab === 'node-role-templates'}
+    <div id="panel-node-role-templates" role="tabpanel" aria-labelledby="tab-node-role-templates" tabindex="0" class="min-w-0 focus-visible:outline-2 focus-visible:outline-indigo-500">
+      {#if data.templatesPanel}<AppNodeRoleTemplates data={data.templatesPanel} bind:leaveMessage={templatesLeaveMessage} />{:else}<p role="status">{t('config.templates-loading', 'Loading templates…')}</p>{/if}
     </div>
   {/if}
 

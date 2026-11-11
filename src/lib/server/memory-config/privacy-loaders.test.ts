@@ -3,7 +3,6 @@ import { error } from '@sveltejs/kit';
 import { rulesPageData, templatesPageData } from '$lib/server/memory-config/page-data';
 import { load as accountLoad } from '../../../routes/app/account/node-role-templates/+page.server';
 import { load as orgLoad } from '../../../routes/app/orgs/[id]/node-role-templates/+page.server';
-import { load as appLoad } from '../../../routes/app/apps/[appId]/node-role-templates/+page.server';
 import { load as memoryLoad } from '../../../routes/app/memories/[id]/settings/node-roles/+page.server';
 
 vi.mock('$lib/server/memory-config/page-data', () => ({
@@ -17,7 +16,6 @@ const rulesMock = vi.mocked(rulesPageData);
 const cases = [
   { name: 'account', load: accountLoad, params: {}, mock: templatesMock, args: ['USER', 'user-1'] },
   { name: 'organization', load: orgLoad, params: { id: 'org-1' }, mock: templatesMock, args: ['ORGANIZATION', 'org-1'] },
-  { name: 'App', load: appLoad, params: { appId: 'app-1' }, mock: templatesMock, args: ['APP', 'app-1'] },
   { name: 'memory', load: memoryLoad, params: { id: 'mem-1' }, mock: rulesMock, args: ['mem-1'] },
 ] as const;
 

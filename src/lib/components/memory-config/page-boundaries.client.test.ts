@@ -6,7 +6,7 @@ import { memoryConfigLifecycle, resetMemoryConfigLifecycle } from '$lib/test/mem
 import UnguardedPage from '$lib/test/fixtures/MemoryConfigUnguardedPage.svelte';
 import AccountPage from '../../../routes/app/account/node-role-templates/+page.svelte';
 import OrgPage from '../../../routes/app/orgs/[id]/node-role-templates/+page.svelte';
-import AppPage from '../../../routes/app/apps/[appId]/node-role-templates/+page.svelte';
+import AppPage from '../../../routes/app/apps/[appId]/AppNodeRoleTemplates.svelte';
 import MemoryPage from '../../../routes/app/memories/[id]/settings/node-roles/+page.svelte';
 
 vi.mock('$lib/components/memory-config/TemplatesManager.svelte', async () => ({
