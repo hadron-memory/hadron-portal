@@ -828,11 +828,15 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
-    onResult: ({ result }) => {
+    onResult: async ({ result }) => {
       if (result.type !== 'failure') isEditing = false;
       // Saved, but the move failed: keep the editor open to fix the location,
       // and reload the node so the page shows what was actually saved.
-      else if (metaSavedDespiteFailure(result)) void invalidateAll();
+      // portal#1882: AWAIT the reload. Superforms awaits onResult before it
+      // applies the result, so the failure (its message, the typed location)
+      // lands after the reload. Unawaited, the reload finished later and
+      // superforms rebound to the loader's fresh form, which erased both.
+      else if (metaSavedDespiteFailure(result)) await invalidateAll();
     },
   });
 
