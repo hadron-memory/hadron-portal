@@ -31,6 +31,14 @@ try {
       document.documentElement.classList.toggle('dark', dark);
       document.body.innerHTML = `<main class="p-6 ${dark ? 'bg-zinc-950 text-white' : 'bg-white text-zinc-900'}" id="fixture"></main>`;
     }, { css, dark });
+    if (width === 390) {
+      await page.evaluate(() => {
+        localStorage.setItem('hadron:views:v1:ai-configs', JSON.stringify([{
+          id: 'middle-actions', name: 'Middle actions', isDefault: true, listKey: 'ai-configs',
+          view: { columnOrder: ['name', 'actions', 'provider', 'model', 'endpoint', 'enabled', 'key', 'createdAt'], columnSizing: { actions: 500, name: 400 } },
+        }]));
+      });
+    }
     await page.evaluate(async mode => {
       const { mountAiConfigRows } = await import('/src/lib/test/fixtures/ai-config-row-menu-harness.ts');
       mountAiConfigRows(document.getElementById('fixture'), mode);
@@ -48,6 +56,13 @@ try {
       }));
       assert.equal(dim.content, enabled ? '1' : '0.6', `${where}: name content opacity`);
       assert.deepEqual(dim.ancestors, [], `${where}: no dimmed ancestor of the row content`);
+      if (width === 390) {
+        assert.match((await page.locator('th').allTextContents())[1], /Actions/, 'Saved order applied');
+        const scroller = page.getByTestId('data-table-scroller');
+        await scroller.evaluate(el => { el.scrollLeft = el.scrollWidth; });
+        const [viewport, action] = await Promise.all([scroller.boundingBox(), trigger.boundingBox()]);
+        assert(viewport && action && action.x >= viewport.x && action.x + action.width <= viewport.x + viewport.width, `${where}: reordered Actions remains inside scroller at far right`);
+      }
       await trigger.click();
       const edit = page.getByRole('menuitem', { name: 'Edit', exact: true });
       await edit.waitFor();
@@ -63,6 +78,13 @@ try {
       assert.equal(await nameInput.inputValue(), name, `${where}: Edit opens this row`);
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
       await nameInput.waitFor({ state: 'detached', timeout: 2000 });
+      if (width === 390) {
+        assert.match((await page.locator('th').allTextContents())[1], /Actions/, 'Saved order applied');
+        const scroller = page.getByTestId('data-table-scroller');
+        await scroller.evaluate(el => { el.scrollLeft = el.scrollWidth; });
+        const [viewport, action] = await Promise.all([scroller.boundingBox(), trigger.boundingBox()]);
+        assert(viewport && action && action.x >= viewport.x && action.x + action.width <= viewport.x + viewport.width, `${where}: reordered Actions remains inside scroller at far right`);
+      }
       await trigger.click();
       await page.getByRole('menuitem', { name: 'Delete', exact: true }).click({ timeout: 2000 });
       await row.getByText(`Delete the “${name}” configuration? This cannot be undone.`, { exact: true }).waitFor();

@@ -142,7 +142,7 @@
         <tr class="text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
           {#each headerGroup.headers as header (header.id)}
             <th
-              class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''} {header.column.id === stickyEndColumn ? 'max-sm:right-0 max-sm:z-20' : ''}"
+              class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''} {header.column.id === stickyEndColumn ? 'max-sm:left-0 max-sm:right-0 max-sm:z-20' : ''}"
               style="width: {phoneFit ? '100%' : `${header.column.id === phoneEndColumn?.id ? 170 : header.getSize()}px`};"
               tabindex={!sortButtons && header.column.getCanSort() ? 0 : undefined}
               aria-sort={header.column.getIsSorted() === 'asc' ? 'ascending' : header.column.getIsSorted() === 'desc' ? 'descending' : undefined}
@@ -195,7 +195,7 @@
           {...rowAttrs ? rowAttrs(row.original) : {}}
         >
           {#each row.getVisibleCells() as c (c.id)}
-            <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400 {c.column.id === stickyEndColumn ? 'max-sm:sticky max-sm:right-0 max-sm:bg-white max-sm:dark:bg-zinc-950 max-sm:focus-within:z-30 max-sm:has-[[role=menu]]:z-30' : ''}">
+            <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400 {c.column.id === stickyEndColumn ? 'max-sm:sticky max-sm:left-0 max-sm:right-0 max-sm:bg-white max-sm:dark:bg-zinc-950 max-sm:focus-within:z-30 max-sm:has-[[role=menu]]:z-30' : ''}">
               {@render cell(c, row.original)}
             </td>
           {/each}
