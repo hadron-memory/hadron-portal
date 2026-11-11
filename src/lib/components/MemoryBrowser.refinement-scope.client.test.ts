@@ -175,6 +175,19 @@ describe('#1930: refinement menus and the disabled-control reason', () => {
     expect(menuOpen(target)).toBe(false);
   });
 
+  it('picking Comments leaves an open Properties menu alone', async () => {
+    const target = mountBrowser();
+    const props = [...target.querySelectorAll<HTMLButtonElement>('.filter-dropdown > button')]
+      .find((b) => b.textContent?.trim().startsWith('Properties'))!;
+    props.click();
+    flushSync();
+    const panel = () => props.parentElement!.querySelector('div.absolute');
+    expect(panel()).not.toBeNull();
+    pickScope(target, 'COMMENTS');
+    await settle();
+    expect(panel()).not.toBeNull();
+  });
+
   it('selections and badge counts survive Comments and back to Content', async () => {
     const target = mountBrowser();
     choose(target, 'Tags', 'keep');
