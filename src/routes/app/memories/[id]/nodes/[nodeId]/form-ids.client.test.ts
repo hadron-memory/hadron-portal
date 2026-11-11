@@ -185,3 +185,13 @@ it('#1902 warns only for a changed location, including a manually edited one', a
   await typeMeta(target, 'editLoc', 'foo');
   expect(target.querySelector('[data-testid="node-loc-move-warning"]')).toBeNull();
 });
+
+it('#1902 a read-only reader cannot open Edit or Refresh', async () => {
+  const {target,props}=await mountPage();
+  props.data={...(props.data as Record<string,unknown>),canWriteMemory:false};await tick();flushSync();
+  const settings=[...target.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent==='Settings')!;
+  settings.click();await tick();flushSync();
+  expect(target.querySelector('#editName')).toBeNull();
+  expect(target.querySelector('[data-testid="refresh-node-loc"]')).toBeNull();
+  expect([...target.querySelectorAll('button')].some(b=>b.textContent?.trim()==='Edit')).toBe(false);
+});
