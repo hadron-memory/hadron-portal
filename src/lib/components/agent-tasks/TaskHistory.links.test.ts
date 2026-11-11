@@ -24,6 +24,17 @@ describe('TaskHistory — link values (portal#1711)', () => {
     // A refused value is still shown, as escaped text.
     expect(body).toContain('https://</code>');
     expect(body).toContain('javascript:alert(1)</code>');
+    // portal#1922 QA F2: a scheme-only spelling parses as https: but is NOT in the
+    // absolute `https://` form — on an https page the browser would resolve the
+    // raw href against the portal itself, so it is text, never a link.
+    const odd = html([
+      { ...base, id: '5', type: 'pr.frozen', payload: { head: '92bc8add2930cc83', pullRequest: 'https:example.com/rel' } },
+      { ...base, id: '6', type: 'pr.frozen', payload: { head: '92bc8add2930cc83', pullRequest: 'https:/example.com/x' } },
+    ]);
+    expect(odd).not.toContain('href="https:example.com/rel"');
+    expect(odd).not.toContain('href="https:/example.com/x"');
+    expect(odd).toContain('https:example.com/rel</code>');
+    expect(odd).toContain('https:/example.com/x</code>');
   });
 
   it('a node URN renders through the shared Urn chip, with its copy controls', () => {
@@ -32,8 +43,10 @@ describe('TaskHistory — link values (portal#1711)', () => {
     expect(body).toContain('node:');
     expect(body).toContain('Copy Pull request URN');
     expect(body).toContain('href="/app/u/hrn:node:acme.com:reviews:r-1"');
-    // Not the plain-text path: no <code> row for the value itself.
-    expect(body).not.toContain('<code class="font-mono">hrn:node:acme.com:reviews:r-1</code>');
+    // Not the plain-text path: no <code> element holds the value itself (the
+    // text path renders `class="break-all font-mono"`, so the old negative —
+    // a `class="font-mono"` code — could never match and proved nothing).
+    expect(body).not.toContain('hrn:node:acme.com:reviews:r-1</code>');
   });
 
   it('a verdict review node gets the Review-node chip label', () => {
@@ -47,6 +60,11 @@ describe('TaskHistory — link values (portal#1711)', () => {
     const body = frozen('hrn:mem:acme.com:reviews');
     expect(body).not.toContain('Copy');
     expect(body).toContain('hrn:mem:acme.com:reviews</code>');
+    // node-typed garbage: the chip needs the grammar to PARSE, not the prefix.
+    const garbage = frozen('hrn:node:not-a-urn');
+    expect(garbage).not.toContain('Copy');
+    expect(garbage).not.toContain('href="/app/u/hrn:node:not-a-urn"');
+    expect(garbage).toContain('hrn:node:not-a-urn</code>');
   });
 
   it('a 32-hex supersedes id links to the sibling seat task; a handle stays text', () => {
@@ -54,7 +72,8 @@ describe('TaskHistory — link values (portal#1711)', () => {
     const body = seat(id);
     expect(body).toContain(`href="/app/apps/a/tasks/${id}"`);
     expect(body).toContain('01234567</a>');
-    expect(body).toContain('replacing:');
+    // Capitalized like its link-row siblings (Pull request, Review node, Receipt).
+    expect(body).toContain('Replacing:');
 
     const handle = seat('blind-1');
     expect(handle).not.toContain('/tasks/');
@@ -66,6 +85,9 @@ describe('TaskHistory — link values (portal#1711)', () => {
     const body = frozen(longUrl);
     expect(body).toMatch(/<a[^>]*break-all/);
     expect(body).toMatch(/<span[^>]*min-w-0[^>]*>Pull request:/);
+    // jsdom measures nothing: the wrapping itself is pinned in real Chromium by
+    // scripts/test-task-history-links-layout.mjs (long url, long text, long
+    // node-URN chip). Here only the classes that make it wrap are pinned.
     const longUrn = `hrn:node:acme.com:${'a-very-long-loc-'.repeat(12)}:end`;
     expect(frozen(longUrn)).toContain(longUrn.slice(0, 40));
   });

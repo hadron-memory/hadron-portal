@@ -103,6 +103,11 @@ describe('portal#1711 — link values', () => {
     expect(httpsHref('data:text/plain,hello')).toBe(null);
     expect(httpsHref('/app/tasks/1')).toBe(null);
     expect(httpsHref('not a url')).toBe(null);
+    // portal#1922 QA F2: these parse as protocol https:, but they are not in the
+    // absolute `https://` form — a browser on an https page resolves the raw
+    // href against the portal itself, so they are not links.
+    expect(httpsHref('https:example.com/rel')).toBe(null);
+    expect(httpsHref('https:/example.com/x')).toBe(null);
   });
 
   it('a value is a url link, a node-urn chip, or text — url first, never both', () => {
@@ -129,7 +134,7 @@ describe('portal#1711 — link values', () => {
     expect(seatAssigned(id)).toEqual({
       known: true,
       text: 'assigned the BLIND seat at 92bc8ad',
-      links: [{ label: 'replacing', kind: 'task', value: id.slice(0, 8), id }],
+      links: [{ label: 'Replacing', kind: 'task', value: id.slice(0, 8), id }],
     });
     // A handle, a short id, uppercase, non-hex: no guessed URL, still shown.
     expect(link0(seatAssigned('blind-1'))).toMatchObject({ kind: 'text', value: 'blind-1' });
@@ -152,7 +157,7 @@ describe('portal#1711 — App action code grammar', () => {
   it.each([
     'app.acme.design-done',
     'app.acme.x-.y',   // an intermediate name part may end with a hyphen
-    'app.acme.a.b.c',  // four atoms
+    'app.acme.a.b.c',  // five atoms: three name parts on top of app and slug
     'app.a1.b2',
   ])('%s is an App action', (type) => {
     expect(known(type)).toMatchObject({ known: true });

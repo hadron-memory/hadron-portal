@@ -1,5 +1,5 @@
 import { t } from '$lib/i18n/t';
-import { parseUrnV2, UrnParseError } from '$lib/urn/parse-urn';
+import { parseUrnV2 } from '$lib/urn/parse-urn';
 import { partyName } from './status';
 import type { AgentTaskParty, AgentTeamEvent } from './types';
 
@@ -52,12 +52,18 @@ export type EventSentence =
   | { known: false; type: string };
 
 /**
- * portal#1711: a value is a web link only when it parses as a URL whose
- * protocol is exactly `https:` (the parser lowercases the scheme, so
- * `HTTPS://` stays valid). Malformed values, `https://` with no host, `http:`,
- * `javascript:`, `data:` and relative paths all fail and stay text.
+ * portal#1711: a value is a web link only when it is in the absolute `https://`
+ * form (case-insensitive, so `HTTPS://` stays valid) and parses as a URL whose
+ * protocol is exactly `https:`. The raw value is the href, verbatim — the label
+ * never lies about the target. Scheme-only spellings a URL parser still accepts
+ * (`https:example.com/…`, `https:/example.com/…`) fail the form check and stay
+ * text: on an https page the browser would resolve those hrefs against the
+ * portal itself, so the rendered target would not be what the value says (QA
+ * F2, portal#1922). Malformed values, `https://` with no host, `http:`,
+ * `javascript:`, `data:` and relative paths also fail and stay text.
  */
 export function httpsHref(value: string): string | null {
+  if (!/^https:\/\//i.test(value)) return null;
   try {
     return new URL(value).protocol === 'https:' ? value : null;
   } catch {
@@ -65,13 +71,19 @@ export function httpsHref(value: string): string | null {
   }
 }
 
-/** portal#1711: a value the v2 grammar parses as a type-`node` URN (a review node); every other value, URN or not, is text. */
+/**
+ * portal#1711: a value the v2 grammar parses as a type-`node` URN (a review
+ * node); every other value, URN or not, is text. `parseUrnV2` throws only
+ * `UrnParseError` for a string input (every throw in its grammar path is one),
+ * but the catch is total anyway: `eventSentence` promises a sentence for a
+ * malformed payload, never a throw, and that promise must not depend on the
+ * library never growing another error.
+ */
 export function isNodeUrn(value: string): boolean {
   try {
     return parseUrnV2(value).type === 'node';
-  } catch (e) {
-    if (e instanceof UrnParseError) return false;
-    throw e;
+  } catch {
+    return false;
   }
 }
 
@@ -89,6 +101,11 @@ export function isNodeUrn(value: string): boolean {
  * unknown/raw rendering (ruling 0060 tolerance).
  */
 const APP_ACTION_CODE = /^app\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9][a-z0-9-]*)+$/;
+// The whole-code end check is a separate step (not folded into the regex tail)
+// so the matcher reads as the spec sentence does — "every part starts
+// alphanumeric; an INTERMEDIATE name part may end with a hyphen; the whole
+// code ends alphanumeric" — with the intermediate-hyphen allowance visible
+// per part instead of buried in a longer tail group.
 const isAppActionCode = (code: string): boolean => code.length <= 64 && APP_ACTION_CODE.test(code) && /[a-z0-9]$/.test(code);
 
 /** A task id as the platform mints it: exactly 32 hex characters. */
@@ -112,7 +129,7 @@ function link(label: string, v: unknown): EventLink | null {
  */
 function replacingLink(v: string | null): EventLink | null {
   if (!v) return null;
-  const label = t('app.tasks.history.link.replacing', 'replacing');
+  const label = t('app.tasks.history.link.replacing', 'Replacing');
   return TASK_ID.test(v) ? { label, kind: 'task', value: v.slice(0, 8), id: v } : { label, kind: 'text', value: v };
 }
 

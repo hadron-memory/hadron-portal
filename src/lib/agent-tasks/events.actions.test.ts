@@ -27,10 +27,10 @@ describe('PR-protocol events', () => {
     expect(eventSentence(ev('review.seat.assigned', { slot: 'blind', head: HEAD, supersedes: null }))).toEqual({ known: true, text: 'assigned the blind seat at 92bc8ad' });
     expect(eventSentence(ev('review.seat.assigned', { slot: 'blind', head: HEAD, supersedes: '0123456789abcdef0123456789abcdef' }))).toEqual({
       known: true, text: 'assigned the blind seat at 92bc8ad',
-      links: [{ label: 'replacing', kind: 'task', value: '01234567', id: '0123456789abcdef0123456789abcdef' }],
+      links: [{ label: 'Replacing', kind: 'task', value: '01234567', id: '0123456789abcdef0123456789abcdef' }],
     });
     expect(eventSentence(ev('review.seat.assigned', { slot: 'blind', head: HEAD, supersedes: 'blind-1' }))).toEqual({
-      known: true, text: 'assigned the blind seat at 92bc8ad', links: [{ label: 'replacing', kind: 'text', value: 'blind-1' }],
+      known: true, text: 'assigned the blind seat at 92bc8ad', links: [{ label: 'Replacing', kind: 'text', value: 'blind-1' }],
     });
   });
 

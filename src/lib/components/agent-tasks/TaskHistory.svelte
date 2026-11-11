@@ -46,7 +46,12 @@
             {#if actor.kind === 'party'}
               <PartyLabel party={actor.party} showUrn={false} />
             {:else if actor.kind === 'run'}
-              <a href="{basePath}/runs/{actor.runId}" class="font-medium text-indigo-600 hover:underline pointer-coarse:py-4 dark:text-indigo-300">
+              <!-- portal#1711: a coarse touch target must RESERVE its space. Vertical padding on a
+                non-replaced inline anchor paints and hit-tests outside the line box without moving
+                layout, so the padded area overlaps neighbouring rows and steals their taps. An atomic
+                inline-flex box with min-h-11 grows the line box itself (the <summary> below does the
+                same), so the space is reserved and nothing is overlapped. -->
+              <a href="{basePath}/runs/{actor.runId}" class="font-medium text-indigo-600 hover:underline pointer-coarse:inline-flex pointer-coarse:items-center pointer-coarse:min-h-11 dark:text-indigo-300">
                 {t('app.tasks.history.run', 'Run {id}', { id: actor.runId.slice(0, 8) })}
               </a>
             {:else}
@@ -58,11 +63,14 @@
                 <!-- portal#1711: a value is a web url (new tab), a node URN (shared chip), a sibling seat task (in-app), or text — and a long one wraps instead of overflowing. -->
                 <span class="min-w-0 text-xs text-zinc-500 dark:text-zinc-400">{l.label}:
                   {#if l.kind === 'url'}
-                    <a href={l.value} target="_blank" rel="noopener noreferrer" class="break-all text-indigo-600 hover:underline pointer-coarse:py-4 dark:text-indigo-300">{l.value}</a>
+                    <!-- Atomic like the run link: the label span's min-w-0 lets this box shrink to
+                      the row, and break-all wraps a long receipt url INSIDE it, so the reserved
+                      min-h-11 box covers every wrapped line (measured by the layout probe). -->
+                    <a href={l.value} target="_blank" rel="noopener noreferrer" class="break-all text-indigo-600 hover:underline pointer-coarse:inline-flex pointer-coarse:items-center pointer-coarse:min-h-11 dark:text-indigo-300">{l.value}</a>
                   {:else if l.kind === 'nodeUrn'}
                     <Urn linked value={l.value} label={l.label} />
                   {:else if l.kind === 'task'}
-                    <a href={taskHref(basePath, { id: l.id })} title={l.id} class="font-mono text-indigo-600 hover:underline pointer-coarse:py-4 dark:text-indigo-300">{l.value}</a>
+                    <a href={taskHref(basePath, { id: l.id })} title={l.id} class="font-mono text-indigo-600 hover:underline pointer-coarse:inline-flex pointer-coarse:items-center pointer-coarse:min-h-11 dark:text-indigo-300">{l.value}</a>
                   {:else}
                     <code class="break-all font-mono">{l.value}</code>
                   {/if}

@@ -49,11 +49,13 @@ async function mountHistory(page, origin, css, dark) {
 /** Every anchor in the history, keyed by the kind this change owns, with its box and line count. */
 const anchors = (page) => page.evaluate(() => {
   const history = document.querySelector('[data-testid="task-history"]');
+  // Origin first (portal#1922 BLIND P3-10): an external url whose path happens to
+  // contain `/tasks/` or `/runs/` must not be misread as an in-app link.
   const kind = (a) => {
-    if (a.href.includes('/runs/')) return 'run';
-    if (a.href.includes('/tasks/')) return 'task';
-    if (a.href.includes('/app/u/hrn:')) return 'chip';
-    return 'url'; // the external https anchors (pull request, receipt)
+    if (a.origin !== location.origin) return 'url'; // the external https anchors (pull request, receipt)
+    if (a.pathname.includes('/runs/')) return 'run';
+    if (a.pathname.includes('/tasks/')) return 'task';
+    return 'chip'; // the shared Urn resolver chip (/app/u/hrn:…)
   };
   return [...history.querySelectorAll('a')].map((a) => {
     const range = document.createRange();
@@ -63,7 +65,9 @@ const anchors = (page) => page.evaluate(() => {
       kind: kind(a),
       href: a.getAttribute('href'),
       height: r.height,
+      top: r.top,
       width: r.width,
+      left: r.left,
       // One rect per rendered line for an inline anchor: >1 means the value wrapped
       // inside its anchor. (Meaningless for the inline-flex chip, excluded below.)
       lines: [...range.getClientRects()].length,
@@ -141,6 +145,61 @@ try {
         for (const c of controls) {
           assert.ok(c.height >= TARGET, `${label}: chip control ${c.name} is ${c.height}px, under ${TARGET}px`);
         }
+
+        // portal#1922 BLIND P2: height alone proves nothing — vertical padding on a
+        // non-replaced inline anchor reports (and hit-tests) 44px of PHANTOM box
+        // that overlaps neighbouring rows without layout making room for it. Three
+        // assertions a phantom target cannot pass:
+        const guards = await page.evaluate((TARGET) => {
+          const history = document.querySelector('[data-testid="task-history"]');
+          const overlaps = (r1, r2, slop = 1) =>
+            r1.left < r2.right - slop && r2.left < r1.right - slop && r1.top < r2.bottom - slop && r2.top < r1.bottom - slop;
+          const box = (el) => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }; };
+          const problems = [];
+          const interactive = [...history.querySelectorAll('a, button')];
+          // (1) No two tap targets overlap: where two boxes intersect, tree order —
+          // not the reader — decides which one gets the tap.
+          for (let i = 0; i < interactive.length; i++) {
+            for (let j = i + 1; j < interactive.length; j++) {
+              const a = interactive[i], b = interactive[j];
+              if (a.contains(b) || b.contains(a)) continue;
+              if (overlaps(box(a), box(b))) problems.push(`tap targets overlap: ${a.outerHTML.slice(0, 60)} × ${b.outerHTML.slice(0, 60)}`);
+            }
+          }
+          // (2) No anchor's box covers content it does not own. A reserved box
+          // (min-h-11 inline-flex/block) fits inside the space layout gave it;
+          // phantom padding spills over the rows above and below.
+          for (const a of history.querySelectorAll('a')) {
+            const ab = box(a);
+            for (const el of history.querySelectorAll('*')) {
+              if (el === a || a.contains(el) || el.contains(a)) continue;
+              const er = el.getBoundingClientRect();
+              if (er.width === 0 || er.height === 0) continue;
+              if (overlaps(ab, box(el))) problems.push(`anchor box covers foreign content: ${a.outerHTML.slice(0, 60)} × ${el.outerHTML.slice(0, 60)}`);
+            }
+          }
+          // (3) Every point of the reserved box hit-tests to its own anchor (the
+          // centre and ±20px of it, within the box): a target that paints under
+          // something else is not tappable there. Offsets that fall outside a
+          // target's own box are skipped — the 16px chip anchor's shortfall is the
+          // shared component's #1686 gap, not this change's.
+          for (const a of interactive) {
+            a.scrollIntoView({ block: 'center' });
+            const r = a.getBoundingClientRect();
+            const cx = r.left + r.width / 2;
+            for (const dy of [-20, 0, 20]) {
+              const y = r.top + r.height / 2 + dy;
+              if (y < r.top + 1 || y > r.bottom - 1) continue;
+              if (y < 0 || y >= innerHeight) continue;
+              const hit = document.elementFromPoint(cx, y);
+              if (hit && hit !== a && !a.contains(hit)) {
+                problems.push(`elementFromPoint steals the tap at ${dy}px off-centre of ${a.outerHTML.slice(0, 60)} (hit ${hit.outerHTML.slice(0, 60)})`);
+              }
+            }
+          }
+          return problems;
+        }, TARGET);
+        assert.deepEqual(guards, [], `${label}: coarse target guards\n  ${guards.join('\n  ')}`);
       } else {
         for (const a of measured.filter((x) => x.kind !== 'chip')) {
           const line = a.height / a.lines;
@@ -156,6 +215,15 @@ try {
       for (const a of longUrl) {
         assert.ok(a.lines > 1, `${label}: the long url rendered on ${a.lines} line(s), expected wrapping`);
       }
+      // portal#1922 BLIND P3-4: a node URN long enough to overflow is on the page
+      // (the e5 verdict), so the overflow the row would cause is MEASURED here —
+      // the global overflow assert above is the gate. How the shared chip handles
+      // the long value (truncate-by-default, wrap on reveal) is the chip's own
+      // #1686 gate, not this change's; the measured shape is printed as evidence.
+      const chips = measured.filter((x) => x.kind === 'chip');
+      assert.equal(chips.length, 2, `${label}: expected the short and long node-URN chips ${JSON.stringify(measured)}`);
+      const longChip = chips.reduce((a, b) => (a.href.length >= b.href.length ? a : b));
+      console.log(`    long node-URN chip: ${longChip.height}x${longChip.width}/${longChip.lines}L`);
       const longText = await page.evaluate(() => {
         const code = [...document.querySelectorAll('[data-testid="task-history"] code')].find((c) => c.textContent.startsWith('not-a-url-'));
         if (!code) return null;
