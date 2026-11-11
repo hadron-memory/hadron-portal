@@ -264,7 +264,9 @@
   // The acknowledged write is the newest baseline this editor knows: a retained
   // older row must not win, or a preserved draft diffs against stale fields and
   // omits an endpoint/apiStyle:null that is still needed. openEdit, openCreate
-  // and resetEditor clear savedConfig, so it never outlives its editor session.
+  // and resetEditor clear savedConfig, and a save response only lands on it
+  // while its own action is still current (#1910), so it never outlives its
+  // editor session.
   const editing = $derived(editId ? (savedConfig?.id === editId ? savedConfig : (configs.find((c) => c.id === editId) ?? null)) : null);
 
   // Keep a paged editor's source row in place, including browser Back/Forward.
@@ -703,13 +705,18 @@
             apiStyle: apiStyleInput || undefined,
           }, true);
           const saved = parseAiConfig(result.config);
-          if (saved) {
-            createdId = saved.id;
-            savedConfig = saved;
-          } else if (isCurrent(action) && formFingerprint() !== action.formFingerprint) {
-            // The write may have committed, but without a complete saved row a
-            // preserved draft cannot safely become an update. Reconcile it.
-            throw new UncertainMutationError();
+          // #1910: a late response that outlives its editor session (cancel,
+          // reopen, owner/user switch) must not seed the current editor's
+          // baseline; the refreshed row is the surviving copy of a stale write.
+          if (isCurrent(action)) {
+            if (saved) {
+              createdId = saved.id;
+              savedConfig = saved;
+            } else if (formFingerprint() !== action.formFingerprint) {
+              // The write may have committed, but without a complete saved row a
+              // preserved draft cannot safely become an update. Reconcile it.
+              throw new UncertainMutationError();
+            }
           }
         } else {
           const keyArg = resolveApiKeyAction({ removeKey: clearKey, enteredKey });
@@ -729,9 +736,13 @@
             ...(apiStyle !== undefined ? { apiStyle } : {}),
           }, true);
           const saved = parseAiConfig(result.config);
-          if (saved) savedConfig = saved;
-          else if (isCurrent(action) && formFingerprint() !== action.formFingerprint) {
-            throw new UncertainMutationError();
+          // #1910: same fence as the create path — the baseline belongs to the
+          // editor session that asked for it, not to whichever response lands last.
+          if (isCurrent(action)) {
+            if (saved) savedConfig = saved;
+            else if (formFingerprint() !== action.formFingerprint) {
+              throw new UncertainMutationError();
+            }
           }
         }
       },

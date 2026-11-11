@@ -8,6 +8,7 @@ import { managerCallbacks } from '$lib/test/ai-config-manager';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import AiServiceConfigManager from './AiServiceConfigManager.svelte';
 import { resetAiConfigRecoveryForTests } from './ai-config-recovery';
 import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
@@ -431,5 +432,65 @@ describe('AI config Delete confirm (#1020 review P2)', () => {
     button(root, 'Delete').click();
     await settle();
     expect(posts.find((p) => p.action === 'delete')).toMatchObject({ id: 'c1' });
+  });
+});
+
+describe('a late save response must not replace the replacement editor’s baseline (#1910)', () => {
+  /** The Manager mounted on reactive props, so the owner visit can change mid-test. */
+  function openReactive(props: { configs?: AiServiceConfig[] } = {}) {
+    const m = mountComponent(AiServiceConfigManager as never, reactiveProps({
+      ...managerCallbacks(), ownerType: 'ORGANIZATION', ownerId: 'o1', currentUserId: 'u1',
+      configs: props.configs ?? [], canManage: true, allowTest: true,
+    } as never) as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    return m;
+  }
+  /** update replies wait until released; everything else answers at once. */
+  function holdUpdates(): (row: AiServiceConfig) => void {
+    let release!: (row: AiServiceConfig) => void;
+    const held = new Promise<AiServiceConfig>((resolve) => { release = resolve; });
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body) as Record<string, unknown>;
+      posts.push(body);
+      if (body.action === 'update') {
+        const row = await held;
+        return { ok: true, json: async () => ({ ok: true, config: row }) } as Response;
+      }
+      const reply = body.action === 'endpoints' ? { endpoints: body.provider === 'glm' ? GLM_ENDPOINTS : [] } : { ok: true };
+      return { ok: true, json: async () => reply } as Response;
+    }));
+    return release;
+  }
+
+  it('diffs against the row the reopened editor was seeded from, not the stale save’s row', async () => {
+    const release = holdUpdates();
+    const row = config({ endpoint: 'https://fresh.example/v1' });
+    const m = openReactive({ configs: [row] });
+    await tick();
+    editRow(m.target);
+    await settle();
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://stale.example/v1');
+    button(m.target, 'Save').click();
+    await settle(); // the update is in flight, held
+    expect(posts.find((p) => p.action === 'update')).toMatchObject({ endpoint: 'https://stale.example/v1' });
+
+    // The owner visit changes while the response is in flight. The pending
+    // mutation belongs to the old visit, so the same row may be reopened now.
+    (m.props as { ownerId: string }).ownerId = 'o2';
+    await tick(3);
+    editRow(m.target); // the replacement editor, seeded from the list row
+    await settle();
+
+    release({ ...row, endpoint: 'https://stale.example/v1' }); // the old save’s late response
+    await tick(60);
+    flushSync();
+
+    button(m.target, 'Save').click(); // fields unchanged since the reopen
+    await settle();
+    const second = posts.filter((p) => p.action === 'update')[1]!;
+    // The reopened editor diffs against the row it was seeded from (endpoint
+    // unchanged ⇒ omitted). A late response that seeded the baseline instead
+    // would send endpoint: 'https://fresh.example/v1' as a spurious change.
+    expect('endpoint' in second).toBe(false);
   });
 });
