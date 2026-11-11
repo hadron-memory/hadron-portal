@@ -128,6 +128,12 @@
   // bumps actionGeneration without ending the editor, while cancel, close and
   // any (re)open end the session a save response belonged to (#1910).
   let editorSession = 0;
+  // #1984: the one way an editor session ends. A path that closes or (re)opens
+  // the editor calls this at its own position; the open paths deliberately
+  // don't go through resetEditor, which also clears error and test state.
+  function endEditorSession() {
+    editorSession++;
+  }
   let actionController: AbortController | null = null;
   let ownerKey = $state('');
   let ownerAtVisit: { ownerType: AiConfigOwnerType; ownerId: string } | null = null;
@@ -397,7 +403,7 @@
     identityController?.abort();
     identityChecking = false;
     signinHref = null;
-    editorSession++; // #1910: closing the editor ends the session a response belonged to
+    endEditorSession(); // #1910: closing the editor ends the session a response belonged to
     formOpen = false;
     editId = null;
     savedConfig = null;
@@ -620,7 +626,7 @@
   }
 
   function openCreate() {
-    editorSession++; // #1910: a reopened editor is a new session
+    endEditorSession(); // #1910: a reopened editor is a new session
     beginAction();
     resetForm();
     savedConfig = null;
@@ -633,7 +639,7 @@
     // The row is stale while its committed readback is pending. Opening it now
     // would seed a full-field update that could revert the just-saved values.
     if (mutationBlocked || mutationLocked) return;
-    editorSession++; // #1910: a reopened editor is a new session
+    endEditorSession(); // #1910: a reopened editor is a new session
     beginAction();
     resetForm();
     savedConfig = null;
