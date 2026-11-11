@@ -1876,9 +1876,59 @@ describe('#1898 follow-ups', () => {
     await settle();
     expect(button(m.target, 'Save').disabled).toBe(false);
     expect($<HTMLInputElement>(m.target, '#ac-name')!.value).toBe('fast');
-    expect(m.target.querySelector('[role="alert"]')?.textContent).toContain(status === 401 ? 'Unauthorized' : 'Forbidden');
+    expect(m.target.querySelector('[role="alert"]')?.textContent).toContain(status === 401 ? 'Sign in again to save your draft.' : 'Forbidden');
     expect(feedback(m.target).textContent).not.toContain('couldn’t confirm');
     expect(readbacks).toHaveLength(0);
+  });
+
+  it.each(['create', 'update', 'delete'])('offers pathname-only new-tab recovery only after exact %s 401', async (action) => {
+    window.history.replaceState({}, '', '/app/orgs/o1/integrations?private=synthetic#draft');
+    let refused = true;
+    stubFetch(body => body.action === action && refused
+      ? { ok: false, status: 401, body: { error: 'untrusted-upstream-text' } } : {});
+    const m = await open({ configs: action === 'create' ? [] : [config()] });
+    const alert = m.target.querySelector('[data-testid="ai-config-error-feedback"]');
+    expect(alert?.textContent?.trim()).toBe('');
+    if (action === 'create') await startCreate(m.target, 'fast');
+    else if (action === 'update') {
+      editRow(m.target); await settle();
+      set($<HTMLInputElement>(m.target, '#ac-model')!, 'new-model');
+    } else { menuDelete(m.target); await settle(); }
+    button(m.target, action === 'delete' ? 'Delete' : 'Save').click();
+    await settle();
+    expect(m.target.querySelector('[data-testid="ai-config-error-feedback"]')).toBe(alert);
+    expect(alert?.textContent).toContain('Sign in again to save your draft.');
+    expect(alert?.textContent).not.toContain('untrusted-upstream-text');
+    const link = alert?.querySelector('a');
+    expect(link?.getAttribute('href')).toBe('/signin?redirect=%2Fapp%2Forgs%2Fo1%2Fintegrations');
+    expect(link?.target).toBe('_blank');
+    expect(link?.rel.split(' ')).toContain('noopener');
+    expect(link?.textContent).toContain('Sign in');
+    expect(link?.textContent).toContain('new tab');
+    const originalInput = m.target.querySelector('#ac-model');
+    // Returning from a cancelled/successful tab does not replay or reload.
+    window.dispatchEvent(new Event('focus'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await settle();
+    expect(posts.filter(p => p.action === action)).toHaveLength(1);
+    expect(m.target.querySelector('#ac-model')).toBe(originalInput);
+    expect(alert?.querySelector('a')).toBe(link);
+    expect(readbacks).toHaveLength(0);
+    expect(navigationCalls).toHaveLength(0);
+    refused = false;
+    button(m.target, action === 'delete' ? 'Delete' : 'Save').click();
+    await settle();
+    expect(posts.filter(p => p.action === action)).toHaveLength(2);
+    expect(alert?.querySelector('a')).toBeNull();
+  });
+
+  it.each([400, 403, 404, 500])('never offers sign-in for status %i even when its text claims Unauthorized', async status => {
+    stubFetch(body => body.action === 'create'
+      ? { ok: false, status, body: { error: 'Unauthorized' } } : {});
+    const m = await open();
+    await startCreate(m.target);
+    button(m.target, 'Save').click(); await settle();
+    expect(m.target.querySelector('a[href^="/signin"]')).toBeNull();
   });
 
 });
