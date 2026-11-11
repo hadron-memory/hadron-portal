@@ -5,6 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'svelte/server';
+import { resetStubPage, setStubPage } from '$lib/test/stubs/app-stores';
 
 vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), goto: vi.fn(), beforeNavigate: () => {} }));
 vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false, version: 'test' }));
@@ -33,6 +34,23 @@ function page(data: Record<string, unknown>, form: unknown = null) {
 }
 
 describe('portal#1941', () => {
+  it.each(['alarmBefore', 'alarmAfter'])('acknowledges within the selected %s page (#1983 QA delta)', key => {
+    const cursor = 'event-page-boundary';
+    setStubPage(`http://localhost/app/apps/app-1/tasks?view=alarms&alarms=all&${key}=${cursor}`, { appId: 'app-1' });
+    try {
+      const html = page({ view: 'alarms', alarmFilter: 'all', alarms: { kind: 'ok', value: { alarms: [{ id: 'e1', type: 'stall.not-started', severity: 'ALARM', taskId: null, createdAt: '2026-11-11T10:00:00Z', subjectWorker: null, acknowledgedAt: null, acknowledgedBy: null, wakes: [] }] } } });
+      const action = html.match(/<form[^>]*action="([^"]+)/)?.[1]?.replaceAll('&amp;', '&');
+      const target = new URL(action!, 'http://localhost');
+      expect(target.pathname).toBe('/app/apps/app-1/tasks');
+      expect(target.searchParams.get('view')).toBe('alarms');
+      expect(target.searchParams.get('alarms')).toBe('all');
+      expect(target.searchParams.get(key)).toBe(cursor);
+      expect(target.searchParams.has(key === 'alarmBefore' ? 'alarmAfter' : 'alarmBefore')).toBe(false);
+      expect(target.searchParams.getAll('/acknowledgeAlarm')).toHaveLength(1);
+      expect(html).toMatch(/name="eventId"[^>]*value="e1"/);
+    } finally { resetStubPage(); }
+  });
+
   it('offers an explicit POST acknowledgement to every participant, with the server deciding permission', () => {
     const html = page({ view: 'alarms', alarms: { kind: 'ok', value: { alarms: [{ id: 'e1', type: 'stall.not-started', severity: 'ALARM', taskId: null, createdAt: '2026-11-11T10:00:00Z', subjectWorker: null, acknowledgedAt: null, acknowledgedBy: null, wakes: [] }], capped: false } } });
     expect(html).toMatch(/method="POST"/);
