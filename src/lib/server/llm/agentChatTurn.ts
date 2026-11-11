@@ -7,6 +7,7 @@ import {
 import { callAgentChatLlm, type HadronTool } from './agentChatLlm.js';
 import { publicChatError } from './chatError.js';
 import { llmModelVariable, resolveChatAi, type ChatAiResolution } from './chatAi.js';
+import { aiConfigChoiceVariable } from './aiConfigChoice.js';
 
 export { fetchAgentAIConfig } from './chatAi.js';
 
@@ -42,6 +43,9 @@ export async function runChatTurn(args: {
   appId?: string | null;
   /** Named config to run with (App chat picker). Defaults to `default`. */
   configName?: string | null;
+  /** portal#1963: the AI config choice the user made, sent with sendChatMessage so the server stores it.
+   *  Omitted when no choice was made. The welcome turn never sends it (startChat already did). */
+  aiConfigChoice?: string;
   /** Pre-fetched startChat response for the welcome turn. Omitted for
    *  regular turns — in that case we call sendChatMessage first. */
   startPayload?: {
@@ -86,7 +90,7 @@ export async function runChatTurn(args: {
         messageHistory: Array<{ role: 'user' | 'assistant'; content: string }>;
         summarizationNeeded: { messageCount: number; prompt: string } | null;
       };
-    }>(SEND_CHAT_MESSAGE_MUTATION, { chatId, userMessage, ...llmModelVariable(resolution) });
+    }>(SEND_CHAT_MESSAGE_MUTATION, { chatId, userMessage, ...llmModelVariable(resolution), ...aiConfigChoiceVariable(args.aiConfigChoice) });
     systemMessage = sendResult.sendChatMessage.systemMessage;
     tools = sendResult.sendChatMessage.tools;
     messageHistory = sendResult.sendChatMessage.messageHistory ?? [];

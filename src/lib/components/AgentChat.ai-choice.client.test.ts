@@ -31,7 +31,7 @@ function stub(stored: string | null = null) {
     bodies.push({ url: url.replace(/\?.*/, ''), body });
     const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { 'Content-Type': 'application/json' } });
     if (url.includes('/api/agent-chat/list')) {
-      return json({ chats: [{ id: 'chats:old', title: 'Old', conversationName: null, stageName: null, messageCount: 1, scope: 'private', aiConfigChoice: stored }] });
+      return json({ chats: [{ id: 'n-old', loc: 'chats:old', title: 'Old', conversationName: null, stageName: null, messageCount: 1, scope: 'private', aiConfigChoice: stored }] });
     }
     if (url.includes('/api/agent-chat/start')) {
       return json({ chatId: 'chats:c1', conversationName: 'c', stageName: 's', welcomeMessage: null, welcomeError: null, scope: 'private' });

@@ -2317,6 +2317,51 @@ export const RESOLVE_AI_SERVICE_CONFIGS_QUERY = /* GraphQL */ `
   }
 `;
 
+/**
+ * portal#1963 (hadron-server#3957, hrn:node:hadronmemory.com:specs:cor:dmo:050:10): what a chat of this App may
+ * choose its AI config from — the App's own enabled configs plus one `default` entry. Never a key, key preview,
+ * params or endpoint. Any App member; anyone else gets APP_NOT_FOUND.
+ */
+export const CHAT_AI_CONFIG_CHOICES_QUERY = /* GraphQL */ `
+  query ChatAiConfigChoices($appRef: ID!) {
+    chatAiConfigChoices(appRef: $appRef) {
+      value
+      name
+      provider
+      model
+      isDefault
+      isAppChatbotConfig
+    }
+  }
+`;
+
+/**
+ * portal#1963 (hadron-server#3957): the App's chatbot AI config id. Its own query, not APP_QUERY, so a server
+ * without the field fails this read alone and never the App page. Null for anyone who is neither a member nor
+ * whoever manages the App, and null when unset.
+ */
+export const APP_CHATBOT_AI_CONFIG_QUERY = /* GraphQL */ `
+  query AppChatbotAiConfig($ref: ID!) {
+    app(ref: $ref) {
+      id
+      chatbotAiConfigId
+    }
+  }
+`;
+
+/**
+ * portal#1963 (hadron-server#3957, hrn:node:hadronmemory.com:specs:cor:dmo:050:12): set (configId) or clear (null)
+ * the App's chatbot AI config. Whoever manages the App.
+ */
+export const SET_APP_CHATBOT_AI_CONFIG_MUTATION = /* GraphQL */ `
+  mutation SetAppChatbotAiConfig($appRef: ID!, $configId: ID) {
+    setAppChatbotAiConfig(appRef: $appRef, configId: $configId) {
+      id
+      chatbotAiConfigId
+    }
+  }
+`;
+
 export const MY_CHATS_QUERY = /* GraphQL */ `
   query MyChats($agentRef: ID!, $limit: Int, $offset: Int) {
     myChats(agentRef: $agentRef, limit: $limit, offset: $offset) {
@@ -2330,6 +2375,8 @@ export const MY_CHATS_QUERY = /* GraphQL */ `
       lastMessageAt
       scope
       createdBy
+      # portal#1963 (hadron-server#3957): the AI config choice stored with the chat, or null.
+      aiConfigChoice
     }
   }
 `;
@@ -2357,6 +2404,7 @@ export const START_CHAT_MUTATION = /* GraphQL */ `
     $scope: ChatScope
     $isTestRun: Boolean
     $llmModel: String
+    $aiConfigChoice: String
   ) {
     startChat(
       agentId: $agentId
@@ -2364,6 +2412,8 @@ export const START_CHAT_MUTATION = /* GraphQL */ `
       scope: $scope
       isTestRun: $isTestRun
       llmModel: $llmModel
+      # portal#1963 (hadron-server#3957): omitted unless the user picked one.
+      aiConfigChoice: $aiConfigChoice
     ) {
       chatId
       systemMessage
@@ -2375,8 +2425,8 @@ export const START_CHAT_MUTATION = /* GraphQL */ `
 `;
 
 export const SEND_CHAT_MESSAGE_MUTATION = /* GraphQL */ `
-  mutation SendChatMessage($chatId: String!, $userMessage: String!, $llmModel: String) {
-    sendChatMessage(chatId: $chatId, userMessage: $userMessage, llmModel: $llmModel) {
+  mutation SendChatMessage($chatId: String!, $userMessage: String!, $llmModel: String, $aiConfigChoice: String) {
+    sendChatMessage(chatId: $chatId, userMessage: $userMessage, llmModel: $llmModel, aiConfigChoice: $aiConfigChoice) {
       systemMessage
       tools
       messageHistory

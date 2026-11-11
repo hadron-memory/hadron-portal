@@ -92,3 +92,4 @@ export function llmModelVariable(resolution: ChatAiResolution | null | undefined
     ? { llmModel: resolution.ai.model }
     : {};
 }
+
