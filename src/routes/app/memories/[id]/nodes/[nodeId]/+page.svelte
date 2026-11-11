@@ -1909,6 +1909,8 @@
   const revisionsPage = $derived(revisionsPageFor !== null && revisionsPageFor === node.id ? revisionsPageState : null);
   $effect(() => {
     const p = data.revisions; // track the current navigation's promise
+    revisionRows = [];
+    revisionsFailed = false;
     revisionsLoaded = false;
     revisionsPageState = null;
     revisionsPageFor = null;

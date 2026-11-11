@@ -45,6 +45,9 @@
     runFormData.update((current) => ({ ...current, agentRef: '' }), { taint: false });
   });
   const runActionError = $derived(scopedActionError<RunAppFlowForm>(form, 'runFlow', $runMessage, $runErrors, ['entryUrn', 'agentRef', '_kind']));
+  // A native action replaces the query string. Keep the reader on the same
+  // server-paged Flow slice after either an enhanced or unenhanced POST.
+  const runAction = $derived(`?tab=runs${data.flowsPage.offset > 0 ? `&appNodesOffset=${data.flowsPage.offset}` : ''}&/run`);
 
   function prepareRun(entryUrn: string) {
     runFormData.update((current) => ({ ...current, entryUrn }), { taint: false });
@@ -96,7 +99,7 @@
               {flow.stepCount} {t('flows.steps', 'steps')}{#if flow.branchCount > 1} · {flow.branchCount} {t('flows.branches', 'branches')}{/if}
             </span>
             <!-- Click updates before Superforms client validation; submit covers keyboard/requestSubmit paths. -->
-            <form method="POST" action="?tab=runs&/run" use:runEnhance onsubmit={() => prepareRun(flow.entry.urn)} novalidate>
+            <form method="POST" action={runAction} use:runEnhance onsubmit={() => prepareRun(flow.entry.urn)} novalidate>
               <input type="hidden" name="_kind" value={$runFormData._kind} />
               <input type="hidden" name="entryUrn" value={flow.entry.urn} />
               <input type="hidden" name="agentRef" value={$runFormData.agentRef} />

@@ -143,6 +143,11 @@ describe('runs list (#478)', () => {
     expect(body).toContain('href="/app/apps/app-1?tab=runs&amp;appNodesOffset=20"');
   });
 
+  it('#1881: Run actions retain a later Flow page on native and enhanced reloads', async () => {
+    const body = await renderPage([], null, [flow], { flowsPage: { offset: 20, count: 20, total: 45, previousHref: '/app/apps/app-1?tab=runs', nextHref: '/app/apps/app-1?tab=runs&appNodesOffset=40' } });
+    expect(body).toContain('action="?tab=runs&amp;appNodesOffset=20&amp;/run"');
+  });
+
   it('#1881: zero derived flows on a populated page keeps the section and continuation reachable', async () => {
     const body = await renderPage([], null, [], { flowsPage: { offset: 0, count: 20, total: 45, previousHref: null, nextHref: '/app/apps/app-1?tab=runs&appNodesOffset=20' } });
     expect(body).toContain('No flows on this page');

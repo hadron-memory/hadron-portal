@@ -268,6 +268,11 @@ describe('paged node lists on the App page (#1881)', () => {
     expect(target.querySelector<HTMLAnchorElement>('nav[aria-label="Chat pages"] a[rel="next"]')?.getAttribute('href')).toBe('/app/apps/a1?tab=chats&chatRootsOffset=20');
   });
 
+  it('chat composers retain a later chat-root page across native and enhanced posts', async () => {
+    const target = await mountTab('chats', { data: { chatRootsPage: { offset: 20, count: 5, total: 25, previousHref: '/app/apps/a1?tab=chats', nextHref: null } } });
+    expect(target.querySelector('form[action*="postTeamChatMessage"]')?.getAttribute('action')).toContain('chatRootsOffset=20');
+  });
+
   it('a one-page list has no continuation', async () => {
     const target = await mountTab('chats', { data: { chatRootsPage: { offset: 0, count: 3, total: 3, previousHref: null, nextHref: null } } });
     expect(target.querySelector('nav[aria-label="Chat pages"] a')).toBeNull();

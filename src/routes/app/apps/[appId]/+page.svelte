@@ -1134,8 +1134,9 @@
   // The post action URL REPLACES the query string (see the comment on the
   // form), so it must carry the view too, or a non-enhanced POST would land
   // the reader back in the tab view with their place lost.
+  const chatRootsActionSlice = $derived(data.chatRootsPage?.offset > 0 ? `&chatRootsOffset=${data.chatRootsPage.offset}` : '');
   const teamChatAction = $derived(
-    `?tab=chats&chat=chats%3Ateam${chatMaximized ? '&view=full' : ''}&/postTeamChatMessage`,
+    `?tab=chats&chat=chats%3Ateam${chatRootsActionSlice}${chatMaximized ? '&view=full' : ''}&/postTeamChatMessage`,
   );
 
   // #768 — roving focus for the tab strip. Only the selected tab is in the
@@ -2517,7 +2518,7 @@
           <ChannelChatThread appId={app.id} {channelId} messages={data.selectedChannelMessages}
             total={data.selectedChannelTotal} loadError={data.selectedChannelError}
             postForm={data.postChannelMessageForm} {form} {workerUrns}
-            action={`?tab=chats&chat=${encodeURIComponent(data.selectedChatKey ?? '')}&/postChannelMessage`}
+            action={`?tab=chats&chat=${encodeURIComponent(data.selectedChatKey ?? '')}${chatRootsActionSlice}&/postChannelMessage`}
             onSubmittingChange={(submitting) => { channelPostBusy = submitting; }}
             viewState={channelViews[channelStateKey]} onViewStateChange={(view) => { channelViews[channelStateKey] = view; }}
             draft={channelDrafts[channelStateKey]} onDraftChange={(draft) => { channelDrafts[channelStateKey] = draft; }} />

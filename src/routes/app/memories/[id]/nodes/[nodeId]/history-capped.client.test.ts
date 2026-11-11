@@ -132,6 +132,8 @@ describe('History tab paging (portal#1881)', () => {
     let answerA!: (v: unknown) => void;
     m.props.data = { ...data, revisions: new Promise((r) => { answerA = r; }) };
     await settle();
+    expect(m.target.querySelectorAll('button[aria-label="Revision actions"]')).toHaveLength(0);
+    expect(m.target.querySelector('nav[aria-label="Revision pages"]')).toBeNull();
     // Node B's short history resolves first.
     m.props.data = {
       ...data,
