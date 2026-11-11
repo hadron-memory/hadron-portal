@@ -201,13 +201,13 @@ export async function callAgentChatLlm(args: {
     // the original error as a cause, and never hand it (or anything read off
     // it) to a logger: #1979 logs one closed line built from this module's own
     // vocabulary and integers, and nothing else.
-    logLlmFailure(e, {
+    logLlmFailure(e, () => ({
       stage: trace.stage,
       branch: trace.branch ?? (args.tools?.some((t) => t.name === 'respond') ? 'respond' : 'plain'),
       turn: args.messages.length === 0 ? 'welcome' : 'turn',
       provider: args.provider,
       tools: args.tools?.length ?? 0,
-    });
+    }));
     throw new ChatError('llmFailed');
   }
 }
@@ -229,7 +229,11 @@ type LlmBranch = 'plain' | 'respond';
 interface LlmTrace { stage: LlmStage; branch?: LlmBranch }
 interface LlmFailureContext { stage: LlmStage; branch: LlmBranch; turn: 'welcome' | 'turn'; provider: AIProvider; tools: number }
 
-const LOGGABLE_PROVIDERS: readonly string[] = ['anthropic', 'openai', 'glm', 'bedrock'];
+/** Every field of the line comes out of one of these lists (or an integer), never from the input. */
+export const LOGGABLE_PROVIDERS = ['anthropic', 'openai', 'glm', 'bedrock'] as const satisfies readonly AIProvider[];
+const LOGGABLE_STAGES = ['config', 'request', 'tool-output'] as const satisfies readonly LlmStage[];
+const LOGGABLE_BRANCHES = ['plain', 'respond'] as const satisfies readonly LlmBranch[];
+const LOGGABLE_TURNS = ['welcome', 'turn'] as const;
 const LOGGABLE_ANTHROPIC_TYPES: readonly string[] = [
   'invalid_request_error', 'authentication_error', 'permission_error', 'not_found_error',
   'rate_limit_error', 'api_error', 'overloaded_error',
@@ -277,23 +281,34 @@ function anthropicTypeOf(error: unknown): string | null {
   }
 }
 
-/** One closed log line. Exported for the tests; builds a fresh string, never keeps `error`. */
-export function describeLlmFailure(error: unknown, ctx: LlmFailureContext): string {
-  const status = ctx.stage === 'request' ? statusOf(error) : null;
-  const type = status === null ? null : anthropicTypeOf(error);
-  const klass = ctx.stage === 'config' ? 'config'
-    : ctx.stage === 'tool-output' ? 'unexpected-tool-output'
-    : status === null ? 'request-failed' : 'provider-status';
-  const providerIndex = LOGGABLE_PROVIDERS.indexOf(ctx.provider);
-  const provider = providerIndex >= 0 ? LOGGABLE_PROVIDERS[providerIndex] : 'unknown';
-  const tools = Number.isInteger(ctx.tools) && ctx.tools >= 0 ? ctx.tools : 0;
-  return `[agent-chat] llm turn failed class=${klass} stage=${ctx.stage} branch=${ctx.branch} turn=${ctx.turn} provider=${provider} status=${status ?? 'none'} type=${type ?? 'none'} tools=${tools}`;
+/** The allowlist's own constant when `value` is on it, else the fallback. The input is never echoed. */
+function pick<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  const i = typeof value === 'string' ? allowed.indexOf(value as T) : -1;
+  return i >= 0 ? allowed[i] : fallback;
 }
 
-/** Logging must never replace or escape the public error. */
-function logLlmFailure(error: unknown, ctx: LlmFailureContext): void {
+/** One closed log line. Exported for the tests; builds a fresh string, never keeps `error`. */
+export function describeLlmFailure(error: unknown, ctx: LlmFailureContext): string {
+  // Every context field is checked at run time, not only typed: a cast or a bug upstream must still
+  // not put an arbitrary string on the line.
+  const stage = pick(ctx.stage, LOGGABLE_STAGES, 'request');
+  const branch = pick(ctx.branch, LOGGABLE_BRANCHES, 'respond');
+  const turn = pick(ctx.turn, LOGGABLE_TURNS, 'turn');
+  const provider = pick<AIProvider | 'unknown'>(ctx.provider, [...LOGGABLE_PROVIDERS, 'unknown'], 'unknown');
+  const tools = Number.isInteger(ctx.tools) && ctx.tools >= 0 ? ctx.tools : 0;
+  const status = stage === 'request' ? statusOf(error) : null;
+  // The error.type vocabulary is Anthropic's; another provider's body may reuse a string by accident.
+  const type = status !== null && provider === 'anthropic' ? anthropicTypeOf(error) : null;
+  const klass = stage === 'config' ? 'config'
+    : stage === 'tool-output' ? 'unexpected-tool-output'
+    : status === null ? 'request-failed' : 'provider-status';
+  return `[agent-chat] llm turn failed class=${klass} stage=${stage} branch=${branch} turn=${turn} provider=${provider} status=${status ?? 'none'} type=${type ?? 'none'} tools=${tools}`;
+}
+
+/** Logging must never replace or escape the public error: the context is built inside the guard too. */
+function logLlmFailure(error: unknown, context: () => LlmFailureContext): void {
   try {
-    console.warn(describeLlmFailure(error, ctx));
+    console.warn(describeLlmFailure(error, context()));
   } catch {
     // The diagnostic is best-effort.
   }

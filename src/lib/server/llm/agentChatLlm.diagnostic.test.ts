@@ -9,7 +9,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { APICallError } from 'ai';
-import { callAgentChatLlm, describeLlmFailure } from './agentChatLlm.js';
+import { callAgentChatLlm, describeLlmFailure, LOGGABLE_PROVIDERS } from './agentChatLlm.js';
 import { CHAT_ERROR, ChatError, publicChatError } from './chatError.js';
 
 const KEY = 'sk-ant-SENTINEL-KEY-1979';
@@ -18,9 +18,9 @@ const MODEL = 'SENTINEL-MODEL-1979';
 const BODY = 'SENTINEL-BODY-1979';
 const TYPE = 'SENTINEL-TYPE-1979';
 const RID = 'SENTINEL-REQID-1979';
-const ALL_SENTINELS = [KEY, PROMPT, MODEL, BODY, TYPE, RID, 'SENTINEL', '1979 customer'];
+const ALL_SENTINELS = [KEY, PROMPT, MODEL, BODY, TYPE, RID, 'SENTINEL', 'customer says hello', 'customer', 'says', 'hello'];
 
-const LINE = /^\[agent-chat\] llm turn failed class=(config|provider-status|request-failed|unexpected-tool-output) stage=(config|request|tool-output) branch=(plain|respond) turn=(welcome|turn) provider=(anthropic|openai|glm|bedrock|unknown) status=(\d{3}|none) type=(invalid_request_error|authentication_error|permission_error|not_found_error|rate_limit_error|api_error|overloaded_error|none) tools=(\d+)$/;
+const LINE = new RegExp(String.raw`^\[agent-chat\] llm turn failed class=(config|provider-status|request-failed|unexpected-tool-output) stage=(config|request|tool-output) branch=(plain|respond) turn=(welcome|turn) provider=(` + [...LOGGABLE_PROVIDERS, 'unknown'].join('|') + String.raw`) status=(\d{3}|none) type=(invalid_request_error|authentication_error|permission_error|not_found_error|rate_limit_error|api_error|overloaded_error|none) tools=(\d+)$`);
 
 const RESPOND = { name: 'respond', description: PROMPT, parameters: { type: 'object', properties: { message: { type: 'string', description: BODY } }, required: ['message'] } };
 
@@ -59,7 +59,14 @@ function expectNoSentinel(where: unknown) {
   const text = typeof where === 'string' ? where : JSON.stringify(where) + String(where);
   for (const s of ALL_SENTINELS) expect(text).not.toContain(s);
 }
-function expectPublicUnchanged(e: unknown) {
+/** Exactly one logger call overall, with exactly one string argument: no stray line, no object to walk. */
+function expectOneStringLine() {
+  expect(captured).toHaveLength(1);
+  expect(captured[0]).toHaveLength(1);
+  expect(typeof captured[0][0]).toBe('string');
+}
+function expectPublicUnchanged(e: unknown, { logged = true }: { logged?: boolean } = {}) {
+  if (logged) expectOneStringLine();
   expect(e).toBeInstanceOf(Error);
   expect((e as Error).name).toBe('ChatError');
   expect((e as Error).message).toBe(CHAT_ERROR.llmFailed);
@@ -73,8 +80,6 @@ describe('#1979 one closed diagnostic line per failed turn', () => {
     stubFetch(providerError(status, 'invalid_request_error'));
     const e = await fail();
     expectPublicUnchanged(e);
-    expect(captured).toHaveLength(1);
-    expect(captured[0]).toHaveLength(1); // one string argument, no object for a logger to walk
     const m = LINE.exec(lines()[0]);
     expect(m, lines()[0]).not.toBeNull();
     expect(m!.slice(1)).toEqual(['provider-status', 'request', 'respond', 'turn', 'anthropic', String(status), 'invalid_request_error', '1']);
@@ -119,11 +124,32 @@ describe('#1979 one closed diagnostic line per failed turn', () => {
     const a = await fail({ provider: 'bogus' as never });
     const b = await fail({ provider: 'bedrock', apiKey: `{${KEY}` });
     expect(f).not.toHaveBeenCalled();
-    expectPublicUnchanged(a);
-    expectPublicUnchanged(b);
+    expect(captured).toHaveLength(2);
+    for (const e of [a, b]) {
+      expect((e as Error).message).toBe(CHAT_ERROR.llmFailed);
+      expect(publicChatError(e)).toEqual({ code: 'llmFailed', message: CHAT_ERROR.llmFailed, status: 500 });
+    }
     expect(LINE.exec(lines()[0])!.slice(1)).toEqual(['config', 'config', 'respond', 'turn', 'unknown', 'none', 'none', '1']);
     expect(LINE.exec(lines()[1])!.slice(1)).toEqual(['config', 'config', 'respond', 'turn', 'bedrock', 'none', 'none', '1']);
     expectNoSentinel(captured);
+  });
+
+  it.each(['openai', 'glm'] as const)('%s: a rejected call is classified by status, and its error.type is not read as Anthropic’s', async (provider) => {
+    stubFetch(providerError(401, 'invalid_request_error'));
+    const e = await fail({ provider, model: 'm' });
+    expectPublicUnchanged(e);
+    expect(LINE.exec(lines()[0])!.slice(1)).toEqual(['provider-status', 'request', 'respond', 'turn', provider, '401', 'none', '1']);
+    expectNoSentinel(captured);
+  });
+
+  it('a successful plain-branch turn logs nothing', async () => {
+    stubFetch(() => Response.json({
+      id: 'msg_1', type: 'message', role: 'assistant', model: 'm', stop_reason: 'end_turn',
+      content: [{ type: 'text', text: 'hi' }], usage: { input_tokens: 1, output_tokens: 1 },
+    }));
+    await expect(callAgentChatLlm({ provider: 'anthropic', apiKey: KEY, model: 'm', systemMessage: 's', tools: null, messages: [{ role: 'user', content: 'x' }] }))
+      .resolves.toMatchObject({ respond: { message: 'hi' } });
+    expect(captured).toEqual([]);
   });
 
   it('a successful turn and a refused provider call log nothing', async () => {
@@ -139,7 +165,7 @@ describe('#1979 one closed diagnostic line per failed turn', () => {
   it('a logger that throws cannot replace the public error', async () => {
     stubFetch(providerError(500));
     vi.spyOn(console, 'warn').mockImplementation(() => { throw new Error(`logger down ${KEY}`); });
-    expectPublicUnchanged(await fail());
+    expectPublicUnchanged(await fail(), { logged: false });
   });
 });
 
@@ -161,6 +187,25 @@ describe('#1979 describeLlmFailure never walks an arbitrary error', () => {
     expect(line).toContain('status=none');
     expect(line).toContain('type=none');
     expectNoSentinel(line);
+  });
+  it.each(['stage', 'branch', 'turn', 'provider'] as const)('a garbage %s never reaches the line', (field) => {
+    for (const bad of [KEY, `${PROMPT}\n[agent-chat] forged`, 'config extra', '', null, undefined, 7, { toString: () => KEY }]) {
+      const line = describeLlmFailure(new Error('x'), { ...ctx, [field]: bad } as never);
+      expect(line, String(field)).toMatch(LINE);
+      expectNoSentinel(line);
+      expect(line).not.toContain('\n');
+    }
+  });
+  it('a context that throws while it is built cannot replace the public error', async () => {
+    stubFetch(providerError(500));
+    // The context is read inside the logging guard: a hostile tools array throws there, not in the caller.
+    const hostileTools = new Proxy([], { get() { throw new Error(KEY); } }) as never;
+    const turn = callAgentChatLlm({ provider: 'anthropic', apiKey: KEY, model: MODEL, systemMessage: PROMPT, tools: hostileTools, messages: [{ role: 'user', content: PROMPT }] })
+      .then(() => { throw new Error('expected failure'); }, (e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(60_000);
+    const e = await turn;
+    expect((e as Error).message).toBe(CHAT_ERROR.llmFailed);
+    expect(publicChatError(e)).toEqual({ code: 'llmFailed', message: CHAT_ERROR.llmFailed, status: 500 });
   });
   it('rejects out-of-range or non-integer status values from an unknown shape', () => {
     for (const bad of [99, 600, 1.5, Number.NaN, '401', -1]) {
