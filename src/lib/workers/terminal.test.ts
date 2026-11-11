@@ -50,7 +50,7 @@ describe('labels', () => {
   it('keeps the agreed words for the common reasons', () => {
     expect(terminalReasonLabel('model_at_capacity')).toBe('Model at capacity');
     expect(terminalReasonLabel('menu_or_question')).toBe('Waiting at a menu or question');
-    // portal#1938 (Holger): "Tickers" is the official name; supersedes the portal#1495 "wake-up is the reader-facing word" ruling. A single missed wake is not a missed ticker (cor:agt:080:15).
+    // portal#1938 (Holger): "Tickers" is the official name; supersedes the portal#1495 "wake-up is the reader-facing word" ruling. A single missed wake is not a missed ticker (hrn:node:hadronmemory.com:specs:cor:agt:080:15).
     expect(terminalReasonLabel('no_turn_for_due_ticker')).toBe('Missed its ticker wake');
   });
 
