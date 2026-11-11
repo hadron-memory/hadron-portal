@@ -1,4 +1,4 @@
-import { managerCallbacks } from '$lib/test/ai-config-manager';
+import { managerCallbacks } from '$lib/test/ai-config-manager-callbacks';
 import { mount } from 'svelte';
 import AiServiceConfigManager from '$lib/components/AiServiceConfigManager.svelte';
 import type { AiServiceConfig } from '$lib/types';

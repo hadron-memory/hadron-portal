@@ -355,3 +355,20 @@ describe('task loader: Review section (portal#1697)', () => {
     expect(r.task).toMatchObject({ id: 't1' });
   });
 });
+
+// #1935: constant-size cursors avoid growing a URL with every visited page.
+it('1935 continues one direction only and exposes links without a growing trail', async () => {
+  request.mockImplementation(async (q: string) => {
+    if (q === AGENT_TASKS_APP_QUERY) return { app };
+    if (q === AGENT_ALARMS_QUERY) return { agentTeamEvents: Array.from({ length: 21 }, (_, i) => ({ id: `a${i}`, taskId: null })) };
+    throw new Error('unexpected request');
+  });
+  const r = await loadBoard('?view=alarms&alarms=all&alarmBefore=second');
+  expect(request).toHaveBeenCalledWith(AGENT_ALARMS_QUERY, { appRef: 'app-1', before: 'second', after: undefined, newestFirst: true, limit: 21 });
+  expect(r.alarmPaging).toEqual({
+    previousHref: '/app/apps/app-1/tasks?view=alarms&alarms=all&alarmAfter=a0',
+    nextHref: '/app/apps/app-1/tasks?view=alarms&alarms=all&alarmBefore=a19' });
+  const first = await loadBoard('?view=alarms');
+  expect(first.alarmPaging).toMatchObject({ previousHref: null });
+  await expect(loadBoard('?view=alarms&alarmBefore=x&alarmAfter=y')).rejects.toMatchObject({ status: 400 });
+});
