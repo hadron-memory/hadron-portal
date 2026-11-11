@@ -149,3 +149,98 @@ describe('V74: Node Types and Tags under each content scope (portal#1058)', () =
     expect(rowNames(target)).not.toContain('Beta');
   });
 });
+
+// portal#1930 (F3/F4 from #1928's blind review; Uma's UX decision 6787706001).
+describe('#1930: refinement menus and the disabled-control reason', () => {
+  const HINT = 'Node Types and Tags filter content, not comments. Your selections are kept for Content.';
+  const menuOpen = (target: HTMLElement) => target.querySelectorAll('.filter-dropdown label input').length > 0;
+  const hint = (target: HTMLElement) => target.querySelector<HTMLElement>('#refinement-off-hint');
+  const scopeSelect = (target: HTMLElement) => target.querySelector<HTMLSelectElement>('[data-testid="scope-filter"]')!;
+
+  it.each([
+    ['Node Types', 'CONTENT'],
+    ['Node Types', 'ALL'],
+    ['Tags', 'CONTENT'],
+    ['Tags', 'ALL'],
+  ] as const)('a %s menu open when Comments is picked stays closed on return to %s', async (label, back) => {
+    const target = mountBrowser();
+    refinement(target, label).click();
+    flushSync();
+    expect(menuOpen(target)).toBe(true);
+    pickScope(target, 'COMMENTS');
+    await settle();
+    expect(menuOpen(target)).toBe(false);
+    pickScope(target, back);
+    await settle();
+    expect(menuOpen(target)).toBe(false);
+  });
+
+  it('picking Comments leaves an open Properties menu alone', async () => {
+    const target = mountBrowser();
+    const props = [...target.querySelectorAll<HTMLButtonElement>('.filter-dropdown > button')]
+      .find((b) => b.textContent?.trim().startsWith('Properties'))!;
+    props.click();
+    flushSync();
+    const panel = () => props.parentElement!.querySelector('div.absolute');
+    expect(panel()).not.toBeNull();
+    pickScope(target, 'COMMENTS');
+    await settle();
+    expect(panel()).not.toBeNull();
+  });
+
+  it('selections and badge counts survive Comments and back to Content', async () => {
+    const target = mountBrowser();
+    choose(target, 'Tags', 'keep');
+    choose(target, 'Node Types', 'info');
+    pickScope(target, 'COMMENTS');
+    await settle();
+    expect(refinement(target, 'Tags').textContent).toMatch(/Tags\s*1/);
+    expect(refinement(target, 'Node Types').textContent).toMatch(/Node Types\s*1/);
+    pickScope(target, 'CONTENT');
+    await settle();
+    expect(refinement(target, 'Tags').textContent).toMatch(/Tags\s*1/);
+    expect(refinement(target, 'Node Types').textContent).toMatch(/Node Types\s*1/);
+    expect(rowNames(target)).toEqual(['Alpha']);
+  });
+
+  it('under Comments a visible hint describes both disabled controls and the Show select, with no title', async () => {
+    const target = mountBrowser();
+    pickScope(target, 'COMMENTS');
+    await settle();
+    const p = hint(target);
+    expect(p).not.toBeNull();
+    expect(p!.textContent?.trim()).toBe(HINT);
+    for (const el of [refinement(target, 'Node Types'), refinement(target, 'Tags'), scopeSelect(target)]) {
+      const ids = (el.getAttribute('aria-describedby') ?? '').split(/\s+/);
+      expect(ids).toContain('refinement-off-hint');
+    }
+    expect(refinement(target, 'Node Types').hasAttribute('title')).toBe(false);
+    expect(refinement(target, 'Tags').hasAttribute('title')).toBe(false);
+  });
+
+  it.each(['CONTENT', 'ALL'])('under %s there is no hint and nothing points at one', async (scope) => {
+    const target = mountBrowser();
+    pickScope(target, scope);
+    await settle();
+    expect(hint(target)).toBeNull();
+    expect(target.querySelector('[aria-describedby~="refinement-off-hint"]')).toBeNull();
+  });
+
+  it('under Comments with neither refinement control rendered, no hint is shown', async () => {
+    const props = reactiveProps<Record<string, unknown>>({ nodes: [{ ...ALPHA, tags: [] }], basePath: '/app/memories/mem-1', forcedView: 'nodes', refreshKey: 0 });
+    const m = mountComponent(MemoryBrowser as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    pickScope(m.target, 'COMMENTS');
+    await settle();
+    expect(hint(m.target)).toBeNull();
+    expect(m.target.querySelector('[aria-describedby~="refinement-off-hint"]')).toBeNull();
+  });
+
+  it('picking Comments leaves focus on the Show select', async () => {
+    const target = mountBrowser();
+    scopeSelect(target).focus();
+    pickScope(target, 'COMMENTS');
+    await settle();
+    expect(document.activeElement).toBe(scopeSelect(target));
+  });
+});

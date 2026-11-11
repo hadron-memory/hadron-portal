@@ -797,9 +797,22 @@
   // results. Under Comments the two controls are disabled (a choice made under
   // Content is kept, not applied); under All they filter only the content rows.
   const refinementsOff = $derived(contentScope === 'COMMENTS');
+  // portal#1930 (Uma 6787706001): the reason is visible page text, not a
+  // hover title, and only when there is a disabled control for it to explain.
+  const refinementHintShown = $derived(refinementsOff && (availableNodeTypes.length > 1 || availableTags.length > 0));
+  const refinementHintId = $derived(refinementHintShown ? 'refinement-off-hint' : undefined);
 
   // Dropdown open state
   let openDropdown = $state<'memory' | 'type' | 'tags' | 'fields' | 'properties' | null>(null);
+  // portal#1930: entering Comments CLOSES an open Node Types/Tags menu, not
+  // just hides it, so it doesn't reopen on its own when the scope changes
+  // back. Other menus are left alone.
+  $effect(() => {
+    if (!refinementsOff) return;
+    untrack(() => {
+      if (openDropdown === 'type' || openDropdown === 'tags') openDropdown = null;
+    });
+  });
 
   function toggleDropdown(d: 'memory' | 'type' | 'tags' | 'fields' | 'properties') {
     openDropdown = openDropdown === d ? null : d;
@@ -1147,7 +1160,7 @@
     {#if availableNodeTypes.length > 1}
       <div class="relative filter-dropdown">
         <button onclick={() => toggleDropdown('type')} disabled={refinementsOff}
-          title={refinementsOff ? t('memory-browser.refinement-content-only', 'Node type and tag filters apply to content, not comments') : undefined}
+          aria-describedby={refinementHintId}
           class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50
             {activeNodeTypes.size > 0 ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600'}">
           Node Types {#if activeNodeTypes.size > 0}<span class="rounded-full bg-indigo-500 px-1.5 text-[10px] text-white">{activeNodeTypes.size}</span>{/if}
@@ -1174,7 +1187,7 @@
     {#if availableTags.length > 0}
       <div class="relative filter-dropdown">
         <button onclick={() => toggleDropdown('tags')} disabled={refinementsOff}
-          title={refinementsOff ? t('memory-browser.refinement-content-only', 'Node type and tag filters apply to content, not comments') : undefined}
+          aria-describedby={refinementHintId}
           class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50
             {activeTags.size > 0 ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600'}">
           Tags {#if activeTags.size > 0}<span class="rounded-full bg-indigo-500 px-1.5 text-[10px] text-white">{activeTags.size}</span>{/if}
@@ -1368,7 +1381,7 @@
     <!-- portal#1174: a bare "Content" beside "Node Types" read as a second type filter; name what it is. One label wraps both so they never split across lines, and the select takes its accessible name from the visible word (an aria-label would override it, WCAG 2.5.3). -->
     <label class="inline-flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
       <span>{t('memory-browser.scope-label', 'Show')}</span>
-    <select bind:value={contentScope} id="scope-filter" data-testid="scope-filter"
+    <select bind:value={contentScope} id="scope-filter" data-testid="scope-filter" aria-describedby={refinementHintId}
       class="rounded-lg border px-2 py-1.5 text-xs
         {contentScope !== 'CONTENT' ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400'}">
       <option value="CONTENT">{t('memory-browser.scope.content', 'Content')}</option>
@@ -1483,6 +1496,9 @@
         {#if serverResults !== null}{searchedNodes.length} result{searchedNodes.length === 1 ? '' : 's'}{:else}{searchedNodes.length}{searchedNodes.length !== displayTotal ? ` / ${displayTotal}` : ''}{/if}
       </span>
     </div>
+    {#if refinementHintShown}
+      <p id="refinement-off-hint" class="basis-full text-xs leading-snug text-zinc-500 dark:text-zinc-400">{t('memory-browser.refinement-content-only-hint', 'Node Types and Tags filter content, not comments. Your selections are kept for Content.')}</p>
+    {/if}
   </div>
 
   <!-- Search status: server error (red) or a degrade note (amber, e.g. fuzzy
