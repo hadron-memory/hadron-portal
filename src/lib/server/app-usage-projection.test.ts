@@ -34,10 +34,12 @@ describe('token use server view #1908', () => {
     const c = client({ whatIf: { ...projection, whatIf: { adjusted: [], target: null } } });
     const v = await run(c, 'add=2');
     expect(c.request.mock.calls[2][1]).toMatchObject({ whatIf: { addWorkers: 2 } });
+    expect(v.kind === 'ok' && v.question).toEqual({kind:'add',count:2});
     expect(v.kind === 'ok' && v.whatIf?.kind === 'ok' && v.whatIf.value.whatIf?.adjusted).toEqual([]);
   });
   it('move resolves worker and target from lists and sends all identity dimensions', async () => {
-    const c = client(); await run(c, new URLSearchParams({ move: 'Ruth', to: accountKey(b) }).toString());
+    const c = client(); const v = await run(c, new URLSearchParams({ move: 'Ruth', to: accountKey(b) }).toString());
+    expect(v.kind === 'ok' && v.question).toEqual({kind:'move',worker:'Ruth',targetKey:accountKey(b)});
     expect(c.request.mock.calls[2][1]).toMatchObject({ whatIf: { moveWorker: { worker: 'Ruth', toAccount: 'shared', toHost: 'two', toFamily: 'codex' } } });
   });
   it.each(['add=0', 'add=51', 'add=1.1', 'add=NaN', 'add=2&move=Ruth', 'move=NotListed&to=bad', 'account=unlisted&add=2', 'add=2&add=3'])('never sends a what-if for invalid URL choices: %s', async q => {

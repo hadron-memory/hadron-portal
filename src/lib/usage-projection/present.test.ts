@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import Windows from '$lib/components/usage/UsageWindows.svelte';
-import { percent, reasonText, snapshotAge } from './present';
+import { percent, range, reasonText, snapshotAge } from './present';
 const window = { window: 'FIVE_HOUR', lengthMinutes: 300, status: 'PROJECTED', reason: null, usedPct: 20, lowPctAtReset: 40, highPctAtReset: 60, ceilingPct: 85, resetsAt: '2026-11-11T04:00:00Z', observedAt: '2026-11-11T01:00:00Z', confidence: 'HIGH', shape: 'FLAT', burn: { lowPctPerHour: 3, highPctPerHour: 4 }, perWorkerBurn: { lowPctPerHour: 1, highPctPerHour: 2 }, runsOutAt: null };
 const html = (over = {}) => render(Windows, { props: { windows: [{ ...window, ...over }] as never } }).body;
 it('server ranges pass through (no extrapolation)', () => {
@@ -41,4 +41,11 @@ it('both what-if accounts, list-only pickers and distinct read states render', a
   const hidden=show({kind:'hidden'}), failed=show({kind:'failed'}), empty=show({...view,accounts:[], selected:null, projection:null,whatIf:null,complete:true});
   expect(hidden).toContain('not shown to you');expect(hidden).not.toContain('No usage history');expect(hidden).not.toContain('try again');
   expect(failed).toContain('could not be loaded');expect(empty).toContain('No usage history');
+});
+
+it('collapses equal displayed range ends and sub-1 ranges without changing numbers', () => {
+  expect(range(33.6, 34.4)).toBe('34%');
+  expect(range(0.2, 0.8)).toBe('<1%');
+  expect(range(0, 0)).toBe('0%');
+  expect(range(40, 60)).toBe('40–60%');
 });
