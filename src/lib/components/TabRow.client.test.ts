@@ -121,4 +121,19 @@ describe('bounded tab row', () => {
     expect(ordinary.className).toContain('whitespace-nowrap');
     expect(ordinary.className).toContain('shrink-0');
   });
+  it.each(['tabs', 'links'] as const)('#1994 %s More items wrap without losing focus/touch/role classes', async mode => {
+    const {target}=setup(mode);await tick(4);
+    target.querySelector<HTMLButtonElement>('[aria-haspopup=menu]')!.click();await tick(4);
+    const choices=[...target.querySelectorAll<HTMLElement>('[role=menuitem]')];
+    expect(choices.length).toBeGreaterThan(0);
+    for(const choice of choices){
+      expect(choice.classList.contains('whitespace-normal')).toBe(true);
+      expect(choice.classList.contains('break-words')).toBe(true);
+      expect(choice.classList.contains('whitespace-nowrap')).toBe(false);
+      expect(choice.classList.contains('pointer-coarse:min-h-11')).toBe(true);
+      expect(choice.classList.contains('focus:bg-zinc-100')).toBe(true);
+      expect(choice.getAttribute('tabindex')).toBe('-1');
+    }
+  });
+
 });
