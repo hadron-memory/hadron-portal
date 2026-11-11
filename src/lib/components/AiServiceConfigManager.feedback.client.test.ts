@@ -9,7 +9,7 @@ import {
 } from '$lib/test/stubs/app-navigation';
 import AiServiceConfigSection from './AiServiceConfigSection.svelte';
 import AiServiceConfigManager from './AiServiceConfigManager.svelte';
-import { managerCallbacks } from '$lib/test/ai-config-manager';
+import { managerCallbacks } from '$lib/test/ai-config-manager-callbacks';
 import { resetAiConfigRecoveryForTests } from './ai-config-recovery';
 import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 import type { AiServiceConfig } from '$lib/types';

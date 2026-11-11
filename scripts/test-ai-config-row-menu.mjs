@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
+import { assertActionAtScrollEdges } from './lib/ai-config-browser.mjs';
 
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, plugins: [{
   name: 'ai-config-navigation-stub', enforce: 'pre',
@@ -40,10 +41,10 @@ try {
         }]));
       });
     }
-    await page.evaluate(async mode => {
+    await page.evaluate(async ({ mode, longName }) => {
       const { mountAiConfigRows } = await import('/src/lib/test/fixtures/ai-config-row-menu-harness.ts');
-      mountAiConfigRows(document.getElementById('fixture'), mode === 'long-name' ? 'enabled' : mode, mode === 'long-name' ? 'x' + '_'.repeat(63) : undefined);
-    }, mode);
+      mountAiConfigRows(document.getElementById('fixture'), mode === 'long-name' ? 'enabled' : mode, mode === 'long-name' ? longName : undefined);
+    }, { mode, longName });
     for (const [name, enabled] of targets) {
       const where = `${label}/${name}`;
       const trigger = page.getByRole('button', { name: `Actions for ${name}`, exact: true });
@@ -57,13 +58,7 @@ try {
       }));
       assert.equal(dim.content, enabled ? '1' : '0.6', `${where}: name content opacity`);
       assert.deepEqual(dim.ancestors, [], `${where}: no dimmed ancestor of the row content`);
-      if (width === 390) {
-        assert.match((await page.locator('th').allTextContents())[1], /Actions/, 'Saved order applied');
-        const scroller = page.getByTestId('data-table-scroller');
-        await scroller.evaluate(el => { el.scrollLeft = el.scrollWidth; });
-        const [viewport, action] = await Promise.all([scroller.boundingBox(), trigger.boundingBox()]);
-        assert(viewport && action && action.x >= viewport.x && action.x + action.width <= viewport.x + viewport.width, `${where}: reordered Actions remains inside scroller at far right`);
-      }
+      if (width === 390) await assertActionAtScrollEdges(page, trigger, where);
       await trigger.click();
       const edit = page.getByRole('menuitem', { name: 'Edit', exact: true });
       await edit.waitFor();
@@ -79,18 +74,12 @@ try {
       assert.equal(await nameInput.inputValue(), name, `${where}: Edit opens this row`);
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
       await nameInput.waitFor({ state: 'detached', timeout: 2000 });
-      if (width === 390) {
-        assert.match((await page.locator('th').allTextContents())[1], /Actions/, 'Saved order applied');
-        const scroller = page.getByTestId('data-table-scroller');
-        await scroller.evaluate(el => { el.scrollLeft = el.scrollWidth; });
-        const [viewport, action] = await Promise.all([scroller.boundingBox(), trigger.boundingBox()]);
-        assert(viewport && action && action.x >= viewport.x && action.x + action.width <= viewport.x + viewport.width, `${where}: reordered Actions remains inside scroller at far right`);
-      }
+      if (width === 390) await assertActionAtScrollEdges(page, trigger, where);
       await trigger.click();
       await page.getByRole('menuitem', { name: 'Delete', exact: true }).click({ timeout: 2000 });
       const question = row.getByText(`Delete the “${name}” configuration? This cannot be undone.`, { exact: true });
       await question.waitFor();
-      const container = width === 390 ? page.getByTestId('data-table-scroller') : question.locator('xpath=ancestor::td');
+      const container = width === 390 ? page.getByTestId('data-table-scroller') : question.locator('xpath=ancestor::td[1]');
       const [viewport, text] = await Promise.all([container.boundingBox(), question.boundingBox()]);
       assert(viewport && text && text.x >= viewport.x && text.x + text.width <= viewport.x + viewport.width, `${where}: full named confirmation fits inside its available column`);
       assert(await question.evaluate(el => el.scrollWidth <= el.clientWidth + 1), `${where}: full name wraps without hidden text`);
