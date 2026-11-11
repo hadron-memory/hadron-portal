@@ -11,6 +11,7 @@ import AiServiceConfigSection from './AiServiceConfigSection.svelte';
 import AiServiceConfigManager from './AiServiceConfigManager.svelte';
 import { managerCallbacks } from '$lib/test/ai-config-manager';
 import { resetAiConfigRecoveryForTests } from './ai-config-recovery';
+import { page as stubPage, resetStubPage } from '$lib/test/stubs/app-stores';
 import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 import type { AiServiceConfig } from '$lib/types';
 
@@ -20,6 +21,8 @@ type Reply = { ok?: boolean; status?: number; body?: Record<string, unknown> | n
 const mounted: Array<Mounted<Props>> = [];
 let posts: Array<Record<string, unknown>>;
 let readbacks: string[];
+let principalReply: Reply;
+let principalReads: number;
 let readbackSignals: Array<AbortSignal | undefined>;
 
 function response(reply: Reply): Response {
@@ -35,6 +38,7 @@ function stubFetch(
   readback: (url: string, signal?: AbortSignal) => Reply | Promise<Reply> = () => ({ body: { configs: [] } }),
 ) {
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string; signal?: AbortSignal }) => {
+    if (url === '/api/ai-configs?principal=1') { principalReads++; return response(principalReply); }
     if (url.startsWith('/api/ai-configs?') && init?.method !== 'POST') {
       readbacks.push(url);
       readbackSignals.push(init?.signal);
@@ -53,6 +57,9 @@ function stubFetch(
 beforeEach(() => {
   resetAiConfigRecoveryForTests();
   posts = [];
+  resetStubPage();
+  principalReads = 0;
+  principalReply = { body: { principal: { principalType: 'USER', userId: 'u1', appId: null } } };
   readbacks = [];
   readbackSignals = [];
   resetNavigationCalls();
@@ -1964,6 +1971,46 @@ describe('#1898 follow-ups', () => {
     expect(next.target.querySelector('#ac-key')).toBeNull();
     expect(next.target.querySelector('a[href^="/signin"]')).toBeNull();
     expect(posts.filter(p => p.action === 'create')).toHaveLength(1);
+  });
+
+  it.each(['focus', 'retry'])('drops the original principal draft on %s when another tab changed the cookie user', async trigger => {
+    stubFetch(body => body.action === 'create' ? { ok: false, status: 401 } : {});
+    const m = await open(); await startCreate(m.target);
+    button(m.target, 'Save').click(); await settle();
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(1);
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
+    if (trigger === 'focus') window.dispatchEvent(new Event('focus'));
+    else button(m.target, 'Save').click();
+    await settle();
+    expect(principalReads).toBeGreaterThan(0);
+    expect(m.target.querySelector('#ac-key')).toBeNull();
+    expect(m.target.textContent).toContain('Your sign-in or selected context changed. The draft was discarded.');
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(1);
+    expect(m.target.querySelector('a[href^="/signin"]')).toBeNull();
+  });
+
+  it.each(['activeOrgId', 'appId'])('discards the same-user draft when selected %s changes', async field => {
+    stubPage.update(p => ({ ...p, data: { activeOrgId: 'o1' }, params: { appId: 'a1' } }));
+    const m = await open(); await startCreate(m.target);
+    stubPage.update(p => field === 'activeOrgId'
+      ? { ...p, data: { activeOrgId: 'o2' } }
+      : { ...p, params: { appId: 'a2' } });
+    await settle();
+    expect(m.target.querySelector('#ac-key')).toBeNull();
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
+  });
+
+  it('keeps an anonymous draft on focus and blocks unknown identity reads without writing', async () => {
+    const m = await open(); await startCreate(m.target);
+    principalReply = { body: { principal: null } };
+    window.dispatchEvent(new Event('focus')); await settle();
+    expect($<HTMLInputElement>(m.target, '#ac-key')?.value).toBe('synthetic-key');
+    principalReply = { ok: false, status: 503, body: { error: 'untrusted' } };
+    button(m.target, 'Save').click(); await settle();
+    expect(m.target.textContent).toContain('Unable to verify your sign-in. Try again.');
+    expect($<HTMLInputElement>(m.target, '#ac-key')?.value).toBe('synthetic-key');
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
+    expect(m.target.textContent).not.toContain('untrusted');
   });
 
 });
