@@ -132,8 +132,8 @@ describe('alarms', () => {
     expect(page(alarms([a('e2', { acknowledgedAt: '2026-10-15T11:00:00Z' })]))).toContain('No open alarms.');
   });
 
-  it('a capped walk says newer alarms may be missing; a failure is an alert', () => {
-    expect(page(alarms([a('e1')], 'open', true))).toContain('Showing the first 2000 alarms');
+  it('1935 removes the obsolete walk-cap notice; a failure is an alert', () => {
+    expect(page(alarms([a('e1')], 'open', true))).not.toContain('Showing the first 2000 alarms');
     expect(page({ view: 'alarms', alarms: { kind: 'failed' } })).toContain('Couldn’t load alarms.');
   });
 });
