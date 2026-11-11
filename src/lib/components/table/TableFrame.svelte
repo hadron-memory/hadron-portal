@@ -40,9 +40,9 @@
   let toggleEl = $state<HTMLButtonElement>();
   let panelEl = $state<HTMLDivElement>();
 
-  // The toggle hides itself while the panel is open and the panel's Hide hides
-  // the panel, so each move hands keyboard focus to the surviving control
-  // instead of dropping it to <body>.
+  // The original toggle and the panel's Hide both close the panel, so each
+  // move hands keyboard focus to the destination control instead of dropping
+  // it to <body>.
   async function setOpen(next: boolean) {
     open = next;
     await tick();
@@ -58,8 +58,8 @@
     aria-expanded={open}
     aria-controls={panelId}
     bind:this={toggleEl}
-    onclick={() => setOpen(true)}
-    class="mb-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-zinc-400 dark:hover:bg-zinc-800 {open ? 'hidden' : ''}"
+    onclick={() => setOpen(!open)}
+    class="mb-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-zinc-400 dark:hover:bg-zinc-800"
   >
     <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4">
       <path d="M3 5a1 1 0 0 1 1-1h12a1 1 0 0 1 .8 1.6L12 12v4a1 1 0 0 1-1.45.9l-2-1A1 1 0 0 1 8 15v-3L3.2 5.6A1 1 0 0 1 3 5Z" />

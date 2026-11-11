@@ -51,8 +51,7 @@ describe('TableFrame (#1021)', () => {
   });
 
   it('closes and reopens through the original toggle without losing filter state or focus', async () => {
-    const { q, target } = mountFrame();
-    document.body.appendChild(target); // focus() needs an attached tree
+    const { q } = mountFrame();
     const toggle = q('table-header-toggle');
     const search = q('search') as HTMLInputElement;
     search.value = 'Alpha';
