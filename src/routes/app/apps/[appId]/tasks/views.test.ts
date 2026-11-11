@@ -31,6 +31,17 @@ function page(data: Record<string, unknown>) {
   } as never).body.replace(/<!--[\s\S]*?-->/g, ''); // Ignore Svelte snippet anchors; they are not visible link text.
 }
 
+describe('portal#1941', () => {
+  it('offers an explicit POST acknowledgement to every participant, with the server deciding permission', () => {
+    const html = page({ view: 'alarms', alarms: { kind: 'ok', value: { alarms: [{ id: 'e1', type: 'stall.not-started', severity: 'ALARM', taskId: null, createdAt: '2026-11-11T10:00:00Z', subjectWorker: null, acknowledgedAt: null, acknowledgedBy: null, wakes: [] }], capped: false } } });
+    expect(html).toMatch(/method="POST"/);
+    expect(html).toContain('?/acknowledgeAlarm');
+    expect(html).toMatch(/name="eventId"[^>]*value="e1"/);
+    expect(html).toContain('Acknowledge');
+    expect(html).not.toContain('This view is read-only.');
+  });
+});
+
 describe('sub-navigation', () => {
   // portal#1090: Roster and Alarms stay read-only; their line says so.
   it('roster and alarms are read-only: no form, no write button, and a line that says so', () => {
