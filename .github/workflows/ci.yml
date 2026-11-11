@@ -144,6 +144,10 @@ jobs:
       - name: Check stacked memory picker layout
         run: pnpm test:stacked-memory-layout
 
+      # #1932: full-graph Check exceeded the hosted ~2 GiB default. The
+      # measured 4 GiB bound is Check-only; its preload reports sampled heap
+      # and process peak RSS in the job summary, warning above 75% heap.
+      # No files/diagnostics are excluded; failure still fails this step.
       - name: Check
         run: pnpm check
 
