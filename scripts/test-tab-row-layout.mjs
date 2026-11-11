@@ -26,6 +26,8 @@ for (const mode of ['tabs', 'links']) {
   }
   rows.push([`exact-fit-${mode}`, mode, ['Exact fit control']]);
 }
+const cases = rows.filter(([name]) => !process.env.TAB_ROW_CASE || name === process.env.TAB_ROW_CASE);
+assert.ok(cases.length, 'TAB_ROW_CASE must name a real fixture');
 const screenshots = process.env.TAB_ROW_SCREENSHOTS;
 if (screenshots) await mkdir(screenshots, { recursive: true });
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 } });
@@ -34,7 +36,7 @@ try {
   await server.listen(); const origin = server.resolvedUrls.local[0];
   const css = await (await fetch(new URL('src/app.css?direct', origin))).text();
   browser = await chromium.launch({ headless: true });
-  for (const [name, mode, labels] of rows) for (const width of [390, 1280]) for (const dark of [false, true]) {
+  for (const [name, mode, labels] of cases) for (const width of [390, 1280]) for (const dark of [false, true]) {
     const page = await browser.newPage({ viewport: { width, height: 844 }, hasTouch: true });
     const pageErrors = [];
     page.on('pageerror', error => pageErrors.push(error.message));
@@ -69,6 +71,7 @@ try {
     const inline = page.locator('[data-row-choice]:not([aria-haspopup])');
     const reachable = await inline.allTextContents();
     const more = page.locator('[data-tab-row-root] [aria-haspopup=menu]');
+    let menuGeometry = null;
     if (await more.count()) {
       await more.focus(); await page.keyboard.press('Enter');
       await page.locator('[role=menu]').waitFor();
@@ -76,7 +79,10 @@ try {
       assert.ok((await page.locator('[role=menuitem]').evaluateAll(els => els.map(el => el.getBoundingClientRect().height))).every(h => h >= 44), `${name}: coarse menu targets`);
       assert.ok((await more.boundingBox()).height >= 44, `${name}: coarse More target`);
       const box = await page.locator('[role=menu]').boundingBox();
-      assert.ok(box.x >= 0 && box.x + box.width <= width + 1, `${name}: menu leaves viewport`);
+      const wrap = await page.locator('[role=menuitem]').evaluateAll(els => els.map(el => ({whiteSpace:getComputedStyle(el).whiteSpace,overflowWrap:getComputedStyle(el).overflowWrap,scroll:el.scrollWidth,client:el.clientWidth})));
+      menuGeometry = { box, wrap };
+      if (screenshots && name.startsWith('menu-')) await page.screenshot({path:`${screenshots}/${name}-menu-${width}-${dark ? 'dark' : 'light'}.png`});
+      assert.ok(box.x >= 0 && box.x + box.width <= width + 1, `${name}: menu leaves viewport ${JSON.stringify({box,wrap})}`);
       const contents = await page.locator('[role=menuitem]').evaluateAll(els => els.map(el => ({
         client: el.clientWidth, scroll: el.scrollWidth, label: el.textContent,
       })));
@@ -130,7 +136,7 @@ try {
       }
     }
     assert.deepEqual(pageErrors, [], `${name}: unexpected fixture page error`);
-    console.log(JSON.stringify({ name, width, dark, ...measurement, reachable: reachable.length }));
+    console.log(JSON.stringify({ name, width, dark, ...measurement, menu: menuGeometry, reachable: reachable.length }));
     await page.close();
   }
 } finally { await browser?.close(); await server.close(); }
