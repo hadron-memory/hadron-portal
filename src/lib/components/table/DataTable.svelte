@@ -69,7 +69,10 @@
     containCells?: boolean;
     /** Keep one row-action column reachable on phones, independent of saved order. */
     stickyEndColumn?: string;
-    /** Extra classes for a body row (e.g. dim revoked rows). */
+    /** Extra classes for a body row (e.g. dim revoked rows). Must not
+     * replace the row's opaque background: the phone sticky cell inherits
+     * it, and a see-through row would show scrolled columns under the
+     * pinned actions cell. */
     rowClass?: (item: T) => string;
     /** Extra attributes for a body row (e.g. data-testid hooks). */
     rowAttrs?: (item: T) => Record<string, string | undefined>;
@@ -80,26 +83,38 @@
 
   const active = $derived(globalFilter.trim() !== '');
 
-  let phone = $state(false);
-  $effect(() => {
-    if ((!fitOnPhone && !stickyEndColumn) || typeof window.matchMedia !== 'function') return;
-    const query = window.matchMedia('(max-width: 639px)');
-    const follow = (event: MediaQueryListEvent) => { phone = event.matches; };
-    phone = query.matches;
-    if (typeof query.addEventListener === 'function') {
-      query.addEventListener('change', follow);
-      return () => {
-        if (typeof query.removeEventListener === 'function') query.removeEventListener('change', follow);
-      };
-    }
-  });
-  const phoneFit = $derived(fitOnPhone && phone && table.getVisibleLeafColumns().length === 1);
-  const phoneEndColumn = $derived(phone && stickyEndColumn
+  /** Phone width (px) a sticky end column is clamped to below the `sm`
+   * breakpoint — the one source for both the header width and the table-width
+   * subtraction (#1954; was a repeated 170 literal in each). */
+  const PHONE_END_COLUMN_PX = 170;
+
+  // Widths ship as custom properties and the breakpoint picks in CSS. The
+  // server render has no viewport, so a JS-decided phone width (matchMedia in
+  // an effect, state starting false) necessarily painted desktop widths first
+  // and corrected at hydration — a visible flash on exactly the phones the
+  // clamp exists for. CSS evaluates before first paint and needs no listener.
+  const singleColumnFit = $derived(fitOnPhone && table.getVisibleLeafColumns().length === 1);
+  const endColumn = $derived(stickyEndColumn
     ? table.getVisibleLeafColumns().find(column => column.id === stickyEndColumn)
     : undefined);
+  const desktopTableWidth = $derived(`max(100%, ${table.getCenterTotalSize()}px)`);
   // A restored wide desktop action column must not cover the phone viewport.
   // Adjust table AND header together; keep the stored TanStack size untouched.
-  const responsiveWidth = $derived(phoneFit ? '100%' : `max(100%, ${table.getCenterTotalSize() - (phoneEndColumn ? phoneEndColumn.getSize() - 170 : 0)}px)`);
+  // The subtraction is clamped at zero: a restored size below the clamp (a
+  // stale or hand-edited saved view applies columnSizing raw, with no
+  // minSize floor) would otherwise go negative and WIDEN the phone table
+  // past the desktop total while the header still clamps to 170.
+  const phoneTableWidth = $derived(singleColumnFit
+    ? '100%'
+    : `max(100%, ${table.getCenterTotalSize() - (endColumn ? Math.max(endColumn.getSize(), PHONE_END_COLUMN_PX) - PHONE_END_COLUMN_PX : 0)}px)`);
+  // The RENDERED phone width stays a flat 170 floor — min(size, 170) was
+  // considered and declined in the #1973 review: the sticky column exists to
+  // keep row actions reachable on the phone INDEPENDENT of saved state
+  // (#1950 pinned this; scripts/test-table-cell-overflow-layout.mjs asserts
+  // it), and only a raw hand-edited saved view can restore below the floor.
+  // The cost is that such a pathological view renders the phone table up to
+  // (170 − size) wider than the desktop total under table-fixed — accepted.
+  const phoneEndColumnWidth = $derived(endColumn ? PHONE_END_COLUMN_PX : undefined);
 
   const pageSize = $derived(table.atoms.pagination.get().pageSize);
   const pageIndex = $derived(table.atoms.pagination.get().pageIndex);
@@ -141,14 +156,14 @@
      scroll and the pagination footer below stays visible. The `<thead>`
      is sticky so column headers remain while the body scrolls. -->
 <div data-testid="data-table-scroller" class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: {maxHeight};">
-  <table class="text-sm" style="table-layout: fixed; width: {responsiveWidth};">
+  <table class="table-fixed w-[var(--table-desktop-w)] max-sm:w-[var(--phone-table-w)] text-sm" style="--table-desktop-w: {desktopTableWidth}; --phone-table-w: {phoneTableWidth};{phoneEndColumnWidth !== undefined ? ` --phone-end-w: ${phoneEndColumnWidth}px;` : ''}">
     <thead>
       {#each table.getHeaderGroups() as headerGroup (headerGroup.id)}
         <tr class="text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
           {#each headerGroup.headers as header (header.id)}
             <th
-              class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''} {header.column.id === stickyEndColumn ? 'max-sm:left-0 max-sm:right-0 max-sm:z-20' : ''}"
-              style="width: {phoneFit ? '100%' : `${header.column.id === phoneEndColumn?.id ? 170 : header.getSize()}px`};"
+              class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 w-[var(--col-w)] {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''} {header.column.id === stickyEndColumn ? 'max-sm:left-0 max-sm:right-0 max-sm:z-20' : ''}{endColumn?.id === header.column.id && !singleColumnFit ? ' max-sm:w-[var(--phone-end-w)]' : ''}{singleColumnFit ? ' max-sm:w-full' : ''}"
+              style="--col-w: {header.getSize()}px;"
               tabindex={!sortButtons && header.column.getCanSort() ? 0 : undefined}
               aria-sort={header.column.getIsSorted() === 'asc' ? 'ascending' : header.column.getIsSorted() === 'desc' ? 'descending' : undefined}
               onclick={sortButtons ? undefined : header.column.getToggleSortingHandler()}
@@ -167,7 +182,7 @@
                   <span class={header.column.getIsSorted() ? 'text-indigo-500' : 'text-zinc-300 dark:text-zinc-700'}>{sortIndicator(header.column.getIsSorted())}</span>
                 {/if}
               </div>
-              {#if header.column.getCanResize() && !phoneFit && header.column.id !== phoneEndColumn?.id}
+              {#if header.column.getCanResize()}
                 <!-- A focusable separator is the canonical ARIA "window
                      splitter" widget (role=separator + tabindex + arrow
                      keys); Svelte's linter doesn't model it and flags the
@@ -175,7 +190,7 @@
                 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
                 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
                 <div
-                  class="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none hover:bg-indigo-400 focus:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-300 {header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
+                  class="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none hover:bg-indigo-400 focus:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-300 {singleColumnFit || header.column.id === endColumn?.id ? 'max-sm:hidden ' : ''}{header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
                   role="separator"
                   aria-orientation="vertical"
                   aria-label={tableStrings.resizeColumn()}
@@ -195,12 +210,17 @@
     </thead>
     <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
       {#each table.getRowModel().rows as row (row.id)}
+        <!-- The base background below is a load-bearing invariant, not
+             decoration: the phone sticky cell inherits it (max-sm:bg-inherit),
+             so a row without an opaque background would let scrolled columns
+             show through the pinned actions cell. rowClass may add classes
+             (dimming), never replace this background. -->
         <tr
           class="bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900 {rowClass ? rowClass(row.original) : ''}"
           {...rowAttrs ? rowAttrs(row.original) : {}}
         >
           {#each row.getVisibleCells() as c (c.id)}
-            <td data-cell-contained={containCells ? '' : undefined} class="{containCells ? 'overflow-hidden [overflow-wrap:anywhere]' : ''} border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400 {c.column.id === stickyEndColumn ? 'max-sm:sticky max-sm:left-0 max-sm:right-0 max-sm:bg-white max-sm:dark:bg-zinc-950 max-sm:focus-within:z-30 max-sm:has-[[role=menu]]:z-30' : ''}">
+            <td data-cell-contained={containCells ? '' : undefined} class="{containCells ? 'overflow-hidden [overflow-wrap:anywhere]' : ''} border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400 {c.column.id === stickyEndColumn ? 'max-sm:sticky max-sm:left-0 max-sm:right-0 max-sm:bg-inherit max-sm:focus-within:z-30 max-sm:has-[[data-menu-open]]:z-30' : ''}">
               {@render cell(c, row.original)}
             </td>
           {/each}
