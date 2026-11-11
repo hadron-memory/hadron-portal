@@ -34,7 +34,7 @@
     { accessorKey: 'startedAt', header: t('runs.col.started', 'Started'), size: 200 },
     { id: 'duration', header: t('runs.col.duration', 'Duration'), enableSorting: false, size: 110 },
     { id: 'failure', header: t('runs.col.failure', 'Failure'), enableSorting: false, size: 220 },
-    { id: 'actions', header: t('runs.col.open', 'Open'), enableSorting: false, enableHiding: false, size: 120, minSize: 120 },
+    { id: 'actions', header: t('runs.col.open', 'Open'), enableSorting: false, enableHiding: false, size: 140, minSize: 140 },
   ];
   function query(change: Partial<RunsQuery>): RunsQuery { return { page: controls.page, statuses: controls.statuses, sort: controls.sort, dir: controls.dir, ...change }; }
   async function navigate(next: RunsQuery, replaceState = false) {
@@ -110,7 +110,7 @@
       {:else if c.column.id === 'entryNodeUrn'}<Urn value={run.entryNodeUrn} type="node" size={11} compact />
       {:else if c.column.id === 'duration'}{runDuration(run)}
       {:else if c.column.id === 'failure'}{failureCode(run) ?? ''}
-      {:else if c.column.id === 'actions'}<a href="/app/apps/{encodeURIComponent(appRef)}/runs/{run.id}" class="inline-flex min-h-11 min-w-11 shrink-0 items-center rounded text-indigo-700 underline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-indigo-300">{t('runs.open', 'Open')}</a>
+      {:else if c.column.id === 'actions'}<a href="/app/apps/{encodeURIComponent(appRef)}/runs/{run.id}" class="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center rounded text-indigo-700 underline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-indigo-300">{t('runs.open', 'Open')}</a>
       {:else}{fmtRunTime(run[c.column.id as 'createdAt' | 'startedAt' | 'finishedAt'])}{/if}
     {/snippet}
   </DataTable>

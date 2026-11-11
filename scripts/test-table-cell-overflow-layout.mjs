@@ -175,9 +175,16 @@ try {
     await target.click(); await page.getByRole('menuitem',{name:'Delete',exact:true}).click();
     const row = page.locator('tbody tr').filter({hasText:'LongConfigNameWithFortyUnbrokenCharacters1'});
     await row.getByText('Delete? This cannot be undone.',{exact:true}).waitFor();
-    const confirmationCell = row.locator('td').last();
+    const confirmationCell = row.locator('td').filter({has:page.getByText('Delete? This cannot be undone.',{exact:true})});
     assert.equal(await confirmationCell.getByText('Delete? This cannot be undone.',{exact:true}).count(),1,'clipping oracle inspects the actual confirmation cell after reorder');
-    const clipped = await confirmationCell.evaluate(td=>td.scrollWidth>td.clientWidth+1); assert.equal(clipped,false,'inline confirmation not clipped');
+    const confirmationOverflows = () => confirmationCell.evaluate(td=>td.scrollWidth>td.clientWidth+1);
+    assert.equal(await confirmationOverflows(),false,'inline confirmation not clipped');
+    // Prove this same oracle detects overflowing content in the confirmation
+    // cell, rather than passing against an unrelated text column.
+    await confirmationCell.evaluate(td=>{const n=document.createElement('span');n.dataset.confirmationNegative='';n.style.whiteSpace='nowrap';n.textContent='W'.repeat(100);td.append(n);});
+    assert.equal(await confirmationOverflows(),true,'confirmation overflow negative control is detected');
+    await confirmationCell.locator('[data-confirmation-negative]').evaluate(el=>el.remove());
+    assert.equal(await confirmationOverflows(),false,'confirmation is clean after negative control cleanup');
     await row.getByRole('button',{name:'Cancel',exact:true}).click();
    } else if (kind === 'alarms') {
     await page.evaluate(()=>{window.copied=[]; Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async value=>window.copied.push(value)}})});

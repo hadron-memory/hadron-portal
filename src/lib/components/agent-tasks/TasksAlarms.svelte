@@ -101,7 +101,7 @@
     { id: 'raised', accessorFn: (r) => r.raisedMs, header: t('app.tasks.alarms.col.raised', 'Raised'), size: 200 },
     { id: 'rule', accessorFn: (r) => r.rule, header: t('app.tasks.alarms.col.rule', 'Rule'), enableHiding: false, size: 170 },
     { id: 'task', accessorFn: (r) => r.task, header: t('app.tasks.alarms.col.task', 'Task'), size: 260, minSize: 160 },
-    { id: 'status', accessorFn: (r) => r.status, header: t('app.tasks.alarms.col.status', 'Status'), enableHiding: false, size: 300, minSize: 120 },
+    { id: 'status', accessorFn: (r) => r.status, header: t('app.tasks.alarms.col.status', 'Status'), enableHiding: false, size: 300, minSize: 130 },
     { id: 'concerns', accessorFn: (r) => r.concerns, header: t('app.tasks.alarms.col.concerns', 'Concerns'), size: 200, minSize: 120 },
     { id: 'woke', accessorFn: (r) => r.woke, header: t('app.tasks.alarms.col.woke', 'Woke'), enableSorting: false, size: 240 },
     { id: 'chain', accessorFn: (r) => r.chain, header: t('app.tasks.alarms.col.chain', 'Chain'), enableSorting: false, size: 260 },
