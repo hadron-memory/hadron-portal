@@ -799,20 +799,22 @@
   const refinementsOff = $derived(contentScope === 'COMMENTS');
   // portal#1930 (Uma 6787706001): the reason is visible page text, not a
   // hover title, and only when there is a disabled control for it to explain.
-  const refinementHintShown = $derived(refinementsOff && (availableNodeTypes.length > 1 || availableTags.length > 0));
-  const refinementHintId = $derived(refinementHintShown ? 'refinement-off-hint' : undefined);
+  const showTypeFilter = $derived(availableNodeTypes.length > 1);
+  const showTagsFilter = $derived(availableTags.length > 0);
+  const REFINEMENT_HINT_ID = 'refinement-off-hint';
+  const refinementHintShown = $derived(refinementsOff && (showTypeFilter || showTagsFilter));
+  const refinementHintId = $derived(refinementHintShown ? REFINEMENT_HINT_ID : undefined);
 
   // Dropdown open state
   let openDropdown = $state<'memory' | 'type' | 'tags' | 'fields' | 'properties' | null>(null);
-  // portal#1930: entering Comments CLOSES an open Node Types/Tags menu, not
-  // just hides it, so it doesn't reopen on its own when the scope changes
-  // back. Other menus are left alone.
-  $effect(() => {
-    if (!refinementsOff) return;
-    untrack(() => {
-      if (openDropdown === 'type' || openDropdown === 'tags') openDropdown = null;
-    });
-  });
+  // Close at the user's scope change, even if another change happens before
+  // effects flush. Keep selections and unrelated menus intact.
+  function changeContentScope(value: ContentScope) {
+    contentScope = value;
+    if (value === 'COMMENTS' && (openDropdown === 'type' || openDropdown === 'tags')) {
+      openDropdown = null;
+    }
+  }
 
   function toggleDropdown(d: 'memory' | 'type' | 'tags' | 'fields' | 'properties') {
     openDropdown = openDropdown === d ? null : d;
@@ -1157,7 +1159,7 @@
     {/if}
 
     <!-- Node type dropdown -->
-    {#if availableNodeTypes.length > 1}
+    {#if showTypeFilter}
       <div class="relative filter-dropdown">
         <button onclick={() => toggleDropdown('type')} disabled={refinementsOff}
           aria-describedby={refinementHintId}
@@ -1184,7 +1186,7 @@
     {/if}
 
     <!-- Tags dropdown -->
-    {#if availableTags.length > 0}
+    {#if showTagsFilter}
       <div class="relative filter-dropdown">
         <button onclick={() => toggleDropdown('tags')} disabled={refinementsOff}
           aria-describedby={refinementHintId}
@@ -1381,7 +1383,9 @@
     <!-- portal#1174: a bare "Content" beside "Node Types" read as a second type filter; name what it is. One label wraps both so they never split across lines, and the select takes its accessible name from the visible word (an aria-label would override it, WCAG 2.5.3). -->
     <label class="inline-flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
       <span>{t('memory-browser.scope-label', 'Show')}</span>
-    <select bind:value={contentScope} id="scope-filter" data-testid="scope-filter" aria-describedby={refinementHintId}
+    <!-- Disabled controls may be omitted by assistive technology; the enabled
+         Show select must also carry the visible explanation. -->
+    <select value={contentScope} onchange={(event) => changeContentScope(event.currentTarget.value as ContentScope)} id="scope-filter" data-testid="scope-filter" aria-describedby={refinementHintId}
       class="rounded-lg border px-2 py-1.5 text-xs
         {contentScope !== 'CONTENT' ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400'}">
       <option value="CONTENT">{t('memory-browser.scope.content', 'Content')}</option>
@@ -1497,7 +1501,7 @@
       </span>
     </div>
     {#if refinementHintShown}
-      <p id="refinement-off-hint" class="basis-full text-xs leading-snug text-zinc-500 dark:text-zinc-400">{t('memory-browser.refinement-content-only-hint', 'Node Types and Tags filter content, not comments. Your selections are kept for Content.')}</p>
+      <p id={REFINEMENT_HINT_ID} class="basis-full text-xs leading-snug text-zinc-500 dark:text-zinc-400">{t('memory-browser.refinement-content-only-hint', 'Node Types and Tags filter content, not comments. Your selections are kept for Content.')}</p>
     {/if}
   </div>
 
