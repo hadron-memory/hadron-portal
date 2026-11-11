@@ -19,11 +19,12 @@ try {
   assert([200, 409].includes(seeded.status()), 'Synthetic config setup failed');
   for (const theme of ['light', 'dark']) {
     await page.goto(`${portal}/app/orgs/${ownerId}/integrations`);
-    await page.evaluate(theme => {
-      document.documentElement.classList.toggle('dark', theme === 'dark');
-      localStorage.setItem('theme', theme);
-    }, theme);
     await page.waitForLoadState('networkidle');
+    await page.getByRole('button', { name: 'Theme', exact: true }).tap();
+    await page.getByRole('menuitemradio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true }).tap();
+    await page.waitForFunction(theme => document.documentElement.classList.contains('dark') === (theme === 'dark'), theme);
+    const addBox = await page.getByRole('button', { name: 'Add configuration', exact: true }).boundingBox();
+    assert(addBox && addBox.x >= 0 && addBox.x + addBox.width <= 390, 'Add configuration must remain on-screen with touch owner controls');
     const action = page.getByRole('button', { name: 'Actions for phone-check', exact: true });
     await action.waitFor();
     const box = await action.boundingBox();

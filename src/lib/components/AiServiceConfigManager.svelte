@@ -880,8 +880,8 @@
       </div>
     {/if}
   </div>
-  <div class="mb-3 flex items-start justify-between gap-4">
-    <div>
+  <div class="mb-3 flex flex-col items-start justify-between gap-4 sm:flex-row">
+    <div class="min-w-0">
       <h2 class="font-semibold text-zinc-900 dark:text-white">{s.heading()}</h2>
       {#if ownerLabel}
         <p class="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">{s.ownerCaption(ownerLabel)}</p>
