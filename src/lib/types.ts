@@ -590,14 +590,21 @@ export interface PublicResourceRef {
   description: string | null;
 }
 
+/** A bounded page of the same closed public-resource projection. */
+export interface PublicResourceRefsPage {
+  items: PublicResourceRef[];
+  total: number;
+  hasMore: boolean;
+}
+
 /** A closed, non-member-safe projection; deliberately not an Organization. */
 export interface PublicOrganization {
   id: string;
   name: string;
   urn: string;
   listedOnMarketplace: boolean;
-  publicMemories: PublicResourceRef[];
-  publicAgents: PublicResourceRef[];
+  publicMemoriesPage: PublicResourceRefsPage;
+  publicAgentsPage: PublicResourceRefsPage;
 }
 
 export interface Organization {

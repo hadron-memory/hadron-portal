@@ -641,16 +641,40 @@ export const PUBLIC_ORGANIZATION_ROUTE_QUERY = /* GraphQL */ `
   }
 `;
 
-/** hrn:node:hadronmemory.com:specs:cor:acl:080:02 — the complete, closed projection rendered by /app/org/[id]. */
-export const PUBLIC_ORGANIZATION_PROFILE_QUERY = /* GraphQL */ `
-  query PublicOrganizationProfile($ref: ID!) {
+/**
+ * hrn:node:hadronmemory.com:specs:cor:acl:080:02 — the bounded, closed
+ * projections rendered by /app/org/[id]. The portal's static GraphQL validator
+ * requires argument and variable names to match, so the independently paged
+ * kinds use one bounded request each rather than generated literals.
+ */
+export const PUBLIC_ORGANIZATION_MEMORIES_QUERY = /* GraphQL */ `
+  query PublicOrganizationMemories($ref: ID!, $limit: Int, $offset: Int) {
     publicOrganization(ref: $ref) {
       id
       name
       urn
       listedOnMarketplace
-      publicMemories { id name urn description }
-      publicAgents { id name urn description }
+      publicMemoriesPage(limit: $limit, offset: $offset) {
+        items { id name urn description }
+        total
+        hasMore
+      }
+    }
+  }
+`;
+
+export const PUBLIC_ORGANIZATION_AGENTS_QUERY = /* GraphQL */ `
+  query PublicOrganizationAgents($ref: ID!, $limit: Int, $offset: Int) {
+    publicOrganization(ref: $ref) {
+      id
+      name
+      urn
+      listedOnMarketplace
+      publicAgentsPage(limit: $limit, offset: $offset) {
+        items { id name urn description }
+        total
+        hasMore
+      }
     }
   }
 `;

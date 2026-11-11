@@ -2,10 +2,19 @@
   import PublicResourceTable from '$lib/components/PublicResourceTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
+  import { nextOffset, pageHref, previousOffset } from './paging';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
   const organization = $derived(data.organization);
+  const memoriesNext = $derived(nextOffset(data.paging.memories.offset, organization.publicMemoriesPage));
+  const memoriesPrevious = $derived(previousOffset(data.paging.memories.offset, data.paging.memories.limit));
+  const agentsNext = $derived(nextOffset(data.paging.agents.offset, organization.publicAgentsPage));
+  const agentsPrevious = $derived(previousOffset(data.paging.agents.offset, data.paging.agents.limit));
+
+  function href(kind: 'memories' | 'agents', offset: number): string {
+    return pageHref(data.path, data.search, kind, { limit: data.paging[kind].limit, offset });
+  }
 </script>
 
 <svelte:head>
@@ -25,16 +34,20 @@
     {/if}
   </header>
 
-  <!-- Reset both grids' search and page state when SvelteKit reuses this page
-       for a different organization. Org-scoped listKeys also prevent a saved
-       default filter from one organization hiding rows in another. -->
+  <!-- Keyed organization state prevents a late A response from leaving A's
+       rows or saved views under B. Native GET links make the URL the only page
+       navigation writer; SvelteKit's normal load invalidation handles Retry. -->
   {#key organization.id}
     <section aria-labelledby="public-memories-heading" class="space-y-3">
       <h2 id="public-memories-heading" class="text-xl font-semibold text-zinc-900 dark:text-white">
-        {t('public-organization.memories.heading', 'Public memories ({count})', { count: organization.publicMemories.length })}
+        {t('public-organization.memories.heading', 'Public memories ({count})', { count: organization.publicMemoriesPage.total })}
       </h2>
       <PublicResourceTable
-        resources={organization.publicMemories}
+        page={organization.publicMemoriesPage}
+        offset={data.paging.memories.offset}
+        prevHref={memoriesPrevious === null ? null : href('memories', memoriesPrevious)}
+        nextHref={memoriesNext === null ? null : href('memories', memoriesNext)}
+        firstHref={data.paging.memories.offset > 0 ? href('memories', 0) : null}
         kind="memory"
         listKey="public-organization:memories:{organization.id}"
       />
@@ -42,10 +55,14 @@
 
     <section aria-labelledby="public-agents-heading" class="space-y-3">
       <h2 id="public-agents-heading" class="text-xl font-semibold text-zinc-900 dark:text-white">
-        {t('public-organization.agents.heading', 'Public agents ({count})', { count: organization.publicAgents.length })}
+        {t('public-organization.agents.heading', 'Public agents ({count})', { count: organization.publicAgentsPage.total })}
       </h2>
       <PublicResourceTable
-        resources={organization.publicAgents}
+        page={organization.publicAgentsPage}
+        offset={data.paging.agents.offset}
+        prevHref={agentsPrevious === null ? null : href('agents', agentsPrevious)}
+        nextHref={agentsNext === null ? null : href('agents', agentsNext)}
+        firstHref={data.paging.agents.offset > 0 ? href('agents', 0) : null}
         kind="agent"
         listKey="public-organization:agents:{organization.id}"
       />
