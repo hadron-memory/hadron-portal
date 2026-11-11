@@ -30,6 +30,10 @@ afterEach(() => { mounted?.unmount(); mounted = undefined; vi.unstubAllGlobals()
 
 async function open(fresh: AiServiceConfig[] | null) {
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    // portal#1955 checks the fresh cookie principal before any editor write.
+    if (url === '/api/ai-configs?principal=1') {
+      return new Response(JSON.stringify({ principal: { principalType: 'USER', userId: 'u1', appId: null } }));
+    }
     if (url.startsWith('/api/ai-configs?') && !init?.method) {
       return new Response(JSON.stringify(fresh === null ? { error: 'Unavailable' } : { configs: fresh }), { status: fresh === null ? 500 : 200 });
     }
@@ -54,6 +58,7 @@ async function open(fresh: AiServiceConfig[] | null) {
   await settle();
   const model = root.querySelector<HTMLInputElement>('#ac-model')!;
   model.value = 'glm-5-updated'; model.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
+  await vi.waitFor(() => expect(button(root, 'Save').disabled).toBe(false));
   button(root, 'Save').click();
   await settle();
   expect(root.querySelector('[data-testid="ai-config-feedback"]')?.textContent).toContain('Saved “config-20”.');
