@@ -33,14 +33,15 @@
   let bulk = $state<Template | null>(null), bulkPending = $state(false);
   $effect(() => { if (initial !== snapshot) { snapshot = initial; templates = initial; chosen = null; preview = null; } });
   // The confirmation text while there is something to lose, else null. A route change asks
-  // through beforeNavigate below; a host that swaps this manager out WITHOUT navigating (the App
-  // page's tabs, #1936) reads it through `leaveMessage` and asks the same question.
+  // through beforeNavigate below, from the bound `leaveMessage`; a host that swaps this manager
+  // out itself (the App page's tabs, #1936) reads it, asks the question, and clears it to say
+  // "already asked".
   const leaveText = $derived(editing !== undefined || ruleIndex !== null || pending || bulkPending
     ? (pending || bulkPending ? t('config.leave-pending', 'An operation is still running. Leave this page? Leaving does not cancel it.') : t('config.discard-draft', 'Leave this page and discard your unsaved changes?'))
     : null);
   $effect(() => { leaveMessage = leaveText; });
   beforeNavigate(({ cancel }) => {
-    if (leaveText && !window.confirm(leaveText)) cancel();
+    if (leaveMessage && !window.confirm(leaveMessage)) cancel();
   });
   $effect(() => { if (editing !== undefined && nameInput?.isConnected) nameInput.focus(); });
   const writable = $derived(canManage && !readOnly);

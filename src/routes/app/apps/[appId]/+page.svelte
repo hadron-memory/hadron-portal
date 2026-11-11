@@ -1173,17 +1173,21 @@
     // re-latches; its own goto returned above.
     tabNavigationPending = false;
   });
-  // #1936: the templates manager guards its draft against ROUTE changes (beforeNavigate); choosing
-  // another App tab is local and never reaches that guard, so ask the same question here. The
-  // navigating choices (Runs, Templates, a pending navigation) do reach it, and ask once.
+  // #1936: the templates manager guards its draft against ROUTE changes (beforeNavigate), but a
+  // declined route change only cancels the router: this function would still select the tab and
+  // unmount the draft (LOCAL P2 D1). So the page asks first, for every way out of the tab, and
+  // clears the manager's copy of the question so its own route guard does not ask a second time.
+  // If we then do not land on the chosen tab, the question is put back with the draft.
   let templatesLeaveMessage = $state<string | null>(null);
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
-    const local = () => !(id === 'runs' || id === 'node-role-templates' || tabNavigationPending);
-    if (local() && activeTab === 'node-role-templates' && id !== activeTab && templatesLeaveMessage) {
+    let asked: string | null = null;
+    if (activeTab === 'node-role-templates' && id !== activeTab && templatesLeaveMessage) {
       if (!window.confirm(templatesLeaveMessage)) return;
+      asked = templatesLeaveMessage;
       templatesLeaveMessage = null;
     }
+    let landed = false;
     const mine = ++tabNavigation, appId = app.id, principalId = data.currentUserId;
     let ownNavigationHref: string | null = null;
     try {
@@ -1216,6 +1220,7 @@
         if (tabNavigationCancelled) return;
       }
       if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
+      landed = true;
       activeTab = id;
       await tick();
       if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id}`)?.focus();
@@ -1223,6 +1228,7 @@
     finally {
       if (ownNavigationHref && tabNavigationHref === ownNavigationHref) tabNavigationHref = null;
       if (mine === tabNavigation) tabNavigationPending = false;
+      if (asked && !landed && tabAlive && activeTab === 'node-role-templates') templatesLeaveMessage = asked;
     }
   }
 
