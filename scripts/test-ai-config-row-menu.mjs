@@ -17,9 +17,9 @@ try {
   if (process.env.AI_CONFIG_MENU_SHOTS) await mkdir(process.env.AI_CONFIG_MENU_SHOTS, { recursive: true });
   // #1874: `mixed` puts config-02 between adjacent disabled rows and config-04, enabled, right after them.
   const fixtures = [['disabled', [['config-02', false]]], ['enabled', [['config-02', true]]], ['mixed', [['config-02', false], ['config-04', true]]]];
-  for (const dark of [false, true]) for (const [mode, targets] of fixtures) {
-    const label = `${dark ? 'dark' : 'light'}-${mode}`;
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  for (const width of [390, 1280]) for (const dark of [false, true]) for (const [mode, targets] of fixtures) {
+    const label = `${width}-${dark ? 'dark' : 'light'}-${mode}`;
+    const page = await browser.newPage({ viewport: { width, height: 900 } });
     const errors = [];
     page.on('pageerror', error => errors.push(`pageerror: ${error.message}`));
     page.on('console', message => { if (message.type() === 'error') errors.push(`console.error: ${message.text()}`); });
@@ -65,9 +65,9 @@ try {
       await nameInput.waitFor({ state: 'detached', timeout: 2000 });
       await trigger.click();
       await page.getByRole('menuitem', { name: 'Delete', exact: true }).click({ timeout: 2000 });
-      await row.getByText('Delete? This cannot be undone.', { exact: true }).waitFor();
+      await row.getByText(`Delete the “${name}” configuration? This cannot be undone.`, { exact: true }).waitFor();
       await row.getByRole('button', { name: 'Cancel', exact: true }).click();
-      assert.equal(await row.getByText('Delete? This cannot be undone.', { exact: true }).count(), 0, `${where}: Delete confirmation cancels`);
+      assert.equal(await row.getByText(`Delete the “${name}” configuration? This cannot be undone.`, { exact: true }).count(), 0, `${where}: Delete confirmation cancels`);
       console.log(`${where} PASS: Edit and Delete receive native pointer clicks; opacity on content only`);
     }
     assert.deepEqual(errors, [], `${label}: no page errors or console errors`);
