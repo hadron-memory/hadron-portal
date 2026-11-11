@@ -460,6 +460,7 @@
     // The extras carry the wire ISO the accessor discarded, for a reader
     // pasting a timestamp from an API response.
     globalFilterFn: makeGlobalFilterFn<AiServiceConfig>(configFmt, {
+      name: (row) => ownerType === 'ORGANIZATION' ? row.urn ?? '' : '',
       createdAt: (row) => row.createdAt,
     }),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
