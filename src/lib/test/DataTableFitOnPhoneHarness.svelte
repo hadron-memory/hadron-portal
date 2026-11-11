@@ -2,7 +2,7 @@
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
-  let { fitOnPhone = true, multiColumn = false, stickyEndColumn, secondSize = 400 }: { fitOnPhone?: boolean; multiColumn?: boolean; stickyEndColumn?: string; secondSize?: number } = $props();
+  let { fitOnPhone = true, multiColumn = false, stickyEndColumn, secondSize = 400, rowClass }: { fitOnPhone?: boolean; multiColumn?: boolean; stickyEndColumn?: string; secondSize?: number; rowClass?: (item: { name: string }) => string } = $props();
   const columns = $derived<PortalColumnDef<{ name: string }>[]>([
     { accessorKey: 'name', header: 'Name', size: 1600, enableHiding: false },
     ...(multiColumn ? [{ accessorKey: 'name', id: 'second', header: 'Second', size: secondSize, enableHiding: false }] : []),
@@ -11,6 +11,6 @@
   let globalFilter = $state('');
 </script>
 
-<DataTable {table} {fitOnPhone} {stickyEndColumn} listKey="test:fit-on-phone" searchPlaceholder="Search" searchAriaLabel="Search" bind:globalFilter>
+<DataTable {table} {fitOnPhone} {stickyEndColumn} {rowClass} listKey="test:fit-on-phone" searchPlaceholder="Search" searchAriaLabel="Search" bind:globalFilter>
   {#snippet cell()}<span>Row</span>{/snippet}
 </DataTable>

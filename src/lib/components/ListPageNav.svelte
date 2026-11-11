@@ -10,6 +10,12 @@
     {#if page.count > 0}{page.offset + 1}–{page.offset + page.count}{:else}0{/if}
     {t('app.list-page.of', 'of')} {page.total}
   </span>
+  <!-- An unavailable control renders as a DISABLED LINK, decided in #1954:
+       role="link" + aria-disabled announce "this exists but is not available
+       right now" to assistive tech's browse mode, while the control is
+       deliberately kept OUT of the sequential tab order (no tabindex, no
+       href) — a span a keyboard user can focus but never activate is a dead
+       tab stop, and the enabled anchor is what owns that stop. -->
   {#if page.firstHref && page.offset > 20}
     {#if disabled}<span role="link" aria-disabled="true" class="{linkClass} cursor-not-allowed opacity-50">{t('app.list-page.first', 'First')}</span>
     {:else}<a class={linkClass} href={page.firstHref}>{t('app.list-page.first', 'First')}</a>{/if}

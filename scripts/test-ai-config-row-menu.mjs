@@ -67,7 +67,7 @@ try {
       }));
       assert.equal(dim.content, enabled ? '1' : '0.6', `${where}: name content opacity`);
       assert.deepEqual(dim.ancestors, [], `${where}: no dimmed ancestor of the row content`);
-      if (width === 390 || width === 1280) {
+      {
         assert.match((await page.locator('th').allTextContents())[1], /Actions/, 'Saved order applied');
         // #1954: the restored saved width survives — clamped to 170 on the
         // phone, live 500 on the desktop, never one width at the other.
@@ -103,6 +103,12 @@ try {
         const want = dark
           ? { base: await classBg('dark:bg-zinc-950'), custom: await classBg('dark:bg-amber-900') }
           : { base: await classBg('bg-white'), custom: await classBg('bg-amber-100') };
+        // #1973 review (BLIND P2): bg-inherit is only safe on an OPAQUE row —
+        // a see-through row would show scrolled columns under the pinned cell.
+        // Computed equality with the opaque utility's own computed value is
+        // the opacity proof: it fails by value if the row ever stops painting
+        // a full background in either color scheme.
+        assert.equal(await rowBg(), want.base, `${where}: row paints an opaque base background`);
         assert.equal(await stickyBg(), want.base, `${where}: sticky cell inherits the row background`);
         await row.locator('td').first().tap();
         assert(await row.evaluate(el => el.matches(':hover')), `${where}: tap raises :hover on the row`);
@@ -165,20 +171,36 @@ try {
   const { render } = await server.ssrLoadModule('svelte/server');
   const ssrHtml = render(ssrHarness.default, { props: { multiColumn: true, stickyEndColumn: 'second' } }).body;
   assert(ssrHtml.includes('--phone-table-w: max(100%, 1770px)'), 'SSR markup carries the phone table width');
+  // #1973 review (BLIND P2): the single-column fitOnPhone collapse — the
+  // table's media-query width BECOMING 100% of its container on a real phone
+  // viewport — executed nowhere. Same SSR-only injection, measuring the whole
+  // TABLE against its container instead of one header cell.
+  const ssrFitHtml = render(ssrHarness.default, { props: { fitOnPhone: true } }).body;
   for (const [width, wantEnd] of [[390, 170], [1280, 400]]) {
     const page = await browser.newPage(width === 390
       ? { viewport: { width, height: 600 }, hasTouch: true, isMobile: true }
       : { viewport: { width, height: 600 } });
     await page.route('**/__ssr_fixture', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>SSR first paint</title><meta name="viewport" content="width=device-width, initial-scale=1">' }));
     await page.goto(new URL('/__ssr_fixture', origin).href);
-    await page.evaluate(({ css, ssrHtml }) => {
+    await page.evaluate(({ css, ssrHtml, ssrFitHtml }) => {
       document.head.insertAdjacentHTML('beforeend', `<style>${css}</style>`);
-      document.body.innerHTML = `<main id="ssr">${ssrHtml}</main>`;
-    }, { css, ssrHtml });
+      document.body.innerHTML = `<main id="ssr">${ssrHtml}</main><main id="ssr-fit">${ssrFitHtml}</main>`;
+    }, { css, ssrHtml, ssrFitHtml });
     const endWidth = await page.locator('#ssr th').nth(1).evaluate(e => e.getBoundingClientRect().width);
     assert(Math.abs(endWidth - wantEnd) < 2, `SSR first-paint end column at ${width}: ${endWidth} (want ${wantEnd})`);
+    // Single-column fit: 100% of the container at phone width, live 1600px
+    // TanStack sizing on the desktop — both from markup alone, no hydration.
+    // The oracle is the SCROLLER's client box (the 100% resolves against the
+    // bordered scroller DataTable wraps the table in, not the bare main).
+    const fitWidth = await page.locator('#ssr-fit table').evaluate(e => e.getBoundingClientRect().width);
+    if (width === 390) {
+      const container = await page.locator('#ssr-fit [data-testid="data-table-scroller"]').evaluate(e => e.clientWidth);
+      assert(Math.abs(fitWidth - container) < 1, `SSR single-column fit collapses to the container at ${width}: ${fitWidth} vs ${container}`);
+    } else {
+      assert(Math.abs(fitWidth - 1600) < 2, `SSR single-column fit keeps TanStack width at ${width}: ${fitWidth}`);
+    }
     await page.close();
-    console.log(`SSR first-paint at ${width}: PASS (end column ${wantEnd}px before any hydration JS)`);
+    console.log(`SSR first-paint at ${width}: PASS (end column ${wantEnd}px, single-column fit ${Math.round(fitWidth)}px, before any hydration JS)`);
   }
 } finally {
   await browser?.close();

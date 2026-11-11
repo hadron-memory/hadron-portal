@@ -6,6 +6,14 @@
  * #1801's original contract is preserved by the same numbers: single-column
  * fit → 100% on the phone; multi-column → live TanStack sizing; a restored
  * sticky end column → clamped to 170px on the phone only.
+ *
+ * Lane split (named in the #1973 review): this jsdom file pins the MARKUP
+ * contract — which classes and custom properties the component ships. jsdom
+ * applies no stylesheet, so class-text assertions here cannot prove the
+ * media-query CSS executes; that proof lives in the real-Chromium lane
+ * (scripts/test-ai-config-row-menu.mjs and
+ * scripts/test-memory-config-bulk-layout.mjs), which measures computed colors
+ * and rendered geometry from the SSR markup at actual phone viewports.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
@@ -26,13 +34,14 @@ beforeEach(() => {
   });
 });
 
-function mount(fitOnPhone: boolean, multiColumn = false, stickyEndColumn?: string) {
-  const m = mountComponent(Harness, { fitOnPhone, multiColumn, stickyEndColumn });
+function mount(fitOnPhone: boolean, multiColumn = false, stickyEndColumn?: string, secondSize = 400, rowClass?: (item: { name: string }) => string) {
+  const m = mountComponent(Harness, { fitOnPhone, multiColumn, stickyEndColumn, secondSize, rowClass });
   mounted.push(m);
   flushSync();
   return {
     table: m.target.querySelector<HTMLTableElement>('table')!,
     headers: [...m.target.querySelectorAll<HTMLElement>('th')],
+    rows: [...m.target.querySelectorAll<HTMLElement>('tbody tr')],
     cells: [...m.target.querySelectorAll<HTMLElement>('td')],
     separators: [...m.target.querySelectorAll<HTMLElement>('[role="separator"]')],
     style: () => m.target.querySelector<HTMLTableElement>('table')!.getAttribute('style') ?? '',
@@ -81,6 +90,20 @@ describe('DataTable phone width', () => {
     expect(separators[1].className).toContain('max-sm:hidden');
   });
 
+  it('keeps a sub-clamp restored end column at its own width instead of widening it to the clamp', () => {
+    // A saved view applies columnSizing raw (no minSize floor), so a stale or
+    // hand-edited view can restore an end column BELOW the 170 clamp. The
+    // rendered phone width is min(size, 170): the 100px column stays 100px.
+    // The OLD behavior — header pinned to a flat 170 — widened the phone
+    // column past the desktop total under table-fixed.
+    const { headers, style } = mount(false, true, 'second', 100);
+    // 1700 − (max(100, 170) − 170): no subtraction for a sub-clamp size.
+    expect(style()).toContain('--phone-table-w: max(100%, 1700px)');
+    expect(style()).toContain('--phone-end-w: 100px');
+    expect(headers[1].className).toContain('max-sm:w-[var(--phone-end-w)]');
+    expect(headers[1].getAttribute('style')).toContain('--col-w: 100px');
+  });
+
   it('sticky cells inherit the row background and stack on state, not on an ARIA role', () => {
     const { cells } = mount(false, true, 'second');
     const sticky = cells[1].className;
@@ -105,5 +128,31 @@ describe('DataTable phone width', () => {
       expect(cell.className).not.toContain('max-sm:bg-inherit');
     }
     for (const separator of separators) expect(separator.className).not.toContain('max-sm:hidden');
+  });
+
+  it('keeps TanStack sizing for a single-column table when phone fitting is off', () => {
+    // The opt-out for a single visible column: no 100% collapse, no hidden
+    // resize handle — the phone rides the same live TanStack widths as the
+    // desktop (replaces the pre-#1954 "fitOnPhone off keeps TanStack sizing"
+    // pin, now for the CSS-decided path).
+    const { headers, separators, style } = mount(false);
+    expect(style()).toContain('--phone-table-w: max(100%, 1600px)');
+    expect(headers[0].className).not.toContain('max-sm:w-full');
+    expect(separators).toHaveLength(1);
+    expect(separators[0].className).not.toContain('max-sm:hidden');
+  });
+
+  it('keeps the sticky cell on an opaque row background even when a rowClass is supplied', () => {
+    // max-sm:bg-inherit is only safe on an opaque row: a see-through row
+    // would show scrolled columns under the pinned actions cell. The base
+    // background is a load-bearing invariant — present in BOTH color schemes
+    // — and a caller's rowClass (dimming, test ids) must not drop it. The
+    // computed-color proof that the inheritance actually paints runs in the
+    // real-Chromium lane; this pins the markup contract it depends on.
+    const { rows } = mount(false, true, 'second', 400, () => 'opacity-60');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].className).toContain('bg-white');
+    expect(rows[0].className).toContain('dark:bg-zinc-950');
+    expect(rows[0].className).toContain('opacity-60');
   });
 });

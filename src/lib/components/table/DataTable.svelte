@@ -69,7 +69,10 @@
     containCells?: boolean;
     /** Keep one row-action column reachable on phones, independent of saved order. */
     stickyEndColumn?: string;
-    /** Extra classes for a body row (e.g. dim revoked rows). */
+    /** Extra classes for a body row (e.g. dim revoked rows). Must not
+     * replace the row's opaque background: the phone sticky cell inherits
+     * it, and a see-through row would show scrolled columns under the
+     * pinned actions cell. */
     rowClass?: (item: T) => string;
     /** Extra attributes for a body row (e.g. data-testid hooks). */
     rowAttrs?: (item: T) => Record<string, string | undefined>;
@@ -104,6 +107,12 @@
   const phoneTableWidth = $derived(singleColumnFit
     ? '100%'
     : `max(100%, ${table.getCenterTotalSize() - (endColumn ? Math.max(endColumn.getSize(), PHONE_END_COLUMN_PX) - PHONE_END_COLUMN_PX : 0)}px)`);
+  // The RENDERED phone width clamps from both sides: min(size, clamp) — a
+  // sub-clamp restored size keeps its own width, so under table-fixed the
+  // phone column sum stays equal to the desktop total instead of the 170px
+  // floor widening a narrow restored column past it (#1954 review: the
+  // subtraction alone clamped only the wide direction).
+  const phoneEndColumnWidth = $derived(endColumn ? Math.min(endColumn.getSize(), PHONE_END_COLUMN_PX) : undefined);
 
   const pageSize = $derived(table.atoms.pagination.get().pageSize);
   const pageIndex = $derived(table.atoms.pagination.get().pageIndex);
@@ -145,7 +154,7 @@
      scroll and the pagination footer below stays visible. The `<thead>`
      is sticky so column headers remain while the body scrolls. -->
 <div data-testid="data-table-scroller" class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: {maxHeight};">
-  <table class="table-fixed w-[var(--table-desktop-w)] max-sm:w-[var(--phone-table-w)] text-sm" style="--table-desktop-w: {desktopTableWidth}; --phone-table-w: {phoneTableWidth};{endColumn ? ` --phone-end-w: ${PHONE_END_COLUMN_PX}px;` : ''}">
+  <table class="table-fixed w-[var(--table-desktop-w)] max-sm:w-[var(--phone-table-w)] text-sm" style="--table-desktop-w: {desktopTableWidth}; --phone-table-w: {phoneTableWidth};{phoneEndColumnWidth !== undefined ? ` --phone-end-w: ${phoneEndColumnWidth}px;` : ''}">
     <thead>
       {#each table.getHeaderGroups() as headerGroup (headerGroup.id)}
         <tr class="text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
@@ -199,6 +208,11 @@
     </thead>
     <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
       {#each table.getRowModel().rows as row (row.id)}
+        <!-- The base background below is a load-bearing invariant, not
+             decoration: the phone sticky cell inherits it (max-sm:bg-inherit),
+             so a row without an opaque background would let scrolled columns
+             show through the pinned actions cell. rowClass may add classes
+             (dimming), never replace this background. -->
         <tr
           class="bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900 {rowClass ? rowClass(row.original) : ''}"
           {...rowAttrs ? rowAttrs(row.original) : {}}

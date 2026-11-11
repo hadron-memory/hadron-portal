@@ -3,9 +3,19 @@
  * carries no href and no handler, so nothing can navigate. Enabled controls
  * are native anchors with the page's exact URLs; the disabled state must not
  * alter them. Every direction (First/Previous/Next) is pinned both ways.
+ *
+ * "Nothing can navigate" is observed, not inferred from markup: after pointer
+ * and keyboard activation the window URL is unchanged and the navigation
+ * recorder stayed silent — a handler a future change smuggles onto the span
+ * (e.g. a hash rewrite) turns this red instead of surviving a dead-span
+ * assertion (#1973 review: a click-handler mutant passed every structural
+ * check).
  */
 import { afterEach, describe, expect, it } from 'vitest';
+import { flushSync } from 'svelte';
 import { mountComponent, type Mounted } from '$lib/test/mountComponent';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import ListPageNav from './ListPageNav.svelte';
 import type { ListPageNavigation } from '$lib/list-page';
 
@@ -26,7 +36,9 @@ const PAGE: ListPageNavigation = {
 type NavProps = { page: ListPageNavigation; label: string; disabled?: boolean };
 
 function mountNav(disabled?: boolean) {
-  const m = mountComponent(ListPageNav as never, { page: PAGE, label: 'List pages', disabled } as never) as Mounted<NavProps>;
+  // reactiveProps: the disabled-prop transition test mutates m.props on the
+  // LIVE instance — a plain object would not propagate into the component.
+  const m = mountComponent(ListPageNav as never, reactiveProps({ page: PAGE, label: 'List pages', disabled } as never) as never) as Mounted<NavProps>;
   mounted.push(m as never);
   return m;
 }
@@ -62,15 +74,22 @@ describe('ListPageNav unavailable controls', () => {
 
   it('cannot be navigated by pointer or keyboard while disabled', () => {
     const m = mountNav(true);
+    const before = window.location.href;
+    resetNavigationCalls();
     for (const { name } of DIRECTIONS) {
       const el = control(m.target, name);
       el.click();
       el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-      el.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+      el.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true }));
       // Still an inert span — activation did nothing, and no anchor appeared.
       expect(el.tagName).toBe('SPAN');
       expect(m.target.querySelector('a')).toBeNull();
     }
+    // Observed, not inferred: no activation moved the URL or reached the
+    // navigation recorder. A handler smuggled onto the span (a hash rewrite,
+    // a goto) fails here even though the span markup still looks inert.
+    expect(window.location.href).toBe(before);
+    expect(navigationCalls).toEqual([]);
   });
 
   it('renders each enabled direction as a native anchor with the page URL and rel', () => {
@@ -85,11 +104,30 @@ describe('ListPageNav unavailable controls', () => {
   });
 
   it('returns to valid navigation with unchanged URLs after a disabled stretch', () => {
-    const wasDisabled = mountNav(true);
-    expect(wasDisabled.target.querySelector('a')).toBeNull();
-    const enabled = mountNav(false);
-    for (const { name, href } of DIRECTIONS) {
-      expect(control(enabled.target, name).getAttribute('href')).toBe(href);
+    // ONE mounted instance, toggled through the prop — the transition is the
+    // behavior under test (#1973 review: a second, independently mounted
+    // component proved nothing about recovery). Disabled → enabled must
+    // restore the exact anchors with their original URLs and rel; disabled
+    // again must return to inert spans with nothing navigable.
+    const m = mountNav(true);
+    expect(m.target.querySelector('a')).toBeNull();
+    m.props.disabled = false;
+    flushSync();
+    for (const { name, href, rel } of DIRECTIONS) {
+      const el = control(m.target, name);
+      expect(el.tagName).toBe('A');
+      expect(el.getAttribute('href')).toBe(href);
+      expect(el.getAttribute('rel')).toBe(rel);
+    }
+    m.props.disabled = true;
+    flushSync();
+    expect(m.target.querySelector('a')).toBeNull();
+    for (const { name } of DIRECTIONS) {
+      const el = control(m.target, name);
+      expect(el.tagName).toBe('SPAN');
+      expect(el.getAttribute('aria-disabled')).toBe('true');
+      expect(el.hasAttribute('href')).toBe(false);
+      expect(el.hasAttribute('tabindex')).toBe(false);
     }
   });
 });

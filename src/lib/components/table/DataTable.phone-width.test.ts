@@ -45,10 +45,14 @@ describe('DataTable phone width in SSR markup', () => {
     // clamp (100 here). The subtraction clamps at zero instead of going
     // negative — an unclamped 100 − 170 would inflate the phone table to
     // 1770px while the header still clamps to 170, defeating the clamp.
+    // The RENDERED width clamps from both sides — min(size, 170) — so the
+    // narrow column keeps its own width instead of being widened to 170.
     const body = html({ multiColumn: true, stickyEndColumn: 'second', secondSize: 100 });
     expect(body).toContain('--table-desktop-w: max(100%, 1700px)');
     expect(body).toContain('--phone-table-w: max(100%, 1700px)');
+    expect(body).toContain('--phone-end-w: 100px');
     expect(body).not.toContain('1770px');
+    expect(body).not.toContain('--phone-end-w: 170px');
   });
 
   it('keeps a multi-column fitOnPhone table on TanStack sizing at every width', () => {
