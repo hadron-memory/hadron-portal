@@ -47,7 +47,10 @@ try {
    const tableScroller = panel.getByTestId('data-table-scroller');
    if (width < 640) {
     const table = await tableScroller.locator('table').elementHandle();
-    await page.waitForFunction(el => el.style.width === '100%', table);
+    // #1954: the phone fit ships as an inline --phone-table-w custom property
+    // consumed by max-sm:w-[var(--phone-table-w)] (was an inline width: 100%
+    // written by a client effect — the wait caught that effect flipping).
+    await page.waitForFunction(el => el.style.getPropertyValue('--phone-table-w').trim() === '100%', table);
     await table.dispose();
     assert.equal(await tableScroller.getByRole('separator').count(), 0, `${label}: ${state} hides the resize separator while phone fitting is active`);
    }
