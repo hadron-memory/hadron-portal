@@ -96,11 +96,14 @@
     ownerKey: string;
     configs: AiServiceConfig[];
   } | null>(null);
-  const visibleConfigs = $derived(
-    reread && reread.against === configs && reread.ownerKey === currentOwnerKey()
-      ? reread.configs
-      : configs,
+  const usingReadback = $derived(
+    reread !== null && reread.against === configs && reread.ownerKey === currentOwnerKey(),
   );
+  const visibleConfigs = $derived(usingReadback && reread ? reread.configs : configs);
+  // The endpoint reads the whole owner list, not the loader's server page.
+  // Keep rows and navigation in the same mode: the ordinary client grid pages
+  // this working copy; a later loader replacement restores its own page + nav.
+  const visiblePagination = $derived(usingReadback ? undefined : pagination);
 
   function clearTransient() {
     if (noticeTimer !== null) clearTimeout(noticeTimer);
@@ -366,7 +369,7 @@
 {:else if currentUserId}
   {#key currentUserId}
     <AiServiceConfigManager
-      {pagination}
+      pagination={visiblePagination}
       {ownerType}
       {ownerId}
       {ownerLabel}
