@@ -61,7 +61,7 @@ describe('DataTable phone width', () => {
     // Phone width equals desktop width: the fit is a single-column opt-in,
     // enforced in derived state, not by the viewport.
     expect(style()).toContain('--phone-table-w: max(100%, 2000px)');
-    expect(headers.map((h) => h.getAttribute('style'))).toEqual(['--col-w: 1600px', '--col-w: 400px']);
+    expect(headers.map((h) => h.style.getPropertyValue('--col-w'))).toEqual(['1600px', '400px']);
     for (const header of headers) expect(header.className).not.toContain('max-sm:w-full');
     expect(separators).toHaveLength(2);
     for (const separator of separators) expect(separator.className).not.toContain('max-sm:hidden');
