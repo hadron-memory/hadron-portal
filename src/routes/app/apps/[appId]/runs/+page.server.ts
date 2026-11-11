@@ -1,9 +1,9 @@
 import { gqlClient } from '$lib/server/api';
 import { loadTasksApp } from '$lib/server/agent-tasks';
 import { loadAppRunsPage, loadAppRunsExtras } from '$lib/server/app-runs-page';
-import { APP_NODES_QUERY } from '$lib/server/queries';
+import { APP_NODES_PAGE_QUERY } from '$lib/server/queries';
 import { flowRoots, type FlowGraphNode } from '$lib/flow/flows';
-import { isCapped } from '$lib/server/capped';
+import { APP_DISPLAY_PAGE_SIZE, appListNavigation, appListOffset } from '../app-list-pages';
 import { error, redirect } from '@sveltejs/kit';
 import { withQuery } from '$lib/safeRedirect';
 import { runAppFlow } from '$lib/server/run-app-flow';
@@ -16,11 +16,22 @@ export const load: PageServerLoad = async ({ params, url, request, locals, paren
     const client = gqlClient(locals.token);
     const app = await loadTasksApp(client, params.appId);
     if (!app) error(404, 'App not found');
+    const appNodesOffset = appListOffset(url.searchParams, 'appNodesOffset');
     const [section, extras, nodes] = await Promise.all([
       loadAppRunsPage(client, params.appId, url.searchParams), loadAppRunsExtras(client, params.appId),
-      client.request<{ appNodes: FlowGraphNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: 500 }).catch(e => { console.warn('[app-runs] legacy Flows read failed', e); return { appNodes: [] }; }),
+      client.request<{ appNodesPage: { items: FlowGraphNode[]; total: number; hasMore: boolean } }>(APP_NODES_PAGE_QUERY, {
+        appRef: params.appId, limit: APP_DISPLAY_PAGE_SIZE, offset: appNodesOffset,
+      }).then((r) => r.appNodesPage).catch(e => {
+        console.warn('[app-runs] legacy Flows read failed', e);
+        return { items: [] as FlowGraphNode[], total: 0, hasMore: false };
+      }),
     ]);
-    return { legacyPanel: { ...section, ...extras, app: { ...app, organizationId: app.organizationId ?? null }, flows: flowRoots(nodes.appNodes), flowsCapped: isCapped(nodes.appNodes.length, 500), flowsScanned: nodes.appNodes.length } };
+    return { legacyPanel: {
+      ...section, ...extras,
+      app: { ...app, organizationId: app.organizationId ?? null },
+      flows: flowRoots(nodes.items),
+      flowsPage: appListNavigation(url, 'appNodesOffset', 'runs', appNodesOffset, nodes.items.length, nodes.total),
+    } };
   }
   await parent(); // The layout must finish its active-organisation cookie write first.
   const query = new URLSearchParams(url.search); query.set('tab', 'runs');

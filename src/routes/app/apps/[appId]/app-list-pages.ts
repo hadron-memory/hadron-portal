@@ -13,11 +13,13 @@ export function appListOffset(params: URLSearchParams, key: string): number {
 
 /** Both queries return an ordered { items, total } page; never auto-drain a display list. */
 export function appListNavigation(
-  url: URL, key: string, tab: 'worklog' | 'ai-configs', offset: number, count: number, total: number,
+  url: URL, key: string, tab: 'worklog' | 'ai-configs' | 'memory' | 'runs' | 'chats' | 'history', offset: number, count: number, total: number,
+  options: { clearParams?: string[] } = {},
 ): ListPageNavigation {
   function href(next: number) {
     const params = new URLSearchParams(url.searchParams);
     params.set('tab', tab);
+    for (const key of options.clearParams ?? []) params.delete(key);
     if (next === 0) params.delete(key); else params.set(key, String(next));
     return `${url.pathname}?${params}`;
   }

@@ -23,6 +23,15 @@ const channels = Array.from({ length: 201 }, (_, i) => ({
   id: `channel-${i}`, name: `Channel ${i}`, loc: `chats:channel-${i}`, memoryId: 'memory-a',
   chatRootUrn: `hrn:node:example.test:demo:chats:channel-${i}`,
 }));
+const nodes = Array.from({ length: 45 }, (_, i) => ({
+  id: `node-${i}`, urn: `hrn:node:example.test:demo:nodes:${i}`, memoryId: 'memory-a',
+  nodeType: 'info', loc: `nodes:${i}`, name: `Node ${i}`, description: null, tags: [], seq: null,
+  isRunnable: false, memory: { id: 'memory-a', urn: 'hrn:mem:example.test:demo', name: 'Memory', organizationId: null },
+  outgoingEdges: [], incomingEdges: [],
+}));
+const legacyChatRoots = Array.from({ length: 25 }, (_, i) => ({
+  id: `chat-${i}`, loc: `chats:${i}`, name: `Chat ${i}`, memoryId: 'memory-a', nodeType: 'chat',
+}));
 type Variables = Record<string, unknown>;
 const calls: { name: string; variables: Variables }[] = [];
 const unknown: string[] = [];
@@ -47,6 +56,11 @@ beforeEach(() => {
       case 'TeamWorkItems': return { teamWorkItems: page(work, variables) };
       case 'AppMembers': return { app: { members: [] } };
       case 'AppNodes': case 'AppChatRoots': return { appNodes: [] };
+      case 'AppNodesPage': return { appNodesPage: page(nodes, variables) };
+      case 'AppChatRootsPage': return { appNodesPage: page(legacyChatRoots, variables) };
+      case 'AppRuns': return { appRuns: { items: [], total: 0 } };
+      case 'AgentTasksApp': return { app: { id: APP_ID, name: 'App', urn: 'hrn:app:example.test:demo', organizationId: null } };
+      case 'AppInstalledAgents': return { app: { appAgents: [] } };
       case 'TeamChatMessages': return { teamChatMessages: { items: [], total: 0 } };
       case 'AppKeys': case 'AppKeyScopes': return { appKeysPage: { items: [], total: 0, hasMore: false } };
       case 'SelfCanManage': return { effectiveAccess: { canManage: false } };
@@ -101,6 +115,31 @@ describe('App display-list request boundaries (#1758)', () => {
     ]);
     expect(result.appConfigs).toEqual(configs.slice(20, 40));
     expect(result.appConfigs).toHaveLength(20);
+  });
+  it('defaults the Memory/Flows and legacy chat-root lists to independent pages of 20', async () => {
+    const result = await loadPage('?tab=runs');
+    expect(calls.filter(c => c.name === 'AppNodesPage').map(c => c.variables)).toEqual([
+      expect.objectContaining({ appRef: APP_ID, limit: 20, offset: 0 }),
+    ]);
+    expect(calls.filter(c => c.name === 'AppChatRootsPage').map(c => c.variables)).toEqual([
+      expect.objectContaining({ appRef: APP_ID, limit: 20, offset: 0 }),
+    ]);
+    expect(calls.filter(c => ['AppNodes', 'AppChatRoots'].includes(c.name))).toEqual([]);
+    expect(result.appNodes).toHaveLength(20);
+    expect(result.appNodesPage).toMatchObject({ offset: 0, count: 20, total: 45 });
+    expect(result.chatRootsPage).toMatchObject({ offset: 0, count: 20, total: 25 });
+    expect(result.runsPanel).toMatchObject({ flowsPage: { offset: 0, count: 20, total: 45 } });
+    expect(result).not.toHaveProperty('appNodesCapped');
+    expect(result).not.toHaveProperty('chatsCapped');
+    expect(result.runsPanel).not.toHaveProperty('flowsCapped');
+  });
+  it('continues each App node list by its own URL offset', async () => {
+    const result = await loadPage('?tab=memory&appNodesOffset=20&chatRootsOffset=20');
+    expect(calls.find(c => c.name === 'AppNodesPage')?.variables).toMatchObject({ limit: 20, offset: 20 });
+    expect(calls.find(c => c.name === 'AppChatRootsPage')?.variables).toMatchObject({ limit: 20, offset: 20 });
+    expect(result.appNodes).toEqual(nodes.slice(20, 40));
+    expect(result.appNodesPage).toMatchObject({ offset: 20, count: 20, total: 45 });
+    expect(result.chatRootsPage).toMatchObject({ offset: 20, count: 5, total: 25 });
   });
   it('retains complete staff and channel identity contexts, including rows beyond 200', async () => {
     const result = await loadPage();

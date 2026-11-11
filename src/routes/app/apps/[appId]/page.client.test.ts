@@ -1994,7 +1994,8 @@ describe('registered Channel chat switching (#1033)', () => {
     const base = await pageData();
     const room = async (id: string) => ({ ...base,
       appChats: [{ key: 'room-a', label: 'A' }, { key: 'room-b', label: 'B' }],
-      selectedChatKey: id, selectedChannelId: id, chatsCapped: id === 'room-a', chatRootsShown: 200,
+      selectedChatKey: id, selectedChannelId: id,
+      chatRootsPage: { offset: 0, count: 2, total: 2, firstHref: null, previousHref: null, nextHref: null },
       selectedChannelMessages: [{ ...message(1, 'w1'), body: `message ${id}` }], selectedChannelTotal: 1, selectedChannelError: false,
       postChannelMessageForm: await superValidate({ channelRef: id }, zod4(postTeamChatMessageSchema), { id: `channel:${id}`, errors: false }),
     });
@@ -2005,7 +2006,7 @@ describe('registered Channel chat switching (#1033)', () => {
     mounted.push(m);
     await tick(2);
     expect(m.target.querySelectorAll('#app-chat-select option')).toHaveLength(2);
-    expect(m.target.textContent).toContain('Showing the first 200 chats');
+    expect(m.target.textContent).not.toContain('Showing the first 200 chats');
     const body = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
     body.value = 'draft for A';
     body.dispatchEvent(new Event('input', { bubbles: true }));

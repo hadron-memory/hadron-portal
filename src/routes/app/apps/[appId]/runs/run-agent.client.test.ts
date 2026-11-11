@@ -32,7 +32,7 @@ async function mountRuns(runAgents: unknown) {
     data: {
       app: { id: 'app-1', name: 'Digest', organizationId: 'org-1' },
       runs: [], total: 0, page: 1, pageSize: 20, status: null, statuses: [], sort: 'createdAt', dir: 'desc', failed: false,
-      flows: [flow], flowsCapped: false, flowsScanned: 1, runForm, runAgents,
+      flows: [flow], flowsPage: { offset: 0, count: 1, total: 1, firstHref: null, previousHref: null, nextHref: null }, runForm, runAgents,
     },
     form: null,
   } as never) as Mounted<Record<string, unknown>>;
@@ -64,7 +64,7 @@ describe('runs page: Agent picker (#1444)', () => {
     const base = {
       app: { id: 'app-a', name: 'A', organizationId: 'org-1' },
       runs: [], total: 0, page: 1, pageSize: 20, status: null, statuses: [], sort: 'createdAt', dir: 'desc', failed: false,
-      flows: [flow], flowsCapped: false, flowsScanned: 1,
+      flows: [flow], flowsPage: { offset: 0, count: 1, total: 1, firstHref: null, previousHref: null, nextHref: null },
       runForm: await superValidate(zod4(runAppFlowSchema), { errors: false }),
       runAgents: agents as unknown,
     };

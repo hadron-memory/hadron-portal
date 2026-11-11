@@ -45,7 +45,7 @@ import {
   CREATE_APP_KEY_MUTATION,
   REVOKE_APP_KEY_MUTATION,
   DELETE_APP_MUTATION,
-  APP_NODES_QUERY,
+  APP_NODES_PAGE_QUERY,
   APP_CHANNELS_QUERY,
   AI_SERVICE_CONFIGS_QUERY,
   RESOLVE_AI_SERVICE_CONFIGS_QUERY,
@@ -58,7 +58,7 @@ import {
   TEAM_CHAT_MESSAGES_QUERY,
   CREATE_TEAM_CHAT_MESSAGE_MUTATION,
   TEAM_WORK_ITEMS_QUERY,
-  APP_CHAT_ROOTS_QUERY,
+  APP_CHAT_ROOTS_PAGE_QUERY,
 } from '$lib/server/queries';
 import { normalizeFilter, normalizeKind } from '$lib/components/worklog';
 // AGENT_CHAT_KEY / TEAM_CHAT_LOC moved out with RETIRED_TAB_ALIASES into
@@ -108,14 +108,8 @@ import {
   revokeAppKeySchema,
   updateAppAgentToolsSchema,
 } from './schema';
-import { isCapped } from '$lib/server/capped';
 import { loadLiveStops } from '$lib/server/stop-signals';
 import type { ReleaseWorkerMessage } from './schema';
-
-// appNodes and the chat-root read take a limit but have no continuation
-// (hadron-server#2212), so each fetches one window and says when it came back full.
-const APP_NODES_LIMIT = 500;
-const APP_CHAT_ROOTS_LIMIT = 200;
 import { readHoldStale, type HoldStale } from './hold-stale';
 
 type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
@@ -563,6 +557,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const worklogTool = normalizeFilter(url.searchParams.get('worklogTool'));
   const worklogOffset = appListOffset(url.searchParams, 'worklogOffset');
   const configOffset = appListOffset(url.searchParams, 'configOffset');
+  const appNodesOffset = appListOffset(url.searchParams, 'appNodesOffset');
+  const chatRootsOffset = appListOffset(url.searchParams, 'chatRootsOffset');
 
   // `?tab=` so a filtered worklog URL lands on the worklog rather than the
   // page's default tab, and `?chat=` to preselect a conversation. Both rules
@@ -744,8 +740,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const userId = locals.user?.id ?? null;
   const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, viewerManages, teamRoster, bootPointers, installMarks, liveStops, appProperties] = await Promise.all([
     client
-      .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: APP_NODES_LIMIT })
-      .catch(() => ({ appNodes: [] as MemoryNode[] })),
+      .request<{ appNodesPage: { items: MemoryNode[]; total: number; hasMore: boolean } }>(APP_NODES_PAGE_QUERY, {
+        appRef: params.appId, limit: APP_DISPLAY_PAGE_SIZE, offset: appNodesOffset,
+      })
+      .then((r) => r.appNodesPage)
+      .catch(() => ({ items: [] as MemoryNode[], total: 0, hasMore: false })),
     app.agentId
       ? client
           .request<{ resolveAiServiceConfigs: AiServiceConfig[] }>(RESOLVE_AI_SERVICE_CONFIGS_QUERY, {
@@ -811,11 +810,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // the staff and team-chat fetches: "couldn't load the chat list" and "this
     // App has one chat" are different statements.
     client
-      .request<{ appNodes: MemoryNode[] }>(APP_CHAT_ROOTS_QUERY, {
+      .request<{ appNodesPage: { items: MemoryNode[]; total: number; hasMore: boolean } }>(APP_CHAT_ROOTS_PAGE_QUERY, {
         appRef: params.appId,
-        limit: APP_CHAT_ROOTS_LIMIT,
+        limit: APP_DISPLAY_PAGE_SIZE,
+        offset: chatRootsOffset,
       })
-      .then((r) => r.appNodes)
+      .then((r) => r.appNodesPage)
       .catch((e) => {
         console.warn(`[app-chats] chat-root fetch failed for ${params.appId}:`, e);
         return null;
@@ -954,7 +954,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const registeredChannels = await fetchAllItems<import('$lib/types').Channel>(client, APP_CHANNELS_QUERY, 'channels', { appRef: params.appId })
     .catch(() => null);
   const appChats = withRegisteredChannels(
-    buildAppChatList(chatRoots ?? [], { hasAgentChat: !!app.agentId }), registeredChannels ?? [],
+    buildAppChatList(chatRoots?.items ?? [], { hasAgentChat: !!app.agentId }), registeredChannels ?? [],
     (app as typeof app & { defaultChannel?: { id: string } | null }).defaultChannel?.id,
   );
   const { selected: selectedChat, requestedMissing: chatNotFound } = resolveSelectedChat(
@@ -990,7 +990,13 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const runsSection = initialTab === 'runs' ? await loadAppRunsPage(client, params.appId, url.searchParams) : null;
   const runsExtras = initialTab === 'runs' ? await loadAppRunsExtras(client, params.appId) : null;
   return {
-    runsPanel: runsSection && runsExtras ? { ...runsSection, app, flows: flowRoots(nodesData.appNodes), flowsCapped: isCapped(nodesData.appNodes?.length ?? 0, APP_NODES_LIMIT), flowsScanned: nodesData.appNodes?.length ?? 0, ...runsExtras } : null,
+    runsPanel: runsSection && runsExtras ? {
+      ...runsSection,
+      app,
+      flows: flowRoots(nodesData.items),
+      flowsPage: appListNavigation(url, 'appNodesOffset', 'runs', appNodesOffset, nodesData.items.length, nodesData.total),
+      ...runsExtras,
+    } : null,
     appMemoryScope,
     appMemories: app.organizationId ? orgAppMemories : appMemoriesFromScope(appMemoryScope, app.id),
     createMemoryForm,
@@ -1000,8 +1006,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     availableAgents,
     availableAgentsError,
     subscribedAgentsError,
-    appNodes: nodesData.appNodes,
-    appNodesCapped: isCapped(nodesData.appNodes?.length ?? 0, APP_NODES_LIMIT),
+    appNodes: nodesData.items,
+    appNodesPage: appListNavigation(url, 'appNodesOffset', 'memory', appNodesOffset, nodesData.items.length, nodesData.total),
     chatConfigs,
     appConfigs: configsData?.items ?? [],
     configsPage: appListNavigation(url, 'configOffset', 'ai-configs', configOffset, configsData?.items.length ?? 0, configsData?.total ?? 0),
@@ -1035,8 +1041,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // discovery failing — distinct from an App that genuinely has one chat.
     appChats,
     chatsError: chatRoots === null || registeredChannels === null,
-    chatRootsShown: chatRoots?.length ?? 0,
-    chatsCapped: chatRoots !== null && isCapped(chatRoots?.length ?? 0, APP_CHAT_ROOTS_LIMIT),
+    chatRootsPage: appListNavigation(url, 'chatRootsOffset', 'chats', chatRootsOffset, chatRoots?.items.length ?? 0, chatRoots?.total ?? 0, { clearParams: ['chat'] }),
     selectedChannelId: selectedChat?.channelId ?? null,
     selectedChannelMessages: selectedChannelMessages?.items ?? [],
     selectedChannelTotal: selectedChannelMessages?.total ?? 0,

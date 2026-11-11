@@ -36,7 +36,7 @@ beforeEach(() => {
     if (query === APP_QUERY) return { app: APP };
     if (query === APP_MEMBERS_QUERY) return { app: { members: [] } };
     if (query === SELF_CAN_MANAGE_QUERY) return { effectiveAccess: { canManage: true } };
-    return {};
+    return { appNodesPage: { items: [], total: 0, hasMore: false } };
   });
 });
 
@@ -46,7 +46,7 @@ async function loadAs(canManage: boolean) {
     if (query === APP_QUERY) return { app: APP };
     if (query === APP_MEMBERS_QUERY) return { app: { members: [] } };
     if (query === SELF_CAN_MANAGE_QUERY) return { effectiveAccess: { canManage } };
-    return {};
+    return { appNodesPage: { items: [], total: 0, hasMore: false } };
   });
   const { load } = await import('./+page.server');
   return (await load({
@@ -104,7 +104,7 @@ it('org-App loader keeps creation-panel description rows distinct from the full 
       if (query === APP_DETAIL_ORG_QUERY) return { organization: { id: 'org-1', name: 'Org', urn: 'hrn:org:example.com', members: [] } };
       if (query === APP_MEMBERS_QUERY) return { app: { members: [] } };
       if (query === SELF_CAN_MANAGE_QUERY) return { effectiveAccess: { canManage: true } };
-      return {};
+      return { appNodesPage: { items: [], total: 0, hasMore: false } };
     });
     const { load } = await import('./+page.server');
     const result = (await load({

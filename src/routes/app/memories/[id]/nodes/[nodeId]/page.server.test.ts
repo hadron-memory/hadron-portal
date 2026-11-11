@@ -11,7 +11,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { jsonFingerprint } from '$lib/properties-source';
-import { MOVE_NODE_MUTATION, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import { MOVE_NODE_MUTATION, NODE_QUERY, NODE_REVISIONS_PAGE_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -272,7 +272,7 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
     expect(await result.memories).toEqual([]); // streamed; degrades to empty
   });
 
-  it('#529 — streams the node revision history (nodeRevisions), forwarding the node id', async () => {
+  it('#529/#1881 — streams a nodeRevisionsPage page, forwarding the node id', async () => {
     const memA = 'mem-A';
     mockRequest.mockResolvedValueOnce({
       node: {
@@ -285,10 +285,14 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
     });
     mockRequest.mockResolvedValueOnce({ memories: { items: [], total: 0 } });
     mockRequest.mockResolvedValueOnce({
-      nodeRevisions: [
-        { id: 'r2', createdAt: '2026-07-02T00:00:00Z', name: 'foo', editedBy: 'u1' },
-        { id: 'r1', createdAt: '2026-07-01T00:00:00Z', name: 'foo', editedBy: 'u1' },
-      ],
+      nodeRevisionsPage: {
+        items: [
+          { id: 'r2', createdAt: '2026-07-02T00:00:00Z', name: 'foo', editedBy: 'u1' },
+          { id: 'r1', createdAt: '2026-07-01T00:00:00Z', name: 'foo', editedBy: 'u1' },
+        ],
+        total: 2,
+        hasMore: false,
+      },
     });
 
     const result = (await runLoad(loadEvent({
@@ -300,7 +304,7 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
     const res = await result.revisions;
     expect(res.ok).toBe(true);
     expect(res.items.map((v) => v.id)).toEqual(['r2', 'r1']); // most recent first
-    const call = mockRequest.mock.calls.find(([doc]) => doc === NODE_REVISIONS_QUERY);
+    const call = mockRequest.mock.calls.find(([doc]) => doc === NODE_REVISIONS_PAGE_QUERY);
     expect(call?.[1]).toMatchObject({ nodeRef: 'leaf-pk' });
   });
 

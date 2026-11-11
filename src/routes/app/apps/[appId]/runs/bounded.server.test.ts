@@ -2,7 +2,7 @@ import { beforeEach, it, expect, vi } from 'vitest';
 import { APP_RUNS_QUERY, AGENT_TASKS_APP_QUERY } from '$lib/server/queries';
 const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
-beforeEach(() => { request.mockReset().mockImplementation(async (q: string) => q === APP_RUNS_QUERY ? { appRuns: { items: [], total: 100 } } : q === AGENT_TASKS_APP_QUERY ? { app: { id: 'a', name: 'App' } } : { appNodes: [], app: { id: 'a' } }); });
+beforeEach(() => { request.mockReset().mockImplementation(async (q: string) => q === APP_RUNS_QUERY ? { appRuns: { items: [], total: 100 } } : q === AGENT_TASKS_APP_QUERY ? { app: { id: 'a', name: 'App' } } : { appNodesPage: { items: [], total: 0, hasMore: false }, app: { id: 'a' } }); });
 it('uses the whole-set server sort and omits empty statuses at page20', async () => {
   const { loadAppRunsPage } = await import('$lib/server/app-runs-page');
   const load = async (event: { url: URL }) => loadAppRunsPage({ request } as never, 'a', event.url.searchParams);

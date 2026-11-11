@@ -19,6 +19,16 @@ it('continues after the actual served count, preserving independent filters and 
   // href drops the param), never offset 13.
   expect(new URL(page.previousHref!, url).searchParams.get('worklogOffset')).toBe(null);
 });
+it('chat-root continuation drops only the selected conversation and preserves independent list offsets', () => {
+  const url = new URL('https://example.test/app/apps/a?tab=chats&chat=chats%3Aold&worklogOffset=40&configOffset=20');
+  const page = appListNavigation(url, 'chatRootsOffset', 'chats', 0, 20, 45, { clearParams: ['chat'] });
+  const next = new URL(page.nextHref!, url);
+  expect(next.searchParams.get('chatRootsOffset')).toBe('20');
+  expect(next.searchParams.get('worklogOffset')).toBe('40');
+  expect(next.searchParams.get('configOffset')).toBe('20');
+  expect(next.searchParams.get('tab')).toBe('chats');
+  expect(next.searchParams.has('chat')).toBe(false);
+});
 // #1868 — Celine's exact repro: 41 records, short last page of 1. Previous
 // must return to the page the user came from (offset 20), and from there to
 // the start — two clicks back, with 21–40 seen again on the way.

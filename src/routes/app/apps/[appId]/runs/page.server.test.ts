@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getOperationAST, parse } from 'graphql';
 import {
   AGENT_TASKS_APP_QUERY,
-  APP_NODES_QUERY,
+  APP_NODES_PAGE_QUERY,
   APP_QUERY,
   APP_INSTALLED_AGENTS_QUERY,
   APP_RUNS_QUERY,
@@ -133,6 +134,31 @@ describe('app runs load(): a no-access viewer (#1130)', () => {
   });
 });
 
+describe('app runs legacy panel paging (#1881)', () => {
+  it('uses appNodesPage at the requested offset and carries navigation instead of a cap', async () => {
+    const pageCalls: Record<string, unknown>[] = [];
+    mockRequest.mockImplementation(async (query: string, vars: Record<string, unknown> = {}) => {
+      const name = getOperationAST(parse(query))?.name?.value;
+      if (query === APP_QUERY || query === AGENT_TASKS_APP_QUERY) return { app };
+      if (query === APP_RUNS_QUERY) return { appRuns: { items: [], total: 0 } };
+      if (query === APP_INSTALLED_AGENTS_QUERY) return { app: { appAgents: [] } };
+      if (name === 'AppNodesPage') {
+        pageCalls.push(vars);
+        return { appNodesPage: { items: [], total: 45, hasMore: true } };
+      }
+      throw new Error(`unexpected query: ${name}`);
+    });
+    const { load } = await importServer();
+    const result = await load({
+      request: { method: 'POST' }, params: { appId: 'app-1' }, locals: { token: 'tok' },
+      url: new URL('https://example.test/app/apps/app-1/runs?appNodesOffset=20'),
+    } as never) as { legacyPanel: Record<string, unknown> };
+    expect(pageCalls).toEqual([expect.objectContaining({ appRef: 'app-1', limit: 20, offset: 20 })]);
+    expect(result.legacyPanel.flowsPage).toMatchObject({ offset: 20, count: 0, total: 45 });
+    expect(result.legacyPanel).not.toHaveProperty('flowsCapped');
+  });
+});
+
 describe('app runs run action', () => {
   it('starts a flow and redirects to the run detail', async () => {
     mockRequest.mockResolvedValueOnce({ runTask: 'run-1' });
@@ -197,7 +223,7 @@ describe('app runs: choosing the Agent (#1444)', () => {
     mockRequest.mockImplementation(async (query: string) => {
       if (query === APP_QUERY || query === AGENT_TASKS_APP_QUERY) return { app };
       if (query === APP_RUNS_QUERY) return { appRuns: { items: [], total: 0 } };
-      if (query === APP_NODES_QUERY) return { appNodes: [flowNode] };
+      if (query === APP_NODES_PAGE_QUERY) return { appNodesPage: { items: [flowNode], total: 1, hasMore: false } };
       if (query === APP_INSTALLED_AGENTS_QUERY) return agentsRead ? agentsRead() : { app: { id: 'app-1', appAgents } };
       throw new Error(`unexpected query: ${query.slice(0, 60)}`);
     });

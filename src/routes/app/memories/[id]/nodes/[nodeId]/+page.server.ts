@@ -13,7 +13,7 @@ import { fetchAllItems } from '$lib/server/paginate';
 import { deletedEdgeEndpoints } from '$lib/server/deleted-edge-endpoints';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
-import { RECOVERY_NODE_QUERY, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APPS_RUNNABLE_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_EDGE_REMOVALS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, REQUEST_SIGNATURE_MUTATION, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
+import { RECOVERY_NODE_QUERY, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APPS_RUNNABLE_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_PAGE_QUERY, NODE_EDGE_REMOVALS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_PAGE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, REQUEST_SIGNATURE_MUTATION, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
 import { bindToRevision, type NodeProvenance, type ProvenanceResult } from '$lib/node-provenance';
 import { bindMintToRevision, type NodeMintStatus } from '$lib/node-mint';
 import { bindSignaturesToRevision, signatureRequestRefusalText, type NodeSignatureRead, type NodeSignatureStatus } from '$lib/node-signatures';
@@ -40,12 +40,10 @@ import { t } from '$lib/i18n/t';
 import type { MemoryNode, NodeEdgeRemoval, NodeRevision } from '$lib/types';
 import { readChildrenPage, type ChildRow } from '$lib/server/node-children';
 import { isCapped } from '$lib/server/capped';
+import { APP_DISPLAY_PAGE_SIZE, appListNavigation, appListOffset } from '../../../../apps/[appId]/app-list-pages';
 
-// nodeRevisions has no offset or cursor (hadron-server#2212): the history is one
-// window of the newest revisions, and the History tab says when it came back full.
-const REVISIONS_LIMIT = 100;
-// nodeEdgeRemovals is the same one-window shape (server#2562), so it shares the
-// window size and the full-window cue.
+// nodeEdgeRemovals is a one-window shape (server#2562), so it keeps the
+// full-window cue. Revision history itself uses nodeRevisionsPage below.
 const REMOVALS_LIMIT = 100;
 import type { Actions, PageServerLoad } from './$types';
 import { loadSkillCheck } from '$lib/server/skill-check';
@@ -310,25 +308,40 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
       return [] as PickMemory[];
     });
 
-  // #529: the node's revision history for the History tab (#623 rename).
-  // STREAMED (the tab may never be opened) and best-effort. An async IIFE keeps
-  // it unawaited (streamed) while capturing BOTH a synchronous throw and an
-  // async rejection (PR #530 review). Resolves to a discriminated result so the
-  // tab can tell "no revisions" from "couldn't load" — a silent [] on failure
-  // masks real errors (schema drift, a down server) as an empty history.
+  // #529/#1881: the node's revision history for the History tab, one explicit
+  // page at a time. STREAMED (the tab may never be opened) and best-effort.
+  // The matching provenance read below is display-only too: it decorates these
+  // exact rows and is not a complete-context consumer.
   const isComment = node.nodeType === COMMENT_NODE_TYPE;
-  const revisions = (async (): Promise<{ ok: boolean; items: NodeRevision[]; capped?: boolean; nodeId?: string }> => {
-    if (isComment) return { ok: true, items: [] };
+  const revisionsOffset = appListOffset(url.searchParams, 'revisionsOffset');
+  const revisions = (async (): Promise<{
+    ok: boolean;
+    items: NodeRevision[];
+    total: number;
+    hasMore: boolean;
+    nodeId?: string;
+    page?: ReturnType<typeof appListNavigation>;
+  }> => {
+    if (isComment) return { ok: true, items: [], total: 0, hasMore: false };
     try {
-      const r = await gqlClient(locals.token).request<{ nodeRevisions: NodeRevision[] }>(
-        NODE_REVISIONS_QUERY,
-        { nodeRef: node.id, limit: REVISIONS_LIMIT },
+      const r = await gqlClient(locals.token).request<{
+        nodeRevisionsPage: { items: NodeRevision[]; total: number; hasMore: boolean };
+      }>(
+        NODE_REVISIONS_PAGE_QUERY,
+        { nodeRef: node.id, limit: APP_DISPLAY_PAGE_SIZE, offset: revisionsOffset },
       );
-      const items = r?.nodeRevisions ?? [];
-      return { ok: true, items, capped: isCapped(items.length, REVISIONS_LIMIT), nodeId: node.id };
+      const page = r.nodeRevisionsPage;
+      return {
+        ok: true,
+        items: page.items,
+        total: page.total,
+        hasMore: page.hasMore,
+        nodeId: node.id,
+        page: appListNavigation(url, 'revisionsOffset', 'history', revisionsOffset, page.items.length, page.total),
+      };
     } catch (e) {
       console.warn('[node-detail] revision history failed:', e);
-      return { ok: false, items: [] };
+      return { ok: false, items: [], total: 0, hasMore: false };
     }
   })();
 
@@ -427,11 +440,13 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   const revisionProvenance = (async (): Promise<ProvenanceResult<NodeProvenance[]>> => {
     if (isComment) return { ok: true, value: [] };
     try {
-      const r = await gqlClient(locals.token).request<{ nodeRevisions: NodeProvenance[] }>(
-        NODE_REVISIONS_PROVENANCE_QUERY,
-        { nodeRef: node.id, limit: REVISIONS_LIMIT },
+      const r = await gqlClient(locals.token).request<{
+        nodeRevisionsPage: { items: NodeProvenance[] };
+      }>(
+        NODE_REVISIONS_PROVENANCE_PAGE_QUERY,
+        { nodeRef: node.id, limit: APP_DISPLAY_PAGE_SIZE, offset: revisionsOffset },
       );
-      return { ok: true, value: r?.nodeRevisions ?? [] };
+      return { ok: true, value: r.nodeRevisionsPage.items };
     } catch (e) {
       console.warn('[node-detail] revision provenance failed:', e);
       return { ok: false };

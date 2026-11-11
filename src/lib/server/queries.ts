@@ -1641,6 +1641,32 @@ export const NODE_REVISIONS_QUERY = /* GraphQL */ `
   }
 `;
 
+export const NODE_REVISIONS_PAGE_QUERY = /* GraphQL */ `
+  query NodeRevisionsPage($nodeRef: ID!, $limit: Int, $offset: Int) {
+    nodeRevisionsPage(nodeRef: $nodeRef, limit: $limit, offset: $offset) {
+      total
+      hasMore
+      items {
+        id
+        revNo
+        loc
+        name
+        alias
+        description
+        tags
+        editedBy
+        editedByInfo
+        editedByUser { handle urn }
+        editedByWorker { id name urn }
+        editedByAgent { id name urn }
+        revLabel
+        changes
+        createdAt
+      }
+    }
+  }
+`;
+
 // portal#1355 (server#2562, #2517): the audit entries a HARD delete left on
 // this node when it removed edges the node held to the deleted target
 // (hrn:node:hadronmemory.com:specs:cor:dmo:010:04). A separate record from NodeRevision — revisions stay
@@ -1740,6 +1766,20 @@ export const NODE_REVISIONS_PROVENANCE_QUERY = /* GraphQL */ `
       revNo
       authorship { ...NodeAuthorshipFields }
       contentValidation { ...NodeContentValidationFields }
+    }
+  }
+`;
+
+export const NODE_REVISIONS_PROVENANCE_PAGE_QUERY = /* GraphQL */ `
+  ${PROVENANCE_FIELDS}
+  query NodeRevisionsProvenancePage($nodeRef: ID!, $limit: Int, $offset: Int) {
+    nodeRevisionsPage(nodeRef: $nodeRef, limit: $limit, offset: $offset) {
+      items {
+        id
+        revNo
+        authorship { ...NodeAuthorshipFields }
+        contentValidation { ...NodeContentValidationFields }
+      }
     }
   }
 `;
@@ -2572,6 +2612,42 @@ export const APP_NODES_QUERY = /* GraphQL */ `
   }
 `;
 
+export const APP_NODES_PAGE_QUERY = /* GraphQL */ `
+  query AppNodesPage($appRef: ID!, $limit: Int, $offset: Int) {
+    appNodesPage(appRef: $appRef, limit: $limit, offset: $offset) {
+      total
+      hasMore
+      items {
+        urn
+        id
+        memoryId
+        nodeType
+        loc
+        name
+        description
+        tags
+        seq
+        isRunnable
+        memory { id urn name organizationId }
+        outgoingEdges {
+          id
+          name
+          loc
+          isRunnable
+          target { id loc name }
+        }
+        incomingEdges {
+          id
+          name
+          loc
+          isRunnable
+          source { id loc name }
+        }
+      }
+    }
+  }
+`;
+
 // ---------------------------------------------------------------------------
 // Sessions
 // ---------------------------------------------------------------------------
@@ -3067,6 +3143,22 @@ export const APP_CHAT_ROOTS_QUERY = /* GraphQL */ `
       name
       memoryId
       nodeType
+    }
+  }
+`;
+
+export const APP_CHAT_ROOTS_PAGE_QUERY = /* GraphQL */ `
+  query AppChatRootsPage($appRef: ID!, $limit: Int, $offset: Int) {
+    appNodesPage(appRef: $appRef, filter: { nodeType: "chat" }, limit: $limit, offset: $offset) {
+      total
+      hasMore
+      items {
+        id
+        loc
+        name
+        memoryId
+        nodeType
+      }
     }
   }
 `;

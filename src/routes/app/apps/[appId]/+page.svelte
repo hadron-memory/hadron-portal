@@ -149,7 +149,7 @@
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
   import skillGetStarted from '$lib/assets/skill-get-started.md?raw';
   import skillSearch from '$lib/assets/skill-search.md?raw';
-  import CappedNotice from '$lib/components/CappedNotice.svelte';
+  import ListPageNav from '$lib/components/ListPageNav.svelte';
   import type { PageData, ActionData } from './$types';
   import {
     addAgentSchema,
@@ -2245,10 +2245,10 @@
       {#if data.selectedChannelId && data.selectedChatKey?.startsWith('hrn:')}
         <Urn value={data.selectedChatKey} type="node" />
       {/if}
-      {#if data.chatsCapped}
-        <CappedNotice shown={data.chatRootsShown ?? 0} what={t('capped.chats', 'chats')} />
-      {/if}
     </div>
+    {#if data.chatRootsPage && !data.chatsError}
+      <ListPageNav page={data.chatRootsPage} label={t('app.chats.pages', 'Chat pages')} />
+    {/if}
 
     {#if data.chatNotFound}
       <!-- The reader followed a link to a SPECIFIC chat. Substituting the
@@ -3406,13 +3406,13 @@
          rights across this App. Omit the partial writable set so the browser
          makes no read-only claim from omission; server writes stay authoritative.
          The full memory list awaits the server projection in #2190. -->
-    {#if data.appNodesCapped}
-      <div class="mb-3"><CappedNotice shown={data.appNodes?.length ?? 0} what={t('capped.nodes', 'nodes')} /></div>
-    {/if}
     {#if memoryScope === null}
       <p role="alert" class="mb-3 text-sm text-red-600 dark:text-red-400">{t('app.memory-scope.failed', 'Could not load accessible memories. Reload to try again.')}</p>
     {/if}
     <MemoryBrowser nodes={data.appNodes ?? []} multiMemory={true} scopeMemoryIds={(memoryScope ?? []).map((m) => m.memoryId)} scopeMemories={memoryScope ?? []} />
+    {#if data.appNodesPage}
+      <ListPageNav page={data.appNodesPage} label={t('app.memory-node.pages', 'Memory node pages')} />
+    {/if}
     </div>
   {/if}
 

@@ -7,7 +7,7 @@ import { AGENT_TOOLS_IMPERSONATION_READ_ONLY, AGENT_TOOLS_MANAGERS_ONLY } from '
 import {
   AI_SERVICE_CONFIGS_QUERY,
   INSTALL_AGENT_INTO_APP_MUTATION,
-  APP_NODES_QUERY,
+  APP_NODES_PAGE_QUERY,
   APP_QUERY,
   APP_CHAT_TARGET_QUERY,
   CHANNEL_CHAT_TARGET_QUERY,
@@ -29,7 +29,7 @@ import {
   SELF_CAN_MANAGE_QUERY,
   TEAM_CHAT_MESSAGES_QUERY,
   TEAM_WORK_ITEMS_QUERY,
-  APP_CHAT_ROOTS_QUERY,
+  APP_CHAT_ROOTS_PAGE_QUERY,
   UPDATE_APP_MUTATION,
 } from '$lib/server/queries';
 
@@ -160,10 +160,10 @@ describe('load', () => {
       }
       if (query === AI_SERVICE_CONFIGS_QUERY) return Promise.resolve({ aiServiceConfigs: { items: [], total: 0 } });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       // #744: chat-root discovery for the Chats selector. Shares the appNodes
       // resolver but is its own document, so the strict mock needs it by name.
-      if (query === APP_CHAT_ROOTS_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_CHAT_ROOTS_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
@@ -213,7 +213,7 @@ describe('load', () => {
         });
       }
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
@@ -263,7 +263,7 @@ describe('load', () => {
         });
       }
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
@@ -300,7 +300,7 @@ describe('load', () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) return Promise.reject(new Error('chat exploded'));
       return Promise.resolve({ resolveAiServiceConfigs: [] });
     });
@@ -334,7 +334,7 @@ describe('load', () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
@@ -376,7 +376,7 @@ describe('load', () => {
       mockRequest.mockImplementation((query, vars) => {
         if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
         if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-        if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+        if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
         if (query === TEAM_CHAT_MESSAGES_QUERY) return chat(vars as Record<string, unknown>);
         if (query === TEAM_WORK_ITEMS_QUERY) return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
         return Promise.resolve({ resolveAiServiceConfigs: [] });
@@ -446,7 +446,7 @@ describe('load', () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({
           teamChatMessages: { items: [{ nodeId: 'n1', seq: 42 }], total: 913 },
@@ -481,7 +481,7 @@ describe('load', () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
@@ -1615,10 +1615,10 @@ describe('worklog loading (#733)', () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
-      if (query === APP_CHAT_ROOTS_QUERY) {
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
+      if (query === APP_CHAT_ROOTS_PAGE_QUERY) {
         if (chatRoots instanceof Error) return Promise.reject(chatRoots);
-        return Promise.resolve({ appNodes: chatRoots ?? [] });
+        return Promise.resolve({ appNodesPage: { items: chatRoots ?? [], total: chatRoots?.length ?? 0, hasMore: false } });
       }
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
@@ -1774,7 +1774,7 @@ describe('team chat tail paging (#1536)', () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: page });
       }
@@ -1834,7 +1834,7 @@ describe('canManageApp (#1106)', () => {
     mockRequest.mockImplementation((query, vars) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp({ urn: 'hrn:app:acme.com:demo' }) });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       if (query === SELF_CAN_MANAGE_QUERY) {
         expect(vars).toEqual({ user: 'user-1', resource: 'hrn:app:acme.com:demo' });
@@ -1937,8 +1937,8 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
         return Promise.resolve({ organization: { id: 'org-1', agentOrgGrants: [] } });
       }
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
-      if (query === APP_CHAT_ROOTS_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
+      if (query === APP_CHAT_ROOTS_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
@@ -2184,7 +2184,7 @@ describe('load: key inventory (portal#1068)', () => {
       if (query === APP_KEYS_QUERY) return keysRead(vars as { limit?: number; offset?: number });
       if (query === APP_VIEWER_MANAGES_QUERY) return managesRead();
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       if (query === TEAM_WORK_ITEMS_QUERY) return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
       return Promise.resolve({ resolveAiServiceConfigs: [] });
@@ -2287,7 +2287,7 @@ describe('load: Human Team roster states (portal#1148)', () => {
         });
       }
       if (query === APP_MEMBERS_QUERY) return membersRead();
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       if (query === TEAM_WORK_ITEMS_QUERY) return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
       return Promise.resolve({ resolveAiServiceConfigs: [] });

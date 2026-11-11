@@ -10,14 +10,15 @@
   import { scopedActionError } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
-  import CappedNotice from '$lib/components/CappedNotice.svelte';
+  import ListPageNav from '$lib/components/ListPageNav.svelte';
+  import type { ListPageNavigation } from '$lib/list-page';
   
   import { runAppFlowSchema } from './schema';
 
   type RunAppFlowForm = Infer<typeof runAppFlowSchema, 'zod4'>;
   type RunAppFlowSuperform = SuperValidated<RunAppFlowForm, App.Superforms.Message, RunAppFlowForm>;
 
-  type PanelData = RunsSection & { app: { id: string; name: string; organizationId: string | null }; flows: FlowSummary[]; flowsCapped: boolean; flowsScanned: number; runForm: RunAppFlowSuperform; runAgents: InstalledAgent[] | null };
+  type PanelData = RunsSection & { app: { id: string; name: string; organizationId: string | null }; flows: FlowSummary[]; flowsPage: ListPageNavigation; runForm: RunAppFlowSuperform; runAgents: InstalledAgent[] | null };
   let { data, form }: { data: PanelData; form: unknown } = $props();
 
   const initialRunForm = untrack(() => submittedForm<RunAppFlowForm>(form, 'runFlow') as RunAppFlowSuperform | null ?? data.runForm);
@@ -54,12 +55,9 @@
   <!-- Flows this app can start (#483) — derived: runnable entry nodes with
        routing edges. The Run button mints a MANUAL run; payloads live on the
        node page's Test-flow panel. -->
-  {#if data.flows.length > 0}
+  {#if data.flows.length > 0 || data.flowsPage.count > 0}
     <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
       <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('flows.title', 'Flows')}</h2>
-      {#if data.flowsCapped}
-        <div class="mt-2"><CappedNotice shown={data.flowsScanned} what={t('capped.app-nodes', 'app nodes (flows are derived from them, so some may be missing)')} /></div>
-      {/if}
       <p class="mt-1 text-xs text-zinc-400">
         {t('flows.explainer', 'Runnable entry nodes with routing edges in this app’s memories. Run one here, or open the node to run it with a test payload.')}
       </p>
@@ -83,7 +81,8 @@
       {#if runActionError}
         <div role="alert" class="mt-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{runActionError}</div>
       {/if}
-      <ul class="mt-3 divide-y divide-zinc-100 dark:divide-zinc-800">
+      {#if data.flows.length > 0}
+        <ul class="mt-3 divide-y divide-zinc-100 dark:divide-zinc-800">
         {#each data.flows as flow (flow.entry.id)}
           <li class="flex flex-wrap items-center gap-x-4 gap-y-2 py-2.5">
             <div class="min-w-0 flex-1">
@@ -110,13 +109,11 @@
             </form>
           </li>
         {/each}
-      </ul>
-    </section>
-  {:else if data.flowsCapped}
-    <!-- Zero derived flows from a FULL window is not "this app has no flows". -->
-    <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-      <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('flows.title', 'Flows')}</h2>
-      <div class="mt-2"><CappedNotice shown={data.flowsScanned} what={t('capped.app-nodes', 'app nodes (flows are derived from them, so some may be missing)')} /></div>
+        </ul>
+      {:else}
+        <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{t('flows.none-on-page', 'No flows on this page.')}</p>
+      {/if}
+      <ListPageNav page={data.flowsPage} label={t('flows.pages', 'Flow pages')} />
     </section>
   {/if}
 
