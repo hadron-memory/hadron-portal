@@ -1,5 +1,6 @@
 <script lang="ts">
   import TabRow from '$lib/components/TabRow.svelte';
+  import RefreshNodeLoc from './RefreshNodeLoc.svelte';
   import { locOfSameMemoryTarget } from '$lib/urn/move-destination';
   import { Expand } from 'lucide-svelte';
   import MoveLocationInput from '$lib/components/MoveLocationInput.svelte';
@@ -4286,12 +4287,20 @@
               <!-- #921: Node.role, an open string, distinct from the Type above. -->
               <NodeRoleInput bind:value={$updateMetaFormData.role} seed={$updateMetaFormData.roleSeed} {inputClass} />
               <div>
-                <label for="editLoc" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN <span class="text-zinc-500">(changing this moves the node)</span></label>
+                <div class="mb-1 flex flex-wrap items-start justify-between gap-2">
+                  <label for="editLoc" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN <span class="text-zinc-500">(changing this moves the node)</span></label>
+                  <RefreshNodeLoc memoryId={node.memoryId} nodeId={node.id} savedName={node.name} savedLoc={node.loc}
+                    name={$updateMetaFormData.name ?? ''} loc={$updateMetaFormData.loc ?? ''} disabled={$updateMetaSubmitting}
+                    onrefresh={(loc) => { $updateMetaFormData.loc = loc; }} />
+                </div>
                 <div class="flex items-stretch">
                   <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{data.graph.urn}:</span>
                   <input id="editLoc" name="loc" type="text" bind:value={$updateMetaFormData.loc}
                     class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
                 </div>
+                {#if ($updateMetaFormData.loc ?? '') !== node.loc}
+                  <p data-testid="node-loc-move-warning" class="mt-2 text-xs text-zinc-600 dark:text-zinc-400">{t('node.meta.loc-move-warning', 'Saving moves this node and its children to the new URN. Links written as the old URN are not updated. Old URNs of minted nodes keep working; others may stop working.')}</p>
+                {/if}
               </div>
               <div>
                 <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
