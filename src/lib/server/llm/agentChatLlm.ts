@@ -1,7 +1,7 @@
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
-import { generateText, tool, jsonSchema } from 'ai';
+import { APICallError, RetryError, generateText, tool, jsonSchema } from 'ai';
 import type { AIProvider } from '$lib/types';
 import { ChatError } from './chatError.js';
 
@@ -193,12 +193,109 @@ export async function callAgentChatLlm(args: {
   tools: HadronTool[] | null;
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
 }): Promise<AgentChatLlmResult> {
+  const trace: LlmTrace = { stage: 'config' };
   try {
-    return await callAgentChatLlmUnsafe(args);
-  } catch {
+    return await callAgentChatLlmUnsafe(args, trace);
+  } catch (e) {
     // SDK errors can contain the request Authorization header. Do not attach
-    // the original error as a cause or log it here.
+    // the original error as a cause, and never hand it (or anything read off
+    // it) to a logger: #1979 logs one closed line built from this module's own
+    // vocabulary and integers, and nothing else.
+    logLlmFailure(e, {
+      stage: trace.stage,
+      branch: trace.branch ?? (args.tools?.some((t) => t.name === 'respond') ? 'respond' : 'plain'),
+      turn: args.messages.length === 0 ? 'welcome' : 'turn',
+      provider: args.provider,
+      tools: args.tools?.length ?? 0,
+    });
     throw new ChatError('llmFailed');
+  }
+}
+
+// ── #1979: the closed diagnostic line for a failed AI turn ──────────────────
+//
+// The public error stays the fixed llmFailed. The server log gets ONE line made
+// only of: this module's finite vocabulary below, and integers. A provider
+// message, response body, error name/class, request id, model, prompt, config or
+// App name are all attacker- or user-controlled and may echo a credential, so
+// none is read into the line; the provider's own `error.type` appears only when
+// it equals an entry of a code allowlist (the allowlist's constant is logged,
+// never the input). Status alone does not say WHY a request failed; the line
+// keeps that uncertainty by saying only what class of boundary it came from.
+
+/** Where in one turn the failure happened, set by the call itself, not read from the error. */
+type LlmStage = 'config' | 'request' | 'tool-output';
+type LlmBranch = 'plain' | 'respond';
+interface LlmTrace { stage: LlmStage; branch?: LlmBranch }
+interface LlmFailureContext { stage: LlmStage; branch: LlmBranch; turn: 'welcome' | 'turn'; provider: AIProvider; tools: number }
+
+const LOGGABLE_PROVIDERS: readonly string[] = ['anthropic', 'openai', 'glm', 'bedrock'];
+const LOGGABLE_ANTHROPIC_TYPES: readonly string[] = [
+  'invalid_request_error', 'authentication_error', 'permission_error', 'not_found_error',
+  'rate_limit_error', 'api_error', 'overloaded_error',
+];
+
+/**
+ * The SDK's own provider-call error, or null. A retryable failure (429, 5xx,
+ * transport) reaches us wrapped in the SDK's RetryError after its retries; the
+ * wrapper's last attempt is the one unwrap. Only the SDK's own marker types are
+ * accepted, so an impostor with the right field names is not read.
+ */
+function providerCallError(error: unknown): APICallError | null {
+  try {
+    const inner: unknown = RetryError.isInstance(error) ? error.lastError : error;
+    return APICallError.isInstance(inner) ? inner : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The finite HTTP status of a provider rejection, or null. */
+function statusOf(error: unknown): number | null {
+  try {
+    const call = providerCallError(error);
+    if (!call) return null;
+    const status: unknown = call.statusCode;
+    return typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599 ? status : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The provider's own error type if (and only if) it is on the allowlist, as OUR constant. */
+function anthropicTypeOf(error: unknown): string | null {
+  try {
+    const call = providerCallError(error);
+    if (!call) return null;
+    const data = call.data as { error?: { type?: unknown } } | undefined;
+    const raw: unknown = data?.error?.type;
+    if (typeof raw !== 'string') return null;
+    const i = LOGGABLE_ANTHROPIC_TYPES.indexOf(raw);
+    return i >= 0 ? LOGGABLE_ANTHROPIC_TYPES[i] : null;
+  } catch {
+    return null;
+  }
+}
+
+/** One closed log line. Exported for the tests; builds a fresh string, never keeps `error`. */
+export function describeLlmFailure(error: unknown, ctx: LlmFailureContext): string {
+  const status = ctx.stage === 'request' ? statusOf(error) : null;
+  const type = status === null ? null : anthropicTypeOf(error);
+  const klass = ctx.stage === 'config' ? 'config'
+    : ctx.stage === 'tool-output' ? 'unexpected-tool-output'
+    : status === null ? 'request-failed' : 'provider-status';
+  const providerIndex = LOGGABLE_PROVIDERS.indexOf(ctx.provider);
+  const provider = providerIndex >= 0 ? LOGGABLE_PROVIDERS[providerIndex] : 'unknown';
+  const tools = Number.isInteger(ctx.tools) && ctx.tools >= 0 ? ctx.tools : 0;
+  return `[agent-chat] llm turn failed class=${klass} stage=${ctx.stage} branch=${ctx.branch} turn=${ctx.turn} provider=${provider} status=${status ?? 'none'} type=${type ?? 'none'} tools=${tools}`;
+}
+
+/** Logging must never replace or escape the public error. */
+function logLlmFailure(error: unknown, ctx: LlmFailureContext): void {
+  try {
+    console.warn(describeLlmFailure(error, ctx));
+  } catch {
+    // The diagnostic is best-effort.
   }
 }
 
@@ -209,7 +306,7 @@ async function callAgentChatLlmUnsafe(args: {
   systemMessage: string;
   tools: HadronTool[] | null;
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
-}): Promise<AgentChatLlmResult> {
+}, trace: LlmTrace): Promise<AgentChatLlmResult> {
   const { provider, apiKey, model, systemMessage, messages } = args;
   const languageModel = createLanguageModel(provider, apiKey, model);
   if (!languageModel) {
@@ -239,6 +336,8 @@ async function callAgentChatLlmUnsafe(args: {
   // Find the respond tool. Hadron always ships a single tool per stage but
   // the array shape leaves room for more later.
   const respondTool = (args.tools ?? []).find((t) => t.name === 'respond');
+  trace.stage = 'request';
+  trace.branch = respondTool ? 'respond' : 'plain';
   if (!respondTool) {
     // No extraction spec on this stage — fall back to plain text and wrap
     // it as a synthetic respond() call so the downstream processChatResponse
@@ -292,6 +391,7 @@ async function callAgentChatLlmUnsafe(args: {
   const firstCall = toolCalls[0] as { toolName?: string; input?: unknown } | undefined;
 
   if (!firstCall || firstCall.toolName !== 'respond') {
+    trace.stage = 'tool-output';
     throw new Error(
       `LLM did not produce a respond() tool call. Got text: ${result.text?.slice(0, 200) ?? '(empty)'}`,
     );

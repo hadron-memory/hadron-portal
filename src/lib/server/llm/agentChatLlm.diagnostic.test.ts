@@ -8,8 +8,9 @@
  * user-controlled name and must never reach ANY logger argument.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { APICallError } from 'ai';
 import { callAgentChatLlm, describeLlmFailure } from './agentChatLlm.js';
-import { CHAT_ERROR, publicChatError } from './chatError.js';
+import { CHAT_ERROR, ChatError, publicChatError } from './chatError.js';
 
 const KEY = 'sk-ant-SENTINEL-KEY-1979';
 const PROMPT = 'SENTINEL-PROMPT-1979 customer says hello';
@@ -26,11 +27,14 @@ const RESPOND = { name: 'respond', description: PROMPT, parameters: { type: 'obj
 let captured: unknown[][];
 beforeEach(() => {
   captured = [];
+  // The SDK retries 429/5xx and transport errors with a backoff; fake only the
+  // timer so the retries run at once and the final failure is what is logged.
+  vi.useFakeTimers({ toFake: ['setTimeout'] });
   for (const level of ['log', 'info', 'warn', 'error', 'debug'] as const) {
     vi.spyOn(console, level).mockImplementation((...args: unknown[]) => { captured.push(args); });
   }
 });
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 function stubFetch(reply: () => Response | Promise<Response>) {
   const f = vi.fn(async () => reply());
@@ -43,13 +47,12 @@ const providerError = (status: number, type: string = TYPE) =>
   });
 
 async function fail(args: Partial<Parameters<typeof callAgentChatLlm>[0]> = {}): Promise<unknown> {
-  try {
-    await callAgentChatLlm({
-      provider: 'anthropic', apiKey: KEY, model: MODEL, systemMessage: PROMPT,
-      tools: [RESPOND], messages: [{ role: 'user', content: PROMPT }], ...args,
-    });
-  } catch (e) { return e; }
-  throw new Error('expected the turn to fail');
+  const turn = callAgentChatLlm({
+    provider: 'anthropic', apiKey: KEY, model: MODEL, systemMessage: PROMPT,
+    tools: [RESPOND], messages: [{ role: 'user', content: PROMPT }], ...args,
+  }).then(() => { throw new Error('expected the turn to fail'); }, (e: unknown) => e);
+  await vi.advanceTimersByTimeAsync(60_000);
+  return turn;
 }
 const lines = () => captured.map((a) => a.map(String).join(' '));
 function expectNoSentinel(where: unknown) {
@@ -61,7 +64,7 @@ function expectPublicUnchanged(e: unknown) {
   expect((e as Error).name).toBe('ChatError');
   expect((e as Error).message).toBe(CHAT_ERROR.llmFailed);
   expect((e as Error).cause).toBeUndefined();
-  expect(Object.keys(e as object).sort()).toEqual(['code']);
+  expect(Object.keys(e as object).sort()).toEqual(Object.keys(new ChatError('llmFailed')).sort()); // no extra field
   expect(publicChatError(e)).toEqual({ code: 'llmFailed', message: CHAT_ERROR.llmFailed, status: 500 });
 }
 
@@ -163,6 +166,18 @@ describe('#1979 describeLlmFailure never walks an arbitrary error', () => {
     for (const bad of [99, 600, 1.5, Number.NaN, '401', -1]) {
       expect(describeLlmFailure({ statusCode: bad }, ctx)).toContain('status=none');
     }
+  });
+  it('a genuine SDK error with a malformed status is still "none"; a good one is kept', () => {
+    const call = (statusCode: unknown, data?: unknown) =>
+      new APICallError({ message: KEY, url: 'https://x.invalid', requestBodyValues: {}, statusCode: statusCode as number, data });
+    for (const bad of [99, 600, 1.5, 401.5, 100.1, Number.NaN, -1, Infinity]) {
+      expect(describeLlmFailure(call(bad), ctx)).toContain('status=none');
+    }
+    expect(describeLlmFailure(call(100), ctx)).toContain('status=100');
+    expect(describeLlmFailure(call(599), ctx)).toContain('status=599');
+    expect(describeLlmFailure(call(401, { error: { type: 'authentication_error' } }), ctx)).toContain('type=authentication_error');
+    expect(describeLlmFailure(call(401, { error: { type: { toString: () => KEY } } }), ctx)).toContain('type=none');
+    expect(describeLlmFailure(call(401, { get error() { throw new Error(KEY); } }), ctx)).toMatch(LINE);
   });
   it('an invalid provider or tool count falls back to unknown/0', () => {
     const line = describeLlmFailure(new Error('x'), { ...ctx, provider: MODEL as never, tools: -3 });
