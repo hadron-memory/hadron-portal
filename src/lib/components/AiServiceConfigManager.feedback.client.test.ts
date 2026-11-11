@@ -2201,8 +2201,9 @@ describe('a dropped stale write is reconciled by the Section’s committed readb
     const m = await open({ configs: [] });
     await startCreate(m.target, 'made');
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://made.example/v1');
+    await vi.waitFor(() => expect(button(m.target, 'Save').disabled).toBe(false));
     button(m.target, 'Save').click();
-    await tick(2); // the create is in flight, held
+    await vi.waitFor(() => expect(posts.some(p => p.action === 'create')).toBe(true)); // the create is in flight, held
     expect(posts.find((p) => p.action === 'create')).toMatchObject({ name: 'made' });
 
     // The owner visit changes while the response is in flight, closing the
@@ -2233,6 +2234,7 @@ describe('a dropped stale write is reconciled by the Section’s committed readb
     // would send endpoint: 'https://fresh.example/v1' as a spurious change.
     editRow(m.target, 'made');
     await settle();
+    await vi.waitFor(() => expect(button(m.target, 'Save').disabled).toBe(false));
     button(m.target, 'Save').click();
     await settle();
     expect(posts.filter((p) => p.action === 'create')).toHaveLength(1);

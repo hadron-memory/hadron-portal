@@ -451,6 +451,7 @@ describe('a late save response must not replace the replacement editor’s basel
     const held = new Promise<AiServiceConfig>((resolve) => { release = resolve; });
     const deliveredRow = new Promise<void>((resolve) => { delivered = resolve; });
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
+      if (_url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       const body = JSON.parse(init.body) as Record<string, unknown>;
       posts.push(body);
       if (body.action === action) {
@@ -491,8 +492,9 @@ describe('a late save response must not replace the replacement editor’s basel
     editRow(m.target);
     await settle();
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://stale.example/v1');
+    await vi.waitFor(() => expect(button(m.target, 'Save').disabled).toBe(false));
     button(m.target, 'Save').click();
-    await settle(); // the update is in flight, held
+    await vi.waitFor(() => expect(posts.some(p => p.action === 'update')).toBe(true)); // the update is in flight, held
     expect(posts.find((p) => p.action === 'update')).toMatchObject({ endpoint: 'https://stale.example/v1' });
 
     // The owner visit changes while the response is in flight, closing the
@@ -507,8 +509,7 @@ describe('a late save response must not replace the replacement editor’s basel
     release({ ...row, endpoint: 'https://stale.example/v1' }); // the old save’s late response
     await settleDroppedWrite(delivered, m.target);
 
-    button(m.target, 'Save').click(); // fields unchanged since the reopen
-    await settle();
+    await performAction(m.target, 'Save'); // fields unchanged since the reopen
     const updates = posts.filter((p) => p.action === 'update');
     expect(updates).toHaveLength(2);
     const second = updates[1]!;
@@ -529,8 +530,9 @@ describe('a late save response must not replace the replacement editor’s basel
     set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-5');
     set($<HTMLInputElement>(m.target, '#ac-key')!, 'sk-test');
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://made.example/v1');
+    await vi.waitFor(() => expect(button(m.target, 'Save').disabled).toBe(false));
     button(m.target, 'Save').click();
-    await settle(); // the create is in flight, held
+    await vi.waitFor(() => expect(posts.some(p => p.action === 'create')).toBe(true)); // the create is in flight, held
     expect(posts.find((p) => p.action === 'create')).toMatchObject({ name: 'made', endpoint: 'https://made.example/v1' });
 
     // The owner visit changes while the response is in flight, closing the
@@ -549,8 +551,7 @@ describe('a late save response must not replace the replacement editor’s basel
     release(config({ id: 'c9', name: 'made', endpoint: 'https://made.example/v1' })); // the create’s late response
     await settleDroppedWrite(delivered, m.target);
 
-    button(m.target, 'Save').click(); // fields unchanged since the reopen
-    await settle();
+    await performAction(m.target, 'Save'); // fields unchanged since the reopen
     const updates = posts.filter((p) => p.action === 'update');
     expect(updates).toHaveLength(1);
     const only = updates[0]!;
@@ -570,8 +571,9 @@ describe('a late save response must not replace the replacement editor’s basel
     set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-5');
     set($<HTMLInputElement>(m.target, '#ac-key')!, 'sk-test');
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://made.example/v1');
+    await vi.waitFor(() => expect(button(m.target, 'Save').disabled).toBe(false));
     button(m.target, 'Save').click();
-    await settle(); // the create is in flight, held
+    await vi.waitFor(() => expect(posts.some(p => p.action === 'create')).toBe(true)); // the create is in flight, held
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://edited.example/v1'); // newer edit mid-flight
 
     release(config({ id: 'c9', name: 'made', endpoint: 'https://made.example/v1' }));
@@ -581,8 +583,7 @@ describe('a late save response must not replace the replacement editor’s basel
     expect($(m.target, '#ac-endpoint')).not.toBe(null);
     expect(($<HTMLInputElement>(m.target, '#ac-endpoint')!).value).toBe('https://edited.example/v1');
 
-    button(m.target, 'Save').click();
-    await settle();
+    await performAction(m.target, 'Save');
     expect(posts.filter((p) => p.action === 'create')).toHaveLength(1); // never a second create
     expect(posts.find((p) => p.action === 'update')).toMatchObject({ id: 'c9', endpoint: 'https://edited.example/v1' });
   });
@@ -597,8 +598,9 @@ describe('a late save response must not replace the replacement editor’s basel
     set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-5');
     set($<HTMLInputElement>(m.target, '#ac-key')!, 'sk-test');
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://made.example/v1');
+    await vi.waitFor(() => expect(button(m.target, 'Save').disabled).toBe(false));
     button(m.target, 'Save').click();
-    await settle(); // the create is in flight, held
+    await vi.waitFor(() => expect(posts.some(p => p.action === 'create')).toBe(true)); // the create is in flight, held
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://edited.example/v1'); // newer edit mid-flight
     // Arming the unrelated row's delete supersedes the save's ACTION
     // (actionGeneration bump, ungated by busy) without ending the editor
@@ -615,8 +617,7 @@ describe('a late save response must not replace the replacement editor’s basel
     // second create — the duplicate-row window.
     expect($(m.target, '#ac-endpoint')).not.toBe(null);
 
-    button(m.target, 'Save').click();
-    await settle();
+    await performAction(m.target, 'Save');
     expect(posts.filter((p) => p.action === 'create')).toHaveLength(1); // never a second create
     expect(posts.find((p) => p.action === 'update')).toMatchObject({ id: 'c9', endpoint: 'https://edited.example/v1' });
   });
@@ -629,8 +630,9 @@ describe('a late save response must not replace the replacement editor’s basel
     editRow(m.target);
     await settle();
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://stale.example/v1');
+    await vi.waitFor(() => expect(button(m.target, 'Save').disabled).toBe(false));
     button(m.target, 'Save').click();
-    await settle(); // the update is in flight, held
+    await vi.waitFor(() => expect(posts.some(p => p.action === 'update')).toBe(true)); // the update is in flight, held
 
     // Cancel ends the editor SESSION; the visit is unchanged. The pending
     // mutation keeps the row unopenable until it settles, so the reopen can
@@ -644,8 +646,7 @@ describe('a late save response must not replace the replacement editor’s basel
 
     editRow(m.target); // a new session, seeded from the list row
     await settle();
-    button(m.target, 'Save').click(); // fields unchanged since the reopen
-    await settle();
+    await performAction(m.target, 'Save'); // fields unchanged since the reopen
     const updates = posts.filter((p) => p.action === 'update');
     expect(updates).toHaveLength(2);
     expect('endpoint' in updates[1]!).toBe(false); // no spurious endpoint change
