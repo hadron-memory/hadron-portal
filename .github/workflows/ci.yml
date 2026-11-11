@@ -116,6 +116,11 @@ jobs:
       - name: Check compact URN keyboard and touch layout
         run: pnpm test:urn-compact-layout
 
+      # portal#1711: the TaskHistory link values — touch targets, wrapping and
+      # overflow at 390px and 1280px, in real Chromium with compiled CSS.
+      - name: Check TaskHistory link layout
+        run: pnpm test:task-history-links-layout
+
       # portal#1700: the Nodes tab reads one bounded page per action and keeps its DOM windowed (real Chromium).
       - name: Check Nodes tab lazy reads
         run: pnpm test:nodes-tab-lazy

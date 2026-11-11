@@ -5726,3 +5726,26 @@ export const APP_CASTABLE_AGENTS_QUERY = /* GraphQL */ `
     app(ref: $ref) { id appAgents { agent { id name urn description personaRole } } }
   }
 `;
+
+// #1908: isolated usage reads, never placed on a shared App fragment.
+export const APP_USAGE_ACCOUNTS_QUERY = /* GraphQL */ `
+  query AppUsageAccounts($appRef: ID!) {
+    accountUsageAccounts(appRef: $appRef) {
+      asOf complete accounts { account host family newestSnapshotAt workers workersConfigured }
+    }
+  }
+`;
+export const ACCOUNT_USAGE_PROJECTION_QUERY = /* GraphQL */ `
+  query AccountUsageProjection($appRef: ID!, $account: String!, $host: String, $family: String, $whatIf: AccountUsageWhatIfInput) {
+    accountUsageProjection(appRef: $appRef, account: $account, host: $host, family: $family, whatIf: $whatIf) {
+      account host family asOf newestSnapshotAt workers workersConfigured
+      windows { ...UsageWindowFields }
+      whatIf { adjusted { ...UsageWindowFields } target { account baseline { ...UsageWindowFields } adjusted { ...UsageWindowFields } } }
+    }
+  }
+  fragment UsageWindowFields on AccountUsageWindowProjection {
+    window lengthMinutes status reason usedPct resetsAt observedAt lowPctAtReset highPctAtReset
+    burn { lowPctPerHour highPctPerHour } perWorkerBurn { lowPctPerHour highPctPerHour }
+    confidence shape runsOutAt ceilingPct
+  }
+`;

@@ -855,6 +855,12 @@
     activeTags = serverPage !== null ? new Set([value]) : new Set([...activeTags, value]);
     customTag = '';
   }
+  // portal#1058 V74 (hrn:node:hadronmemory.com:hadron-dev-team-shared:decisions:2026-11-11-vera-rulings-portal-search-guidance):
+  // Node Types and Tags refine content only. A comment hit has no tags and the
+  // type `comment`, so applying them to it would silently empty the comment
+  // results. Under Comments the two controls are disabled (a choice made under
+  // Content is kept, not applied); under All they filter only the content rows.
+  const refinementsOff = $derived(contentScope === 'COMMENTS');
 
   // Dropdown open state
   let openDropdown = $state<'memory' | 'type' | 'tags' | 'fields' | 'properties' | null>(null);
@@ -989,6 +995,7 @@
   const filteredNodes = $derived(
     displayNodes.filter((n) => {
       if (activeMemoryUrns.size > 0 && !activeMemoryUrns.has(memoryIdentity(n)?.urn ?? '')) return false;
+      if (n.comment) return true;
       if (activeNodeTypes.size > 0 && !activeNodeTypes.has(n.nodeType ?? 'info')) return false;
       if (activeTags.size > 0 && !(n.tags ?? []).some((t) => activeTags.has(t))) return false;
       return true;
@@ -1217,13 +1224,14 @@
     <!-- Node type dropdown -->
     {#if availableNodeTypes.length > 1 || serverPage}
       <div class="relative filter-dropdown">
-        <button onclick={() => toggleDropdown('type')}
-          class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition
+        <button onclick={() => toggleDropdown('type')} disabled={refinementsOff}
+          title={refinementsOff ? t('memory-browser.refinement-content-only', 'Node type and tag filters apply to content, not comments') : undefined}
+          class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50
             {activeNodeTypes.size > 0 ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600'}">
           Node Types {#if activeNodeTypes.size > 0}<span class="rounded-full bg-indigo-500 px-1.5 text-[10px] text-white">{activeNodeTypes.size}</span>{/if}
           <svg width="10" height="10" viewBox="0 0 10 10" class="transition-transform {openDropdown === 'type' ? 'rotate-180' : ''}"><path d="M2 4 L5 7 L8 4" stroke="currentColor" fill="none" stroke-width="1.5"/></svg>
         </button>
-        {#if openDropdown === 'type'}
+        {#if openDropdown === 'type' && !refinementsOff}
           <div class="absolute left-0 top-full z-20 mt-1 w-44 rounded-lg border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
             {#if activeNodeTypes.size > 0}
               <button onclick={() => { activeNodeTypes = new Set(); }} class="mb-1 w-full rounded px-2 py-1 text-left text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-zinc-800">Clear</button>
@@ -1260,13 +1268,14 @@
     <!-- Tags dropdown -->
     {#if availableTags.length > 0 || serverPage}
       <div class="relative filter-dropdown">
-        <button onclick={() => toggleDropdown('tags')}
-          class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition
+        <button onclick={() => toggleDropdown('tags')} disabled={refinementsOff}
+          title={refinementsOff ? t('memory-browser.refinement-content-only', 'Node type and tag filters apply to content, not comments') : undefined}
+          class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50
             {activeTags.size > 0 ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600'}">
           Tags {#if activeTags.size > 0}<span class="rounded-full bg-indigo-500 px-1.5 text-[10px] text-white">{activeTags.size}</span>{/if}
           <svg width="10" height="10" viewBox="0 0 10 10" class="transition-transform {openDropdown === 'tags' ? 'rotate-180' : ''}"><path d="M2 4 L5 7 L8 4" stroke="currentColor" fill="none" stroke-width="1.5"/></svg>
         </button>
-        {#if openDropdown === 'tags'}
+        {#if openDropdown === 'tags' && !refinementsOff}
           <div class="absolute left-0 top-full z-20 mt-1 max-h-64 w-48 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
             {#if activeTags.size > 0}
               <button onclick={() => { activeTags = new Set(); }} class="mb-1 w-full rounded px-2 py-1 text-left text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-zinc-800">Clear</button>
