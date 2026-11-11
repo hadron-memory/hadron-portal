@@ -226,8 +226,8 @@
     <nav aria-label={t('app.tasks.alarms.pages', 'Alarm pages')} class="flex flex-wrap items-center justify-between gap-3 text-sm">
       <a href={filterHref(filter)} class="inline-flex min-h-11 items-center text-indigo-600 dark:text-indigo-400">{t('app.tasks.alarms.newest', 'Newest')}</a>
       <div class="flex flex-wrap gap-2">
-        {#if paging.previousHref}<a href={paging.previousHref} class="inline-flex min-h-11 items-center rounded-lg border border-zinc-300 px-3 dark:border-zinc-700">{t('app.tasks.alarms.previous', 'Previous')}</a>{/if}
-        {#if paging.nextHref}<a href={paging.nextHref} class="inline-flex min-h-11 items-center rounded-lg border border-zinc-300 px-3 dark:border-zinc-700">{t('app.tasks.alarms.next-page', 'Next')}</a>{/if}
+        {#if paging.previousHref}<a href={paging.previousHref} class="inline-flex min-h-11 items-center rounded-lg border border-zinc-300 px-3 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.tasks.alarms.previous', 'Previous')}</a>{/if}
+        {#if paging.nextHref}<a href={paging.nextHref} class="inline-flex min-h-11 items-center rounded-lg border border-zinc-300 px-3 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.tasks.alarms.next-page', 'Next')}</a>{/if}
       </div>
     </nav>
   {/if}
