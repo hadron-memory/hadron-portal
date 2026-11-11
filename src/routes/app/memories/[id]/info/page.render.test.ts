@@ -1,4 +1,4 @@
-/** #988: the memory Info page explains a failed Git sync, redacted, and only when it failed. */
+/** Memory Info overview/owner attribution; integration details live on the Integrations tab. */
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import Page from './+page.svelte';
@@ -18,13 +18,13 @@ function data(over: Record<string, unknown>, top: Record<string, unknown> = {}) 
   };
 }
 
-describe('memory Info page, Git sync (#988)', () => {
-  it('a failed sync shows why, without any credential from the raw git error', () => {
+describe('memory Info omits Git sync details (#1915)', () => {
+  it('a failed sync shows neither duplicate details nor raw credentials', () => {
     const { body } = render(Page as never, { props: { data: data({
       syncStatus: 'ERROR',
       syncError: 'Command failed: git clone -- https://x-access-token:ghs_SECRETsecretSECRET1234@github.com/acme/docs.git /tmp',
     }) } as never });
-    expect(body).toContain('The last sync failed.');
+    expect(body).not.toContain('The last sync failed.');
     expect(body).not.toContain('ghs_SECRET');
   });
 
@@ -34,9 +34,9 @@ describe('memory Info page, Git sync (#988)', () => {
   });
 });
 
-it('shows a recorded partial report in Info', () => {
+it('keeps recorded partial reports off Info', () => {
   const body = render(Page as never, { props: { data: data({ lastSyncReport: JSON.stringify({ version: 1, outcome: 'partial', recordedAt: '2026-10-26T01:02:03.000Z', entries: [] }) }) } as never }).body;
-  expect(body).toContain('Last recorded outcome'); expect(body).toContain('succeeded');
+  expect(body).not.toContain('Last recorded outcome');
 });
 
 it('portal#1524: the node count is hidden, never shown as 0, while the node list is off', () => {
