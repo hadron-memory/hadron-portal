@@ -2244,7 +2244,8 @@ export const DELETE_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
   }
 `;
 
-// Privileged — returns the DECRYPTED key. Server gates on org-ADMIN / platform.
+// Resolution identity can exist without credentials. Only the source manager
+// receives credential material; consumers must refuse withheld/null keys.
 // Used only server-side (runtime chat path + Test); never sent to the browser.
 export const RESOLVE_AI_CONFIG_QUERY = /* GraphQL */ `
   query ResolveAIConfig($name: String, $appRef: ID, $agentRef: ID) {
@@ -2261,16 +2262,13 @@ export const RESOLVE_AI_CONFIG_QUERY = /* GraphQL */ `
   }
 `;
 
-// #928: the Agent tester's readiness probe. The SAME resolution the tester's
-// runtime performs (fetchAgentAIConfig: name default, agentRef, no app), so
-// the two cannot disagree: inherited Agent -> Org -> Host configs count, a
-// nearer enabled config without a key fails closed, and the server alone
-// decides what makes a config usable. Deliberately selects NO key material:
-// the decrypted key stays on the server, and nothing here can leak it to the
-// page. Same gate as the runtime (org ADMIN of the effective org).
+// Server-only tester readiness: request credential presence under the same
+// resolution contract as the runtime. The loader projects identity fields
+// explicitly and never returns the key or credential-bearing params.
 export const AI_CONFIG_READINESS_QUERY = /* GraphQL */ `
   query AiConfigReadiness($name: String, $agentRef: ID) {
     resolveAIConfig(name: $name, agentRef: $agentRef) {
+      apiKey
       name
       ownerType
       provider
@@ -5367,6 +5365,8 @@ export const APP_TEAM_ROSTER_QUERY = /* GraphQL */ `
         checkStatus { status pendingReason }
         pausedUntil
         currentTask { id title status }
+        heldBy { id handle urn name }
+        heldAt
         # portal#1492: state, reason and age only — never the host label or prompt.
         terminal { status reason checkedAt }
       }
@@ -5649,5 +5649,28 @@ export const CHANGE_WORKER_AGENT_MUTATION = /* GraphQL */ `
 export const APP_CASTABLE_AGENTS_QUERY = /* GraphQL */ `
   query AppCastableAgents($ref: ID!) {
     app(ref: $ref) { id appAgents { agent { id name urn description personaRole } } }
+  }
+`;
+
+// #1908: isolated usage reads, never placed on a shared App fragment.
+export const APP_USAGE_ACCOUNTS_QUERY = /* GraphQL */ `
+  query AppUsageAccounts($appRef: ID!) {
+    accountUsageAccounts(appRef: $appRef) {
+      asOf complete accounts { account host family newestSnapshotAt workers workersConfigured }
+    }
+  }
+`;
+export const ACCOUNT_USAGE_PROJECTION_QUERY = /* GraphQL */ `
+  query AccountUsageProjection($appRef: ID!, $account: String!, $host: String, $family: String, $whatIf: AccountUsageWhatIfInput) {
+    accountUsageProjection(appRef: $appRef, account: $account, host: $host, family: $family, whatIf: $whatIf) {
+      account host family asOf newestSnapshotAt workers workersConfigured
+      windows { ...UsageWindowFields }
+      whatIf { adjusted { ...UsageWindowFields } target { account baseline { ...UsageWindowFields } adjusted { ...UsageWindowFields } } }
+    }
+  }
+  fragment UsageWindowFields on AccountUsageWindowProjection {
+    window lengthMinutes status reason usedPct resetsAt observedAt lowPctAtReset highPctAtReset
+    burn { lowPctPerHour highPctPerHour } perWorkerBurn { lowPctPerHour highPctPerHour }
+    confidence shape runsOutAt ceilingPct
   }
 `;

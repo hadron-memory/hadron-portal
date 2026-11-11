@@ -32,7 +32,14 @@ export type RosterEntry = {
   // `currentTask` is then null, so no stale title, id or link survives; this flag
   // keeps that apart from a worker the server says has no task.
   currentTaskUnavailable?: true;
+  /** hadron-server#2223 — who holds the worker's name. Null for nobody, a deleted
+   *  holder, or a reader behind the working-state gate: those three are not told apart. */
+  heldBy: RosterHolder | null;
+  heldAt: string | null;
 };
+
+/** A sanitized holder identity. `name` is null when withheld AND when unset. */
+export type RosterHolder = { id: string; handle: string | null; urn: string | null; name: string | null };
 
 export type TeamRosterRead =
   | { kind: 'ok'; byWorker: Record<string, RosterEntry> }

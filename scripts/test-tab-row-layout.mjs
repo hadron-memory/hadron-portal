@@ -5,7 +5,7 @@ import { mkdir } from 'node:fs/promises';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
 const rows = [
-  ['app', 'tabs', ['Chats', 'AI Team', 'Human Team', 'Agents', 'Worklog', 'Runs', 'Memory', 'App Keys', 'AI Service Configs', 'Settings', 'Client', 'Channels', 'Tasks', 'Tickers', 'Stops', 'Action register', 'Automations']],
+  ['app', 'tabs', ['Chats', 'AI Team', 'Human Team', 'Agents', 'Worklog', 'Runs', 'Memory', 'App Keys', 'AI Service Configs', 'Settings', 'Client', 'Channels', 'Tasks', 'Tickers', 'Stops', 'Token use', 'Action register', 'Automations']],
   ['agent', 'tabs', ['Profile', 'Boot prompt', 'Tasks', 'Processes', 'Memories', 'Apps', 'Ticker templates', 'Bundled agents', 'Nodes', 'Chatbot Control', 'AI Providers', 'Settings']],
   ['memories', 'tabs', ['My memories', 'Memories shared with me', 'A longer translated extra section']],
   ['worker', 'tabs', ['Profile', 'Boot briefing', 'Worker sessions', 'Worklog', 'Wake-ups', 'A longer translated extra section']],
