@@ -1926,7 +1926,11 @@ describe('a dropped stale write is reconciled by the Section’s committed readb
     (m.props as { ownerId: string }).ownerId = 'o1';
     await settle();
     expect(readbacks).toEqual(['/api/ai-configs?ownerType=ORGANIZATION&ownerId=o1']);
-    expect(m.target.textContent).toContain('made');
+    // #1984: the row itself, by its actions trigger. A replayed `Saved “made”`
+    // notice would satisfy a whole-target text match with no row in the list.
+    expect(
+      m.target.querySelector(`button[aria-label="${aiConfigStrings.actionsLabel('made')}"]`),
+    ).not.toBe(null);
 
     // The reopened editor is seeded from the READBACK row: unchanged fields
     // are omitted. A stale response that had seeded the baseline instead
