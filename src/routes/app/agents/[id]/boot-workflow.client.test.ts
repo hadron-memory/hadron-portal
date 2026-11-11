@@ -1,7 +1,7 @@
 // portal#1485: the Boot prompt tab is instructions, a four-step workflow and status.
 // The source is edited on its own node page; the tab keeps Compile and Approve.
 import { afterEach, describe, expect, it } from 'vitest';
-import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { captureUnhandledRejections, mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import type { BootSourceView, CompiledView, LintItem } from '$lib/server/boot-source';
 import Page from './+page.svelte';
@@ -160,5 +160,26 @@ describe('portal#1485 readers who cannot manage the Agent', () => {
     expect(root.querySelector('form[action="?/compileBootPrompt"]')).toBeNull();
     expect(root.querySelector('form[action="?/approveBootPrompt"]')).toBeNull();
     expect(outdated(root)).toBeNull();
+  });
+});
+
+describe('portal#1912 Refresh when the reload rejects', () => {
+  const refreshButton = (root: HTMLElement) => [...tab(root).querySelectorAll<HTMLButtonElement>('button')].find((b) => /^Refresh/.test(b.textContent?.trim() ?? ''))!;
+  it('shows a retryable error, leaves nothing unhandled, and clears it on a good retry', async () => {
+    const { root } = await open(source());
+    navigationHooks.onInvalidateAll = () => Promise.reject(new Error('reload failed'));
+    const unhandled = await captureUnhandledRejections(async () => { refreshButton(root).click(); await tick(5); });
+    expect(unhandled).toEqual([]);
+    expect(tab(root).querySelector('[data-boot-refresh-error]')?.getAttribute('role')).toBe('alert');
+    expect(refreshButton(root).disabled).toBe(false);
+    expect(refreshButton(root).getAttribute('aria-busy')).toBe('false');
+    navigationHooks.onInvalidateAll = undefined;
+    refreshButton(root).click(); await tick(5);
+    expect(tab(root).querySelector('[data-boot-refresh-error]')).toBeNull();
+  });
+  it('shows no error when the reload succeeds', async () => {
+    const { root } = await open(source());
+    refreshButton(root).click(); await tick(5);
+    expect(tab(root).querySelector('[data-boot-refresh-error]')).toBeNull();
   });
 });
