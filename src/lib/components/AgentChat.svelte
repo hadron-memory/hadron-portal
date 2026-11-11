@@ -15,7 +15,6 @@
   import { chatScopeStrings } from '$lib/i18n/chat-scope-strings.js';
   import {
     chatAiChoiceLabel,
-    configNameForChoice,
     initialChatAiChoice,
     type ChatAiChoiceOption,
   } from '$lib/chat-ai-choice';
@@ -55,11 +54,10 @@
   const shownAiChoice = $derived(
     hasAiChoices ? (livePickedAiChoice ?? initialChatAiChoice(aiChoices!, storedAiChoice)) : null,
   );
-  /** The body fields a start or a turn carries for the AI config. */
-  function aiConfigFields(): { configName?: string; aiConfigChoice?: string } {
-    if (!hasAiChoices || shownAiChoice === null) return {};
-    const configName = configNameForChoice(aiChoices!, shownAiChoice) ?? undefined;
-    return livePickedAiChoice !== null ? { configName, aiConfigChoice: livePickedAiChoice } : { configName };
+  /** The body fields a start or a turn carries for the AI config: the pick only. No config name is ever sent;
+   *  the portal server resolves from the choice, else the chat's stored one (portal#1963, Juliet's BLIND F1). */
+  function aiConfigFields(): { aiConfigChoice?: string } {
+    return hasAiChoices && livePickedAiChoice !== null ? { aiConfigChoice: livePickedAiChoice } : {};
   }
 
   let pendingAttachments = $state<AssetSummary[]>([]);

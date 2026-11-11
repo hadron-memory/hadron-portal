@@ -96,7 +96,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   //    turns of this request) will actually call. Never throws: with no usable
   //    config the chat still starts, `llmModel` is omitted, and the welcome
   //    turn fails exactly as it always did (as a soft `welcomeError`).
-  const ai = await resolveChatAi(locals.token, body.agentId, { appId: body.appId, configName: body.configName });
+  const ai = await resolveChatAi(locals.token, body.agentId, { appId: body.appId, configName: body.configName, aiConfigChoice: choice.value });
 
   // 1. Create the chat in Hadron — provisions the user memory and
   //    returns the compiled first-stage prompt + tool schema.

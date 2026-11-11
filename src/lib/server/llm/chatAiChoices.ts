@@ -9,9 +9,7 @@
  * never hidden (the issue's ask 3). Fields are copied one by one, so nothing
  * from the config read (key preview, endpoint, params) can ride along.
  */
-import { t } from '$lib/i18n/t';
-import type { ChatAiChoiceOption } from '$lib/chat-ai-choice';
-import { portalRuntimeRefusal } from './agentChatLlm.js';
+import { runtimeUnavailableReason, type ChatAiChoiceOption } from '$lib/chat-ai-choice';
 
 /** One entry of `chatAiConfigChoices`, as selected. */
 export type ChatAiChoiceRow = {
@@ -36,15 +34,8 @@ export type ChatAiConfigRuntimeRow = {
 function unavailableReason(row: ChatAiChoiceRow, configs: readonly ChatAiConfigRuntimeRow[] | null): string | null {
   if (row.isDefault || !configs) return null;
   const config = configs.find((c) => c.id === row.value);
-  if (!config) return null;
-  if (portalRuntimeRefusal({ provider: config.provider, effectiveEndpoint: config.effectiveEndpoint ?? null })) {
-    return t('agent-chat.ai-config.unavailable-runtime', "can't run in portal chats yet");
-  }
   // `hasApiKey` is the masked read's flag; the key itself is never read here.
-  if (config.hasApiKey !== true) {
-    return t('agent-chat.ai-config.unavailable-key', 'no key available here');
-  }
-  return null;
+  return config ? runtimeUnavailableReason({ id: config.id, provider: config.provider, effectiveEndpoint: config.effectiveEndpoint, hasApiKey: config.hasApiKey }) : null;
 }
 
 export function chatAiChoiceOptions(

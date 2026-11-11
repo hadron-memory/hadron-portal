@@ -2272,8 +2272,9 @@ export const DELETE_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
 // receives credential material; consumers must refuse withheld/null keys.
 // Used only server-side (runtime chat path + Test); never sent to the browser.
 export const RESOLVE_AI_CONFIG_QUERY = /* GraphQL */ `
-  query ResolveAIConfig($name: String, $appRef: ID, $agentRef: ID) {
-    resolveAIConfig(name: $name, appRef: $appRef, agentRef: $agentRef) {
+  query ResolveAIConfig($name: String, $appRef: ID, $agentRef: ID, $chatId: ID) {
+    # portal#1963: chatId (hadron-server#3957) lets the server apply the chat's stored choice.
+    resolveAIConfig(name: $name, appRef: $appRef, agentRef: $agentRef, chatId: $chatId) {
       provider
       model
       apiKey

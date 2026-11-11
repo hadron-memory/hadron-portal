@@ -10,6 +10,7 @@
  * so the dropdown mirrors that order rather than guessing.
  */
 import { t } from '$lib/i18n/t';
+import { portalRuntimeRefusal } from '$lib/llm/portalRuntime';
 
 /** The `default` entry's value: the App -> Agent -> Org -> Host walk. */
 export const DEFAULT_CHAT_AI_CHOICE = 'default';
@@ -34,12 +35,6 @@ export function initialChatAiChoice(options: readonly ChatAiChoiceOption[], stor
   return appConfig?.value ?? DEFAULT_CHAT_AI_CHOICE;
 }
 
-/** The config name the portal resolves a choice by; null for a value the list does not have. */
-export function configNameForChoice(options: readonly ChatAiChoiceOption[], value: string): string | null {
-  if (value === DEFAULT_CHAT_AI_CHOICE) return DEFAULT_CHAT_AI_CHOICE;
-  return options.find((o) => o.value === value)?.name ?? null;
-}
-
 export function chatAiChoiceLabel(o: ChatAiChoiceOption): string {
   if (o.isDefault) return t('agent-chat.ai-config.default', 'Default');
   const parts = [o.provider, o.model].filter((p): p is string => typeof p === 'string' && p !== '');
@@ -49,19 +44,62 @@ export function chatAiChoiceLabel(o: ChatAiChoiceOption): string {
   return label;
 }
 
+/** The masked config fields the dropdown's runtime label is computed from. Never a key or key preview. */
+export type ChatAiRuntimeConfig = {
+  id: string;
+  name?: string | null;
+  provider: string;
+  model?: string | null;
+  effectiveEndpoint?: string | null;
+  hasApiKey?: boolean | null;
+  enabled?: boolean | null;
+};
+
 /**
- * The loader's options, narrowed to what the page's live config read still has. The loader reads the list
- * once; an AI-tab delete or disable afterwards must drop that entry rather than leave a choice the server
- * would refuse. `configs` null with `readFailed` (a refresh after a mutation failed) keeps only `default`:
- * nothing else can be vouched for. `configs` null without it (the loader couldn't read them) keeps the
- * list as the server sent it. A config created after load appears only on reload.
+ * Why the portal can't run this config yet, or null when it can. The same check the runtime refuses with
+ * before it uses a key (portalRuntimeRefusal), then whether a key reaches this session (`hasApiKey`, the masked
+ * read's flag). Not the config's own enabled flag: a disabled config is never offered at all.
+ */
+export function runtimeUnavailableReason(config: ChatAiRuntimeConfig): string | null {
+  if (portalRuntimeRefusal({ provider: config.provider, effectiveEndpoint: config.effectiveEndpoint ?? null })) {
+    return t('agent-chat.ai-config.unavailable-runtime', "can't run in portal chats yet");
+  }
+  if (config.hasApiKey !== true) return t('agent-chat.ai-config.unavailable-key', 'no key available here');
+  return null;
+}
+
+/**
+ * The loader's options, brought in line with the page's live config read (portal#1963). The loader reads the
+ * list once, so after an AI-tab edit:
+ * - a config deleted or disabled drops out;
+ * - one still there takes its live name, provider and model, and its runtime label is recomputed, so adding a
+ *   key or fixing an endpoint enables it, and the reverse disables it (Juliet's BLIND F3).
+ * `configs` null with `readFailed` (a refresh after a mutation failed) keeps only `default`: nothing else can
+ * be vouched for. `configs` null without it (the loader couldn't read them) keeps the list as the server sent
+ * it. A config created after load appears only on reload.
  */
 export function liveChatAiChoices(
   options: readonly ChatAiChoiceOption[] | null,
-  configs: readonly { id: string; enabled?: boolean | null }[] | null,
+  configs: readonly ChatAiRuntimeConfig[] | null,
   readFailed: boolean,
 ): ChatAiChoiceOption[] | null {
   if (!options) return null;
   if (configs === null) return readFailed ? options.filter((o) => o.isDefault) : [...options];
-  return options.filter((o) => o.isDefault || configs.some((c) => c.id === o.value && c.enabled !== false));
+  const live: ChatAiChoiceOption[] = [];
+  for (const o of options) {
+    if (o.isDefault) {
+      live.push(o);
+      continue;
+    }
+    const c = configs.find((x) => x.id === o.value);
+    if (!c || c.enabled === false) continue;
+    live.push({
+      ...o,
+      name: c.name ?? o.name,
+      provider: c.provider,
+      model: c.model ?? null,
+      unavailableReason: runtimeUnavailableReason(c),
+    });
+  }
+  return live;
 }

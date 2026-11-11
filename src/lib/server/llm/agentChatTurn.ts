@@ -41,7 +41,8 @@ export async function runChatTurn(args: {
   /** App context for config resolution (App chat tab). Optional — the
    *  agent-builder chat omits it and resolves in agent-context. */
   appId?: string | null;
-  /** Named config to run with (App chat picker). Defaults to `default`. */
+  /** Named config to run with, honoured only without an App (the Tester). Defaults to `default`. In an App the
+   *  config resolves from `aiConfigChoice`, else the chat (portal#1963). */
   configName?: string | null;
   /** portal#1963: the AI config choice the user made, sent with sendChatMessage so the server stores it.
    *  Omitted when no choice was made. The welcome turn never sends it (startChat already did). */
@@ -63,7 +64,7 @@ export async function runChatTurn(args: {
 
   // 1. The agent's decrypted AI config (resolved once per request when the
   //    caller already did so).
-  const resolution = args.ai ?? await resolveChatAi(token, agentId, { appId, configName });
+  const resolution = args.ai ?? await resolveChatAi(token, agentId, { appId, configName, chatId, aiConfigChoice: args.aiConfigChoice });
   if (!resolution.ok) throw resolution.error;
   const ai = resolution.ai;
 
