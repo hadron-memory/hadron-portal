@@ -47,14 +47,19 @@
   let storedAiChoice = $state<string | null>(null);
   let pickedAiChoice = $state<string | null>(null);
   const hasAiChoices = $derived(Array.isArray(aiChoices) && aiChoices.length > 0);
+  // A pick counts only while the list still has it: the list drops a config deleted or disabled on the AI
+  // tab, and config ids are per App, so a pick made in one App never carries into another's list.
+  const livePickedAiChoice = $derived(
+    pickedAiChoice !== null && hasAiChoices && aiChoices!.some((o) => o.value === pickedAiChoice) ? pickedAiChoice : null,
+  );
   const shownAiChoice = $derived(
-    hasAiChoices ? (pickedAiChoice ?? initialChatAiChoice(aiChoices!, storedAiChoice)) : null,
+    hasAiChoices ? (livePickedAiChoice ?? initialChatAiChoice(aiChoices!, storedAiChoice)) : null,
   );
   /** The body fields a start or a turn carries for the AI config. */
   function aiConfigFields(): { configName?: string; aiConfigChoice?: string } {
     if (!hasAiChoices || shownAiChoice === null) return {};
     const configName = configNameForChoice(aiChoices!, shownAiChoice) ?? undefined;
-    return pickedAiChoice !== null ? { configName, aiConfigChoice: pickedAiChoice } : { configName };
+    return livePickedAiChoice !== null ? { configName, aiConfigChoice: livePickedAiChoice } : { configName };
   }
 
   let pendingAttachments = $state<AssetSummary[]>([]);

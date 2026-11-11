@@ -14,6 +14,7 @@ import {
   chatAiChoiceLabel,
   configNameForChoice,
   initialChatAiChoice,
+  liveChatAiChoices,
   type ChatAiChoiceOption,
 } from './chat-ai-choice';
 
@@ -92,5 +93,23 @@ describe('chatAiChoiceLabel', () => {
   it('says why a config cannot run here', () => {
     const custom = opt({ value: 'cfg-custom', name: 'custom', model: 'k2', unavailableReason: "can't run in portal chats yet" });
     expect(chatAiChoiceLabel(custom)).toBe("custom (anthropic · k2) · can't run in portal chats yet");
+  });
+});
+
+describe('liveChatAiChoices', () => {
+  const all = [DEFAULT, FAST, SMART];
+
+  it('drops an entry the live read no longer has, or has disabled', () => {
+    expect(liveChatAiChoices(all, [{ id: 'cfg-smart', enabled: true }], false)).toEqual([DEFAULT, SMART]);
+    expect(liveChatAiChoices(all, [{ id: 'cfg-fast', enabled: false }, { id: 'cfg-smart' }], false)).toEqual([DEFAULT, SMART]);
+  });
+
+  it('keeps only default when a refresh failed, and the whole list when the loader could not read', () => {
+    expect(liveChatAiChoices(all, null, true)).toEqual([DEFAULT]);
+    expect(liveChatAiChoices(all, null, false)).toEqual(all);
+  });
+
+  it('passes a missing list through as missing', () => {
+    expect(liveChatAiChoices(null, [], false)).toBeNull();
   });
 });

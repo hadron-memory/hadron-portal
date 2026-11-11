@@ -25,6 +25,7 @@
   import AccessibleMemories from './AccessibleMemories.svelte';
   import { appMemoryTargets } from '$lib/app-memory-scope';
   import AgentChat from '$lib/components/AgentChat.svelte';
+  import { liveChatAiChoices } from '$lib/chat-ai-choice';
   import TeamChatThread from '$lib/components/TeamChatThread.svelte';
   import TeamChatSearch from '$lib/components/TeamChatSearch.svelte';
   import { teamChatSearchStrings } from '$lib/i18n/team-chat-search-strings';
@@ -884,14 +885,13 @@
     configs: AiServiceConfig[] | null;
   } | null>(null);
   let chatConfigReads = 0;
-  const chatConfigs = $derived(
-    chatConfigReread &&
+  const chatConfigRereadActive = $derived(
+    chatConfigReread !== null &&
     chatConfigReread.against === data &&
     chatConfigReread.appRef === app.id &&
-    chatConfigReread.agentRef === app.agentId
-      ? chatConfigReread.configs
-      : data.chatConfigs,
+    chatConfigReread.agentRef === app.agentId,
   );
+  const chatConfigs = $derived(chatConfigRereadActive ? chatConfigReread!.configs : data.chatConfigs);
   async function refreshChatConfigs(signal?: AbortSignal): Promise<boolean> {
     const agentRef = app.agentId;
     if (!agentRef) return true;
@@ -921,6 +921,15 @@
     chatConfigReread = { against, appRef, agentRef, configs: fresh };
     return true;
   }
+  // portal#1963: the dropdown's options follow the live config read, so an AI-tab delete or disable drops
+  // its entry without a reload (liveChatAiChoices).
+  const liveAiChoices = $derived(
+    liveChatAiChoices(
+      data.aiChoices ?? null,
+      chatConfigs,
+      chatConfigRereadActive && chatConfigs === null,
+    ),
+  );
   const usableChatConfigs = $derived((chatConfigs ?? []).filter((c) => c.hasApiKey));
   // null chatConfigs = couldn't list (e.g. viewer isn't an App member) →
   // unknown → don't block the chat.
@@ -2287,7 +2296,7 @@
           <AgentChat
             agentId={app.agentId}
             appId={app.id}
-            aiChoices={data.aiChoices ?? null}
+            aiChoices={liveAiChoices}
             uploadMemoryId={writableMemoryIds[0]}
           />
         </div>

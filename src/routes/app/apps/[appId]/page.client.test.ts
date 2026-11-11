@@ -1495,12 +1495,25 @@ describe('App AI configuration readback lifecycle', () => {
     createdAt: '2026-11-08T00:00:00Z', updatedAt: null,
   };
 
+  // portal#1963: the loader's dropdown options (chatAiChoiceOptions output). The value is the config id.
+  const choice = (id: string, name: string, over: Record<string, unknown> = {}) => ({
+    value: id, name, provider: 'anthropic', model: 'claude-sonnet-5', isDefault: false,
+    isAppChatbotConfig: false, unavailableReason: null, ...over,
+  });
+  const defaultChoice = {
+    value: 'default', name: 'default', provider: null, model: null, isDefault: true,
+    isAppChatbotConfig: false, unavailableReason: null,
+  };
+  const optionValues = (target: HTMLElement) =>
+    [...target.querySelectorAll<HTMLOptionElement>('#agent-chat-ai-config option')].map((o) => o.value);
+
   async function mountAi(dataOver: Record<string, unknown> = {}) {
     setStubPage('https://example.test/app/apps/a1?tab=ai-configs', { appId: 'a1' });
     const data = await pageData();
     const m = mountComponent(Page as never, reactiveProps({
       data: {
         ...data,
+        aiChoices: [defaultChoice, choice('c1', 'default')],
         ...dataOver,
         initialTab: 'ai-configs', selectedChatKey: AGENT_CHAT_KEY,
         app: {
@@ -1640,7 +1653,7 @@ describe('App AI configuration readback lifecycle', () => {
 
     (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
     await tick(10);
-    expect(m.target.querySelector('#chat-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
+    expect(m.target.querySelector('#agent-chat-ai-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
 
     // Null loader reads are not identity tokens: App B must not inherit A's
     // resolved list, and returning to A restores only A's working copy.
@@ -1654,13 +1667,14 @@ describe('App AI configuration readback lifecycle', () => {
       app: { ...appA.app, id: 'b1', agentId: 'ag2' },
       chatConfigs: null,
       appConfigs: [],
+      aiChoices: null,
     };
     await tick(10);
-    expect(m.target.querySelector('#chat-config')).toBeNull();
+    expect(m.target.querySelector('#agent-chat-ai-config')).toBeNull();
     appA.appConfigs = [masked];
     m.props.data = appA;
     await tick(10);
-    expect(m.target.querySelector('#chat-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
+    expect(m.target.querySelector('#agent-chat-ai-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
 
     (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
     await tick(3);
@@ -1674,7 +1688,7 @@ describe('App AI configuration readback lifecycle', () => {
 
     (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
     await tick(10);
-    expect(m.target.querySelector('#chat-config')).toBeNull();
+    expect(m.target.querySelector('#agent-chat-ai-config')).toBeNull();
     expect(m.target.querySelector('#panel-chats')!.textContent).toContain('Connect an LLM provider to enable agent chat');
   });
 
@@ -1723,12 +1737,13 @@ describe('App AI configuration readback lifecycle', () => {
     await tick(40);
     (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
     await tick(10);
-    expect(m.target.querySelector('#chat-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
+    expect(m.target.querySelector('#agent-chat-ai-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
 
+    // The new loader generation's list wins over the superseded working copy.
     const loader = m.props.data as Record<string, unknown>;
-    m.props.data = { ...loader, chatConfigs: null };
+    m.props.data = { ...loader, chatConfigs: null, aiChoices: [defaultChoice] };
     await tick(10);
-    expect(m.target.querySelector('#chat-config')).toBeNull();
+    expect(optionValues(m.target)).toEqual(['default']);
   });
 
   it('masks stale resolved Chat configs when their readback fails after delete', async () => {
@@ -1756,7 +1771,53 @@ describe('App AI configuration readback lifecycle', () => {
 
     (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
     await tick(10);
-    expect(m.target.querySelector('#chat-config')).toBeNull();
+    // Nothing but `default` can be vouched for once the readback failed.
+    expect(optionValues(m.target)).toEqual(['default']);
+  });
+
+  it('drops a deleted config from the dropdown without a reload (portal#1963)', async () => {
+    const fast = { ...masked, id: 'c2', name: 'fast' };
+    let configs = [fast, masked];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1' || url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        return { ok: true, json: async () => ({ configs }) } as Response;
+      }
+      if (url.startsWith('/api/agent-chat/list')) return { ok: true, json: async () => ({ chats: [] }) } as Response;
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'delete') {
+        configs = [masked];
+        return { ok: true, json: async () => ({ ok: true }) } as Response;
+      }
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi({
+      chatConfigs: [fast, masked], appConfigs: [fast, masked],
+      aiChoices: [defaultChoice, choice('c2', 'fast'), choice('c1', 'default')],
+    });
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    const picker = m.target.querySelector<HTMLSelectElement>('#agent-chat-ai-config')!;
+    picker.value = 'c2';
+    picker.dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+    expect(optionValues(m.target)).toEqual(['default', 'c2', 'c1']);
+
+    (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
+    await tick(3);
+    (m.target.querySelector('button[aria-label="Actions for fast"]') as HTMLButtonElement).click();
+    flushSync();
+    ([...m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')]).find((x) => x.textContent?.trim() === 'Delete')!.click();
+    flushSync();
+    ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Delete')!.click();
+    await tick(40);
+
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    expect(optionValues(m.target)).toEqual(['default', 'c1']);
+    // The deleted pick is no longer shown (or sent): the dropdown falls back to `default`.
+    expect(m.target.querySelector<HTMLSelectElement>('#agent-chat-ai-config')!.value).toBe('default');
   });
 
   it('resets the Chat config selection when App or agent identity changes', async () => {
@@ -1765,23 +1826,26 @@ describe('App AI configuration readback lifecycle', () => {
       if (url.startsWith('/api/agent-chat/list')) return { ok: true, json: async () => ({ chats: [] }) } as Response;
       throw new Error(`unexpected fetch: ${url}`);
     }));
-    const m = await mountAi({ chatConfigs: [fast, masked] });
+    const m = await mountAi({
+      chatConfigs: [fast, masked], aiChoices: [defaultChoice, choice('c2', 'fast'), choice('c1', 'default')],
+    });
     (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
     await tick(10);
-    const picker = m.target.querySelector<HTMLSelectElement>('#chat-config')!;
-    picker.value = 'fast';
+    const picker = m.target.querySelector<HTMLSelectElement>('#agent-chat-ai-config')!;
+    picker.value = 'c2';
     picker.dispatchEvent(new Event('change', { bubbles: true }));
     flushSync();
-    expect(picker.value).toBe('fast');
+    expect(picker.value).toBe('c2');
 
     const loader = m.props.data as { app: Record<string, unknown> };
     m.props.data = {
       ...loader,
       app: { ...loader.app, id: 'b1', agentId: 'ag2' },
-      chatConfigs: [fast, masked],
+      chatConfigs: [{ ...fast, id: 'b2' }, { ...masked, id: 'b3' }],
+      aiChoices: [defaultChoice, choice('b2', 'fast'), choice('b3', 'default')],
     };
     await tick(10);
-    expect(m.target.querySelector<HTMLSelectElement>('#chat-config')!.value).toBe('default');
+    expect(m.target.querySelector<HTMLSelectElement>('#agent-chat-ai-config')!.value).toBe('default');
   });
 });
 

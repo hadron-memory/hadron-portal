@@ -48,3 +48,20 @@ export function chatAiChoiceLabel(o: ChatAiChoiceOption): string {
   if (o.unavailableReason) label += ` · ${o.unavailableReason}`;
   return label;
 }
+
+/**
+ * The loader's options, narrowed to what the page's live config read still has. The loader reads the list
+ * once; an AI-tab delete or disable afterwards must drop that entry rather than leave a choice the server
+ * would refuse. `configs` null with `readFailed` (a refresh after a mutation failed) keeps only `default`:
+ * nothing else can be vouched for. `configs` null without it (the loader couldn't read them) keeps the
+ * list as the server sent it. A config created after load appears only on reload.
+ */
+export function liveChatAiChoices(
+  options: readonly ChatAiChoiceOption[] | null,
+  configs: readonly { id: string; enabled?: boolean | null }[] | null,
+  readFailed: boolean,
+): ChatAiChoiceOption[] | null {
+  if (!options) return null;
+  if (configs === null) return readFailed ? options.filter((o) => o.isDefault) : [...options];
+  return options.filter((o) => o.isDefault || configs.some((c) => c.id === o.value && c.enabled !== false));
+}
