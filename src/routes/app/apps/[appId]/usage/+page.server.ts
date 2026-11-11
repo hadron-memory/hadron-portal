@@ -8,5 +8,5 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const client = gqlClient(locals.token);
   const app = await loadTasksApp(client, params.appId);
   if (!app) throw error(404, 'App not found');
-  return { app, view: await loadUsageView(client, app.id, url.searchParams), key: url.pathname + url.search };
+  return { app, view: await loadUsageView(client, app.id, url.searchParams) };
 };
