@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { testResultView, type AiConfigTestResult, type AiConfigTestView } from '$lib/ai-config-test';
   import { lookupOwn } from '$lib/lookup';
   import { safeRedirect } from '$lib/safeRedirect';
@@ -43,6 +43,7 @@
     ownerLabel = null,
     ownerUrn = null,
     currentUserId,
+    selectedContext = '[null,null]',
     configs,
     canManage = false,
     allowTest = false,
@@ -62,6 +63,7 @@
     ownerUrn?: string | null;
     /** Section keys Manager remounts by this principal; action tokens fence it too. */
     currentUserId: string;
+    selectedContext?: string;
     configs: AiServiceConfig[];
     canManage?: boolean;
     allowTest?: boolean;
@@ -150,7 +152,78 @@
   const localMutationPending = $derived(
     pendingMutations.some((mutation) => mutation.ownerKey === ownerKey && mutation.principalId === currentUserId),
   );
-  const mutationBlocked = $derived(localMutationPending || mutationPending);
+  let identityChecking = $state(false);
+  const mutationBlocked = $derived(localMutationPending || mutationPending || identityChecking);
+  let draftPrincipal: { userId: string; selectedContext: string } | null = null;
+  let identitySequence = 0;
+  let identityController: AbortController | null = null;
+
+  function captureDraftPrincipal() {
+    draftPrincipal = { userId: currentUserId, selectedContext };
+    // Never adopt a different fresh identity as the owner of an existing
+    // editor. The loader identity is confirmed against this request's cookie.
+    void verifyDraftPrincipal();
+  }
+
+  function discardPrincipalDraft() {
+    actionGeneration++;
+    actionController?.abort();
+    resetEditor();
+    resetForm();
+    confirmDeleteId = null;
+    busy = false;
+    error = s.principalChanged();
+  }
+
+  async function verifyDraftPrincipal(): Promise<boolean> {
+    const captured = draftPrincipal;
+    if (!captured || destroyed) return false;
+    const sequence = ++identitySequence;
+    identityController?.abort();
+    const controller = new AbortController();
+    identityController = controller;
+    identityChecking = true;
+    const current = () => !destroyed && sequence === identitySequence && captured === draftPrincipal;
+    try {
+      const data = await withAiConfigTimeout(async signal => {
+        const response = await fetch('/api/ai-configs?principal=1', { cache: 'no-store', signal });
+        if (!response.ok) throw new Error('Identity unavailable');
+        return await response.json() as { principal?: unknown };
+      }, () => { throw new Error('Identity unavailable'); }, undefined, controller.signal);
+      if (!current()) return false;
+      const principal = data.principal;
+      if (captured.selectedContext !== selectedContext || captured.userId !== currentUserId) {
+        discardPrincipalDraft();
+        return false;
+      }
+      // Anonymous/refused is not a different identity. Keep the in-memory
+      // draft; only a subsequent exact CRUD401 offers the sign-in CTA.
+      if (principal === null) return true;
+      if (!principal || typeof principal !== 'object') throw new Error('Identity unavailable');
+      const fresh = principal as { principalType?: unknown; userId?: unknown; appId?: unknown };
+      if (fresh.principalType !== 'USER' && fresh.principalType !== 'APP') throw new Error('Identity unavailable');
+      if (fresh.principalType === 'USER' && (typeof fresh.userId !== 'string' || fresh.appId !== null)) throw new Error('Identity unavailable');
+      if (fresh.principalType === 'APP' && (fresh.userId !== null || typeof fresh.appId !== 'string')) throw new Error('Identity unavailable');
+      if (fresh.principalType !== 'USER' || fresh.userId !== captured.userId) {
+        discardPrincipalDraft();
+        return false;
+      }
+      return true;
+    } catch {
+      if (current()) error = s.principalUnavailable();
+      return false;
+    } finally {
+      if (sequence === identitySequence) identityChecking = false;
+    }
+  }
+
+  onMount(() => {
+    const onFocus = () => {
+      if (formOpen || confirmDeleteId !== null) void verifyDraftPrincipal();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  });
 
   function clearNotice(): number {
     return onAction();
@@ -234,6 +307,13 @@
   }
 
   function resetEditor() {
+    // An armed delete shares this editor visit/principal. Closing the editor
+    // must close its confirmation too, rather than leave an enabled no-op.
+    confirmDeleteId = null;
+    draftPrincipal = null;
+    identitySequence++;
+    identityController?.abort();
+    identityChecking = false;
     signinHref = null;
     formOpen = false;
     editId = null;
@@ -263,6 +343,8 @@
 
   onDestroy(() => {
     destroyed = true;
+    identitySequence++;
+    identityController?.abort();
     actionGeneration++;
     actionController?.abort();
   });
@@ -455,6 +537,7 @@
     savedConfig = null;
     editId = null;
     formOpen = true;
+    captureDraftPrincipal();
   }
 
   function openEdit(c: AiServiceConfig) {
@@ -480,6 +563,7 @@
     const shown = c.provider === 'openai-compatible' ? rest : (c.params ?? {});
     paramsText = c.params && Object.keys(shown).length > 0 ? JSON.stringify(shown, null, 2) : '';
     formOpen = true;
+    captureDraftPrincipal();
   }
 
   function closeForm() {
@@ -624,6 +708,17 @@
 
   async function runMutation(options: MutationOptions) {
     const { action } = options;
+    if (!await verifyDraftPrincipal() || !isCurrent(action)) {
+      if (isCurrent(action)) busy = false;
+      return;
+    }
+    // A changed draft during the identity read needs another explicit submit;
+    // do not combine captured key/name fields with newer reactive values.
+    if (formFingerprint() !== action.formFingerprint) {
+      error = s.draftChanged();
+      busy = false;
+      return;
+    }
     const pendingMutation = trackMutation(action);
     try {
       try {
@@ -788,6 +883,11 @@
     });
     busy = true;
     try {
+      if (!await verifyDraftPrincipal() || !isCurrent(action)) return;
+      if (formFingerprint() !== action.formFingerprint) {
+        error = s.draftChanged();
+        return;
+      }
       if (editing) {
         // #937: a SAVED config, of ANY owner kind, tests BY ID through the
         // server's own run path (server#1378). The stored key stays there.
@@ -872,6 +972,7 @@
     beginAction();
     error = null;
     confirmDeleteId = id;
+    if (!draftPrincipal) captureDraftPrincipal();
   }
 
   function cancelDelete() {
@@ -883,6 +984,7 @@
 
 <section>
   <div data-testid="ai-config-manager-feedback" role="status" aria-live="polite" aria-atomic="true">
+    {#if identityChecking}<p class="mb-3 text-sm text-zinc-500 dark:text-zinc-400">{s.principalChecking()}</p>{/if}
     {#if mutationBlocked && !mutationLocked}
       <p data-testid="ai-config-recovery-pending" class="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
         {s.recoveryPending()}

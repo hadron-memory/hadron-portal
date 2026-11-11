@@ -10,6 +10,10 @@
 import { t } from './t';
 
 export const aiConfigStrings = {
+  principalChanged: (): string => t('ai-config.principal-changed', 'Your sign-in or selected context changed. The draft was discarded.'),
+  principalUnavailable: (): string => t('ai-config.principal-unavailable', 'Unable to verify your sign-in. Try again.'),
+  principalChecking: (): string => t('ai-config.principal-checking', 'Checking your sign-in…'),
+  draftChanged: (): string => t('ai-config.draft-changed', 'Your draft changed while checking your sign-in. Try again.'),
   signinDraft: (): string => t('ai-config.signin-draft', 'Sign in again to save your draft.'),
   signinNewTab: (): string => t('ai-config.signin-new-tab', 'Sign in (opens in a new tab)'),
   signinReturn: (): string => t('ai-config.signin-return', 'After signing in, return to this tab and try again. Reloading or closing this page discards your draft.'),

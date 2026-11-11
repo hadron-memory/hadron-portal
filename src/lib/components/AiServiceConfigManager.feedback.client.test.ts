@@ -23,6 +23,7 @@ let posts: Array<Record<string, unknown>>;
 let readbacks: string[];
 let principalReply: Reply;
 let principalReads: number;
+let principalReadHandler: (() => Reply | Promise<Reply>) | null;
 let readbackSignals: Array<AbortSignal | undefined>;
 
 function response(reply: Reply): Response {
@@ -38,7 +39,7 @@ function stubFetch(
   readback: (url: string, signal?: AbortSignal) => Reply | Promise<Reply> = () => ({ body: { configs: [] } }),
 ) {
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string; signal?: AbortSignal }) => {
-    if (url === '/api/ai-configs?principal=1') { principalReads++; return response(principalReply); }
+    if (url === '/api/ai-configs?principal=1') { principalReads++; return response(principalReadHandler ? await principalReadHandler() : principalReply); }
     if (url.startsWith('/api/ai-configs?') && init?.method !== 'POST') {
       readbacks.push(url);
       readbackSignals.push(init?.signal);
@@ -59,6 +60,7 @@ beforeEach(() => {
   posts = [];
   resetStubPage();
   principalReads = 0;
+  principalReadHandler = null;
   principalReply = { body: { principal: { principalType: 'USER', userId: 'u1', appId: null } } };
   readbacks = [];
   readbackSignals = [];
@@ -91,7 +93,7 @@ async function open(props: Props = {}, component: unknown = AiServiceConfigSecti
     ...props,
   }) as never) as Mounted<Props>;
   mounted.push(m);
-  await tick(2);
+  await settle();
   return m;
 }
 
@@ -203,6 +205,7 @@ describe('AI configuration acknowledgement (#303)', () => {
     expect(feedback(target).textContent).toContain('Saved “default”.');
 
     menuDelete(target);
+    await settle();
     button(target, 'Delete').click();
     await settle();
     expect(feedback(target).textContent).toContain('Deleted “default”.');
@@ -216,6 +219,7 @@ describe('AI configuration acknowledgement (#303)', () => {
     expect(target.querySelector('#ac-name')).not.toBeNull();
 
     menuDelete(target);
+    await settle();
     button(target, 'Delete').click();
     await settle();
 
@@ -235,15 +239,16 @@ describe('AI configuration acknowledgement (#303)', () => {
     editRow(target);
     await settle();
     menuDelete(target);
+    await settle();
     button(target, 'Delete').click();
-    await tick(2);
+    await settle();
 
     const question = [...target.querySelectorAll<HTMLSpanElement>('span')]
       .find((el) => el.textContent?.trim() === aiConfigStrings.confirmDelete('default'))!;
     const cancel = [...question.parentElement!.querySelectorAll<HTMLButtonElement>('button')]
       .find((el) => el.textContent?.trim() === 'Cancel')!;
     cancel.click();
-    await tick(2);
+    await settle();
     expect(target.querySelector('#ac-name')).not.toBeNull();
     releaseDelete({});
     await settle();
@@ -297,6 +302,7 @@ describe('AI configuration acknowledgement (#303)', () => {
     stubFetch(() => ({}), () => { throw new Error('synthetic refresh failure'); });
     const { target } = await open({ configs: [config()] });
     menuDelete(target);
+    await settle();
     button(target, 'Delete').click();
     await settle();
 
@@ -345,7 +351,7 @@ describe('AI configuration acknowledgement (#303)', () => {
     const stale = await open({ ownerLabel: 'First' });
     await startCreate(stale.target, 'fast');
     button(stale.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     stale.props.ownerId = 'o2';
     stale.props.ownerLabel = 'Second';
@@ -367,7 +373,7 @@ describe('AI configuration acknowledgement (#303)', () => {
     const fresh = await open();
     await startCreate(fresh.target, 'fast');
     button(fresh.target, 'Save').click();
-    await tick(2);
+    await settle();
     releaseFresh();
     await settle();
     expect(feedback(fresh.target).textContent).toContain('Saved “fast”.');
@@ -385,7 +391,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     const { target } = await open();
     await startCreate(target, 'fast');
     button(target, 'Save').click();
-    await tick(2);
+    await settle();
     button(target, 'Cancel').click();
     release();
     await settle();
@@ -508,7 +514,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     const { target } = await open();
     await startCreate(target);
     button(target, 'Test').click();
-    await tick(2);
+    await settle();
 
     await vi.advanceTimersByTimeAsync(10_000);
     flushSync();
@@ -531,7 +537,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     editRow(target);
     await settle();
     button(target, 'Test').click();
-    await tick(2);
+    await settle();
 
     button(target, 'Cancel').click();
     await settle();
@@ -551,7 +557,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     editRow(m.target);
     await settle();
     button(m.target, 'Test').click();
-    await tick(2);
+    await settle();
 
     m.props.ownerId = 'o2';
     await settle();
@@ -567,7 +573,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     const { target } = await open();
     await startCreate(target, 'fast');
     button(target, 'Save').click();
-    await tick(2);
+    await settle();
     button(target, 'Cancel').click();
     rejectCreate(new Error('dropped response'));
     await settle();
@@ -615,6 +621,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     const second = config({ id: 'c2', name: 'fast' });
     const { target } = await open({ configs: [config(), second] });
     menuDelete(target, 'default');
+    await settle();
     button(target, 'Delete').click();
     await settle();
     expect(feedback(target).querySelector('a[data-sveltekit-reload]')).not.toBeNull();
@@ -716,6 +723,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     stubFetch(() => ({}), () => ({ body: { configs: [fresh] } }));
     const m = await open({ configs: [config()] });
     editRow(m.target);
+    await settle();
     button(m.target, 'Save').click();
     await settle();
     expect(m.target.textContent).toContain('fast');
@@ -732,6 +740,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     stubFetch(() => ({}), () => held);
     const stale = await open({ configs: [config()] });
     editRow(stale.target);
+    await settle();
     button(stale.target, 'Save').click();
     await settle();
 
@@ -748,12 +757,14 @@ describe('AI configuration feedback lifecycle review controls', () => {
     let releaseFresh!: (reply: Reply) => void;
     const freshHeld = new Promise<Reply>((resolve) => { releaseFresh = resolve; });
     stubFetch(() => ({}), () => freshHeld);
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
     const fresh = await open({
       configs: [config()],
       currentUserId: 'u2',
       members: [{ user: { id: 'u2' }, role: 'ADMIN' }],
     });
     editRow(fresh.target);
+    await settle();
     button(fresh.target, 'Save').click();
     await settle();
     releaseFresh({ body: { configs: [config({ id: 'c2', name: 'fast' })] } });
@@ -772,7 +783,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     m.props.ownerId = 'o2';
     await settle();
@@ -827,6 +838,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     expect(readbackSignals[0]?.aborted).toBe(false);
 
     m.props.currentUserId = 'u2';
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
     m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
     await settle();
     expect(readbackSignals[0]?.aborted).toBe(true);
@@ -866,8 +878,9 @@ describe('AI configuration feedback lifecycle review controls', () => {
     });
     const { target } = await open({ configs: [config()] });
     menuDelete(target);
+    await settle();
     button(target, 'Delete').click();
-    await tick(2);
+    await settle();
     button(target, 'Cancel').click();
     release();
     await settle();
@@ -888,7 +901,7 @@ describe('AI configuration review fix pins', () => {
     const { target } = await open();
     await startCreate(target, 'fast');
     button(target, 'Save').click();
-    await tick(2);
+    await settle();
 
     button(target, 'Cancel').click();
     await settle();
@@ -944,7 +957,7 @@ describe('AI configuration review fix pins', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     m.props.ownerId = 'o2';
     await settle();
@@ -974,7 +987,7 @@ describe('AI configuration review fix pins', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     m.props.ownerId = 'o2';
     await settle();
@@ -1019,6 +1032,7 @@ describe('AI configuration review fix pins', () => {
     expect(region.textContent?.trim()).toBe('');
 
     menuDelete(target);
+    await settle();
     button(target, 'Delete').click();
     await settle();
 
@@ -1040,7 +1054,7 @@ describe('AI configuration review fix pins', () => {
     const { target } = await open();
     await startCreate(target, 'fast');
     button(target, 'Save').click();
-    await tick(2);
+    await settle();
 
     button(target, 'Cancel').click();
     await settle();
@@ -1070,7 +1084,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     m.props.configsError = true;
     await settle();
@@ -1137,7 +1151,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     const { target } = await open();
     await startCreate(target, 'fast');
     button(target, 'Save').click();
-    await tick(2);
+    await settle();
 
     button(target, 'Cancel').click();
     await settle();
@@ -1174,7 +1188,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(button(target, 'Save').disabled).toBe(true);
   });
 
-  it('uses the action-start owner identity for payload, pending registration and outcome', async () => {
+  it('does not send the old owner draft when identity verification crosses an owner change', async () => {
     stubFetch(() => ({}));
     const m = await open();
     await startCreate(m.target, 'fast');
@@ -1184,10 +1198,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     button(m.target, 'Save').click();
     await settle();
 
-    expect(posts.filter((p) => p.action === 'create')).toHaveLength(1);
-    expect(posts.find((p) => p.action === 'create')).toMatchObject({
-      ownerType: 'ORGANIZATION', ownerId: 'o1',
-    });
+    expect(posts.filter((p) => p.action === 'create')).toHaveLength(0);
     expect(feedback(m.target).textContent?.trim()).toBe('');
   });
 
@@ -1201,7 +1212,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     m.props.ownerId = 'o2';
     await settle();
@@ -1226,7 +1237,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     m.props.ownerId = 'o2';
     await settle();
@@ -1258,7 +1269,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
     m.props.ownerId = 'o2';
     await settle();
     m.props.ownerId = 'o1';
@@ -1328,7 +1339,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     const first = await open();
     await startCreate(first.target, 'fast');
     button(first.target, 'Save').click();
-    await tick(2);
+    await settle();
     mounted.splice(mounted.indexOf(first), 1);
     first.unmount();
 
@@ -1359,7 +1370,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open({ onRefreshed: () => related });
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
     m.props.ownerId = 'o2';
     await settle();
     m.props.ownerId = 'o1';
@@ -1426,9 +1437,10 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     m.props.currentUserId = 'u2';
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
     m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
     await settle();
     releaseCreate();
@@ -1441,6 +1453,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     await settle();
 
     m.props.currentUserId = 'u1';
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u1', appId: null } } };
     m.props.members = [{ user: { id: 'u1' }, role: 'ADMIN' }];
     await settle();
     expect(readbacks).toHaveLength(1);
@@ -1486,9 +1499,10 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open();
     await startCreate(m.target, 'first');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     m.props.currentUserId = 'u2';
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
     m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
     m.props.configsError = true;
     await settle();
@@ -1496,7 +1510,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     await settle();
     await startCreate(m.target, 'second');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
     expect(creates).toHaveLength(2);
 
     // Both Manager instances used mutation ID 1. The old user's refusal must
@@ -1544,6 +1558,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(feedback(m.target).textContent).toContain('couldn’t be refreshed');
 
     m.props.currentUserId = 'u2';
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
     m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
     await settle();
     expect(feedback(m.target).textContent).not.toContain('couldn’t be refreshed');
@@ -1552,6 +1567,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(button(m.target, 'Save').disabled).toBe(false);
 
     m.props.currentUserId = 'u1';
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u1', appId: null } } };
     m.props.members = [{ user: { id: 'u1' }, role: 'ADMIN' }];
     await settle();
     expect(feedback(m.target).textContent).toContain('couldn’t be refreshed');
@@ -1598,6 +1614,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect($<HTMLInputElement>(m.target, '#ac-key')!.value).toBe('synthetic-key');
 
     m.props.currentUserId = 'u2';
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
     m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
     await settle();
     expect(feedback(m.target).textContent).not.toContain('couldn’t confirm the change went through');
@@ -1608,6 +1625,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(button(m.target, 'Save').disabled).toBe(false);
 
     m.props.currentUserId = 'u1';
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u1', appId: null } } };
     m.props.members = [{ user: { id: 'u1' }, role: 'ADMIN' }];
     await settle();
     expect(feedback(m.target).textContent).toContain('couldn’t confirm the change went through');
@@ -1631,7 +1649,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open({ onUncertain: first }, AiServiceConfigManager);
     await startCreate(m.target, 'first');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     m.props.onUncertain = second;
     await settle();
@@ -1736,7 +1754,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-7');
     releaseCreate({ body: { ok: true, config: created } });
@@ -1761,7 +1779,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     await startCreate(m.target, 'fast');
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://old.example');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, '');
     releaseCreate({ body: { ok: true, config: created } });
     await settle();
@@ -1784,13 +1802,13 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
     set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-6');
     releaseCreate({ body: { ok: true, config: created } });
     await settle();
 
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
     set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-7');
     releaseUpdate({ body: { ok: true, config: { ...created, name: 'renamed', model: 'glm-6', hasApiKey: false } } });
     await settle();
@@ -1812,7 +1830,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     await settle();
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://new.example');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, '');
     releaseUpdate({ body: { ok: true, config: { ...older, endpoint: 'https://new.example' } } });
     await settle();
@@ -1835,7 +1853,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
     set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-7');
 
     releaseCreate({});
@@ -1899,6 +1917,7 @@ describe('#1898 follow-ups', () => {
     if (action === 'create') await startCreate(m.target, 'fast');
     else if (action === 'update') {
       editRow(m.target); await settle();
+    await settle();
       set($<HTMLInputElement>(m.target, '#ac-model')!, 'new-model');
     } else { menuDelete(m.target); await settle(); }
     const submit = button(m.target, action === 'delete' ? 'Delete' : 'Save');
@@ -1951,6 +1970,7 @@ describe('#1898 follow-ups', () => {
     button(m.target, 'Save').click(); await settle();
     if (kind === 'user') {
       m.props.currentUserId = 'u2';
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
       m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
     } else m.props.ownerId = 'o2';
     await settle();
@@ -2011,6 +2031,58 @@ describe('#1898 follow-ups', () => {
     expect($<HTMLInputElement>(m.target, '#ac-key')?.value).toBe('synthetic-key');
     expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
     expect(m.target.textContent).not.toContain('untrusted');
+  });
+
+  it.each([{}, { principalType: 'USER', userId: null, appId: null }, { principalType: 'UNKNOWN', userId: 'u1', appId: null }])('preserves the draft and refuses writes for malformed identity %j', async principal => {
+    const m = await open(); await startCreate(m.target);
+    principalReply = { body: { principal } };
+    button(m.target, 'Save').click(); await settle();
+    expect($<HTMLInputElement>(m.target, '#ac-key')?.value).toBe('synthetic-key');
+    expect(m.target.textContent).toContain('Unable to verify your sign-in. Try again.');
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
+  });
+
+  it('bounds a held identity read without leaking the key or keeping the submit locked', async () => {
+    vi.useFakeTimers();
+    const m = await open(); await startCreate(m.target);
+    principalReadHandler = () => new Promise<Reply>(() => {});
+    const submit = button(m.target, 'Save');
+    submit.click(); await settle();
+    expect(submit.disabled).toBe(true);
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(10_000); await settle();
+    expect(button(m.target, 'Save').disabled).toBe(false);
+    expect($<HTMLInputElement>(m.target, '#ac-key')?.value).toBe('synthetic-key');
+    principalReadHandler = null;
+    button(m.target, 'Save').click(); await settle();
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(1);
+  });
+
+  it('checks focus even during an older in-flight write, without replaying it', async () => {
+    let release!: (reply: Reply) => void;
+    stubFetch(body => body.action === 'create' ? new Promise<Reply>(resolve => { release = resolve; }) : {});
+    const m = await open(); await startCreate(m.target);
+    button(m.target, 'Save').click(); await settle();
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(1);
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
+    window.dispatchEvent(new Event('focus')); await settle();
+    expect(m.target.querySelector('#ac-key')).toBeNull();
+    release({}); await settle();
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(1);
+    expect(m.target.querySelector('#ac-key')).toBeNull();
+  });
+
+  it('cancels the armed delete with its editor, then lets a newly armed delete verify and execute', async () => {
+    const m = await open({ configs: [config()] });
+    editRow(m.target); await settle();
+    menuDelete(m.target); await settle();
+    expect([...m.target.querySelectorAll('button')].filter(el => el.textContent?.trim() === 'Cancel')).toHaveLength(2);
+    button(m.target, 'Cancel').click(); await settle();
+    expect(m.target.querySelector('#ac-key')).toBeNull();
+    expect([...m.target.querySelectorAll('button')].filter(el => el.textContent?.trim() === 'Delete')).toHaveLength(0);
+    menuDelete(m.target); await settle();
+    button(m.target, 'Delete').click(); await settle();
+    expect(posts.filter(p => p.action === 'delete')).toHaveLength(1);
   });
 
 });

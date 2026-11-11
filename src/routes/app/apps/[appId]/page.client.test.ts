@@ -1513,11 +1513,11 @@ describe('App AI configuration readback lifecycle', () => {
       form: null,
     }) as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
-    await tick(3);
+    await tick(80);
     return m;
   }
 
-  function fillNewConfig(target: HTMLElement) {
+  async function fillNewConfig(target: HTMLElement) {
     const add = [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Add configuration')!;
     add.click();
     flushSync();
@@ -1527,12 +1527,15 @@ describe('App AI configuration readback lifecycle', () => {
       input.dispatchEvent(new Event('input', { bubbles: true }));
       flushSync();
     }
+    // The draft identity read precedes enabling its explicit submit.
+    await tick(60);
     ([...target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Save')!.click();
   }
 
   it('keeps a pending mutation, uncertainty and its replay lock while the AI tab is hidden', async () => {
     let rejectCreate!: (error: Error) => void;
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
       const body = JSON.parse(init.body!);
       if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
@@ -1540,21 +1543,21 @@ describe('App AI configuration readback lifecycle', () => {
       throw new Error(`unexpected action: ${body.action}`);
     }));
     const m = await mountAi();
-    fillNewConfig(m.target);
-    await tick(3);
+    await fillNewConfig(m.target);
+    await tick(80);
     const panel = m.target.querySelector<HTMLElement>('#panel-ai-configs')!;
     const region = m.target.querySelector<HTMLElement>('[data-testid="ai-config-feedback"]')!;
 
     (m.target.querySelector('#tab-settings') as HTMLButtonElement).click();
-    await tick(3);
+    await tick(80);
     rejectCreate(new Error('dropped response'));
-    await tick(30);
+    await tick(80);
     expect(panel.hidden).toBe(true);
     expect(region.isConnected).toBe(true);
     expect(region.textContent).toContain('couldn’t confirm the change went through');
 
     (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
-    await tick(3);
+    await tick(80);
     expect(panel.hidden).toBe(false);
     expect(m.target.querySelector('[data-testid="ai-config-feedback"]')).toBe(region);
     expect(region.textContent).toContain('couldn’t confirm the change went through');
@@ -1565,6 +1568,7 @@ describe('App AI configuration readback lifecycle', () => {
     vi.useFakeTimers();
     let relatedSignal: AbortSignal | undefined;
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string; signal?: AbortSignal }) => {
+      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
         return { ok: true, json: async () => ({ configs: [] }) } as Response;
       }
@@ -1579,8 +1583,8 @@ describe('App AI configuration readback lifecycle', () => {
       throw new Error(`unexpected action: ${body.action}`);
     }));
     const m = await mountAi();
-    fillNewConfig(m.target);
-    await tick(30);
+    await fillNewConfig(m.target);
+    await tick(80);
     expect(relatedSignal?.aborted).toBe(false);
 
     await vi.advanceTimersByTimeAsync(10_000);
@@ -1589,6 +1593,7 @@ describe('App AI configuration readback lifecycle', () => {
 
   it('does not lock an org admin out when the App-member-only Chat read is withheld', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
         return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
       }
@@ -1602,20 +1607,21 @@ describe('App AI configuration readback lifecycle', () => {
       throw new Error(`unexpected action: ${body.action}`);
     }));
     const m = await mountAi({ chatConfigs: null });
-    fillNewConfig(m.target);
-    await tick(40);
+    await fillNewConfig(m.target);
+    await tick(80);
 
     const feedback = m.target.querySelector('[data-testid="ai-config-feedback"]')!;
     expect(feedback.textContent).toContain('Saved “default”.');
     expect(feedback.textContent).not.toContain('couldn’t be refreshed');
     ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Add configuration')!.click();
-    await tick(3);
+    await tick(80);
     expect(([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Save')!.disabled).toBe(false);
   });
 
   it('refreshes both the owner grid and resolved Chat configs across create and delete', async () => {
     let configs = [] as typeof masked[];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1' || url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
         return { ok: true, json: async () => ({ configs }) } as Response;
       }
@@ -1634,12 +1640,12 @@ describe('App AI configuration readback lifecycle', () => {
       throw new Error(`unexpected action: ${body.action}`);
     }));
     const m = await mountAi({ chatConfigs: null });
-    fillNewConfig(m.target);
-    await tick(40);
+    await fillNewConfig(m.target);
+    await tick(80);
     expect(m.target.querySelector('[data-testid="ai-config-feedback"]')!.textContent).toContain('Saved “default”.');
 
     (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
-    await tick(10);
+    await tick(80);
     expect(m.target.querySelector('#chat-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
 
     // Null loader reads are not identity tokens: App B must not inherit A's
@@ -1655,25 +1661,26 @@ describe('App AI configuration readback lifecycle', () => {
       chatConfigs: null,
       appConfigs: [],
     };
-    await tick(10);
+    await tick(80);
     expect(m.target.querySelector('#chat-config')).toBeNull();
     appA.appConfigs = [masked];
     m.props.data = appA;
-    await tick(10);
+    await tick(80);
     expect(m.target.querySelector('#chat-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
 
     (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
-    await tick(3);
+    await tick(80);
     (m.target.querySelector('button[aria-label="Actions for default"]') as HTMLButtonElement).click();
     flushSync();
     ([...m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')]).find((x) => x.textContent?.trim() === 'Delete')!.click();
     flushSync();
+    await tick(60);
     ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Delete')!.click();
-    await tick(40);
+    await tick(80);
     expect(m.target.querySelector('[data-testid="ai-config-feedback"]')!.textContent).toContain('Deleted “default”.');
 
     (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
-    await tick(10);
+    await tick(80);
     expect(m.target.querySelector('#chat-config')).toBeNull();
     expect(m.target.querySelector('#panel-chats')!.textContent).toContain('Connect an LLM provider to enable agent chat');
   });
@@ -1681,6 +1688,7 @@ describe('App AI configuration readback lifecycle', () => {
   it('keeps recovery locked when a loader replacement drops the resolved-config readback', async () => {
     let releaseRelated!: (reply: Response) => void;
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
         return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
       }
@@ -1694,20 +1702,21 @@ describe('App AI configuration readback lifecycle', () => {
       throw new Error(`unexpected action: ${body.action}`);
     }));
     const m = await mountAi({ chatConfigs: [] });
-    fillNewConfig(m.target);
-    await tick(30);
+    await fillNewConfig(m.target);
+    await tick(80);
     expect(releaseRelated).toBeTypeOf('function');
 
     const loader = m.props.data as Record<string, unknown>;
     m.props.data = { ...loader, chatConfigs: [] };
     await tick(5);
     releaseRelated({ ok: true, json: async () => ({ configs: [masked] }) } as Response);
-    await tick(40);
+    await tick(80);
     expect(m.target.querySelector('[data-testid="ai-config-feedback"]')!.textContent).toContain('couldn’t be refreshed');
   });
 
   it('supersedes a resolved-config working copy on a same-App null loader generation', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1' || url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
         return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
       }
@@ -1719,20 +1728,21 @@ describe('App AI configuration readback lifecycle', () => {
       throw new Error(`unexpected action: ${body.action}`);
     }));
     const m = await mountAi({ chatConfigs: null });
-    fillNewConfig(m.target);
-    await tick(40);
+    await fillNewConfig(m.target);
+    await tick(80);
     (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
-    await tick(10);
+    await tick(80);
     expect(m.target.querySelector('#chat-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
 
     const loader = m.props.data as Record<string, unknown>;
     m.props.data = { ...loader, chatConfigs: null };
-    await tick(10);
+    await tick(80);
     expect(m.target.querySelector('#chat-config')).toBeNull();
   });
 
   it('masks stale resolved Chat configs when their readback fails after delete', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
         return { ok: true, json: async () => ({ configs: [] }) } as Response;
       }
@@ -1751,11 +1761,12 @@ describe('App AI configuration readback lifecycle', () => {
     flushSync();
     ([...m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')]).find((x) => x.textContent?.trim() === 'Delete')!.click();
     flushSync();
+    await tick(60);
     ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Delete')!.click();
-    await tick(40);
+    await tick(80);
 
     (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
-    await tick(10);
+    await tick(80);
     expect(m.target.querySelector('#chat-config')).toBeNull();
   });
 
@@ -1767,7 +1778,7 @@ describe('App AI configuration readback lifecycle', () => {
     }));
     const m = await mountAi({ chatConfigs: [fast, masked] });
     (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
-    await tick(10);
+    await tick(80);
     const picker = m.target.querySelector<HTMLSelectElement>('#chat-config')!;
     picker.value = 'fast';
     picker.dispatchEvent(new Event('change', { bubbles: true }));
@@ -1780,7 +1791,7 @@ describe('App AI configuration readback lifecycle', () => {
       app: { ...loader.app, id: 'b1', agentId: 'ag2' },
       chatConfigs: [fast, masked],
     };
-    await tick(10);
+    await tick(80);
     expect(m.target.querySelector<HTMLSelectElement>('#chat-config')!.value).toBe('default');
   });
 });

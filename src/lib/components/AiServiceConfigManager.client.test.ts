@@ -23,6 +23,7 @@ beforeEach(() => {
   resetAiConfigRecoveryForTests();
   posts = [];
   vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
+    if (_url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
     const body = JSON.parse(init.body) as Record<string, unknown>;
     posts.push(body);
     const reply = body.action === 'endpoints'
@@ -99,7 +100,7 @@ function set(el: HTMLInputElement | HTMLSelectElement, value: string) {
 }
 // fetch → json → then, then the host callback: a few microtask hops each.
 async function settle() {
-  await tick(10);
+  await tick(60);
   flushSync();
 }
 
@@ -376,7 +377,8 @@ describe('endpoint suggestions follow the provider (#951 Codex P2)', () => {
   function holdEndpoints(held: string[]) {
     const release = new Map<string, (urls: string[]) => void>();
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
-      const body = JSON.parse(init.body) as Record<string, unknown>;
+      if (_url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+    const body = JSON.parse(init.body) as Record<string, unknown>;
       posts.push(body);
       if (body.action === 'endpoints' && held.includes(String(body.provider))) {
         const urls = await new Promise<string[]>((r) => release.set(String(body.provider), r));
@@ -425,6 +427,7 @@ describe('AI config Delete confirm (#1020 review P2)', () => {
   it('arms an inline confirm whose "cannot be undone" question is visible, posting nothing yet', async () => {
     const root = await open({ configs: [config()] });
     menuDelete(root);
+    await settle();
     expect(root.textContent).toContain(aiConfigStrings.confirmDelete('default'));
     expect(posts.filter((p) => p.action === 'delete')).toHaveLength(0);
     // The confirm's own Delete is what posts, for the armed config.

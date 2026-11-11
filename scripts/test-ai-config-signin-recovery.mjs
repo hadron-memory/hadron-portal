@@ -18,6 +18,8 @@ try {
     const context = await browser.newContext({ viewport: { width: touch ? 390 : 1280, height: 900 }, hasTouch: touch, isMobile: touch });
     let writes = 0;
     let refuse = true;
+    let freshUser = 'fixture-user';
+    await context.route('**/api/ai-configs?principal=1', route => route.fulfill({ json: { principal: { principalType: 'USER', userId: freshUser, appId: null } } }));
     await context.route('**/api/ai-configs', route => {
       const action = route.request().postDataJSON().action;
       if (action === 'endpoints') return route.fulfill({ json: { endpoints: [] } });
@@ -72,7 +74,17 @@ try {
     if (touch) await save.tap(); else { await save.focus(); await page.keyboard.press('Enter'); }
     await page.locator('#ac-model').waitFor({ state: 'detached' });
     assert.equal(writes, 2, 'Only explicit retry writes again');
-    console.log(`${touch ? '390 coarse' : '1280 keyboard'} ${dark ? 'dark' : 'light'}: native noopener tab, retained original editor, close and explicit retry PASS (fixture only)`);
+    // A fresh identity read, not the unchanged mounted props, fences retry.
+    if (touch) await add.tap(); else await add.click();
+    await page.locator('#ac-name').fill('second-draft');
+    await page.locator('#ac-model').fill('synthetic-model');
+    await page.locator('#ac-key').fill('synthetic-unused-key');
+    freshUser = 'different-fixture-user';
+    if (touch) await save.tap(); else { await save.focus(); await page.keyboard.press('Enter'); }
+    await page.getByText('Your sign-in or selected context changed. The draft was discarded.', { exact: true }).waitFor();
+    assert.equal(await page.locator('#ac-key').count(), 0);
+    assert.equal(writes, 2, 'Different fresh user never receives the old draft write');
+    console.log(`${touch ? '390 coarse' : '1280 keyboard'} ${dark ? 'dark' : 'light'}: native noopener tab, retained original editor, close, explicit retry and changed-user refusal PASS (fixture only)`);
     await context.close();
   }
 } finally {
