@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte';
   import { testResultView, type AiConfigTestResult, type AiConfigTestView } from '$lib/ai-config-test';
   import { lookupOwn } from '$lib/lookup';
+  import { safeRedirect } from '$lib/safeRedirect';
   import { beforeNavigate } from '$app/navigation';
   import { AI_CONFIG_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
   import type { AiConfigOwnerType, AiConfigProvider, AiServiceConfig } from '$lib/types';
@@ -111,6 +112,7 @@
   // Section owns persistent recovery, notices and replay locks.
   const mutationLocked = $derived(uncertainMutation || mutationUncertain);
   let error = $state<string | null>(null);
+  let signinHref = $state<string | null>(null);
   // #937: one shape for both paths, so the result always reads the same way.
   let testResult = $state<AiConfigTestView | null>(null);
   let confirmDeleteId = $state<string | null>(null);
@@ -132,6 +134,7 @@
     ownerId: string;
     ownerGeneration: number;
     principalId: string;
+    returnPath: string;
     onCommitted: (outcome: AiConfigCommitted) => void | Promise<void>;
     onUncertain: (outcome: AiConfigUncertain) => void | Promise<void>;
     formFingerprint: string;
@@ -162,6 +165,7 @@
   }
 
   function beginAction(): ActionToken {
+    signinHref = null;
     const noticeGeneration = clearNotice();
     busy = false;
     // Only non-mutating Test reads consume this signal. Mutation writes keep
@@ -176,6 +180,7 @@
       ownerId: ownerAtVisit!.ownerId,
       ownerGeneration,
       principalId: currentUserId,
+      returnPath: safeRedirect(window.location.pathname),
       onCommitted,
       onUncertain,
       formFingerprint: formFingerprint(),
@@ -229,6 +234,7 @@
   }
 
   function resetEditor() {
+    signinHref = null;
     formOpen = false;
     editId = null;
     savedConfig = null;
@@ -515,6 +521,8 @@
     return canonicalJson(next.value ?? null) !== canonicalJson(c.params ?? null);
   }
 
+  class SigninRequiredError extends Error {}
+
   class UncertainMutationError extends Error {
     constructor() {
       super('Request failed');
@@ -531,6 +539,9 @@
         body: JSON.stringify(payload),
         signal,
       });
+      // Exact CRUD 401 is definitive even if a proxy returned no JSON body.
+      // Never inspect or display upstream text to classify this refusal.
+      if (uncertainMutation && response.status === 401) return { response, body: null };
       return { response, body: await response.json() as unknown };
     })();
     try {
@@ -554,6 +565,7 @@
       // leave an unexplained pending lock forever.
       throw new UncertainMutationError();
     }
+    if (uncertainMutation && res.status === 401) throw new SigninRequiredError();
     const record = body && typeof body === 'object' && !Array.isArray(body)
       ? body as Record<string, unknown>
       : null;
@@ -622,7 +634,14 @@
           // bounded readback finishes; settlement must not open a replay gap.
           await publishUncertain(action, s.mutationUnconfirmed(), pendingMutation);
         } else if (isCurrent(action)) {
-          error = e instanceof Error ? e.message : options.refusalFallback;
+          if (e instanceof SigninRequiredError) {
+            error = s.signinDraft();
+            // Only the pathname goes to the other tab. The editor and all of
+            // its values remain in this instance; no navigation/replay hook.
+            signinHref = `/signin?redirect=${encodeURIComponent(action.returnPath)}`;
+          } else {
+            error = e instanceof Error ? e.message : options.refusalFallback;
+          }
         }
         return;
       }
@@ -877,7 +896,13 @@
       <div
         class="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
       >
-        {error}
+        <p>{error}</p>
+        {#if signinHref}
+          <a href={signinHref} target="_blank" rel="noopener noreferrer"
+            class="mt-1 inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
+          >{s.signinNewTab()}</a>
+          <p>{s.signinReturn()}</p>
+        {/if}
       </div>
     {/if}
   </div>

@@ -1894,8 +1894,10 @@ describe('#1898 follow-ups', () => {
       editRow(m.target); await settle();
       set($<HTMLInputElement>(m.target, '#ac-model')!, 'new-model');
     } else { menuDelete(m.target); await settle(); }
-    button(m.target, action === 'delete' ? 'Delete' : 'Save').click();
+    const submit = button(m.target, action === 'delete' ? 'Delete' : 'Save');
+    submit.focus(); submit.click();
     await settle();
+    expect(document.activeElement).toBe(submit);
     expect(m.target.querySelector('[data-testid="ai-config-error-feedback"]')).toBe(alert);
     expect(alert?.textContent).toContain('Sign in again to save your draft.');
     expect(alert?.textContent).not.toContain('untrusted-upstream-text');
@@ -1906,12 +1908,15 @@ describe('#1898 follow-ups', () => {
     expect(link?.textContent).toContain('Sign in');
     expect(link?.textContent).toContain('new tab');
     const originalInput = m.target.querySelector('#ac-model');
+    const originalKey = $<HTMLInputElement>(m.target, '#ac-key')?.value;
+    expect(JSON.stringify([localStorage, sessionStorage])).not.toContain('synthetic-key');
     // Returning from a cancelled/successful tab does not replay or reload.
     window.dispatchEvent(new Event('focus'));
     document.dispatchEvent(new Event('visibilitychange'));
     await settle();
     expect(posts.filter(p => p.action === action)).toHaveLength(1);
     expect(m.target.querySelector('#ac-model')).toBe(originalInput);
+    expect($<HTMLInputElement>(m.target, '#ac-key')?.value).toBe(originalKey);
     expect(alert?.querySelector('a')).toBe(link);
     expect(readbacks).toHaveLength(0);
     expect(navigationCalls).toHaveLength(0);
@@ -1929,6 +1934,36 @@ describe('#1898 follow-ups', () => {
     await startCreate(m.target);
     button(m.target, 'Save').click(); await settle();
     expect(m.target.querySelector('a[href^="/signin"]')).toBeNull();
+  });
+
+  it.each(['user', 'owner'])('discards a late 401 and old draft after the %s prop changes', async kind => {
+    let release!: (reply: Reply) => void;
+    stubFetch(body => body.action === 'create' ? new Promise<Reply>(resolve => { release = resolve; }) : {});
+    const m = await open();
+    await startCreate(m.target);
+    button(m.target, 'Save').click(); await settle();
+    if (kind === 'user') {
+      m.props.currentUserId = 'u2';
+      m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
+    } else m.props.ownerId = 'o2';
+    await settle();
+    release({ ok: false, status: 401, body: { error: 'Unauthorized' } });
+    await settle();
+    expect(m.target.querySelector('#ac-key')).toBeNull();
+    expect(m.target.querySelector('a[href^="/signin"]')).toBeNull();
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(1);
+  });
+
+  it('discards recovery presentation and its draft on ordinary unmount/remount', async () => {
+    stubFetch(body => body.action === 'create' ? { ok: false, status: 401 } : {});
+    const first = await open(); await startCreate(first.target);
+    button(first.target, 'Save').click(); await settle();
+    expect(first.target.querySelector('a[href^="/signin"]')).not.toBeNull();
+    mounted.splice(mounted.indexOf(first), 1); first.unmount();
+    const next = await open();
+    expect(next.target.querySelector('#ac-key')).toBeNull();
+    expect(next.target.querySelector('a[href^="/signin"]')).toBeNull();
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(1);
   });
 
 });

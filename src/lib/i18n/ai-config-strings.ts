@@ -10,6 +10,9 @@
 import { t } from './t';
 
 export const aiConfigStrings = {
+  signinDraft: (): string => t('ai-config.signin-draft', 'Sign in again to save your draft.'),
+  signinNewTab: (): string => t('ai-config.signin-new-tab', 'Sign in (opens in a new tab)'),
+  signinReturn: (): string => t('ai-config.signin-return', 'After signing in, return to this tab and try again. Reloading or closing this page discards your draft.'),
   heading: (): string => t('ai-config.heading', 'AI provider configurations'),
   ownerCaption: (name: string): string => t('ai-config.owner-caption', 'Owned by {name}', { name }),
   subheading: (): string =>
