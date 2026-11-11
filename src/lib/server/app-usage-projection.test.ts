@@ -44,6 +44,15 @@ describe('token use server view #1908', () => {
     const c = client(); await run(c, q);
     expect(c.request.mock.calls.every(call => !call[1].whatIf)).toBe(true);
   });
+  it.each([
+    ['unlisted worker', 'NotListed', accountKey(b)],
+    ['unlisted target', 'Ruth', 'unlisted'],
+  ])('rejects %s independently of the other list guard', async (_name, move, to) => {
+    const c = client();
+    const v = await run(c, new URLSearchParams({ move, to }).toString());
+    expect(v.kind === 'ok' && v.invalid).toBe(true);
+    expect(c.request.mock.calls.every(call => !call[1].whatIf)).toBe(true);
+  });
   it('same target account is rejected without asking the server', async () => {
     const c = client(); await run(c, new URLSearchParams({ move: 'Ruth', to: accountKey(a) }).toString());
     expect(c.request).toHaveBeenCalledTimes(2);
