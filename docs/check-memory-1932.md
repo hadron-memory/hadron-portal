@@ -53,6 +53,33 @@ A GitHub warning when either sampled heap or kernel peak process RSS exceeds
 native memory) with the heap budget is deliberately conservative; it is not
 a claim about V8 occupancy or the runner memory limit. Reporting and summary-write failures do not turn a
 failed checker into success; regression tests preserve nonzero exit codes,
-one main-thread report, worker silence and the warning boundary. Build's
-existing memory ceiling/report is unchanged. `check:watch` is outside this
-batch-CI remedy.
+one main-thread report, worker silence and the warning boundary. The Build
+script's own memory ceiling/report is untouched by this Check change.
+
+## `check:watch` scope
+
+`check:watch` is **not** outside this change. In `package.json` the two scripts
+are identical except that `check:watch` appends ` --watch`:
+
+```
+check:       svelte-kit sync && node --max-old-space-size=4096 --import ./scripts/check-heap-peak.mjs node_modules/svelte-check/bin/svelte-check --tsconfig ./tsconfig.json
+check:watch: svelte-kit sync && node --max-old-space-size=4096 --import ./scripts/check-heap-peak.mjs node_modules/svelte-check/bin/svelte-check --tsconfig ./tsconfig.json --watch
+```
+
+So watch also receives the 4096 MiB old-space flag and the `check-heap-peak.mjs`
+preload. That was a side effect of replacing the package scripts, not a decision,
+and it was first described wrongly (as unchanged). This guide held the wrong
+claim; no other tracked file mentions `check:watch`.
+
+Everything measured above is **batch** `pnpm check` (one run to completion,
+exit 0 or 134). Interactive watch has **not** been measured: not its heap
+growth across re-checks, not how the preload's exit-time report behaves in a
+long-lived process, and not whether the 75% warning means anything there. Do not
+read the batch table as watch evidence, and do not assume what watch does at the
+ceiling (abort, or keep running) until it is measured.
+
+**Open decision:** keep watch on the new flag and preload, or restore its previous
+invocation. It is a separate, separately reviewed change, left by the #1939 gate
+to the #1933 disposition (Marco/Xia). It has no tracking issue of its own yet;
+nothing in this diff pins either invocation, so until it is decided the scripts
+above are the current behaviour by default, not by choice.
