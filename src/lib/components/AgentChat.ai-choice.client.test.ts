@@ -79,22 +79,24 @@ describe('AgentChat: the AI config dropdown (#1963)', () => {
     m.unmount();
   });
 
-  it('with no choice made, starts and sends with the preselected name and no aiConfigChoice', async () => {
+  it('with no choice made, starts and sends no config name and no aiConfigChoice (the server resolves)', async () => {
     stub();
     const m = mountComponent(AgentChat, { agentId: 'a1', appId: 'app-1', aiChoices: CHOICES });
     await wait(20);
     clickButton(/New chat/);
     await wait(30);
     await tick();
-    expect(last('/api/agent-chat/start')).toMatchObject({ configName: 'smart' });
-    expect('aiConfigChoice' in last('/api/agent-chat/start')).toBe(false);
+    for (const body of [last('/api/agent-chat/start')]) {
+      expect('configName' in body).toBe(false);
+      expect('aiConfigChoice' in body).toBe(false);
+    }
     await send('hi');
-    expect(last('/api/agent-chat/turn')).toMatchObject({ configName: 'smart' });
+    expect('configName' in last('/api/agent-chat/turn')).toBe(false);
     expect('aiConfigChoice' in last('/api/agent-chat/turn')).toBe(false);
     m.unmount();
   });
 
-  it('a changed choice goes with the next turn, by id and by name', async () => {
+  it('a changed choice goes with the next turn by id only, never with a name (BLIND F1)', async () => {
     stub();
     const m = mountComponent(AgentChat, { agentId: 'a1', appId: 'app-1', aiChoices: CHOICES });
     await wait(20);
@@ -106,7 +108,8 @@ describe('AgentChat: the AI config dropdown (#1963)', () => {
     s.dispatchEvent(new Event('change', { bubbles: true }));
     await tick();
     await send('hi');
-    expect(last('/api/agent-chat/turn')).toMatchObject({ configName: 'fast', aiConfigChoice: 'cfg-fast' });
+    expect(last('/api/agent-chat/turn')).toMatchObject({ aiConfigChoice: 'cfg-fast' });
+    expect('configName' in last('/api/agent-chat/turn')).toBe(false);
     m.unmount();
   });
 
@@ -119,7 +122,9 @@ describe('AgentChat: the AI config dropdown (#1963)', () => {
     await tick();
     expect(select()!.value).toBe('cfg-fast');
     await send('hi');
-    expect(last('/api/agent-chat/turn')).toMatchObject({ configName: 'fast' });
+    // The stored choice is the server's to apply: the turn names no config.
+    expect('configName' in last('/api/agent-chat/turn')).toBe(false);
+    expect('aiConfigChoice' in last('/api/agent-chat/turn')).toBe(false);
     m.unmount();
   });
 

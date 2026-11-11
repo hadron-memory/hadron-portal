@@ -12,7 +12,6 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_CHAT_AI_CHOICE,
   chatAiChoiceLabel,
-  configNameForChoice,
   initialChatAiChoice,
   liveChatAiChoices,
   type ChatAiChoiceOption,
@@ -62,21 +61,6 @@ describe('initialChatAiChoice', () => {
   });
 });
 
-describe('configNameForChoice', () => {
-  it('maps a config id to the name the portal resolves it by', () => {
-    expect(configNameForChoice([DEFAULT, FAST, SMART], 'cfg-fast')).toBe('fast');
-  });
-
-  it('maps default to the default walk', () => {
-    expect(configNameForChoice([DEFAULT, FAST], 'default')).toBe('default');
-    expect(configNameForChoice([], 'default')).toBe('default');
-  });
-
-  it('answers null for a value the list does not have', () => {
-    expect(configNameForChoice([DEFAULT, FAST], 'cfg-gone')).toBeNull();
-  });
-});
-
 describe('chatAiChoiceLabel', () => {
   it('names a config with its provider and model', () => {
     expect(chatAiChoiceLabel(FAST)).toBe('fast (anthropic · haiku)');
@@ -99,9 +83,30 @@ describe('chatAiChoiceLabel', () => {
 describe('liveChatAiChoices', () => {
   const all = [DEFAULT, FAST, SMART];
 
+  const ANTHROPIC = 'https://api.anthropic.com/v1';
+  const live = (id: string, over: Record<string, unknown> = {}) => ({
+    id, provider: 'anthropic', effectiveEndpoint: ANTHROPIC, hasApiKey: true, enabled: true, ...over,
+  });
+
   it('drops an entry the live read no longer has, or has disabled', () => {
-    expect(liveChatAiChoices(all, [{ id: 'cfg-smart', enabled: true }], false)).toEqual([DEFAULT, SMART]);
-    expect(liveChatAiChoices(all, [{ id: 'cfg-fast', enabled: false }, { id: 'cfg-smart' }], false)).toEqual([DEFAULT, SMART]);
+    const smartLive = live('cfg-smart', { name: 'smart', model: 'opus' });
+    expect(liveChatAiChoices(all, [smartLive], false)).toEqual([DEFAULT, SMART]);
+    expect(liveChatAiChoices(all, [live('cfg-fast', { enabled: false }), smartLive], false)).toEqual([DEFAULT, SMART]);
+  });
+
+  it('recomputes the runtime label from the live read, both ways (BLIND F3)', () => {
+    const noKey = opt({ value: 'cfg-fast', name: 'fast', model: 'haiku', unavailableReason: 'no key available here' });
+    // A key added on the AI tab enables the entry without a reload...
+    expect(liveChatAiChoices([DEFAULT, noKey], [live('cfg-fast', { name: 'fast', model: 'haiku' })], false)![1].unavailableReason).toBeNull();
+    // ...and a key removed, or a custom endpoint set, disables it.
+    expect(liveChatAiChoices([DEFAULT, FAST], [live('cfg-fast', { hasApiKey: false })], false)![1].unavailableReason).toBe('no key available here');
+    expect(liveChatAiChoices([DEFAULT, FAST], [live('cfg-fast', { effectiveEndpoint: 'https://proxy.example/v1' })], false)![1].unavailableReason)
+      .toBe("can't run in portal chats yet");
+  });
+
+  it('takes the live name, provider and model', () => {
+    const [, fast] = liveChatAiChoices([DEFAULT, FAST], [live('cfg-fast', { name: 'quick', model: 'sonnet' })], false)!;
+    expect(fast).toMatchObject({ value: 'cfg-fast', name: 'quick', provider: 'anthropic', model: 'sonnet' });
   });
 
   it('keeps only default when a refresh failed, and the whole list when the loader could not read', () => {
