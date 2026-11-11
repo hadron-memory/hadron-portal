@@ -16,7 +16,7 @@
  * and a typed refusal renders portal copy instead of the server's prose.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ClientError } from 'graphql-request';
+import { ClientError, GraphQLClient } from 'graphql-request';
 import { NODE_APPROVAL_QUERY, NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY, NODE_SIGNATURES_QUERY, REQUEST_SIGNATURE_MUTATION } from '$lib/server/queries';
 import type { NodeApprovalStatus } from '$lib/node-approval';
 import type { NodeSignatureStatus } from '$lib/node-signatures';
@@ -223,7 +223,7 @@ describe('node page — Sign affordance (portal#1022 links half)', () => {
     new Error('synthetic private upstream: https://internal.example/query?token=synthetic-secret'),
     new TypeError('synthetic TLS failure at /private/synthetic-key'),
     new ClientError(
-      { status: 503, headers: new Headers() } as never,
+      { status: 503, headers: new Headers(), body: 'synthetic private upstream body' },
       { query: 'query SyntheticPrivate { node(ref: "synthetic-secret") { id } }' },
     ),
   ])('#1896: a transport fault keeps the generic fallback, never its private detail (%#)', async (fault) => {
@@ -236,6 +236,19 @@ describe('node page — Sign affordance (portal#1022 links half)', () => {
     expect(JSON.stringify(result)).not.toMatch(/internal\.example|synthetic-secret|private\/synthetic-key|SyntheticPrivate/);
     expect(mockRequest.mock.calls.filter(([doc]) => doc === REQUEST_SIGNATURE_MUTATION))
       .toEqual([[REQUEST_SIGNATURE_MUTATION, { nodeRef: 'leaf-pk', expectedRevision: 4 }]]);
+  });
+
+  it('#1896: a library-generated non-GraphQL503 keeps the action fallback', async () => {
+    const client = new GraphQLClient('http://synthetic.invalid/graphql', {
+      fetch: async () => new Response('synthetic private body /private/key', { status: 503, headers: { 'content-type': 'text/plain' } }),
+    });
+    let fault: unknown;
+    try { await client.request('query SyntheticPrivate { node(ref: "synthetic-secret") { id } }'); }
+    catch (error) { fault = error; }
+    expect(fault).toBeInstanceOf(ClientError);
+    expect((fault as ClientError).response).toMatchObject({ status: 503, body: 'synthetic private body /private/key' });
+    serve(() => ({}), () => { throw fault; });
+    expect(await requestSignature()).toEqual({status:400,data:{requestSignatureError:'Could not start a signing request.'}});
   });
 
   it('an unknown code keeps the generic line — never a borrowed reason', async () => {
