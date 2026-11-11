@@ -49,7 +49,7 @@ async function appChoices(token: string | null, appId: string): Promise<ChoiceRo
 
 /**
  * portal#1963: the resolveAIConfig variables for a chat in an App, mirroring the server's order
- * (cor:dmo:050:10): this request's choice, else the chat's stored choice, else the App's chatbot config,
+ * (hrn:node:hadronmemory.com:specs:cor:dmo:050:10): this request's choice, else the chat's stored choice, else the App's chatbot config,
  * else the `default` walk.
  * - A config id is resolved by the name the server lists for it NOW, so a rename after page load can't run
  *   a stale name. Among same-named configs the App's own is the innermost owner, so the name walk lands on
