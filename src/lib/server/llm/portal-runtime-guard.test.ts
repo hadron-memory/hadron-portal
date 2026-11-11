@@ -106,6 +106,37 @@ describe('fetchAgentAIConfig refuses before handing out the key', () => {
     return fetchAgentAIConfig('tok', 'agent-1');
   }
 
+  it.each([
+    ['anthropic', 'https://api.anthropic.com/v1'],
+    ['openai', 'https://api.openai.com/v1'],
+    ['glm', 'https://api.z.ai/api/paas/v4'],
+    ['bedrock', null],
+  ])('withheld %s credentials never leave resolution', async (provider, effectiveEndpoint) => {
+    mockRequest.mockResolvedValue({ resolveAIConfig: {
+      provider, model: 'synthetic-model', apiKey: null, effectiveEndpoint,
+      params: { sentinel: 'synthetic-private-params' },
+    } });
+    const error = await fetchConfig().then(() => null, (e: unknown) => e as Error);
+    expect(error).toBeInstanceOf(Error);
+    expect(error!.message).toMatch(/credential.*not available/i);
+    expect(error!.message).not.toContain('synthetic-private-params');
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['anthropic', 'https://api.anthropic.com/v1'], ['openai', 'https://api.openai.com/v1'],
+    ['glm', 'https://api.z.ai/api/paas/v4'], ['bedrock', null],
+  ])('authorized %s credential remains usable unchanged', async (provider, effectiveEndpoint) => {
+    const apiKey = provider === 'bedrock' ? '{"accessKeyId":"synthetic","secretAccessKey":"synthetic","region":"us-east-1"}' : ' synthetic-key ';
+    mockRequest.mockResolvedValue({ resolveAIConfig: { provider, effectiveEndpoint, apiKey, model: 'synthetic-model' } });
+    await expect(fetchConfig()).resolves.toEqual({ provider, apiKey, model: 'synthetic-model' });
+  });
+
+  it.each([undefined, '', '   ', 42])('missing or malformed credentials fail closed (%s)', async (apiKey) => {
+    mockRequest.mockResolvedValue({ resolveAIConfig: { provider: 'openai', effectiveEndpoint: 'https://api.openai.com/v1', apiKey, model: 'synthetic' } });
+    await expect(fetchConfig()).rejects.toThrow(/credential.*not available/i);
+  });
+
   it('asks the server where the config goes', () => {
     expect(RESOLVE_AI_CONFIG_QUERY).toMatch(/\beffectiveEndpoint\b/);
   });

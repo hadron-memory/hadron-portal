@@ -5,6 +5,7 @@ import { extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/gql-error';
 export const CHAT_ERROR = {
   noConfig: t('agent-chat.error.no-config', 'Agent has no LLM provider configured. Set one in agent settings first.'),
   oldServer: t('agent-chat.error.old-server', "The Hadron server didn't recognize effectiveEndpoint, which portal chats need to check where an AI configuration sends requests, so the chat won't run. The server may be older than this portal."),
+  credentialUnavailable: t('agent-chat.error.credential-unavailable', 'The credentials for this AI configuration are not available to this portal session. Ask whoever manages the configuration for access, or use an available configuration.'),
   configUnsupported: t('agent-chat.error.config-unsupported', 'This AI configuration cannot run in portal chats. Check its provider and endpoint.'),
   llmFailed: t('agent-chat.error.llm-failed', 'The AI turn could not be completed. Check the provider configuration and try again.'),
   fixtureEndedWelcome: t('agent-chat.error.fixture-ended-welcome', 'Chat ended during the welcome turn before the fixture message was sent.'),
