@@ -111,6 +111,7 @@ describe('History tab paging (portal#1881)', () => {
     revisionCount = 100;
     const { target } = await mountPage('?tab=history');
     expect(target.textContent).not.toContain(NOTICE);
+    expect(target.querySelector('[data-testid="table-footer"]')).toBeNull();
     expect(target.querySelector<HTMLAnchorElement>('nav[aria-label="Revision pages"] a[rel="next"]')?.getAttribute('href')).toContain('revisionsOffset=20');
   });
 

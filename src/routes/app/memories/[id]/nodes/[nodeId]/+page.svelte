@@ -2146,6 +2146,7 @@
       return historyRows;
     },
     columns: revisionColumns,
+    manualPagination: true,
     enableMultiSort: false,
     enableColumnResizing: true,
     columnResizeMode: 'onChange',
@@ -4090,6 +4091,7 @@
           <DataTable
             table={revisionTable}
             listKey="node:history"
+            showFooter={false}
             searchPlaceholder={t('node.history.search', 'Search history…')}
             searchAriaLabel={t('node.history.search', 'Search history…')}
             bind:globalFilter={revisionFilter}
