@@ -16,7 +16,8 @@ try {
   browser = await chromium.launch({ headless: true });
   if (process.env.AI_CONFIG_MENU_SHOTS) await mkdir(process.env.AI_CONFIG_MENU_SHOTS, { recursive: true });
   // #1874: `mixed` puts config-02 between adjacent disabled rows and config-04, enabled, right after them.
-  const fixtures = [['disabled', [['config-02', false]]], ['enabled', [['config-02', true]]], ['mixed', [['config-02', false], ['config-04', true]]]];
+  const longName = 'x' + '_'.repeat(63);
+  const fixtures = [['disabled', [['config-02', false]]], ['enabled', [['config-02', true]]], ['mixed', [['config-02', false], ['config-04', true]]], ['long-name', [[longName, true]]]];
   for (const width of [390, 1280]) for (const dark of [false, true]) for (const [mode, targets] of fixtures) {
     const label = `${width}-${dark ? 'dark' : 'light'}-${mode}`;
     const page = await browser.newPage({ viewport: { width, height: 900 } });
@@ -41,7 +42,7 @@ try {
     }
     await page.evaluate(async mode => {
       const { mountAiConfigRows } = await import('/src/lib/test/fixtures/ai-config-row-menu-harness.ts');
-      mountAiConfigRows(document.getElementById('fixture'), mode);
+      mountAiConfigRows(document.getElementById('fixture'), mode === 'long-name' ? 'enabled' : mode, mode === 'long-name' ? 'x' + '_'.repeat(63) : undefined);
     }, mode);
     for (const [name, enabled] of targets) {
       const where = `${label}/${name}`;
@@ -87,7 +88,12 @@ try {
       }
       await trigger.click();
       await page.getByRole('menuitem', { name: 'Delete', exact: true }).click({ timeout: 2000 });
-      await row.getByText(`Delete the “${name}” configuration? This cannot be undone.`, { exact: true }).waitFor();
+      const question = row.getByText(`Delete the “${name}” configuration? This cannot be undone.`, { exact: true });
+      await question.waitFor();
+      const container = width === 390 ? page.getByTestId('data-table-scroller') : question.locator('xpath=ancestor::td');
+      const [viewport, text] = await Promise.all([container.boundingBox(), question.boundingBox()]);
+      assert(viewport && text && text.x >= viewport.x && text.x + text.width <= viewport.x + viewport.width, `${where}: full named confirmation fits inside its available column`);
+      assert(await question.evaluate(el => el.scrollWidth <= el.clientWidth + 1), `${where}: full name wraps without hidden text`);
       await row.getByRole('button', { name: 'Cancel', exact: true }).click();
       assert.equal(await row.getByText(`Delete the “${name}” configuration? This cannot be undone.`, { exact: true }).count(), 0, `${where}: Delete confirmation cancels`);
       console.log(`${where} PASS: Edit and Delete receive native pointer clicks; opacity on content only`);

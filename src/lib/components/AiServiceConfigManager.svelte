@@ -1194,7 +1194,7 @@
                    stays visible here, not only on the menu item's title,
                    which keyboard and touch users never see. Wraps, if narrow. -->
               <div class="flex flex-wrap items-center gap-1.5">
-                <span class="text-xs text-zinc-500">{s.confirmDelete(c.name)}</span>
+                <span class="min-w-0 [overflow-wrap:anywhere] text-xs text-zinc-500">{s.confirmDelete(c.name)}</span>
                 <button
                   type="button"
                   onclick={() => doDelete(c.id, c.name)}

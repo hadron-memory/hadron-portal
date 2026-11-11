@@ -8,9 +8,9 @@ export type AiConfigRowMode = 'enabled' | 'disabled' | 'mixed';
 export const mixedRowEnabled = (i: number) => !(i >= 1 && i <= 3) && i % 2 === 0;
 
 /** Synthetic rows; the real manager, grid and menu own all rendering/interaction. */
-export function mountAiConfigRows(target: HTMLElement, mode: AiConfigRowMode) {
+export function mountAiConfigRows(target: HTMLElement, mode: AiConfigRowMode, secondName?: string) {
   const configs: AiServiceConfig[] = Array.from({ length: 45 }, (_, i) => ({
-    id: `config-${i}`, name: `config-${String(i).padStart(2, '0')}`,
+    id: `config-${i}`, name: i === 2 && secondName ? secondName : `config-${String(i).padStart(2, '0')}`,
     ownerType: 'APP', ownerId: 'fixture-app', provider: 'anthropic', model: 'fixture-model',
     endpoint: null, effectiveEndpoint: 'https://example.invalid', apiStyle: null, effectiveApiStyle: null,
     hasApiKey: true, apiKeyPreview: '…test', params: null, enabled: mode === 'mixed' ? mixedRowEnabled(i) : mode === 'enabled',
