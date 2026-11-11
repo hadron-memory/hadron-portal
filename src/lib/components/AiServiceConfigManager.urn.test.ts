@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import { parse, type FragmentDefinitionNode } from 'graphql';
 import AiServiceConfigManager from './AiServiceConfigManager.svelte';
 import { managerCallbacks } from '$lib/test/ai-config-manager-callbacks';
 import { AI_SERVICE_CONFIG_FIELDS } from '$lib/server/queries';
@@ -41,7 +42,9 @@ describe('org AI configuration identifiers (#1907)', () => {
     expect(parseAiConfigList({ configs: [{ ...row, urn: { value: urn } }] })).toBeNull();
   });
   it('selects the field and retains its exact value through committed readback', () => {
-    expect(AI_SERVICE_CONFIG_FIELDS).toMatch(/\burn\b/);
+    const fragment = parse(AI_SERVICE_CONFIG_FIELDS).definitions.find(d => d.kind === 'FragmentDefinition') as FragmentDefinitionNode;
+    expect(fragment.typeCondition.name.value).toBe('AiServiceConfig');
+    expect(fragment.selectionSet.selections.some(s => s.kind === 'Field' && s.name.value === 'urn')).toBe(true);
     expect(parseAiConfigList({ configs: [{ ...row, urn }] })?.[0]).toHaveProperty('urn', urn);
     expect(parseAiConfigList({ configs: [{ ...row, urn: null }] })?.[0]).toHaveProperty('urn', null);
   });
