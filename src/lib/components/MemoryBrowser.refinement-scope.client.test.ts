@@ -12,7 +12,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import MemoryBrowser from './MemoryBrowser.svelte';
 
-const base = { memoryId: 'mem-1', seq: null, isRunnable: false, description: null, outgoingEdges: [], incomingEdges: [] };
+const base = { alias: null, abstract: null, content: null, tokens: null, data: null, ownerRepo: null, createdAt: '2026-11-11T00:00:00Z', updatedAt: '2026-11-11T00:00:00Z', memoryId: 'mem-1', seq: null, isRunnable: false, description: null, outgoingEdges: [], incomingEdges: [] };
 const ALPHA = { ...base, id: 'n1', loc: 'alpha', name: 'Alpha', nodeType: 'info', tags: ['keep'] };
 const BETA = { ...base, id: 'n2', loc: 'beta', name: 'Beta', nodeType: 'procedure', tags: [] };
 const COMMENT_HIT = {
@@ -31,7 +31,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.useFakeTimers();
   fetchMock = vi.fn(async (url: string, init: RequestInit) => {
-    if (url === '/api/nodes/columns') return new Response(JSON.stringify({ columns: [] }), { status: 200 });
+    if (url === '/api/nodes/columns') return new Response(JSON.stringify({ rows: [], unavailable: [], omitted: [] }), { status: 200 });
     if (url !== '/api/nodes/search') throw new Error(`Unexpected endpoint: ${url}`);
     const scope = JSON.parse(init.body as string).filter?.contentScope;
     const nodes = scope === 'COMMENTS' ? [COMMENT_HIT] : scope === 'ALL' ? [ALPHA, BETA, COMMENT_HIT] : [ALPHA, BETA];
