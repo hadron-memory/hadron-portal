@@ -1,13 +1,11 @@
 <script lang="ts">
   // #266: Info tab — read-only overview of the memory (owner, class, visibility,
-  // description, tags, integration status, dates) + stats. Edge count, last use,
+  // description, tags, dates) + stats. Edge count, last use,
   // and "agents/apps that include this memory" need new server queries and are
   // deferred (flagged below).
   import { formatPortalDate } from '$lib/format-portal-date';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
-  import SyncReportDetail from '$lib/components/SyncReportDetail.svelte';
-  import SyncErrorDetail from '$lib/components/SyncErrorDetail.svelte';
   import Urn from '$lib/components/Urn.svelte';
 
   let { data }: { data: PageData } = $props();
@@ -107,31 +105,6 @@
         <span class={rowLabel}>{t('memory-info.updated', 'Updated')}</span>
         <span class={rowValue}>{formatPortalDate(g.updatedAt)}</span>
       </div>
-    </div>
-  </section>
-
-  <!-- Integration status -->
-  <section>
-    <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">{t('memory-info.integration', 'Integration')}</h2>
-    <div class={card}>
-      <div class="flex items-center justify-between px-5 py-3">
-        <span class={rowLabel}>{t('memory-info.github', 'GitHub')}</span>
-        <span class={rowValue}>{g.source ? t('memory-info.connected', 'Connected') : t('memory-info.not-connected', 'Not connected')}</span>
-      </div>
-      {#if g.source}
-        <div class="flex items-center justify-between px-5 py-3">
-          <span class={rowLabel}>{t('memory-info.repository', 'Repository')}</span>
-          <span class="font-mono text-xs text-zinc-900 dark:text-white">{g.source}</span>
-        </div>
-        <div class="flex items-center justify-between px-5 py-3">
-          <span class={rowLabel}>{t('memory-info.sync-status', 'Sync status')}</span>
-          <span class={rowValue}>{g.syncStatus ?? '—'}{#if g.lastSyncedAt} &middot; {formatPortalDate(g.lastSyncedAt)}{/if}</span>
-        </div>
-      <SyncReportDetail lastSyncReport={g.lastSyncReport} syncStatus={g.syncStatus} lastSyncedAt={g.lastSyncedAt} listKey="memories:info:sync-outcomes" />
-        {#if g.syncStatus === 'ERROR'}
-          <SyncErrorDetail syncError={g.syncError} />
-        {/if}
-      {/if}
     </div>
   </section>
 
