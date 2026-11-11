@@ -1,3 +1,4 @@
+import { managerCallbacks } from '$lib/test/ai-config-manager';
 /**
  * #1020 — an AI config row's Edit and Delete live in the shared ⋯ menu.
  *
@@ -38,7 +39,7 @@ const CONFIG = {
 
 function body() {
   return render(AiServiceConfigManager, {
-    props: { ownerType: 'ORGANIZATION', ownerId: 'org-1', currentUserId: 'u1', configs: [CONFIG], canManage: true },
+    props: { ...managerCallbacks(), ownerType: 'ORGANIZATION', ownerId: 'org-1', currentUserId: 'u1', configs: [CONFIG], canManage: true },
   }).body;
 }
 

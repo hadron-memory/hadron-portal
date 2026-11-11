@@ -33,8 +33,8 @@ function stubNarrow(initial: boolean) {
   };
 }
 
-function mount(fitOnPhone: boolean, multiColumn = false) {
-  const m = mountComponent(Harness, { fitOnPhone, multiColumn });
+function mount(fitOnPhone: boolean, multiColumn = false, stickyEndColumn?: string) {
+  const m = mountComponent(Harness, { fitOnPhone, multiColumn, stickyEndColumn });
   mounted.push(m);
   flushSync();
   return {
@@ -87,4 +87,19 @@ describe('DataTable fitOnPhone', () => {
     expect(table.style.width).toBe('100%');
     expect(header.style.width).toBe('100%');
   });
+  it('bounds a restored end-action width on phones, preserves desktop sizing, and cleans up', () => {
+    const media = stubNarrow(true);
+    const { m, table } = mount(false, true, 'second');
+    const header = m.target.querySelectorAll<HTMLElement>('th')[1];
+    expect(header.style.width).toBe('170px');
+    expect(table.style.width).toBe('max(100%, 1770px)');
+    expect(header.querySelector('[role="separator"]')).toBeNull();
+    media.set(false);
+    expect(header.style.width).toBe('400px');
+    expect(table.style.width).toBe('max(100%, 2000px)');
+    expect(header.querySelector('[role="separator"]')).not.toBeNull();
+    m.unmount();
+    expect(media.listeners.size).toBe(0);
+  });
+
 });

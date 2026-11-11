@@ -1,3 +1,4 @@
+import { managerCallbacks } from '$lib/test/ai-config-manager';
 import { mount } from 'svelte';
 import AiServiceConfigManager from '$lib/components/AiServiceConfigManager.svelte';
 import type { AiServiceConfig } from '$lib/types';
@@ -15,5 +16,5 @@ export function mountAiConfigRows(target: HTMLElement, mode: AiConfigRowMode) {
     hasApiKey: true, apiKeyPreview: '…test', params: null, enabled: mode === 'mixed' ? mixedRowEnabled(i) : mode === 'enabled',
     createdAt: '2026-11-01T00:00:00Z', updatedAt: null,
   }));
-  return mount(AiServiceConfigManager, { target, props: { ownerType: 'APP', ownerId: 'fixture-app', currentUserId: 'fixture-user', configs, canManage: true } });
+  return mount(AiServiceConfigManager, { target, props: { ...managerCallbacks(), ownerType: 'APP', ownerId: 'fixture-app', currentUserId: 'fixture-user', configs, canManage: true } });
 }

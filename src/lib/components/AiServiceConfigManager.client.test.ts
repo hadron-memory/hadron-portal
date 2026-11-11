@@ -1,3 +1,4 @@
+import { managerCallbacks } from '$lib/test/ai-config-manager';
 /**
  * #937 follow-up (server#1373 / #1389 / #1390): the endpoint, protocol and
  * tool-calling fields, mounted. What's pinned is what the form SENDS, since
@@ -50,7 +51,7 @@ function config(over: Partial<AiServiceConfig> = {}): AiServiceConfig {
 
 async function open(props: { ownerType?: string; configs?: AiServiceConfig[] } = {}) {
   const m = mountComponent(AiServiceConfigManager as never, {
-    ownerType: props.ownerType ?? 'ORGANIZATION', ownerId: 'o1', currentUserId: 'u1', configs: props.configs ?? [], canManage: true, allowTest: true,
+    ...managerCallbacks(), ownerType: props.ownerType ?? 'ORGANIZATION', ownerId: 'o1', currentUserId: 'u1', configs: props.configs ?? [], canManage: true, allowTest: true,
   } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick();
@@ -96,7 +97,7 @@ function set(el: HTMLInputElement | HTMLSelectElement, value: string) {
   el.dispatchEvent(new Event(el instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
   flushSync();
 }
-// fetch → json → then, then invalidateAll: a few microtask hops each.
+// fetch → json → then, then the host callback: a few microtask hops each.
 async function settle() {
   await tick(10);
   flushSync();
@@ -205,7 +206,7 @@ describe('a saved glm config', () => {
     await settle();
     button(root, 'Save').click();
     await settle();
-    await tick(60); // the committed update now retains pending until invalidateAll resolves
+    await tick(60); // the committed update now retains pending until the host callback resolves
     flushSync();
     expect('endpoint' in posts.find((p) => p.action === 'update')!).toBe(false);
 
@@ -424,7 +425,7 @@ describe('AI config Delete confirm (#1020 review P2)', () => {
   it('arms an inline confirm whose "cannot be undone" question is visible, posting nothing yet', async () => {
     const root = await open({ configs: [config()] });
     menuDelete(root);
-    expect(root.textContent).toContain(aiConfigStrings.confirmQuestion());
+    expect(root.textContent).toContain(aiConfigStrings.confirmDelete('default'));
     expect(posts.filter((p) => p.action === 'delete')).toHaveLength(0);
     // The confirm's own Delete is what posts, for the armed config.
     button(root, 'Delete').click();

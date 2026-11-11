@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy } from 'svelte';
   import { testResultView, type AiConfigTestResult, type AiConfigTestView } from '$lib/ai-config-test';
   import { lookupOwn } from '$lib/lookup';
-  import { beforeNavigate, invalidateAll } from '$app/navigation';
+  import { beforeNavigate } from '$app/navigation';
   import { AI_CONFIG_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
   import type { AiConfigOwnerType, AiConfigProvider, AiServiceConfig } from '$lib/types';
   import { aiConfigStrings as s } from '$lib/i18n/ai-config-strings';
@@ -15,8 +15,8 @@
   import type { ListPageNavigation } from '$lib/list-page';
   import NodeActionsMenu from './NodeActionsMenu.svelte';
   import Urn from './Urn.svelte';
-  import { aiConfigReloadHref, parseAiConfig, withAiConfigTimeout } from './ai-config-readback';
-  import { getAiConfigRecoveryStore, nextAiConfigMutationId, nextAiConfigRecoveryId } from './ai-config-recovery';
+  import { parseAiConfig, withAiConfigTimeout } from './ai-config-readback';
+  import { nextAiConfigMutationId } from './ai-config-recovery';
   import {
     isValidConfigName,
     resolveKeyInput,
@@ -47,63 +47,10 @@
     allowTest = false,
     mutationUncertain = false,
     mutationPending = false,
-    onMutationPending = standaloneMutationPending,
-    onAction = standaloneAction,
-    // Standalone use predates the Section wrapper: keep its original refresh,
-    // including the rejection path that used to reach the mutation catch.
-    onCommitted = async (outcome) => {
-      const scope = outcome.recoveryScope ?? standaloneScope;
-      const recovery = recoveryFor(scope);
-      if (outcome.uncertainText) recovery.setUncertainty(outcome.ownerKey, outcome.uncertainText);
-      if (outcome.ownerKey !== `${ownerType}:${ownerId}` || scope !== standaloneScope || destroyed) {
-        recovery.defer(outcome);
-        return;
-      }
-      recovery.discardDeferred(outcome);
-      if (!outcome.uncertainText && outcome.noticeGeneration === standaloneNoticeGeneration) {
-        showStandaloneNotice(outcome.successText);
-      }
-      const mine = ++standaloneRefreshGeneration;
-      activeStandalone.set(standaloneActiveKey(scope, outcome.ownerKey), { outcome, generation: mine, recoveryScope: scope });
-      let failed = false;
-      try {
-        await withAiConfigTimeout(
-          () => invalidateAll(),
-          () => { throw new Error('AI configuration refresh timed out'); },
-        );
-      } catch {
-        failed = true;
-      }
-      if (destroyed || outcome.ownerKey !== `${ownerType}:${ownerId}` || scope !== standaloneScope || mine !== standaloneRefreshGeneration) {
-        const key = standaloneActiveKey(scope, outcome.ownerKey);
-        const active = activeStandalone.get(key);
-        // Owner/principal teardown already defers the active outcome. Re-deferring
-        // it here would resurrect work after a newer replay has succeeded.
-        if (active?.outcome === outcome && active.generation === mine) {
-          activeStandalone.delete(key);
-          recovery.defer(outcome);
-        }
-        return;
-      }
-      if (!outcome.uncertainText) {
-        recovery.setRefreshWarning(outcome.ownerKey, failed ? outcome.refreshFailedText : null);
-      }
-      finishStandaloneActive(outcome, mine);
-    },
-    onUncertain = (outcome) => {
-      const scope = outcome.recoveryScope ?? standaloneScope;
-      recoveryFor(scope).setUncertainty(outcome.ownerKey, outcome.text);
-      if (!outcome.reconcileOnly && outcome.ownerKey === `${ownerType}:${ownerId}` && scope === standaloneScope && !destroyed) return;
-      return onCommitted({
-        ownerKey: outcome.ownerKey,
-        mutationId: outcome.mutationId,
-        noticeGeneration: -1,
-        successText: '',
-        refreshFailedText: '',
-        uncertainText: outcome.text,
-        recoveryScope: scope,
-      });
-    },
+    onMutationPending,
+    onAction,
+    onCommitted,
+    onUncertain,
   }: {
     pagination?: ListPageNavigation;
     ownerType: AiConfigOwnerType;
@@ -112,7 +59,7 @@
     ownerLabel?: string | null;
     /** The same already-authorized owner's URN; null omits the chip. */
     ownerUrn?: string | null;
-    /** Principal scope for standalone recovery; required so no two users share one scope. Section also keys remounts by it. */
+    /** Section keys Manager remounts by this principal; action tokens fence it too. */
     currentUserId: string;
     configs: AiServiceConfig[];
     canManage?: boolean;
@@ -121,10 +68,10 @@
     mutationUncertain?: boolean;
     /** Section-owned in-flight lock survives manager teardown/remount. */
     mutationPending?: boolean;
-    onMutationPending?: (outcome: AiConfigMutationPending) => void;
-    onAction?: () => number;
-    onCommitted?: (outcome: AiConfigCommitted) => void | Promise<void>;
-    onUncertain?: (outcome: AiConfigUncertain) => void | Promise<void>;
+    onMutationPending: (outcome: AiConfigMutationPending) => void;
+    onAction: () => number;
+    onCommitted: (outcome: AiConfigCommitted) => void | Promise<void>;
+    onUncertain: (outcome: AiConfigUncertain) => void | Promise<void>;
   } = $props();
 
   const WELL_KNOWN = ['default', 'fast', 'frontier'];
@@ -161,30 +108,8 @@
   let knownEndpoints = $state<KnownEndpoint[]>([]);
   let busy = $state(false);
   let uncertainMutation = $state(false);
-  let standaloneWarning = $state<string | null>(null);
-  let standaloneRefreshWarning = $state<string | null>(null);
-  let standaloneNotice = $state<string | null>(null);
-  let standaloneNoticeGeneration = 0;
-  let standaloneNoticeTimer: ReturnType<typeof setTimeout> | null = null;
-  let standaloneRefreshGeneration = 0;
-  let hadStandaloneScope = false;
-  const standaloneScope = $derived(`standalone:${currentUserId}`);
-  const sharesStandaloneRecovery = $derived(onMutationPending === standaloneMutationPending);
-  const activeStandalone = new Map<string, { outcome: AiConfigCommitted; generation: number; recoveryScope: string }>();
-  let syncingStandaloneRecovery = false;
-
-  function recoveryFor(scope = standaloneScope) {
-    return getAiConfigRecoveryStore(scope);
-  }
-
-  function standaloneActiveKey(scope: string, key: string) {
-    return `${scope}\n${key}`;
-  }
-
-  function standaloneMutationPending(outcome: AiConfigMutationPending) {
-    recoveryFor(outcome.recoveryScope).setPending(outcome);
-  }
-  const mutationLocked = $derived(uncertainMutation || mutationUncertain || standaloneRefreshWarning !== null);
+  // Section owns persistent recovery, notices and replay locks.
+  const mutationLocked = $derived(uncertainMutation || mutationUncertain);
   let error = $state<string | null>(null);
   // #937: one shape for both paths, so the result always reads the same way.
   let testResult = $state<AiConfigTestView | null>(null);
@@ -206,8 +131,7 @@
     ownerType: AiConfigOwnerType;
     ownerId: string;
     ownerGeneration: number;
-    recoveryScope: string;
-    standaloneRecovery: boolean;
+    principalId: string;
     onCommitted: (outcome: AiConfigCommitted) => void | Promise<void>;
     onUncertain: (outcome: AiConfigUncertain) => void | Promise<void>;
     formFingerprint: string;
@@ -216,32 +140,14 @@
   type PendingMutation = {
     id: number;
     ownerKey: string;
-    recoveryScope: string;
-    standaloneRecovery: boolean;
+    principalId: string;
     notify: (outcome: AiConfigMutationPending) => void;
   };
   let pendingMutations = $state<PendingMutation[]>([]);
   const localMutationPending = $derived(
-    pendingMutations.some((mutation) => mutation.ownerKey === ownerKey && mutation.recoveryScope === standaloneScope),
+    pendingMutations.some((mutation) => mutation.ownerKey === ownerKey && mutation.principalId === currentUserId),
   );
   const mutationBlocked = $derived(localMutationPending || mutationPending);
-
-  function standaloneAction(): number {
-    standaloneNoticeGeneration++;
-    if (standaloneNoticeTimer !== null) clearTimeout(standaloneNoticeTimer);
-    standaloneNoticeTimer = null;
-    standaloneNotice = null;
-    return standaloneNoticeGeneration;
-  }
-
-  function showStandaloneNotice(text: string) {
-    if (standaloneNoticeTimer !== null) clearTimeout(standaloneNoticeTimer);
-    standaloneNotice = text;
-    standaloneNoticeTimer = setTimeout(() => {
-      standaloneNotice = null;
-      standaloneNoticeTimer = null;
-    }, 6000);
-  }
 
   function clearNotice(): number {
     return onAction();
@@ -269,8 +175,7 @@
       ownerType: ownerAtVisit!.ownerType,
       ownerId: ownerAtVisit!.ownerId,
       ownerGeneration,
-      recoveryScope: standaloneScope,
-      standaloneRecovery: sharesStandaloneRecovery,
+      principalId: currentUserId,
       onCommitted,
       onUncertain,
       formFingerprint: formFingerprint(),
@@ -284,7 +189,7 @@
       action.ownerKey === ownerKey &&
       action.ownerKey === `${ownerType}:${ownerId}` &&
       action.ownerGeneration === ownerGeneration &&
-      action.recoveryScope === standaloneScope
+      action.principalId === currentUserId
     );
   }
 
@@ -300,15 +205,13 @@
     pendingMutations = [...pendingMutations, {
       id,
       ownerKey: action.ownerKey,
-      recoveryScope: action.recoveryScope,
-      standaloneRecovery: action.standaloneRecovery,
+      principalId: action.principalId,
       notify,
     }];
     notify({
       ownerKey: action.ownerKey,
       mutationId: id,
       pending: true,
-      recoveryScope: action.recoveryScope,
     });
     return id;
   }
@@ -322,7 +225,6 @@
       ownerKey: finished.ownerKey,
       mutationId: id,
       pending: false,
-      ...(finished.standaloneRecovery ? { recoveryScope: finished.recoveryScope } : {}),
     });
   }
 
@@ -333,98 +235,6 @@
     error = null;
     testResult = null;
   }
-
-  function finishStandaloneActive(outcome: AiConfigCommitted, generation: number) {
-    const scope = outcome.recoveryScope ?? standaloneScope;
-    const key = standaloneActiveKey(scope, outcome.ownerKey);
-    const active = activeStandalone.get(key);
-    if (active?.outcome === outcome && active.generation === generation) {
-      activeStandalone.delete(key);
-    }
-  }
-
-  function scheduleStandaloneRecovery(ownerKey: string, recover: () => void | Promise<void>) {
-    const scope = standaloneScope;
-    const recovery = recoveryFor(scope);
-    const recoveryId = nextAiConfigRecoveryId();
-    recovery.setPending({ ownerKey, mutationId: recoveryId, pending: true, recoveryScope: scope });
-    pendingMutations = [
-      ...pendingMutations.filter((mutation) => mutation.recoveryScope !== scope || !mutation.standaloneRecovery),
-      ...recovery.pending().map(({ mutationId, ownerKey: key }) => ({ id: mutationId, ownerKey: key, recoveryScope: scope, standaloneRecovery: true, notify: standaloneMutationPending })),
-    ];
-    queueMicrotask(async () => {
-      try {
-        await recover();
-      } finally {
-        recovery.setPending({ ownerKey, mutationId: recoveryId, pending: false, recoveryScope: scope });
-      }
-    });
-  }
-
-  function syncStandaloneRecovery() {
-    if (destroyed || syncingStandaloneRecovery || !sharesStandaloneRecovery) return;
-    syncingStandaloneRecovery = true;
-    try {
-      const scope = standaloneScope;
-      const recovery = recoveryFor(scope);
-      const recoveryOwnerKey = `${ownerType}:${ownerId}`;
-      pendingMutations = [
-        ...pendingMutations.filter((mutation) => mutation.recoveryScope !== scope || !mutation.standaloneRecovery),
-        ...recovery.pending().map(({ mutationId, ownerKey: key }) => ({ id: mutationId, ownerKey: key, recoveryScope: scope, standaloneRecovery: true, notify: standaloneMutationPending })),
-      ];
-      standaloneWarning = recovery.uncertainty(recoveryOwnerKey);
-      uncertainMutation = standaloneWarning !== null;
-      standaloneRefreshWarning = recovery.refreshWarning(recoveryOwnerKey);
-      const deferred = recovery.takeDeferred(recoveryOwnerKey);
-      if (deferred) {
-        // Preserve object identity: the store's WeakMap orders outcomes by it.
-        deferred.recoveryScope ??= scope;
-        scheduleStandaloneRecovery(recoveryOwnerKey, () => onCommitted(deferred));
-      }
-    } finally {
-      syncingStandaloneRecovery = false;
-    }
-  }
-
-  // Effects never run during SSR, so a server render neither creates nor
-  // subscribes a module-global recovery store. A principal switch unsubscribes
-  // the old scope and fences its in-flight readback before syncing the new one.
-  $effect(() => {
-    const scopeChanged = hadStandaloneScope;
-    hadStandaloneScope = true;
-    if (!sharesStandaloneRecovery) {
-      untrack(() => {
-        uncertainMutation = false;
-        standaloneWarning = null;
-        standaloneRefreshWarning = null;
-      });
-      return;
-    }
-    const scope = standaloneScope;
-    const recovery = recoveryFor(scope);
-    ownerGeneration++;
-    actionGeneration++;
-    actionController?.abort();
-    if (scopeChanged) untrack(clearNotice);
-    resetEditor();
-    configFilter = '';
-    confirmDeleteId = null;
-    busy = false;
-    const stop = untrack(() => {
-      const unsubscribe = recovery.subscribe(syncStandaloneRecovery);
-      syncStandaloneRecovery();
-      return unsubscribe;
-    });
-    return () => {
-      standaloneRefreshGeneration++;
-      for (const [key, active] of activeStandalone) {
-        if (active.recoveryScope !== scope) continue;
-        recovery.defer(active.outcome);
-        activeStandalone.delete(key);
-      }
-      stop();
-    };
-  });
 
   // Track the scalar owner identity, not a refreshed configs/loader object.
   // Same-owner invalidation must preserve a pending draft and its outcome.
@@ -441,28 +251,12 @@
     resetEditor();
     configFilter = '';
     confirmDeleteId = null;
-    if (!sharesStandaloneRecovery) {
-      uncertainMutation = false;
-      standaloneWarning = null;
-      standaloneRefreshWarning = null;
-    }
-    standaloneRefreshGeneration++;
+    uncertainMutation = false;
     busy = false;
-    const activeKey = standaloneActiveKey(standaloneScope, previousOwnerKey);
-    const active = activeStandalone.get(activeKey);
-    if (active) {
-      activeStandalone.delete(activeKey);
-      recoveryFor(active.recoveryScope).defer(active.outcome);
-    }
-    syncStandaloneRecovery();
   });
 
   onDestroy(() => {
     destroyed = true;
-    if (standaloneNoticeTimer !== null) clearTimeout(standaloneNoticeTimer);
-    standaloneNoticeTimer = null;
-    for (const active of activeStandalone.values()) recoveryFor(active.recoveryScope).defer(active.outcome);
-    activeStandalone.clear();
     actionGeneration++;
     actionController?.abort();
   });
@@ -791,7 +585,6 @@
         ownerKey: action.ownerKey,
         mutationId,
         text,
-        recoveryScope: action.recoveryScope,
       });
     }
     // A → B → A must not publish the old visit into the new editor, but the
@@ -802,7 +595,6 @@
       mutationId,
       text,
       reconcileOnly: true,
-      recoveryScope: action.recoveryScope,
     });
   }
 
@@ -814,7 +606,6 @@
       noticeGeneration: isOwnerVisitCurrent(action) ? action.noticeGeneration : -1,
       successText,
       refreshFailedText,
-      recoveryScope: action.recoveryScope,
     });
   }
 
@@ -1072,29 +863,6 @@
 
 <section>
   <div data-testid="ai-config-manager-feedback" role="status" aria-live="polite" aria-atomic="true">
-    {#if standaloneWarning}
-      <div
-        class="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
-      >
-        {standaloneWarning}
-        <a href={aiConfigReloadHref()} data-sveltekit-reload class="ml-1 underline">{s.reloadPage()}</a>
-      </div>
-    {/if}
-    {#if standaloneRefreshWarning}
-      <div
-        class="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
-      >
-        {standaloneRefreshWarning}
-        <a href={aiConfigReloadHref()} data-sveltekit-reload class="ml-1 underline">{s.reloadPage()}</a>
-      </div>
-    {/if}
-    {#if standaloneNotice}
-      <div
-        class="mb-3 rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300"
-      >
-        {standaloneNotice}
-      </div>
-    {/if}
     {#if mutationBlocked && !mutationLocked}
       <p data-testid="ai-config-recovery-pending" class="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
         {s.recoveryPending()}
@@ -1395,6 +1163,7 @@
       table={configTable}
       showFooter={!pagination}
       listKey="ai-configs"
+      stickyEndColumn="actions"
       searchPlaceholder={pagination ? t('ai-config.search.page', 'Search configs on this page…') : t('ai-config.search.placeholder', 'Search configs...')}
       searchAriaLabel={pagination ? t('ai-config.search.page.aria', 'Search AI provider configs on this page') : t('ai-config.search.aria-label', 'Search AI provider configs')}
       bind:globalFilter={configFilter}
@@ -1425,7 +1194,7 @@
                    stays visible here, not only on the menu item's title,
                    which keyboard and touch users never see. Wraps, if narrow. -->
               <div class="flex flex-wrap items-center gap-1.5">
-                <span class="text-xs text-zinc-500">{s.confirmQuestion()}</span>
+                <span class="text-xs text-zinc-500">{s.confirmDelete(c.name)}</span>
                 <button
                   type="button"
                   onclick={() => doDelete(c.id, c.name)}
