@@ -468,9 +468,7 @@ describe('a late save response must not replace the replacement editor’s basel
       }
       const reply = body.action === 'endpoints'
         ? { endpoints: body.provider === 'glm' ? GLM_ENDPOINTS : [] }
-        : body.action === 'test'
-          ? { ok: true, provider: 'anthropic', model: 'm', reply: 'hi' }
-          : { ok: true };
+        : { ok: true };
       return { ok: true, json: async () => reply } as Response;
     }));
     return { release, delivered: deliveredRow };
@@ -480,11 +478,11 @@ describe('a late save response must not replace the replacement editor’s basel
    * JSON is consumed, so this cannot pass before the response has landed; the
    * remaining save() continuation is a bounded microtask chain (post →
    * seedBaseline → onSuccess → finishMutation), drained by the trailing ticks —
-   * not a guess at when the response might arrive. A dropped write must also
-   * surface nothing: the feedback element must EXIST (or the emptiness claim
-   * would pass vacuously) and be empty.
+   * not a guess at when the response might arrive. Whether the write was
+   * dropped or applied, it surfaces no error: the feedback element must EXIST
+   * (or the emptiness claim would pass vacuously) and be empty.
    */
-  async function settleDroppedWrite(delivered: Promise<void>, target: HTMLElement) {
+  async function settleAfterDelivery(delivered: Promise<void>, target: HTMLElement) {
     await delivered;
     await tick(30);
     const feedback = $(target, '[data-testid="ai-config-error-feedback"]');
@@ -514,7 +512,7 @@ describe('a late save response must not replace the replacement editor’s basel
     await settle();
 
     release({ ...row, endpoint: 'https://stale.example/v1' }); // the old save’s late response
-    await settleDroppedWrite(delivered, m.target);
+    await settleAfterDelivery(delivered, m.target);
 
     button(m.target, 'Save').click(); // fields unchanged since the reopen
     await settle();
@@ -556,7 +554,7 @@ describe('a late save response must not replace the replacement editor’s basel
     await settle();
 
     release(config({ id: 'c9', name: 'made', endpoint: 'https://made.example/v1' })); // the create’s late response
-    await settleDroppedWrite(delivered, m.target);
+    await settleAfterDelivery(delivered, m.target);
 
     button(m.target, 'Save').click(); // fields unchanged since the reopen
     await settle();
@@ -584,7 +582,7 @@ describe('a late save response must not replace the replacement editor’s basel
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://edited.example/v1'); // newer edit mid-flight
 
     release(config({ id: 'c9', name: 'made', endpoint: 'https://made.example/v1' }));
-    await settleDroppedWrite(delivered, m.target);
+    await settleAfterDelivery(delivered, m.target);
     // The draft was preserved (fingerprint differs), so the editor stays open —
     // as an UPDATE of the new row, which only createdId can make it.
     expect($(m.target, '#ac-endpoint')).not.toBe(null);
@@ -630,7 +628,15 @@ describe('a late save response must not replace the replacement editor’s basel
     expect(posts.find((p) => p.action === 'update')).toMatchObject({ id: 'c9', endpoint: 'https://edited.example/v1' });
   });
 
-  it('a cancelled editor’s late response is dropped, and the row reopens cleanly in the same visit', async () => {
+  // #1984: a BEHAVIOUR pin, not the session fence's discriminating pin. The
+  // pending lock keeps the row unopenable until the response lands, and
+  // openEdit re-seeds from the list row, so a stale response that set
+  // savedConfig is masked in the DOM either way: this test stays green with
+  // every endEditorSession() call removed. The fence is discriminated by
+  // AiServiceConfigManager.feedback.client.test.ts 'keeps Cancel → reopen →
+  // Save from overlapping a pending mutation' (held create → Cancel → Add →
+  // Save stays disabled), which fails without them.
+  it('a cancelled editor’s row reopens cleanly with no spurious diff', async () => {
     const { release, delivered } = holdWrites('update');
     const row = config({ endpoint: 'https://fresh.example/v1' });
     const m = openReactive({ configs: [row] });
@@ -641,15 +647,15 @@ describe('a late save response must not replace the replacement editor’s basel
     button(m.target, 'Save').click();
     await settle(); // the update is in flight, held
 
-    // Cancel ends the editor SESSION; the visit is unchanged. The pending
-    // mutation keeps the row unopenable until it settles, so the reopen can
-    // only happen after the response landed — dropped, session dead.
+    // Cancel closes the editor; the visit is unchanged. The pending mutation
+    // keeps the row unopenable until it settles, so the reopen can only happen
+    // after the response landed.
     button(m.target, 'Cancel').click();
     await settle();
     expect($(m.target, '#ac-endpoint')).toBe(null);
 
     release({ ...row, endpoint: 'https://stale.example/v1' });
-    await settleDroppedWrite(delivered, m.target);
+    await settleAfterDelivery(delivered, m.target);
 
     editRow(m.target); // a new session, seeded from the list row
     await settle();
