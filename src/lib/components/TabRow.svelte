@@ -28,8 +28,16 @@
   onDestroy(() => { alive = false; });
   const escape = { close: () => close(true) };
   const base = 'pointer-coarse:min-h-11 shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-indigo-500 focus-visible:outline-offset-[-2px]';
+  // A selected label wider than the whole column cannot shrink or sit on a second
+  // line of the row; let its own text wrap (still whole and readable) so neither
+  // the row nor the page grows past the column (#1895).
+  const oversizeSelection = $derived(available !== null && available > 0 &&
+    (widths[items.findIndex(item => item.id === active)] ?? 0) > available);
   function style(id: string) {
-    return `${base} ${id === active ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}`;
+    const fit = id === active && oversizeSelection
+      ? base.replace('shrink-0 whitespace-nowrap', 'min-w-0 max-w-full whitespace-normal break-words text-left')
+      : base;
+    return `${fit} ${id === active ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}`;
   }
   function measureRow() {
     if (!alive || !root || !measure) return;

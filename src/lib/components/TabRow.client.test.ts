@@ -107,4 +107,18 @@ describe('bounded tab row', () => {
     expect(document.activeElement).toBe(more);
   });
 
+  it.each(['tabs', 'links'] as const)('%s: a selected label wider than the whole column wraps its own text; ordinary selections stay unwrapped (#1895)', async mode => {
+    // Measured label width is 100 in this mock; a 90px column is narrower than it.
+    const wide = setup(mode, 'one', 90); await tick(4);
+    const selected = wide.target.querySelector<HTMLElement>('[aria-selected=true], [aria-current=page]')!;
+    expect(selected.className).toContain('whitespace-normal');
+    expect(selected.className).toContain('max-w-full');
+    expect(selected.className).not.toContain('shrink-0');
+    expect(selected.textContent).toBe('one');
+    wide.unmount();
+    const fits = setup(mode, 'one', 280); await tick(4);
+    const ordinary = fits.target.querySelector<HTMLElement>('[aria-selected=true], [aria-current=page]')!;
+    expect(ordinary.className).toContain('whitespace-nowrap');
+    expect(ordinary.className).toContain('shrink-0');
+  });
 });
