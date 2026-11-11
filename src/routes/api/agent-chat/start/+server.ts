@@ -3,7 +3,8 @@ import { classifyGqlError, extractGqlError, gqlErrorTextForBranching } from '$li
 import { START_CHAT_MUTATION } from '$lib/server/queries';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
 import { llmModelVariable, resolveChatAi } from '$lib/server/llm/chatAi.js';
-import { bootPromptRefusalCode, publicChatError } from '$lib/server/llm/chatError.js';
+import { aiConfigChoiceVariable, readAiConfigChoice } from '$lib/server/llm/aiConfigChoice.js';
+import { bootPromptRefusalCode, configChoiceRefusalCode, publicChatError } from '$lib/server/llm/chatError.js';
 import { t } from '$lib/i18n/t';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
 import type { RequestHandler } from './$types';
@@ -24,7 +25,7 @@ function getGqlErrorCode(e: unknown): string | null {
 
 /**
  * POST /api/agent-chat/start
- * Body: { agentId: string, conversationName?: string, scope?: 'private' | 'shared' }
+ * Body: { agentId: string, conversationName?: string, scope?: 'private' | 'shared', appId?, configName?, aiConfigChoice? }
  *
  * Spec 017: scope defaults to 'private' (FR-003). A 'shared' request requires
  * a resolvable App context server-side; if none, the server throws
@@ -51,6 +52,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     scope?: 'private' | 'shared';
     appId?: string;
     configName?: string;
+    aiConfigChoice?: unknown;
   };
   try {
     body = await request.json();
@@ -62,6 +64,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
   if (!body.agentId) {
     return new Response(JSON.stringify({ error: 'agentId is required' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // portal#1963: a malformed choice is refused before anything is written.
+  const choice = readAiConfigChoice(body.aiConfigChoice);
+  if (!choice.ok) {
+    return new Response(JSON.stringify({ error: 'aiConfigChoice must be a config id or "default"' }), {
       status: 400,
       headers: { 'Content-Type': 'application/json' },
     });
@@ -85,7 +96,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   //    turns of this request) will actually call. Never throws: with no usable
   //    config the chat still starts, `llmModel` is omitted, and the welcome
   //    turn fails exactly as it always did (as a soft `welcomeError`).
-  const ai = await resolveChatAi(locals.token, body.agentId, { appId: body.appId, configName: body.configName });
+  const ai = await resolveChatAi(locals.token, body.agentId, { appId: body.appId, configName: body.configName, aiConfigChoice: choice.value });
 
   // 1. Create the chat in Hadron — provisions the user memory and
   //    returns the compiled first-stage prompt + tool schema.
@@ -108,6 +119,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       conversationName: body.conversationName ?? null,
       scope,
       ...llmModelVariable(ai),
+      ...aiConfigChoiceVariable(choice.value),
     });
     chatId = startResult.startChat.chatId;
     systemMessage = startResult.startChat.systemMessage;
@@ -127,7 +139,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     const code = getGqlErrorCode(e);
     // portal#1665: a refused boot prompt is a fixed message keyed on the code alone; the server's
     // message, agentName and surface are never copied. No retry and no lookup for the reader.
-    if (bootPromptRefusalCode(e)) {
+    // portal#1963: a refused AI config choice is one fixed message too; the id is never echoed.
+    if (bootPromptRefusalCode(e) || configChoiceRefusalCode(e)) {
       const safe = publicChatError(e);
       return new Response(JSON.stringify({ error: safe.message, code: safe.code }), {
         status: safe.status,

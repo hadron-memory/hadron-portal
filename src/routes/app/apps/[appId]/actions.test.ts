@@ -6,6 +6,7 @@ import { APP_KEY_IMPERSONATION_READ_ONLY, APP_KEY_MANAGERS_ONLY } from '$lib/ser
 import { AGENT_TOOLS_IMPERSONATION_READ_ONLY, AGENT_TOOLS_MANAGERS_ONLY } from './agent-tools-refusal';
 import {
   AI_SERVICE_CONFIGS_QUERY,
+  APP_CHATBOT_AI_CONFIG_QUERY,
   INSTALL_AGENT_INTO_APP_MUTATION,
   APP_NODES_QUERY,
   APP_QUERY,
@@ -172,6 +173,7 @@ describe('load', () => {
       }
       // #1106: the viewer's manage self-audit (the Client tab's plugin grid).
       if (query === SELF_CAN_MANAGE_QUERY) return Promise.resolve({ effectiveAccess: { canManage: true } });
+      if (query === APP_CHATBOT_AI_CONFIG_QUERY) return Promise.resolve({ app: { id: 'app-1', chatbotAiConfigId: null } });
       throw new Error('Unexpected query');
     });
 

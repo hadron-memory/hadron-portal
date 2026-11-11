@@ -2,6 +2,7 @@
   import TabRow from '$lib/components/TabRow.svelte';
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import AppRunsPanel from './runs/AppRunsPanel.svelte';
+  import ChatbotAiConfigSetting from './ChatbotAiConfigSetting.svelte';
   import TaskIntegrations from './TaskIntegrations.svelte';
   import { taskHref } from '$lib/agent-tasks/handle';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
@@ -24,6 +25,7 @@
   import AccessibleMemories from './AccessibleMemories.svelte';
   import { appMemoryTargets } from '$lib/app-memory-scope';
   import AgentChat from '$lib/components/AgentChat.svelte';
+  import { liveChatAiChoices } from '$lib/chat-ai-choice';
   import TeamChatThread from '$lib/components/TeamChatThread.svelte';
   import TeamChatSearch from '$lib/components/TeamChatSearch.svelte';
   import { teamChatSearchStrings } from '$lib/i18n/team-chat-search-strings';
@@ -883,14 +885,13 @@
     configs: AiServiceConfig[] | null;
   } | null>(null);
   let chatConfigReads = 0;
-  const chatConfigs = $derived(
-    chatConfigReread &&
+  const chatConfigRereadActive = $derived(
+    chatConfigReread !== null &&
     chatConfigReread.against === data &&
     chatConfigReread.appRef === app.id &&
-    chatConfigReread.agentRef === app.agentId
-      ? chatConfigReread.configs
-      : data.chatConfigs,
+    chatConfigReread.agentRef === app.agentId,
   );
+  const chatConfigs = $derived(chatConfigRereadActive ? chatConfigReread!.configs : data.chatConfigs);
   async function refreshChatConfigs(signal?: AbortSignal): Promise<boolean> {
     const agentRef = app.agentId;
     if (!agentRef) return true;
@@ -920,33 +921,21 @@
     chatConfigReread = { against, appRef, agentRef, configs: fresh };
     return true;
   }
+  // portal#1963: the dropdown's options follow the live config read, so an AI-tab delete or disable drops
+  // its entry without a reload (liveChatAiChoices).
+  const liveAiChoices = $derived(
+    liveChatAiChoices(
+      data.aiChoices ?? null,
+      chatConfigs,
+      chatConfigRereadActive && chatConfigs === null,
+    ),
+  );
   const usableChatConfigs = $derived((chatConfigs ?? []).filter((c) => c.hasApiKey));
   // null chatConfigs = couldn't list (e.g. viewer isn't an App member) →
   // unknown → don't block the chat.
   const llmReady = $derived(chatConfigs === null ? null : usableChatConfigs.length > 0);
   const appChatRender = $derived(
     chooseAppChatTabRender({ surfaces: app.surfaces, agentId: app.agentId, agents: app.agents, llmReady }),
-  );
-  // Picker selection overlaid on the default (`default`, else first usable).
-  let selectedConfigName = $state<string | null>(null);
-  const chatSelectionIdentity = $derived(`${app.id}:${app.agentId ?? ''}`);
-  let previousChatSelectionIdentity = '';
-  $effect(() => {
-    const next = chatSelectionIdentity;
-    if (next === previousChatSelectionIdentity) return;
-    previousChatSelectionIdentity = next;
-    selectedConfigName = null;
-  });
-  // Validate the pick against the (possibly refreshed) usable set: if the
-  // selected config was deleted/disabled on the AI Service Configs tab, the
-  // resolved-config working copy falls back to default → first rather than
-  // sending a name that no longer resolves.
-  const effectiveConfigName = $derived(
-    selectedConfigName && usableChatConfigs.some((c) => c.name === selectedConfigName)
-      ? selectedConfigName
-      : (usableChatConfigs.find((c) => c.name === 'default')?.name
-          ?? usableChatConfigs[0]?.name
-          ?? null),
   );
   // #733: the tab is addressable as `?tab=<id>`. This is not a nicety — the
   // worklog's whole job is answering "which worker sessions produced this PR?",
@@ -2307,42 +2296,12 @@
           <AgentChat
             agentId={app.agentId}
             appId={app.id}
-            configName={effectiveConfigName ?? undefined}
+            aiChoices={liveAiChoices}
             uploadMemoryId={writableMemoryIds[0]}
           />
         </div>
-        {#if usableChatConfigs.length > 0}
-          <!-- Config picker sits below the chat, next to where the composer
-               lives — matching where model pickers appear in most chat apps. -->
-          <div class="mt-2 flex items-center gap-2 text-sm">
-            <label for="chat-config" class="text-zinc-500">{t('app-chat.config.label', 'AI config')}</label>
-            <!-- #740: `min-w-0` is the load-bearing half. A <select> sizes to
-                 its LONGEST OPTION, and these read
-                 "default (bedrock · us.anthropic.claude-sonnet-4-6)" — 370px,
-                 which pushed 94px past the right edge of a 390px viewport and
-                 was the last thing making the whole page scroll sideways after
-                 the shell and the tab strip were fixed. A flex item's default
-                 `min-width: auto` refuses to shrink below that intrinsic
-                 width, so `truncate` alone would not have helped.
-
-                 `min-w-0` WITHOUT `flex-1`, on purpose: the default
-                 `flex: 0 1 auto` already permits shrinking, so the control
-                 keeps its natural width wherever there is room — desktop is
-                 pixel-identical — and gives way only where there isn't.
-                 `flex-1` (which I tried first) makes it GROW to fill the row,
-                 changing a desktop surface to fix a phone one. -->
-            <select
-              id="chat-config"
-              value={effectiveConfigName ?? ''}
-              onchange={(e) => (selectedConfigName = e.currentTarget.value)}
-              class="min-w-0 truncate rounded-lg border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
-            >
-              {#each usableChatConfigs as c (c.id)}
-                <option value={c.name}>{c.name} ({c.provider} · {c.model})</option>
-              {/each}
-            </select>
-          </div>
-        {/if}
+        <!-- portal#1963: the AI config dropdown now lives in AgentChat, over the server's list of the App's
+             own configs (hadron-server#3957); the chat stores what the user picks. -->
       {:else if appChatRender === 'no-llm-config'}
         <div class="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="min-height: 300px;">
           <div class="max-w-md text-center">
@@ -3775,6 +3734,17 @@
           </div>
         {/if}
       </section>
+
+      <!-- portal#1963: the App's chatbot AI config. Keyed on the App, so a pick never follows the person to another App. -->
+      {#if app.agentId}
+        {#key app.id}
+          <ChatbotAiConfigSetting
+            choices={data.aiChoices ?? null}
+            current={data.chatbotAiConfig ?? { ok: false }}
+            manages={data.viewerManages?.kind === 'known' ? data.viewerManages.manages : null}
+          />
+        {/key}
+      {/if}
 
       <!-- portal#1607: the App's task integrations. Keyed on propertiesRevision (null = no section)
            and viewerManages (edit controls); unknown viewerManages keeps the controls, as the key controls do. -->
