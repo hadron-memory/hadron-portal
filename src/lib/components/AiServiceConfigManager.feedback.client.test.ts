@@ -1923,11 +1923,11 @@ describe('#1898 follow-ups', () => {
     const submit = button(m.target, action === 'delete' ? 'Delete' : 'Save');
     submit.focus(); submit.click();
     await settle();
-    expect(document.activeElement).toBe(submit);
     expect(m.target.querySelector('[data-testid="ai-config-error-feedback"]')).toBe(alert);
     expect(alert?.textContent).toContain('Sign in again to save your draft.');
     expect(alert?.textContent).not.toContain('untrusted-upstream-text');
     const link = alert?.querySelector('a');
+    expect(document.activeElement).toBe(link);
     expect(link?.getAttribute('href')).toBe('/signin?redirect=%2Fapp%2Forgs%2Fo1%2Fintegrations');
     expect(link?.target).toBe('_blank');
     expect(link?.rel.split(' ')).toContain('noopener');
@@ -2083,6 +2083,72 @@ describe('#1898 follow-ups', () => {
     menuDelete(m.target); await settle();
     button(m.target, 'Delete').click(); await settle();
     expect(posts.filter(p => p.action === 'delete')).toHaveLength(1);
+  });
+
+  // Model Chromium's disabled-button blur: jsdom itself keeps Save focused.
+  function blurDisabledSubmit() {
+    document.body.tabIndex = -1;
+    document.body.focus();
+    document.body.removeAttribute('tabindex');
+    expect(document.activeElement).toBe(document.body);
+  }
+
+  it('hands a 401 to its visible Sign in link after disabled Save falls to BODY', async () => {
+    let release!: (r: Reply) => void;
+    stubFetch(body => body.action === 'create' ? new Promise<Reply>(r => { release = r; }) : {});
+    const m = await open(); await startCreate(m.target);
+    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-error-feedback"]')!;
+    const scroll = vi.fn(); region.scrollIntoView = scroll;
+    const submit = button(m.target, 'Save'); submit.focus(); submit.click(); await settle();
+    expect(submit.disabled).toBe(true); blurDisabledSubmit();
+    release({ ok: false, status: 401 }); await settle();
+    expect(document.activeElement).toBe(region.querySelector('a'));
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(button(m.target, 'Save').disabled).toBe(false);
+  });
+
+  it('restores the original enabled control after a same-user window-focus identity check', async () => {
+    const m = await open(); await startCreate(m.target);
+    let release!: (r: Reply) => void;
+    principalReadHandler = () => new Promise<Reply>(r => { release = r; });
+    const submit = button(m.target, 'Save'); submit.focus();
+    window.dispatchEvent(new Event('focus')); await settle();
+    expect(submit.disabled).toBe(true); blurDisabledSubmit();
+    release(principalReply); await settle();
+    expect(submit.disabled).toBe(false);
+    expect(document.activeElement).toBe(submit);
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
+  });
+
+  it('focuses and reveals the discard alert when the fresh cookie user differs', async () => {
+    const m = await open(); await startCreate(m.target);
+    let release!: (r: Reply) => void;
+    principalReadHandler = () => new Promise<Reply>(r => { release = r; });
+    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-error-feedback"]')!;
+    const scroll = vi.fn(); region.scrollIntoView = scroll;
+    const submit = button(m.target, 'Save'); submit.focus();
+    window.dispatchEvent(new Event('focus')); await settle(); blurDisabledSubmit();
+    release({ body: { principal: { principalType: 'USER', userId: 'different', appId: null } } }); await settle();
+    expect(m.target.querySelector('#ac-key')).toBeNull();
+    expect(document.activeElement).toBe(region);
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
+  });
+
+  it.each(['control', 'blank-pointer'])('does not steal newer %s attention for a late 401', async attention => {
+    let release!: (r: Reply) => void;
+    stubFetch(body => body.action === 'create' ? new Promise<Reply>(r => { release = r; }) : {});
+    const m = await open(); await startCreate(m.target);
+    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-error-feedback"]')!;
+    const scroll = vi.fn(); region.scrollIntoView = scroll;
+    const submit = button(m.target, 'Save'); submit.focus(); submit.click(); await settle(); blurDisabledSubmit();
+    const cancel = button(m.target, 'Cancel');
+    if (attention === 'control') cancel.focus();
+    else m.target.querySelector('h2')!.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    release({ ok: false, status: 401 }); await settle();
+    expect(document.activeElement).toBe(attention === 'control' ? cancel : document.body);
+    expect(scroll).not.toHaveBeenCalled();
+    expect(region.querySelector('a')).not.toBeNull();
   });
 
 });

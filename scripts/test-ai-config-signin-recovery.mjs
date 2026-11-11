@@ -69,7 +69,10 @@ try {
     const box = await link.boundingBox();
     assert(box && box.height >= 44 && box.x >= 0 && box.x + box.width <= (touch ? 390 : 1280));
     if (touch) assert.equal(await page.evaluate(() => matchMedia('(pointer: coarse)').matches), true);
-    await link.focus();
+    // No scripted focus: recovery must hand real keyboard/touch attention here.
+    await page.waitForFunction(() => document.activeElement?.getAttribute('href')?.startsWith('/signin?'), null, { timeout: 5000 });
+    const alertBox = await page.getByTestId('ai-config-error-feedback').boundingBox();
+    assert(alertBox && alertBox.y >= 0 && alertBox.y + alertBox.height <= 900, 'Recovery alert is in the actual viewport without a manual scroll');
     assert.equal(await link.evaluate(el => document.activeElement === el), true);
     const popupWait = context.waitForEvent('page');
     if (touch) await link.tap(); else await page.keyboard.press('Enter');
@@ -107,6 +110,7 @@ try {
       throw error;
     }
     assert.equal(await page.locator('#ac-key').count(), 0);
+    await page.waitForFunction(() => document.activeElement?.getAttribute('data-testid') === 'ai-config-error-feedback', null, { timeout: 5000 });
     assert.equal(writes, 2, 'Different fresh user never receives the old draft write');
     console.log(`${touch ? '390 coarse' : '1280 keyboard'} ${dark ? 'dark' : 'light'}: native noopener tab, retained original editor, close, explicit retry and changed-user refusal PASS (fixture only)`);
     await context.close();
