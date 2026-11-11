@@ -2180,3 +2180,23 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(m.target.querySelector(`button[aria-label="${aiConfigStrings.actionsLabel('default')}"]`)).not.toBeNull();
   });
 });
+
+describe('#1898 follow-ups', () => {
+  it('names the config in the visible delete question even when the name column is scrolled away', async () => {
+    const m = await open({ configs: [config({ name: 'fast' })] });
+    menuDelete(m.target, 'fast');
+    await settle();
+    const deleteButton = button(m.target, 'Delete');
+    expect(deleteButton.parentElement?.textContent).toContain('fast');
+    expect(deleteButton.parentElement?.textContent).toContain('cannot be undone');
+    expect(posts.filter(p => p.action === 'delete')).toHaveLength(0);
+  });
+  it('fades Previous while the section editor holds pagination', async () => {
+    const m = await open({ pagination: { offset: 20, count: 20, total: 60, previousHref: '?configOffset=0', nextHref: '?configOffset=40' } });
+    await startCreate(m.target);
+    const previous = [...m.target.querySelectorAll('[aria-disabled="true"]')].find(e => e.textContent === 'Previous');
+    expect(previous).toBeDefined();
+    expect(previous?.classList.contains('opacity-50')).toBe(true);
+    expect(m.target.querySelector('a[rel="prev"]')).toBeNull();
+  });
+});
