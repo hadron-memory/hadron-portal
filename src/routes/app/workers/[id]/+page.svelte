@@ -129,7 +129,7 @@
   const worker = $derived(data.worker);
   // portal#1492: this branch renders only for a reader who may see internals, so
   // the terminal is shown; the page clock is the loader's, shared by SSR and hydration.
-  const terminal = $derived(terminalBadge(worker.terminal, workerInternalsVisible(worker)));
+
   // portal#1495 P3 — the loader's clock seeds a display clock that advances
   // every 30 s in the browser (server-relative offset, cleared on destroy, no
   // requests), so ages on an open page stop going stale.
@@ -143,6 +143,7 @@
     return terminalClock.stop;
   });
   const terminalNow = $derived(terminalClock.now);
+  const terminal = $derived(terminalBadge(worker.terminal, workerInternalsVisible(worker), terminalNow));
   const retired = $derived(!!worker.retiredAt);
 
   // #1050 / hrn:node:hadronmemory.com:specs:cor:agt:020:09 — whose name this

@@ -895,12 +895,51 @@ describe('Worker agents tab (#1009)', () => {
       expect(await search(target, 'Dark')).toEqual(['Bo']);
     });
 
-    it('a stale report keeps its server state', async () => {
+    it('#1948 a stale report withholds its server state from the badge and search', async () => {
       const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term({ status: 'busy', reason: null, checkedAt: '2026-10-01T00:00:00.000Z' }) }) }));
       const cell = colTexts(target, 'Terminal')[0];
-      expect(cell).toContain('Busy');
+      expect(cell).toContain('Stale');
       expect(cell).toMatch(/checked .*ago/);
-      expect(cell).not.toMatch(/Dark|Idle/);
+      expect(cell).not.toMatch(/Dark|Idle|Busy/);
+      expect(await search(target, 'Busy')).toEqual([]);
+      expect(await search(target, 'Stale')).toEqual(['Ada']);
+    });
+
+    const staleNote = (target: HTMLElement) => target.querySelectorAll('[data-testid="terminal-stale-note"]');
+    it('#1948 all reported rows stale shows one note; unreported and missing rows do not count', async () => {
+      const target = await mountTerminal([w('w1','Ada'), w('w2','Bo'), w('w3','Cy')], ok({
+        w1: entry({terminal: term({checkedAt:'2026-10-31T04:00:00.000Z'})}), w2: entry({terminal:null}),
+      }));
+      expect(staleNote(target)).toHaveLength(1);
+      expect(staleNote(target)[0].textContent).toMatch(/30 minutes/);
+    });
+    it.each(['fresh', 'unknown-time'])('#1948 a %s report suppresses the all-stale note', async (kind) => {
+      const target = await mountTerminal([w('w1','Ada'),w('w2','Bo')],ok({
+        w1:entry({terminal:term({checkedAt:'2026-10-31T04:00:00.000Z'})}),
+        w2:entry({terminal:term({checkedAt:kind==='fresh'?'2026-10-31T11:57:00.000Z':null})}),
+      }));
+      expect(colTexts(target,'Terminal')[0]).toContain('Stale');
+      expect(staleNote(target)).toHaveLength(0);
+    });
+    it('#1948 no report or internals-hidden old report never manufactures an all-stale note', async () => {
+      const target=await mountTerminal([w('w1','Ada'),w('w2','Bo',{hasLiveSession:null})],ok({
+        w1:entry({terminal:null}),w2:entry({terminal:term({checkedAt:'2026-10-31T04:00:00.000Z'})}),
+      }));
+      expect(staleNote(target)).toHaveLength(0);
+    });
+    it('#1948 a clock tick makes stale display, note and active grid search agree', async () => {
+      vi.useFakeTimers();
+      const target=await mountTerminal([w('w1','Ada')],ok({w1:entry({terminal:term({status:'idle',reason:null,checkedAt:'2026-10-31T11:30:00.000Z'})})}));
+      expect(colTexts(target,'Terminal')[0]).toContain('Idle');
+      expect(staleNote(target)).toHaveLength(0);
+      expect(await search(target,'Idle')).toEqual(['Ada']);
+      await vi.advanceTimersByTimeAsync(30_000); await tick(2);
+      // No second input event: the active filter must invalidate on the clock tick itself.
+      expect(target.querySelectorAll('tbody a[href^="/app/workers/"]')).toHaveLength(0);
+      expect(await search(target,'Idle')).toEqual([]);
+      expect(await search(target,'Stale')).toEqual(['Ada']);
+      expect(colTexts(target,'Terminal')[0]).toContain('Stale');
+      expect(staleNote(target)).toHaveLength(1);
     });
 
     it('a future or unparsable checkedAt is time unknown', async () => {

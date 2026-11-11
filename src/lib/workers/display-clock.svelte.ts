@@ -8,9 +8,10 @@
  * at start (`seed − Date.now()`), so ages stay anchored to the server-relative
  * baseline instead of jumping to the browser's own clock.
  *
- * A tick recomputes DISPLAYED TEXT and nothing else: no fetch, `invalidate`
- * or reload, no recomputation of stored terminal state, reason, darkness or
- * authority (issue gate 6568261816; anything server-driven is new scope).
+ * A tick recomputes DISPLAYED TEXT, including withholding an old report's
+ * badge status (portal#1948): no fetch, `invalidate` or reload. It never changes
+ * stored terminal state, reason, darkness or authority; server-driven rules
+ * remain separate scope.
  * `start()` must be called from an `$effect` (which never runs during SSR);
  * the interval is cleared on destroy. One clock per page.
  */
