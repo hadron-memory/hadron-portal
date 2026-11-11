@@ -141,6 +141,27 @@ try {
    });
    assert.ok(control.height >= 44 && control.width >= 44, 'action44px in both dimensions');
    assert.ok(control.ringInside, 'four-pixel focus margin inside cell');
+   // UX F1/F2: real rem scaling also scales padding and rem-based targets.
+   // A td-only font override cannot prove the 200% interactive floor.
+   if (kind === 'runs' || kind === 'alarms') {
+    const remZoom = await page.addStyleTag({content:'html {font-size:32px !important}'});
+    // Keep the grid wider than its scroller so auto table distribution cannot
+    // enlarge the declared minimum and hide a clipped ring.
+    await page.evaluate(id=>{const t=window.__fixtureTables.at(-1);t.setColumnSizing(Object.fromEntries(t.getAllLeafColumns().map(c=>[c.id,c.id===id?1:(c.columnDef.size??150)*2])));},interactive);
+    await settle(); await target.scrollIntoViewIfNeeded(); await target.focus();
+    const enlarged = await target.evaluate(el => {
+     const r=el.getBoundingClientRect(), c=el.closest('td').getBoundingClientRect();
+     const range=document.createRange(); range.selectNodeContents(el);
+     return {width:r.width,height:r.height,left:r.left-c.left,right:c.right-r.right,
+      top:r.top-c.top,bottom:c.bottom-r.bottom,labelLines:range.getClientRects().length};
+    });
+    console.log('rem-control',kind,width,dark,enlarged);
+    if (enlarged.left<4 || enlarged.right<4 || enlarged.top<4 || enlarged.bottom<4)
+     failures.push(`${kind}/${width}/${dark}: real-rem 200% focus margin ${JSON.stringify(enlarged)}`);
+    if (kind==='runs' && enlarged.labelLines!==1)
+     failures.push(`${kind}/${width}/${dark}: real-rem 200% Open label wraps ${JSON.stringify(enlarged)}`);
+    await remZoom.evaluate(el=>el.remove()); await settle();
+   }
    await target.click({ trial:true });
    if (kind === 'config') {
     await target.click();
