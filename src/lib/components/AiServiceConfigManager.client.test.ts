@@ -1,10 +1,10 @@
-import { managerCallbacks } from '$lib/test/ai-config-manager';
 /**
  * #937 follow-up (server#1373 / #1389 / #1390): the endpoint, protocol and
  * tool-calling fields, mounted. What's pinned is what the form SENDS, since
  * that's what reaches the server: the three-way endpoint grammar, the key rule,
  * and which Test path an unsaved config may take.
  */
+import { managerCallbacks } from '$lib/test/ai-config-manager-callbacks';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';

@@ -129,15 +129,13 @@ export const aiConfigStrings = {
       `Renaming “${name}” will stop consumers that reference it by name from resolving it.`,
     ),
 
+  /** #1020 review: the inline confirm keeps the irreversibility visible —
+   * the menu item's title is invisible to keyboard and touch users. */
   confirmDelete: (name: string): string =>
     t('ai-config.confirm-delete', `Delete the “${name}” configuration? This cannot be undone.`),
 
   /** #1020: the row's ⋯ trigger names the config it acts on. */
   actionsLabel: (name: string): string => t('ai-config.actions.label', 'Actions for {name}', { name }),
-
-  /** #1020 review: the inline confirm keeps the irreversibility visible —
-   * the menu item's title is invisible to keyboard and touch users. */
-  confirmQuestion: (): string => t('ai-config.confirm-question', 'Delete? This cannot be undone.'),
 
   editorTitle: (name: string): string => t('ai-config.editor-title', '“{name}”', { name }),
   saveSuccess: (name: string): string => t('ai-config.save-success', 'Saved “{name}”.', { name }),
