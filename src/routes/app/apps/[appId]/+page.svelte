@@ -124,7 +124,7 @@
   import { readResolvedAiConfigs } from '$lib/components/ai-config-readback';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import TerminalStatus from '$lib/components/TerminalStatus.svelte';
-  import { terminalBadge, terminalCheckedAge, terminalSummary } from '$lib/workers/terminal';
+  import { terminalBadge, terminalCheckedAge, terminalSummary, TERMINAL_STALE_AFTER_MS } from '$lib/workers/terminal';
   import { createDisplayClock } from '$lib/workers/display-clock.svelte';
   import { workerInternalsVisible } from '$lib/worker-profile';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
@@ -486,8 +486,20 @@
   // is "not answered"; only a returned null is "Not reported".
   function terminalBadgeOf(worker: Worker) {
     const entry = rosterEntry(worker.id);
-    return entry ? terminalBadge(entry.terminal, workerInternalsVisible(worker)) : null;
+    return entry ? terminalBadge(entry.terminal, workerInternalsVisible(worker), terminalNow) : null;
   }
+  // Only reported badges this reader can see count; null/undefined and
+  // internals-hidden rows cannot imply either freshness or staleness.
+  const allTerminalReportsStale = $derived.by(() => {
+    let reported = 0;
+    for (const worker of sortedStaff) {
+      const badge = terminalBadgeOf(worker);
+      if (!badge || badge.state === 'not-reported') continue;
+      reported++;
+      if (badge.state !== 'stale') return false;
+    }
+    return reported > 0;
+  });
   // portal#1495 BLIND P2 (#1618, George) — the searchable age must reach the
   // filter as DATA, not as a live clock read inside the filter callback.
   // TanStack memoizes the filtered row model on data + filter state; values
@@ -2969,6 +2981,9 @@
           <p role="status" class="text-xs text-zinc-500">{t('app.staff.roster.failed', 'Task and pause state could not be loaded; try again in a moment.')}</p>
         {:else if teamRoster?.kind === 'hidden'}
           <p role="status" class="text-xs text-zinc-500">{t('app.staff.roster.hidden', 'Task and pause state are not shown to you.')}</p>
+        {/if}
+        {#if allTerminalReportsStale}
+          <p data-testid="terminal-stale-note" class="text-xs text-zinc-600 dark:text-zinc-400">{t('app.staff.terminal-stale-note', 'All terminal reports in this list are older than {minutes} minutes.', { minutes: TERMINAL_STALE_AFTER_MS / 60_000 })}</p>
         {/if}
         <!-- #756 — TanStack grid, replacing a bespoke <ul>. Same chrome as every
              other portal list (search, column toggle, sortable/resizable

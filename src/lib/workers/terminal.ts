@@ -9,8 +9,8 @@ import { relativeTime } from '$lib/tickers/format';
  * snapshot can send a value this build has never seen, and that must read as
  * fixed copy, never as the raw code (and is never logged).
  *
- * Age is display only. The stored status is the server's; nothing here derives
- * dark or idle from how old a report is.
+ * Age is display only: an old report withholds its status/reason from the badge.
+ * The stored report is never changed or reinterpreted as another host state.
  */
 export type TerminalRead = {
   status: string;
@@ -19,7 +19,7 @@ export type TerminalRead = {
   lastTurnAt?: string | null;
 };
 
-export type TerminalBadgeState = 'idle' | 'busy' | 'locked' | 'dark' | 'unknown' | 'not-reported';
+export type TerminalBadgeState = 'idle' | 'busy' | 'locked' | 'dark' | 'unknown' | 'not-reported' | 'stale';
 
 export type TerminalBadge = {
   state: TerminalBadgeState;
@@ -76,16 +76,18 @@ const KNOWN_STATES: TerminalBadgeState[] = ['idle', 'busy', 'locked', 'dark'];
  * terminal to null on the same gate as `hasLiveSession`, so for anyone else a
  * null is "not shown to you", which must not read as "not reported".
  */
-export function terminalBadge(terminal: TerminalRead | null | undefined, internalsVisible: boolean): TerminalBadge | null {
+export function terminalBadge(terminal: TerminalRead | null | undefined, internalsVisible: boolean, now: number): TerminalBadge | null {
   if (!internalsVisible || terminal === undefined) return null;
   if (terminal === null) {
     return { state: 'not-reported', label: t('worker.terminal.state.not-reported', 'Not reported'), reason: null, checkedAt: null, lastTurnAt: null };
   }
-  const state = (KNOWN_STATES as string[]).includes(terminal.status) ? (terminal.status as TerminalBadgeState) : 'unknown';
+  const checked = pastInstant(terminal.checkedAt, now);
+  const stale = checked !== null && now - checked > TERMINAL_STALE_AFTER_MS;
+  const state = stale ? 'stale' : (KNOWN_STATES as string[]).includes(terminal.status) ? (terminal.status as TerminalBadgeState) : 'unknown';
   return {
     state,
-    label: terminalStateLabel(terminal.status),
-    reason: terminal.reason ? terminalReasonLabel(terminal.reason) : null,
+    label: stale ? t('worker.terminal.state.stale', 'Stale') : terminalStateLabel(terminal.status),
+    reason: !stale && terminal.reason ? terminalReasonLabel(terminal.reason) : null,
     checkedAt: terminal.checkedAt ?? null,
     lastTurnAt: terminal.lastTurnAt ?? null,
   };
@@ -105,6 +107,9 @@ export function terminalSummary(badge: TerminalBadge): string {
  * policy, never a judgement about the stored report (Vera, FIT 6568235885).
  */
 const FUTURE_GRACE_MS = 60_000;
+
+/** Client display assumption, matching CLI terminalStaleAfter; not a server liveness rule. */
+export const TERMINAL_STALE_AFTER_MS = 30 * 60_000;
 
 /** Parsed instant, or null when missing, unparsable, or past the 60 s display grace. */
 function pastInstant(iso: string | null | undefined, now: number): number | null {

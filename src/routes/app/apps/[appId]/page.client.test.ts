@@ -934,6 +934,8 @@ describe('Worker agents tab (#1009)', () => {
       expect(staleNote(target)).toHaveLength(0);
       expect(await search(target,'Idle')).toEqual(['Ada']);
       await vi.advanceTimersByTimeAsync(30_000); await tick(2);
+      // No second input event: the active filter must invalidate on the clock tick itself.
+      expect(target.querySelectorAll('tbody a[href^="/app/workers/"]')).toHaveLength(0);
       expect(await search(target,'Idle')).toEqual([]);
       expect(await search(target,'Stale')).toEqual(['Ada']);
       expect(colTexts(target,'Terminal')[0]).toContain('Stale');
