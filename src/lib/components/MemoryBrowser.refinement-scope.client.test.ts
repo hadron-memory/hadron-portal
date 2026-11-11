@@ -6,7 +6,8 @@
  * to it silently emptied the comment results.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { flushSync } from 'svelte';
+import { flushSync, type ComponentProps } from 'svelte';
+import { t } from '$lib/i18n/t';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import MemoryBrowser from './MemoryBrowser.svelte';
@@ -24,11 +25,14 @@ const COMMENT_HIT = {
   },
 };
 
-const mounted: Array<Mounted<Record<string, unknown>>> = [];
+type BrowserProps = ComponentProps<typeof MemoryBrowser>;
+const mounted: Array<Mounted<BrowserProps>> = [];
 let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.useFakeTimers();
-  fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+  fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+    if (url === '/api/nodes/columns') return new Response(JSON.stringify({ columns: [] }), { status: 200 });
+    if (url !== '/api/nodes/search') throw new Error(`Unexpected endpoint: ${url}`);
     const scope = JSON.parse(init.body as string).filter?.contentScope;
     const nodes = scope === 'COMMENTS' ? [COMMENT_HIT] : scope === 'ALL' ? [ALPHA, BETA, COMMENT_HIT] : [ALPHA, BETA];
     return new Response(JSON.stringify({ nodes, total: nodes.length }), { status: 200 });
@@ -41,9 +45,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function mountBrowser() {
-  const props = reactiveProps<Record<string, unknown>>({ nodes: [ALPHA, BETA], basePath: '/app/memories/mem-1', forcedView: 'nodes', refreshKey: 0 });
-  const m = mountComponent(MemoryBrowser as never, props as never) as Mounted<Record<string, unknown>>;
+function mountBrowser(overrides: Partial<BrowserProps> = {}) {
+  const props = reactiveProps<BrowserProps>({ nodes: [ALPHA, BETA], basePath: '/app/memories/mem-1', forcedView: 'nodes', refreshKey: 0, ...overrides });
+  const m = mountComponent(MemoryBrowser, props);
   mounted.push(m);
   return m.target;
 }
@@ -152,17 +156,17 @@ describe('V74: Node Types and Tags under each content scope (portal#1058)', () =
 
 // portal#1930 (F3/F4 from #1928's blind review; Uma's UX decision 6787706001).
 describe('#1930: refinement menus and the disabled-control reason', () => {
-  const HINT = 'Node Types and Tags filter content, not comments. Your selections are kept for Content.';
+  const HINT = () => t('memory-browser.refinement-content-only-hint', 'Node Types and Tags filter content, not comments. Your selections are kept for Content.');
   const menuOpen = (target: HTMLElement) => target.querySelectorAll('.filter-dropdown label input').length > 0;
   const hint = (target: HTMLElement) => target.querySelector<HTMLElement>('#refinement-off-hint');
   const scopeSelect = (target: HTMLElement) => target.querySelector<HTMLSelectElement>('[data-testid="scope-filter"]')!;
 
   it.each([
-    ['Node Types', 'CONTENT'],
-    ['Node Types', 'ALL'],
-    ['Tags', 'CONTENT'],
-    ['Tags', 'ALL'],
-  ] as const)('a %s menu open when Comments is picked stays closed on return to %s', async (label, back) => {
+    { label: 'Node Types', back: 'CONTENT' },
+    { label: 'Node Types', back: 'ALL' },
+    { label: 'Tags', back: 'CONTENT' },
+    { label: 'Tags', back: 'ALL' },
+  ] as const)('a $label menu stays closed on return from Comments to $back', async ({ label, back }) => {
     const target = mountBrowser();
     refinement(target, label).click();
     flushSync();
@@ -181,7 +185,7 @@ describe('#1930: refinement menus and the disabled-control reason', () => {
       .find((b) => b.textContent?.trim().startsWith('Properties'))!;
     props.click();
     flushSync();
-    const panel = () => props.parentElement!.querySelector('div.absolute');
+    const panel = () => props.parentElement!.querySelector('#structured-object-type');
     expect(panel()).not.toBeNull();
     pickScope(target, 'COMMENTS');
     await settle();
@@ -209,7 +213,7 @@ describe('#1930: refinement menus and the disabled-control reason', () => {
     await settle();
     const p = hint(target);
     expect(p).not.toBeNull();
-    expect(p!.textContent?.trim()).toBe(HINT);
+    expect(p!.textContent?.trim()).toBe(HINT());
     for (const el of [refinement(target, 'Node Types'), refinement(target, 'Tags'), scopeSelect(target)]) {
       const ids = (el.getAttribute('aria-describedby') ?? '').split(/\s+/);
       expect(ids).toContain('refinement-off-hint');
@@ -227,13 +231,11 @@ describe('#1930: refinement menus and the disabled-control reason', () => {
   });
 
   it('under Comments with neither refinement control rendered, no hint is shown', async () => {
-    const props = reactiveProps<Record<string, unknown>>({ nodes: [{ ...ALPHA, tags: [] }], basePath: '/app/memories/mem-1', forcedView: 'nodes', refreshKey: 0 });
-    const m = mountComponent(MemoryBrowser as never, props as never) as Mounted<Record<string, unknown>>;
-    mounted.push(m);
-    pickScope(m.target, 'COMMENTS');
+    const target = mountBrowser({ nodes: [{ ...ALPHA, tags: [] }] });
+    pickScope(target, 'COMMENTS');
     await settle();
-    expect(hint(m.target)).toBeNull();
-    expect(m.target.querySelector('[aria-describedby~="refinement-off-hint"]')).toBeNull();
+    expect(hint(target)).toBeNull();
+    expect(target.querySelector('[aria-describedby~="refinement-off-hint"]')).toBeNull();
   });
 
   it('picking Comments leaves focus on the Show select', async () => {
@@ -243,4 +245,44 @@ describe('#1930: refinement menus and the disabled-control reason', () => {
     await settle();
     expect(document.activeElement).toBe(scopeSelect(target));
   });
+  it.each(['Node Types', 'Tags'] as const)('a %s menu stays closed after Comments and Content in one flush', (label) => {
+    const target = mountBrowser();
+    refinement(target, label).click();
+    flushSync();
+    expect(menuOpen(target)).toBe(true);
+    const select = scopeSelect(target);
+    for (const value of ['COMMENTS', 'CONTENT']) {
+      select.value = value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    flushSync();
+    expect(menuOpen(target)).toBe(false);
+  });
+
+  it.each(['Memories', 'Fields'] as const)('picking Comments leaves an open %s menu alone', async (label) => {
+    const target = mountBrowser({ multiMemory: true, scopeMemories: [
+      {memoryId: 'mem-1', memoryUrn: 'hrn:mem:o:m', name: 'm'},
+      {memoryId: 'mem-2', memoryUrn: 'hrn:mem:o:n', name: 'n'},
+    ] });
+    const button = [...target.querySelectorAll<HTMLButtonElement>('.filter-dropdown > button')]
+      .find(b => b.textContent?.trim().startsWith(label))!;
+    button.click();
+    flushSync();
+    const choices = () => button.parentElement!.querySelectorAll('label input');
+    expect(choices().length).toBeGreaterThan(0);
+    pickScope(target, 'COMMENTS');
+    await settle();
+    expect(choices().length).toBeGreaterThan(0);
+  });
+
+  it('Comments with Node Types but no Tags still explains the disabled control', async () => {
+    const target = mountBrowser({ nodes: [{...ALPHA, tags: []}, BETA] });
+    pickScope(target, 'COMMENTS');
+    await settle();
+    expect(refinement(target, 'Node Types').disabled).toBe(true);
+    expect([...target.querySelectorAll('.filter-dropdown > button')].some(b => b.textContent?.trim().startsWith('Tags'))).toBe(false);
+    expect(hint(target)?.textContent?.trim()).toBe(HINT());
+    expect(scopeSelect(target).getAttribute('aria-describedby')).toBe(hint(target)!.id);
+  });
+
 });
