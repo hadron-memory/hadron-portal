@@ -55,9 +55,12 @@ describe('initialChatAiChoice', () => {
     expect(initialChatAiChoice([DEFAULT, custom], 'cfg-custom')).toBe('cfg-custom');
   });
 
-  it('an App chatbot config the portal cannot run is not preselected for a new chat', () => {
+  // portal#1997: an un-picked turn runs the App chatbot config whether or not the portal can run it, so the
+  // dropdown shows that config (its label carries the reason) rather than a Default that never runs.
+  it('an App chatbot config the portal cannot run is still shown for a new chat, as the turn will run it', () => {
     const custom = opt({ value: 'cfg-custom', name: 'custom', isAppChatbotConfig: true, unavailableReason: 'x' });
-    expect(initialChatAiChoice([DEFAULT, custom], null)).toBe('default');
+    expect(initialChatAiChoice([DEFAULT, custom], null)).toBe('cfg-custom');
+    expect(initialChatAiChoice([DEFAULT, custom], 'cfg-deleted')).toBe('cfg-custom');
   });
 });
 
