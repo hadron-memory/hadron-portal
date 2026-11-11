@@ -72,6 +72,7 @@ import { loadTeamChatTail, teamChatRefusalOf } from '$lib/server/team-chat';
 import { NO_TEAM_FILTER, parseTeamParam } from '$lib/team-chat-filter';
 import { chatMessageNodeTypes, loadChatMessages } from '$lib/server/team-chat';
 import { resolveTabIntent } from './tab-intent';
+import { loadTemplatesPanel } from './templates-panel';
 import {
   addMember,
   addAppMemberFormAdapter,
@@ -545,7 +546,7 @@ function slugOfUrn(urn: string): string {
 
 const APP_CONCEALED_REFUSALS: readonly string[] = ['FORBIDDEN', 'NOT_FOUND', 'APP_NOT_FOUND', 'UNAUTHENTICATED', 'BAD_USER_INPUT'];
 
-export const load: PageServerLoad = async ({ params, locals, url }) => {
+export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) => {
   // #785: this load no longer carries the team chat's refresh. The poll reads
   // `team-chat/+server.ts` directly, because a background tick must not be able
   // to re-run THIS function — its failure paths are fatal (a 404 on an org
@@ -989,7 +990,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
   const runsSection = initialTab === 'runs' ? await loadAppRunsPage(client, params.appId, url.searchParams) : null;
   const runsExtras = initialTab === 'runs' ? await loadAppRunsExtras(client, params.appId) : null;
+  // #1936: the node-role templates tab's data, for that tab only.
+  const templatesPanel = await loadTemplatesPanel(initialTab, locals, setHeaders, params.appId);
   return {
+    templatesPanel,
     runsPanel: runsSection && runsExtras ? { ...runsSection, app, flows: flowRoots(nodesData.appNodes), flowsCapped: isCapped(nodesData.appNodes?.length ?? 0, APP_NODES_LIMIT), flowsScanned: nodesData.appNodes?.length ?? 0, ...runsExtras } : null,
     appMemoryScope,
     appMemories: app.organizationId ? orgAppMemories : appMemoriesFromScope(appMemoryScope, app.id),

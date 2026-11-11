@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 describe('App memory-config entry (#1749 B1)', () => {
-  it('renders the node-role templates entry with preload-data off', async () => {
+  it('has no sub-route link to node-role templates: it is a tab now (#1936)', async () => {
     setStubPage('https://example.test/app/apps/a1?tab=agents', { appId: 'a1' });
     vi.stubGlobal('fetch', vi.fn(async (url) => {
       throw new Error(`unexpected App-page fetch: ${url}`);
@@ -29,8 +29,6 @@ describe('App memory-config entry (#1749 B1)', () => {
     const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
-    const link = m.target.querySelector('a[href="/app/apps/a1/node-role-templates"]');
-    expect(link).not.toBeNull();
-    expect(link!.getAttribute('data-sveltekit-preload-data')).toBe('off');
+    expect(m.target.querySelector('a[href="/app/apps/a1/node-role-templates"]')).toBeNull();
   });
 });
