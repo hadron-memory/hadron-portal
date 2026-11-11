@@ -14,17 +14,16 @@
  * with the REAL action, and models the reload as kit does it: fresh loader
  * data through the page store, the action `form` gone.
  *
- * ## What this harness does and does NOT prove
+ * ## Await the reload, not a count of ticks
  *
- * It proves the REFUSAL half: with the action `form` gone, the page's own alert
- * went empty on main (red), and the page-held refusal keeps it (green).
- *
- * It does NOT reproduce superForm's rebind from page data. Measured: a fresh
- * loader form with the same id and `loc: 'foo'` pushed through the page store
- * leaves the input at the typed loc, with or without the fix — the same limit
- * `storage-form-reseed.client.test.ts` records. So the "draft not reverted"
- * assertion below is NOT discriminating here; the loc re-apply after the
- * reseed is pinned by the browser QA leg the #1989 gate requires.
+ * The reload is async (the loader runs, then the page store and props change,
+ * then superForm reseeds), so a test must wait for it to FINISH before it
+ * reads the draft. `reloaded()` resolves once the fresh loader data is in;
+ * `settle()` then lets the page's continuation and superForm's reseed run.
+ * An earlier version only counted ticks, read the draft before the reseed,
+ * and so passed whether or not the typed loc was re-applied (Gizelle's LOCAL
+ * F1 on #2002). Awaited, the draft assertion discriminates: it fails when the
+ * page's identity guard skips the re-apply.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
@@ -64,6 +63,8 @@ const OCCUPIED = Object.assign(new Error('occupied'), {
 });
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
+/** Resolves when the most recent reload has put the fresh loader data in place. */
+let reloaded: () => Promise<void> = async () => {};
 beforeEach(() => {
   mockRequest.mockReset();
   mockRequest.mockImplementation(async (doc: string) => {
@@ -105,11 +106,16 @@ async function mountSettings() {
   await tick();
   flushSync();
   // The reload, as kit runs it: fresh loader data, and no action `form`.
+  let done!: () => void;
+  let reload = new Promise<void>((r) => (done = r));
+  reloaded = () => reload;
   navigationHooks.onInvalidateAll = async () => {
     const fresh = await loaderData();
     page.update((p) => ({ ...p, data: fresh, form: null }));
     props.data = fresh;
     props.form = null;
+    done();
+    reload = new Promise<void>((r) => (done = r));
   };
   return m;
 }
@@ -162,10 +168,11 @@ describe('a refused move after a committed Save stays visible (#1989)', () => {
     await submitEnhancedWithResult(m.target.querySelector<HTMLFormElement>('form[action="?/updateMeta"]')!, {
       type: 'failure', status: r.status, data: r.data,
     });
+    await reloaded();
     await settle();
 
     expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true); // the reload ran
-    // Not discriminating in this harness (see the header): the browser leg pins it.
+    // The reseed put the old loc back; the page re-applied the typed one (F1).
     expect(locInput()?.value).toBe('taken');
     const alert = metaAlert(m.target);
     expect(alert?.textContent).toContain('Saved, but the node was not moved');
@@ -173,6 +180,20 @@ describe('a refused move after a committed Save stays visible (#1989)', () => {
     expect(m.target.querySelector('[data-testid="node-loc-move-warning"]')).not.toBe(null);
     // No follow-up write: the page issued no second move on its own.
     expect(mockRequest.mock.calls.filter(([q]) => q === MOVE_NODE_MUTATION)).toHaveLength(1);
+  });
+
+  it('a saved-but-failed result still reloads when it carries no refusal the page can keep (BLIND P2)', async () => {
+    const m = await mountSettings();
+    buttonNamed(m.target, 'Edit')!.click();
+    flushSync();
+    const r = await realRefusal('taken');
+    const form = { ...(r.data.form as Record<string, unknown>), errors: {}, message: undefined };
+    await submitEnhancedWithResult(m.target.querySelector<HTMLFormElement>('form[action="?/updateMeta"]')!, {
+      type: 'failure', status: r.status, data: { ...r.data, form },
+    });
+    await settle();
+    // The metadata committed, so the page must show what was saved even without a refusal to hold.
+    expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
   });
 
   it('Cancel clears the kept refusal', async () => {
