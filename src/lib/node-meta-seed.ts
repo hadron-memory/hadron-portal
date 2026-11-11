@@ -80,3 +80,25 @@ export function metaSavedDespiteFailure(result: { type: string; data?: unknown }
     (result.data as { metaSaved?: unknown }).metaSaved === true
   );
 }
+
+/**
+ * #1989: what the page must keep from a saved-but-not-moved result, because
+ * the reload it then runs wipes both. `invalidateAll()` drops the action's
+ * `form`, so superForm rebinds from the fresh loader form: the typed loc goes
+ * back to the node's old one, and the refusal (a `loc` error on a 409, the
+ * form message otherwise) disappears. Returns the refusal text and the loc the
+ * user tried, or null when the result is not such a failure or carries no text.
+ */
+export function savedButNotMoved(result: { type: string; data?: unknown }): { text: string; loc: string } | null {
+  if (!metaSavedDespiteFailure(result)) return null;
+  const form = (result.data as { form?: unknown }).form as
+    | { message?: { text?: unknown }; errors?: { loc?: unknown }; data?: { loc?: unknown } }
+    | undefined;
+  const locErrors = form?.errors?.loc;
+  const text =
+    (typeof form?.message?.text === 'string' && form.message.text) ||
+    (Array.isArray(locErrors) && typeof locErrors[0] === 'string' && locErrors[0]) ||
+    '';
+  const loc = form?.data?.loc;
+  return text && typeof loc === 'string' ? { text, loc } : null;
+}

@@ -58,7 +58,7 @@
     type ProvenanceResult,
   } from '$lib/node-provenance';
   import NodeRoleInput from '$lib/components/NodeRoleInput.svelte';
-  import { metaSavedDespiteFailure, nodeMetaReseed, nodeMetaSeedKey } from '$lib/node-meta-seed';
+  import { nodeMetaReseed, nodeMetaSeedKey, savedButNotMoved } from '$lib/node-meta-seed';
   import { skillExportMenuHosts } from '$lib/skill-export';
   import NodeAssetCard from '$lib/components/assets/NodeAssetCard.svelte';
   import { canUploadToMemory } from '$lib/assets/can-upload';
@@ -162,6 +162,11 @@
   // Only the text editors; move, delete, history and the other doors keep their existing behavior (out of scope).
   const textReadOnly = $derived(readOnly || isCompiledPrompt);
   let isEditing = $state(false);
+  // #1989: a Save whose edits committed but whose move was refused. The page
+  // holds the refusal and the loc the user typed, because the reload after it
+  // drops the action result and reseeds the form from the node (old loc, no
+  // error); left to superForm, the refusal vanished and the draft reverted.
+  let moveRefusal = $state<{ text: string; loc: string } | null>(null);
 
   // Inline editing. #927: each text editor is a draft based on the revision it
   // opened on, and its save is refused when the node changed since. The drafts
@@ -829,11 +834,20 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    onSubmit: () => { moveRefusal = null; },
     onResult: ({ result }) => {
-      if (result.type !== 'failure') isEditing = false;
+      if (result.type !== 'failure') { isEditing = false; return; }
       // Saved, but the move failed: keep the editor open to fix the location,
-      // and reload the node so the page shows what was actually saved.
-      else if (metaSavedDespiteFailure(result)) void invalidateAll();
+      // and reload the node so the page shows what was actually saved. The
+      // refusal and the typed loc outlive that reload (#1989); the loc goes
+      // back into the draft once, after superForm's reseed, never as a write.
+      const refused = savedButNotMoved(result);
+      if (!refused) return;
+      moveRefusal = refused;
+      void invalidateAll().then(() => {
+        if (moveRefusal !== refused) return;
+        updateMetaFormData.update((current) => ({ ...current, loc: refused.loc }), { taint: true });
+      });
     },
   });
 
@@ -2423,6 +2437,7 @@
       discussionOpened = activeTab === 'discussion';
       editingEdges = false;
       isEditing = false;
+      moveRefusal = null;
       reorderMode = false;
       downloadOpen = false;
       dlError = null;
@@ -4266,8 +4281,8 @@
             <form method="POST" action="?/updateMeta" use:updateMetaEnhance novalidate
               class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
               <input type="hidden" name="_kind" bind:value={$updateMetaFormData._kind} />
-              {#if updateMetaActionError}
-                <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{updateMetaActionError}</div>
+              {#if moveRefusal || updateMetaActionError}
+                <div role="alert" data-testid="node-meta-error" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{moveRefusal?.text ?? updateMetaActionError}</div>
               {/if}
               <div>
                 <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
@@ -4329,7 +4344,7 @@
                 <button type="submit" disabled={readOnly || $updateMetaSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-40">
                   {$updateMetaSubmitting ? t('node.meta.saving', 'Saving...') : $updateMetaMessage?.type === 'error' ? t('node.save.retry', 'Retry') : t('node.meta.save', 'Save')}
                 </button>
-                <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+                <button type="button" onclick={() => { isEditing = false; moveRefusal = null; }} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
               </div>
             </form>
           {:else}
