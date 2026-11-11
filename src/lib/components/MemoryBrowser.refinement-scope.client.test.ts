@@ -41,8 +41,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function mountBrowser() {
-  const props = reactiveProps<Record<string, unknown>>({ nodes: [ALPHA, BETA], basePath: '/app/memories/mem-1', forcedView: 'nodes', refreshKey: 0 });
+function mountBrowser(serverPaged = false) {
+  const props = reactiveProps<Record<string, unknown>>({
+    nodes: [ALPHA, BETA], basePath: '/app/memories/mem-1', forcedView: 'nodes', refreshKey: 0,
+    ...(serverPaged ? { serverPage: { offset: 0, count: 2, total: 2, firstHref: null, previousHref: null, nextHref: null } } : {}),
+  });
   const m = mountComponent(MemoryBrowser as never, props as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   return m.target;
@@ -147,5 +150,21 @@ describe('V74: Node Types and Tags under each content scope (portal#1058)', () =
     expect(refinement(target, 'Tags').disabled).toBe(false);
     expect(rowNames(target)).toContain('Alpha');
     expect(rowNames(target)).not.toContain('Beta');
+  });
+
+  it.each([
+    ['Tags', 'keep', 'COMMENTS'],
+    ['Node Types', 'info', 'ALL'],
+  ] as const)('server-paged %s refinements stay off the %s request so comments survive', async (label, option, scope) => {
+    const target = mountBrowser(true);
+    choose(target, label, option);
+    pickScope(target, scope);
+    await settle();
+    const call = fetchMock.mock.calls.filter(c => c[0] === '/api/nodes/search').at(-1)!;
+    const body = JSON.parse((call[1] as RequestInit).body as string);
+    expect(body.filter.contentScope).toBe(scope);
+    expect(body.filter.nodeTypes).toBeNull();
+    expect(body.filter.tags).toBeNull();
+    expect(commentRows(target)).toBe(1);
   });
 });

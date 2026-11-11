@@ -579,8 +579,11 @@
     approvalState: approvalFilter || null,
     minted: mintedFilter === 'any' ? null : mintedFilter === 'minted',
     contentScope: contentScope === 'CONTENT' ? null : contentScope,
-    nodeTypes: serverPage !== null && activeNodeTypes.size > 0 ? [...activeNodeTypes].sort() : null,
-    tags: serverPage !== null && activeTags.size > 0 ? [...activeTags].sort() : null,
+    // #1058 + #1881: server-side type/tag refinement applies only to CONTENT.
+    // Under COMMENTS/ALL it would remove comment hits before the local
+    // comment-preserving refinement below can run.
+    nodeTypes: serverPage !== null && contentScope === 'CONTENT' && activeNodeTypes.size > 0 ? [...activeNodeTypes].sort() : null,
+    tags: serverPage !== null && contentScope === 'CONTENT' && activeTags.size > 0 ? [...activeTags].sort() : null,
   });
   // A stable key for the fields mask — a fresh Set identity on every toggle
   // would re-run the search effect even when the selection is unchanged (same
