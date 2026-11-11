@@ -6,7 +6,7 @@ import AiServiceConfigManager from '$lib/components/AiServiceConfigManager.svelt
 const date = '2026-11-01T02:04:36Z';
 export function mountOverflowFixture(target: HTMLElement, kind: string) {
   if (kind === 'config') {
-    const configs = Array.from({ length: 4 }, (_, i) => ({ id: `config-${i}`, name: `LongConfigNameWithFortyUnbrokenCharacters${i}`, ownerType: 'APP' as const, ownerId: 'fixture-app', provider: 'anthropic', model: 'fixture-model', endpoint: null, effectiveEndpoint: 'https://example.invalid', apiStyle: null, effectiveApiStyle: null, hasApiKey: true, apiKeyPreview: '…test', params: null, enabled: i % 2 === 0, createdAt: date, updatedAt: null }));
+    const configs = Array.from({ length: 4 }, (_, i) => ({ id: `config-${i}`, name: `LongConfigNameWithFortyUnbrokenCharacters${i}`, ownerType: 'APP' as const, ownerId: 'fixture-app', provider: 'anthropic' as const, model: 'fixture-model', endpoint: null, effectiveEndpoint: 'https://example.invalid', apiStyle: null, effectiveApiStyle: null, hasApiKey: true, apiKeyPreview: '…test', params: null, enabled: i % 2 === 0, createdAt: date, updatedAt: null }));
     const instance = mount(AiServiceConfigManager, { target, props: { ownerType: 'APP', ownerId: 'fixture-app', currentUserId: 'fixture-user', configs, canManage: true } });
     return () => unmount(instance);
   }
@@ -19,7 +19,7 @@ export function mountOverflowFixture(target: HTMLElement, kind: string) {
   }
   const instance = mount(AppRunsTable, { target, props: { appRef: 'fixture', initial: {
     page: 1, total: 1, statuses: [], sort: 'createdAt', dir: 'desc', failed: false, explicitState: true,
-    runs: [{ id: 'fixture-run', appId: 'fixture', organizationId: null, agentId: null, userId: null, triggerKind: 'MANUAL', triggerId: null, entryNodeUrn: 'hrn:node:example.test:fixture:forty-character-unbroken-loc-ABCDEFGHIJKLMN', eventData: null, policy: null, budgetTokens: null, budgetActions: null, status: 'COMPLETED', curNodeUrn: null, parentRunId: null, failure: { code: 'AUTOMATION_UNADOPTED' }, timeoutMs: null, attempts: 1, startedAt: date, finishedAt: '2026-11-01T02:04:39Z', createdAt: date, createdBy: null }],
+    runs: [{ id: 'fixture-run', appId: 'fixture', organizationId: 'fixture-org', agentId: null, userId: null, triggerKind: 'MANUAL', triggerId: null, entryNodeUrn: 'hrn:node:example.test:fixture:forty-character-unbroken-loc-ABCDEFGHIJKLMN', eventData: null, policy: null, budgetTokens: null, budgetActions: null, status: 'COMPLETED', curNodeUrn: null, parentRunId: null, failure: { code: 'AUTOMATION_UNADOPTED' }, timeoutMs: null, attempts: 1, startedAt: date, finishedAt: '2026-11-01T02:04:39Z', createdAt: date, createdBy: null }],
   } } });
   return () => unmount(instance);
 }

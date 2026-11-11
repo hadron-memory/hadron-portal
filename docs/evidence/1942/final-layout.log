@@ -1,0 +1,145 @@
+9:22:24 AM [vite] (client) Re-optimizing dependencies because vite config has changed
+alarms/390/light: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 504,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 294,
+    netOnChangedChannels: 0
+  }
+}
+runs/390/light: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 546,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 537,
+    netOnChangedChannels: 0
+  }
+}
+config/390/light: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 1110,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 1119,
+    netOnChangedChannels: 0
+  }
+}
+alarms/390/dark: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 492,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 294,
+    netOnChangedChannels: 0
+  }
+}
+runs/390/dark: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 540,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 525,
+    netOnChangedChannels: 0
+  }
+}
+config/390/dark: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 1107,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 1119,
+    netOnChangedChannels: 0
+  }
+}
+alarms/1280/light: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 573,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 408,
+    netOnChangedChannels: 0
+  }
+}
+runs/1280/light: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 555,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 495,
+    netOnChangedChannels: 0
+  }
+}
+config/1280/light: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 1005,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 1167,
+    netOnChangedChannels: 0
+  }
+}
+alarms/1280/dark: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 570,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 408,
+    netOnChangedChannels: 0
+  }
+}
+runs/1280/dark: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 552,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 492,
+    netOnChangedChannels: 0
+  }
+}
+config/1280/dark: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 1005,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 1164,
+    netOnChangedChannels: 0
+  }
+}

@@ -1,0 +1,159 @@
+{
+  "kind": "synthetic-real-component-browser-evidence",
+  "baseMain": "645f4d2333def55be0c0599f33c87f1a52b63598",
+  "redFirstCommit": "059f8f3be",
+  "producer": "CELL_SHOTS=<artifact-dir> node scripts/test-table-cell-overflow-layout.mjs",
+  "runtime": {
+    "node": "v22.23.3",
+    "browser": "Playwright Chromium, actual pointer-coarse checked at390",
+    "viewports": [
+      390,
+      1280
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "textSizes": [
+      "normal",
+      "CSS-modeled200%celltext"
+    ]
+  },
+  "limits": [
+    "No API/backend or app stack",
+    "No production or signed-in route",
+    "CSS text scaling, not OS/browser zoom",
+    "Screenshots after assertions except *-default.png taken at initial mount",
+    "Source hashes bind working-tree production/harness content to the eventual committed tree; no invented screenshot commit SHA"
+  ],
+  "sourceSHA256": {
+    "src/lib/components/table/DataTable.svelte": "e8b6377544038b3691a2053b5e27dd0553c967edb2b33b0163cf8ac8a8f4449d",
+    "src/lib/components/agent-tasks/TasksAlarms.svelte": "9f6c91a973f289cb80cb76ab2599b5f23ea0318f8f597bf6737d3809a17ed184",
+    "src/lib/components/AppRunsTable.svelte": "dac2b6ecb12e0726b355c309758062ca4b93750b331067a244b39bf4932d6010",
+    "src/lib/components/AiServiceConfigManager.svelte": "fd524a924c507b2a22859958dd88fe4cc858b65dd899ae71a20791c762d58a7e",
+    "src/lib/test/fixtures/table-cell-overflow-harness.ts": "5d95f049e50c38cf1c737498f52c96e441646f346857528539f5a10925007ce5",
+    "scripts/test-table-cell-overflow-layout.mjs": "095534d7c90bbf472cea9d71e736618254531a7c1ed3724c5b0c467d2ddd3169"
+  },
+  "artifacts": {
+    "alarms-1280-dark-default.png": {
+      "bytes": 44926,
+      "sha256": "d8313ce7f04636230a226cb9cb67a891cc2edea9f5cc8e4e10924e15183ad68b"
+    },
+    "alarms-1280-dark.png": {
+      "bytes": 44259,
+      "sha256": "8079fef53bdc031f7921aa841bb74a01113d235c10245656a5baa028f1e54c0c"
+    },
+    "alarms-1280-light-default.png": {
+      "bytes": 44339,
+      "sha256": "cbe18b9e9fa54adb5537e59046c9788eccab96c96a2773c7790e9ab3cb56c417"
+    },
+    "alarms-1280-light.png": {
+      "bytes": 43848,
+      "sha256": "1064d18ef13a2b73dd29695ff99a318138292f8745258bd8fb26fc435283da49"
+    },
+    "alarms-390-dark-default.png": {
+      "bytes": 18042,
+      "sha256": "c8c1d50558d5171ddff29728c2b361489c0831015cc5075b09368be9bc7a8641"
+    },
+    "alarms-390-dark.png": {
+      "bytes": 23977,
+      "sha256": "293c565b9e84386369740625cc72f241318065944efa62b750e50ff97be41e00"
+    },
+    "alarms-390-light-default.png": {
+      "bytes": 17854,
+      "sha256": "dcb7eb3561e1199293a7e70de9f1412b56b9827657d23b38c847e5e00239c848"
+    },
+    "alarms-390-light.png": {
+      "bytes": 23515,
+      "sha256": "253e42800ce41a0a9f9f496474234079317c1c15b506c253bab509c6bafb1de2"
+    },
+    "config-1280-dark-default.png": {
+      "bytes": 86184,
+      "sha256": "c3075b121eab4d63ac0e7de3976bf890f085a10dfb54048c1cef77cab045845d"
+    },
+    "config-1280-dark.png": {
+      "bytes": 87434,
+      "sha256": "643d0c083af907ea7af51f69dfeff25e6ec88e55a8ae4415e2c5df852f0db1b7"
+    },
+    "config-1280-light-default.png": {
+      "bytes": 86379,
+      "sha256": "a76b96a5c511a1e435f7e46dca0ad41dc2ce121f49c1da077f347bb2bf3bf1da"
+    },
+    "config-1280-light.png": {
+      "bytes": 87473,
+      "sha256": "be054761b4a48ae12b9c43cc46c9010567aae2d347caf22e2444600b46c27b57"
+    },
+    "config-390-dark-default.png": {
+      "bytes": 50665,
+      "sha256": "a5df3e843f44252dc51c37544be48c8fc41c744f04f1deb3f888678f15b1e7e9"
+    },
+    "config-390-dark.png": {
+      "bytes": 43533,
+      "sha256": "5154b2f7ea18c70b8664c6baa3e96a3fd1725635ce3046118a3319ec003be9c4"
+    },
+    "config-390-light-default.png": {
+      "bytes": 50493,
+      "sha256": "73d7b4d1574dcc104f17da77f652dacecddeaf56b0d19b997bc5871bdbc4c219"
+    },
+    "config-390-light.png": {
+      "bytes": 43162,
+      "sha256": "e03f6224c3921b2e642a5f129e8cb7425ced19be4d43d30491fbbdea1f136f75"
+    },
+    "final-layout.log": {
+      "bytes": 3494,
+      "sha256": "88d7ec59e7670cb8b1a68e4ffe5c5186a7e97ce47ac00b446ee76e7d754f0005"
+    },
+    "mutant-aria.log": {
+      "bytes": 1365,
+      "sha256": "59ab2635dfec945672a0ab80f27f115d51853ca37bc6d2eec0df1b4664132fee"
+    },
+    "mutant-net.log": {
+      "bytes": 651,
+      "sha256": "c4bca2e188a51aba4c0bc8ae88aa61a0579f85e8c21ed41bf138d795dcf0406f"
+    },
+    "mutant-wrap.log": {
+      "bytes": 760,
+      "sha256": "a10cb5eb947bae422dfdf2962d9aa882cb2d9168bc8d047c95839acb9264383f"
+    },
+    "red-sizing.log": {
+      "bytes": 1365,
+      "sha256": "7fac5ea97edeba7c6e60a995468ccaa7d4c35d6422b6966ae69cd0665b447553"
+    },
+    "red.log": {
+      "bytes": 19525,
+      "sha256": "67d2ed9325377b9029696b9c2553e89017be809bf986b1775de1675d66f6015e"
+    },
+    "runs-1280-dark-default.png": {
+      "bytes": 38048,
+      "sha256": "fe440490dbbbf380956b2ee3247583a53e955accb829d21a2e3bad9a59d6b199"
+    },
+    "runs-1280-dark.png": {
+      "bytes": 37772,
+      "sha256": "6f85dd72e8a642003662ac8002ff6feacf9d5289aebf8a4bc46f9b0602334228"
+    },
+    "runs-1280-light-default.png": {
+      "bytes": 36981,
+      "sha256": "1669f3c9eae2423bb5b93cd769c89aa4e817ab20ec50aa153573b05408918a3e"
+    },
+    "runs-1280-light.png": {
+      "bytes": 36813,
+      "sha256": "e29fd5b141cb48ab448e9453c3852e6830996ff3a3d7ea06f1b14f7a3d6a3a3d"
+    },
+    "runs-390-dark-default.png": {
+      "bytes": 24688,
+      "sha256": "b3f71149ab21e01f690956d6e7db5e6d8257584fa51847318a88e39f6509d89f"
+    },
+    "runs-390-dark.png": {
+      "bytes": 27405,
+      "sha256": "29353f81555942de8575e32fd7f30bdba1b4613bc5ab22881c686135e1aa711e"
+    },
+    "runs-390-light-default.png": {
+      "bytes": 24062,
+      "sha256": "62ee35883a55a640994572ff1c44e5916e50be4917bac7dba9ed4ee691315c86"
+    },
+    "runs-390-light.png": {
+      "bytes": 26830,
+      "sha256": "fda2d6a78f2542c541224ef0b53f5e0ab2a3188603b3a543484d411e301e93cb"
+    }
+  }
+}

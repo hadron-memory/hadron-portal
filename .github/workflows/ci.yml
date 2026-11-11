@@ -128,6 +128,9 @@ jobs:
       - name: Check shared tab-row overflow and keyboard layout
         run: pnpm test:tab-row-layout
 
+      - name: Check opt-in table cell paint and interactive minima
+        run: pnpm test:table-cell-overflow-layout
+
       - name: Check App Runs table layout
         run: pnpm test:app-runs-layout
 

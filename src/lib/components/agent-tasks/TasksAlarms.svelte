@@ -98,17 +98,18 @@
 
   let globalFilter = $state('');
   const columns: PortalColumnDef<AlarmRow>[] = [
-    { id: 'raised', accessorFn: (r) => r.raisedMs, header: t('app.tasks.alarms.col.raised', 'Raised'), size: 170 },
+    { id: 'raised', accessorFn: (r) => r.raisedMs, header: t('app.tasks.alarms.col.raised', 'Raised'), size: 200 },
     { id: 'rule', accessorFn: (r) => r.rule, header: t('app.tasks.alarms.col.rule', 'Rule'), enableHiding: false, size: 170 },
-    { id: 'task', accessorFn: (r) => r.task, header: t('app.tasks.alarms.col.task', 'Task'), size: 260 },
-    { id: 'status', accessorFn: (r) => r.status, header: t('app.tasks.alarms.col.status', 'Status'), enableHiding: false, size: 300 },
-    { id: 'concerns', accessorFn: (r) => r.concerns, header: t('app.tasks.alarms.col.concerns', 'Concerns'), size: 200 },
+    { id: 'task', accessorFn: (r) => r.task, header: t('app.tasks.alarms.col.task', 'Task'), size: 260, minSize: 160 },
+    { id: 'status', accessorFn: (r) => r.status, header: t('app.tasks.alarms.col.status', 'Status'), enableHiding: false, size: 300, minSize: 120 },
+    { id: 'concerns', accessorFn: (r) => r.concerns, header: t('app.tasks.alarms.col.concerns', 'Concerns'), size: 200, minSize: 120 },
     { id: 'woke', accessorFn: (r) => r.woke, header: t('app.tasks.alarms.col.woke', 'Woke'), enableSorting: false, size: 240 },
     { id: 'chain', accessorFn: (r) => r.chain, header: t('app.tasks.alarms.col.chain', 'Chain'), enableSorting: false, size: 260 },
   ];
   const table = createSvelteTable<AlarmRow>({
     get data() { return rows; },
     columns,
+    defaultColumn: { minSize: 40 },
     enableMultiSort: false,
     enableColumnResizing: true,
     columnResizeMode: 'onChange',
@@ -184,7 +185,9 @@
       {emptyText}
     </div>
   {/if}
+  <div class="alarms-grid min-w-0">
   <DataTable
+    containCells
     {table}
     listKey="app-tasks:alarms"
     searchPlaceholder={t('app.tasks.alarms.search', 'Search alarms…')}
@@ -195,7 +198,7 @@
     {#snippet cell(cell, row)}
       {@const a = row.alarm}
       {#if cell.column.id === 'raised'}
-        <span class="whitespace-nowrap">{fmtRunTime(a.createdAt)}</span>
+        <span class="[overflow-wrap:anywhere]">{fmtRunTime(a.createdAt)}</span>
       {:else if cell.column.id === 'rule'}
         <span class="font-medium text-red-700 dark:text-red-300">{row.rule}</span>
       {:else if cell.column.id === 'task'}
@@ -216,8 +219,23 @@
           </span>
         {/if}
       {:else}
-        <span class="block max-w-full truncate">{cell.getValue() || '—'}</span>
+        <span class="block max-w-full [overflow-wrap:anywhere]">{cell.getValue() || '—'}</span>
       {/if}
     {/snippet}
   </DataTable>
+  </div>
 {/if}
+
+<style>
+  /* Cell-local adaptation; TaskRef/PartyLabel/CopyCode elsewhere stay unchanged. */
+  .alarms-grid :global(td .inline-flex) { flex-wrap: wrap; }
+  .alarms-grid :global(td [data-task-handle]) { position: relative; min-width: 0; max-width: 100%; flex-shrink: 1; }
+  .alarms-grid :global(td a) { max-width: 100%; min-width: 44px; white-space: normal; overflow-wrap: anywhere; }
+  .alarms-grid :global(td button), .alarms-grid :global(td a) {
+    display: inline-flex; align-items: center; min-height: 44px;
+  }
+  .alarms-grid :global(td button) { min-width: 44px; }
+  .alarms-grid :global(td button:focus-visible), .alarms-grid :global(td a:focus-visible) {
+    outline: 2px solid var(--color-indigo-500); outline-offset: 2px;
+  }
+</style>
