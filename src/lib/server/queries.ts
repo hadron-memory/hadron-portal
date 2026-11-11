@@ -634,6 +634,51 @@ export const MEMORY_OWNER_PUBLIC_ORG_QUERY = /* GraphQL */ `
   }
 `;
 
+/** #1846: /app/u needs only the canonical id, never the profile's nested lists. */
+export const PUBLIC_ORGANIZATION_ROUTE_QUERY = /* GraphQL */ `
+  query PublicOrganizationRoute($ref: ID!) {
+    publicOrganization(ref: $ref) { id }
+  }
+`;
+
+/**
+ * hrn:node:hadronmemory.com:specs:cor:acl:080:02 — the bounded, closed
+ * projections rendered by /app/org/[id]. The portal's static GraphQL validator
+ * requires argument and variable names to match, so the independently paged
+ * kinds use one bounded request each rather than generated literals.
+ */
+export const PUBLIC_ORGANIZATION_MEMORIES_QUERY = /* GraphQL */ `
+  query PublicOrganizationMemories($ref: ID!, $limit: Int, $offset: Int) {
+    publicOrganization(ref: $ref) {
+      id
+      name
+      urn
+      listedOnMarketplace
+      publicMemoriesPage(limit: $limit, offset: $offset) {
+        items { id name urn description }
+        total
+        hasMore
+      }
+    }
+  }
+`;
+
+export const PUBLIC_ORGANIZATION_AGENTS_QUERY = /* GraphQL */ `
+  query PublicOrganizationAgents($ref: ID!, $limit: Int, $offset: Int) {
+    publicOrganization(ref: $ref) {
+      id
+      name
+      urn
+      listedOnMarketplace
+      publicAgentsPage(limit: $limit, offset: $offset) {
+        items { id name urn description }
+        total
+        hasMore
+      }
+    }
+  }
+`;
+
 // #1173: bundle an Agent with another (an AgentImport edge). The Org-to-Agent
 // license that lets an org install a subscribed Agent also authorizes bundling
 // it. The server owns the rules (one level of imports, no cycle, who may);

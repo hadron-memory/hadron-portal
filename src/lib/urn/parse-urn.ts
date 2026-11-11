@@ -7,6 +7,8 @@
  * package now; only portal route/link helpers remain local.
  */
 
+import { encodeUrnPathSegment } from './encode-urn-segment';
+
 export {
   CANONICAL_SCHEME,
   LEGACY_SCHEME,
@@ -131,12 +133,19 @@ export function normalizeUrn(raw: string): string {
  * produce a stable, shareable link that the resolver route (#262) 307-redirects
  * to the resource's canonical page.
  *
- * Keep the URN raw, not percent-encoded. The grammar only produces `:`
- * delimiters plus slug atoms, and the resolver route is a single path segment,
- * so escaping the colons would make the link harder to read without improving
- * correctness.
+ * Keep the canonical URN readable: its colon-delimited grammar is unchanged by
+ * the segment encoder. Slash, dot-navigation, query/fragment, percent and
+ * control characters are still escaped so a malformed or legacy value cannot
+ * escape the resolver's single path segment (#1512 / #1846).
+ *
+ * A valid node/App-run `#data` suffix is the one fragment exception. It must
+ * remain a browser fragment so the browser re-applies it across the resolver's
+ * canonical redirect, per hrn:node:hadronmemory.com:specs:cor:urn:010:01.
  */
 export function buildResolverUrl(baseUrl: string, urn: string): string {
   const base = baseUrl.replace(/\/+$/, '');
-  return `${base}/app/u/${urn}`;
+  const hasDataFragment = /^(?:hrn|urn):(?:node|apprun):.*#data$/.test(urn);
+  const pathUrn = hasDataFragment ? urn.slice(0, -'#data'.length) : urn;
+  const fragment = hasDataFragment ? '#data' : '';
+  return `${base}/app/u/${encodeUrnPathSegment(pathUrn)}${fragment}`;
 }

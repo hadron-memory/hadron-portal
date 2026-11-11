@@ -53,8 +53,8 @@
                   value={ownerAttribution.urn}
                   type="org"
                   compact={ownerAttribution.source !== 'memory-urn'}
-                  linked={ownerAttribution.source === 'member'}
-                  copyUrl={ownerAttribution.source === 'member'}
+                  linked={ownerAttribution.source !== 'memory-urn'}
+                  copyUrl={ownerAttribution.source !== 'memory-urn'}
                   label={t('memory-info.organization', 'organization')}
                 />
               </span>
