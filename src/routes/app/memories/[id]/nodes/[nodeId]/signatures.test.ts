@@ -219,6 +219,25 @@ describe('node page — Sign affordance (portal#1022 links half)', () => {
     expect(mockRequest.mock.calls.filter(([doc]) => doc === REQUEST_SIGNATURE_MUTATION)).toEqual([]);
   });
 
+  it.each([
+    new Error('synthetic private upstream: https://internal.example/query?token=synthetic-secret'),
+    new TypeError('synthetic TLS failure at /private/synthetic-key'),
+    new ClientError(
+      { status: 503, headers: new Headers() } as never,
+      { query: 'query SyntheticPrivate { node(ref: "synthetic-secret") { id } }' },
+    ),
+  ])('#1896: a transport fault keeps the generic fallback, never its private detail (%#)', async (fault) => {
+    serve(() => ({}), () => { throw fault; });
+    const result = await requestSignature();
+    expect(result).toEqual({
+      status: 400,
+      data: { requestSignatureError: 'Could not start a signing request.' },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/internal\.example|synthetic-secret|private\/synthetic-key|SyntheticPrivate/);
+    expect(mockRequest.mock.calls.filter(([doc]) => doc === REQUEST_SIGNATURE_MUTATION))
+      .toEqual([[REQUEST_SIGNATURE_MUTATION, { nodeRef: 'leaf-pk', expectedRevision: 4 }]]);
+  });
+
   it('an unknown code keeps the generic line — never a borrowed reason', async () => {
     serve(() => ({}), () => {
       throw refused('SOME_FUTURE_CODE');
