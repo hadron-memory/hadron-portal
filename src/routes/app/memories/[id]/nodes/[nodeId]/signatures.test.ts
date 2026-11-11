@@ -243,7 +243,7 @@ describe('node page — Sign affordance (portal#1022 links half)', () => {
       fetch: async () => new Response('synthetic private body /private/key', { status: 503, headers: { 'content-type': 'text/plain' } }),
     });
     let fault: unknown;
-    try { await client.request('query SyntheticPrivate { node(ref: "synthetic-secret") { id } }'); }
+    try { await client.request(NODE_BY_ID_QUERY, { ref: 'synthetic-secret' }); }
     catch (error) { fault = error; }
     expect(fault).toBeInstanceOf(ClientError);
     expect((fault as ClientError).response).toMatchObject({ status: 503, body: 'synthetic private body /private/key' });
