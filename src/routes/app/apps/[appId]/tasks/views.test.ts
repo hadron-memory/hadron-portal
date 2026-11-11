@@ -35,12 +35,15 @@ function page(data: Record<string, unknown>, form: unknown = null) {
 
 describe('portal#1941', () => {
   it.each(['alarmBefore', 'alarmAfter'])('acknowledges within the selected %s page (#1983 QA delta)', key => {
-    const cursor = 'event-page-boundary';
-    setStubPage(`http://localhost/app/apps/app-1/tasks?view=alarms&alarms=all&${key}=${cursor}`, { appId: 'app-1' });
+    const cursor = 'a&b=c/d+e%';
+    setStubPage(`http://localhost/app/apps/app-1/tasks?view=alarms&alarms=all&${key}=${encodeURIComponent(cursor)}`, { appId: 'app-1' });
     try {
       const html = page({ view: 'alarms', alarmFilter: 'all', alarms: { kind: 'ok', value: { alarms: [{ id: 'e1', type: 'stall.not-started', severity: 'ALARM', taskId: null, createdAt: '2026-11-11T10:00:00Z', subjectWorker: null, acknowledgedAt: null, acknowledgedBy: null, wakes: [] }] } } });
-      const action = html.match(/<form[^>]*action="([^"]+)/)?.[1]?.replaceAll('&amp;', '&');
-      const target = new URL(action!, 'http://localhost');
+      const form = html.match(/<form\b[^>]*>[\s\S]*?<\/form>/g)?.find(form => /name="eventId"[^>]*value="e1"/.test(form));
+      expect(form).toBeDefined();
+      const action = form?.match(/action="([^"]+)/)?.[1]?.replaceAll('&amp;', '&');
+      expect(action).toBeDefined();
+      const target = new URL(action as string, 'http://localhost');
       expect(target.pathname).toBe('/app/apps/app-1/tasks');
       expect(target.searchParams.get('view')).toBe('alarms');
       expect(target.searchParams.get('alarms')).toBe('all');
