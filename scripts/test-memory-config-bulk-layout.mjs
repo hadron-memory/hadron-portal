@@ -31,7 +31,12 @@ try {
   await page.goto(new URL('/__blank', origin).href);
   await page.evaluate(({ css, dark }) => { document.head.innerHTML = `<style>${css}</style>`; document.body.innerHTML = `<div class="min-h-screen ${dark ? 'bg-zinc-950 text-zinc-100' : 'bg-zinc-50 text-zinc-900'}"><main style="max-width:1100px;margin:0 16px;padding:16px 0" id="fixture"></main></div>`; document.documentElement.classList.toggle('dark', dark); }, { css, dark });
   await page.evaluate(width => {
-   const view = { sorting: [], columnFilters: [], globalFilter: '', columnVisibility: {}, columnOrder: [], columnSizing: { memory: width === 1280 ? 1600 : 280 }, pagination: { pageIndex: 0, pageSize: 50 } };
+   // #1954: phones seed a saved width WIDER than any phone scroller (500), so
+   // the single-column fit's 100% collapse is the only way the table fits —
+   // a broken media query renders 500px of horizontal scroll and fails the
+   // geometry oracle below. 768 keeps the old 280 (mid-width desktop path);
+   // 1280 seeds the wide desktop saved view its own assertion checks.
+   const view = { sorting: [], columnFilters: [], globalFilter: '', columnVisibility: {}, columnOrder: [], columnSizing: { memory: width === 1280 ? 1600 : width < 640 ? 500 : 280 }, pagination: { pageIndex: 0, pageSize: 50 } };
    const record = { id: 'legacy-280', listKey: 'node-role-template-bulk-apply', name: 'Legacy 280', view, isDefault: true, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' };
    localStorage.setItem('hadron:views:v1:node-role-template-bulk-apply', JSON.stringify([record]));
   }, width);
@@ -46,9 +51,18 @@ try {
   const tableGeometry = async (state, expectedRows) => {
    const tableScroller = panel.getByTestId('data-table-scroller');
    if (width < 640) {
-    const table = await tableScroller.locator('table').elementHandle();
-    await page.waitForFunction(el => el.style.width === '100%', table);
-    await table.dispose();
+    // #1954/#1973 review: the phone fit ships as an inline --phone-table-w
+    // custom property consumed by max-sm:w-[var(--phone-table-w)]. The value
+    // ships IN the SSR markup, so waiting on it synchronizes on nothing —
+    // measure the EXECUTED geometry instead: the table renders exactly as
+    // wide as its scroller. The seeded 500px saved view is wider than any
+    // phone scroller, so only the media-query collapse passes (a broken
+    // max-sm renders 500px and fails by value, not by timing).
+    const fit = await tableScroller.evaluate(el => {
+     const table = el.querySelector('table');
+     return { scroller: el.clientWidth, table: table.getBoundingClientRect().width };
+    });
+    assert.ok(Math.abs(fit.table - fit.scroller) <= 1, `${label}: ${state} single-column phone fit executes: table ${fit.table}px vs scroller ${fit.scroller}px (seeded saved width 500px)`);
     assert.equal(await tableScroller.getByRole('separator').count(), 0, `${label}: ${state} hides the resize separator while phone fitting is active`);
    }
    const scrollerBox = await tableScroller.boundingBox();

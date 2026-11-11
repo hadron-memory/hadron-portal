@@ -13,6 +13,11 @@
   import { scrollTopAfterPrepend } from '$lib/team-chat-refresh';
   import { t } from '$lib/i18n/t.js';
   import { chatScopeStrings } from '$lib/i18n/chat-scope-strings.js';
+  import {
+    chatAiChoiceLabel,
+    initialChatAiChoice,
+    type ChatAiChoiceOption,
+  } from '$lib/chat-ai-choice';
 
   function renderMarkdown(text: string): string {
     const raw = renderChatMarkdown(text);
@@ -23,15 +28,37 @@
   // asset uploads. The parent page picks the destination memory (for now,
   // the agent's first writable memory). Multi-writable memory-picker UX
   // is a follow-up; the dominant single-writable case auto-picks.
-  // 036-ai-service-config: the App chat tab passes appId + the picked
-  // configName so turns resolve in app-context against the chosen config.
-  // The agent-builder chat omits both (agent-context, `default`).
+  // 036-ai-service-config: the App chat tab passes appId so turns resolve in
+  // app-context. portal#1963 (hadron-server#3957): it also passes the server's
+  // list of AI config choices, and the chat shows a dropdown over them. The
+  // agent-builder chat omits both (agent-context, `default`, no dropdown).
   let {
     agentId,
     uploadMemoryId,
     appId,
-    configName,
-  }: { agentId: string; uploadMemoryId?: string; appId?: string; configName?: string } = $props();
+    aiChoices = null,
+  }: { agentId: string; uploadMemoryId?: string; appId?: string; aiChoices?: ChatAiChoiceOption[] | null } = $props();
+
+  // portal#1963: the choice stored with the open chat (null for a new chat, or none stored), and the one the
+  // user picked in the dropdown. A pick is what gets SENT, so the server stores it; until the user picks, the
+  // chat runs the shown config by name and sends no choice, exactly as before. The shown value mirrors the
+  // server's order: the stored choice while the list still has it, else the App's chatbot config, else default.
+  let storedAiChoice = $state<string | null>(null);
+  let pickedAiChoice = $state<string | null>(null);
+  const hasAiChoices = $derived(Array.isArray(aiChoices) && aiChoices.length > 0);
+  // A pick counts only while the list still has it: the list drops a config deleted or disabled on the AI
+  // tab, and config ids are per App, so a pick made in one App never carries into another's list.
+  const livePickedAiChoice = $derived(
+    pickedAiChoice !== null && hasAiChoices && aiChoices!.some((o) => o.value === pickedAiChoice) ? pickedAiChoice : null,
+  );
+  const shownAiChoice = $derived(
+    hasAiChoices ? (livePickedAiChoice ?? initialChatAiChoice(aiChoices!, storedAiChoice)) : null,
+  );
+  /** The body fields a start or a turn carries for the AI config: the pick only. No config name is ever sent;
+   *  the portal server resolves from the choice, else the chat's stored one (portal#1963, Juliet's BLIND F1). */
+  function aiConfigFields(): { aiConfigChoice?: string } {
+    return hasAiChoices && livePickedAiChoice !== null ? { aiConfigChoice: livePickedAiChoice } : {};
+  }
 
   let pendingAttachments = $state<AssetSummary[]>([]);
 
@@ -308,13 +335,17 @@
     messages = [];
     // A chat that does not exist yet has no history behind it.
     resetScrollback();
+    // portal#1963: leaving an open chat for a new one starts from the preselection, never from the old chat's
+    // choice. A pick made while no chat was open is meant for this new chat and is kept.
+    if (activeChatId !== null) pickedAiChoice = null;
+    storedAiChoice = null;
     activeChatId = null;
     activeChatMeta = null;
     try {
       const res = await fetch('/api/agent-chat/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId, scope: nextChatScope, appId, configName }),
+        body: JSON.stringify({ agentId, scope: nextChatScope, appId, ...aiConfigFields() }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -392,6 +423,9 @@
     activeChatId = chatId;
     syncChatIdToUrl(chatId);
     activeChatMeta = null;
+    // portal#1963: the reopened chat shows its own stored choice, not the previous chat's pick.
+    pickedAiChoice = null;
+    storedAiChoice = chats.find((c) => c.loc === chatId || c.id === chatId)?.aiConfigChoice ?? null;
     try {
       const res = await fetch('/api/agent-chat/resume', {
         method: 'POST',
@@ -400,6 +434,8 @@
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? 'Failed to resume chat');
+      // The fresh read wins over the list row, unless the user picked while it was in flight.
+      if (activeChatId === chatId) storedAiChoice = body.chat?.aiConfigChoice ?? null;
       activeChatMeta = {
         title: body.chat.title,
         conversationName: body.chat.conversationName,
@@ -456,7 +492,7 @@
       const res = await fetch('/api/agent-chat/turn', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId, chatId, userMessage: text, appId, configName }),
+        body: JSON.stringify({ agentId, chatId, userMessage: text, appId, ...aiConfigFields() }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -954,6 +990,26 @@
             Send
           </button>
         </div>
+      </div>
+    {/if}
+    {#if hasAiChoices}
+      <!-- portal#1963: the AI config for this chat (or, with none open, the next one). Below the chat, where
+           model pickers sit in most chat apps. A config the portal can't run yet stays listed, disabled, with
+           its reason in the label: the server's list never carries a config's own disabled state.
+           `min-w-0` lets a long label give way on a phone (#740). -->
+      <div class="flex items-center gap-2 border-t border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800">
+        <label for="agent-chat-ai-config" class="shrink-0 text-zinc-500 dark:text-zinc-400">{t('agent-chat.ai-config.label', 'AI config')}</label>
+        <select
+          id="agent-chat-ai-config"
+          value={shownAiChoice ?? ''}
+          disabled={sending || loadingChat}
+          onchange={(e) => (pickedAiChoice = e.currentTarget.value)}
+          class="min-w-0 truncate rounded-lg border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+        >
+          {#each aiChoices ?? [] as choice (choice.value)}
+            <option value={choice.value} disabled={choice.unavailableReason !== null}>{chatAiChoiceLabel(choice)}</option>
+          {/each}
+        </select>
       </div>
     {/if}
   </main>

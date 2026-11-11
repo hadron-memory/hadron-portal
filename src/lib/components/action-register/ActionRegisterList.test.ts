@@ -72,7 +72,10 @@ describe('empty and paging', () => {
 });
 
 // portal#1654 — the P3s from the #1651 reviews, one pin per item.
-const widths = (out: string) => [...out.matchAll(/<th[^>]*style="width: (\d+)px/g)].map((m) => Number(m[1]));
+// #1954 moved the SSR'd column width from an inline `width` into the
+// `--col-w` custom property the `w-[var(--col-w)]` class consumes; the
+// pinned intent (resolved per-column width in server markup) is unchanged.
+const widths = (out: string) => [...out.matchAll(/<th[^>]*style="--col-w: (\d+(?:\.\d+)?)px/g)].map((m) => Number(m[1]));
 
 describe('#1654 item 1: Code column at 390px', () => {
   it('the Code column is narrower than the answer column and no wider than 120px', () => {

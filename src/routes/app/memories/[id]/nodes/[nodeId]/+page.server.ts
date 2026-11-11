@@ -1537,7 +1537,7 @@ export const actions: Actions = {
       // an unknown code a newer server added, a transport failure — keeps the
       // generic line, never a borrowed reason (the gql-error convention).
       failure = signatureRequestRefusalText(extractGqlErrorCode(e))
-        ?? extractGqlError(e, t('node.signatures.request.failed', 'Could not start a signing request.'));
+        ?? extractGqlError(e, t('node.signatures.request.failed', 'Could not start a signing request.'), [], { transport: 'fallback' });
     }
     return fail(400, { requestSignatureError: failure });
   },

@@ -203,6 +203,8 @@ export interface Chat {
   scope: 'private' | 'shared';
   /** Spec 017 — chat author (chat-root createdBy). Null on legacy chats. */
   createdBy: string | null;
+  /** portal#1963 (hadron-server#3957): `default`, a config id, or null when the chat stored no choice. */
+  aiConfigChoice?: string | null;
 }
 
 /** One message in a chat history. */

@@ -189,12 +189,14 @@ describe('portal#1611 /turn reports the model it will call, every turn', () => {
   });
 
   it('A7: the decrypted key is never in any start or send variables, and resolution keeps its arguments', async () => {
+    // Without an App (the Tester's path) the named config is resolved as asked. In an App the portal resolves
+    // from the choice or the chat instead (portal#1963; ai-config-choice-1963.test.ts).
     setup({ resolve: [config('model-X')] });
-    await start({ agentId: 'agent-1', appId: 'app-1', configName: 'fast' });
-    await turn({ agentId: 'agent-1', chatId: 'chat-1', userMessage: 'hi', appId: 'app-1', configName: 'fast' });
+    await start({ agentId: 'agent-1', configName: 'fast' });
+    await turn({ agentId: 'agent-1', chatId: 'chat-1', userMessage: 'hi', configName: 'fast' });
     const wire = JSON.stringify([...callsOf(START_CHAT_MUTATION), ...callsOf(SEND_CHAT_MESSAGE_MUTATION)]);
     expect(wire).not.toContain(KEY);
-    expect(callsOf(RESOLVE_AI_CONFIG_QUERY)[0]).toEqual({ name: 'fast', appRef: 'app-1', agentRef: 'agent-1' });
+    expect(callsOf(RESOLVE_AI_CONFIG_QUERY)[0]).toEqual({ name: 'fast', agentRef: 'agent-1' });
   });
 });
 
