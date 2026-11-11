@@ -6,7 +6,10 @@ export function percent(value: number | null): string {
 }
 export function range(low: number | null, high: number | null): string {
   if (low === null || high === null) return '—';
-  return `${percent(low).replace(/%$/, '')}–${percent(high)}`;
+  const lower = percent(low), upper = percent(high);
+  if (lower === upper) return lower;
+  if (low >= 0 && low < 1 && high > 0 && high < 1) return '<1%';
+  return `${lower.replace(/%$/, '')}–${upper}`;
 }
 export function reasonText(reason: string | null): string {
   const reasons: Record<string, string> = {

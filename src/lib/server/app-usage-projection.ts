@@ -32,7 +32,7 @@ export async function loadUsageView(client: GraphQLClient, appRef: string, param
   }
   const key = params.get('account');
   const selected = key === null ? list.accounts[0] ?? null : list.accounts.find(a => accountKey(a) === key) ?? null;
-  const view: Extract<UsageView, { kind: 'ok' }> = { kind: 'ok', ...list, selected, projection: null, whatIf: null, invalid: key !== null && !selected, target: null };
+  const view: Extract<UsageView, { kind: 'ok' }> = { kind: 'ok', ...list, selected, projection: null, whatIf: null, invalid: key !== null && !selected, question: null, target: null };
   if (!selected) return view;
   view.projection = await loadAccountProjection(client, appRef, selected);
   if (view.projection.kind === 'hidden') return { kind: 'hidden' };
@@ -44,10 +44,12 @@ export async function loadUsageView(client: GraphQLClient, appRef: string, param
   if (add !== null) {
     if (!/^\d+$/.test(add) || Number(add) < 1 || Number(add) > 50) { view.invalid = true; return view; }
     whatIf = { addWorkers: Number(add) };
+    view.question = { kind: 'add', count: Number(add) };
   } else {
     const target = list.accounts.find(a => accountKey(a) === params.get('to'));
     if (view.projection.kind !== 'ok' || !view.projection.value.workers.includes(move!) || !target || accountKey(target) === accountKey(selected)) { view.invalid = true; return view; }
     view.target = target;
+    view.question = { kind: 'move', worker: move!, targetKey: accountKey(target) };
     whatIf = { moveWorker: { worker: move!, toAccount: target.account, toHost: target.host, toFamily: target.family } };
   }
   view.whatIf = await loadAccountProjection(client, appRef, selected, whatIf);
