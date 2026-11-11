@@ -125,6 +125,9 @@ describe('portal#1685 saved signature/trailer link advice', () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(fetcher.mock.calls[1][1]?.method ?? 'GET').toBe('GET');
     expect(root.textContent).not.toContain('Couldn’t check');
+    // #1852: the unavailable state does not merely clear. A successful Retry that
+    // reads zero warnings renders the server-zero copy, not an empty region.
+    expect(root.querySelector('[data-signature-lint]')?.textContent).toContain('No worker-link warnings on the saved values.');
     expect(document.activeElement).toBe(root.querySelector('[data-signature-lint]'));
   });
   it('shows partial count and neutral advice for unknown kinds/fields, never backend prose', async () => {
@@ -233,4 +236,68 @@ describe('portal#1685 saved signature/trailer link advice', () => {
     expect(advice(root, 'signature')).not.toBe(original);
   });
 
+  // #1852 — late in-flight results after a TRUE worker change (the loader hands
+  // this same mounted section a different worker: id, signature and trailer all
+  // change), not only the id-only navigation pinned above.
+  describe('#1852 late in-flight reads', () => {
+    async function openReplaceable(fetcher: ReturnType<typeof vi.fn>) {
+      vi.stubGlobal('fetch', fetcher);
+      const worker = reactiveProps({ value: { id: 'a', signature: 'sig-a', trailer: 'trl-a' } });
+      const initialForm = await superValidate({ signature: 'sig-a', trailer: 'trl-a', signatureBase: 'sig-a', trailerBase: 'trl-a' }, zod4(updateSignatureSchema), { errors: false, id: updateSignatureFormId('a') });
+      const m = mountComponent(Section as never, { get workerId() { return worker.value.id; }, get signature() { return worker.value.signature; }, get trailer() { return worker.value.trailer; }, initialForm, retired: false, actionResult: undefined } as never);
+      mounted.push(m.unmount); await settle();
+      return { root: m.target, worker };
+    }
+    const pendingFetcher = () => { const pending: ((r: unknown) => void)[] = []; return { pending, fetcher: vi.fn().mockImplementation(() => new Promise<unknown>(r => { pending.push(r); })) }; };
+
+    it('drops worker A\'s late result after the loader replaces it with worker B', async () => {
+      const { pending, fetcher } = pendingFetcher();
+      const { root, worker } = await openReplaceable(fetcher);
+      worker.value = { id: 'b', signature: 'sig-b', trailer: 'trl-b' }; await settle();
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      pending[0](response(page([item('signature')]), true, 'a')); await settle();
+      expect(advice(root, 'signature')).toBeNull();
+      expect(root.textContent).not.toContain('No worker-link warnings on the saved values.');
+      pending[1](response(page([item('trailer')]), true, 'b')); await settle();
+      expect(advice(root, 'trailer')).not.toBeNull(); expect(advice(root, 'signature')).toBeNull();
+    });
+    it('drops the first read of A after A -> B -> A, when the worker id matches again', async () => {
+      const { pending, fetcher } = pendingFetcher();
+      const { root, worker } = await openReplaceable(fetcher);
+      worker.value = { id: 'b', signature: 'sig-b', trailer: 'trl-b' }; await settle();
+      worker.value = { id: 'a', signature: 'sig-a', trailer: 'trl-a' }; await settle();
+      expect(fetcher).toHaveBeenCalledTimes(3);
+      pending[2](response(page([]), true, 'a')); await settle();
+      expect(root.querySelector('[data-signature-lint]')?.textContent).toContain('No worker-link warnings on the saved values.');
+      // Same worker id as the live one, so only the read epoch can tell it is stale.
+      pending[0](response(page([item('signature')]), true, 'a')); await settle();
+      expect(advice(root, 'signature')).toBeNull();
+      expect(root.querySelector('[data-signature-lint]')?.textContent).toContain('No worker-link warnings on the saved values.');
+    });
+  });
+
+  // #1852 — which path fired a second fetch. The post-save re-read is the ONLY
+  // trigger for a same-worker refresh; a loader replacement does not re-lint.
+  describe('#1852 second-fetch attribution', () => {
+    it('a loader replacement of the same worker alone does not re-read; a successful save does exactly once', async () => {
+      const fetcher = vi.fn().mockResolvedValue(response(page([item('signature')])));
+      vi.stubGlobal('fetch', fetcher);
+      const worker = reactiveProps({ value: { id: 'a', signature: 'signature', trailer: 'trailer' } });
+      const initialForm = await superValidate({ signature: 'signature', trailer: 'trailer', signatureBase: 'signature', trailerBase: 'trailer' }, zod4(updateSignatureSchema), { errors: false, id: updateSignatureFormId('a') });
+      const m = mountComponent(Section as never, { get workerId() { return worker.value.id; }, get signature() { return worker.value.signature; }, get trailer() { return worker.value.trailer; }, initialForm, retired: false, actionResult: undefined } as never);
+      mounted.push(m.unmount); await settle();
+      const root = m.target;
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      // Loader replacement alone (a non-save invalidation): new object, same id.
+      worker.value = { id: 'a', signature: 'edited elsewhere', trailer: 'trailer' }; await settle();
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      // The save path, without a loader replacement, is the one that re-reads.
+      type(root, 'saved here'); await save(root);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      // A replacement that follows the save adds no third read.
+      worker.value = { id: 'a', signature: 'saved here', trailer: 'trailer' }; await settle();
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(fetcher.mock.calls.every(c => String(c[0]) === '/app/workers/a/signature-lint')).toBe(true);
+    });
+  });
 });
