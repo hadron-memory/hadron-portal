@@ -127,6 +127,16 @@ describe('V74: Node Types and Tags under each content scope (portal#1058)', () =
     expect(commentRows(target)).toBe(1);
   });
 
+  it('Comments: a refinement menu left open is closed, so its choices cannot be changed', async () => {
+    const target = mountBrowser();
+    refinement(target, 'Tags').click();
+    flushSync();
+    expect(target.querySelectorAll('.filter-dropdown label input')).not.toHaveLength(0);
+    pickScope(target, 'COMMENTS');
+    await settle();
+    expect(target.querySelectorAll('.filter-dropdown label input')).toHaveLength(0);
+  });
+
   it('back to Content: the controls are enabled again and the kept choice applies', async () => {
     const target = mountBrowser();
     choose(target, 'Tags', 'keep');
