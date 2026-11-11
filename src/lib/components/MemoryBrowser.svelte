@@ -834,9 +834,18 @@
 
   let customNodeType = $state('');
   let customTag = $state('');
+  let nodeTypeFilterError = $state('');
+  function allowNodeType(value: string): boolean {
+    if (serverPage !== null && value === 'comment') {
+      nodeTypeFilterError = t('memory-browser.comment-type-guidance', 'To show comments, use the Show filter and choose Comments.');
+      return false;
+    }
+    nodeTypeFilterError = '';
+    return true;
+  }
   function addCustomNodeType() {
     const value = customNodeType.trim();
-    if (!value) return;
+    if (!value || !allowNodeType(value)) return;
     activeNodeTypes = new Set([...activeNodeTypes, value]);
     customNodeType = '';
   }
@@ -912,6 +921,7 @@
     activeMemoryUrns = new Set();
     activeNodeTypes = new Set();
     activeTags = new Set();
+    nodeTypeFilterError = '';
     keyword = '';
     myNodesOnly = false;
     changedSince = 'any';
@@ -942,6 +952,7 @@
   }
 
   function toggleNodeType(t: string) {
+    if (!allowNodeType(t)) return;
     if (activeNodeTypes.has(t)) activeNodeTypes.delete(t);
     else activeNodeTypes.add(t);
     activeNodeTypes = new Set(activeNodeTypes);
@@ -1218,7 +1229,7 @@
               <button onclick={() => { activeNodeTypes = new Set(); }} class="mb-1 w-full rounded px-2 py-1 text-left text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-zinc-800">Clear</button>
             {/if}
             {#if serverPage}
-              <p class="px-2 pb-1 text-[10px] leading-tight text-zinc-400">{t('memory-browser.type-suggestions', 'Suggestions from this page. Add any type to filter the whole scope.')}</p>
+              <p class="px-2 pb-1 text-[10px] leading-tight text-zinc-400">{t('memory-browser.type-suggestions', 'Suggestions from this page. Add a content type to filter the whole scope.')}</p>
               <div class="mb-1 flex gap-1 px-1 pb-1">
                 <input
                   type="text"
@@ -1230,6 +1241,9 @@
                 />
                 <button type="button" onclick={addCustomNodeType} class="rounded px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-zinc-800">{t('memory-browser.add-filter', 'Add')}</button>
               </div>
+              {#if nodeTypeFilterError}
+                <p class="px-2 pb-1 text-[10px] leading-tight text-amber-700 dark:text-amber-300">{nodeTypeFilterError}</p>
+              {/if}
             {/if}
             {#each availableNodeTypes as t}
               <label class="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer">

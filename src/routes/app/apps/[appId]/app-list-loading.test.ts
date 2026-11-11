@@ -136,6 +136,22 @@ describe('App display-list request boundaries (#1758)', () => {
     expect(result).not.toHaveProperty('chatsCapped');
     expect(result.runsPanel).not.toHaveProperty('flowsCapped');
   });
+  it('starts the complete Flow graph read with the first independent loader round', async () => {
+    const base = request.getMockImplementation()!;
+    let releaseApp!: () => void;
+    const appGate = new Promise<void>((resolve) => { releaseApp = resolve; });
+    request.mockImplementation(async (document: string, variables: Variables = {}) => {
+      const name = getOperationAST(parse(document))?.name?.value;
+      if (name === 'App') await appGate;
+      return base(document, variables);
+    });
+    const pending = loadPage('?tab=runs');
+    await vi.waitFor(() => expect(calls.some(c => c.name === 'AppNodes')).toBe(true));
+    expect(calls.some(c => c.name === 'App')).toBe(false);
+    releaseApp();
+    await pending;
+  });
+
   it('continues each App node list by its own URL offset', async () => {
     const result = await loadPage('?tab=memory&appNodesOffset=20&chatRootsOffset=20');
     expect(calls.find(c => c.name === 'AppNodesPage')?.variables).toMatchObject({ limit: 20, offset: 20 });

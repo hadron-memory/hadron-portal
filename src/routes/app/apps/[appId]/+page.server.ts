@@ -590,6 +590,17 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // (#641). The server's app(ref:) gate IS the auth; a non-owner/non-member gets
   // null → 404 (no over-exposure).
   const client = gqlClient(locals.token);
+  // The complete Flow graph is independent of every other Runs read. Start it
+  // with the first loader round so a slow graph never queues behind chat,
+  // memory-scope, form or selected-transcript work.
+  const flowGraphPromise = initialTab === 'runs'
+    ? client.request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: APP_FLOW_GRAPH_LIMIT })
+      .then((r) => r.appNodes)
+      .catch((e) => {
+        console.warn(`[app-runs] Flow graph fetch failed for ${params.appId}:`, e);
+        return null;
+      })
+    : Promise.resolve(null);
   const [appData, configsData, membersData] = await Promise.all([
     client.request<{ app: App | null }>(APP_QUERY, { ref: params.appId })
       .catch((e) => {
@@ -1017,12 +1028,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     ? await Promise.all([
         loadAppRunsPage(client, params.appId, url.searchParams),
         loadAppRunsExtras(client, params.appId),
-        client.request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: APP_FLOW_GRAPH_LIMIT })
-          .then((r) => r.appNodes)
-          .catch((e) => {
-            console.warn(`[app-runs] Flow graph fetch failed for ${params.appId}:`, e);
-            return null;
-          }),
+        flowGraphPromise,
       ])
     : [null, null, null];
   return {

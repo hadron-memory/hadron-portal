@@ -66,7 +66,7 @@
   <!-- Flows this app can start (#483) — derived: runnable entry nodes with
        routing edges. The Run button mints a MANUAL run; payloads live on the
        node page's Test-flow panel. -->
-  {#if data.flows.length > 0 || data.flowsPage.total > 0}
+  {#if data.flows.length > 0 || data.flowsPage.total > 0 || data.flowsPage.firstHref || data.flowsPage.previousHref}
     <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
       <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('flows.title', 'Flows')}</h2>
       <p class="mt-1 text-xs text-zinc-400">
@@ -126,7 +126,8 @@
       {:else}
         <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{t('flows.none-on-page', 'No flows on this page.')}</p>
       {/if}
-      <ListPageNav page={data.flowsPage} label={t('flows.pages', 'Flow pages')} />
+      <p class="mt-3 text-xs text-zinc-500 dark:text-zinc-400">{t('flows.page-window', 'Pagination covers all App nodes, not just runnable flows.')}</p>
+      <ListPageNav page={data.flowsPage} label={t('flows.pages', 'App-node pages (Flows)')} />
     </section>
   {/if}
 

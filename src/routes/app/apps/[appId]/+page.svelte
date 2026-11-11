@@ -2257,7 +2257,8 @@
       {/if}
     </div>
     {#if data.chatRootsPage && !data.chatRootsError}
-      <ListPageNav page={data.chatRootsPage} label={t('app.chats.pages', 'Chat pages')} />
+      <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.chats.page-window', 'Registered Channels stay available on every page. Pagination covers legacy chat roots only.')}</p>
+      <ListPageNav page={data.chatRootsPage} label={t('app.chats.pages', 'Legacy chat-root pages')} />
     {/if}
 
     {#if data.chatNotFound}

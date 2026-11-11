@@ -69,6 +69,14 @@ it('does not probe beyond an exact final full page', () => {
   expect(page.nextHref).toBeNull();
 });
 
+it('lets an explicit hasMore answer override a raced total in both directions', () => {
+  const url = new URL('https://example.test/app/apps/a');
+  const ended = appListNavigation(url, 'worklogOffset', 'worklog', 0, 10, 20, { hasMore: false });
+  expect(ended.nextHref).toBeNull();
+  const more = appListNavigation(url, 'worklogOffset', 'worklog', 0, 10, 10, { hasMore: true });
+  expect(more.nextHref).toContain('worklogOffset=10');
+});
+
 // #1875 records existing race-only behavior, not a history-retrace promise.
 // The fixed requested page size is 20; these simulated raced responses serve
 // only 7 rows, with 41 reported total. Next adds the 7 served rows. Previous

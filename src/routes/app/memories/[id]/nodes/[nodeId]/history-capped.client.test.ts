@@ -122,6 +122,15 @@ describe('History tab paging (portal#1881)', () => {
     expect(target.querySelector('nav[aria-label="Revision pages"] a[rel="next"]')).toBeNull();
   });
 
+  it('keeps a route back when a later History page becomes empty and the total falls to zero', async () => {
+    revisionCount = 0;
+    const { target } = await mountPage('?tab=history&revisionsOffset=20');
+    const nav = target.querySelector('nav[aria-label="Revision pages"]');
+    expect(nav).not.toBeNull();
+    expect(nav!.textContent).toContain('0');
+    expect(nav!.querySelector<HTMLAnchorElement>('a[rel="prev"]')?.getAttribute('href')).not.toContain('revisionsOffset=');
+  });
+
   it('page navigation does not follow the reader to another node, and a late answer for the old node is ignored', async () => {
     revisionCount = 100;
     const m = await mountPage('?tab=history');

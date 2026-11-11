@@ -4142,7 +4142,7 @@
         </DataTable>
         </div>
       {/if}
-      {#if revisionsLoaded && !revisionsFailed && revisionsPage && revisionsPage.total > 0}
+      {#if revisionsLoaded && !revisionsFailed && revisionsPage && (revisionsPage.total > 0 || revisionsPage.firstHref || revisionsPage.previousHref)}
         <ListPageNav page={revisionsPage} label={t('node.history.pages', 'Revision pages')} disabled={historyBusy} />
       {/if}
 

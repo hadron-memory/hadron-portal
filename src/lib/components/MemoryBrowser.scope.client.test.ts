@@ -174,6 +174,36 @@ describe('scope identity in the memory browser (#1043)', () => {
     expect(mounted.target.textContent).toContain('Alpha match');
     expect(mounted.target.textContent).not.toContain('Beta match');
   });
+
+  it('directs comment filtering to the content-scope control instead of sending an invalid node type', async () => {
+    vi.useFakeTimers();
+    const mounted = mount({
+      nodes: [{ ...node('first', 'Comment node'), nodeType: 'comment' }],
+      multiMemory: true,
+      forcedView: 'nodes',
+      scopeMemories: [scopeRow('first', 'First memory')],
+      serverPage,
+    });
+    await tick(3);
+    const typeMenu = [...mounted.target.querySelectorAll('button')].find(b => b.textContent?.trim().startsWith('Node Types'))!;
+    typeMenu.click();
+    await tick(2);
+    const custom = mounted.target.querySelector<HTMLInputElement>('input[placeholder="Add type…"]')!;
+    custom.value = 'comment';
+    custom.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+    [...mounted.target.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Add')!.click();
+    await vi.advanceTimersByTimeAsync(350);
+    await tick(3);
+    expect(mounted.target.textContent).toContain('To show comments, use the Show filter and choose Comments.');
+    expect(searchBodies()).toEqual([]);
+
+    const comment = [...mounted.target.querySelectorAll('label')].find(label => label.textContent?.trim() === 'comment')!.querySelector('input')!;
+    comment.click();
+    await vi.advanceTimersByTimeAsync(350);
+    await tick(3);
+    expect(searchBodies()).toEqual([]);
+  });
 });
 
 // A scope read that failed reaches the browser as scopeMemoryIds = [] (the App

@@ -29,13 +29,14 @@ const agents = [
   { id: 'ag-2', name: 'Editor', urn: 'hrn:agent:x:editor' },
 ];
 
-async function mountRuns(runAgents: unknown) {
+async function mountRuns(runAgents: unknown, overrides: Record<string, unknown> = {}) {
   const runForm = await superValidate(zod4(runAppFlowSchema), { errors: false });
   const m = mountComponent(Page as never, {
     data: {
       app: { id: 'app-1', name: 'Digest', organizationId: 'org-1' },
       runs: [], total: 0, page: 1, pageSize: 20, status: null, statuses: [], sort: 'createdAt', dir: 'desc', failed: false,
       flows: [flow], flowsPage: { offset: 0, count: 1, total: 1, firstHref: null, previousHref: null, nextHref: null }, runForm, runAgents,
+      ...overrides,
     },
     form: null,
   } as never) as Mounted<Record<string, unknown>>;
@@ -114,5 +115,26 @@ describe('runs page: Agent picker (#1444)', () => {
     expect(params.get('sort')).toBe('createdAt');
     expect(params.get('dir')).toBe('asc');
     expect(params.get('appNodesOffset')).toBe('20');
+  });
+
+  it('keeps a route back when a later App-node page has no flows and the total falls to zero', async () => {
+    const t = await mountRuns(null, {
+      flows: [],
+      flowsPage: { offset: 20, count: 0, total: 0, firstHref: '?tab=runs', previousHref: '?tab=runs', nextHref: null },
+    });
+    expect(t.textContent).toContain('No flows on this page.');
+    expect(t.querySelector('nav[aria-label="App-node pages (Flows)"] a[rel="prev"]')).not.toBeNull();
+  });
+
+  it('labels the pager as an App-node window, not a count of displayed flows', async () => {
+    const t = await mountRuns(null, {
+      flowsPage: { offset: 0, count: 20, total: 45, firstHref: null, previousHref: null, nextHref: '?tab=runs&appNodesOffset=20' },
+    });
+    const nav = t.querySelector('nav[aria-label="App-node pages (Flows)"]');
+    expect(nav).not.toBeNull();
+    expect(nav!.textContent).toContain('1–20');
+    expect(nav!.textContent).toContain('of 45');
+    expect(t.textContent).toContain('Pagination covers all App nodes, not just runnable flows.');
+    expect(t.querySelectorAll('ul li')).toHaveLength(1);
   });
 });

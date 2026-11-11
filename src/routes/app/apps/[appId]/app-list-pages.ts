@@ -26,6 +26,10 @@ export function appListNavigation(
   // Advance by the page actually served, not the requested size. A short page
   // with a larger total is not the end (hrn:node:hadronmemory.com:specs:cor:api:120:04).
   const next = offset + count;
+  // An envelope's explicit answer wins over a raced total in BOTH directions.
+  // Only legacy envelopes without hasMore infer continuation from the count and
+  // retain the full-page probe for a lagging total.
+  const hasNext = options.hasMore ?? (next < total || count === APP_DISPLAY_PAGE_SIZE);
   return {
     offset, count, total: count > 0 ? Math.max(total, offset + count) : total,
     firstHref: offset > 0 ? href(0) : null,
@@ -38,10 +42,8 @@ export function appListNavigation(
     // window before this one always starts at offset - PAGE_SIZE, whatever
     // this page served — or nothing, if this page is empty after deletes.
     previousHref: offset > 0 ? href(Math.max(0, offset - APP_DISPLAY_PAGE_SIZE)) : null,
-    // A full page probes forward unless the server explicitly says it is the
-    // end. Without hasMore, even total===count can lag a newly arrived row;
-    // an exact hasMore=false must not offer an empty page
-    // (hrn:node:hadronmemory.com:specs:cor:api:120:04).
-    nextHref: count > 0 && (next < total || (count === APP_DISPLAY_PAGE_SIZE && options.hasMore !== false)) && next <= MAX_OFFSET ? href(next) : null,
+    // Stop on no progress or an oversized next offset. `hasNext` above already
+    // honors the server's explicit continuation answer or the legacy race probe.
+    nextHref: count > 0 && hasNext && next <= MAX_OFFSET ? href(next) : null,
   };
 }

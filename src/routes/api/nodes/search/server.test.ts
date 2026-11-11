@@ -70,6 +70,14 @@ describe('/api/nodes/search (#429)', () => {
     });
   });
 
+  it('rejects more than 20 distinct node types instead of silently dropping a selection', async () => {
+    const nodeTypes = Array.from({ length: 21 }, (_, i) => `type-${i}`);
+    const res = await POST(ev({ memoryIds: ['m1'], filter: { nodeTypes } }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'At most 20 node types can be filtered.' });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('forwards updatedAfter + sort', async () => {
     mockRequest.mockResolvedValue(findNodesResult(1));
     await POST(ev({ memoryIds: ['m1'], filter: { updatedAfter: '2026-07-01T00:00:00.000Z' }, sort: 'updatedAt' }));

@@ -139,7 +139,7 @@ describe('runs list (#478)', () => {
   it('#1881: offers a user-initiated next page instead of a capped notice', async () => {
     const body = await renderPage([], null, [flow], { flowsPage: { offset: 0, count: 20, total: 45, previousHref: null, nextHref: '/app/apps/app-1?tab=runs&appNodesOffset=20' } });
     expect(body).not.toContain('Showing the first');
-    expect(body).toContain('aria-label="Flow pages"');
+    expect(body).toContain('aria-label="App-node pages (Flows)"');
     expect(body).toContain('href="/app/apps/app-1?tab=runs&amp;appNodesOffset=20"');
   });
 
@@ -151,14 +151,14 @@ describe('runs list (#478)', () => {
   it('#1881: zero derived flows on a populated page keeps the section and continuation reachable', async () => {
     const body = await renderPage([], null, [], { flowsPage: { offset: 0, count: 20, total: 45, previousHref: null, nextHref: '/app/apps/app-1?tab=runs&appNodesOffset=20' } });
     expect(body).toContain('No flows on this page');
-    expect(body).toContain('aria-label="Flow pages"');
+    expect(body).toContain('aria-label="App-node pages (Flows)"');
     expect(body).not.toContain('action="?tab=runs&amp;/run"');
   });
 
   it('#1881: a now-empty later page keeps Previous reachable', async () => {
     const body = await renderPage([], null, [], { flowsPage: { offset: 40, count: 0, total: 45, previousHref: '/app/apps/app-1?tab=runs&appNodesOffset=20', nextHref: null } });
     expect(body).toContain('No flows on this page');
-    expect(body).toContain('aria-label="Flow pages"');
+    expect(body).toContain('aria-label="App-node pages (Flows)"');
     expect(body).toContain('rel="prev"');
     expect(body).toContain('href="/app/apps/app-1?tab=runs&amp;appNodesOffset=20"');
   });
@@ -172,7 +172,7 @@ describe('runs list (#478)', () => {
   it('#1881: a one-page list has no continuation or capped notice', async () => {
     const body = await renderPage([], null, [flow], { flowsPage: { offset: 0, count: 12, total: 12, previousHref: null, nextHref: null } });
     expect(body).not.toContain('Showing the first');
-    expect(body).toContain('aria-label="Flow pages"');
+    expect(body).toContain('aria-label="App-node pages (Flows)"');
     expect(body).not.toContain('rel="next"');
   });
 });

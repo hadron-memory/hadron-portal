@@ -137,8 +137,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     : null;
   const contentScope = requestedScope === 'COMMENTS' || requestedScope === 'ALL' ? requestedScope : null;
   const nodeTypes = Array.isArray(filter?.nodeTypes)
-    ? [...new Set(filter.nodeTypes.filter((v): v is string => typeof v === 'string' && v.length > 0))].slice(0, 20)
+    ? [...new Set(filter.nodeTypes.filter((v): v is string => typeof v === 'string' && v.length > 0))]
     : null;
+  if (nodeTypes && nodeTypes.length > 20) {
+    return json({ error: 'At most 20 node types can be filtered.' }, { status: 400 });
+  }
   const tags = Array.isArray(filter?.tags)
     ? [...new Set(filter.tags.filter((v): v is string => typeof v === 'string' && v.length > 0))]
     : null;
