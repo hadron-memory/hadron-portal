@@ -118,6 +118,10 @@
   // generation additionally distinguishes A → B → A, where ownerKey matches
   // again but the old request no longer belongs to the current editor.
   let actionGeneration = 0;
+  // Editor sessions are coarser than actions: a Test click or arming a delete
+  // bumps actionGeneration without ending the editor, while cancel, close and
+  // any (re)open end the session a save response belonged to (#1910).
+  let editorSession = 0;
   let actionController: AbortController | null = null;
   let ownerKey = $state('');
   let ownerAtVisit: { ownerType: AiConfigOwnerType; ownerId: string } | null = null;
@@ -126,6 +130,7 @@
 
   type ActionToken = {
     generation: number;
+    editorSession: number;
     noticeGeneration: number;
     ownerKey: string;
     ownerType: AiConfigOwnerType;
@@ -170,6 +175,7 @@
     actionController = new AbortController();
     return {
       generation: ++actionGeneration,
+      editorSession,
       noticeGeneration,
       ownerKey,
       ownerType: ownerAtVisit!.ownerType,
@@ -197,18 +203,26 @@
     return !destroyed && action.generation === actionGeneration && isOwnerVisitCurrent(action);
   }
 
-  // #1910: a save response only seeds the baseline of the editor session that
-  // asked for it. A response that outlives its session (cancel, reopen, owner
-  // or user switch) is dropped: the Section's committed readback reconciles the
-  // row a stale write produced, so the replacement editor keeps the row it was
-  // opened against. The create and update paths share this fence so they cannot
-  // drift apart.
+  // #1910: a save response belongs to the editor SESSION it was sent from, not
+  // to whichever action is newest. A Test click or delete-arm supersedes the
+  // action (generation bump) without ending the session — that response still
+  // seeds its own editor's baseline and still converts a preserved create
+  // draft into an update of the new row, so a second Save can never POST
+  // create again (the duplicate-create window). A response whose session ended
+  // (cancel, close, reopen, owner or user switch) is dropped: the Section's
+  // committed readback reconciles the row a stale write produced, so the
+  // replacement editor keeps the row it was opened against. The create and
+  // update paths share this fence so they cannot drift apart.
+  function isEditorSessionCurrent(action: ActionToken): boolean {
+    return !destroyed && action.editorSession === editorSession && isOwnerVisitCurrent(action);
+  }
+
   function seedBaseline(
     action: ActionToken,
     saved: AiServiceConfig | null,
     seed: (row: AiServiceConfig) => void,
   ): void {
-    if (!isCurrent(action)) return;
+    if (!isEditorSessionCurrent(action)) return;
     if (saved) seed(saved);
     else if (formFingerprint() !== action.formFingerprint) {
       // The write may have committed, but without a complete saved row a
@@ -249,6 +263,7 @@
   }
 
   function resetEditor() {
+    editorSession++; // #1910: closing the editor ends the session a response belonged to
     formOpen = false;
     editId = null;
     savedConfig = null;
@@ -288,8 +303,8 @@
   // which a mid-edit refresh MAY replace so the diff follows the server's
   // current row rather than the row the editor was opened against. openEdit,
   // openCreate and resetEditor clear savedConfig, and seedBaseline only sets it
-  // while its own action is still current (#1910), so it never outlives its
-  // editor session.
+  // while its own editor session is still current (#1910), so it never
+  // outlives its editor session.
   const editing = $derived(editId ? (savedConfig?.id === editId ? savedConfig : (configs.find((c) => c.id === editId) ?? null)) : null);
 
   // Keep a paged editor's source row in place, including browser Back/Forward.
@@ -469,6 +484,7 @@
   }
 
   function openCreate() {
+    editorSession++; // #1910: a reopened editor is a new session
     beginAction();
     resetForm();
     savedConfig = null;
@@ -480,6 +496,7 @@
     // The row is stale while its committed readback is pending. Opening it now
     // would seed a full-field update that could revert the just-saved values.
     if (mutationBlocked || mutationLocked) return;
+    editorSession++; // #1910: a reopened editor is a new session
     beginAction();
     resetForm();
     savedConfig = null;
@@ -757,7 +774,10 @@
         // The request captured the old values. Close only if the reader did not
         // make newer edits while it was in flight. A preserved create draft is
         // now an UPDATE of the row the server returned, never a second create.
-        if (!isCurrent(action)) return;
+        // Session currency (not action generation): a Test click mid-flight
+        // supersedes the action without ending the editor that must still
+        // absorb this outcome (#1910 review: the same-session supersede).
+        if (!isEditorSessionCurrent(action)) return;
         if (formFingerprint() === action.formFingerprint) resetEditor();
         else if (createdId !== null) editId = createdId;
       },

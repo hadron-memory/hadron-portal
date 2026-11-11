@@ -466,7 +466,11 @@ describe('a late save response must not replace the replacement editor’s basel
         const row = await held;
         return { ok: true, json: async () => { delivered(); return { ok: true, config: row }; } } as Response;
       }
-      const reply = body.action === 'endpoints' ? { endpoints: body.provider === 'glm' ? GLM_ENDPOINTS : [] } : { ok: true };
+      const reply = body.action === 'endpoints'
+        ? { endpoints: body.provider === 'glm' ? GLM_ENDPOINTS : [] }
+        : body.action === 'test'
+          ? { ok: true, provider: 'anthropic', model: 'm', reply: 'hi' }
+          : { ok: true };
       return { ok: true, json: async () => reply } as Response;
     }));
     return { release, delivered: deliveredRow };
@@ -476,12 +480,16 @@ describe('a late save response must not replace the replacement editor’s basel
    * JSON is consumed, so this cannot pass before the response has landed; the
    * remaining save() continuation is a bounded microtask chain (post →
    * seedBaseline → onSuccess → finishMutation), drained by the trailing ticks —
-   * not a guess at when the response might arrive.
+   * not a guess at when the response might arrive. A dropped write must also
+   * surface nothing: the feedback element must EXIST (or the emptiness claim
+   * would pass vacuously) and be empty.
    */
-  async function settleDroppedResponse(delivered: Promise<void>, target: HTMLElement) {
+  async function settleDroppedWrite(delivered: Promise<void>, target: HTMLElement) {
     await delivered;
     await tick(30);
-    expect($(target, '[data-testid="ai-config-error-feedback"]')?.textContent ?? '').toBe('');
+    const feedback = $(target, '[data-testid="ai-config-error-feedback"]');
+    expect(feedback).not.toBe(null);
+    expect(feedback?.textContent ?? '').toBe('');
   }
 
   it('diffs against the freshest row it knows after a reopen, not the stale save’s row', async () => {
@@ -506,17 +514,18 @@ describe('a late save response must not replace the replacement editor’s basel
     await settle();
 
     release({ ...row, endpoint: 'https://stale.example/v1' }); // the old save’s late response
-    await settleDroppedResponse(delivered, m.target);
+    await settleDroppedWrite(delivered, m.target);
 
     button(m.target, 'Save').click(); // fields unchanged since the reopen
     await settle();
     const updates = posts.filter((p) => p.action === 'update');
     expect(updates).toHaveLength(2);
+    const second = updates[1]!;
     // The reopened editor diffs against the freshest row it knows — here the
     // list row it was reopened against (endpoint unchanged ⇒ omitted). A late
     // response that seeded the baseline instead would send
     // endpoint: 'https://fresh.example/v1' as a spurious change.
-    expect('endpoint' in updates[1]).toBe(false);
+    expect('endpoint' in second).toBe(false);
   });
 
   it('a late create response must not seed the baseline of a later edit of the new row', async () => {
@@ -547,16 +556,17 @@ describe('a late save response must not replace the replacement editor’s basel
     await settle();
 
     release(config({ id: 'c9', name: 'made', endpoint: 'https://made.example/v1' })); // the create’s late response
-    await settleDroppedResponse(delivered, m.target);
+    await settleDroppedWrite(delivered, m.target);
 
     button(m.target, 'Save').click(); // fields unchanged since the reopen
     await settle();
     const updates = posts.filter((p) => p.action === 'update');
     expect(updates).toHaveLength(1);
+    const only = updates[0]!;
     // Dropped: the diff follows the fresh list row (endpoint unchanged ⇒
     // omitted). An unfenced response would seed the older row and send
     // endpoint: 'https://fresh.example/v1' as a spurious change.
-    expect('endpoint' in updates[0]).toBe(false);
+    expect('endpoint' in only).toBe(false);
   });
 
   it('a current create converts a preserved draft into an update of the new row, never a second create', async () => {
@@ -574,7 +584,7 @@ describe('a late save response must not replace the replacement editor’s basel
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://edited.example/v1'); // newer edit mid-flight
 
     release(config({ id: 'c9', name: 'made', endpoint: 'https://made.example/v1' }));
-    await settleDroppedResponse(delivered, m.target);
+    await settleDroppedWrite(delivered, m.target);
     // The draft was preserved (fingerprint differs), so the editor stays open —
     // as an UPDATE of the new row, which only createdId can make it.
     expect($(m.target, '#ac-endpoint')).not.toBe(null);
@@ -584,5 +594,69 @@ describe('a late save response must not replace the replacement editor’s basel
     await settle();
     expect(posts.filter((p) => p.action === 'create')).toHaveLength(1); // never a second create
     expect(posts.find((p) => p.action === 'update')).toMatchObject({ id: 'c9', endpoint: 'https://edited.example/v1' });
+  });
+
+  it('a create superseded by a delete-arm in the same session still converts the draft; a second Save updates, never re-creates', async () => {
+    const { release, delivered } = holdWrites('create');
+    const m = openReactive({ configs: [config()] }); // an unrelated row to arm
+    await tick();
+    button(m.target, 'Add configuration').click();
+    await settle();
+    set($<HTMLInputElement>(m.target, '#ac-name')!, 'made');
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-5');
+    set($<HTMLInputElement>(m.target, '#ac-key')!, 'sk-test');
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://made.example/v1');
+    button(m.target, 'Save').click();
+    await settle(); // the create is in flight, held
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://edited.example/v1'); // newer edit mid-flight
+    // Arming the unrelated row's delete supersedes the save's ACTION
+    // (actionGeneration bump, ungated by busy) without ending the editor
+    // session — the editor stays open with its draft.
+    menuDelete(m.target);
+    expect(m.target.textContent).toContain(aiConfigStrings.confirmDelete('default'));
+
+    release(config({ id: 'c9', name: 'made', endpoint: 'https://made.example/v1' }));
+    await delivered;
+    await tick(30);
+    // The superseded create still belongs to this editor session: the preserved
+    // draft converts to an update of the new row. Gating on action generation
+    // instead would leave the draft a CREATE, and the next Save would POST a
+    // second create — the duplicate-row window.
+    expect($(m.target, '#ac-endpoint')).not.toBe(null);
+
+    button(m.target, 'Save').click();
+    await settle();
+    expect(posts.filter((p) => p.action === 'create')).toHaveLength(1); // never a second create
+    expect(posts.find((p) => p.action === 'update')).toMatchObject({ id: 'c9', endpoint: 'https://edited.example/v1' });
+  });
+
+  it('a cancelled editor’s late response is dropped, and the row reopens cleanly in the same visit', async () => {
+    const { release, delivered } = holdWrites('update');
+    const row = config({ endpoint: 'https://fresh.example/v1' });
+    const m = openReactive({ configs: [row] });
+    await tick();
+    editRow(m.target);
+    await settle();
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://stale.example/v1');
+    button(m.target, 'Save').click();
+    await settle(); // the update is in flight, held
+
+    // Cancel ends the editor SESSION; the visit is unchanged. The pending
+    // mutation keeps the row unopenable until it settles, so the reopen can
+    // only happen after the response landed — dropped, session dead.
+    button(m.target, 'Cancel').click();
+    await settle();
+    expect($(m.target, '#ac-endpoint')).toBe(null);
+
+    release({ ...row, endpoint: 'https://stale.example/v1' });
+    await settleDroppedWrite(delivered, m.target);
+
+    editRow(m.target); // a new session, seeded from the list row
+    await settle();
+    button(m.target, 'Save').click(); // fields unchanged since the reopen
+    await settle();
+    const updates = posts.filter((p) => p.action === 'update');
+    expect(updates).toHaveLength(2);
+    expect('endpoint' in updates[1]!).toBe(false); // no spurious endpoint change
   });
 });
