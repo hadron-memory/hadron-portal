@@ -28,17 +28,17 @@
     "CSS cell text and bounded actual root-rem scaling; not OS/browser zoom. Cell-hosted native select remains independent QA scope."
   ],
   "sourceSHA256": {
-    "scripts/test-table-cell-overflow-layout.mjs": "1ef3e1a70b2868e06cdcd253a673501b8548b46e121f61ddd80e23e027001e23",
-    "src/lib/components/AiServiceConfigManager.svelte": "fd524a924c507b2a22859958dd88fe4cc858b65dd899ae71a20791c762d58a7e",
+    "scripts/test-table-cell-overflow-layout.mjs": "d3044dca72eb460662d4ef50259170b6d0bb2967497d93e1945b8fc7c072a673",
+    "src/lib/components/AiServiceConfigManager.svelte": "e584201f3b5736dc3711dbe7c9a697b21dc63a5f2bd1e045555333bfedcb93fb",
     "src/lib/components/AppRunsTable.svelte": "ce24e10e98802b19c8c58a7353da1d92a8d5077837f09c6c8398436ba5be1b7d",
-    "src/lib/components/Urn.svelte": "5f9cdf94fb28df4aea5d4c6d41fff7adeb92448c7e198ee3b661341b9824b914",
+    "src/lib/components/Urn.svelte": "15ae935d9c84291c5559b40757bcfeed8702245f325415d2b60f0a90927b472e",
     "src/lib/components/agent-tasks/TasksAlarms.svelte": "39072790300441245463b0be54aef40bbe471081be2997a0ca26ab2138a9a261",
     "src/lib/components/table/DataTable.minSize.client.test.ts": "b484a0658039bea5792cfe7cfb699d8833aacbba2a53828e71cbc9b728392acc",
-    "src/lib/components/table/DataTable.svelte": "e8b6377544038b3691a2053b5e27dd0553c967edb2b33b0163cf8ac8a8f4449d",
+    "src/lib/components/table/DataTable.svelte": "a58e5ea4b6d8c809f3945f5a4664cd089c6a4f10facb2d34ec35f8a3b544ba84",
     "src/lib/table/createSvelteTable.svelte.ts": "cd9a221c3832be6ea681c1a8acc1b7ec73bca22cf5727753ec08b9a69b274f32",
     "src/lib/table/savedView.ts": "4c8d74f1f98120a51e5bd825633db4923c4463a7c94a4b35ef85b81acdbd8a0f",
     "src/lib/test/DataTableMinSizeHarness.svelte": "05e0450734bf244fba5dad3b2a2363c876633094d6da61a26a459bc6fc00c80f",
-    "src/lib/test/fixtures/table-cell-overflow-harness.ts": "5d95f049e50c38cf1c737498f52c96e441646f346857528539f5a10925007ce5",
+    "src/lib/test/fixtures/table-cell-overflow-harness.ts": "c487e95a8233fd004d6fe151dca7c575dda4da4922f42f6a2258457539eabb4b",
     "src/lib/test/mountComponent.ts": "35e22f9452654cd2231f6ce47fa7cce23718e657c1dd3ee4ba20b44b6b740652",
     "src/lib/test/stubs/app-navigation.ts": "eca14f635307b9cf2c6f06a5398b2dd256755913ca62536dc85e5cacb1015f90"
   },
@@ -49,7 +49,7 @@
     },
     "alarms-1280-dark.png": {
       "bytes": 33246,
-      "sha256": "7c0083fe95c8013b360bf6bdf4a5ab3288f3c012f11788ed29400491ea0d18e9"
+      "sha256": "e50722fa435cf5035f3bad6ffe14f75d39a1c3cde6661a5c9dfc953c024b0b5a"
     },
     "alarms-1280-light-default.png": {
       "bytes": 44339,
@@ -80,40 +80,40 @@
       "sha256": "c3075b121eab4d63ac0e7de3976bf890f085a10dfb54048c1cef77cab045845d"
     },
     "config-1280-dark.png": {
-      "bytes": 87434,
-      "sha256": "643d0c083af907ea7af51f69dfeff25e6ec88e55a8ae4415e2c5df852f0db1b7"
+      "bytes": 87365,
+      "sha256": "d9a59f9e6b687474cba295cb885cf4332efc8c4b2fc6f7b07e22bf8727be30c3"
     },
     "config-1280-light-default.png": {
       "bytes": 86379,
       "sha256": "a76b96a5c511a1e435f7e46dca0ad41dc2ce121f49c1da077f347bb2bf3bf1da"
     },
     "config-1280-light.png": {
-      "bytes": 87473,
-      "sha256": "be054761b4a48ae12b9c43cc46c9010567aae2d347caf22e2444600b46c27b57"
+      "bytes": 87627,
+      "sha256": "0db578c5e46b8ee09a4042fb23074997793e1e11016a669e421de97dc35d89d4"
     },
     "config-390-dark-default.png": {
-      "bytes": 50665,
-      "sha256": "a5df3e843f44252dc51c37544be48c8fc41c744f04f1deb3f888678f15b1e7e9"
+      "bytes": 43471,
+      "sha256": "fe9e2d1c527d87b41c35e3d01ce7990eec3736883e54855cbec13e5949f6eb90"
     },
     "config-390-dark.png": {
-      "bytes": 43532,
-      "sha256": "e26c462e4d885af0d5ef5bee3eae9c0b8bf630ebca61a72d5af0db8067b4c508"
+      "bytes": 42574,
+      "sha256": "3dca303106eda29b79ce4610dc1fbc0b2ee9a8591b6de7d6c8d642b36de184ef"
     },
     "config-390-light-default.png": {
-      "bytes": 50493,
-      "sha256": "73d7b4d1574dcc104f17da77f652dacecddeaf56b0d19b997bc5871bdbc4c219"
+      "bytes": 43050,
+      "sha256": "50c04b6a8b0bbd2653914d37a883c64ebf2475d37c7ed97f11802d8b4fa38c2c"
     },
     "config-390-light.png": {
-      "bytes": 43162,
-      "sha256": "0f26097d1ec73ca8f1c697366d040ad27969e4534d6d29a4a3fa36b1fd92a1aa"
+      "bytes": 41991,
+      "sha256": "ef5cb95b020cb2886f4a6139195fde364a9df99544d684c4cd7ecec1cb4e6de1"
     },
     "confirmation-cell-red.log": {
       "bytes": 643,
       "sha256": "927f2731eef69d58866142b116ea626bb41e3b21e0a79fbf24363eb55990538b"
     },
     "final-layout.log": {
-      "bytes": 4692,
-      "sha256": "38c49628f426b4abbc8060942fa2d491dc6127c73ed843297bb35d663a30a5f0"
+      "bytes": 4779,
+      "sha256": "3efaf59c6af8a5c9697e8f718dfc808f1ddeb9fd198c913ac6049c80775f9b24"
     },
     "mutant-aria.log": {
       "bytes": 1365,
@@ -179,5 +179,6 @@
   "fixRedFirstCommits": [
     "c0afbcad26aba5c85a461478deeb33d3ee597481",
     "1b3d396061721bf1e366ccfc104786b3b95ba1b4"
-  ]
+  ],
+  "integratedMain": "73d6992c1d075abded934a02be233bcbb841de8f"
 }

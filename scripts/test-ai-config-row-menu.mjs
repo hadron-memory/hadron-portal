@@ -16,10 +16,11 @@ try {
   browser = await chromium.launch({ headless: true });
   if (process.env.AI_CONFIG_MENU_SHOTS) await mkdir(process.env.AI_CONFIG_MENU_SHOTS, { recursive: true });
   // #1874: `mixed` puts config-02 between adjacent disabled rows and config-04, enabled, right after them.
-  const fixtures = [['disabled', [['config-02', false]]], ['enabled', [['config-02', true]]], ['mixed', [['config-02', false], ['config-04', true]]]];
-  for (const dark of [false, true]) for (const [mode, targets] of fixtures) {
-    const label = `${dark ? 'dark' : 'light'}-${mode}`;
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const longName = 'x' + '_'.repeat(63);
+  const fixtures = [['disabled', [['config-02', false]]], ['enabled', [['config-02', true]]], ['mixed', [['config-02', false], ['config-04', true]]], ['long-name', [[longName, true]]]];
+  for (const width of [390, 1280]) for (const dark of [false, true]) for (const [mode, targets] of fixtures) {
+    const label = `${width}-${dark ? 'dark' : 'light'}-${mode}`;
+    const page = await browser.newPage({ viewport: { width, height: 900 } });
     const errors = [];
     page.on('pageerror', error => errors.push(`pageerror: ${error.message}`));
     page.on('console', message => { if (message.type() === 'error') errors.push(`console.error: ${message.text()}`); });
@@ -31,9 +32,17 @@ try {
       document.documentElement.classList.toggle('dark', dark);
       document.body.innerHTML = `<main class="p-6 ${dark ? 'bg-zinc-950 text-white' : 'bg-white text-zinc-900'}" id="fixture"></main>`;
     }, { css, dark });
+    if (width === 390) {
+      await page.evaluate(() => {
+        localStorage.setItem('hadron:views:v1:ai-configs', JSON.stringify([{
+          id: 'middle-actions', name: 'Middle actions', isDefault: true, listKey: 'ai-configs',
+          view: { columnOrder: ['name', 'actions', 'provider', 'model', 'endpoint', 'enabled', 'key', 'createdAt'], columnSizing: { actions: 500, name: 400 } },
+        }]));
+      });
+    }
     await page.evaluate(async mode => {
       const { mountAiConfigRows } = await import('/src/lib/test/fixtures/ai-config-row-menu-harness.ts');
-      mountAiConfigRows(document.getElementById('fixture'), mode);
+      mountAiConfigRows(document.getElementById('fixture'), mode === 'long-name' ? 'enabled' : mode, mode === 'long-name' ? 'x' + '_'.repeat(63) : undefined);
     }, mode);
     for (const [name, enabled] of targets) {
       const where = `${label}/${name}`;
@@ -48,6 +57,13 @@ try {
       }));
       assert.equal(dim.content, enabled ? '1' : '0.6', `${where}: name content opacity`);
       assert.deepEqual(dim.ancestors, [], `${where}: no dimmed ancestor of the row content`);
+      if (width === 390) {
+        assert.match((await page.locator('th').allTextContents())[1], /Actions/, 'Saved order applied');
+        const scroller = page.getByTestId('data-table-scroller');
+        await scroller.evaluate(el => { el.scrollLeft = el.scrollWidth; });
+        const [viewport, action] = await Promise.all([scroller.boundingBox(), trigger.boundingBox()]);
+        assert(viewport && action && action.x >= viewport.x && action.x + action.width <= viewport.x + viewport.width, `${where}: reordered Actions remains inside scroller at far right`);
+      }
       await trigger.click();
       const edit = page.getByRole('menuitem', { name: 'Edit', exact: true });
       await edit.waitFor();
@@ -63,11 +79,23 @@ try {
       assert.equal(await nameInput.inputValue(), name, `${where}: Edit opens this row`);
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
       await nameInput.waitFor({ state: 'detached', timeout: 2000 });
+      if (width === 390) {
+        assert.match((await page.locator('th').allTextContents())[1], /Actions/, 'Saved order applied');
+        const scroller = page.getByTestId('data-table-scroller');
+        await scroller.evaluate(el => { el.scrollLeft = el.scrollWidth; });
+        const [viewport, action] = await Promise.all([scroller.boundingBox(), trigger.boundingBox()]);
+        assert(viewport && action && action.x >= viewport.x && action.x + action.width <= viewport.x + viewport.width, `${where}: reordered Actions remains inside scroller at far right`);
+      }
       await trigger.click();
       await page.getByRole('menuitem', { name: 'Delete', exact: true }).click({ timeout: 2000 });
-      await row.getByText('Delete? This cannot be undone.', { exact: true }).waitFor();
+      const question = row.getByText(`Delete the “${name}” configuration? This cannot be undone.`, { exact: true });
+      await question.waitFor();
+      const container = width === 390 ? page.getByTestId('data-table-scroller') : question.locator('xpath=ancestor::td');
+      const [viewport, text] = await Promise.all([container.boundingBox(), question.boundingBox()]);
+      assert(viewport && text && text.x >= viewport.x && text.x + text.width <= viewport.x + viewport.width, `${where}: full named confirmation fits inside its available column`);
+      assert(await question.evaluate(el => el.scrollWidth <= el.clientWidth + 1), `${where}: full name wraps without hidden text`);
       await row.getByRole('button', { name: 'Cancel', exact: true }).click();
-      assert.equal(await row.getByText('Delete? This cannot be undone.', { exact: true }).count(), 0, `${where}: Delete confirmation cancels`);
+      assert.equal(await row.getByText(`Delete the “${name}” configuration? This cannot be undone.`, { exact: true }).count(), 0, `${where}: Delete confirmation cancels`);
       console.log(`${where} PASS: Edit and Delete receive native pointer clicks; opacity on content only`);
     }
     assert.deepEqual(errors, [], `${label}: no page errors or console errors`);

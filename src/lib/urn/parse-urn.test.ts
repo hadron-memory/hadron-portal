@@ -354,4 +354,28 @@ describe('buildResolverUrl (#310)', () => {
     // back verbatim and the route trims it via normalizeUrn.
     expect(normalizeUrn(segment)).toBe(urn);
   });
+
+  it('keeps a malformed org URN inside the resolver segment (#1846)', () => {
+    const url = buildResolverUrl('https://hadronmemory.com', 'hrn:org:../../../settings/tokens');
+    expect(url).toBe('https://hadronmemory.com/app/u/hrn:org:..%2F..%2F..%2Fsettings%2Ftokens');
+    const path = new URL(url).pathname;
+    expect(path.startsWith('/app/u/')).toBe(true);
+    expect(path.slice('/app/u/'.length)).not.toContain('/');
+  });
+
+  it.each([
+    'hrn:node:acme.com:kb:findings:flaky-ci#data',
+    'hrn:apprun:acme.com:chatbot:run-1#data',
+  ])('preserves the valid data deep-link fragment through resolver redirects: %s', (urn) => {
+    const url = buildResolverUrl('https://hadronmemory.com', urn);
+    expect(url).toBe(`https://hadronmemory.com/app/u/${urn}`);
+    expect(new URL(url).hash).toBe('#data');
+    expect(new URL(url).pathname).not.toContain('%23');
+  });
+
+  it('still encodes a non-contract fragment as path data', () => {
+    expect(buildResolverUrl('', 'hrn:node:acme.com:kb:findings:x#other')).toBe(
+      '/app/u/hrn:node:acme.com:kb:findings:x%23other',
+    );
+  });
 });

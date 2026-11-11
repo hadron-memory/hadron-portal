@@ -2,6 +2,7 @@
 > hadron-web@0.1.0 test:table-cell-overflow-layout /home/orca/orca/workspaces/hadron-portal/juliet
 > node scripts/test-table-cell-overflow-layout.mjs
 
+11:08:57 AM [vite] (client) Re-optimizing dependencies because vite config has changed
 rem-control alarms 390 false {
   width: 84.890625,
   height: 44,

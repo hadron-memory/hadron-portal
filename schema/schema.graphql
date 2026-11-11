@@ -1,4 +1,4 @@
-# Exported from hadron-server f9c72211982f32c2fb4cb5288fa126993e4378c7 (f9c722119, 2026-11-10T17:51:45-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 122717323cf8799711503e4fc4ef5f5abd1d61e1 (122717323cf8799711503e4fc4ef5f5abd1d61e1, 2026-11-10T21:53:11-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -132,10 +132,14 @@ type AccountUsageProjection {
 """
 #3820 — why a window is not PROJECTED. UNKNOWN: NO_HISTORY, NO_WINDOW (no snapshot reports this window), STALE (newest
 snapshot over 60 minutes old), NO_RESET, RESET_PASSED, NO_WORKERS_CONFIGURED (a what-if needs the account's workers),
-WHATIF_SOURCE_UNKNOWN (the moved worker's burn is not known). INSUFFICIENT_DATA: LOW_USE (under 5% used),
+WHATIF_SOURCE_UNKNOWN (the moved worker's burn is not known), HISTORY_INCOMPLETE (#3842: the account was named without both
+host and family and the server could not finish checking whether another history shares the label; every window of it
+carries this reason and no range; so do the what-if windows of such an account, and the adjusted target windows of a
+move from one. hrn:node:hadronmemory.com:specs:cor:agt:140:03). INSUFFICIENT_DATA: LOW_USE (under 5% used),
 TOO_FEW_SNAPSHOTS (fewer than 3, or spanning under an hour).
 """
 enum AccountUsageReason {
+  HISTORY_INCOMPLETE
   LOW_USE
   NO_HISTORY
   NO_RESET
@@ -3335,7 +3339,7 @@ type BootPromptServeOutcome {
 
 """
 #2708 / hrn:node:hadronmemory.com:specs:cor:agt:040:10: why a serve would be refused now, the typed code the bind,
-chat or run itself would get. BOOT_PROMPT_NOT_SIGNED cannot occur until an organisation can switch signing on (#1614).
+chat or run itself would get. BOOT_PROMPT_NOT_SIGNED occurs only where the serving App's organisation has switched signing on (setOrgBootPromptSigning, #2973) AND the deployment ships signing.
 """
 enum BootPromptServeRefusal {
   BOOT_PROMPT_INSTALL_LICENSE_INACTIVE
@@ -3343,6 +3347,59 @@ enum BootPromptServeRefusal {
   BOOT_PROMPT_NOT_SET
   BOOT_PROMPT_NOT_SIGNED
   BOOT_PROMPT_TARGET_DELETED
+}
+
+"""
+#2973 PR2 / hrn:node:hadronmemory.com:specs:cor:agt:040:09: the preview shown BEFORE an organisation's switch goes on,
+one page of it. Each request mints its own previewToken over the FULL preview (every row, every page) at one consistent
+snapshot; any page's token is accepted within its own ten minutes. setOrgBootPromptSigning(required: true) must present it. The token grants no
+authority and holds no prompt text; it expires after ten minutes. While the deployment does not ship signing the rows
+still say what WOULD change, and enforced says false.
+"""
+type BootPromptSigningPreview {
+  deploymentSigns: Boolean!
+
+  """Pass as after to read the next page; null on an empty page."""
+  endCursor: String
+  enforced: Boolean!
+  hasMore: Boolean!
+  previewToken: String!
+  rows: [BootPromptSigningPreviewRow!]!
+
+  """The number of rows across all pages."""
+  total: Int!
+}
+
+"""
+#2973 PR2: one served compiled boot prompt the switch would change. workerId is null on the install-level row (an uncustomised worker and a chat share it).
+"""
+type BootPromptSigningPreviewRow {
+  agentId: ID!
+  agentName: String!
+  appId: ID!
+  appUrn: String!
+  changesToRevSeq: Int
+  compiledNodeId: ID!
+  compiledNodeUrn: String
+
+  """The revision served today."""
+  servedRevSeq: Int!
+  state: BootPromptSigningPreviewState!
+  workerId: ID
+  workerName: String
+}
+
+"""
+#2973 PR2 / hrn:node:hadronmemory.com:specs:cor:agt:040:09 and hrn:node:hadronmemory.com:specs:cor:agt:040:10: what
+switching signing on would do to ONE served compiled boot prompt.
+SIGNATURE_PENDING: the served revision's signature is pending (a first passkey's cooling-off window), so it would stop
+being served until the window ends. REVISION_CHANGES: the serve would fall back to changesToRevSeq, the newest older
+revision that is approved and signed (R35). UNSIGNED_STOPS: no approved revision is signed, so it would be refused.
+"""
+enum BootPromptSigningPreviewState {
+  REVISION_CHANGES
+  SIGNATURE_PENDING
+  UNSIGNED_STOPS
 }
 
 type CalendarAttendee {
@@ -3433,6 +3490,15 @@ type CalendarInfo {
 type CalendarPerson {
   address: String
   name: String
+}
+
+"""
+Result of cancelWebPoll. alreadyCancelled is true when the watch had been stopped before this call.
+"""
+type CancelWebPollPayload {
+  alreadyCancelled: Boolean!
+  cancelled: Boolean!
+  jobId: ID!
 }
 
 """#2024 — one ticker a cast would create from an Agent ticker template."""
@@ -8066,6 +8132,13 @@ type Mutation {
   cancelAppRun(id: ID!): AppRun!
 
   """
+  Stop one of the organization's page-monitor watches (#1562; org ADMIN/OWNER,
+  tool.web_poll policy). A job id from another organization, or none, answers
+  NOT_FOUND. Cancelling a stopped watch succeeds with alreadyCancelled.
+  """
+  cancelWebPoll(jobId: ID!, orgRef: ID!): CancelWebPollPayload!
+
+  """
   #974 — cast a Worker (cor:dmo:050:11, cor:agt:020:01/:02): the named
   casting of an agent ALREADY INSTALLED in the App, superseding
   createTeamPersona's minting semantics (nothing is minted — the agent
@@ -10119,6 +10192,11 @@ type Mutation {
   parkAgentTask(instruction: ActInstructionInput, taskId: ID!): AgentTask!
 
   """
+  Plan with the real move's gates and raised refusals, without locks, reconciliation, writes or mirror effects. Nodes in loc order; limit clamps to 1–1000 (default 100), with total and truncation disclosed. No edges. A point-in-time answer, not a reservation. hrn:node:hadronmemory.com:specs:cor:api:190:03.
+  """
+  planNodeMove(limit: Int = 100, sourceRef: ID!, targetMemoryRef: ID, targetUrn: String): NodeMovePlan!
+
+  """
   Process the LLM's tool response (extract data, transition stage, save assistant message)
   
   NOT atomic: the assistant message and message counter commit first, the extracted data is then judged and
@@ -10320,6 +10398,17 @@ type Mutation {
   scope, APP_KEY_SESSION_BOUND with a session, BAD_HOST_REGISTRATION for a bad shape or a worker not of the App.
   """
   registerHost(input: RegisterHostInput!): HostRegistration!
+
+  """
+  #3774 — Reinstall an uninstalled App: the SAME App (id, keys, members, memories) is installed again; no row is created
+  (hrn:node:hadronmemory.com:specs:cor:dmo:050:21, R2). Same gate as uninstallApp.
+  
+  Refused APP_URN_IN_USE while another installed App holds the handle, and APP_DELETED for a deleted App (there is no
+  undelete). A repeat on an installed App changes nothing. Accepts the ID, or a URN: it names the installed App holding
+  it (so a repeat by URN is a no-op), else the one uninstalled App with it (two or more: name one by id). The refusal's
+  extensions carry appId and urn. A worker that is still dark opens a NEW episode on the next sweep.
+  """
+  reinstallApp(ref: ID!): Boolean!
 
   """
   Release the editor lock for an Agent's system memory.
@@ -10996,6 +11085,19 @@ type Mutation {
   setModelFamilyAvailability(input: SetModelFamilyAvailabilityInput!, instruction: ActInstructionInput): ModelFamilyAvailability!
 
   """
+  #2973 PR2 / hrn:node:hadronmemory.com:specs:cor:agt:040:09: switch an organisation's boot-prompt signing on or off.
+  The audience is orgBootPromptSigning's (current ADMIN or OWNER, as themselves; every other shape is FORBIDDEN, the same
+  for an organisation that does not exist), re-checked inside the transaction. No passkey or step-up either way.
+  Off needs nothing and is idempotent. On requires the previewToken of a preview fetched with
+  orgBootPromptSigningPreview by THIS caller for THIS organisation in the last ten minutes: the server locks the
+  organisation, recomputes the whole preview and refuses BOOT_PROMPT_SIGNING_PREVIEW_STALE, changing nothing, when the
+  token is missing, forged, another organisation's or caller's, expired, future-dated, or describes a preview that has
+  since changed. That refusal comes only after the audience check. On when already on, with a valid token, succeeds and
+  changes nothing. Turning the switch on does not turn on the deployment's signing: read enforced.
+  """
+  setOrgBootPromptSigning(org: ID!, previewToken: String, required: Boolean!): OrgBootPromptSigning!
+
+  """
   Set the stored (enforced) quota limit for a scope x action (#510) - the operator dial that previously required psql. Org-ADMIN.
   """
   setQuotaLimit(input: SetQuotaLimitInput!): QuotaCounter!
@@ -11238,6 +11340,17 @@ type Mutation {
   Accepts the entity's ID or URN.
   """
   uninstallAgentFromApp(agentRef: ID!, appRef: ID!): UninstallAgentFromAppPayload!
+
+  """
+  #3774 — Uninstall an App: it is kept, read-only (every write through it is refused, usually APP_UNINSTALLED), and its
+  handle is free for a new App. Ends every open dark-worker episode of the App's workers at the uninstall time, in the
+  same transaction (hrn:node:hadronmemory.com:specs:cor:dmo:050:21, Holger R1-R3, 2026-11-09).
+  
+  Whoever may deleteApp may call this (the same gate); anyone else, and an App that does not exist, gets one identical
+  refusal. A repeat on an uninstalled App changes nothing. A deleted App is refused (APP_DELETED). Accepts the ID, or a URN: it
+  names the installed App holding it, else the one uninstalled App with it.
+  """
+  uninstallApp(ref: ID!): Boolean!
 
   """
   Remove all GitHub App config from an organization.
@@ -12735,6 +12848,30 @@ type NodeMoveLinkWarning {
 }
 
 """
+Point-in-time node-only move plan. Reserves nothing; a later move can raise CONFLICT (hrn:node:hadronmemory.com:specs:cor:api:190:03).
+"""
+type NodeMovePlan {
+  """
+  Null when withheld because the destination is unreadable (ruling 0211).
+  """
+  linkWarnings: [NodeMoveLinkWarning!]
+  linkWarningsWithheld: Boolean!
+  nodes: [NodeMovePlanEntry!]!
+  pointInTime: Boolean!
+  totalCount: Int!
+  truncated: Boolean!
+}
+
+"""
+A node's stable identity and planned addresses (hrn:node:hadronmemory.com:specs:cor:api:190:03).
+"""
+type NodeMovePlanEntry {
+  currentUrn: String!
+  id: ID!
+  newUrn: String!
+}
+
+"""
 #2212 A2 — one page of the nodes in an App's scope, counted over the same filter and scope.
 """
 type NodePage {
@@ -13190,6 +13327,18 @@ input ObservedProcessInput {
   startTime: String!
 }
 
+"""
+#2973 PR2 / hrn:node:hadronmemory.com:specs:cor:agt:040:09: where an organisation stands on requiring a SIGNED compiled
+boot prompt. required is the stored switch; enforced is what is true: the switch AND the deployment shipping signing
+(PASSKEY_SIGNING_ENABLED), so an organisation never reads as protected on a deployment where it is not. deploymentSigns
+is the second term alone. Readable by the organisation's current ADMINs and OWNERs, acting as themselves.
+"""
+type OrgBootPromptSigning {
+  deploymentSigns: Boolean!
+  enforced: Boolean!
+  required: Boolean!
+}
+
 """Per-organization membership record for a user."""
 type OrgMember {
   canInvite: Boolean!
@@ -13475,11 +13624,25 @@ type PublicOrganization {
   listedOnMarketplace: Boolean!
   name: String!
 
-  """The org's PUBLIC agents (sanitized refs)."""
+  """
+  SUPERSEDED by publicAgentsPage (#3873, hrn:node:hadronmemory.com:specs:cor:api:120:04): the org's PUBLIC agents (sanitized refs), now only the first page of 20 in (name, id) order. Use publicAgentsPage to reach the rest.
+  """
   publicAgents: [PublicResourceRef!]!
 
-  """The org's PUBLIC, non-app-scoped memories (sanitized refs)."""
+  """
+  The org's PUBLIC agents (sanitized refs), one page in (name, id) order; same paging rules as publicMemoriesPage.
+  """
+  publicAgentsPage(limit: Int, offset: Int): PublicResourceRefsPage!
+
+  """
+  SUPERSEDED by publicMemoriesPage (#3873, hrn:node:hadronmemory.com:specs:cor:api:120:04): the org's PUBLIC, non-app-scoped memories (sanitized refs), now only the first page of 20 in (name, id) order. Use publicMemoriesPage to reach the rest.
+  """
   publicMemories: [PublicResourceRef!]!
+
+  """
+  The org's PUBLIC, non-app-scoped memories (sanitized refs), one page in (name, id) order. limit omitted is 20, 0 is count-only, a negative limit is 0, a limit over 200 is served as 200 (never a refusal); a negative offset is 0. total counts exactly the rows the public gate admits (hrn:node:hadronmemory.com:specs:cor:acl:080:02, hrn:node:hadronmemory.com:specs:cor:api:120:04).
+  """
+  publicMemoriesPage(limit: Int, offset: Int): PublicResourceRefsPage!
   urn: String!
 }
 
@@ -13497,6 +13660,15 @@ type PublicResourceRef {
 A paginated page of sanitized public resource refs (marketplace catalogue).
 """
 type PublicResourceRefPage {
+  items: [PublicResourceRef!]!
+  total: Int!
+}
+
+"""
+A page of sanitized public resource refs that says whether more rows follow (#3873, hrn:node:hadronmemory.com:specs:cor:api:120:04). The marketplace catalogue keeps PublicResourceRefPage.
+"""
+type PublicResourceRefsPage {
+  hasMore: Boolean!
   items: [PublicResourceRef!]!
   total: Int!
 }
@@ -15188,6 +15360,21 @@ type Query {
   object(ref: ID!): JSON
 
   """
+  #2973 PR2 / hrn:node:hadronmemory.com:specs:cor:agt:040:09: the organisation's boot-prompt signing switch and whether
+  it is enforced. Only the organisation's current ADMINs and OWNERs, acting as themselves. A worker session (an admin's
+  included), an App key, an App run, impersonation, a non-member (a platform admin included), a revoked member, a member
+  below ADMIN, and an organisation that does not exist are all refused with the same FORBIDDEN.
+  """
+  orgBootPromptSigning(org: ID!): OrgBootPromptSigning!
+
+  """
+  #2973 PR2 / hrn:node:hadronmemory.com:specs:cor:agt:040:09: what switching the organisation's boot-prompt signing on
+  would change, paged (first at least 1, default 20, served at 200 when more is asked, hrn:node:hadronmemory.com:specs:cor:api:120:04; after is the previous page's endCursor). The audience and refusals are
+  orgBootPromptSigning's.
+  """
+  orgBootPromptSigningPreview(after: String, first: Int, org: ID!): BootPromptSigningPreview!
+
+  """
   Fetch an Organization (org member or platform ADMIN).
   
   'ref' accepts the entity's ID or URN.
@@ -16042,6 +16229,14 @@ type Query {
   verifyNode(nodeRef: ID!): NodeIntegrityCheck!
 
   """
+  The organization's active page-monitor watches (#1562): what web_poll_list
+  returns inside a run, for org ADMIN/OWNER outside one. Refused with
+  POLICY_DENIED when the org, user or App policy omits tool.web_poll. Jobs
+  with no routing binding in this org are not listed.
+  """
+  webPolls(orgRef: ID!): [WebPoll!]!
+
+  """
   One Worker by ref (#974) — its id, its URN (#991), or (with appRef) its
   NAME (#1015), the ergonomic handle a human already knows. The name form is
   ADDITIVE: it is activated by appRef, since a name is unique only within an
@@ -16696,6 +16891,19 @@ input ResumeSessionInput {
   What the next session is about, when the redemption starts one (its plan).
   """
   description: String
+
+  """
+  #3822 (hrn:node:hadronmemory.com:specs:cor:agt:020:03) — the worker the caller expects to recover, e.g. the
+  worker a CLI worktree was last bound to. Narrows the resume to that worker: its claim or live session binds
+  even when another worker's waits too, and a CHOOSE lists only its candidates. When nothing of that worker's
+  waits but a claim or live session of another worker of the caller's does, the call refuses RESUME_REFUSED
+  with extensions reason WORKER_MISMATCH, picked (true when `session` chose that other worker's item),
+  expectedWorkerId, expectedWorkerName (null unless the caller may read that worker), foundWorkerId,
+  foundWorkerName and foundSource (CLAIM or LIVE_SESSION), before any write: no claim is consumed and no
+  session is started, ended or touched. With nothing of the caller's waiting the answer stays
+  NOTHING_TO_RESUME. Omitted or null: unchanged. Blank: BAD_USER_INPUT.
+  """
+  expectedWorkerId: ID
 
   """
   Recorded on a session the redemption starts, and refreshed on an open session it resumes (#2086). Wins over the family a model implies; an invalid token is refused before any claim is spent.
@@ -19068,7 +19276,7 @@ type TeamRosterEntry {
   launchableFamilies: [String!]!
 
   """
-  Has a live session (hrn:node:hadronmemory.com:specs:cor:agt:020:11). The matcher assigns to a BOUND worker only while it has one and has reported a family; an unbound worker is matched when a live host can launch it.
+  Has a live session (hrn:node:hadronmemory.com:specs:cor:agt:020:11). Matching does not need one: a BOUND worker with an open session (quiet or live) that has reported a family is matched, and a host start is issued only for a worker with no open session; an unbound worker is matched when a live host can launch it.
   """
   liveSession: Boolean!
 
@@ -19158,7 +19366,7 @@ enum TeamRosterState {
   ASSIGNED_NOT_STARTED
 
   """
-  Free for work (hrn:node:hadronmemory.com:specs:cor:agt:060:05), including an unbound worker a live host can launch, which the matcher assigns to, and a bound worker whose session is quiet, which the matcher leaves alone until its session is live again (see liveSession).
+  Free for work (hrn:node:hadronmemory.com:specs:cor:agt:060:05), including an unbound worker a live host can launch, which the matcher assigns to, and a bound worker whose session is open but quiet, which the matcher also assigns to, reaching it through that session (see liveSession).
   """
   AVAILABLE
 
@@ -20140,6 +20348,31 @@ type WakeReason {
   """
   tickDueAt: DateTime
   ticker: Ticker
+}
+
+"""
+A page-monitor watch (#1562): the hadrontool-webfetch job behind a run's
+web_poll_start, as the org's admins see it outside a run. `url` is the
+query- and fragment-free ledger URL, never the one the sidecar fetches, and no
+credential material is returned.
+"""
+type WebPoll {
+  appId: ID!
+  consecutiveFailures: Int!
+  createdAt: DateTime!
+  expiresAt: DateTime!
+  jobId: ID!
+  lastCheckedAt: DateTime
+  lastTriggeredAt: DateTime
+  nextRunAt: DateTime
+
+  """The run that started the watch."""
+  sourceRunId: ID!
+
+  """The sidecar's job state, such as active or cancelled."""
+  status: String!
+  triggerCount: Int!
+  url: String!
 }
 
 """

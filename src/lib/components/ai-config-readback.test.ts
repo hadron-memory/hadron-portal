@@ -98,3 +98,10 @@ describe('AI configuration readback parser', () => {
     expect(controller.signal.aborted).toBe(true);
   });
 });
+
+describe('withheld discriminator (#1898)', () => {
+  it.each([false, 'true', 1, {}, [], null])('rejects non-true withheld %j', async (withheld) => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ withheld }) }) as Response));
+    await expect(readResolvedAiConfigs('app1', 'agent1')).resolves.toEqual({ status: 'failed' });
+  });
+});

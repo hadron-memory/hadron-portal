@@ -152,6 +152,21 @@ describe('Urn.svelte — linked chip (#826)', () => {
     });
     expect(body).toContain(`href="/app/u/${WORKER}"`);
   });
+
+  it('keeps a malformed public org URN inside the resolver segment (#1846)', () => {
+    const { body } = render(Urn, {
+      props: { value: 'hrn:org:../../../settings/tokens', type: 'org', linked: true },
+    });
+    expect(body).toContain('href="/app/u/hrn:org:..%2F..%2F..%2Fsettings%2Ftokens"');
+    expect(body).not.toContain('href="/app/u/hrn:org:../../../settings/tokens"');
+  });
+
+  it('keeps a node data deep link as a browser fragment', () => {
+    const value = 'hrn:node:acme.com:kb:findings:flaky-ci#data';
+    const { body } = render(Urn, { props: { value, type: 'node', linked: true } });
+    expect(body).toContain(`href="/app/u/${value}"`);
+    expect(body).not.toContain('%23data');
+  });
 });
 
 // #1360 — an action URN (hrn:action:<root>:<agent-slug>:<code>, server#2610)

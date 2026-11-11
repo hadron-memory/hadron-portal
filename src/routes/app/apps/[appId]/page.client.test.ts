@@ -857,7 +857,7 @@ describe('Worker agents tab (#1009)', () => {
       expect(col[0]).toContain('Locked: Model at capacity');
       expect(col[1]).toContain('Idle');
       expect(col[2]).toContain('Busy');
-      expect(col[3]).toContain('Dark: Missed its wake-up');
+      expect(col[3]).toContain('Dark: Missed its ticker wake');
       for (const c of col) expect(c).toMatch(/checked .*ago/);
       // The session Status cell is untouched by the terminal.
       expect(colTexts(target, 'Status')).toEqual(Array(4).fill('No recorded activity'));

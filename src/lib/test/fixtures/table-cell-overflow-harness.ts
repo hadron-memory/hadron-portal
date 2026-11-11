@@ -7,7 +7,8 @@ const date = '2026-11-01T02:04:36Z';
 export function mountOverflowFixture(target: HTMLElement, kind: string) {
   if (kind === 'config') {
     const configs = Array.from({ length: 4 }, (_, i) => ({ id: `config-${i}`, name: `LongConfigNameWithFortyUnbrokenCharacters${i}`, ownerType: 'APP' as const, ownerId: 'fixture-app', provider: 'anthropic' as const, model: 'fixture-model', endpoint: null, effectiveEndpoint: 'https://example.invalid', apiStyle: null, effectiveApiStyle: null, hasApiKey: true, apiKeyPreview: '…test', params: null, enabled: i % 2 === 0, createdAt: date, updatedAt: null }));
-    const instance = mount(AiServiceConfigManager, { target, props: { ownerType: 'APP', ownerId: 'fixture-app', currentUserId: 'fixture-user', configs, canManage: true } });
+    let actionEpoch = 0;
+    const instance = mount(AiServiceConfigManager, { target, props: { ownerType: 'APP', ownerId: 'fixture-app', currentUserId: 'fixture-user', configs, canManage: true, onAction: () => ++actionEpoch, onMutationPending: () => {}, onCommitted: () => {}, onUncertain: () => {} } });
     return () => unmount(instance);
   }
   if (kind === 'alarms') {

@@ -511,3 +511,33 @@ describe('GET /api/ai-configs section readback', () => {
     expect((mockGqlClient.mock.calls[0][1] as AbortSignal).aborted).toBe(true);
   });
 });
+
+// #1898: definitive auth refusals must not become uncertain/replay-locked 5xx.
+describe('CRUD auth refusal mapping (#1898)', () => {
+  const bodies = [
+    { action: 'create', ownerType: 'ORGANIZATION', ownerId: 'o1', name: 'default', provider: 'glm', model: 'glm-5', apiKey: 'synthetic-credential' },
+    { action: 'update', id: 'c1', apiKeyAction: 'set', apiKey: 'synthetic-credential' },
+    { action: 'delete', id: 'c1' },
+  ];
+  for (const body of bodies) {
+    it.each([
+      ['FORBIDDEN', 403, 'Forbidden'],
+      ['UNAUTHENTICATED', 401, 'Unauthorized'],
+    ] as const)(`${body.action}: %s is a fixed %i refusal`, async (code, status, message) => {
+      mockRequest.mockRejectedValueOnce({ response: { errors: [{ message: 'wire synthetic-credential', extensions: { code } }] } });
+      const { POST } = await import('./+server');
+      const res = await POST(ev({ body }));
+      expect(res.status).toBe(status);
+      expect(await jsonOf(res)).toEqual({ error: message });
+    });
+    it.each(['AiServiceConfigNotFoundError', 'INTERNAL_SERVER_ERROR', 'FORBIDDEN_EXTRA', null])(
+      `${body.action}: %s is not reclassified as auth`, async (code) => {
+        mockRequest.mockRejectedValueOnce({ response: { errors: [{ message: 'wire synthetic-credential', extensions: code ? { code } : {} }] } });
+        const { POST } = await import('./+server');
+        const res = await POST(ev({ body }));
+        expect(res.status).toBe(500);
+        expect(await res.text()).not.toContain('synthetic-credential');
+      },
+    );
+  }
+});

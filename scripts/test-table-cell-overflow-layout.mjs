@@ -118,7 +118,15 @@ try {
    // Real keyboard minima and drag, including a restored one-pixel view.
    const interactive = kind === 'runs' ? 'actions' : kind === 'config' ? 'actions' : 'status';
    await page.evaluate(id=>{const t=window.__fixtureTables.at(-1);t.setColumnOrder([id,...t.getAllLeafColumns().map(c=>c.id).filter(x=>x!==id)]);},interactive); await settle();
-   const header = page.locator('th').filter({ has: page.locator('[role="separator"]') });
+   if (kind === 'config' && width === 390) {
+    // Main #1950 pins the phone action column at170px and intentionally
+    // removes its resize handle. Preserve that behavior in this merge.
+    const actionHeader = page.getByRole('columnheader',{name:'Actions',exact:true});
+    assert.equal(await actionHeader.getByRole('separator').count(),0,'phone sticky actions are not resizable');
+    const actualWidth=(await actionHeader.boundingBox()).width;
+    assert.ok(Math.abs(actualWidth-170)<=1,'phone sticky action column stays170px');
+   } else {
+   const header = page.locator('th');
    const index = await page.evaluate(id => window.__fixtureTables.at(-1).getVisibleLeafColumns().findIndex(c => c.id === id), interactive);
    const separator = header.nth(index).getByRole('separator');
    await separator.scrollIntoViewIfNeeded(); await separator.focus();
@@ -132,6 +140,7 @@ try {
    const box = await separator.boundingBox();
    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down(); await page.mouse.move(box.x - 200, box.y + box.height / 2, { steps: 5 }); await page.mouse.up(); await settle();
    assert.equal(Number(await separator.getAttribute('aria-valuenow')), minimum, 'native drag cannot cross declared minimum');
+   }
    await net.evaluate(el => el.remove()); // net ON: controls must still work.
    const target = kind === 'config' ? page.getByRole('button', { name: /Actions for LongConfigName/ }).nth(1) : kind === 'runs' ? page.locator('tbody').getByRole('link', { name: 'Open', exact: true }) : page.locator('tbody').getByRole('button', { name: 'Copy the command that acknowledges this alarm' });
    await target.scrollIntoViewIfNeeded(); await target.focus();
@@ -174,9 +183,9 @@ try {
     await page.getByRole('button',{name:'Cancel',exact:true}).click();
     await target.click(); await page.getByRole('menuitem',{name:'Delete',exact:true}).click();
     const row = page.locator('tbody tr').filter({hasText:'LongConfigNameWithFortyUnbrokenCharacters1'});
-    await row.getByText('Delete? This cannot be undone.',{exact:true}).waitFor();
-    const confirmationCell = row.locator('td').filter({has:page.getByText('Delete? This cannot be undone.',{exact:true})});
-    assert.equal(await confirmationCell.getByText('Delete? This cannot be undone.',{exact:true}).count(),1,'clipping oracle inspects the actual confirmation cell after reorder');
+    await row.getByText('Delete the “LongConfigNameWithFortyUnbrokenCharacters1” configuration? This cannot be undone.',{exact:true}).waitFor();
+    const confirmationCell = row.locator('td').filter({has:page.getByText('Delete the “LongConfigNameWithFortyUnbrokenCharacters1” configuration? This cannot be undone.',{exact:true})});
+    assert.equal(await confirmationCell.getByText('Delete the “LongConfigNameWithFortyUnbrokenCharacters1” configuration? This cannot be undone.',{exact:true}).count(),1,'clipping oracle inspects the actual confirmation cell after reorder');
     const confirmationOverflows = () => confirmationCell.evaluate(td=>td.scrollWidth>td.clientWidth+1);
     assert.equal(await confirmationOverflows(),false,'inline confirmation not clipped');
     // Prove this same oracle detects overflowing content in the confirmation
