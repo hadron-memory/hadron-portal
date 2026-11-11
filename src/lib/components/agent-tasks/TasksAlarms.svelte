@@ -3,8 +3,8 @@
   Native POST forms intentionally navigate: fresh loader data reflects the write,
   with no client-side replay and the same behavior without JavaScript.
 
-  The server reads alarms oldest-first only, so the loader walks the stream
-  and the list sorts newest first here. Open / Acknowledged / All filter on
+  The server reads a newest-first page, continued by its oldest shown id.
+  Open / Acknowledged / All filter on
   `acknowledgedAt` in the page: the server has no unacknowledged filter yet
   (design §9 asks 1 and 2).
 -->
@@ -38,15 +38,15 @@
   let {
     alarms,
     filter,
-    limit,
+    paging = null,
     refs,
     basePath,
     impersonating = null,
     ackResult = null,
   }: {
-    alarms: TaskRead<{ alarms: AgentAlarm[]; capped: boolean }>;
+    alarms: TaskRead<{ alarms: AgentAlarm[]; nextBefore?: string | null }>;
     filter: AlarmFilter;
-    limit: number;
+    paging?: { previousHref: string | null; nextHref: string | null } | null;
     refs: TaskRefs;
     basePath: string;
     impersonating?: string | null;
@@ -114,6 +114,7 @@
     get data() { return rows; },
     columns,
     defaultColumn: { minSize: 40 },
+    manualPagination: true,
     enableMultiSort: false,
     enableColumnResizing: true,
     columnResizeMode: 'onChange',
@@ -134,11 +135,11 @@
   const emptyText = $derived(
     filter === 'open'
       ? all.length === 0
-        ? t('app.tasks.alarms.empty.none', 'No alarms have been raised in this App.')
-        : t('app.tasks.alarms.empty.open', 'No open alarms.')
+        ? t('app.tasks.alarms.empty.none', 'No alarms on this page.')
+        : t('app.tasks.alarms.empty.open', 'No open alarms on this page.')
       : filter === 'acknowledged'
-        ? t('app.tasks.alarms.empty.acknowledged', 'No acknowledged alarms.')
-        : t('app.tasks.alarms.empty.none', 'No alarms have been raised in this App.'),
+        ? t('app.tasks.alarms.empty.acknowledged', 'No acknowledged alarms on this page.')
+        : t('app.tasks.alarms.empty.none', 'No alarms on this page.'),
   );
 
   let refreshing = $state(false);
@@ -199,23 +200,20 @@
       class="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
     >{t('app.tasks.refresh', 'Refresh')}</button>
   </div>
-  {#if alarms.value.capped}
-    <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-      {t('app.tasks.alarms.capped', 'Showing the first {n} alarms in this App’s history; newer ones may be missing. (The server can only read alarms oldest-first today.)', { n: limit })}
-    </div>
-  {/if}
   {#if rows.length === 0}
     <div role="status" class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-empty-alarms={filter}>
       {emptyText}
     </div>
   {/if}
+  <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.alarms.page-scope', 'Filters, search and sorting apply to this page.')}</p>
   <div class="alarms-grid min-w-0">
   <DataTable
     containCells
+    showFooter={false}
     {table}
     listKey="app-tasks:alarms"
-    searchPlaceholder={t('app.tasks.alarms.search', 'Search alarms…')}
-    searchAriaLabel={t('app.tasks.alarms.search', 'Search alarms…')}
+    searchPlaceholder={t('app.tasks.alarms.search', 'Search this page…')}
+    searchAriaLabel={t('app.tasks.alarms.search', 'Search this page…')}
     bind:globalFilter
     maxHeight="max(240px, calc(100vh - 26rem))"
   >
@@ -256,6 +254,15 @@
     {/snippet}
   </DataTable>
   </div>
+  {#if paging}
+    <nav aria-label={t('app.tasks.alarms.pages', 'Alarm pages')} class="flex flex-wrap items-center justify-between gap-3 text-sm">
+      <a href={filterHref(filter)} class="inline-flex min-h-11 items-center text-indigo-600 dark:text-indigo-400">{t('app.tasks.alarms.newest', 'Newest')}</a>
+      <div class="flex flex-wrap gap-2">
+        {#if paging.previousHref}<a href={paging.previousHref} class="inline-flex min-h-11 items-center rounded-lg border border-zinc-300 px-3 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.tasks.alarms.previous', 'Previous')}</a>{/if}
+        {#if paging.nextHref}<a href={paging.nextHref} class="inline-flex min-h-11 items-center rounded-lg border border-zinc-300 px-3 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.tasks.alarms.next-page', 'Next')}</a>{/if}
+      </div>
+    </nav>
+  {/if}
 {/if}
 
 <style>

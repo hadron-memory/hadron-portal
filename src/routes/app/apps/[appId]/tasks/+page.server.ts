@@ -1,6 +1,6 @@
 import { error, redirect, fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { ALARMS_LIMIT, BOARD_LIMIT, loadAlarms, loadBoard, hydrateTaskRefs, loadComposition, loadRoster, loadTasksApp } from '$lib/server/agent-tasks';
+import { BOARD_LIMIT, loadAlarms, loadBoard, hydrateTaskRefs, loadComposition, loadRoster, loadTasksApp } from '$lib/server/agent-tasks';
 import { parseBoardFilter } from '$lib/agent-tasks/status';
 import { parseNarrow, parseTags } from '$lib/agent-tasks/narrow';
 import { parseAlarmFilter, rosterTaskIds } from '$lib/agent-tasks/roster';
@@ -60,7 +60,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     tags: narrow.tags,
     overdueDropped,
     boardLimit: BOARD_LIMIT,
-    alarmsLimit: ALARMS_LIMIT,
+    alarmPaging: null as { previousHref: string | null; nextHref: string | null } | null,
     loadedAt: new Date().toISOString(),
     // §8: a non-participant who is impersonating is told whose view it is.
     impersonating: locals.impersonation ? (locals.user?.name ?? locals.user?.email ?? locals.user?.id ?? null) : null,
@@ -76,9 +76,25 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     return { ...base, board: null, roster: null, composition: await loadComposition(client, app.id), alarms: null, refs: {} as TaskRefs };
   }
   if (view === 'alarms') {
-    const alarms = await loadAlarms(client, app.id);
+    const before = url.searchParams.get('alarmBefore') || undefined;
+    const after = url.searchParams.get('alarmAfter') || undefined;
+    if (before && after) throw error(400, 'Choose one alarm page direction');
+    const alarms = await loadAlarms(client, app.id, before, after);
+    const href = (key: 'alarmBefore' | 'alarmAfter', cursor: string) => {
+      const target = new URL(url);
+      target.searchParams.delete('alarmBefore');
+      target.searchParams.delete('alarmAfter');
+      target.searchParams.set(key, cursor);
+      return target.pathname + target.search;
+    };
+    const alarmPaging = {
+      previousHref: alarms.kind === 'ok' && alarms.value.previousAfter
+        ? href('alarmAfter', alarms.value.previousAfter) : null,
+      nextHref: alarms.kind === 'ok' && alarms.value.nextBefore
+        ? href('alarmBefore', alarms.value.nextBefore) : null,
+    };
     const refs = await hydrateTaskRefs(client, app.id, alarms.kind === 'ok' ? alarms.value.alarms.map((a) => a.taskId) : []);
-    return { ...base, board: null, roster: null, composition: null, alarms, refs };
+    return { ...base, board: null, roster: null, composition: null, alarms, refs, alarmPaging };
   }
   const board = await loadBoard(client, app.id, filter, text, narrow);
   return { ...base, board, roster: null, composition: null, alarms: null, refs: {} as TaskRefs };

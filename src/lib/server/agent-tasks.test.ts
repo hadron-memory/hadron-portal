@@ -6,7 +6,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphQLClient } from 'graphql-request';
 import { AGENT_TASK_DETAIL_QUERY, APP_PEOPLE_QUERY, AGENT_ALARMS_QUERY, AGENT_TASK_ANCESTOR_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_REF_QUERY, AGENT_TASKS_BOARD_QUERY, PULL_REQUEST_READINESS_QUERY, TASK_REVIEW_EVENTS_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
-import { loadWriteCandidates, ALARMS_LIMIT, BOARD_LIMIT, HISTORY_LIMIT, loadAlarms, loadAncestors, loadBoard, loadHistory, loadReview, loadRoster, loadTree, hydrateTaskRefs, canonicalTaskId, HYDRATE_CONCURRENCY } from './agent-tasks';
+import { loadWriteCandidates, ALARMS_PAGE_SIZE, BOARD_LIMIT, HISTORY_LIMIT, loadAlarms, loadAncestors, loadBoard, loadHistory, loadReview, loadRoster, loadTree, hydrateTaskRefs, canonicalTaskId, HYDRATE_CONCURRENCY } from './agent-tasks';
 import { selectsFieldPath } from '$lib/test/graphql-selection';
 
 const request = vi.fn();
@@ -189,21 +189,17 @@ describe('slice 2: roster, titles and alarms', () => {
   });
 
 
-  it('alarms walk forward by the last id, alarmsOnly, up to the bound', async () => {
-    const page = (n: number, from: number) => Array.from({ length: n }, (_, i) => ({ id: `a${from + i}` }));
-    request.mockResolvedValueOnce({ agentTeamEvents: page(200, 0) }).mockResolvedValueOnce({ agentTeamEvents: page(1, 200) });
-    const r = await loadAlarms(client, 'app-1');
-    expect(r).toMatchObject({ kind: 'ok', value: { capped: false } });
-    expect(request.mock.calls[0]).toEqual([AGENT_ALARMS_QUERY, { appRef: 'app-1', after: undefined, limit: 200 }]);
-    expect(request.mock.calls[1][1]).toMatchObject({ after: 'a199' });
+  it('alarms read one newest-first page, with a look-ahead and an older cursor', async () => {
+    const page = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `a${i}` }));
+    request.mockResolvedValueOnce({ agentTeamEvents: page(21) });
+    const r = await loadAlarms(client, 'app-1', 'prior');
+    expect(r).toMatchObject({ kind: 'ok', value: { nextBefore: 'a19' } });
+    expect(r.kind === 'ok' && r.value.alarms).toHaveLength(ALARMS_PAGE_SIZE);
+    expect(request.mock.calls[0]).toEqual([AGENT_ALARMS_QUERY, { appRef: 'app-1', before: 'prior', after: undefined, newestFirst: true, limit: 21 }]);
     expect(AGENT_ALARMS_QUERY).toContain('alarmsOnly: true');
-
-    request.mockReset();
-    let n = 0;
-    request.mockImplementation(async () => ({ agentTeamEvents: page(200, (n++) * 200) }));
-    const capped = await loadAlarms(client, 'app-1');
-    expect(capped).toMatchObject({ kind: 'ok', value: { capped: true } });
-    expect(capped.kind === 'ok' && capped.value.alarms).toHaveLength(ALARMS_LIMIT);
+    expect(AGENT_ALARMS_QUERY).toContain('newestFirst: $newestFirst');
+    request.mockResolvedValueOnce({ agentTeamEvents: page(20) });
+    expect(await loadAlarms(client, 'app-1')).toMatchObject({ kind: 'ok', value: { nextBefore: null } });
   });
 });
 

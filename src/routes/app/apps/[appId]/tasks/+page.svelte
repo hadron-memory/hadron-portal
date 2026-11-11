@@ -231,7 +231,7 @@
   {:else if data.view === 'composition' && data.composition}
     <TasksComposition composition={data.composition} {basePath} impersonating={data.impersonating} />
   {:else if data.view === 'alarms' && data.alarms}
-    <TasksAlarms ackResult={form?.alarmAck ?? null} alarms={data.alarms} filter={data.alarmFilter} limit={data.alarmsLimit} refs={data.refs} {basePath} impersonating={data.impersonating} />
+    <TasksAlarms ackResult={form?.alarmAck ?? null} alarms={data.alarms} filter={data.alarmFilter} paging={data.alarmPaging} refs={data.refs} {basePath} impersonating={data.impersonating} />
   {:else if !board}
     <!-- The loader always reads the board for the board view; if it ever doesn't, say so rather than show nothing. -->
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
