@@ -54,5 +54,18 @@ native memory) with the heap budget is deliberately conservative; it is not
 a claim about V8 occupancy or the runner memory limit. Reporting and summary-write failures do not turn a
 failed checker into success; regression tests preserve nonzero exit codes,
 one main-thread report, worker silence and the warning boundary. Build's
-existing memory ceiling/report is unchanged. `check:watch` is outside this
-batch-CI remedy.
+existing memory ceiling/report is unchanged.
+
+## `check:watch` scope
+
+`check:watch` is **not** outside this change. It is the same command as `check`
+plus `--watch`, so it also receives the 4096 MiB old-space flag and the
+`check-heap-peak.mjs` preload. That was a side effect of replacing the package
+scripts, not a decision, and it was first described wrongly (as unchanged).
+
+Everything measured above is **batch** `pnpm check` (one run to completion,
+exit 0 or 134). Interactive watch has **not** been measured: not its heap
+growth across re-checks, not how the preload's exit-time report behaves in a
+long-lived process, and not whether the 75% warning means anything there. Do not
+read the batch table as watch evidence. Whether to keep watch on the new flag or
+restore its previous invocation is a separate, separately reviewed change.
