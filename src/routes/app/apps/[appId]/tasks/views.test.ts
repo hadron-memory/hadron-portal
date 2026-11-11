@@ -128,12 +128,24 @@ describe('alarms', () => {
   });
 
   it('says which kind of empty it is', () => {
-    expect(page(alarms([]))).toContain('No alarms have been raised in this App.');
-    expect(page(alarms([a('e2', { acknowledgedAt: '2026-10-15T11:00:00Z' })]))).toContain('No open alarms.');
+    expect(page(alarms([]))).toContain('No alarms on this page.');
+    expect(page(alarms([a('e2', { acknowledgedAt: '2026-10-15T11:00:00Z' })]))).toContain('No open alarms on this page.');
   });
 
-  it('a capped walk says newer alarms may be missing; a failure is an alert', () => {
-    expect(page(alarms([a('e1')], 'open', true))).toContain('Showing the first 2000 alarms');
+  it('1935 removes the obsolete walk-cap notice; a failure is an alert', () => {
+    expect(page(alarms([a('e1')], 'open', true))).not.toContain('Showing the first 2000 alarms');
     expect(page({ view: 'alarms', alarms: { kind: 'failed' } })).toContain('Couldn’t load alarms.');
   });
+});
+
+// #1935: the server page is not a complete App history, even when filtering yields no rows.
+it('1935 keeps older/newer navigation on an empty filtered page and resets cursors on filter changes', () => {
+  const html = page({ ...{ view: 'alarms', alarms: { kind: 'ok', value: { alarms: [], nextBefore: 'old' } } },
+    alarmPaging: { previousHref: '/app/apps/app-1/tasks?view=alarms&alarmAfter=new', nextHref: '/app/apps/app-1/tasks?view=alarms&alarmBefore=old' } });
+  expect(html).toContain('>Newest</a>');
+  expect(html).toMatch(/href="[^" ]*alarmBefore=old[^" ]*"[^>]*>Next<\/a>/);
+  expect(html).toContain('>Previous</a>');
+  expect(html).toContain('No alarms on this page.');
+  expect(html).toContain('Search this page');
+  expect(html).toMatch(/href="\/app\/apps\/app-1\/tasks\?view=alarms&amp;alarms=all"/);
 });

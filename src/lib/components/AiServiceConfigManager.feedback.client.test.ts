@@ -2182,3 +2182,62 @@ describe('#1898 follow-ups', () => {
   });
 
 });
+
+describe('a dropped stale write is reconciled by the Section’s committed readback (#1910)', () => {
+  it('delivers the created row on revisit through the deferred readback, and a reopened editor diffs against it', async () => {
+    // The create response is held until released; the readback serves the new
+    // row as a LATER write left it (fresh endpoint), not as the delayed
+    // create's own copy.
+    let releaseCreate!: (reply: Reply) => void;
+    const created = { body: { ok: true, config: config({ id: 'c9', name: 'made', endpoint: 'https://made.example/v1' }) } };
+    const refreshed = config({ id: 'c9', name: 'made', endpoint: 'https://fresh.example/v1' });
+    stubFetch(
+      (body) => {
+        if (body.action === 'create') return new Promise<Reply>((resolve) => { releaseCreate = resolve; });
+        return {};
+      },
+      () => ({ body: { configs: [refreshed] } }),
+    );
+    const m = await open({ configs: [] });
+    await startCreate(m.target, 'made');
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://made.example/v1');
+    button(m.target, 'Save').click();
+    await tick(2); // the create is in flight, held
+    expect(posts.find((p) => p.action === 'create')).toMatchObject({ name: 'made' });
+
+    // The owner visit changes while the response is in flight, closing the
+    // create editor. Nothing about owner o1 is read while o2 is visible.
+    (m.props as { ownerId: string }).ownerId = 'o2';
+    await settle();
+    expect(m.target.querySelector('#ac-endpoint')).toBe(null);
+    expect(m.target.textContent).not.toContain('“made”');
+    expect(readbacks).toHaveLength(0);
+
+    // The create commits late. The Manager drops it (#1910: dead editor
+    // session), but the Section still defers the committed outcome for o1 —
+    // the dropped row is reconciled by readback, never by the editor.
+    releaseCreate(created);
+    await settle();
+    expect(readbacks).toHaveLength(0); // deferred, not read while o2 is visible
+
+    // Revisiting o1 replays the deferred outcome: a readback fetch fires and
+    // the row lands in the list through the real machinery — no hand-assigned
+    // configs anywhere.
+    (m.props as { ownerId: string }).ownerId = 'o1';
+    await settle();
+    expect(readbacks).toEqual(['/api/ai-configs?ownerType=ORGANIZATION&ownerId=o1']);
+    expect(m.target.textContent).toContain('made');
+
+    // The reopened editor is seeded from the READBACK row: unchanged fields
+    // are omitted. A stale response that had seeded the baseline instead
+    // would send endpoint: 'https://fresh.example/v1' as a spurious change.
+    editRow(m.target, 'made');
+    await settle();
+    button(m.target, 'Save').click();
+    await settle();
+    expect(posts.filter((p) => p.action === 'create')).toHaveLength(1);
+    const update = posts.find((p) => p.action === 'update')!;
+    expect(update).toMatchObject({ id: 'c9' });
+    expect('endpoint' in update).toBe(false);
+  });
+});

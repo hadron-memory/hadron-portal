@@ -8,6 +8,7 @@ import { managerCallbacks } from '$lib/test/ai-config-manager-callbacks';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import AiServiceConfigManager from './AiServiceConfigManager.svelte';
 import { resetAiConfigRecoveryForTests } from './ai-config-recovery';
 import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
@@ -422,5 +423,231 @@ describe('AI config Delete confirm (#1020 review P2)', () => {
     // The confirm's own Delete is what posts, for the armed config.
     await performAction(root, 'Delete');
     expect(posts.find((p) => p.action === 'delete')).toMatchObject({ id: 'c1' });
+  });
+});
+
+describe('a late save response must not replace the replacement editor’s baseline (#1910)', () => {
+  /** The Manager mounted on reactive props, so the owner visit can change mid-test. */
+  function openReactive(props: { configs?: AiServiceConfig[] } = {}) {
+    const m = mountComponent(AiServiceConfigManager as never, reactiveProps({
+      ...managerCallbacks(), ownerType: 'ORGANIZATION', ownerId: 'o1', currentUserId: 'u1',
+      configs: props.configs ?? [], canManage: true, allowTest: true,
+    } as never) as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    return m;
+  }
+  /**
+   * `action`-typed write replies (create/update) wait until released and answer
+   * with the released row; everything else answers at once. `delivered` resolves
+   * only once the held response's JSON has actually been consumed, so a test can
+   * await the landing instead of guessing a tick count.
+   */
+  function holdWrites(action: 'create' | 'update'): {
+    release: (row: AiServiceConfig) => void;
+    delivered: Promise<void>;
+  } {
+    let release!: (row: AiServiceConfig) => void;
+    let delivered!: () => void;
+    const held = new Promise<AiServiceConfig>((resolve) => { release = resolve; });
+    const deliveredRow = new Promise<void>((resolve) => { delivered = resolve; });
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body) as Record<string, unknown>;
+      posts.push(body);
+      if (body.action === action) {
+        const row = await held;
+        return { ok: true, json: async () => { delivered(); return { ok: true, config: row }; } } as Response;
+      }
+      const reply = body.action === 'endpoints'
+        ? { endpoints: body.provider === 'glm' ? GLM_ENDPOINTS : [] }
+        : body.action === 'test'
+          ? { ok: true, provider: 'anthropic', model: 'm', reply: 'hi' }
+          : { ok: true };
+      return { ok: true, json: async () => reply } as Response;
+    }));
+    return { release, delivered: deliveredRow };
+  }
+  /**
+   * Settle after releasing a held write. `delivered` resolves when the response
+   * JSON is consumed, so this cannot pass before the response has landed; the
+   * remaining save() continuation is a bounded microtask chain (post →
+   * seedBaseline → onSuccess → finishMutation), drained by the trailing ticks —
+   * not a guess at when the response might arrive. A dropped write must also
+   * surface nothing: the feedback element must EXIST (or the emptiness claim
+   * would pass vacuously) and be empty.
+   */
+  async function settleDroppedWrite(delivered: Promise<void>, target: HTMLElement) {
+    await delivered;
+    await tick(30);
+    const feedback = $(target, '[data-testid="ai-config-error-feedback"]');
+    expect(feedback).not.toBe(null);
+    expect(feedback?.textContent ?? '').toBe('');
+  }
+
+  it('diffs against the freshest row it knows after a reopen, not the stale save’s row', async () => {
+    const { release, delivered } = holdWrites('update');
+    const row = config({ endpoint: 'https://fresh.example/v1' });
+    const m = openReactive({ configs: [row] });
+    await tick();
+    editRow(m.target);
+    await settle();
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://stale.example/v1');
+    button(m.target, 'Save').click();
+    await settle(); // the update is in flight, held
+    expect(posts.find((p) => p.action === 'update')).toMatchObject({ endpoint: 'https://stale.example/v1' });
+
+    // The owner visit changes while the response is in flight, closing the
+    // editor. The pending mutation belongs to the old visit, so the same row
+    // may be reopened now.
+    (m.props as { ownerId: string }).ownerId = 'o2';
+    await tick(3);
+    expect($(m.target, '#ac-endpoint')).toBe(null); // the editor really closed
+    editRow(m.target); // the replacement editor, seeded from the list row
+    await settle();
+
+    release({ ...row, endpoint: 'https://stale.example/v1' }); // the old save’s late response
+    await settleDroppedWrite(delivered, m.target);
+
+    button(m.target, 'Save').click(); // fields unchanged since the reopen
+    await settle();
+    const updates = posts.filter((p) => p.action === 'update');
+    expect(updates).toHaveLength(2);
+    const second = updates[1]!;
+    // The reopened editor diffs against the freshest row it knows — here the
+    // list row it was reopened against (endpoint unchanged ⇒ omitted). A late
+    // response that seeded the baseline instead would send
+    // endpoint: 'https://fresh.example/v1' as a spurious change.
+    expect('endpoint' in second).toBe(false);
+  });
+
+  it('a late create response must not seed the baseline of a later edit of the new row', async () => {
+    const { release, delivered } = holdWrites('create');
+    const m = openReactive({ configs: [] });
+    await tick();
+    button(m.target, 'Add configuration').click();
+    await settle();
+    set($<HTMLInputElement>(m.target, '#ac-name')!, 'made');
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-5');
+    set($<HTMLInputElement>(m.target, '#ac-key')!, 'sk-test');
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://made.example/v1');
+    button(m.target, 'Save').click();
+    await settle(); // the create is in flight, held
+    expect(posts.find((p) => p.action === 'create')).toMatchObject({ name: 'made', endpoint: 'https://made.example/v1' });
+
+    // The owner visit changes while the response is in flight, closing the
+    // create editor. The pending mutation is scoped to the old visit, so rows
+    // are openable again.
+    (m.props as { ownerId: string }).ownerId = 'o2';
+    await tick(3);
+    expect($(m.target, '#ac-endpoint')).toBe(null); // the editor really closed
+    // The committed readback delivers the new row into the visible list — as
+    // a LATER write left it (fresh endpoint), not as the delayed response's copy.
+    (m.props as { configs: AiServiceConfig[] }).configs = [config({ id: 'c9', name: 'made', endpoint: 'https://fresh.example/v1' })];
+    await settle();
+    editRow(m.target, 'made'); // the replacement editor, seeded from the fresh row
+    await settle();
+
+    release(config({ id: 'c9', name: 'made', endpoint: 'https://made.example/v1' })); // the create’s late response
+    await settleDroppedWrite(delivered, m.target);
+
+    button(m.target, 'Save').click(); // fields unchanged since the reopen
+    await settle();
+    const updates = posts.filter((p) => p.action === 'update');
+    expect(updates).toHaveLength(1);
+    const only = updates[0]!;
+    // Dropped: the diff follows the fresh list row (endpoint unchanged ⇒
+    // omitted). An unfenced response would seed the older row and send
+    // endpoint: 'https://fresh.example/v1' as a spurious change.
+    expect('endpoint' in only).toBe(false);
+  });
+
+  it('a current create converts a preserved draft into an update of the new row, never a second create', async () => {
+    const { release, delivered } = holdWrites('create');
+    const m = openReactive({ configs: [] });
+    await tick();
+    button(m.target, 'Add configuration').click();
+    await settle();
+    set($<HTMLInputElement>(m.target, '#ac-name')!, 'made');
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-5');
+    set($<HTMLInputElement>(m.target, '#ac-key')!, 'sk-test');
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://made.example/v1');
+    button(m.target, 'Save').click();
+    await settle(); // the create is in flight, held
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://edited.example/v1'); // newer edit mid-flight
+
+    release(config({ id: 'c9', name: 'made', endpoint: 'https://made.example/v1' }));
+    await settleDroppedWrite(delivered, m.target);
+    // The draft was preserved (fingerprint differs), so the editor stays open —
+    // as an UPDATE of the new row, which only createdId can make it.
+    expect($(m.target, '#ac-endpoint')).not.toBe(null);
+    expect(($<HTMLInputElement>(m.target, '#ac-endpoint')!).value).toBe('https://edited.example/v1');
+
+    button(m.target, 'Save').click();
+    await settle();
+    expect(posts.filter((p) => p.action === 'create')).toHaveLength(1); // never a second create
+    expect(posts.find((p) => p.action === 'update')).toMatchObject({ id: 'c9', endpoint: 'https://edited.example/v1' });
+  });
+
+  it('a create superseded by a delete-arm in the same session still converts the draft; a second Save updates, never re-creates', async () => {
+    const { release, delivered } = holdWrites('create');
+    const m = openReactive({ configs: [config()] }); // an unrelated row to arm
+    await tick();
+    button(m.target, 'Add configuration').click();
+    await settle();
+    set($<HTMLInputElement>(m.target, '#ac-name')!, 'made');
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-5');
+    set($<HTMLInputElement>(m.target, '#ac-key')!, 'sk-test');
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://made.example/v1');
+    button(m.target, 'Save').click();
+    await settle(); // the create is in flight, held
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://edited.example/v1'); // newer edit mid-flight
+    // Arming the unrelated row's delete supersedes the save's ACTION
+    // (actionGeneration bump, ungated by busy) without ending the editor
+    // session — the editor stays open with its draft.
+    menuDelete(m.target);
+    expect(m.target.textContent).toContain(aiConfigStrings.confirmDelete('default'));
+
+    release(config({ id: 'c9', name: 'made', endpoint: 'https://made.example/v1' }));
+    await delivered;
+    await tick(30);
+    // The superseded create still belongs to this editor session: the preserved
+    // draft converts to an update of the new row. Gating on action generation
+    // instead would leave the draft a CREATE, and the next Save would POST a
+    // second create — the duplicate-row window.
+    expect($(m.target, '#ac-endpoint')).not.toBe(null);
+
+    button(m.target, 'Save').click();
+    await settle();
+    expect(posts.filter((p) => p.action === 'create')).toHaveLength(1); // never a second create
+    expect(posts.find((p) => p.action === 'update')).toMatchObject({ id: 'c9', endpoint: 'https://edited.example/v1' });
+  });
+
+  it('a cancelled editor’s late response is dropped, and the row reopens cleanly in the same visit', async () => {
+    const { release, delivered } = holdWrites('update');
+    const row = config({ endpoint: 'https://fresh.example/v1' });
+    const m = openReactive({ configs: [row] });
+    await tick();
+    editRow(m.target);
+    await settle();
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://stale.example/v1');
+    button(m.target, 'Save').click();
+    await settle(); // the update is in flight, held
+
+    // Cancel ends the editor SESSION; the visit is unchanged. The pending
+    // mutation keeps the row unopenable until it settles, so the reopen can
+    // only happen after the response landed — dropped, session dead.
+    button(m.target, 'Cancel').click();
+    await settle();
+    expect($(m.target, '#ac-endpoint')).toBe(null);
+
+    release({ ...row, endpoint: 'https://stale.example/v1' });
+    await settleDroppedWrite(delivered, m.target);
+
+    editRow(m.target); // a new session, seeded from the list row
+    await settle();
+    button(m.target, 'Save').click(); // fields unchanged since the reopen
+    await settle();
+    const updates = posts.filter((p) => p.action === 'update');
+    expect(updates).toHaveLength(2);
+    expect('endpoint' in updates[1]!).toBe(false); // no spurious endpoint change
   });
 });

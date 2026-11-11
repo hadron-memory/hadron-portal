@@ -5422,8 +5422,8 @@ export const AGENT_TASK_REF_QUERY = /* GraphQL */ `
 `;
 
 export const AGENT_ALARMS_QUERY = /* GraphQL */ `
-  query AgentAlarms($appRef: ID!, $after: ID, $limit: Int) {
-    agentTeamEvents(appRef: $appRef, alarmsOnly: true, after: $after, limit: $limit) {
+  query AgentAlarms($appRef: ID!, $before: ID, $after: ID, $newestFirst: Boolean, $limit: Int) {
+    agentTeamEvents(appRef: $appRef, alarmsOnly: true, newestFirst: $newestFirst, before: $before, after: $after, limit: $limit) {
       id
       type
       severity
