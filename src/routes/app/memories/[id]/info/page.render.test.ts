@@ -122,3 +122,20 @@ describe('memory Info owner attribution (#1846 slice A)', () => {
     expect(body).toContain('Only you');
   });
 });
+
+// #1915: integration details belong to the dedicated Integrations tab.
+describe('memory Info omits the duplicate integration summary (#1915)', () => {
+  it.each([
+    ['connected', { source: 'https://github.com/acme/docs', syncStatus: 'ERROR', syncError: 'sync failed' }],
+    ['unconnected', { source: null, syncStatus: null, syncError: null }],
+  ])('%s memory keeps Overview and Stats without an Integration section', (_state, graph) => {
+    const body = render(Page as never, { props: { data: data(graph) } as never }).body;
+    expect(body).toMatch(/<h2[^>]*>Overview<\/h2>/);
+    expect(body).toMatch(/<h2[^>]*>Stats<\/h2>/);
+    expect(body).not.toMatch(/<h2[^>]*>Integration<\/h2>/);
+    expect(body).not.toContain('GitHub');
+    expect(body).not.toContain('Repository');
+    expect(body).not.toContain('Sync status');
+    expect(body).not.toContain('Not connected');
+  });
+});
