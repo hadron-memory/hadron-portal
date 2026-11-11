@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { flushSync, type ComponentProps } from 'svelte';
+import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import {
@@ -9,7 +9,8 @@ import {
 } from '$lib/test/stubs/app-navigation';
 import AiServiceConfigSection from './AiServiceConfigSection.svelte';
 import AiServiceConfigManager from './AiServiceConfigManager.svelte';
-import { getAiConfigRecoveryStore, resetAiConfigRecoveryForTests } from './ai-config-recovery';
+import { managerCallbacks } from '$lib/test/ai-config-manager';
+import { resetAiConfigRecoveryForTests } from './ai-config-recovery';
 import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 import type { AiServiceConfig } from '$lib/types';
 
@@ -77,6 +78,7 @@ function config(over: Partial<AiServiceConfig> = {}): AiServiceConfig {
 
 async function open(props: Props = {}, component: unknown = AiServiceConfigSection) {
   const m = mountComponent(component as never, reactiveProps({
+    ...managerCallbacks(),
     ownerType: 'ORGANIZATION', ownerId: 'o1', configs: [], canManage: true, allowTest: true,
     members: [{ user: { id: 'u1' }, role: 'ADMIN' }], currentUserId: 'u1',
     ...props,
@@ -230,7 +232,7 @@ describe('AI configuration acknowledgement (#303)', () => {
     await tick(2);
 
     const question = [...target.querySelectorAll<HTMLSpanElement>('span')]
-      .find((el) => el.textContent?.trim() === aiConfigStrings.confirmQuestion())!;
+      .find((el) => el.textContent?.trim() === aiConfigStrings.confirmDelete('default'))!;
     const cancel = [...question.parentElement!.querySelectorAll<HTMLButtonElement>('button')]
       .find((el) => el.textContent?.trim() === 'Cancel')!;
     cancel.click();
@@ -652,15 +654,6 @@ describe('AI configuration feedback lifecycle review controls', () => {
     expect(posts.filter((p) => p.action === 'create')).toHaveLength(1);
   });
 
-  it('preserves the previous refresh behavior for a standalone manager', async () => {
-    const { target } = await open({}, AiServiceConfigManager);
-    await startCreate(target, 'fast');
-    button(target, 'Save').click();
-    await settle();
-
-    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
-  });
-
   it('keeps the page and committed warning when the section-owned readback fails', async () => {
     stubFetch(() => ({}), () => { throw new Error('readback failed'); });
     const m = await open();
@@ -783,56 +776,6 @@ describe('AI configuration feedback lifecycle review controls', () => {
     button(m.target, 'Add configuration').click();
     await settle();
     expect(button(m.target, 'Save').disabled).toBe(false);
-  });
-
-  it('shows standalone uncertainty with readback instead of a silent replay lock', async () => {
-    stubFetch(async (body) => {
-      if (body.action === 'create') throw new Error('dropped response');
-      return {};
-    });
-    const { target } = await open({}, AiServiceConfigManager);
-    await startCreate(target, 'fast');
-    button(target, 'Save').click();
-    await settle();
-
-    const region = $<HTMLElement>(target, '[data-testid="ai-config-manager-feedback"]')!;
-    expect(region.textContent).toContain('couldn’t confirm the change went through');
-    expect(region.querySelector('a[data-sveltekit-reload]')).not.toBeNull();
-    expect(button(target, 'Save').disabled).toBe(true);
-  });
-
-  it('reports a standalone committed refresh rejection instead of dropping it', async () => {
-    navigationHooks.onInvalidateAll = () => { throw new Error('refresh rejected'); };
-    const { target } = await open({}, AiServiceConfigManager);
-    await startCreate(target, 'fast');
-    button(target, 'Save').click();
-    await settle();
-
-    const region = $<HTMLElement>(target, '[data-testid="ai-config-manager-feedback"]')!;
-    expect(region.textContent).toContain('Saved “fast”, but the configurations couldn’t be refreshed');
-    expect(region.querySelector('a[data-sveltekit-reload]')).not.toBeNull();
-    expect(button(target, 'Add configuration')).not.toBeNull();
-  });
-
-  it('holds a follow-up standalone mutation until the committed refresh settles', async () => {
-    let releaseRefresh!: () => void;
-    navigationHooks.onInvalidateAll = () => new Promise<void>((resolve) => { releaseRefresh = resolve; });
-    const { target } = await open({}, AiServiceConfigManager);
-    await startCreate(target, 'fast');
-    button(target, 'Save').click();
-    await settle();
-    await startCreate(target, 'frontier');
-    expect(button(target, 'Save').disabled).toBe(true);
-    button(target, 'Save').click();
-    expect(posts.filter((p) => p.action === 'create')).toHaveLength(1);
-
-    releaseRefresh();
-    await settle();
-    expect(button(target, 'Save').disabled).toBe(false);
-    button(target, 'Save').click();
-    await settle();
-    expect(posts.filter((p) => p.action === 'create')).toHaveLength(2);
-    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(2);
   });
 
   it('acknowledges immediately and bounds a hung section readback', async () => {
@@ -1298,32 +1241,6 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(feedback(m.target).textContent).toContain('couldn’t confirm the change went through');
   });
 
-  it('locks replay when standalone stale-owner reconciliation fails', async () => {
-    let rejectCreate!: (error: Error) => void;
-    stubFetch(async (body) => {
-      if (body.action === 'create') await new Promise<never>((_, reject) => { rejectCreate = reject; });
-      return {};
-    });
-    navigationHooks.onInvalidateAll = () => { throw new Error('refresh rejected'); };
-    const m = await open({}, AiServiceConfigManager);
-    await startCreate(m.target, 'fast');
-    button(m.target, 'Save').click();
-    await tick(2);
-
-    m.props.ownerId = 'o2';
-    await settle();
-    m.props.ownerId = 'o1';
-    await settle();
-    rejectCreate(new Error('dropped response'));
-    await settle();
-
-    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-manager-feedback"]')!;
-    expect(region.textContent).toContain('couldn’t confirm the change went through');
-    button(m.target, 'Add configuration').click();
-    await settle();
-    expect(button(m.target, 'Save').disabled).toBe(true);
-  });
-
   it('restarts uncertain reconciliation when its readback crosses A → B → A', async () => {
     let rejectCreate!: (error: Error) => void;
     const releases: Array<(reply: Reply) => void> = [];
@@ -1421,56 +1338,6 @@ describe('AI configuration code-review lifecycle pins', () => {
     await settle();
     expect(button(second.target, 'Save').disabled).toBe(true);
     expect(feedback(second.target).textContent).toContain('couldn’t confirm the change went through');
-  });
-
-  it('defers standalone recovery when its owner changes during invalidation', async () => {
-    let rejectCreate!: (error: Error) => void;
-    const refreshes: Array<{ resolve: () => void; reject: (error: Error) => void }> = [];
-    stubFetch(async (body) => {
-      if (body.action === 'create') await new Promise<never>((_, reject) => { rejectCreate = reject; });
-      return {};
-    });
-    navigationHooks.onInvalidateAll = () => new Promise<void>((resolve, reject) => {
-      refreshes.push({ resolve: () => resolve(), reject });
-    });
-    const m = await open({}, AiServiceConfigManager);
-    await startCreate(m.target, 'fast');
-    button(m.target, 'Save').click();
-    await tick(2);
-    m.props.ownerId = 'o2';
-    await settle();
-    m.props.ownerId = 'o1';
-    await settle();
-    rejectCreate(new Error('dropped response'));
-    await settle();
-    expect(refreshes).toHaveLength(1);
-
-    m.props.ownerId = 'o2';
-    await settle();
-    refreshes[0].resolve();
-    await settle();
-    m.props.ownerId = 'o1';
-    await settle();
-    expect(refreshes).toHaveLength(2);
-    button(m.target, 'Add configuration').click();
-    await settle();
-    expect(button(m.target, 'Save').disabled).toBe(true);
-
-    m.props.ownerId = 'o2';
-    await settle();
-    m.props.ownerId = 'o1';
-    await settle();
-    expect(refreshes).toHaveLength(3);
-    refreshes[1].resolve();
-    await settle();
-    button(m.target, 'Add configuration').click();
-    await settle();
-    expect(button(m.target, 'Save').disabled).toBe(true);
-
-    refreshes[2].reject(new Error('refresh rejected'));
-    await settle();
-    expect(button(m.target, 'Save').disabled).toBe(true);
-    expect(m.target.textContent).toContain('couldn’t confirm the change went through');
   });
 
   it('keeps uncertainty after a late related success because the write may still commit', async () => {
@@ -1742,87 +1609,6 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(button(m.target, 'Save').disabled).toBe(true);
   });
 
-  it('keeps a standalone draft when only the onAction callback identity changes', async () => {
-    const m = await open({ onAction: () => 0 }, AiServiceConfigManager);
-    await startCreate(m.target, 'first');
-
-    m.props.onAction = () => 0;
-    await settle();
-    expect($<HTMLInputElement>(m.target, '#ac-name')!.value).toBe('first');
-    expect($<HTMLInputElement>(m.target, '#ac-key')!.value).toBe('synthetic-key');
-  });
-
-  it('clears standalone locks when recovery ownership changes', async () => {
-    stubFetch(async (body) => {
-      if (body.action === 'create') throw new Error('dropped response');
-      return {};
-    });
-    const m = await open({}, AiServiceConfigManager);
-    await startCreate(m.target, 'first');
-    button(m.target, 'Save').click();
-    await settle();
-    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-manager-feedback"]')!;
-    expect(region.textContent).toContain('couldn’t confirm the change went through');
-
-    m.props.onMutationPending = () => {};
-    await settle();
-    expect(region.textContent).not.toContain('couldn’t confirm the change went through');
-    expect(button(m.target, 'Save').disabled).toBe(false);
-  });
-
-  it('settles the original standalone scope when ownership and principal change in flight', async () => {
-    let releaseCreate!: () => void;
-    const createHeld = new Promise<void>((resolve) => { releaseCreate = resolve; });
-    stubFetch(async (body) => {
-      if (body.action === 'create') {
-        await createHeld;
-        throw new Error('dropped response');
-      }
-      return {};
-    });
-    const m = await open({}, AiServiceConfigManager);
-    await startCreate(m.target, 'first');
-    button(m.target, 'Save').click();
-    await tick(2);
-
-    m.props.onMutationPending = vi.fn();
-    m.props.currentUserId = 'u2';
-    await settle();
-    releaseCreate();
-    await settle();
-
-    const first = getAiConfigRecoveryStore('standalone:u1');
-    const second = getAiConfigRecoveryStore('standalone:u2');
-    expect(first.uncertainty('ORGANIZATION:o1')).toContain('couldn’t confirm the change went through');
-    expect(second.uncertainty('ORGANIZATION:o1')).toBeNull();
-    expect(first.pending()).toEqual([]);
-  });
-
-  it('keeps a custom-callback mutation in its originating principal scope', async () => {
-    let releaseCreate!: () => void;
-    const createHeld = new Promise<void>((resolve) => { releaseCreate = resolve; });
-    const pending = vi.fn();
-    stubFetch(async (body) => {
-      if (body.action === 'create') {
-        await createHeld;
-        throw new Error('dropped response');
-      }
-      return {};
-    });
-    const m = await open({ onMutationPending: pending }, AiServiceConfigManager);
-    await startCreate(m.target, 'first');
-    button(m.target, 'Save').click();
-    await tick(2);
-
-    m.props.currentUserId = 'u2';
-    await settle();
-    releaseCreate();
-    await settle();
-    expect(getAiConfigRecoveryStore('standalone:u1').uncertainty('ORGANIZATION:o1')).toContain('couldn’t confirm the change went through');
-    expect(getAiConfigRecoveryStore('standalone:u2').uncertainty('ORGANIZATION:o1')).toBeNull();
-    expect(pending).toHaveBeenLastCalledWith(expect.objectContaining({ pending: false }));
-  });
-
   it('settles an uncertain outcome through the callback captured at action start', async () => {
     let releaseCreate!: () => void;
     const createHeld = new Promise<void>((resolve) => { releaseCreate = resolve; });
@@ -1844,117 +1630,8 @@ describe('AI configuration code-review lifecycle pins', () => {
     await settle();
     releaseCreate();
     await settle();
-    expect(first).toHaveBeenCalledWith(expect.objectContaining({ recoveryScope: 'standalone:u1' }));
+    expect(first).toHaveBeenCalledWith(expect.objectContaining({ ownerKey: 'ORGANIZATION:o1' }));
     expect(second).not.toHaveBeenCalled();
-  });
-
-  it('retains a custom pending registration when standalone handling resumes', async () => {
-    let releaseCreate!: (reply: Reply) => void;
-    const pending = vi.fn();
-    stubFetch((body) => {
-      if (body.action === 'create') return new Promise<Reply>((resolve) => { releaseCreate = resolve; });
-      return {};
-    });
-    const m = await open({ onMutationPending: pending }, AiServiceConfigManager);
-    await startCreate(m.target, 'first');
-    button(m.target, 'Save').click();
-    await tick(2);
-
-    m.props.onMutationPending = undefined;
-    await settle();
-    button(m.target, 'Add configuration').click();
-    await settle();
-    expect(button(m.target, 'Save').disabled).toBe(true);
-    releaseCreate({});
-    await settle();
-    expect(button(m.target, 'Save').disabled).toBe(false);
-    expect(pending).toHaveBeenLastCalledWith(expect.objectContaining({ pending: false }));
-  });
-
-  it('resyncs standalone recovery when the principal changes in place', async () => {
-    stubFetch(async (body) => {
-      if (body.action === 'create') throw new Error('dropped response');
-      return {};
-    });
-    const m = await open({ currentUserId: 'u1' }, AiServiceConfigManager);
-    await startCreate(m.target, 'first');
-    button(m.target, 'Save').click();
-    await settle();
-    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-manager-feedback"]')!;
-    expect(region.textContent).toContain('couldn’t confirm the change went through');
-
-    m.props.currentUserId = 'u2';
-    await settle();
-    expect(region.textContent).not.toContain('couldn’t confirm the change went through');
-    expect(m.target.querySelector('#ac-key')).toBeNull();
-    button(m.target, 'Add configuration').click();
-    await settle();
-    expect(button(m.target, 'Save').disabled).toBe(false);
-    button(m.target, 'Cancel').click();
-    await settle();
-
-    m.props.currentUserId = 'u1';
-    await settle();
-    expect(region.textContent).toContain('couldn’t confirm the change went through');
-    button(m.target, 'Add configuration').click();
-    await settle();
-    expect(button(m.target, 'Save').disabled).toBe(true);
-  });
-
-  it('isolates standalone uncertainty and replay locks by principal', async () => {
-    stubFetch(async (body) => {
-      if (body.action === 'create') throw new Error('dropped response');
-      return {};
-    });
-    const first = await open({ currentUserId: 'u1' }, AiServiceConfigManager);
-    await startCreate(first.target, 'first');
-    button(first.target, 'Save').click();
-    await settle();
-    const firstFeedback = $<HTMLElement>(first.target, '[data-testid="ai-config-manager-feedback"]')!;
-    expect(firstFeedback.textContent).toContain('couldn’t confirm the change went through');
-    mounted.splice(mounted.indexOf(first), 1);
-    first.unmount();
-
-    const second = await open({ currentUserId: 'u2' }, AiServiceConfigManager);
-    const secondFeedback = $<HTMLElement>(second.target, '[data-testid="ai-config-manager-feedback"]')!;
-    expect(secondFeedback.textContent).not.toContain('couldn’t confirm the change went through');
-    button(second.target, 'Add configuration').click();
-    await settle();
-    expect(button(second.target, 'Save').disabled).toBe(false);
-  });
-
-  it('acknowledges a standalone committed save in the Manager live region', async () => {
-    const m = await open({}, AiServiceConfigManager);
-    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-manager-feedback"]')!;
-    await startCreate(m.target, 'fast');
-    button(m.target, 'Save').click();
-    await settle();
-
-    expect(region.textContent).toContain('Saved “fast”.');
-    expect(navigationCalls.filter((call) => call.fn === 'invalidateAll')).toHaveLength(1);
-  });
-
-  it('retains standalone pending recovery across Manager destroy and remount', async () => {
-    let releaseCreate!: () => void;
-    const createHeld = new Promise<void>((resolve) => { releaseCreate = resolve; });
-    stubFetch(async (body) => {
-      if (body.action === 'create') await createHeld;
-      return {};
-    });
-    const first = await open({}, AiServiceConfigManager);
-    await startCreate(first.target, 'first');
-    button(first.target, 'Save').click();
-    await tick(2);
-    mounted.splice(mounted.indexOf(first), 1);
-    first.unmount();
-
-    const second = await open({}, AiServiceConfigManager);
-    button(second.target, 'Add configuration').click();
-    await settle();
-    expect(button(second.target, 'Save').disabled).toBe(true);
-    releaseCreate();
-    await settle();
-    expect(button(second.target, 'Save').disabled).toBe(false);
   });
 
   it('does not carry a wrapped owner-A uncertainty lock into owner B', async () => {
@@ -2142,21 +1819,13 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(updates[1]).toMatchObject({ id: 'c1', endpoint: null });
   });
 
-  it('requires a principal identity for the standalone manager', () => {
-    // Type-level pin (enforced by `pnpm check`): an optional currentUserId would
-    // let every standalone instance share one `standalone:` recovery scope.
-    // @ts-expect-error currentUserId is required
-    const missing: ComponentProps<typeof AiServiceConfigManager> = { ownerType: 'ORGANIZATION', ownerId: 'o1', configs: [] };
-    expect(missing).toBeDefined();
-  });
-
   it('locks a preserved create draft when the response omits the created id', async () => {
     let releaseCreate!: (reply: Reply) => void;
     stubFetch((body) => {
       if (body.action === 'create') return new Promise<Reply>((resolve) => { releaseCreate = resolve; });
       return {};
     });
-    const m = await open({}, AiServiceConfigManager);
+    const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
     await tick(2);
@@ -2164,7 +1833,7 @@ describe('AI configuration code-review lifecycle pins', () => {
 
     releaseCreate({});
     await settle();
-    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-manager-feedback"]')!;
+    const region = feedback(m.target);
     expect(region.textContent).toContain('couldn’t confirm the change went through');
     expect(button(m.target, 'Save').disabled).toBe(true);
     expect(posts.filter((body) => body.action === 'create')).toHaveLength(1);
@@ -2179,4 +1848,37 @@ describe('AI configuration code-review lifecycle pins', () => {
     await settle();
     expect(m.target.querySelector(`button[aria-label="${aiConfigStrings.actionsLabel('default')}"]`)).not.toBeNull();
   });
+});
+
+describe('#1898 follow-ups', () => {
+  it('names the config in the visible delete question even when the name column is scrolled away', async () => {
+    const m = await open({ configs: [config({ name: 'fast' })] });
+    menuDelete(m.target, 'fast');
+    await settle();
+    const deleteButton = button(m.target, 'Delete');
+    expect(deleteButton.parentElement?.textContent).toContain('fast');
+    expect(deleteButton.parentElement?.textContent).toContain('cannot be undone');
+    expect(posts.filter(p => p.action === 'delete')).toHaveLength(0);
+  });
+  it('fades Previous while the section editor holds pagination', async () => {
+    const m = await open({ pagination: { offset: 20, count: 20, total: 60, previousHref: '?configOffset=0', nextHref: '?configOffset=40' } });
+    await startCreate(m.target);
+    const previous = [...m.target.querySelectorAll('[aria-disabled="true"]')].find(e => e.textContent === 'Previous');
+    expect(previous).toBeDefined();
+    expect(previous?.classList.contains('opacity-50')).toBe(true);
+    expect(m.target.querySelector('a[rel="prev"]')).toBeNull();
+  });
+  it.each([401, 403])('keeps an auth-refused %i draft editable without replay lock', async (status) => {
+    stubFetch(body => body.action === 'create' ? { ok: false, status, body: { error: status === 401 ? 'Unauthorized' : 'Forbidden' } } : {});
+    const m = await open();
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(false);
+    expect($<HTMLInputElement>(m.target, '#ac-name')!.value).toBe('fast');
+    expect(m.target.querySelector('[role="alert"]')?.textContent).toContain(status === 401 ? 'Unauthorized' : 'Forbidden');
+    expect(feedback(m.target).textContent).not.toContain('couldn’t confirm');
+    expect(readbacks).toHaveLength(0);
+  });
+
 });

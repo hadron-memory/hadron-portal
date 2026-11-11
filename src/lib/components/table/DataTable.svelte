@@ -40,6 +40,7 @@
     sortButtons = false,
     maxHeight = 'max(200px, calc(100vh - 23rem))',
     fitOnPhone = false,
+    stickyEndColumn,
     rowClass,
     rowAttrs,
     cell,
@@ -63,6 +64,8 @@
     maxHeight?: string;
     /** Fit a SINGLE-column table and its header to the scroller on phones; desktop saved widths stay live. */
     fitOnPhone?: boolean;
+    /** Keep one row-action column reachable on phones, independent of saved order. */
+    stickyEndColumn?: string;
     /** Extra classes for a body row (e.g. dim revoked rows). */
     rowClass?: (item: T) => string;
     /** Extra attributes for a body row (e.g. data-testid hooks). */
@@ -76,7 +79,7 @@
 
   let phone = $state(false);
   $effect(() => {
-    if (!fitOnPhone || typeof window.matchMedia !== 'function') return;
+    if ((!fitOnPhone && !stickyEndColumn) || typeof window.matchMedia !== 'function') return;
     const query = window.matchMedia('(max-width: 639px)');
     const follow = (event: MediaQueryListEvent) => { phone = event.matches; };
     phone = query.matches;
@@ -88,7 +91,12 @@
     }
   });
   const phoneFit = $derived(fitOnPhone && phone && table.getVisibleLeafColumns().length === 1);
-  const responsiveWidth = $derived(phoneFit ? '100%' : `max(100%, ${table.getCenterTotalSize()}px)`);
+  const phoneEndColumn = $derived(phone && stickyEndColumn
+    ? table.getVisibleLeafColumns().find(column => column.id === stickyEndColumn)
+    : undefined);
+  // A restored wide desktop action column must not cover the phone viewport.
+  // Adjust table AND header together; keep the stored TanStack size untouched.
+  const responsiveWidth = $derived(phoneFit ? '100%' : `max(100%, ${table.getCenterTotalSize() - (phoneEndColumn ? phoneEndColumn.getSize() - 170 : 0)}px)`);
 
   const pageSize = $derived(table.atoms.pagination.get().pageSize);
   const pageIndex = $derived(table.atoms.pagination.get().pageIndex);
@@ -134,8 +142,8 @@
         <tr class="text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
           {#each headerGroup.headers as header (header.id)}
             <th
-              class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''}"
-              style="width: {phoneFit ? '100%' : `${header.getSize()}px`};"
+              class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''} {header.column.id === stickyEndColumn ? 'max-sm:left-0 max-sm:right-0 max-sm:z-20' : ''}"
+              style="width: {phoneFit ? '100%' : `${header.column.id === phoneEndColumn?.id ? 170 : header.getSize()}px`};"
               tabindex={!sortButtons && header.column.getCanSort() ? 0 : undefined}
               aria-sort={header.column.getIsSorted() === 'asc' ? 'ascending' : header.column.getIsSorted() === 'desc' ? 'descending' : undefined}
               onclick={sortButtons ? undefined : header.column.getToggleSortingHandler()}
@@ -154,7 +162,7 @@
                   <span class={header.column.getIsSorted() ? 'text-indigo-500' : 'text-zinc-300 dark:text-zinc-700'}>{sortIndicator(header.column.getIsSorted())}</span>
                 {/if}
               </div>
-              {#if header.column.getCanResize() && !phoneFit}
+              {#if header.column.getCanResize() && !phoneFit && header.column.id !== phoneEndColumn?.id}
                 <!-- A focusable separator is the canonical ARIA "window
                      splitter" widget (role=separator + tabindex + arrow
                      keys); Svelte's linter doesn't model it and flags the
@@ -187,7 +195,7 @@
           {...rowAttrs ? rowAttrs(row.original) : {}}
         >
           {#each row.getVisibleCells() as c (c.id)}
-            <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
+            <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400 {c.column.id === stickyEndColumn ? 'max-sm:sticky max-sm:left-0 max-sm:right-0 max-sm:bg-white max-sm:dark:bg-zinc-950 max-sm:focus-within:z-30 max-sm:has-[[role=menu]]:z-30' : ''}">
               {@render cell(c, row.original)}
             </td>
           {/each}
