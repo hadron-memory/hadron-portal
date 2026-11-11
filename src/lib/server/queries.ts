@@ -2185,6 +2185,7 @@ export const UNINSTALL_AGENT_FROM_APP_MUTATION = /* GraphQL */ `
 export const AI_SERVICE_CONFIG_FIELDS = /* GraphQL */ `
   fragment AiServiceConfigFields on AiServiceConfig {
     id
+    urn
     name
     ownerType
     ownerId

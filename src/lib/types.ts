@@ -981,6 +981,8 @@ export type AiConfigProvider = AIProvider | 'openai-compatible';
 
 export interface AiServiceConfig {
   id: string;
+  /** Nullable server-computed address; omitted by older masked fixtures. */
+  urn?: string | null;
   name: string;
   ownerType: AiConfigOwnerType;
   ownerId: string;

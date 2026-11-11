@@ -37,6 +37,9 @@ describe('org AI configuration identifiers (#1907)', () => {
   it.each(['APP', 'AGENT'] as const)('does not expand the render scope to %s owners', ownerType => {
     expect(html(urn, ownerType)).not.toContain(urn);
   });
+  it('rejects malformed URN DTO values rather than passing objects to the chip', () => {
+    expect(parseAiConfigList({ configs: [{ ...row, urn: { value: urn } }] })).toBeNull();
+  });
   it('selects the field and retains its exact value through committed readback', () => {
     expect(AI_SERVICE_CONFIG_FIELDS).toMatch(/\burn\b/);
     expect(parseAiConfigList({ configs: [{ ...row, urn }] })?.[0]).toHaveProperty('urn', urn);
