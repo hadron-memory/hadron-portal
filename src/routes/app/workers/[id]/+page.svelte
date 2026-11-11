@@ -68,7 +68,7 @@
     { id: 'sessions', label: t('worker.tabs.sessions', 'Worker sessions') },
     { id: 'worklog', label: t('worker.tabs.worklog', 'Worklog') },
     // portal#1099 — why this worker is or isn't woken (Tickers S7a, read-only).
-    { id: 'wake', label: t('worker.tabs.wake', 'Wake-ups') },
+    { id: 'wake', label: t('worker.tabs.wake', 'Tickers') },
   ];
 
   // The served briefing is read-only; edits belong to source nodes.
@@ -682,8 +682,8 @@
   {#if activeTab === 'wake'}
     <div id="panel-wake" role="tabpanel" aria-labelledby="tab-wake" tabindex="0" class="space-y-6 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
       <div>
-        <h2 class="font-semibold text-zinc-900 dark:text-white">{t('worker.wake.title', 'Wake-ups')}</h2>
-        <p class="mt-1 text-sm text-zinc-500">{t('worker.wake.description', 'When this worker is due a wake-up: from a mention, or from the tickers it follows.')}</p>
+        <h2 class="font-semibold text-zinc-900 dark:text-white">{t('worker.wake.title', 'Tickers')}</h2>
+        <p class="mt-1 text-sm text-zinc-500">{t('worker.wake.description', 'When this worker is due a wake: from a mention, or from the tickers it follows.')}</p>
       </div>
       <WakeUpsPanel
         wake={data.wake}

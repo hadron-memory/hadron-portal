@@ -50,8 +50,8 @@ describe('labels', () => {
   it('keeps the agreed words for the common reasons', () => {
     expect(terminalReasonLabel('model_at_capacity')).toBe('Model at capacity');
     expect(terminalReasonLabel('menu_or_question')).toBe('Waiting at a menu or question');
-    // portal#1495 (Uma, UX): "tick" was jargon; the wake-up is the reader-facing word.
-    expect(terminalReasonLabel('no_turn_for_due_ticker')).toBe('Missed its wake-up');
+    // portal#1938 (Holger): "Tickers" is the official name; supersedes the portal#1495 "wake-up is the reader-facing word" ruling. A single missed wake is not a missed ticker (cor:agt:080:15).
+    expect(terminalReasonLabel('no_turn_for_due_ticker')).toBe('Missed its ticker wake');
   });
 
   it('an unknown state or reason shows fixed copy and logs nothing', () => {
@@ -86,7 +86,7 @@ describe('terminalBadge', () => {
     ['idle', null, 'Idle'],
     ['busy', null, 'Busy'],
     ['locked', 'model_at_capacity', 'Locked: Model at capacity'],
-    ['dark', 'no_turn_for_due_ticker', 'Dark: Missed its wake-up'],
+    ['dark', 'no_turn_for_due_ticker', 'Dark: Missed its ticker wake'],
   ])('%s with %s reads %s', (status, reason, summary) => {
     const b = terminalBadge({ status, reason, checkedAt: read.checkedAt }, true)!;
     expect(terminalSummary(b)).toBe(summary);

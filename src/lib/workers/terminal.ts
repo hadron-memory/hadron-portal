@@ -52,7 +52,7 @@ export function terminalReasonLabel(reason: string): string {
     case 'unrecognized': return t('worker.terminal.reason.unrecognized', 'Screen not recognized');
     // portal#1495 (Uma, UX): "tick" is our jargon; the reader-facing word for a
     // scheduled wake-up that did not happen is the wake-up itself.
-    case 'no_turn_for_due_ticker': return t('worker.terminal.reason.no-turn-for-due-ticker', 'Missed its wake-up');
+    case 'no_turn_for_due_ticker': return t('worker.terminal.reason.no-turn-for-due-ticker', 'Missed its ticker wake');
     case 'no_terminal': return t('worker.terminal.reason.no-terminal', 'No terminal found');
     case 'bare_shell': return t('worker.terminal.reason.bare-shell', 'Agent not running (plain shell)');
     case 'no_agent': return t('worker.terminal.reason.no-agent', 'No agent in the terminal');
