@@ -30,11 +30,11 @@
   const columns: PortalColumnDef<AppRun>[] = [
     { accessorKey: 'status', header: t('runs.col.status', 'Status'), size: 130 },
     { accessorKey: 'triggerKind', header: t('runs.col.trigger', 'Trigger'), enableSorting: false, size: 180 },
-    { accessorKey: 'entryNodeUrn', header: t('runs.col.entry', 'Entry node'), enableSorting: false, size: 300 },
-    { accessorKey: 'startedAt', header: t('runs.col.started', 'Started'), size: 180 },
+    { accessorKey: 'entryNodeUrn', header: t('runs.col.entry', 'Entry node'), enableSorting: false, size: 300, minSize: 220 },
+    { accessorKey: 'startedAt', header: t('runs.col.started', 'Started'), size: 200 },
     { id: 'duration', header: t('runs.col.duration', 'Duration'), enableSorting: false, size: 110 },
     { id: 'failure', header: t('runs.col.failure', 'Failure'), enableSorting: false, size: 220 },
-    { id: 'actions', header: t('runs.col.open', 'Open'), enableSorting: false, enableHiding: false, size: 90 },
+    { id: 'actions', header: t('runs.col.open', 'Open'), enableSorting: false, enableHiding: false, size: 140, minSize: 140 },
   ];
   function query(change: Partial<RunsQuery>): RunsQuery { return { page: controls.page, statuses: controls.statuses, sort: controls.sort, dir: controls.dir, ...change }; }
   async function navigate(next: RunsQuery, replaceState = false) {
@@ -45,7 +45,7 @@
     finally { if (alive && id === epoch && ref === appRef) { intent = null; pending = false; } }
   }
   const table = createSvelteTable<AppRun>({
-    get data() { return section.runs; }, columns, getRowId: r => r.id,
+    get data() { return section.runs; }, columns, defaultColumn: { minSize: 40 }, getRowId: r => r.id,
     manualPagination: true, manualSorting: true, manualFiltering: true,
     initialState: { sorting: [{ id: 'createdAt', desc: true }], pagination: { pageIndex: 0, pageSize: 20 } },
     get rowCount() { return section.total; }, enableMultiSort: false, enableSortingRemoval: false,
@@ -83,7 +83,7 @@
     finally { if (current()) pending = false; }
   }
 </script>
-<div class="min-w-0 space-y-4 text-zinc-900 dark:text-zinc-100" aria-busy={pending}>
+<div class="runs-grid min-w-0 space-y-4 text-zinc-900 dark:text-zinc-100" aria-busy={pending}>
   <h2 bind:this={heading} tabindex="-1" class="text-lg font-semibold focus-visible:outline-2 focus-visible:outline-indigo-500">{t('app.tabs.runs', 'Runs')}</h2>
   <p role="status" aria-live="polite" class="text-sm">{announcement}</p>
   <fieldset class="flex min-w-0 flex-wrap items-center gap-3">
@@ -103,15 +103,19 @@
   {#if section.failed}<div role="alert"><p>{t('runs.read-failed', 'Could not load runs. Try again.')}</p><button type="button" disabled={pending} onclick={retry} class="min-h-11 rounded border border-zinc-300 bg-white px-3 text-zinc-900 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">{t('runs.retry', 'Retry')}</button></div>
   {:else if section.total === 0}<p>{section.statuses.length ? t('runs.empty.filtered', 'No runs with this status yet.') : t('runs.empty.title', 'No runs yet.')}</p>{/if}
   {#if !section.failed}<p>{t('runs.pager.total', 'Total:')} {section.total}</p>{/if}
-  <DataTable {table} listKey="app-runs-server" showSearch={false} showPageSize={false} initialColumnsOnly={section.explicitState} sortButtons={true} searchPlaceholder="" searchAriaLabel="">
+  <DataTable containCells {table} listKey="app-runs-server" showSearch={false} showPageSize={false} initialColumnsOnly={section.explicitState} sortButtons={true} searchPlaceholder="" searchAriaLabel="">
     {#snippet cell(c, run)}
-      {#if c.column.id === 'status'}<span class="rounded px-2 py-1 {statusChipClass(run.status)}">{run.status}</span>
+      {#if c.column.id === 'status'}<span class="inline-block max-w-full rounded px-2 py-1 [overflow-wrap:anywhere] {statusChipClass(run.status)}">{run.status}</span>
       {:else if c.column.id === 'triggerKind'}{describeTrigger(run)}
-      {:else if c.column.id === 'entryNodeUrn'}<Urn value={run.entryNodeUrn} type="node" size={11} />
+      {:else if c.column.id === 'entryNodeUrn'}<Urn value={run.entryNodeUrn} type="node" size={11} compact />
       {:else if c.column.id === 'duration'}{runDuration(run)}
       {:else if c.column.id === 'failure'}{failureCode(run) ?? ''}
-      {:else if c.column.id === 'actions'}<a href="/app/apps/{encodeURIComponent(appRef)}/runs/{run.id}" class="text-indigo-700 underline dark:text-indigo-300">{t('runs.open', 'Open')}</a>
+      {:else if c.column.id === 'actions'}<a href="/app/apps/{encodeURIComponent(appRef)}/runs/{run.id}" class="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center rounded text-indigo-700 underline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-indigo-300">{t('runs.open', 'Open')}</a>
       {:else}{fmtRunTime(run[c.column.id as 'createdAt' | 'startedAt' | 'finishedAt'])}{/if}
     {/snippet}
   </DataTable>
 </div>
+
+<style>
+  .runs-grid :global(td > .inline-flex) { flex-wrap: wrap; }
+</style>

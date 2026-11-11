@@ -387,10 +387,10 @@
     // Numeric accessor per hrn:node:hadronmemory.com:hadron-portal:review:date-column-sorts-by-instant — a raw date
     // string reaches TanStack's alphanumeric comparator, which reads the digit
     // groups and ignores the offset, ordering by wall clock rather than instant.
-    { accessorFn: (row) => configDateMs(row.createdAt), id: 'createdAt', header: t('ai-config.column.created', 'Created'), size: 170 },
+    { accessorFn: (row) => configDateMs(row.createdAt), id: 'createdAt', header: t('ai-config.column.created', 'Created'), size: 200 },
     // 170, not 120 (#1020 review): the cell's widest STATE is the inline Delete
     // confirm (question + buttons), not the ⋯ trigger; 120 clipped it.
-    { id: 'actions', header: t('ai-config.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 170 },
+    { id: 'actions', header: t('ai-config.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 170, minSize: 170 },
   ];
   const configFmt: Record<string, (v: unknown) => string> = {
     createdAt: (v) => (v == null ? '—' : new Date(v as number).toLocaleString()),
@@ -401,6 +401,7 @@
       return configs;
     },
     columns: configColumns,
+    defaultColumn: { minSize: 40 },
     enableMultiSort: false,
     enableColumnResizing: true,
     columnResizeMode: 'onChange',
@@ -1159,7 +1160,9 @@
       <p class="text-sm text-zinc-500">{pagination && (pagination.offset > 0 || pagination.total > 0) ? t('ai-config.empty.page', 'No AI configurations on this page.') : s.empty()}</p>
     {/if}
   {:else}
+    <div class="config-grid min-w-0">
     <DataTable
+      containCells
       table={configTable}
       showFooter={!pagination}
       listKey="ai-configs"
@@ -1172,14 +1175,14 @@
       {#snippet cell(cell, c)}
         <!-- Dim content, never the row: row opacity traps its fixed menu below later rows (#1867). -->
         {#if cell.column.id === 'name'}
-          <span class:opacity-60={!c.enabled} class="truncate font-mono text-sm font-medium text-zinc-900 dark:text-white">{c.name}</span>
+          <span class:opacity-60={!c.enabled} class="block min-w-0 max-w-full font-mono text-sm font-medium [overflow-wrap:anywhere] text-zinc-900 dark:text-white">{c.name}</span>
         {:else if cell.column.id === 'enabled'}
           {#if c.enabled}
-            <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">
+            <span class="inline-block max-w-full rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">
               {s.enabledBadge()}
             </span>
           {:else}
-            <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500 opacity-60 dark:bg-zinc-800 dark:text-zinc-400">
+            <span class="inline-block max-w-full rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500 opacity-60 dark:bg-zinc-800 dark:text-zinc-400">
               {s.disabledBadge()}
             </span>
           {/if}
@@ -1193,7 +1196,7 @@
                    place (the share-page idiom): the irreversibility question
                    stays visible here, not only on the menu item's title,
                    which keyboard and touch users never see. Wraps, if narrow. -->
-              <div class="flex flex-wrap items-center gap-1.5">
+              <div class="flex min-w-0 flex-wrap items-center gap-1.5 [overflow-wrap:anywhere]">
                 <span class="min-w-0 [overflow-wrap:anywhere] text-xs text-zinc-500">{s.confirmDelete(c.name)}</span>
                 <button
                   type="button"
@@ -1232,13 +1235,21 @@
           {/if}
         {:else}
           {@const f = configFmt[cell.column.id]}
-          <div class:opacity-60={!c.enabled} class="truncate">{f ? f(cell.getValue()) : (cell.getValue() ?? '—')}</div>
+          <div class:opacity-60={!c.enabled} class="min-w-0 max-w-full [overflow-wrap:anywhere]">{f ? f(cell.getValue()) : (cell.getValue() ?? '—')}</div>
         {/if}
       {/snippet}
     </DataTable>
+    </div>
   {/if}
   {#if pagination}
     <ListPageNav page={pagination} label={t('app.ai-config.pages', 'AI config pages')} disabled={formOpen || busy || confirmDeleteId !== null} />
     {#if formOpen}<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{t('app.ai-config.page-edit', 'Save or cancel the form before changing pages.')}</p>{/if}
   {/if}
 </section>
+
+<style>
+  /* Table actions reserve space; fixed menu descendants keep their viewport position. */
+  .config-grid :global(td button) { min-height: 44px; min-width: 44px; }
+  .config-grid :global(td [data-node-actions] > button) { display: inline-flex; }
+  .config-grid :global(td button:focus-visible) { outline: 2px solid var(--color-indigo-500); outline-offset: 2px; }
+</style>

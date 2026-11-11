@@ -40,6 +40,7 @@
     sortButtons = false,
     maxHeight = 'max(200px, calc(100vh - 23rem))',
     fitOnPhone = false,
+    containCells = false,
     stickyEndColumn,
     rowClass,
     rowAttrs,
@@ -64,6 +65,8 @@
     maxHeight?: string;
     /** Fit a SINGLE-column table and its header to the scroller on phones; desktop saved widths stay live. */
     fitOnPhone?: boolean;
+    /** Opt-in cell boundary repair; callers must also adapt their cell content. */
+    containCells?: boolean;
     /** Keep one row-action column reachable on phones, independent of saved order. */
     stickyEndColumn?: string;
     /** Extra classes for a body row (e.g. dim revoked rows). */
@@ -107,12 +110,14 @@
   }
 
   // Keyboard resize step (px per arrow press). Mirrors the drag handler's
-  // effect via setColumnSizing; 40px floor keeps a column grabbable.
+  // effect via setColumnSizing; retain the legacy40px floor unless the
+  // consumer declares a larger minimum for its interactive content.
   const RESIZE_STEP = 10;
   function resizeByKeyboard(e: KeyboardEvent, columnId: string, size: number) {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
-    const next = Math.max(40, size + (e.key === 'ArrowLeft' ? -RESIZE_STEP : RESIZE_STEP));
+    const minimum = Math.max(40, table.getColumn(columnId)?.columnDef.minSize ?? 40);
+    const next = Math.max(minimum, size + (e.key === 'ArrowLeft' ? -RESIZE_STEP : RESIZE_STEP));
     table.setColumnSizing((old) => ({ ...old, [columnId]: next }));
   }
 </script>
@@ -175,7 +180,7 @@
                   aria-orientation="vertical"
                   aria-label={tableStrings.resizeColumn()}
                   aria-valuenow={header.getSize()}
-                  aria-valuemin={40}
+                  aria-valuemin={Math.max(40, header.column.columnDef.minSize ?? 40)}
                   tabindex={0}
                   onmousedown={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
                   ontouchstart={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
@@ -195,7 +200,7 @@
           {...rowAttrs ? rowAttrs(row.original) : {}}
         >
           {#each row.getVisibleCells() as c (c.id)}
-            <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400 {c.column.id === stickyEndColumn ? 'max-sm:sticky max-sm:left-0 max-sm:right-0 max-sm:bg-white max-sm:dark:bg-zinc-950 max-sm:focus-within:z-30 max-sm:has-[[role=menu]]:z-30' : ''}">
+            <td data-cell-contained={containCells ? '' : undefined} class="{containCells ? 'overflow-hidden [overflow-wrap:anywhere]' : ''} border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400 {c.column.id === stickyEndColumn ? 'max-sm:sticky max-sm:left-0 max-sm:right-0 max-sm:bg-white max-sm:dark:bg-zinc-950 max-sm:focus-within:z-30 max-sm:has-[[role=menu]]:z-30' : ''}">
               {@render cell(c, row.original)}
             </td>
           {/each}
