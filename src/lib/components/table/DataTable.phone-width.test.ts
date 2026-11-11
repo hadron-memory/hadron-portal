@@ -39,20 +39,21 @@ describe('DataTable phone width in SSR markup', () => {
     expect(body).toContain('max-sm:w-[var(--phone-end-w)]');
   });
 
-  it('never widens the phone table past the desktop total for a sub-clamp restored size', () => {
+  it('clamps the phone width subtraction at zero for a sub-clamp restored size', () => {
     // A saved view applies columnSizing raw, with no minSize floor, so a
     // stale or hand-edited view can restore an end column BELOW the 170
     // clamp (100 here). The subtraction clamps at zero instead of going
     // negative — an unclamped 100 − 170 would inflate the phone table to
-    // 1770px while the header still clamps to 170, defeating the clamp.
-    // The RENDERED width clamps from both sides — min(size, 170) — so the
-    // narrow column keeps its own width instead of being widened to 170.
+    // 1770px, defeating the clamp. The RENDERED end-column width keeps its
+    // flat 170 floor by design (#1950: the pinned cell stays reachable on
+    // the phone independent of saved state; min(size, 170) was considered
+    // and declined in the #1973 review), so the floor, not the raw restore,
+    // is what the phone renders.
     const body = html({ multiColumn: true, stickyEndColumn: 'second', secondSize: 100 });
     expect(body).toContain('--table-desktop-w: max(100%, 1700px)');
     expect(body).toContain('--phone-table-w: max(100%, 1700px)');
-    expect(body).toContain('--phone-end-w: 100px');
+    expect(body).toContain('--phone-end-w: 170px');
     expect(body).not.toContain('1770px');
-    expect(body).not.toContain('--phone-end-w: 170px');
   });
 
   it('keeps a multi-column fitOnPhone table on TanStack sizing at every width', () => {

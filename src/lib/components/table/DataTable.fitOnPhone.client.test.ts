@@ -90,16 +90,22 @@ describe('DataTable phone width', () => {
     expect(separators[1].className).toContain('max-sm:hidden');
   });
 
-  it('keeps a sub-clamp restored end column at its own width instead of widening it to the clamp', () => {
+  it('floors a sub-clamp restored end column at 170 on the phone, deliberately', () => {
     // A saved view applies columnSizing raw (no minSize floor), so a stale or
-    // hand-edited view can restore an end column BELOW the 170 clamp. The
-    // rendered phone width is min(size, 170): the 100px column stays 100px.
-    // The OLD behavior — header pinned to a flat 170 — widened the phone
-    // column past the desktop total under table-fixed.
+    // hand-edited view can restore an end column BELOW the 170 clamp (100
+    // here). The rendered phone width stays a FLAT 170 floor — a deliberate
+    // reachability guarantee, not an accident (#1950 pinned it; the overflow
+    // script asserts it): the sticky column exists to keep row actions
+    // reachable on the phone independent of saved state. min(size, 170) was
+    // considered and declined in the #1973 review — it would render such a
+    // pathological view's pinned cell as narrow as the raw restore. The
+    // accepted cost: the phone table renders up to (170 − size) wider than
+    // the desktop total under table-fixed; the subtraction itself still
+    // clamps at zero, so the phone never goes BELOW the desktop total.
     const { headers, style } = mount(false, true, 'second', 100);
     // 1700 − (max(100, 170) − 170): no subtraction for a sub-clamp size.
     expect(style()).toContain('--phone-table-w: max(100%, 1700px)');
-    expect(style()).toContain('--phone-end-w: 100px');
+    expect(style()).toContain('--phone-end-w: 170px');
     expect(headers[1].className).toContain('max-sm:w-[var(--phone-end-w)]');
     expect(headers[1].getAttribute('style')).toContain('--col-w: 100px');
   });

@@ -107,12 +107,14 @@
   const phoneTableWidth = $derived(singleColumnFit
     ? '100%'
     : `max(100%, ${table.getCenterTotalSize() - (endColumn ? Math.max(endColumn.getSize(), PHONE_END_COLUMN_PX) - PHONE_END_COLUMN_PX : 0)}px)`);
-  // The RENDERED phone width clamps from both sides: min(size, clamp) — a
-  // sub-clamp restored size keeps its own width, so under table-fixed the
-  // phone column sum stays equal to the desktop total instead of the 170px
-  // floor widening a narrow restored column past it (#1954 review: the
-  // subtraction alone clamped only the wide direction).
-  const phoneEndColumnWidth = $derived(endColumn ? Math.min(endColumn.getSize(), PHONE_END_COLUMN_PX) : undefined);
+  // The RENDERED phone width stays a flat 170 floor — min(size, 170) was
+  // considered and declined in the #1973 review: the sticky column exists to
+  // keep row actions reachable on the phone INDEPENDENT of saved state
+  // (#1950 pinned this; scripts/test-table-cell-overflow-layout.mjs asserts
+  // it), and only a raw hand-edited saved view can restore below the floor.
+  // The cost is that such a pathological view renders the phone table up to
+  // (170 − size) wider than the desktop total under table-fixed — accepted.
+  const phoneEndColumnWidth = $derived(endColumn ? PHONE_END_COLUMN_PX : undefined);
 
   const pageSize = $derived(table.atoms.pagination.get().pageSize);
   const pageIndex = $derived(table.atoms.pagination.get().pageIndex);
