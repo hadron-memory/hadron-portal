@@ -140,6 +140,10 @@ jobs:
         run: pnpm test:stacked-memory-layout
 
       - name: Check
+        # The full route graph can exceed Node's 2 GB default during
+        # svelte-check; use the same heap ceiling as the Build step below.
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: pnpm check
 
       # adapter-node, and every `$env` import is `$env/dynamic/*` (resolved at
