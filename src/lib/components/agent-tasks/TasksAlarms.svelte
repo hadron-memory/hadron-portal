@@ -10,6 +10,7 @@
 -->
 <script lang="ts">
   import { invalidateAll } from '$app/navigation';
+  import { page } from '$app/stores';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
@@ -132,6 +133,16 @@
     return f === 'open' ? `${basePath}/tasks?view=alarms` : `${basePath}/tasks?view=alarms&alarms=${f}`;
   }
 
+  function acknowledgeHref(): string {
+    let href = filterHref(filter);
+    // A write reloads the same history slice; filter links still start at newest.
+    for (const key of ['alarmBefore', 'alarmAfter']) {
+      const cursor = $page.url.searchParams.get(key);
+      if (cursor) href += `&${key}=${encodeURIComponent(cursor)}`;
+    }
+    return `${href}&/acknowledgeAlarm`;
+  }
+
   const emptyText = $derived(
     filter === 'open'
       ? all.length === 0
@@ -238,7 +249,7 @@
           <div class="flex flex-col gap-1">
             <span class="font-medium text-amber-700 dark:text-amber-300">{row.status}</span>
             {#if !impersonating}
-              <form method="POST" action={`${filterHref(filter)}&/acknowledgeAlarm`}>
+              <form method="POST" action={acknowledgeHref()}>
                 <input type="hidden" name="eventId" value={a.id} />
                 <button type="submit" disabled={ackResult?.kind === 'uncertain' && ackResult.eventId === a.id}
                   class="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
