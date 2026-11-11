@@ -1,0 +1,6 @@
+export type UsageAccount = { account: string; host: string; family: string; newestSnapshotAt: string; workers: string[]; workersConfigured: boolean };
+export type BurnRange = { lowPctPerHour: number; highPctPerHour: number };
+export type UsageWindow = { window: string; lengthMinutes: number; status: string; reason: string | null; usedPct: number | null; resetsAt: string | null; observedAt: string | null; lowPctAtReset: number | null; highPctAtReset: number | null; burn: BurnRange | null; perWorkerBurn: BurnRange | null; confidence: string | null; shape: string | null; runsOutAt: string | null; ceilingPct: number };
+export type UsageProjection = { account: string; host: string | null; family: string | null; asOf: string; newestSnapshotAt: string | null; workers: string[]; workersConfigured: boolean; windows: UsageWindow[]; whatIf: { adjusted: UsageWindow[]; target: { account: string; baseline: UsageWindow[]; adjusted: UsageWindow[] } | null } | null };
+export type ProjectionRead = { kind: 'ok'; value: UsageProjection } | { kind: 'hidden' | 'failed' | 'refused' };
+export type UsageView = { kind: 'hidden' | 'failed' } | { kind: 'ok'; accounts: UsageAccount[]; complete: boolean; asOf: string; selected: UsageAccount | null; projection: ProjectionRead | null; whatIf: ProjectionRead | null; invalid: boolean; target: UsageAccount | null };
