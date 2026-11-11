@@ -22,9 +22,10 @@ const entry = (over: Record<string, unknown>) => ({
   startedTasks: [], pendingTasks: [], waitingOn: [], waitingSince: null, unreactedChildTask: null, alarms: [], ...over,
 });
 
-function page(data: Record<string, unknown>) {
+function page(data: Record<string, unknown>, form: unknown = null) {
   return render(Page as never, {
     props: {
+      form,
       data: { app, view: 'board', filter: 'active', alarmFilter: 'open', boardLimit: 200, alarmsLimit: 2000,
         loadedAt: '2026-10-16T01:00:00Z', impersonating: null, board: null, roster: null, alarms: null, refs: {}, ...data },
     },
@@ -35,7 +36,10 @@ describe('portal#1941', () => {
   it('offers an explicit POST acknowledgement to every participant, with the server deciding permission', () => {
     const html = page({ view: 'alarms', alarms: { kind: 'ok', value: { alarms: [{ id: 'e1', type: 'stall.not-started', severity: 'ALARM', taskId: null, createdAt: '2026-11-11T10:00:00Z', subjectWorker: null, acknowledgedAt: null, acknowledgedBy: null, wakes: [] }], capped: false } } });
     expect(html).toMatch(/method="POST"/);
-    expect(html).toContain('?/acknowledgeAlarm');
+    const action = html.match(/<form[^>]*action="([^"]+)/)?.[1]?.replaceAll('&amp;', '&');
+    const target = new URL(action!, 'http://localhost/app/apps/app-1/tasks?view=alarms');
+    expect(target.searchParams.get('view')).toBe('alarms');
+    expect([...target.searchParams.keys()]).toContain('/acknowledgeAlarm');
     expect(html).toMatch(/name="eventId"[^>]*value="e1"/);
     expect(html).toContain('Acknowledge');
     expect(html).not.toContain('This view is read-only.');
@@ -44,10 +48,9 @@ describe('portal#1941', () => {
 
 describe('sub-navigation', () => {
   // portal#1090: Roster and Alarms stay read-only; their line says so.
-  it('roster and alarms are read-only: no form, no write button, and a line that says so', () => {
+  it('roster stays read-only: no form, no write button, and a line that says so', () => {
     for (const html of [
       page({ view: 'roster', roster: { kind: 'ok', value: { asOf: '2026-10-16T00:00:00Z', workers: [] } } }),
-      page({ view: 'alarms', alarms: { kind: 'ok', value: { alarms: [], capped: false } } }),
     ]) {
       expect(html).toContain('This view is read-only.');
       expect(html).not.toMatch(/<form/);
@@ -110,14 +113,32 @@ describe('alarms', () => {
   const alarms = (list: unknown[], alarmFilter = 'open', capped = false) =>
     ({ view: 'alarms', alarmFilter, alarms: { kind: 'ok', value: { alarms: list, capped } }, refs: { t1: { id: 't1', handle: 'AT3.405', title: 'Ship it' } } });
 
-  it('open by default: acknowledged alarms are hidden; an open one shows the CLI line and no button', () => {
+  it('open by default: acknowledged alarms are hidden; an open one offers acknowledgement and the CLI line', () => {
     const html = page(alarms([a('e1'), a('e2', { type: 'assignment.unassignable', acknowledgedAt: '2026-10-15T11:00:00Z', acknowledgedBy: holger })]));
     expect(html).toContain('Not started');
     expect(html).not.toContain('Couldn’t be assigned');
     expect(html).toContain('hadron team alarm ack e1');
     expect(html).toContain('href="/app/apps/app-1/tasks/AT3.405"');
-    expect(html).not.toMatch(/<button[^>]*>\s*Acknowledge/);
-    expect(html).not.toMatch(/<form/);
+    expect(html).toMatch(/<button[^>]*>\s*Acknowledge/);
+    expect(html).toMatch(/<form/);
+  });
+
+  it('does not offer a write while impersonating, and acknowledged rows have no form', () => {
+    expect(page({ ...alarms([a('e1')]), impersonating: 'Support view' })).not.toContain('/acknowledgeAlarm');
+    expect(page(alarms([a('e1', { acknowledgedAt: '2026-11-11T18:00:00Z' })], 'all'))).not.toContain('/acknowledgeAlarm');
+  });
+  it('shows the result outside the filtered row, with already-acknowledged informational and unsafe outcomes locked', () => {
+    const empty = alarms([]);
+    const done = page(empty, { alarmAck: { kind: 'already-acknowledged', eventId: 'e1' } });
+    expect(done).toContain('This alarm is already acknowledged; the first acknowledgement stands.');
+    expect(done).not.toContain('Not changed.');
+    const uncertain = page(alarms([a('e1')]), { alarmAck: { kind: 'uncertain', eventId: 'e1' } });
+    expect(uncertain).toContain('may or may not have gone through');
+    expect(uncertain).toMatch(/<button[^>]*disabled[^>]*>\s*Acknowledge/);
+    expect(uncertain).toContain('Refresh alarms');
+    const refused = page(empty, { alarmAck: { kind: 'refused', eventId: 'e1', code: 'ALARM_NOT_IN_CHAIN', message: '<img src=x onerror=alert(1)>' } });
+    expect(refused).toContain('ALARM_NOT_IN_CHAIN');
+    expect(refused).not.toContain('<img');
   });
 
   it('the acknowledged filter shows who acknowledged, with no CLI line', () => {

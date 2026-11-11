@@ -1,7 +1,7 @@
 <!--
-  portal#1052 slice 2 — the Alarms list (design §7), variant A: read-only
-  (Holger #11535). No Acknowledge button. An open alarm shows the CLI line
-  that acknowledges it, so a reader who may acknowledge knows where to.
+  portal#1941 — explicit acknowledgement through the unchanged server gate.
+  Native POST forms intentionally navigate: fresh loader data reflects the write,
+  with no client-side replay and the same behavior without JavaScript.
 
   The server reads alarms oldest-first only, so the loader walks the stream
   and the list sorts newest first here. Open / Acknowledged / All filter on
@@ -28,6 +28,8 @@
     type AlarmFilter,
   } from '$lib/agent-tasks/roster';
   import type { AgentAlarm, TaskRead, TaskRefs } from '$lib/agent-tasks/types';
+  import type { AlarmAckResult } from '$lib/agent-tasks/alarm-ack';
+  import TaskWarnings from './TaskWarnings.svelte';
   import TaskRef from './TaskRef.svelte';
   import CopyCode from './CopyCode.svelte';
   import NotParticipant from './NotParticipant.svelte';
@@ -40,6 +42,7 @@
     refs,
     basePath,
     impersonating = null,
+    ackResult = null,
   }: {
     alarms: TaskRead<{ alarms: AgentAlarm[]; capped: boolean }>;
     filter: AlarmFilter;
@@ -47,6 +50,7 @@
     refs: TaskRefs;
     basePath: string;
     impersonating?: string | null;
+    ackResult?: AlarmAckResult | null;
   } = $props();
 
   const all = $derived(alarms.kind === 'ok' ? alarms.value.alarms : []);
@@ -148,6 +152,26 @@
   }
 </script>
 
+<!-- Result stays outside the filtered row, including when an acknowledged row disappears. -->
+<div role="status" aria-live="polite" data-alarm-ack-status class="text-sm text-zinc-700 dark:text-zinc-300">
+  {#if ackResult?.kind === 'acknowledged'}
+    {t('app.tasks.alarm.ack-success', 'Alarm acknowledged.')}
+  {:else if ackResult?.kind === 'already-acknowledged'}
+    {t('app.tasks.alarm.ack-already', 'This alarm is already acknowledged; the first acknowledgement stands.')}
+  {/if}
+</div>
+<div role="alert" data-alarm-ack-error class="text-sm text-red-800 dark:text-red-300">
+  {#if ackResult?.kind === 'refused'}
+    <p>{t('app.tasks.alarm.ack-refused', 'Not changed.')}</p>
+    {#if ackResult.message}<p>{ackResult.message}</p>{/if}
+    {#if ackResult.code}<code class="select-all">{ackResult.code}</code>{/if}
+  {:else if ackResult?.kind === 'uncertain'}
+    <p>{t('app.tasks.alarm.ack-uncertain', 'The acknowledgement may or may not have gone through. Refresh to check before trying again.')}</p>
+    <a href={filterHref(filter)} data-sveltekit-reload class="underline">{t('app.tasks.alarms.reload', 'Refresh alarms')}</a>
+  {/if}
+</div>
+<TaskWarnings warnings={ackResult?.warnings ?? []} more={ackResult?.more ?? 0} />
+
 {#if alarms.kind === 'not-participant'}
   <NotParticipant {impersonating} />
 {:else if alarms.kind === 'failed'}
@@ -213,10 +237,18 @@
         {#if a.acknowledgedAt}
           <span class="text-zinc-700 dark:text-zinc-300">{row.status}</span>
         {:else}
-          <span class="flex flex-col gap-1">
+          <div class="flex flex-col gap-1">
             <span class="font-medium text-amber-700 dark:text-amber-300">{row.status}</span>
+            {#if !impersonating}
+              <form method="POST" action={`${filterHref(filter)}&/acknowledgeAlarm`}>
+                <input type="hidden" name="eventId" value={a.id} />
+                <button type="submit" disabled={ackResult?.kind === 'uncertain' && ackResult.eventId === a.id}
+                  class="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >{t('app.tasks.alarm.ack', 'Acknowledge')}</button>
+              </form>
+            {/if}
             <CopyCode value="hadron team alarm ack {a.id}" label={t('app.tasks.alarm.copy-ack', 'Copy the command that acknowledges this alarm')} />
-          </span>
+          </div>
         {/if}
       {:else}
         <span class="block max-w-full [overflow-wrap:anywhere]">{cell.getValue() || '—'}</span>

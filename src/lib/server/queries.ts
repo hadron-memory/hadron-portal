@@ -5698,3 +5698,10 @@ export const ACCOUNT_USAGE_PROJECTION_QUERY = /* GraphQL */ `
     confidence shape runsOutAt ceilingPct
   }
 `;
+
+// portal#1941: the signed-in person acknowledges through the existing server gate.
+export const ACKNOWLEDGE_ALARM_MUTATION = /* GraphQL */ `
+  mutation AcknowledgeAlarm($eventId: ID!) {
+    acknowledgeAlarm(eventId: $eventId) { id acknowledgedAt }
+  }
+`;
