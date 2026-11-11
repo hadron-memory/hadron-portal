@@ -234,3 +234,32 @@ describe('portal#1611 the tester endpoints are chats too (A5)', () => {
     expect(callsOf(START_CHAT_MUTATION)).toHaveLength(1);
   });
 });
+
+describe('runtime compatibility across shared request entrypoints', () => {
+  for (const [provider, effectiveEndpoint] of [
+    ['anthropic', 'https://api.anthropic.com/v1'],
+    ['openai', 'https://api.openai.com/v1'],
+    ['glm', 'https://api.z.ai/api/paas/v4'],
+    ['bedrock', null],
+  ] as const) {
+    it.each([['start', start], ['continuation', turn], ['test-run', testRun], ['test-persona', persona]] as const)(
+      `${provider} %s refuses identity-only resolution before provider use`, async (_name, request) => {
+        setup({ resolve: [config('model-X', { provider, effectiveEndpoint, apiKey: null, params: { secret: KEY } })] });
+        const response = await request();
+        const body = await response.text();
+        expect(body).not.toContain(KEY);
+        if (_name === 'start') {
+          expect(response.status).toBe(200); // Existing chat creation + soft welcome refusal.
+          expect(JSON.parse(body).welcomeError).toMatch(/credential.*not available/i);
+          expect(callsOf(START_CHAT_MUTATION)[0]).not.toHaveProperty('llmModel');
+        } else {
+          expect(response.status).toBeGreaterThanOrEqual(400);
+          expect(body).toContain('credentialUnavailable');
+        }
+        expect(mockLlm).not.toHaveBeenCalled();
+        expect(callsOf(PROCESS_CHAT_RESPONSE_MUTATION)).toEqual([]);
+        expect(callsOf(RESOLVE_AI_CONFIG_QUERY)).toHaveLength(1);
+      },
+    );
+  }
+});
