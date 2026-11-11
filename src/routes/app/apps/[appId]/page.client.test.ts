@@ -1793,6 +1793,7 @@ describe('App AI configuration readback lifecycle', () => {
     const fast = { ...masked, id: 'c2', name: 'fast' };
     let configs = [fast, masked];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1' || url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
         return { ok: true, json: async () => ({ configs }) } as Response;
       }
@@ -1824,12 +1825,11 @@ describe('App AI configuration readback lifecycle', () => {
     flushSync();
     ([...m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')]).find((x) => x.textContent?.trim() === 'Delete')!.click();
     flushSync();
-    ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Delete')!.click();
-    await tick(40);
+    (await readyAiButton(m.target, 'Delete')).click();
+    await vi.waitFor(() => expect(configs.map(c => c.id)).toEqual(['c1']));
 
     (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
-    await tick(10);
-    expect(optionValues(m.target)).toEqual(['default', 'c1']);
+    await vi.waitFor(() => expect(optionValues(m.target)).toEqual(['default', 'c1']));
     // The deleted pick is no longer shown (or sent): the dropdown falls back to `default`.
     expect(m.target.querySelector<HTMLSelectElement>('#agent-chat-ai-config')!.value).toBe('default');
   });
