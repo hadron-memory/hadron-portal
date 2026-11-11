@@ -445,25 +445,47 @@ describe('a late save response must not replace the replacement editor’s basel
     mounted.push(m);
     return m;
   }
-  /** update replies wait until released; everything else answers at once. */
-  function holdUpdates(): (row: AiServiceConfig) => void {
+  /**
+   * `action`-typed write replies (create/update) wait until released and answer
+   * with the released row; everything else answers at once. `delivered` resolves
+   * only once the held response's JSON has actually been consumed, so a test can
+   * await the landing instead of guessing a tick count.
+   */
+  function holdWrites(action: 'create' | 'update'): {
+    release: (row: AiServiceConfig) => void;
+    delivered: Promise<void>;
+  } {
     let release!: (row: AiServiceConfig) => void;
+    let delivered!: () => void;
     const held = new Promise<AiServiceConfig>((resolve) => { release = resolve; });
+    const deliveredRow = new Promise<void>((resolve) => { delivered = resolve; });
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
       const body = JSON.parse(init.body) as Record<string, unknown>;
       posts.push(body);
-      if (body.action === 'update') {
+      if (body.action === action) {
         const row = await held;
-        return { ok: true, json: async () => ({ ok: true, config: row }) } as Response;
+        return { ok: true, json: async () => { delivered(); return { ok: true, config: row }; } } as Response;
       }
       const reply = body.action === 'endpoints' ? { endpoints: body.provider === 'glm' ? GLM_ENDPOINTS : [] } : { ok: true };
       return { ok: true, json: async () => reply } as Response;
     }));
-    return release;
+    return { release, delivered: deliveredRow };
+  }
+  /**
+   * Settle after releasing a held write. `delivered` resolves when the response
+   * JSON is consumed, so this cannot pass before the response has landed; the
+   * remaining save() continuation is a bounded microtask chain (post →
+   * seedBaseline → onSuccess → finishMutation), drained by the trailing ticks —
+   * not a guess at when the response might arrive.
+   */
+  async function settleDroppedResponse(delivered: Promise<void>, target: HTMLElement) {
+    await delivered;
+    await tick(30);
+    expect($(target, '[data-testid="ai-config-error-feedback"]')?.textContent ?? '').toBe('');
   }
 
-  it('diffs against the row the reopened editor was seeded from, not the stale save’s row', async () => {
-    const release = holdUpdates();
+  it('diffs against the freshest row it knows after a reopen, not the stale save’s row', async () => {
+    const { release, delivered } = holdWrites('update');
     const row = config({ endpoint: 'https://fresh.example/v1' });
     const m = openReactive({ configs: [row] });
     await tick();
@@ -474,23 +496,93 @@ describe('a late save response must not replace the replacement editor’s basel
     await settle(); // the update is in flight, held
     expect(posts.find((p) => p.action === 'update')).toMatchObject({ endpoint: 'https://stale.example/v1' });
 
-    // The owner visit changes while the response is in flight. The pending
-    // mutation belongs to the old visit, so the same row may be reopened now.
+    // The owner visit changes while the response is in flight, closing the
+    // editor. The pending mutation belongs to the old visit, so the same row
+    // may be reopened now.
     (m.props as { ownerId: string }).ownerId = 'o2';
     await tick(3);
+    expect($(m.target, '#ac-endpoint')).toBe(null); // the editor really closed
     editRow(m.target); // the replacement editor, seeded from the list row
     await settle();
 
     release({ ...row, endpoint: 'https://stale.example/v1' }); // the old save’s late response
-    await tick(60);
-    flushSync();
+    await settleDroppedResponse(delivered, m.target);
 
     button(m.target, 'Save').click(); // fields unchanged since the reopen
     await settle();
-    const second = posts.filter((p) => p.action === 'update')[1]!;
-    // The reopened editor diffs against the row it was seeded from (endpoint
-    // unchanged ⇒ omitted). A late response that seeded the baseline instead
-    // would send endpoint: 'https://fresh.example/v1' as a spurious change.
-    expect('endpoint' in second).toBe(false);
+    const updates = posts.filter((p) => p.action === 'update');
+    expect(updates).toHaveLength(2);
+    // The reopened editor diffs against the freshest row it knows — here the
+    // list row it was reopened against (endpoint unchanged ⇒ omitted). A late
+    // response that seeded the baseline instead would send
+    // endpoint: 'https://fresh.example/v1' as a spurious change.
+    expect('endpoint' in updates[1]).toBe(false);
+  });
+
+  it('a late create response must not seed the baseline of a later edit of the new row', async () => {
+    const { release, delivered } = holdWrites('create');
+    const m = openReactive({ configs: [] });
+    await tick();
+    button(m.target, 'Add configuration').click();
+    await settle();
+    set($<HTMLInputElement>(m.target, '#ac-name')!, 'made');
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-5');
+    set($<HTMLInputElement>(m.target, '#ac-key')!, 'sk-test');
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://made.example/v1');
+    button(m.target, 'Save').click();
+    await settle(); // the create is in flight, held
+    expect(posts.find((p) => p.action === 'create')).toMatchObject({ name: 'made', endpoint: 'https://made.example/v1' });
+
+    // The owner visit changes while the response is in flight, closing the
+    // create editor. The pending mutation is scoped to the old visit, so rows
+    // are openable again.
+    (m.props as { ownerId: string }).ownerId = 'o2';
+    await tick(3);
+    expect($(m.target, '#ac-endpoint')).toBe(null); // the editor really closed
+    // The committed readback delivers the new row into the visible list — as
+    // a LATER write left it (fresh endpoint), not as the delayed response's copy.
+    (m.props as { configs: AiServiceConfig[] }).configs = [config({ id: 'c9', name: 'made', endpoint: 'https://fresh.example/v1' })];
+    await settle();
+    editRow(m.target, 'made'); // the replacement editor, seeded from the fresh row
+    await settle();
+
+    release(config({ id: 'c9', name: 'made', endpoint: 'https://made.example/v1' })); // the create’s late response
+    await settleDroppedResponse(delivered, m.target);
+
+    button(m.target, 'Save').click(); // fields unchanged since the reopen
+    await settle();
+    const updates = posts.filter((p) => p.action === 'update');
+    expect(updates).toHaveLength(1);
+    // Dropped: the diff follows the fresh list row (endpoint unchanged ⇒
+    // omitted). An unfenced response would seed the older row and send
+    // endpoint: 'https://fresh.example/v1' as a spurious change.
+    expect('endpoint' in updates[0]).toBe(false);
+  });
+
+  it('a current create converts a preserved draft into an update of the new row, never a second create', async () => {
+    const { release, delivered } = holdWrites('create');
+    const m = openReactive({ configs: [] });
+    await tick();
+    button(m.target, 'Add configuration').click();
+    await settle();
+    set($<HTMLInputElement>(m.target, '#ac-name')!, 'made');
+    set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-5');
+    set($<HTMLInputElement>(m.target, '#ac-key')!, 'sk-test');
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://made.example/v1');
+    button(m.target, 'Save').click();
+    await settle(); // the create is in flight, held
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://edited.example/v1'); // newer edit mid-flight
+
+    release(config({ id: 'c9', name: 'made', endpoint: 'https://made.example/v1' }));
+    await settleDroppedResponse(delivered, m.target);
+    // The draft was preserved (fingerprint differs), so the editor stays open —
+    // as an UPDATE of the new row, which only createdId can make it.
+    expect($(m.target, '#ac-endpoint')).not.toBe(null);
+    expect(($<HTMLInputElement>(m.target, '#ac-endpoint')!).value).toBe('https://edited.example/v1');
+
+    button(m.target, 'Save').click();
+    await settle();
+    expect(posts.filter((p) => p.action === 'create')).toHaveLength(1); // never a second create
+    expect(posts.find((p) => p.action === 'update')).toMatchObject({ id: 'c9', endpoint: 'https://edited.example/v1' });
   });
 });

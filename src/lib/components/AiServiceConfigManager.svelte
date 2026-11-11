@@ -197,6 +197,26 @@
     return !destroyed && action.generation === actionGeneration && isOwnerVisitCurrent(action);
   }
 
+  // #1910: a save response only seeds the baseline of the editor session that
+  // asked for it. A response that outlives its session (cancel, reopen, owner
+  // or user switch) is dropped: the Section's committed readback reconciles the
+  // row a stale write produced, so the replacement editor keeps the row it was
+  // opened against. The create and update paths share this fence so they cannot
+  // drift apart.
+  function seedBaseline(
+    action: ActionToken,
+    saved: AiServiceConfig | null,
+    seed: (row: AiServiceConfig) => void,
+  ): void {
+    if (!isCurrent(action)) return;
+    if (saved) seed(saved);
+    else if (formFingerprint() !== action.formFingerprint) {
+      // The write may have committed, but without a complete saved row a
+      // preserved draft cannot safely become an update. Reconcile it.
+      throw new UncertainMutationError();
+    }
+  }
+
   function trackMutation(action: ActionToken): number {
     // Document-unique IDs keep same-owner registrations distinct across Manager
     // teardown/remount and user switches; settlement releases only its own.
@@ -261,10 +281,13 @@
     actionController?.abort();
   });
 
-  // The acknowledged write is the newest baseline this editor knows: a retained
-  // older row must not win, or a preserved draft diffs against stale fields and
-  // omits an endpoint/apiStyle:null that is still needed. openEdit, openCreate
-  // and resetEditor clear savedConfig, and a save response only lands on it
+  // The baseline is the freshest row this editor session knows: its own
+  // acknowledged write (savedConfig — a retained older row must not win, or a
+  // preserved draft diffs against stale fields and omits an
+  // endpoint/apiStyle:null that is still needed), else the live configs row,
+  // which a mid-edit refresh MAY replace so the diff follows the server's
+  // current row rather than the row the editor was opened against. openEdit,
+  // openCreate and resetEditor clear savedConfig, and seedBaseline only sets it
   // while its own action is still current (#1910), so it never outlives its
   // editor session.
   const editing = $derived(editId ? (savedConfig?.id === editId ? savedConfig : (configs.find((c) => c.id === editId) ?? null)) : null);
@@ -705,19 +728,7 @@
             apiStyle: apiStyleInput || undefined,
           }, true);
           const saved = parseAiConfig(result.config);
-          // #1910: a late response that outlives its editor session (cancel,
-          // reopen, owner/user switch) must not seed the current editor's
-          // baseline; the refreshed row is the surviving copy of a stale write.
-          if (isCurrent(action)) {
-            if (saved) {
-              createdId = saved.id;
-              savedConfig = saved;
-            } else if (formFingerprint() !== action.formFingerprint) {
-              // The write may have committed, but without a complete saved row a
-              // preserved draft cannot safely become an update. Reconcile it.
-              throw new UncertainMutationError();
-            }
-          }
+          seedBaseline(action, saved, (row) => { createdId = row.id; savedConfig = row; });
         } else {
           const keyArg = resolveApiKeyAction({ removeKey: clearKey, enteredKey });
           // Absent = unchanged, null = back to the provider default.
@@ -736,14 +747,7 @@
             ...(apiStyle !== undefined ? { apiStyle } : {}),
           }, true);
           const saved = parseAiConfig(result.config);
-          // #1910: same fence as the create path — the baseline belongs to the
-          // editor session that asked for it, not to whichever response lands last.
-          if (isCurrent(action)) {
-            if (saved) savedConfig = saved;
-            else if (formFingerprint() !== action.formFingerprint) {
-              throw new UncertainMutationError();
-            }
-          }
+          seedBaseline(action, saved, (row) => { savedConfig = row; });
         }
       },
       successText: s.saveSuccess(name),
