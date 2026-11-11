@@ -1,4 +1,4 @@
-# Exported from hadron-server 122717323cf8799711503e4fc4ef5f5abd1d61e1 (122717323cf8799711503e4fc4ef5f5abd1d61e1, 2026-11-10T21:53:11-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 28e2e9ef7e8d0fd4ce6ec91dc2c754aaf576c131 (28e2e9ef7e8d0fd4ce6ec91dc2c754aaf576c131, 2026-11-11T10:23:03-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -1525,6 +1525,21 @@ enum AgentTeamEventSeverity {
 }
 
 """
+#3933: one page of an App's team events and whether more remain (hrn:node:hadronmemory.com:specs:cor:api:120:04).
+"""
+type AgentTeamEventsPage {
+  events: [AgentTeamEvent!]!
+
+  """True when events beyond this page match the same read."""
+  hasMore: Boolean!
+
+  """
+  The id of the last event served when hasMore, to pass as after (or with newestFirst as before); null on the last page.
+  """
+  nextCursor: ID
+}
+
+"""
 #2024 — one ticker an Agent declares. Casting a worker from the Agent into an App creates the worker's tickers from the live
 templates and subscribes it, in the cast's own transaction. A SNAPSHOT: a later edit or removal reaches only future casts;
 existing workers and tickers are untouched. Identity is the id, never the name or the position. The cadence is the requested
@@ -1808,6 +1823,17 @@ type AiServiceConfig {
   """
   provider: String!
   updatedAt: DateTime
+
+  """
+  The config's URN, computed from its owner's current URN plus its name
+  (hrn:node:hadronmemory.com:specs:cor:urn:010:01, V60-V63): hrn:aiconf:<org>:org:<name>,
+  hrn:aiconf:<root>:app:<app-slug>:<name>, hrn:aiconf:<author-root>:agent:<agent-slug>:<name>,
+  or hrn:aiconf:server:<name> for a HadronServer owner. Null for a name that cannot be a
+  URN atom (a trailing '-' or '_'), for a stored name that is not lower-case canonical, and for a
+  validly named config of a HadronServer that is not the current one (the oldest live row).
+  Renaming the config re-addresses it, with no alias.
+  """
+  urn: String
 }
 
 """
@@ -1991,6 +2017,11 @@ type App {
   #2171 (R211): the member roles this App offers: the union over its installed Agents, primary first.
   """
   availableMemberRoles: [String!]!
+
+  """
+  #3957 (hrn:node:hadronmemory.com:specs:cor:dmo:050:10): one of this App's OWN AI configs, used for its chats unless a chat stored its own choice. An id, never a key. Readable by an App member and by whoever manages the App; null for anyone else, and null when unset. A deleted config clears it. Set and cleared with setAppChatbotAiConfig.
+  """
+  chatbotAiConfigId: ID
   createUserPermission: CreateUserPermission!
   createdAt: DateTime!
 
@@ -3678,6 +3709,10 @@ memory; shared chats live in the App's app-class memory and are
 readable by every AppMember of that App.
 """
 type Chat {
+  """
+  #3957 (hrn:node:hadronmemory.com:specs:cor:dmo:050:10): the AI config choice stored with this chat — `default` or one of the App's config ids — or null when the chat stored none (it then follows the App's chatbot config, else `default`).
+  """
+  aiConfigChoice: String
   conversationName: String
   createdAt: DateTime!
 
@@ -3704,6 +3739,25 @@ type Chat {
   servedPrompts(limit: Int, offset: Int): ServedPromptsPage!
   stageName: String
   title: String!
+}
+
+"""
+#3957 (hrn:node:hadronmemory.com:specs:cor:dmo:050:10): one entry of the list a chat chooses its AI config from. No key material.
+"""
+type ChatAiConfigChoice {
+  """True for the App's own chatbot config (App.chatbotAiConfigId)."""
+  isAppChatbotConfig: Boolean!
+  isDefault: Boolean!
+  model: String
+  name: String!
+
+  """Null for the `default` entry, which names no single config."""
+  provider: String
+
+  """
+  `default` for the walk entry, else the config id: the value to send back as aiConfigChoice.
+  """
+  value: String!
 }
 
 """One chat message in history, as returned by chatHistory."""
@@ -10888,6 +10942,10 @@ type Mutation {
   fresh context, never automatically resubmit a model call or a turn after an uncertain commit.
   """
   sendChatMessage(
+    """
+    #3957 (hrn:node:hadronmemory.com:specs:cor:dmo:050:10): optional AI config choice for this chat, stored with it: `default` or one of the chat App's own config ids from chatAiConfigChoices. Omitted keeps what the chat has. Any other id is refused as a missing config, revealing nothing about it.
+    """
+    aiConfigChoice: String
     chatId: String!
 
     """
@@ -10972,6 +11030,15 @@ type Mutation {
   otherwise as setAgentBootPrompt.
   """
   setAppAgentBootPrompt(agentRef: String!, appRef: String!, nodeRef: String): AppAgent!
+
+  """
+  #3957 (hrn:node:hadronmemory.com:specs:cor:dmo:050:10, hrn:node:hadronmemory.com:specs:cor:dmo:050:12): set (configId) or clear (null) the App's chatbot
+  AI config. Whoever manages the App, a platform admin included even on a user-owned App: choosing a config reads,
+  sets and tests no key. A person acting as themselves. configId must be one of THIS App's own configs; another
+  App's, a deleted one and an unknown id all get the same AiServiceConfigNotFoundError. A disabled own config is
+  accepted and skipped at turn time until it is enabled again.
+  """
+  setAppChatbotAiConfig(appRef: ID!, configId: ID): App!
 
   """
   App managers only; omitted preserves, null refuses. Standby activation is unavailable until S7 (hrn:node:hadronmemory.com:specs:cor:agt:080:19). #3321: the App-manager arm also admits the manager's held worker on an instruction (hrn:node:hadronmemory.com:specs:cor:dmo:050:12), recorded as one app.manager-act event, ids only.
@@ -11211,6 +11278,11 @@ type Mutation {
   """
   startChat(
     agentId: ID!
+
+    """
+    #3957 (hrn:node:hadronmemory.com:specs:cor:dmo:050:10): optional AI config choice for this chat, stored with it: `default` or one of the chat App's own config ids from chatAiConfigChoices. Omitted keeps what the chat has. Any other id is refused as a missing config, revealing nothing about it.
+    """
+    aiConfigChoice: String
     conversationName: String
     isTestRun: Boolean = false
 
@@ -13957,6 +14029,8 @@ type Query {
   read; the cursor is the (createdAt, id) pair, so events sharing a
   timestamp are never skipped. since is a coarse time filter (strictly
   after), not a continuation. limit defaults to 20 (cap 200).
+  #3933 (hrn:node:hadronmemory.com:specs:cor:agt:050:11): newestFirst reads from the newest end instead, the exact mirror
+  order with the same gate, filters and paging, continued with before (the id of the oldest event read).
   task.warning, task.edited and task.properties-changed are passive history (never wake, suppress a wake or count as activity); payload is {code}, changed field names only, or (task.properties-changed) the size and SHA-256 of the canonical JSON of the old and new properties, never their content.
   """
   agentTeamEvents(
@@ -13968,14 +14042,32 @@ type Query {
     appRef: ID!
 
     """
+    #3933: with newestFirst, the id of the last (oldest) event read; the page continues strictly older than it, by the same (createdAt, id) pair. An id that is not an event of this App is refused BAD_USER_INPUT. Refused without newestFirst.
+    """
+    before: ID
+
+    """
     #3449: literal prefix, intersects nonempty types; app. includes legacy platform events. An empty prefix matches all types; omitted or empty types adds no type filter.
     """
     codePrefix: String
     limit: Int
+
+    """
+    #3933: true reads from the NEWEST end, the exact mirror of the default order, with the same gate, filters and paging (default 20, cap 200); continue with before, not after (refused with after). Omitted or false: the oldest-first read, unchanged.
+    """
+    newestFirst: Boolean
     since: DateTime
     taskId: ID
     types: [String!]
   ): [AgentTeamEvent!]!
+
+  """
+  #3933 (hrn:node:hadronmemory.com:specs:cor:api:120:04) — agentTeamEvents with the page's end told: the same arguments, gate,
+  filters, order and paging, returning hasMore and nextCursor so a reader knows whether older (or newer) events remain without
+  another read. nextCursor is the id of the last event served when more remain, to pass as after (oldest-first) or, with
+  newestFirst, as before; null on the last page.
+  """
+  agentTeamEventsPage(after: ID, alarmsOnly: Boolean, appRef: ID!, before: ID, codePrefix: String, limit: Int, newestFirst: Boolean, since: DateTime, taskId: ID, types: [String!]): AgentTeamEventsPage!
 
   """
   #2024 — the live ticker templates of an Agent, by name. Anyone who can read the Agent. An Agent the caller cannot read answers
@@ -14015,7 +14107,12 @@ type Query {
   aiProviderEndpoints(provider: String!): [AiProviderEndpoint!]!
 
   """
-  The uniform single-config read. 'ref' is the config's ID (not a URN).
+  The uniform single-config read. 'ref' is the config's ID or its hrn:aiconf: URN
+  (#3857, hrn:node:hadronmemory.com:specs:cor:urn:010:01; see AiServiceConfig.urn).
+  On the URN path a config the caller may not read answers null, exactly as a
+  missing one does, because names such as 'default' are guessable
+  (hrn:node:hadronmemory.com:specs:cor:api:120:01); the ID path keeps the
+  posture below.
   Masked: never returns key material, only hasApiKey + apiKeyPreview
   (resolveAIConfig is the privileged decrypted read). Auth mirrors the list:
   platform ADMIN/OWNER for HADRON_SERVER; org ADMIN for ORGANIZATION;
@@ -14411,6 +14508,15 @@ type Query {
   orgId. Loc-ascending (id tiebreak); limit default 20 / cap 200.
   """
   channels(filter: ChannelFilter, limit: Int, offset: Int, orgId: ID): ChannelsPage!
+
+  """
+  #3957 (hrn:node:hadronmemory.com:specs:cor:dmo:050:10): what a chat of this App may choose from — the App's OWN enabled AI configs plus one
+  `default` entry, which resolves through the App -> Agent -> Org -> Host walk at turn time. Send an entry's
+  `value` back as the chat's aiConfigChoice. Never a key, key preview, params or endpoint. Any App member may
+  call it (a platform admin too); anyone else, a missing App and a request that is not a signed-in person get
+  the same APP_NOT_FOUND answer.
+  """
+  chatAiConfigChoices(appRef: ID!): [ChatAiConfigChoice!]!
 
   """
   Message history for a saved chat. Returns plain role/content pairs
@@ -15568,7 +15674,16 @@ type Query {
   
   appRef/agentRef accept the entity's ID or URN.
   """
-  resolveAIConfig(agentRef: ID, appRef: ID, name: String): ResolvedAiConfig!
+  resolveAIConfig(
+    agentRef: ID
+    appRef: ID
+
+    """
+    #3957 (hrn:node:hadronmemory.com:specs:cor:dmo:050:10): a chat of appRef. With it, the chat's stored aiConfigChoice wins, else the App's chatbot config, else the `default` walk above; a choice counts only while its config exists, belongs to appRef and is enabled. A chat that is not one of appRef's chats answers as a missing chat.
+    """
+    chatId: ID
+    name: String
+  ): ResolvedAiConfig!
 
   """
   036-ai-service-config: the MASKED set of configs RESOLVABLE in an
@@ -19227,6 +19342,14 @@ type TeamRosterEntry {
   alarms: [ID!]!
 
   """
+  #3865 — the worker's stored availability record: its reason, who set it (setBy, setByParty) and when
+  (setAt), so a stale mark is told from a deliberate one without asking (hrn:node:hadronmemory.com:specs:cor:agt:060:02).
+  Present for any record, in effect or not (inEffect says which); null when the worker has none.
+  Reads nothing new: the record is the one setWorkerAvailability writes and teamAvailability returns.
+  """
+  availability: WorkerAvailability
+
+  """
   Bound: has an open session, live or quiet. Going quiet never unbinds; ending the session does.
   """
   bound: Boolean!
@@ -20006,11 +20129,14 @@ the resource's canonical page. Powers the portal's /app/u/<urn> redirect
 route (hadron-portal#262).
 
 `kind` is the URN's type segment: memory | node | agent | org | app | user |
-apprun | worker | noderev.
+apprun | worker | noderev | aiconf (#3857: an AI service config, behind the same
+gate as aiServiceConfig(ref:); an unreadable config answers null, as a missing
+one does, hrn:node:hadronmemory.com:specs:cor:urn:010:01).
 `id` is the resolved entity's primary id. `memoryId` is set only for
 nodes (their owning memory), `organizationId` for apps, app runs, and
-workers (their owning org) — both are the extra ids those resources'
-canonical routes require.
+workers (their owning org), and for an aiconf (#3857) the org that owns it or
+its App or Agent (null for a server-owned config or a user-owned App or
+Agent) — both are the extra ids those resources' canonical routes require.
 """
 type UrnResolution {
   """
@@ -20417,6 +20543,13 @@ type Worker {
   members have a narrower read audience.
   """
   appUrn: String
+
+  """
+  #3865 — the worker's stored availability record: reason, who set it (setBy, setByParty) and when (setAt), the
+  same record `TeamRosterEntry.availability` and `teamAvailability` return (hrn:node:hadronmemory.com:specs:cor:agt:060:02).
+  Worker-internals field: null for a caller who may not see them, and null when the worker has no record.
+  """
+  availability: WorkerAvailability
 
   """
   #2045 — the canonical URN of the compiled boot prompt this worker's pointer names now
