@@ -112,6 +112,10 @@ try {
         // out for the check and restored after — the sticky cell is what is
         // under test, not the utility cascade.
         await row.evaluate((el, [add, base]) => { el.classList.remove(base); el.classList.add(add); }, dark ? ['dark:bg-amber-900', 'dark:bg-zinc-950'] : ['bg-amber-100', 'bg-white']);
+        // Row first, then the sticky cell: if anything ever clobbers the
+        // injected class between the two reads, the failure names the row
+        // (class did not take) instead of masquerading as broken inheritance.
+        assert.equal(await rowBg(), want.custom, `${where}: row recolored by the custom class`);
         assert.equal(await stickyBg(), want.custom, `${where}: sticky cell follows a custom row background class`);
         await row.evaluate((el, [add, base]) => { el.classList.remove(add); el.classList.add(base); }, dark ? ['dark:bg-amber-900', 'dark:bg-zinc-950'] : ['bg-amber-100', 'bg-white']);
         const scroller = page.getByTestId('data-table-scroller');

@@ -97,9 +97,13 @@
   const desktopTableWidth = $derived(`max(100%, ${table.getCenterTotalSize()}px)`);
   // A restored wide desktop action column must not cover the phone viewport.
   // Adjust table AND header together; keep the stored TanStack size untouched.
+  // The subtraction is clamped at zero: a restored size below the clamp (a
+  // stale or hand-edited saved view applies columnSizing raw, with no
+  // minSize floor) would otherwise go negative and WIDEN the phone table
+  // past the desktop total while the header still clamps to 170.
   const phoneTableWidth = $derived(singleColumnFit
     ? '100%'
-    : `max(100%, ${table.getCenterTotalSize() - (endColumn ? endColumn.getSize() - PHONE_END_COLUMN_PX : 0)}px)`);
+    : `max(100%, ${table.getCenterTotalSize() - (endColumn ? Math.max(endColumn.getSize(), PHONE_END_COLUMN_PX) - PHONE_END_COLUMN_PX : 0)}px)`);
 
   const pageSize = $derived(table.atoms.pagination.get().pageSize);
   const pageIndex = $derived(table.atoms.pagination.get().pageIndex);
@@ -147,7 +151,7 @@
         <tr class="text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
           {#each headerGroup.headers as header (header.id)}
             <th
-              class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 w-[var(--col-w)] {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''} {header.column.id === stickyEndColumn ? 'max-sm:left-0 max-sm:right-0 max-sm:z-20' : ''}{header.column.id === stickyEndColumn && !singleColumnFit ? ' max-sm:w-[var(--phone-end-w)]' : ''}{singleColumnFit ? ' max-sm:w-full' : ''}"
+              class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 w-[var(--col-w)] {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''} {header.column.id === stickyEndColumn ? 'max-sm:left-0 max-sm:right-0 max-sm:z-20' : ''}{endColumn?.id === header.column.id && !singleColumnFit ? ' max-sm:w-[var(--phone-end-w)]' : ''}{singleColumnFit ? ' max-sm:w-full' : ''}"
               style="--col-w: {header.getSize()}px;"
               tabindex={!sortButtons && header.column.getCanSort() ? 0 : undefined}
               aria-sort={header.column.getIsSorted() === 'asc' ? 'ascending' : header.column.getIsSorted() === 'desc' ? 'descending' : undefined}
