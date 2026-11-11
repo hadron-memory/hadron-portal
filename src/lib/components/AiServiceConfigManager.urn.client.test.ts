@@ -19,6 +19,15 @@ describe('visible AI config URNs are searchable (#1907)', () => {
     await tick();
     expect(mounted.target.querySelectorAll('tbody tr')).toHaveLength(2);
     const search = mounted.target.querySelector<HTMLInputElement>('input[placeholder]')!;
+    for (const name of ['default', 'other']) {
+      search.value = name;
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+      flushSync();
+      await tick();
+      const rows = [...mounted.target.querySelectorAll('tbody tr')];
+      expect(rows).toHaveLength(1);
+      expect(rows[0].textContent).toContain(name);
+    }
     search.value = urn;
     search.dispatchEvent(new Event('input', { bubbles: true }));
     flushSync();
@@ -29,6 +38,7 @@ describe('visible AI config URNs are searchable (#1907)', () => {
       expect(names[0]).toContain('default');
       expect(names[0]).not.toContain('other');
     } else {
+      expect(names).toHaveLength(0);
       expect(names.join(' ')).not.toContain('default');
       expect(names.join(' ')).not.toContain('other');
     }
