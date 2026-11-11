@@ -22,8 +22,11 @@ try {
   // #1874: `mixed` puts config-02 between adjacent disabled rows and config-04, enabled, right after them.
   const longName = 'x' + '_'.repeat(63);
   const fixtures = [['disabled', [['config-02', false]]], ['enabled', [['config-02', true]]], ['mixed', [['config-02', false], ['config-04', true]]], ['long-name', [[longName, true]]]];
-  for (const width of [390, 1280]) for (const dark of [false, true]) for (const [mode, targets] of fixtures) {
-    const label = `${width}-${dark ? 'dark' : 'light'}-${mode}`;
+  // #1996: the default column order (Actions last, after the dimmed key preview) is what ships;
+  // `middle` is the saved #1954 view. Both must keep the Actions trigger reachable at the scroll edges.
+  for (const order of ['middle', 'default']) for (const width of [390, 1280]) for (const dark of [false, true]) for (const [mode, targets] of fixtures) {
+    if (order === 'default' && (width !== 390 || mode !== 'disabled')) continue;
+    const label = `${order}-${width}-${dark ? 'dark' : 'light'}-${mode}`;
     // #1954: the phone cases run as an actual touch device (coarse pointer),
     // the desktop cases as fine pointer — asserted, not assumed.
     const page = await browser.newPage(width === 390
@@ -43,7 +46,7 @@ try {
     // #1954: seed the saved wide/middle-order view at BOTH widths — the phone
     // must clamp the restored 500px actions column to 170, the desktop must
     // keep the saved 500px live (saved views and touch, not just fresh state).
-    await page.evaluate(() => {
+    if (order === 'middle') await page.evaluate(() => {
       localStorage.setItem('hadron:views:v1:ai-configs', JSON.stringify([{
         id: 'middle-actions', name: 'Middle actions', isDefault: true, listKey: 'ai-configs',
         view: { columnOrder: ['name', 'actions', 'provider', 'model', 'endpoint', 'enabled', 'key', 'createdAt'], columnSizing: { actions: 500, name: 400 } },
@@ -67,7 +70,7 @@ try {
       }));
       assert.equal(dim.content, enabled ? '1' : '0.6', `${where}: name content opacity`);
       assert.deepEqual(dim.ancestors, [], `${where}: no dimmed ancestor of the row content`);
-      {
+      if (order === 'middle') {
         assert.match((await page.locator('th').allTextContents())[1], /Actions/, 'Saved order applied');
         // #1954: the restored saved width survives — clamped to 170 on the
         // phone, live 500 on the desktop, never one width at the other.
@@ -128,7 +131,7 @@ try {
       }
       // #1956: both scroll extremes before each menu action (subsumes the
       // single far-right containment check this loop used to run inline).
-      if (width === 390) await assertActionAtScrollEdges(page, trigger, where);
+      if (width === 390) await assertActionAtScrollEdges(page, trigger, where, order === 'middle' ? 1 : -1);
       await trigger.click();
       const edit = page.getByRole('menuitem', { name: 'Edit', exact: true });
       await edit.waitFor();
@@ -144,7 +147,7 @@ try {
       assert.equal(await nameInput.inputValue(), name, `${where}: Edit opens this row`);
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
       await nameInput.waitFor({ state: 'detached', timeout: 2000 });
-      if (width === 390) await assertActionAtScrollEdges(page, trigger, where);
+      if (width === 390) await assertActionAtScrollEdges(page, trigger, where, order === 'middle' ? 1 : -1);
       await trigger.click();
       await page.getByRole('menuitem', { name: 'Delete', exact: true }).click({ timeout: 2000 });
       const question = row.getByText(`Delete the “${name}” configuration? This cannot be undone.`, { exact: true });
