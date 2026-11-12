@@ -37,6 +37,19 @@ export function nodeMetaSeed(node: NodeMetaSeedSource) {
 }
 
 /**
+ * portal#2023: the token a Save carries to prove which node state its draft was typed against.
+ *
+ * Every field `updateMeta` writes whole (`name`, `nodeType`, `description`, `alias`, `seq`, `tags`,
+ * `isRunnable`, `loc`, `role`), from the same `nodeMetaSeed` the form opens with, so the page and the
+ * action cannot disagree about what a field's value is. `roleSeed` is left out: it is the form's own
+ * bookkeeping, not node state. A string, so the action compares it exactly and echoes it unchanged.
+ */
+export function nodeMetaBaseline(node: NodeMetaSeedSource): string {
+  const { roleSeed: _roleSeed, ...state } = nodeMetaSeed(node);
+  return JSON.stringify(state);
+}
+
+/**
  * When the page must reseed the form: a different node, or the same node
  * whose stored role changed (after a role save the page reloads with the new
  * role, and a stale seed would make a later edit BACK to the old value look
