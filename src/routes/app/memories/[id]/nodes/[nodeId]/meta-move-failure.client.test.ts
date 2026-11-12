@@ -354,7 +354,7 @@ describe('#1882: a failed location move in Settings says so', () => {
     const form = target.querySelector<HTMLFormElement>('form[action="?/updateMeta"]')!;
     let rethrown: unknown;
     const rejections = await captureUnhandledRejections(async () => {
-      await submitEnhancedWithRawResult(form, { type: 'error', error: new Error('fetch died (fixture)'), status: 500 }).catch((e: unknown) => { rethrown = e; });
+      await submitEnhancedWithRawResult(form, { type: 'error', error: new TypeError('Failed to fetch'), status: 500 }).catch((e: unknown) => { rethrown = e; });
       for (let i = 0; i < 10; i++) await tick();
       await new Promise((resolve) => setTimeout(resolve, 0));
       for (let i = 0; i < 10; i++) await tick();
@@ -446,6 +446,32 @@ describe('#1882: a failed location move in Settings says so', () => {
     buttonNamed(target, 'Edit')!.click();
     flushSync();
     expect(metaAlert(target)).toBe('');
+  });
+
+  it('does not duplicate the handled metadata transport error in the page banner (#2048)', async () => {
+    const target = await mountSettings();
+    await submitErrorResult(target, { name: 'Renamed', loc: 'renamed' });
+    expect(metaAlert(target)).toContain("The save wasn't confirmed.");
+    expect(saveButton(target).disabled).toBe(false);
+    expect(target.textContent).not.toContain('TypeError: Failed to fetch');
+    buttonNamed(target, 'Cancel')!.click();
+    flushSync();
+    expect(target.textContent).not.toContain('TypeError: Failed to fetch');
+    buttonNamed(target, 'Edit')!.click();
+    flushSync();
+    expect(metaAlert(target)).toBe('');
+    expect(target.textContent).not.toContain('TypeError: Failed to fetch');
+  });
+
+  it('keeps a later unrelated page error, even with the same text (#2048 control)', async () => {
+    const target = await mountSettings();
+    await submitErrorResult(target, { name: 'Renamed', loc: 'renamed' });
+    buttonNamed(target, 'Cancel')!.click();
+    flushSync();
+    // A different action result: same diagnostic text, different error instance.
+    page.update(p => ({ ...p, form: { type: 'error', error: new TypeError('Failed to fetch') } }));
+    flushSync();
+    expect(target.textContent).toContain('TypeError: Failed to fetch');
   });
 
   it('a successful save closes the editor; the metaSaved reload branch never runs', async () => {
