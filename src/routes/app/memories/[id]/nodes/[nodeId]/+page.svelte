@@ -178,6 +178,9 @@
   /** portal#2020: the last updateMeta result was a confirmed, complete success. */
   let savedCompletely = false;
   let moveRefusal = $state<{ text: string; loc: string } | null>(null);
+  // portal#2014: a Save whose request died (an `error` result) was not confirmed.
+  // The page holds its own text: a custom superforms onError sets no message.
+  let metaUnconfirmed = $state(false);
 
   // Inline editing. #927: each text editor is a draft based on the revision it
   // opened on, and its save is refused when the node changed since. The drafts
@@ -853,7 +856,14 @@
     // effect, Cancel. See
     // hrn:node:hadronmemory.com:hadron-portal:findings:stable-form-id-opts-into-invalidate-rebind
     applyAction: 'never',
-    onSubmit: () => { moveRefusal = null; savedCompletely = false; },
+    onSubmit: () => { moveRefusal = null; savedCompletely = false; metaUnconfirmed = false; },
+    // portal#2014: superforms' default onError RETHROWS before it clears
+    // `submitting`, which left Save disabled on "Saving..." for good, so the
+    // retry the open editor exists for was impossible. Not rethrowing lets
+    // superforms finish the submit and re-enable Save (the portal#1528
+    // submitFailure pattern); the page shows its own text instead. See
+    // hrn:node:hadronmemory.com:hadron-portal:findings:superforms-default-onerror-leaves-submitting-stuck.
+    onError: () => { metaUnconfirmed = true; },
     // portal#2020: superforms awaits the reload, THEN resets the form to its
     // initial (pre-save) values, so the reseed must come after that reset: here.
     onUpdated: () => {
@@ -862,10 +872,15 @@
       reseedFromSavedNode();
     },
     onResult: async ({ result }) => {
-      if (result.type !== 'failure') {
+      // Only a CONFIRMED success closes the editor (portal#2014). A failure keeps
+      // it open to fix the location; an `error` result (no action response
+      // arrived, so the save wasn't confirmed) keeps it open too, or a dropped
+      // request hides the typed edits on exactly the retry that matters. A
+      // redirect navigates away and unmounts the page, so it needs no close.
+      if (result.type === 'success') {
         isEditing = false;
-        // portal#2020: only a confirmed complete success arms the reseed below.
-        savedCompletely = result.type === 'success';
+        // portal#2020: only a confirmed complete success arms the reseed in onUpdated.
+        savedCompletely = true;
         return;
       }
       savedCompletely = false;
@@ -899,6 +914,7 @@
    *  (Clark's browser QA F1 on #2002). */
   function clearMetaRefusal() {
     moveRefusal = null;
+    metaUnconfirmed = false;
     updateMetaMessage.set(undefined);
     updateMetaErrors.set({});
   }
@@ -4367,8 +4383,8 @@
               class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
               <input type="hidden" name="_kind" bind:value={$updateMetaFormData._kind} />
               <input type="hidden" name="baseline" value={metaBaseline} />
-              {#if moveRefusal || updateMetaActionError}
-                <div role="alert" data-testid="node-meta-error" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{moveRefusal?.text ?? updateMetaActionError}</div>
+              {#if moveRefusal || metaUnconfirmed || updateMetaActionError}
+                <div role="alert" data-testid="node-meta-error" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{moveRefusal?.text ?? (metaUnconfirmed ? t('node.meta.unconfirmed', "The save wasn't confirmed. Check your connection, then Save again.") : updateMetaActionError)}</div>
               {/if}
               <div>
                 <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
