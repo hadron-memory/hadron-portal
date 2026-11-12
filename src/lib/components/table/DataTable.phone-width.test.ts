@@ -56,6 +56,15 @@ describe('DataTable phone width in SSR markup', () => {
     expect(body).not.toContain('1770px');
   });
 
+  it('gives the phone sticky end cell a base stacking level above opacity contexts (#1996)', () => {
+    // A neighbouring cell's `opacity` content is its own stacking context; a
+    // z-auto sticky cell paints under it and loses the pointer. The native
+    // proof is scripts/test-ai-config-row-menu.mjs; this keeps the class from
+    // being dropped. It stays below the header (z-10) and the open-menu z-30.
+    const body = html({ multiColumn: true, stickyEndColumn: 'second' });
+    expect(body).toContain('max-sm:z-[1]');
+  });
+
   it('keeps a multi-column fitOnPhone table on TanStack sizing at every width', () => {
     const body = html({ fitOnPhone: true, multiColumn: true });
     // Phone width equals desktop width: the fit is a single-column opt-in,

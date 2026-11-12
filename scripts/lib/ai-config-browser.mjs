@@ -66,12 +66,22 @@ export async function withSyntheticConfig(request, portal, expected, probe) {
 
 // Used before EACH menu action. Both scroll extremes matter: a reordered sticky
 // middle column can be visible at one edge and clipped at the other.
-export async function assertActionAtScrollEdges(page, trigger, where) {
-  assert.match((await page.locator('th').allTextContents())[1], /Actions/, `${where}: saved order applied`);
+export async function assertActionAtScrollEdges(page, trigger, where, actionsAt = 1) {
+  assert.match((await page.locator('th').allTextContents()).at(actionsAt), /Actions/, `${where}: expected column order applied`);
   const scroller = page.getByTestId('data-table-scroller');
   for (const edge of ['left', 'right']) {
     await scroller.evaluate((el, edge) => { el.scrollLeft = edge === 'left' ? 0 : el.scrollWidth; }, edge);
     const [viewport, action] = await Promise.all([scroller.boundingBox(), trigger.boundingBox()]);
     assert(viewport && action && action.x >= viewport.x - 1 && action.x + action.width <= viewport.x + viewport.width + 1, `${where}: Actions inside scroller at ${edge} edge`);
+    // #1996: inside the scroller is not the same as reachable. A neighbouring
+    // cell's content (a dimmed key preview made a stacking context by
+    // `opacity`) can paint over the sticky cell, so ask the browser what is at
+    // the trigger's centre. Native hit-testing, no force or dispatched click.
+    const hit = await trigger.evaluate(el => {
+      const r = el.getBoundingClientRect();
+      const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return { ok: !!top && (el === top || el.contains(top)), top: top ? `${top.tagName}.${String(top.className).slice(0, 60)}` : null };
+    });
+    assert(hit.ok, `${where}: Actions trigger receives the pointer at the ${edge} edge (hit ${hit.top})`);
   }
 }
