@@ -251,3 +251,18 @@ describe('stage-target labels (S7, Q15)', () => {
     expect(details.find((d) => d.id === 'e2')?.targetLabel).toBe('Wrap up');
   });
 });
+
+describe('rule target URN (render-urn)', () => {
+  it('carries the target node URN, or null when the read had none', () => {
+    const ns: ConversationGraphNodeInput[] = [
+      { id: 'a', loc: 'conversations:a', name: 'a' },
+      { id: 'b', loc: 'conversations:b', name: 'b', urn: 'hrn:node:acme.com:mem:conversations:b' },
+    ];
+    const details = buildConversationEdgeDetails(ns, [
+      { id: 'e1', name: null, sourceId: 'b', targetId: 'a' },
+      { id: 'e2', name: null, sourceId: 'a', targetId: 'b' },
+    ]);
+    expect(details.find((d) => d.id === 'e1')?.targetUrn).toBeNull();
+    expect(details.find((d) => d.id === 'e2')?.targetUrn).toBe('hrn:node:acme.com:mem:conversations:b');
+  });
+});

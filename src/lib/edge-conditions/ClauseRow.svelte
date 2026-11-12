@@ -8,10 +8,12 @@
     clause = $bindable(),
     onRemove,
     extraVariables = [],
+    allowedScopes,
   }: {
     clause: UiClause;
     onRemove?: () => void;
     extraVariables?: ReadonlyArray<KnownVariable>;
+    allowedScopes?: ReadonlyArray<string>;
   } = $props();
 
   const OPERATORS: ReadonlyArray<{ op: UiOperator; label: string }> = [
@@ -65,7 +67,7 @@
     <span class="mb-0.5 block text-[10px] uppercase tracking-wider text-zinc-500">
       {t('edge-conditions.builder.field', 'Variable')}
     </span>
-    <VariablePicker bind:value={clause.field} {extraVariables} />
+    <VariablePicker bind:value={clause.field} {extraVariables} {allowedScopes} />
   </div>
 
   <div>

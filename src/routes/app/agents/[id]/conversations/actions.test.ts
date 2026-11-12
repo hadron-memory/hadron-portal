@@ -821,7 +821,7 @@ describe('moveConversation (start order, B4)', () => {
     expect(writes).toHaveLength(2);
     expect(writes.every((w) => !('data' in w.input))).toBe(true);
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'Start order was only partly saved. Try again.' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Start order was only partly saved, so the order shown may be out of date. Reload it, then try again.' });
   });
 
   it('does not show the raw server message for a refused write', async () => {
@@ -873,10 +873,11 @@ describe('updateEntryCondition', () => {
     const writes = routeConversationTraffic([
       { id: 'c1', loc: 'conversations:demo', seq: 1, data: { ...stored, entryCondition: cond } },
     ]);
-    await runAction('updateEntryCondition', {
+    const result = await runAction('updateEntryCondition', {
       systemMemoryId: 'mem-1', convLoc: 'conversations:demo', condition: JSON.stringify(cond), intent: 'clear',
     });
     expect(writes[0].input).toEqual({ memoryId: 'mem-1', loc: 'conversations:demo', data: stored });
+    expect(result).toMatchObject({ form: { message: { type: 'success', text: 'Cleared. This conversation now always starts.' } } });
   });
 
   it('saving an emptied builder clears the condition rather than storing null', async () => {
@@ -895,7 +896,7 @@ describe('updateEntryCondition', () => {
       condition: JSON.stringify({ '>': [{ var: 'chat.message_count' }, 1] }), intent: 'save',
     })) as { status: number; data: { form: { errors: { condition?: string[] } } } };
     expect(result.status).toBe(400);
-    expect(result.data.form.errors.condition?.[0]).toBe('A start condition can use only memory and agent facts.');
+    expect(result.data.form.errors.condition?.[0]).toBe('A start condition can use only memory and agent facts. Choose one of those.');
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
@@ -909,7 +910,7 @@ describe('updateEntryCondition', () => {
   });
 
   it.each([
-    ['SCOPE_NOT_AVAILABLE_AT_START', 'A start condition can use only memory and agent facts.'],
+    ['SCOPE_NOT_AVAILABLE_AT_START', 'A start condition can use only memory and agent facts. Choose one of those.'],
     ['INVALID_JSONLOGIC', "This start condition isn't valid. Check it and try again."],
     ['DISALLOWED_OPERATOR', "This start condition isn't valid. Check it and try again."],
     ['UNKNOWN_SCOPE', "This start condition isn't valid. Check it and try again."],
@@ -941,6 +942,27 @@ describe('updateEntryCondition', () => {
 
 
 describe('load', () => {
+  it('seeds each conversation a Start condition form (from data.entryCondition) and a move form with their own ids (S7)', async () => {
+    mockFetchAllItems.mockResolvedValueOnce([
+      { id: 'org-1', agents: [{ id: 'agent-1', systemMemoryId: 'mem-1' }] },
+    ]);
+    const cond = { '==': [{ var: 'memory.a' }, 1] };
+    mockRequest.mockImplementation(async (_doc: string, v?: { offset?: number }) => (v?.offset ? { findNodes: { hits: [] } } : {
+      findNodes: { hits: [{ node: { id: 'c1', memoryId: 'mem-1', loc: 'conversations:demo', name: 'demo', seq: 1, data: { entryCondition: cond }, outgoingEdges: [] } }] },
+    }));
+    const result = (await runLoad()) as unknown as {
+      conversationStartForms: Record<string, { condition: { id: string; data: Record<string, unknown> }; move: { id: string; data: Record<string, unknown> } }>;
+      conversationGoalForms: Record<string, { id: string }>;
+      addStageForms: Record<string, { id: string }>;
+    };
+    const start = result.conversationStartForms.c1;
+    expect(JSON.parse(start.condition.data.condition as string)).toEqual(cond);
+    expect(start.condition.id).toBe('conversationEntryCondition');
+    expect(start.move.id).toBe('conversationMove');
+    const ids = [start.condition.id, start.move.id, result.conversationGoalForms.c1.id, result.addStageForms.c1.id];
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   it('seeds a Superform for each rendered conversation edge', async () => {
     mockFetchAllItems.mockResolvedValueOnce([
       { id: 'org-1', agents: [{ id: 'agent-1', systemMemoryId: 'mem-1' }] },
@@ -1325,9 +1347,16 @@ describe('savePosition', () => {
 describe('the kind door, across every routed write', () => {
   /** Reads (the calls carrying `ref`) serve `node`; writes resolve. */
   function serve(node: Record<string, unknown>) {
-    mockRequest.mockImplementation(async (_query: string, vars: Record<string, unknown>) =>
-      vars && 'ref' in vars ? { node } : {},
-    );
+    mockRequest.mockImplementation(async (query: string, vars: Record<string, unknown>) => {
+      // moveConversation lists the conversations before it writes (S7).
+      if (typeof query === 'string' && query.includes('findNodes')) {
+        return vars?.offset ? { findNodes: { hits: [] } } : { findNodes: { hits: [
+          { node: { id: 'c1', memoryId: 'mem-1', loc: 'conversations:demo', seq: 1, data: {} } },
+          { node: { id: 'c2', memoryId: 'mem-1', loc: 'conversations:other', seq: 2, data: {} } },
+        ] } };
+      }
+      return vars && 'ref' in vars ? { node } : {};
+    });
   }
   /** The document of the LAST write — the routed one in each of these flows. */
   function lastWriteDocument() {
@@ -1354,6 +1383,13 @@ describe('the kind door, across every routed write', () => {
     }],
     ['updatePrompt', 'updatePrompt', {
       systemMemoryId: 'mem-1', loc: 'prompts:demo:start', content: 'x',
+    }],
+    ['updateEntryCondition', 'updateEntryCondition', {
+      systemMemoryId: 'mem-1', convLoc: 'conversations:demo',
+      condition: JSON.stringify({ '==': [{ var: 'memory.a' }, 1] }), intent: 'save',
+    }],
+    ['moveConversation', 'moveConversation', {
+      systemMemoryId: 'mem-1', convLoc: 'conversations:other', direction: 'earlier',
     }],
   ];
 
@@ -1382,11 +1418,11 @@ describe('the kind door, across every routed write', () => {
       new URL('./+page.server.ts', import.meta.url),
       'utf8',
     );
-    // Six call sites, five actions: updatePrompt routes from two of them (the
+    // Eight call sites, seven actions: updatePrompt routes from two of them (the
     // ordinary update and the adopt-the-winner retry).
     const callSites = src.match(/client\.request\(nodeUpdateDocument\(/g) ?? [];
-    expect(callSites).toHaveLength(6);
-    expect(routed).toHaveLength(5);
+    expect(callSites).toHaveLength(8);
+    expect(routed).toHaveLength(7);
   });
 });
 

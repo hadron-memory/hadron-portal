@@ -42,7 +42,7 @@ describe('entryConditionErrorMessage (S6 B3 contract)', () => {
 
   it('gives SCOPE_NOT_AVAILABLE_AT_START its own copy', () => {
     expect(entryConditionErrorMessage(wire({ code: 'INVALID_ENTRY_CONDITION', reason: 'SCOPE_NOT_AVAILABLE_AT_START' }), 'Fallback'))
-      .toBe('A start condition can use only memory and agent facts.');
+      .toBe('A start condition can use only memory and agent facts. Choose one of those.');
   });
 
   it.each(['INVALID_JSON', 'INVALID_JSONLOGIC', 'DISALLOWED_OPERATOR', 'UNKNOWN_SCOPE', 'RESERVED_NAME', 'AST_TOO_LARGE', 'AST_TOO_DEEP'])(

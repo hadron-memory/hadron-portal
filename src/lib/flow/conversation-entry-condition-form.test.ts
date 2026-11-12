@@ -34,7 +34,7 @@ describe('conversationEntryConditionSchema', () => {
   it('refuses an out-of-scope variable with the start-condition copy', () => {
     const r = conversationEntryConditionSchema.safeParse({ ...base, condition: JSON.stringify({ '>': [{ var: 'chat.message_count' }, 1] }) });
     expect(r.success).toBe(false);
-    expect(!r.success && r.error.issues[0].message).toBe('A start condition can use only memory and agent facts.');
+    expect(!r.success && r.error.issues[0].message).toBe('A start condition can use only memory and agent facts. Choose one of those.');
   });
 
   it('refuses a non-conversation loc', () => {

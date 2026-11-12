@@ -14,7 +14,7 @@ afterEach(() => {
 
 function edgeWith(timing: string | null): ConversationEdgeDetail {
   return {
-    id: 'e1', name: 'r', sourceId: 's', sourceLabel: 'Intake', targetId: 't', targetLabel: 'Wrap up / Say thanks',
+    id: 'e1', name: 'r', sourceId: 's', sourceLabel: 'Intake', targetId: 't', targetLabel: 'Wrap up / Say thanks', targetUrn: 'hrn:node:acme.com:mem:conversations:wrap:thanks',
     priority: 0, condition: null, timing, behavior: null, data: timing ? { timing, custom: 'kept' } : {},
   };
 }
@@ -38,18 +38,19 @@ describe('ConversationEdgePanel timing list (S7, K1)', () => {
     expect(values).not.toContain('on_enter');
   });
 
-  it('keeps an existing on_enter rule visible as "not built", selected, and written back on Save', async () => {
+  it('keeps an existing on_enter rule visible as "not available yet", selected, and written back on Save', async () => {
     const t = await open(edgeWith('on_enter'));
     const entry = options(t).find((o) => o.value === 'on_enter');
-    expect(entry?.text).toMatch(/not built/i);
+    expect(entry?.text).toMatch(/not available yet; kept as is/i);
     expect(timingSelect(t).value).toBe('on_enter');
     await tick(3);
     const data = JSON.parse(t.querySelector<HTMLInputElement>('input[name="data"]')!.value);
     expect(data).toMatchObject({ timing: 'on_enter', custom: 'kept' });
   });
 
-  it('shows a stage target as "conversation / stage" in the header', async () => {
+  it('shows a stage target as "conversation / stage" with its URN chip', async () => {
     const t = await open(edgeWith(null));
     expect(t.textContent).toContain('Wrap up / Say thanks');
+    expect(t.textContent).toContain('conversations:wrap:thanks');
   });
 });
