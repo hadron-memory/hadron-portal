@@ -14,7 +14,9 @@
   import { untrack } from 'svelte';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
+  import { enhance } from '$app/forms';
   import Urn from '$lib/components/Urn.svelte';
+  import SigningStatus from '$lib/components/org/SigningStatus.svelte';
   import { parseDisplayUrn } from '$lib/urn/parse-urn';
   import { t } from '$lib/i18n/t';
   import type { PageData, ActionData } from './$types';
@@ -75,6 +77,14 @@
   $effect(() => {
     if ($profileMessage?.type === 'success') isEditing = false;
   });
+
+  // portal#1921: the boot-prompt signing section. The server decides who sees it
+  // (FORBIDDEN → `hidden` → no section, no words about the org's state). The
+  // switch-on step (the preview) lives on its own route; Switch off is here.
+  const signingOutcome = $derived(form && 'signingOutcome' in form ? form.signingOutcome : null);
+  const signing = $derived(data.signing);
+  let confirmingOff = $state(false);
+  let switchingOff = $state(false);
 </script>
 
 <svelte:head><title>{org.name} · Hadron</title></svelte:head>
@@ -142,6 +152,52 @@
       </div>
     {/if}
   </section>
+
+  <!-- portal#1921: boot-prompt signing (hidden entirely when the server refuses the read) -->
+  {#if signingOutcome !== 'hidden' && signing.kind !== 'hidden'}
+    <section aria-labelledby="signing-heading" data-testid="boot-prompt-signing" class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+      <h2 id="signing-heading" class="font-semibold text-zinc-900 dark:text-white">{t('org.signing.heading', 'Boot prompt signing')}</h2>
+      {#if signing.kind === 'failed'}
+        <p role="status" class="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{t('org.signing.failed', 'Couldn’t load boot prompt signing.')}</p>
+      {:else}
+        <div class="mt-3">
+          <SigningStatus required={signing.required} enforced={signing.enforced} />
+        </div>
+        {#if signingOutcome === 'off'}
+          <p role="status" class="mt-3 text-sm text-green-700 dark:text-green-300">{t('org.signing.switched-off', 'Signing is switched off.')}</p>
+        {:else if signingOutcome === 'failed'}
+          <p role="alert" class="mt-3 text-sm text-red-700 dark:text-red-300">{t('org.signing.off-failed', 'Couldn’t switch signing off. Try again.')}</p>
+        {/if}
+        <div class="mt-4">
+          {#if !signing.required}
+            <a href="/app/orgs/{org.id}/boot-prompt-signing" class="inline-block rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('org.signing.switch-on', 'Switch on…')}</a>
+          {:else if !confirmingOff}
+            <button type="button" onclick={() => (confirmingOff = true)} class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('org.signing.switch-off', 'Switch off…')}</button>
+          {:else}
+            <form
+              method="POST"
+              action="?/switchOff"
+              use:enhance={({ cancel }) => {
+                if (switchingOff) { cancel(); return; }
+                switchingOff = true;
+                return async ({ update }) => {
+                  await update();
+                  switchingOff = false;
+                  confirmingOff = false;
+                };
+              }}
+              class="flex flex-wrap items-center gap-3"
+            >
+              <p class="text-sm text-zinc-700 dark:text-zinc-300">{t('org.signing.confirm-off', 'Switch off? Unsigned approved prompts will be served again.')}</p>
+              <button type="submit" disabled={switchingOff} class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50">{t('org.signing.switch-off-confirm', 'Switch off')}</button>
+              <!-- svelte-ignore a11y_autofocus -->
+              <button type="button" autofocus onclick={() => (confirmingOff = false)} class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('org.signing.cancel', 'Cancel')}</button>
+            </form>
+          {/if}
+        </div>
+      {/if}
+    </section>
+  {/if}
 
   <!-- Subscribed memories -->
   {#if org.subscriptions?.length}

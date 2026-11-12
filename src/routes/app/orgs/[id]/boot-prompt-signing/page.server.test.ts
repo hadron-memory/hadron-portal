@@ -105,7 +105,7 @@ describe('switchOn', () => {
 
   it('refuses without a token and sends no mutation', async () => {
     const { actions } = await mod();
-    for (const fields of [{}, { previewToken: '' }, { previewToken: '   ' }]) {
+    for (const fields of [{} as Record<string, string>, { previewToken: '' }, { previewToken: '   ' }]) {
       const r = await actions.switchOn(actEv(fields));
       expect(r).toMatchObject({ status: 400, data: { outcome: 'no_review' } });
     }
