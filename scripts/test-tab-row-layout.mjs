@@ -101,6 +101,15 @@ try {
       const intrinsic = await page.locator(`[data-tab-row-measure]`).nth(Number(selected.slice(5))).evaluate(el => el.getBoundingClientRect().width);
       assert.equal(await current.textContent(), labels[Number(selected.slice(5))], `${name}: whole selected text`);
       assert.ok(selectedGeometry.scroll <= selectedGeometry.client + 1, `${name}: selected text overflows`);
+      // portal#2006 item 4 — this +0.01px is NOT the component's comparator.
+      // The component decides with a strict `>` (TabRow.svelte `oversizeSelection`:
+      // measured label width > row width — exact by design; the unit suite pins
+      // the boundary at 399/400). This line only PREDICTS that decision from two
+      // independently-laid-out elements (the off-layout measure span and the row),
+      // whose float rects can differ by subpixels at an exact-fit boundary the
+      // exact-fit control deliberately rides. The epsilon absorbs that prediction
+      // noise and nothing else: the wrap decision, and every scroll/client
+      // assertion here, stays exact. Do not copy this slack into the component.
       assert.equal(selectedGeometry.whiteSpace, intrinsic > measurement.available + 0.01 ? 'normal' : 'nowrap', `${name}: wrap only when oversized`);
     }
 
