@@ -28,7 +28,7 @@ export type PreviewRow = {
   appUrn: string;
   agentId: string;
   agentName: string;
-  /** The server's string, shown verbatim (cor:api:240:01); null when it cannot be derived. */
+  /** The server's string, shown verbatim (hrn:node:hadronmemory.com:specs:cor:api:240:01); null when it cannot be derived. */
   agentUrn: string | null;
   workerId: string | null;
   workerName: string | null;
