@@ -1,0 +1,14 @@
+**Campaign status: PASS** at `a5b15bbc23980c193a4328dd48a2e55aec88d6ce`. Smoke passed, then all gate assertions passed in the same browser run.
+
+Coverage included unavailable Retry 1–3 with stable live-region and paragraph nodes, correct failure copy and focus retention; pending duplicate suppression; successful zero and warning outcomes; fresh-mount and A→B route resets; and overflow/reachability checks at 390px and 1280px in light and dark themes. No template writes were made.
+
+Four screenshots were captured:
+
+- [Light, 1280px](</home/orca/scratch/cedar/qa2028-successor/shots/pr2028-light-1280.png>)
+- [Light, 390px](</home/orca/scratch/cedar/qa2028-successor/shots/pr2028-light-390.png>)
+- [Dark, 1280px](</home/orca/scratch/cedar/qa2028-successor/shots/pr2028-dark-1280.png>)
+- [Dark, 390px](</home/orca/scratch/cedar/qa2028-successor/shots/pr2028-dark-390.png>)
+
+Full results: [results.json](/home/orca/scratch/cedar/qa2028-successor/results.json). The script, provenance, stdout and stderr logs are also preserved in the successor evidence root. The campaign used synthetic loopback fixtures only; screen-reader speech and post-save reset were not tested. Browser, context, Vite server and fixture listener closed.
+
+Cedar retains the verdict; I have not published a receipt.

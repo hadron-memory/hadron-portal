@@ -1,0 +1,17 @@
+{
+  "thread": "01a1cf27-b310-77a3-b8d9-9012039ebff9",
+  "path": "/home/orca/.config/orca/codex-accounts/90d2971b-b2c5-431e-823d-b45e5d8c0b1f/home/sessions/2026/11/12/rollout-2026-11-12T09-47-27-01a1cf27-b310-77a3-b8d9-9012039ebff9.jsonl",
+  "model": "gpt-6-luna",
+  "provider": "openai",
+  "sandbox_policy_type": "danger-full-access",
+  "approval_policy": "never",
+  "current_turn_id": "01a1cf2f-a21d-7cc2-a1b0-1f158135ad6e",
+  "turn_context_timestamp": "2026-11-12T09:56:08.907Z",
+  "verified_at": "2026-11-12T09:56:22.044319+00:00",
+  "assertions": {
+    "model_gpt_6_luna": true,
+    "provider_openai": true,
+    "sandbox_danger_full_access": true,
+    "approval_never": true
+  }
+}

@@ -1,0 +1,247 @@
+{
+  "preparationChanges": [
+    "Created the evidence shots directory before browser execution; the prepared script otherwise had no screenshot-directory setup."
+  ],
+  "campaign": "portal PR2028 synthetic signed-in browser",
+  "head": "a5b15bbc23980c193a4328dd48a2e55aec88d6ce",
+  "startedAt": "2026-11-12T09:56:45.772Z",
+  "identity": {
+    "route": "/app/workers/<synthetic-id>?tab=briefing",
+    "user": "synthetic-user",
+    "workers": [
+      "qa-worker-a",
+      "qa-worker-b"
+    ]
+  },
+  "runtime": {
+    "fixture": "loopback-only GraphQL fixture",
+    "portalOrigin": "http://127.0.0.1:5173",
+    "browser": "Playwright Chromium",
+    "viewportCampaign": [
+      1280,
+      390
+    ],
+    "head": "a5b15bbc23980c193a4328dd48a2e55aec88d6ce",
+    "browserVersion": "145.0.7632.6"
+  },
+  "assertions": [
+    {
+      "name": "signed-in actual route rendered",
+      "result": "PASS",
+      "detail": "worker heading absent"
+    },
+    {
+      "name": "actual briefing tab selected",
+      "result": "PASS"
+    },
+    {
+      "name": "hydrated signature section mounted",
+      "result": "PASS"
+    },
+    {
+      "name": "automatic failure: exact outcome",
+      "result": "PASS",
+      "detail": "actual=\"Couldn’t check the worker link.\""
+    },
+    {
+      "name": "automatic failure: one persistent live region",
+      "result": "PASS"
+    },
+    {
+      "name": "one-case smoke: actual signed-in Briefing and unavailable lint ready",
+      "result": "PASS"
+    },
+    {
+      "name": "no all-clear on failure",
+      "result": "PASS"
+    },
+    {
+      "name": "retry 1: stable region and paragraph nodes",
+      "result": "PASS"
+    },
+    {
+      "name": "retry 1: retry focus retained",
+      "result": "PASS"
+    },
+    {
+      "name": "retry 1: exact same live region outcome",
+      "result": "PASS"
+    },
+    {
+      "name": "retry 1: no all-clear",
+      "result": "PASS"
+    },
+    {
+      "name": "retry 2: stable region and paragraph nodes",
+      "result": "PASS"
+    },
+    {
+      "name": "retry 2: retry focus retained",
+      "result": "PASS"
+    },
+    {
+      "name": "retry 2: exact same live region outcome",
+      "result": "PASS"
+    },
+    {
+      "name": "retry 2: no all-clear",
+      "result": "PASS"
+    },
+    {
+      "name": "retry 3: stable region and paragraph nodes",
+      "result": "PASS"
+    },
+    {
+      "name": "retry 3: retry focus retained",
+      "result": "PASS"
+    },
+    {
+      "name": "retry 3: exact same live region outcome",
+      "result": "PASS"
+    },
+    {
+      "name": "retry 3: no all-clear",
+      "result": "PASS"
+    },
+    {
+      "name": "pending retries issue exactly one GET",
+      "result": "PASS"
+    },
+    {
+      "name": "pending Retry is aria-disabled, not native disabled",
+      "result": "PASS"
+    },
+    {
+      "name": "pending focus stays on Retry",
+      "result": "PASS"
+    },
+    {
+      "name": "released pending failure retains Retry focus",
+      "result": "PASS"
+    },
+    {
+      "name": "successful zero result replaces unavailable copy",
+      "result": "PASS"
+    },
+    {
+      "name": "successful zero result focuses lint region",
+      "result": "PASS"
+    },
+    {
+      "name": "warning appears beside signature field",
+      "result": "PASS"
+    },
+    {
+      "name": "warning has no zero success copy",
+      "result": "PASS"
+    },
+    {
+      "name": "warning Retry focuses lint region",
+      "result": "PASS"
+    },
+    {
+      "name": "fresh mount starts unnumbered",
+      "result": "PASS"
+    },
+    {
+      "name": "fresh mount retry sequence resets to one",
+      "result": "PASS"
+    },
+    {
+      "name": "worker B route loaded",
+      "result": "PASS"
+    },
+    {
+      "name": "worker change clears retry sequence",
+      "result": "PASS"
+    },
+    {
+      "name": "worker B first retry is numbered one",
+      "result": "PASS"
+    },
+    {
+      "name": "light 1280px viewport has no horizontal document overflow",
+      "result": "PASS",
+      "detail": "{\"innerWidth\":1280,\"scrollWidth\":1280}"
+    },
+    {
+      "name": "light 1280px lint region and Retry are reachable",
+      "result": "PASS"
+    },
+    {
+      "name": "light 390px viewport has no horizontal document overflow",
+      "result": "PASS",
+      "detail": "{\"innerWidth\":390,\"scrollWidth\":390}"
+    },
+    {
+      "name": "light 390px lint region and Retry are reachable",
+      "result": "PASS"
+    },
+    {
+      "name": "dark 1280px viewport has no horizontal document overflow",
+      "result": "PASS",
+      "detail": "{\"innerWidth\":1280,\"scrollWidth\":1280}"
+    },
+    {
+      "name": "dark 1280px lint region and Retry are reachable",
+      "result": "PASS"
+    },
+    {
+      "name": "dark 390px viewport has no horizontal document overflow",
+      "result": "PASS",
+      "detail": "{\"innerWidth\":390,\"scrollWidth\":390}"
+    },
+    {
+      "name": "dark 390px lint region and Retry are reachable",
+      "result": "PASS"
+    },
+    {
+      "name": "no unexpected GraphQL operations",
+      "result": "PASS",
+      "detail": "[\"Me\",\"OrganizationsNav\",\"Worker\",\"WorkerSessions\",\"WorkerWakeSettings\",\"WorkerBootPointer\",\"signature-lint:qa-worker-a\",\"WorkerServedPrompt\",\"signature-lint:qa-worker-b\"]"
+    },
+    {
+      "name": "zero browser page errors",
+      "result": "PASS"
+    }
+  ],
+  "lintGetCounts": {
+    "afterRepeated": {
+      "Me": 2,
+      "OrganizationsNav": 1,
+      "Worker": 1,
+      "WorkerSessions": 1,
+      "WorkerWakeSettings": 1,
+      "WorkerBootPointer": 1,
+      "signature-lint:qa-worker-a": 4,
+      "WorkerServedPrompt": 1
+    },
+    "final": {
+      "Me": 12,
+      "OrganizationsNav": 6,
+      "Worker": 6,
+      "WorkerSessions": 6,
+      "WorkerWakeSettings": 6,
+      "WorkerBootPointer": 6,
+      "signature-lint:qa-worker-a": 11,
+      "WorkerServedPrompt": 8,
+      "signature-lint:qa-worker-b": 10
+    }
+  },
+  "screenshots": [
+    "/home/orca/scratch/cedar/qa2028-successor/shots/pr2028-light-1280.png",
+    "/home/orca/scratch/cedar/qa2028-successor/shots/pr2028-light-390.png",
+    "/home/orca/scratch/cedar/qa2028-successor/shots/pr2028-dark-1280.png",
+    "/home/orca/scratch/cedar/qa2028-successor/shots/pr2028-dark-390.png"
+  ],
+  "limits": [
+    "Fixtures only: loopback GraphQL responses and synthetic JWT-shaped cookie; no real server/database or credentials.",
+    "Signature-lint browser GETs were intercepted; all GraphQL loader reads used the loopback fixture.",
+    "No template mutation/save action was submitted.",
+    "Screen-reader speech was not tested.",
+    "Post-save reset was not exercised; parent is running the focused client+SSR suite."
+  ],
+  "cleanup": "Playwright context/browser, Vite server, and loopback fixture listener closed in finally.",
+  "status": "PASS",
+  "endedAt": "2026-11-12T09:57:02.880Z"
+}
