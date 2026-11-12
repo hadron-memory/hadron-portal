@@ -28,7 +28,7 @@ import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { fakeFindNodesChildren } from '$lib/test/fakeFindNodesChildren';
 import { page, resetStubPage, setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
-import { actionResultOf, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { actionResultOf, submitEnhancedWithRawResult, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { COMMENT_THREADS_QUERY, NODE_COMMENT_SUMMARY_QUERY } from '$lib/server/comments';
 import {
   MEMORIES_QUERY,
@@ -317,8 +317,8 @@ describe('#1882: a failed location move in Settings says so', () => {
   });
 
   // The two branches onResult must NOT touch (the #1967 review asked for them
-  // alongside the guard): neither may reload, and only a non-failure may close
-  // the editor. A plain failure — the update itself failed, no `metaSaved` — is
+  // alongside the guard): neither may reload, and only a success may close
+  // the editor (#2014). A plain failure — the update itself failed, no `metaSaved` — is
   // not a partial save: nothing was saved, the reader must not be told the node
   // "was not moved", and the editor stays open for a retry.
   it('a plain failure (no metaSaved) keeps the editor open and never reloads', async () => {
@@ -335,6 +335,34 @@ describe('#1882: a failed location move in Settings says so', () => {
     const alert = target.querySelector('form[action="?/updateMeta"] [role="alert"]');
     expect(alert?.textContent ?? '').not.toMatch(/^Saved, but the node was not moved/);
     expect(get(page).form).not.toBeNull();
+  });
+
+  // portal#2014: superforms runs onResult for EVERY result type, `error`
+  // included (no action response arrived: the fetch died, or a non-action JSON
+  // came back). The save was not confirmed, so the editor must stay open with
+  // the typed values for a retry. Not "nothing was saved": a response can be
+  // lost after the write. The rethrow is superforms' own default onError,
+  // driven through the real result handler, not a mock.
+  it('an error result (the request itself failed) keeps the editor open for a retry (#2014)', async () => {
+    const target = await mountSettings();
+    buttonNamed(target, 'Edit')!.click();
+    flushSync();
+    type(target, '#editName', 'Renamed');
+    const form = target.querySelector<HTMLFormElement>('form[action="?/updateMeta"]')!;
+    let rethrown: unknown;
+    await captureUnhandledRejections(async () => {
+      await submitEnhancedWithRawResult(form, { type: 'error', error: new Error('fetch died (fixture)'), status: 500 }).catch((e: unknown) => { rethrown = e; });
+      for (let i = 0; i < 10; i++) await tick();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      for (let i = 0; i < 10; i++) await tick();
+      flushSync();
+    });
+    expect(rethrown).toBeDefined(); // superforms' default onError rethrows: kit-accurate
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
+    expect(target.querySelector('#editLoc')).not.toBeNull();
+    expect(target.querySelector<HTMLInputElement>('#editName')!.value).toBe('Renamed');
+    const alert = target.querySelector('form[action="?/updateMeta"] [role="alert"]');
+    expect(alert?.textContent ?? '').not.toMatch(/^Saved, but the node was not moved/);
   });
 
   it('a successful save closes the editor; the metaSaved reload branch never runs', async () => {
