@@ -17,3 +17,10 @@ The outsider, visitor and beta-admin fixtures each received the same fixed 404 m
 
 
 The native run/captures preceded the final two first-end fixes. Those shown worker flows are unchanged. The final source additionally has mounted/SSR pins for a returned holder-departure end (no new revoked stamp) and mixed USER rows whose missing-name fallback must use each grant's own departure stamp, in both row orders while sharing one identity read. These final cases are unit/source verified; they are not claimed as an author native-browser replay. Independent exact-head delta QA remains required.
+
+
+## Owned post-create readback fix
+
+A native fault at the previous `a7e1931b9` head confirmed that SvelteKit `invalidateAll` replaces the page on a loader failure, losing the confirmed Create result. The fix uses an authenticated, manager-checked, no-store bounded section read instead. The final implementation was rebuilt and the normal worker flows above were repeated on the owned `gene1904refresh` stack; the four theme/width images now come from that run. The first-end/departed USER cases remain unit/source checks, not native replay.
+
+`refresh-failure-retained.png` shows a controlled 503 on the section GET after a genuine successful Create POST. The confirmation and editor remain mounted; a new draft is editable. Counts were one POST, one failed section GET and zero Kit loader reads. Separate real-browser cases for malformed JSON and a read exceeding the ten-second bound also retained the confirmation/editor with the same one-POST/zero-loader-read counts. Mounted tests separately cover stale navigation/ABA responses, a later loader result winning, and conflicting row-write ownership; reader tests cover malformed/foreign payloads and bounded fetch/JSON parsing. These author checks do not replace the independent exact-head review/QA seats.

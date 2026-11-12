@@ -6,6 +6,7 @@ import { beginEnhanced, submitEnhanced } from "$lib/test/stubs/app-forms";
 import { setStubPage, resetStubPage } from "$lib/test/stubs/app-stores";
 import {
   navigationCalls,
+  resetNavigationGuards,
   navigationHooks,
   resetNavigationCalls,
 } from "$lib/test/stubs/app-navigation";
@@ -16,11 +17,17 @@ beforeEach(() => {
     appId: "app-example",
   });
   resetNavigationCalls();
+  resetNavigationGuards();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({ ok: true, json: async () => listFixture() }),
+  );
 });
 afterEach(() => {
   mounted?.unmount();
   mounted = undefined;
   resetStubPage();
+  vi.unstubAllGlobals();
   resetNavigationCalls();
 });
 const setup = () => {
@@ -32,6 +39,17 @@ const setup = () => {
   return mounted.target.querySelector<HTMLFormElement>(
     'form[action*="/create"]',
   )!;
+};
+const listFixture = () => {
+  const d = grantsFixture();
+  return {
+    appId: d.app.id,
+    viewerId: "person-example",
+    offset: 0,
+    grants: d.grants,
+    holders: d.holders,
+    nodes: { "node-example": null },
+  };
 };
 const success = {
   type: "success" as const,
@@ -76,20 +94,17 @@ describe("Grants create response boundary", () => {
   it("applies successful response before refreshing and reports a failed refresh without replay", async () => {
     const form = setup();
     const update = vi.fn(async () => {});
-    navigationHooks.onInvalidateAll = async () => {
-      throw Error("lost reload");
-    };
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: false } as Response);
     await (
       await beginEnhanced(form, { update })
     )(success);
     flushSync();
     expect(update).toHaveBeenCalledWith({ reset: true, invalidateAll: false });
     expect(mounted!.target.textContent).toContain(
-      "The request succeeded, but the list could not refresh",
+      "Grant created, but the list could not refresh",
     );
-    expect(
-      navigationCalls.filter((c) => c.fn === "invalidateAll"),
-    ).toHaveLength(1);
+    expect(navigationCalls).toHaveLength(0);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
   it.each(["unmount", "App change"])(
     "ignores a response after %s",

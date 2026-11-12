@@ -8,8 +8,8 @@ import {
   REVOKE_GRANT,
   GRANTS_PAGE,
   grantChoices,
-  grantHolders,
-  grantNodes,
+  grantOffset,
+  readGrantPage,
   requireGrantManager,
 } from "$lib/server/app-grants";
 import {
@@ -22,15 +22,8 @@ import {
 } from "$lib/grants/types";
 import { t } from "$lib/i18n/t";
 import type { Actions, PageServerLoad } from "./$types";
-const offsetOf = (url: URL) => {
-  const raw = url.searchParams.get("offset") ?? "0";
-  const n = Number(raw);
-  return /^\d+$/.test(raw) && Number.isSafeInteger(n) && n <= 2147483647
-    ? n
-    : 0;
-};
 export const load: PageServerLoad = async ({ params, locals, url }) => {
-  const offset = offsetOf(url);
+  const offset = grantOffset(url);
   try {
     const client = gqlClient(locals.token);
     const app = await requireGrantManager(client, params.appId);
@@ -39,11 +32,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     const memories = signing
       ? loadNodeMemories(client, "app-grants")
       : Promise.resolve({ kind: "ok" as const, value: [] });
-    const [{ appGrants }, choices] = await Promise.all([
-      client.request<{ appGrants: { items: Grant[]; total: number } }>(
-        GRANTS_PAGE,
-        { appRef: app.id, limit: 20, offset },
-      ),
+    const [page, choices] = await Promise.all([
+      readGrantPage(client, app.id, offset),
       signing
         ? grantChoices(client, app.id).then(
             (v) => ({ ...v, failed: false }),
@@ -51,17 +41,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
           )
         : Promise.resolve({ workers: [], agents: [], failed: false }),
     ]);
-    const [holders, nodes] = await Promise.all([
-      grantHolders(client, appGrants.items),
-      grantNodes(client, appGrants.items),
-    ]);
     return {
       routeRef: params.appId,
       app,
       signing,
-      grants: appGrants,
-      holders,
-      nodes,
+      ...page,
+      viewerId: locals.user?.id ?? null,
       choices,
       memories,
       offset,
@@ -96,7 +81,7 @@ export const actions: Actions = {
       const client = gqlClient(event.locals.token);
       const page = await client.request<{ appGrants: { items: Grant[] } }>(
         GRANTS_PAGE,
-        { appRef: app.id, limit: 20, offset: offsetOf(event.url) },
+        { appRef: app.id, limit: 20, offset: grantOffset(event.url) },
       );
       const previous = page.appGrants.items.find((g) => g.id === ref);
       if (!previous)

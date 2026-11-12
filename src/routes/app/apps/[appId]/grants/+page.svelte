@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
+  import { onDestroy, untrack } from "svelte";
   import { enhance } from "$app/forms";
-  import { invalidateAll } from "$app/navigation";
+  import { beforeNavigate } from "$app/navigation";
   import type { SubmitFunction } from "@sveltejs/kit";
   import { page } from "$app/state";
   import Breadcrumb from "$lib/components/Breadcrumb.svelte";
@@ -19,31 +19,122 @@
     GRANT_REASON_MAX,
     grantReasonLimitMessage,
     type Grant,
+    type GrantListPayload,
   } from "$lib/grants/types";
   import type { NodeChoice } from "$lib/node-choices";
   import { t } from "$lib/i18n/t";
+  import { readGrantList } from "./grant-list";
   import GrantRecord from "./GrantRecord.svelte";
   import type { PageData, ActionData } from "./$types";
   let { data, form }: { data: PageData; form?: ActionData } = $props();
   let alive = true;
+  let ownershipEpoch = $state(0),
+    submits = 0,
+    reads = 0;
+  let creating = $state(false),
+    reading = $state(false),
+    refreshFailed = $state(false),
+    rowWrites = $state(0);
+  let readAbort: AbortController | null = null;
+  const rowTokens = new Set<object>();
+  let reread = $state.raw<{
+    against: PageData["grants"];
+    scope: string;
+    value: GrantListPayload;
+  } | null>(null);
+  const formScope = $derived(JSON.stringify([data.app.id, data.viewerId]));
+  const readScope = $derived(
+    JSON.stringify([data.routeRef, data.app.id, data.viewerId, data.offset]),
+  );
+  const view = $derived(
+    reread && reread.against === data.grants && reread.scope === readScope
+      ? reread.value
+      : null,
+  );
+  const grants = $derived(view?.grants ?? data.grants);
+  const holders = $derived(view?.holders ?? data.holders);
+  const nodes = $derived(view?.nodes ?? data.nodes);
+  function cancelRefresh() {
+    reads++;
+    readAbort?.abort();
+    readAbort = null;
+    reading = false;
+  }
+  beforeNavigate(() => {
+    ownershipEpoch++;
+    cancelRefresh();
+  });
   onDestroy(() => {
     alive = false;
+    cancelRefresh();
+    rowTokens.clear();
   });
-  let creating = $state(false),
-    refreshFailed = $state(false);
+  function beginRowWrite() {
+    cancelRefresh();
+    const token = {};
+    rowTokens.add(token);
+    rowWrites = rowTokens.size;
+    return () => {
+      if (rowTokens.delete(token)) rowWrites = rowTokens.size;
+    };
+  }
+  async function refreshGrants() {
+    cancelRefresh();
+    if (!data.viewerId) {
+      refreshFailed = true;
+      return;
+    }
+    const scope = readScope,
+      against = data.grants,
+      epoch = ownershipEpoch,
+      mine = reads;
+    const controller = new AbortController();
+    readAbort = controller;
+    reading = true;
+    refreshFailed = false;
+    const fresh = await readGrantList(
+      {
+        appId: data.app.id,
+        routeRef: data.routeRef,
+        viewerId: data.viewerId,
+        offset: data.offset,
+      },
+      controller.signal,
+    );
+    if (
+      !alive ||
+      mine !== reads ||
+      epoch !== ownershipEpoch ||
+      scope !== readScope ||
+      against !== data.grants
+    )
+      return;
+    reading = false;
+    readAbort = null;
+    if (fresh) reread = { against, scope, value: fresh };
+    else refreshFailed = true;
+  }
   let localFailure = $state<string | null>(null);
   const submitCreate: SubmitFunction = ({ cancel }) => {
-    if (creating) {
+    if (creating || reading || rowWrites) {
       cancel();
       return;
     }
-    const appId = data.routeRef;
+    cancelRefresh();
+    const appId = data.routeRef,
+      epoch = ownershipEpoch,
+      mine = ++submits;
+    const owns = () =>
+      alive &&
+      mine === submits &&
+      epoch === ownershipEpoch &&
+      page.params.appId === appId;
     creating = true;
     refreshFailed = false;
     localFailure = null;
     return async ({ result, update }) => {
       try {
-        if (!alive || page.params.appId !== appId) return;
+        if (!owns()) return;
         if (!["success", "failure", "redirect"].includes(result.type)) {
           localFailure = grantError(null);
           return;
@@ -52,18 +143,17 @@
           reset: result.type === "success",
           invalidateAll: false,
         });
+        if (!owns()) return;
         if (result.type === "success") {
           node = null;
           holderChoice = "";
           reason = "";
-          try {
-            await invalidateAll();
-          } catch {
-            refreshFailed = true;
-          }
+          // The action is acknowledged before its bounded section read starts.
+          creating = false;
+          await refreshGrants();
         }
       } finally {
-        creating = false;
+        if (mine === submits) creating = false;
       }
     };
   };
@@ -78,31 +168,48 @@
   let node = $state<NodeChoice | null>(null),
     picker = $state(false);
   $effect.pre(() => {
-    data.app.id;
-    node = null;
-    holderChoice = "";
-    reason = "";
-    picker = false;
-    creating = false;
-    refreshFailed = false;
-    localFailure = null;
+    formScope;
+    untrack(() => {
+      ownershipEpoch++;
+      submits++;
+      node = null;
+      holderChoice = "";
+      reason = "";
+      picker = false;
+      creating = false;
+      refreshFailed = false;
+      localFailure = null;
+    });
+  });
+  $effect.pre(() => {
+    readScope;
+    untrack(() => {
+      cancelRefresh();
+      reread = null;
+      refreshFailed = false;
+    });
   });
   let rowUpdates = $state<
     Record<string, { grant: Grant; alreadyRevoked: boolean }>
   >({});
   $effect.pre(() => {
-    data.grants;
-    rowUpdates = {};
+    grants;
+    untrack(() => {
+      cancelRefresh();
+      rowUpdates = {};
+      rowTokens.clear();
+      rowWrites = 0;
+    });
   });
   const current = $derived(page.params.appId === data.routeRef);
-  const rows = $derived(current ? data.grants.items : []);
+  const rows = $derived(current ? grants.items : []);
   let globalFilter = $state("");
   const columns: PortalColumnDef<Grant>[] = [
     {
       id: "grant",
       header: t("grants.column", "Grant"),
       accessorFn: (g) =>
-        `${data.holders[grantHolderKey(g)]?.name ?? ""} ${g.action} ${g.reason} ${g.id} ${g.createdAt} ${data.nodes?.[grantNodeRef(g) ?? ""]?.name ?? ""} ${data.nodes?.[grantNodeRef(g) ?? ""]?.urn ?? ""} ${JSON.stringify(g.values)}`,
+        `${holders[grantHolderKey(g)]?.name ?? ""} ${g.action} ${g.reason} ${g.id} ${g.createdAt} ${nodes?.[grantNodeRef(g) ?? ""]?.name ?? ""} ${nodes?.[grantNodeRef(g) ?? ""]?.urn ?? ""} ${JSON.stringify(g.values)}`,
       enableHiding: false,
       enableSorting: false,
       size: 600,
@@ -181,8 +288,8 @@
         </p>
         <GrantRecord
           grant={returned}
-          node={data.nodes?.[grantNodeRef(returned) ?? ""]}
-          holder={data.holders[grantHolderKey(returned)]}
+          node={nodes?.[grantNodeRef(returned) ?? ""]}
+          holder={holders[grantHolderKey(returned)]}
         />
       </section>
     {/if}
@@ -197,8 +304,8 @@
     >
       {#snippet cell(c)}<GrantRecord
           grant={c.row.original}
-          holder={data.holders[grantHolderKey(c.row.original)]}
-          node={data.nodes?.[grantNodeRef(c.row.original) ?? ""]}
+          holder={holders[grantHolderKey(c.row.original)]}
+          node={nodes?.[grantNodeRef(c.row.original) ?? ""]}
           actionAlreadyRevoked={rowUpdates[c.row.original.id]?.alreadyRevoked ??
             (!!form &&
               "alreadyRevoked" in form &&
@@ -219,7 +326,9 @@
                 [g.id]: { grant: g, alreadyRevoked },
               };
           }}
-          locked={creating}
+          locked={creating || reading}
+          {ownershipEpoch}
+          onbegin={beginRowWrite}
           revokeAction={`?/revoke&offset=${data.offset}`}
         />{/snippet}
     </DataTable>
@@ -233,7 +342,7 @@
     >
       <span
         >{t("grants.total", "{total} grants", {
-          total: data.grants.total,
+          total: grants.total,
         })}</span
       >
       <a
@@ -246,7 +355,7 @@
           href={href(Math.max(0, data.offset - 20))}
           >{t("grants.previous", "Previous")}</a
         >{/if}
-      {#if rows.length && data.offset + rows.length < data.grants.total}<a
+      {#if rows.length && data.offset + rows.length < grants.total}<a
           class="min-h-11 inline-flex items-center text-indigo-600 dark:text-indigo-300"
           href={href(data.offset + rows.length)}>{t("grants.next", "Next")}</a
         >{/if}
@@ -386,10 +495,16 @@
                   {feedback}
                 </p>{/if}
               {#if localFailure}<p role="alert">{localFailure}</p>{/if}
+              {#if reading}<p role="status">
+                  {t("grants.refreshing", "Refreshing grants…")}
+                </p>{/if}
+              {#if rowWrites}<p role="status">
+                  {t("grants.wait-revoke", "Finishing the revoke request…")}
+                </p>{/if}
               {#if refreshFailed}<p role="alert">
                   {t(
                     "grants.refresh-failed",
-                    "The request succeeded, but the list could not refresh. Refresh before trying another request.",
+                    "Grant created, but the list could not refresh. Use Refresh to load the latest grants.",
                   )}
                 </p>{/if}
               <p class="text-sm text-zinc-600 dark:text-zinc-300">
@@ -399,7 +514,7 @@
                 )}
               </p>
               <button
-                disabled={!node || creating}
+                disabled={!node || creating || reading || rowWrites > 0}
                 class="min-h-11 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
                 >{t("grants.create", "Create")}</button
               >

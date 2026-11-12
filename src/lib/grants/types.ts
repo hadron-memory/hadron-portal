@@ -93,3 +93,14 @@ export function grantHolderKey(grant: Grant): string {
     ? `USER:${grant.holderId}:${grant.id}`
     : `${grant.holderKind}:${grant.holderId}`;
 }
+
+export type GrantPageSlice = {
+  grants: { items: Grant[]; total: number };
+  holders: Record<string, Holder>;
+  nodes: Record<string, Holder | null>;
+};
+export type GrantListPayload = GrantPageSlice & {
+  appId: string;
+  viewerId: string;
+  offset: number;
+};

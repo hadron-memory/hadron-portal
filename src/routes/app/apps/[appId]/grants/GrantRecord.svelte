@@ -14,6 +14,8 @@
     actionAlreadyRevoked = false,
     locked = false,
     onresult,
+    onbegin,
+    ownershipEpoch = 0,
   }: {
     grant: Grant;
     holder?: Holder;
@@ -23,6 +25,8 @@
     actionAlreadyRevoked?: boolean;
     locked?: boolean;
     onresult?: (grant: Grant, alreadyRevoked: boolean) => void;
+    onbegin?: () => () => void;
+    ownershipEpoch?: number;
   } = $props();
   let returned = $state<Grant | null>(null),
     refusal = $state<string | null>(null),
@@ -32,6 +36,7 @@
   let revokeButton = $state<HTMLButtonElement | null>(null);
   let cancelButton = $state<HTMLButtonElement | null>(null),
     alive = true;
+  let attempts = 0;
   const uid = $props.id();
   const detailId = `grant-details-${uid}`;
   onDestroy(() => {
@@ -39,6 +44,8 @@
   });
   $effect(() => {
     grant;
+    attempts++;
+    busy = false;
     returned = null;
     refusal = null;
     confirming = false;
@@ -59,28 +66,48 @@
       cancel();
       return;
     }
+    const mine = ++attempts,
+      epoch = ownershipEpoch,
+      ownedGrant = grant;
+    const finish = onbegin?.();
     busy = true;
     refusal = null;
     return async ({ result }) => {
-      if (!alive) return;
-      busy = false;
-      if (result.type === "success" && result.data && "grant" in result.data) {
-        returned = result.data.grant as Grant;
-        repeated = result.data.alreadyRevoked === true;
-        onresult?.(returned, repeated);
-        confirming = false;
-        await tick();
-        if (alive) revokeButton?.focus({ preventScroll: true });
-      } else
-        refusal =
-          result.type === "failure" && typeof result.data?.error === "string"
-            ? result.data.error
-            : t(
-                "grants.error.generic",
-                "The grant request could not be completed. Refresh before trying again.",
-              );
+      try {
+        if (
+          !alive ||
+          mine !== attempts ||
+          epoch !== ownershipEpoch ||
+          grant !== ownedGrant
+        )
+          return;
+        if (
+          result.type === "success" &&
+          result.data &&
+          "grant" in result.data
+        ) {
+          returned = result.data.grant as Grant;
+          repeated = result.data.alreadyRevoked === true;
+          onresult?.(returned, repeated);
+          confirming = false;
+          await tick();
+          if (alive && mine === attempts)
+            revokeButton?.focus({ preventScroll: true });
+        } else
+          refusal =
+            result.type === "failure" && typeof result.data?.error === "string"
+              ? result.data.error
+              : t(
+                  "grants.error.generic",
+                  "The grant request could not be completed. Refresh before trying again.",
+                );
+      } finally {
+        if (mine === attempts) busy = false;
+        finish?.();
+      }
     };
   };
+
   const facts = $derived([
     [t("grants.created", "Created"), shown.createdAt],
     [t("grants.activated", "Activated"), shown.activatedAt],

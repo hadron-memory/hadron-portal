@@ -7,6 +7,7 @@ import {
   grantHolderKey,
   grantError,
   type Grant,
+  type GrantPageSlice,
   type Holder,
 } from "$lib/grants/types";
 import { APP_INSTALLED_AGENTS_QUERY } from "$lib/server/queries";
@@ -294,4 +295,26 @@ export async function grantNodes(
       }),
     ),
   );
+}
+
+export function grantOffset(url: URL): number {
+  const raw = url.searchParams.get("offset") ?? "0";
+  const n = Number(raw);
+  return /^\d+$/.test(raw) && Number.isSafeInteger(n) && n <= 2147483647
+    ? n
+    : 0;
+}
+export async function readGrantPage(
+  client: GraphQLClient,
+  appId: string,
+  offset: number,
+): Promise<GrantPageSlice> {
+  const { appGrants } = await client.request<{
+    appGrants: { items: Grant[]; total: number };
+  }>(GRANTS_PAGE, { appRef: appId, limit: 20, offset });
+  const [holders, nodes] = await Promise.all([
+    grantHolders(client, appGrants.items),
+    grantNodes(client, appGrants.items),
+  ]);
+  return { grants: appGrants, holders, nodes };
 }
