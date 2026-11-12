@@ -112,6 +112,11 @@ jobs:
       - name: Check boot prompt layout and concealed provenance
         run: pnpm test:boot-install-layout
 
+      # portal#1991: the provenance table needs no sideways scroll at 320/390px
+      # (touch), and keeps restored desktop widths and column resizing.
+      - name: Check boot provenance phone layout
+        run: pnpm test:boot-provenance-phone-layout
+
       # portal#1686: every compact Urn call-site configuration in real Chromium.
       - name: Check compact URN keyboard and touch layout
         run: pnpm test:urn-compact-layout
