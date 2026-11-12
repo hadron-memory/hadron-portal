@@ -15,7 +15,9 @@ import {
   deleteAgentSchema,
   removeAgentMemorySchema,
   updateAgentMemoryRoleSchema,
+  updateAgentMemberRolesSchema,
 } from './schema';
+import { memberRolesFormId } from './member-roles-form-id';
 
 export function agent(id: string) {
   return {
@@ -64,6 +66,11 @@ export async function pageData(
     resetContextForm: await superValidate(
       { resetContextAfterTask: resetContext.kind === 'ok' ? resetContext.value : false },
       zod4(agentResetContextSchema), { id: `resetContext:${id}`, errors: false },
+    ),
+    // portal#2068: scoped to the Agent, as the loader stamps it.
+    memberRolesForm: await superValidate(
+      { roles: ((agentOverride.installationPolicy as { memberRoles?: string[] } | null | undefined)?.memberRoles) ?? [] },
+      zod4(updateAgentMemberRolesSchema), { id: memberRolesFormId(id), errors: false },
     ),
     addMemoryForm: await superValidate(zod4(addAgentMemorySchema), { errors: false }),
     updateMemoryRoleForm: await superValidate(zod4(updateAgentMemoryRoleSchema), { errors: false }),

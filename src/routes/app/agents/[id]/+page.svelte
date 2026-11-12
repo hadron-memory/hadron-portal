@@ -25,6 +25,7 @@
   import SelectMemory from '$lib/components/SelectMemory.svelte';
   import SelectOrg from '$lib/components/SelectOrg.svelte';
   import { submittedForm } from '$lib/forms/submitted-form';
+  import { memberRolesSeedFor } from './member-roles-form-id';
   import { t } from '$lib/i18n/t';
   import { eligibleCloneTargets, showCloneEntry } from '$lib/agents/clone';
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
@@ -362,6 +363,14 @@
   const resetContextSuccess = $derived($resetContextMessage?.type === 'success' ? $resetContextMessage.text : null);
   // Save is offered only for a change, so an unchanged value sends nothing.
   const resetContextChanged = $derived($resetContextForm.resetContextAfterTask !== resetContextSaved);
+
+  // portal#2068: only THIS Agent's own result may seed its roles editor. A late
+  // result for the Agent just left carries that Agent's form id; the page-wide
+  // action data would otherwise hand it to the editor that remounts for the next.
+  const memberRolesSeed = $derived.by(() => {
+    const submitted = submittedForm<AgentMemberRolesForm>(form, 'updateMemberRoles') as AgentMemberRolesSuperform | null;
+    return memberRolesSeedFor(submitted, data.memberRolesForm);
+  });
 
   const initialAddMemoryForm = untrack(() => submittedForm<AddAgentMemoryForm>(form, 'addMemory') as AddAgentMemorySuperform | null ?? data.addMemoryForm);
   const {
@@ -1088,7 +1097,7 @@
                   <AgentMemberRolesEditor
                     canManage={!!data.canManageAgent}
                     roles={agent.installationPolicy.memberRoles}
-                    initial={submittedForm<AgentMemberRolesForm>(form, 'updateMemberRoles') as AgentMemberRolesSuperform | null ?? data.memberRolesForm}
+                    initial={memberRolesSeed}
                   />
                 {/key}
               </div>

@@ -1,4 +1,5 @@
 import { installMarksOf, type AppAgentInstall } from '$lib/app-install-marks';
+import { memberRolesFormId, UNSCOPED_MEMBER_ROLES_FORM_ID } from './member-roles-form-id';
 import { loadAgentExtensions, loadSystemMemoryIdentity } from '$lib/server/agent-profile';
 import { agentBaseSchema, agentIndexRefsSchema } from './inheritance-schema';
 import { loadInheritanceManagement, loadBaseCandidates, baseVariables, indexVariables, SET_AGENT_BASE_MUTATION, SET_AGENT_INDEX_REFS_MUTATION } from '$lib/server/agent-inheritance-write';
@@ -379,7 +380,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     superValidate(
       { roles: agent.installationPolicy?.memberRoles ?? [] },
       updateAgentMemberRolesFormAdapter,
-      { errors: false, id: 'updateMemberRoles' },
+      { errors: false, id: memberRolesFormId(agent.id) },
     ),
     superValidate<AddAgentMemoryForm>(
       { memoryId: '', role: 'read' },
@@ -778,7 +779,8 @@ export const actions: Actions = {
   // A malformed role is BAD_USER_INPUT with a message meant for the person, so
   // it lands at the field; any other refusal is a form-level message.
   updateMemberRoles: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), updateAgentMemberRolesFormAdapter, { id: 'updateMemberRoles' });
+    // The form's posted `__superform_id` (per Agent, portal#2068) wins over this fallback, so the result finds only that Agent's editor.
+    const form = await superValidate(await request.formData(), updateAgentMemberRolesFormAdapter, { id: UNSCOPED_MEMBER_ROLES_FORM_ID });
     if (!form.valid) return fail(400, { form });
 
     try {
