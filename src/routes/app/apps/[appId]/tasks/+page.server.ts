@@ -11,6 +11,7 @@ import { classifyWriteError, impersonationRefusal, taskWrite } from '$lib/server
 import type { WriteRefusal } from '$lib/agent-tasks/actions';
 import type { AlarmAckResult } from '$lib/agent-tasks/alarm-ack';
 import { withTimeout } from '$lib/server/with-timeout';
+import { signinRedirectFor } from '$lib/server/session-action-guard';
 import type { Actions, PageServerLoad } from './$types';
 
 
@@ -112,18 +113,21 @@ function classifyAlarmError(e: unknown): WriteRefusal {
 }
 
 export const actions = {
-  acknowledgeAlarm: async ({ request, locals }) => {
+  acknowledgeAlarm: async ({ request, locals, url }) => {
     // Actions run before layout loads; the layout sign-in redirect is not a guard.
-    if (!locals.token) throw redirect(303, '/signin');
+    if (!locals.token) throw redirect(303, signinRedirectFor(url));
     const fd = await request.formData();
     const value = fd.get('eventId');
-    const eventId = typeof value === 'string' ? value.trim() : '';
+    const suppliedId = typeof value === 'string' ? value.trim() : '';
+    // Keep the refusal result bounded even when impersonation refuses before
+    // input validation. Validate the full supplied value, never a truncated id.
+    const eventId = suppliedId.slice(0, 200);
     const result = (kind: AlarmAckResult['kind'], extra: Partial<AlarmAckResult> = {}) => ({ alarmAck: { eventId, kind, ...extra } satisfies AlarmAckResult });
     if (locals.impersonation) {
       const refusal = impersonationRefusal();
       return fail(403, result('refused', refusal.kind === 'refused' ? { code: refusal.code, message: refusal.message } : {}));
     }
-    if (!eventId || eventId.length > 200) return fail(400, result('refused', { code: 'BAD_USER_INPUT' }));
+    if (!suppliedId || suppliedId.length > 200) return fail(400, result('refused', { code: 'BAD_USER_INPUT' }));
     // A deadline cannot establish whether a write committed. Never retry it here.
     const out = await withTimeout(taskWrite<{ acknowledgeAlarm: { id: string; acknowledgedAt: string } }>(
       gqlClient(locals.token), ACKNOWLEDGE_ALARM_MUTATION, { eventId }, 'acknowledgeAlarm', classifyAlarmError,
