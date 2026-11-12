@@ -33,8 +33,8 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { page, resetStubPage, setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
-import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
-import { MOVE_NODE_MUTATION, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import { actionResultOf, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { MOVE_NODE_MUTATION, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY, UPDATE_NODE_MUTATION } from '$lib/server/queries';
 import Page from './+page.svelte';
 import { actions, load } from './+page.server';
 
@@ -249,6 +249,38 @@ describe('a refused move after a committed Save stays visible (#1989)', () => {
     expect(metaAlert(m.target)).not.toBe(null);
     buttonNamed(m.target, 'Cancel')!.click();
     flushSync();
+    buttonNamed(m.target, 'Edit')!.click();
+    flushSync();
+    expect(metaAlert(m.target)).toBe(null);
+  });
+
+  it('Retry that succeeds leaves no stale refusal (Glen BLIND ask, #2002)', async () => {
+    const m = await mountSettings();
+    buttonNamed(m.target, 'Edit')!.click();
+    flushSync();
+    const r = await realRefusal('taken');
+    const form = m.target.querySelector<HTMLFormElement>('form[action="?/updateMeta"]')!;
+    await submitEnhancedWithResult(form, { type: 'failure', status: r.status, data: r.data });
+    await settle();
+    expect(metaAlert(m.target)).not.toBe(null);
+    // Retry: the second Save commits (no move this time), so the editor closes and the refusal must not outlive it.
+    mockRequest.mockImplementation(async (doc: string) => {
+      if (doc === UPDATE_NODE_MUTATION) return { updateNode: { ...NODE, name: 'Foo renamed' } };
+      if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY || doc === NODE_DATA_READ_QUERY) return { node: NODE };
+      if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+      return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
+    });
+    const fd = new FormData(form);
+    const ok = (await (actions as Record<string, (e: never) => Promise<unknown>>).updateMeta({
+      request: { formData: async () => fd },
+      params: { id: 'mem-A', nodeId: 'leaf-pk' },
+      locals: { token: 'tok' },
+    } as never)) as Record<string, unknown>;
+    const okResult = actionResultOf(ok);
+    expect(okResult.type).toBe('success');
+    await submitEnhancedWithResult(form, okResult);
+    await settle();
+    expect(metaAlert(m.target)).toBe(null);
     buttonNamed(m.target, 'Edit')!.click();
     flushSync();
     expect(metaAlert(m.target)).toBe(null);
