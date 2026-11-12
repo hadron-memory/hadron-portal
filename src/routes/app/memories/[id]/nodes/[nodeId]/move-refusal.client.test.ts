@@ -28,6 +28,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
+import { get } from 'svelte/store';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { page, resetStubPage, setStubPage } from '$lib/test/stubs/app-stores';
@@ -66,6 +67,8 @@ const OCCUPIED = Object.assign(new Error('occupied'), {
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 /** Resolves when the most recent reload has put the fresh loader data in place. */
 let reloaded: () => Promise<void> = async () => {};
+/** Kit hands the page store's action data to the page as its `form` prop; the stub's applyAction sets only the store. */
+let mirrorKitForm: () => void = () => {};
 beforeEach(() => {
   mockRequest.mockReset();
   mockRequest.mockImplementation(async (doc: string) => {
@@ -102,6 +105,9 @@ async function mountSettings() {
   page.update((p) => ({ ...p, data }));
   const props = reactiveProps<Record<string, unknown>>({ data, form: null });
   const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+  mirrorKitForm = () => {
+    props.form = (get(page) as { form?: unknown }).form ?? null;
+  };
   mounted.push(m);
   if (!m.target.isConnected) document.body.appendChild(m.target);
   await tick();
@@ -196,6 +202,28 @@ describe('a refused move after a committed Save stays visible (#1989)', () => {
     await settle();
     // The metadata committed, so the page must show what was saved even without a refusal to hold.
     expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
+  });
+
+  it('Cancel clears the refusal superforms applied too, so reopening Edit shows none (Clark QA F1 on #2002)', async () => {
+    const m = await mountSettings();
+    buttonNamed(m.target, 'Edit')!.click();
+    flushSync();
+    const r = await realRefusal('taken');
+    await submitEnhancedWithResult(m.target.querySelector<HTMLFormElement>('form[action="?/updateMeta"]')!, {
+      type: 'failure', status: r.status, data: r.data,
+    });
+    await reloaded();
+    await settle();
+    // As in a browser: superforms applies the failure after the awaited reload, and kit passes it to the page.
+    mirrorKitForm();
+    await settle();
+    expect(metaAlert(m.target)?.textContent).toContain('Saved, but the node was not moved');
+    buttonNamed(m.target, 'Cancel')!.click();
+    flushSync();
+    buttonNamed(m.target, 'Edit')!.click();
+    flushSync();
+    await settle();
+    expect(metaAlert(m.target)).toBe(null);
   });
 
   it('Cancel clears the kept refusal', async () => {
