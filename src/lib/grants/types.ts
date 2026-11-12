@@ -85,3 +85,11 @@ export function grantReasonLimitMessage(): string {
     { max: String(GRANT_REASON_MAX) },
   );
 }
+
+// Missing USER wording depends on THIS grant's first-end stamp, not another
+// grant for the same person. Identity reads may still be deduplicated.
+export function grantHolderKey(grant: Grant): string {
+  return grant.holderKind === "USER"
+    ? `USER:${grant.holderId}:${grant.id}`
+    : `${grant.holderKind}:${grant.holderId}`;
+}

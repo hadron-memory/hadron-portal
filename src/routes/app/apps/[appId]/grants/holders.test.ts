@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { grantHolders } from "$lib/server/app-grants";
+import { grantHolderKey } from "$lib/grants/types";
 import { fixtureGrant } from "./grants.fixture";
 const error = (code: string) => ({
   response: { errors: [{ message: "suppressed", extensions: { code } }] },
@@ -23,7 +24,7 @@ describe("grant holder projections", () => {
       holderId: "person-example",
     };
     const c = { request: vi.fn().mockResolvedValue({ user: null }) } as never;
-    expect((await grantHolders(c, [grant]))["USER:person-example"].name).toBe(
+    expect((await grantHolders(c, [grant]))[grantHolderKey(grant)].name).toBe(
       "Holder unavailable",
     );
     expect(
@@ -31,7 +32,7 @@ describe("grant holder projections", () => {
         await grantHolders(c, [
           { ...grant, holderDepartedAt: "2026-11-12T10:00:00Z" },
         ])
-      )["USER:person-example"].name,
+      )[grantHolderKey(grant)].name,
     ).toBe("a deleted user");
   });
   it("keeps a readable holder name and URN even when the grant has a departure fact", async () => {

@@ -160,17 +160,25 @@
       use:enhance={submit}
     >
       <input type="hidden" name="ref" value={shown.id} />
-      {#if (returned || actionGrant) && shown.revokedAt}<p
+      {#if (returned || actionGrant) && (shown.revokedAt || shown.holderDepartedAt)}<p
           role="status"
           class="mb-2 text-sm"
         >
-          {wasAlreadyRevoked
-            ? t("grants.revoke.already", "Already revoked at {time}.", {
-                time: shown.revokedAt,
-              })
-            : t("grants.revoke.done", "Revoked at {time}.", {
-                time: shown.revokedAt,
-              })}
+          {#if shown.revokedAt}
+            {wasAlreadyRevoked
+              ? t("grants.revoke.already", "Already revoked at {time}.", {
+                  time: shown.revokedAt,
+                })
+              : t("grants.revoke.done", "Revoked at {time}.", {
+                  time: shown.revokedAt,
+                })}
+          {:else}
+            {t(
+              "grants.revoke.departed",
+              "No change. Holder departed at {time}.",
+              { time: shown.holderDepartedAt! },
+            )}
+          {/if}
         </p>{/if}
       {#if refusal}<p
           role="alert"

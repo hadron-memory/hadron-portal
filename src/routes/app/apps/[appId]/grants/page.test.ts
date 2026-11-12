@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "svelte/server";
+import { grantHolders } from "$lib/server/app-grants";
 import Page from "./+page.svelte";
 import { grantsFixture, fixtureGrant } from "./grants.fixture";
 import { setStubPage, resetStubPage } from "$lib/test/stubs/app-stores";
@@ -93,3 +94,33 @@ describe("App Grants screen", () => {
     expect(empty).not.toContain(">Next<");
   });
 });
+
+it.each([false, true])(
+  "keeps a missing USER fallback specific to each grant (reverse=%s)",
+  async (reverse) => {
+    const ended = {
+      ...fixtureGrant,
+      id: "ended-grant",
+      holderKind: "USER" as const,
+      holderId: "person-example",
+      revokedAt: "2026-11-12T11:00:00Z",
+      holderDepartedAt: null,
+    };
+    const departed = {
+      ...ended,
+      id: "departed-grant",
+      revokedAt: null,
+      holderDepartedAt: "2026-11-12T12:00:00Z",
+    };
+    const items = reverse ? [ended, departed] : [departed, ended];
+    const request = vi.fn().mockResolvedValue({ user: null });
+    const holders = await grantHolders({ request } as never, items);
+    const html = draw(false, undefined, {
+      grants: { items, total: 2 },
+      holders,
+    });
+    expect(html).toContain("a deleted user");
+    expect(html).toContain("Holder unavailable");
+    expect(request).toHaveBeenCalledTimes(1);
+  },
+);

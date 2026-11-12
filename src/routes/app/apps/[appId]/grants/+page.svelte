@@ -15,6 +15,7 @@
     grantActions,
     grantError,
     grantNodeRef,
+    grantHolderKey,
     GRANT_REASON_MAX,
     grantReasonLimitMessage,
     type Grant,
@@ -101,7 +102,7 @@
       id: "grant",
       header: t("grants.column", "Grant"),
       accessorFn: (g) =>
-        `${data.holders[`${g.holderKind}:${g.holderId}`]?.name ?? ""} ${g.action} ${g.reason} ${g.id} ${g.createdAt} ${data.nodes?.[grantNodeRef(g) ?? ""]?.name ?? ""} ${data.nodes?.[grantNodeRef(g) ?? ""]?.urn ?? ""} ${JSON.stringify(g.values)}`,
+        `${data.holders[grantHolderKey(g)]?.name ?? ""} ${g.action} ${g.reason} ${g.id} ${g.createdAt} ${data.nodes?.[grantNodeRef(g) ?? ""]?.name ?? ""} ${data.nodes?.[grantNodeRef(g) ?? ""]?.urn ?? ""} ${JSON.stringify(g.values)}`,
       enableHiding: false,
       enableSorting: false,
       size: 600,
@@ -181,7 +182,7 @@
         <GrantRecord
           grant={returned}
           node={data.nodes?.[grantNodeRef(returned) ?? ""]}
-          holder={data.holders[`${returned.holderKind}:${returned.holderId}`]}
+          holder={data.holders[grantHolderKey(returned)]}
         />
       </section>
     {/if}
@@ -196,9 +197,7 @@
     >
       {#snippet cell(c)}<GrantRecord
           grant={c.row.original}
-          holder={data.holders[
-            `${c.row.original.holderKind}:${c.row.original.holderId}`
-          ]}
+          holder={data.holders[grantHolderKey(c.row.original)]}
           node={data.nodes?.[grantNodeRef(c.row.original) ?? ""]}
           actionAlreadyRevoked={rowUpdates[c.row.original.id]?.alreadyRevoked ??
             (!!form &&

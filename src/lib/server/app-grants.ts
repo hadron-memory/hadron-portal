@@ -4,6 +4,7 @@ import { error } from "@sveltejs/kit";
 import { t } from "$lib/i18n/t";
 import {
   grantNodeRef,
+  grantHolderKey,
   grantError,
   type Grant,
   type Holder,
@@ -190,9 +191,12 @@ export async function grantHolders(
   client: GraphQLClient,
   grants: Grant[],
 ): Promise<Record<string, Holder>> {
-  const entries = new Map(
-    grants.map((g) => [`${g.holderKind}:${g.holderId}`, g]),
-  );
+  const entries = new Map(grants.map((g) => [grantHolderKey(g), g]));
+  type HolderRead = Record<
+    string,
+    (Holder & { handle?: string | null }) | null
+  >;
+  const reads = new Map<string, Promise<HolderRead>>();
   return Object.fromEntries(
     await Promise.all(
       [...entries].map(async ([key, g]) => {
@@ -213,17 +217,21 @@ export async function grantHolders(
                 ? t("grants.holder.agent", "Agent")
                 : t("grants.holder.app", "App");
         try {
-          const r = await client.request<
-            Record<string, (Holder & { handle?: string | null }) | null>
-          >(
-            {
-              USER: HOLDER_USER,
-              WORKER: HOLDER_WORKER,
-              AGENT: HOLDER_AGENT,
-              APP: HOLDER_APP,
-            }[g.holderKind],
-            { ref: g.holderId },
-          );
+          const identityKey = `${g.holderKind}:${g.holderId}`;
+          let read = reads.get(identityKey);
+          if (!read) {
+            read = client.request<HolderRead>(
+              {
+                USER: HOLDER_USER,
+                WORKER: HOLDER_WORKER,
+                AGENT: HOLDER_AGENT,
+                APP: HOLDER_APP,
+              }[g.holderKind],
+              { ref: g.holderId },
+            );
+            reads.set(identityKey, read);
+          }
+          const r = await read;
           const holder = r[field];
           return [
             key,

@@ -240,3 +240,27 @@ it("enforces the reason limit by code point and explains an oversized draft", ()
   flushSync();
   expect(input.checkValidity()).toBe(true);
 });
+
+it("reports the unchanged holder-departure end without claiming a new revocation", async () => {
+  setup();
+  const row = mounted!.target.querySelector("tbody tr")!;
+  await (
+    await beginEnhanced(row.querySelector("form")!)
+  )({
+    type: "success",
+    status: 200,
+    data: {
+      grant: {
+        ...fixtureGrant,
+        revokedAt: null,
+        holderDepartedAt: "2026-11-12T12:00:00Z",
+      },
+      alreadyRevoked: false,
+    },
+  });
+  flushSync();
+  expect(row.textContent).toContain(
+    "No change. Holder departed at 2026-11-12T12:00:00Z.",
+  );
+  expect(row.textContent).not.toContain("Revoked at");
+});
