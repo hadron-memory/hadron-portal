@@ -35,6 +35,7 @@ export const grantsFixture = (signing = true) => ({
       urn: "hrn:worker:example.test:team:docs",
     },
   },
+  nodes: {},
   choices: {
     failed: false,
     workers: [

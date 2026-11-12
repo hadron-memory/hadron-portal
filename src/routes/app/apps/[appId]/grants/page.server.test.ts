@@ -42,6 +42,14 @@ beforeEach(() => {
   request.mockImplementation(async (q: string, vars: any) => {
     if (q.includes("query AppGrantsApp"))
       return { app: { ...app, viewerManages: manager } };
+    if (q.includes("query GrantSubjectNode"))
+      return {
+        node: {
+          id: vars.ref,
+          name: "Daily entry",
+          urn: "hrn:node:example.test:knowledge:daily",
+        },
+      };
     if (q.includes("query AppGrantsPage"))
       return { appGrants: { items: [grant], total: 41 } };
     if (q.includes("query AppGrantWorkers"))
@@ -141,6 +149,68 @@ async function act(action: "create" | "revoke", body: Record<string, string>) {
 }
 const writes = () => request.mock.calls.filter(([q]) => q.includes("mutation"));
 describe("App Grants manager route", () => {
+  it.each([
+    "FORBIDDEN",
+    "NOT_FOUND",
+    "APP_NOT_FOUND",
+    "UNAUTHENTICATED",
+    "BAD_USER_INPUT",
+  ])("conceals an unreadable App (%s) like a missing one", async (code) => {
+    request.mockRejectedValueOnce(
+      new ClientError(
+        {
+          status: 400,
+          headers: new Headers(),
+          body: JSON.stringify({
+            data: null,
+            errors: [{ message: "private App exists", extensions: { code } }],
+          }),
+          data: null,
+          errors: [
+            new GraphQLError("private App exists", { extensions: { code } }),
+          ],
+        },
+        { query: "query AppGrantsApp($ref: ID!) { app(ref:$ref) { id } }" },
+      ),
+    );
+    await expect(load()).rejects.toMatchObject({
+      status: 404,
+      body: { message: "App not found." },
+    });
+    expect(request).toHaveBeenCalledTimes(1);
+    request.mockResolvedValueOnce({ app: null });
+    await expect(load()).rejects.toMatchObject({
+      status: 404,
+      body: { message: "App not found." },
+    });
+  });
+  it("keeps an App-read outage distinct from absence without leaking prose", async () => {
+    request.mockRejectedValueOnce(Error("private transport details"));
+    await expect(load()).rejects.toMatchObject({
+      status: 503,
+      body: {
+        message:
+          "The grant request could not be completed. Refresh before trying again.",
+      },
+    });
+  });
+  it("maps a signing-capability read failure to the fixed unavailable response", async () => {
+    signing.mockRejectedValueOnce(Error("private capability details"));
+    await expect(load()).rejects.toMatchObject({
+      status: 503,
+      body: {
+        message:
+          "The grant request could not be completed. Refresh before trying again.",
+      },
+    });
+  });
+  it("pins the reason cap in Unicode code points with a specific refusal", async () => {
+    const ok = await act("create", { ...input, reason: "😀".repeat(2000) });
+    expect(ok.grant).toBeTruthy();
+    const bad = await act("create", { ...input, reason: "a".repeat(2001) });
+    expect(bad.status).toBe(400);
+    expect(bad.data.error).toBe("Use at most 2000 characters for the reason.");
+  });
   it("loads every grant without a state filter and pages by the requested offset", async () => {
     const d = await load("?offset=20");
     expect(d.grants.items).toEqual([grant]);
@@ -149,6 +219,26 @@ describe("App Grants manager route", () => {
       request.mock.calls.find(([q]) => q.includes("query AppGrantsPage"))?.[1],
     ).toEqual({ appRef: app.id, limit: 20, offset: 20 });
     expect(d.holders["WORKER:worker-a"].name).toBe("Builder");
+    expect(d.nodes["node-a"]?.name).toBe("Daily entry");
+  });
+  it("returns an already-revoked outcome from the current server page", async () => {
+    const original = request.getMockImplementation()!;
+    request.mockImplementation((q: string, vars: any) =>
+      q.includes("query AppGrantsPage")
+        ? {
+            appGrants: {
+              items: [{ ...grant, revokedAt: "2026-02-01T00:00:00Z" }],
+              total: 1,
+            },
+          }
+        : original(q, vars),
+    );
+    const result = await act("revoke", { ref: grant.id });
+    expect(result.alreadyRevoked).toBe(true);
+    expect(result.grant.revokedAt).toBe("2026-02-01T00:00:00Z");
+  });
+  it("distinguishes a fresh revoke from an already-revoked row", async () => {
+    expect((await act("revoke", { ref: grant.id })).alreadyRevoked).toBe(false);
   });
   it("keeps list and revoke available when holder choices fail", async () => {
     const original = request.getMockImplementation()!;

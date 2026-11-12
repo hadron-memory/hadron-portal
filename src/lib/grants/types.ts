@@ -55,3 +55,33 @@ export function grantError(code: string | null): string {
       );
   }
 }
+
+// Only the known single-node value shapes are projected as node identities.
+// Opaque, wildcard and multi-value grants keep their exact values instead.
+export function grantNodeRef(grant: Grant): string | null {
+  if (
+    !Object.hasOwn(grantActions, grant.action) ||
+    !grant.values ||
+    typeof grant.values !== "object" ||
+    Array.isArray(grant.values)
+  )
+    return null;
+  const value = (grant.values as Record<string, unknown>)[
+    grantActions[grant.action as GrantAction]
+  ];
+  return typeof value === "string" &&
+    value !== "*" &&
+    value.length > 0 &&
+    !/[\s,]/.test(value)
+    ? value
+    : null;
+}
+
+export const GRANT_REASON_MAX = 2000;
+export function grantReasonLimitMessage(): string {
+  return t(
+    "grants.reason.limit",
+    "Use at most {max} characters for the reason.",
+    { max: String(GRANT_REASON_MAX) },
+  );
+}

@@ -9,11 +9,14 @@ import {
   GRANTS_PAGE,
   grantChoices,
   grantHolders,
+  grantNodes,
   requireGrantManager,
 } from "$lib/server/app-grants";
 import {
   grantActions,
   grantError,
+  GRANT_REASON_MAX,
+  grantReasonLimitMessage,
   type Grant,
   type GrantAction,
 } from "$lib/grants/types";
@@ -27,12 +30,12 @@ const offsetOf = (url: URL) => {
     : 0;
 };
 export const load: PageServerLoad = async ({ params, locals, url }) => {
-  const client = gqlClient(locals.token);
-  const app = await requireGrantManager(client, params.appId);
-  const signing =
-    !locals.impersonation && (await deploymentOffersSigning(locals.token));
   const offset = offsetOf(url);
   try {
+    const client = gqlClient(locals.token);
+    const app = await requireGrantManager(client, params.appId);
+    const signing =
+      !locals.impersonation && (await deploymentOffersSigning(locals.token));
     const memories = signing
       ? loadNodeMemories(client, "app-grants")
       : Promise.resolve({ kind: "ok" as const, value: [] });
@@ -48,12 +51,17 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
           )
         : Promise.resolve({ workers: [], agents: [], failed: false }),
     ]);
+    const [holders, nodes] = await Promise.all([
+      grantHolders(client, appGrants.items),
+      grantNodes(client, appGrants.items),
+    ]);
     return {
       routeRef: params.appId,
       app,
       signing,
       grants: appGrants,
-      holders: await grantHolders(client, appGrants.items),
+      holders,
+      nodes,
       choices,
       memories,
       offset,
@@ -90,7 +98,8 @@ export const actions: Actions = {
         GRANTS_PAGE,
         { appRef: app.id, limit: 20, offset: offsetOf(event.url) },
       );
-      if (!page.appGrants.items.some((g) => g.id === ref))
+      const previous = page.appGrants.items.find((g) => g.id === ref);
+      if (!previous)
         return fail(409, {
           error: t(
             "grants.row-moved",
@@ -106,6 +115,7 @@ export const actions: Actions = {
         grant: revokeGrant,
         appId: app.id,
         operation: "revoke" as const,
+        alreadyRevoked: previous.revokedAt !== null,
       };
     } catch (e) {
       return refused(e);
@@ -166,9 +176,10 @@ export const actions: Actions = {
       };
       const startDate = utc(starts),
         expiryDate = utc(expires);
+      if ([...reason].length > GRANT_REASON_MAX)
+        return bad(400, grantReasonLimitMessage());
       if (
         !reason ||
-        [...reason].length > 2000 ||
         (starts && !startDate) ||
         (expires && !expiryDate) ||
         (startDate && expiryDate && expiryDate <= startDate) ||

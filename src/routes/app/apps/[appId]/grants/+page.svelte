@@ -11,7 +11,14 @@
   import { makeGlobalFilterFn } from "$lib/table/global-filter";
   import { createSvelteTable } from "$lib/table/createSvelteTable.svelte";
   import type { PortalColumnDef } from "$lib/table/features";
-  import { grantActions, grantError, type Grant } from "$lib/grants/types";
+  import {
+    grantActions,
+    grantError,
+    grantNodeRef,
+    GRANT_REASON_MAX,
+    grantReasonLimitMessage,
+    type Grant,
+  } from "$lib/grants/types";
   import type { NodeChoice } from "$lib/node-choices";
   import { t } from "$lib/i18n/t";
   import GrantRecord from "./GrantRecord.svelte";
@@ -47,6 +54,7 @@
         if (result.type === "success") {
           node = null;
           holderChoice = "";
+          reason = "";
           try {
             await invalidateAll();
           } catch {
@@ -58,6 +66,8 @@
       }
     };
   };
+  let reason = $state("");
+  const reasonLength = $derived([...reason.trim()].length);
   let holderChoice = $state("");
   const pickedHolder = $derived(
     holderChoice.startsWith("WORKER:")
@@ -70,12 +80,15 @@
     data.app.id;
     node = null;
     holderChoice = "";
+    reason = "";
     picker = false;
     creating = false;
     refreshFailed = false;
     localFailure = null;
   });
-  let rowUpdates = $state<Record<string, Grant>>({});
+  let rowUpdates = $state<
+    Record<string, { grant: Grant; alreadyRevoked: boolean }>
+  >({});
   $effect.pre(() => {
     data.grants;
     rowUpdates = {};
@@ -88,7 +101,7 @@
       id: "grant",
       header: t("grants.column", "Grant"),
       accessorFn: (g) =>
-        `${data.holders[`${g.holderKind}:${g.holderId}`]?.name ?? ""} ${g.action} ${g.reason} ${g.id} ${JSON.stringify(g.values)}`,
+        `${data.holders[`${g.holderKind}:${g.holderId}`]?.name ?? ""} ${g.action} ${g.reason} ${g.id} ${g.createdAt} ${data.nodes?.[grantNodeRef(g) ?? ""]?.name ?? ""} ${data.nodes?.[grantNodeRef(g) ?? ""]?.urn ?? ""} ${JSON.stringify(g.values)}`,
       enableHiding: false,
       enableSorting: false,
       size: 600,
@@ -160,15 +173,14 @@
         class="rounded-xl border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-800 dark:bg-indigo-950"
       >
         <p role="status" class="mb-3">
-          {form && "operation" in form && form.operation === "create"
-            ? t(
-                "grants.created-note",
-                "Grant created. It needs a signature to take effect.",
-              )
-            : t("grants.revoke-result", "The grant returned by the server:")}
+          {t(
+            "grants.created-note",
+            "Grant created. It needs a signature to take effect.",
+          )}
         </p>
         <GrantRecord
           grant={returned}
+          node={data.nodes?.[grantNodeRef(returned) ?? ""]}
           holder={data.holders[`${returned.holderKind}:${returned.holderId}`]}
         />
       </section>
@@ -187,17 +199,26 @@
           holder={data.holders[
             `${c.row.original.holderKind}:${c.row.original.holderId}`
           ]}
-          actionGrant={rowUpdates[c.row.original.id] ??
+          node={data.nodes?.[grantNodeRef(c.row.original) ?? ""]}
+          actionAlreadyRevoked={rowUpdates[c.row.original.id]?.alreadyRevoked ??
+            (!!form &&
+              "alreadyRevoked" in form &&
+              form.alreadyRevoked === true)}
+          actionGrant={rowUpdates[c.row.original.id]?.grant ??
             (form &&
             "grant" in form &&
             form.grant &&
+            form.operation === "revoke" &&
             form.appId === data.app.id &&
             form.grant.id === c.row.original.id
               ? form.grant
               : null)}
-          onresult={(g) => {
+          onresult={(g, alreadyRevoked) => {
             if (g.appId === data.app.id)
-              rowUpdates = { ...rowUpdates, [g.id]: g };
+              rowUpdates = {
+                ...rowUpdates,
+                [g.id]: { grant: g, alreadyRevoked },
+              };
           }}
           locked={creating}
           revokeAction={`?/revoke&offset=${data.offset}`}
@@ -303,10 +324,38 @@
                 >{t("grants.reason", "Reason")}<textarea
                   name="reason"
                   required
-                  maxlength="4000"
+                  bind:value={reason}
+                  maxlength={GRANT_REASON_MAX * 2}
+                  aria-invalid={reasonLength > GRANT_REASON_MAX}
+                  aria-describedby="grant-reason-limit"
+                  oninput={(event) =>
+                    event.currentTarget.setCustomValidity(
+                      [...event.currentTarget.value.trim()].length >
+                        GRANT_REASON_MAX
+                        ? grantReasonLimitMessage()
+                        : "",
+                    )}
                   class={field}
                 ></textarea></label
               >
+              <!-- Native maxlength counts UTF-16 units; custom validity enforces the server's code-point limit. -->
+              <p
+                id="grant-reason-limit"
+                class="text-sm"
+                class:text-red-800={reasonLength > GRANT_REASON_MAX}
+                class:dark:text-red-200={reasonLength > GRANT_REASON_MAX}
+              >
+                {reasonLength > GRANT_REASON_MAX
+                  ? grantReasonLimitMessage()
+                  : t(
+                      "grants.reason.hint",
+                      "Reason: {count} of {max} characters (spaces at the ends do not count).",
+                      {
+                        count: String(reasonLength),
+                        max: String(GRANT_REASON_MAX),
+                      },
+                    )}
+              </p>
               <label class="block text-sm"
                 >{t("grants.starts-input", "Starts at (UTC, optional)")}<input
                   type="datetime-local"

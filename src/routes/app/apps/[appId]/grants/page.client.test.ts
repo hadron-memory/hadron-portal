@@ -127,7 +127,7 @@ describe("inline grant revoke", () => {
       data: { grant: { ...fixtureGrant, revokedAt: "2026-11-12T12:00:00Z" } },
     });
     flushSync();
-    expect(row.textContent).toContain("returned by the server is shown here");
+    expect(row.textContent).toContain("Revoked at 2026-11-12T12:00:00Z");
     expect(document.activeElement?.textContent).toBe("Revoke");
     const details = row.querySelector<HTMLButtonElement>(
       "button[aria-expanded]",
@@ -137,6 +137,19 @@ describe("inline grant revoke", () => {
     flushSync();
     expect(details.getAttribute("aria-expanded")).toBe("true");
     expect(row.textContent).toContain("2026-11-12T12:00:00Z");
+    const repeat = await beginEnhanced(form);
+    await repeat({
+      type: "success",
+      status: 200,
+      data: {
+        grant: { ...fixtureGrant, revokedAt: "2026-11-12T12:00:00Z" },
+        alreadyRevoked: true,
+      },
+    });
+    flushSync();
+    expect(row.textContent).toContain(
+      "Already revoked at 2026-11-12T12:00:00Z",
+    );
   });
 });
 
@@ -207,4 +220,23 @@ it("shows the picked holder URN once below its native choice", () => {
   select.dispatchEvent(new Event("change", { bubbles: true }));
   flushSync();
   expect(form.textContent).toContain("example.test:team:docs");
+});
+
+it("enforces the reason limit by code point and explains an oversized draft", () => {
+  const form = setup();
+  const input = form.querySelector<HTMLTextAreaElement>('[name="reason"]')!;
+  input.value = "a".repeat(2001);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  flushSync();
+  expect(input.checkValidity()).toBe(false);
+  expect(input.validationMessage).toBe(
+    "Use at most 2000 characters for the reason.",
+  );
+  expect(form.textContent).toContain(
+    "Use at most 2000 characters for the reason.",
+  );
+  input.value = "😀".repeat(2000);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  flushSync();
+  expect(input.checkValidity()).toBe(true);
 });

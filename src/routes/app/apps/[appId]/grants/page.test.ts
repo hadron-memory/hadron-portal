@@ -22,6 +22,21 @@ describe("App Grants screen", () => {
       />\s*(Pending|Active|Ended|Withdrawn|Retired|Departed)\s*</,
     );
   });
+  it("names the scoped node and created date without opening details", () => {
+    const html = draw(true, undefined, {
+      nodes: {
+        "node-example": {
+          id: "node-example",
+          name: "Daily entry",
+          urn: "hrn:node:example.test:knowledge:daily",
+        },
+      },
+    });
+    expect(html).toContain("Daily entry");
+    expect(html).toContain("hrn:node:example.test:knowledge:daily");
+    expect(html).toContain(fixtureGrant.createdAt);
+    expect(html).not.toContain("Grant ID");
+  });
   it("uses only grouped picked Workers and Agents, the four actions and a node picker", () => {
     const html = draw();
     expect(html).toContain('optgroup label="Workers"');

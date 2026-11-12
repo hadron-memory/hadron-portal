@@ -4,12 +4,14 @@
   import { onDestroy, tick } from "svelte";
   import { t } from "$lib/i18n/t";
   import Urn from "$lib/components/Urn.svelte";
-  import type { Grant, Holder } from "$lib/grants/types";
+  import { grantNodeRef, type Grant, type Holder } from "$lib/grants/types";
   let {
     grant,
     holder,
     revokeAction,
     actionGrant,
+    node,
+    actionAlreadyRevoked = false,
     locked = false,
     onresult,
   }: {
@@ -17,8 +19,10 @@
     holder?: Holder;
     revokeAction?: string;
     actionGrant?: Grant | null;
+    node?: Holder | null;
+    actionAlreadyRevoked?: boolean;
     locked?: boolean;
-    onresult?: (grant: Grant) => void;
+    onresult?: (grant: Grant, alreadyRevoked: boolean) => void;
   } = $props();
   let returned = $state<Grant | null>(null),
     refusal = $state<string | null>(null),
@@ -40,6 +44,10 @@
     confirming = false;
   });
   const shown = $derived(returned ?? actionGrant ?? grant);
+  let repeated = $state(false);
+  const wasAlreadyRevoked = $derived(
+    returned ? repeated : actionAlreadyRevoked,
+  );
   async function confirm(event: MouseEvent) {
     event.preventDefault();
     confirming = true;
@@ -58,7 +66,8 @@
       busy = false;
       if (result.type === "success" && result.data && "grant" in result.data) {
         returned = result.data.grant as Grant;
-        onresult?.(returned);
+        repeated = result.data.alreadyRevoked === true;
+        onresult?.(returned, repeated);
         confirming = false;
         await tick();
         if (alive) revokeButton?.focus({ preventScroll: true });
@@ -90,6 +99,24 @@
       <Urn value={holder.urn} linked />
     </div>{/if}
   <div class="font-mono break-all">{shown.action}</div>
+  {#if grantNodeRef(shown)}
+    <div class="min-w-0">
+      <div>
+        {node?.name ?? t("grants.node.unavailable", "Node unavailable")}
+      </div>
+      {#if node?.urn}<Urn value={node.urn} linked />{/if}
+    </div>
+  {:else}
+    <div class="break-all">
+      <span>{t("grants.values", "Values")}: </span><code
+        >{JSON.stringify(shown.values)}</code
+      >
+    </div>
+  {/if}
+  <p class="break-words">
+    {t("grants.created", "Created")}:
+    <time datetime={shown.createdAt}>{shown.createdAt}</time>
+  </p>
   <p>
     {t("grants.allows", "Allows now: {answer}", {
       answer: shown.allows ? t("common.yes", "Yes") : t("common.no", "No"),
@@ -133,11 +160,17 @@
       use:enhance={submit}
     >
       <input type="hidden" name="ref" value={shown.id} />
-      {#if returned || actionGrant}<p role="status" class="mb-2 text-sm">
-          {t(
-            "grants.row-result",
-            "The grant returned by the server is shown here.",
-          )}
+      {#if (returned || actionGrant) && shown.revokedAt}<p
+          role="status"
+          class="mb-2 text-sm"
+        >
+          {wasAlreadyRevoked
+            ? t("grants.revoke.already", "Already revoked at {time}.", {
+                time: shown.revokedAt,
+              })
+            : t("grants.revoke.done", "Revoked at {time}.", {
+                time: shown.revokedAt,
+              })}
         </p>{/if}
       {#if refusal}<p
           role="alert"

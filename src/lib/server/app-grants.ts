@@ -2,9 +2,17 @@ import type { GraphQLClient } from "graphql-request";
 import { extractGqlErrorCode } from "$lib/server/gqlError";
 import { error } from "@sveltejs/kit";
 import { t } from "$lib/i18n/t";
-import { type Grant, type Holder } from "$lib/grants/types";
+import {
+  grantNodeRef,
+  grantError,
+  type Grant,
+  type Holder,
+} from "$lib/grants/types";
 import { APP_INSTALLED_AGENTS_QUERY } from "$lib/server/queries";
-import { readableInstalledAgents } from "$lib/app-installed-agents";
+import {
+  readableInstalledAgents,
+  type InstalledAgent,
+} from "$lib/app-installed-agents";
 const GRANT_FIELDS = /* GraphQL */ `
   fragment AppGrantFields on Grant {
     id
@@ -125,10 +133,28 @@ export async function requireGrantManager(
   client: GraphQLClient,
   ref: string,
 ): Promise<GrantsApp> {
-  const { app } = await client.request<{ app: GrantsApp | null }>(GRANTS_APP, {
-    ref,
-  });
-  if (!app) throw error(404, t("grants.app.missing", "App not found."));
+  const missing = () => error(404, t("grants.app.missing", "App not found."));
+  let app: GrantsApp | null;
+  try {
+    ({ app } = await client.request<{ app: GrantsApp | null }>(GRANTS_APP, {
+      ref,
+    }));
+  } catch (e) {
+    // Match the sibling App route's explicit concealment codes. An outage is
+    // unavailable, never evidence that this App does not exist.
+    if (
+      [
+        "FORBIDDEN",
+        "NOT_FOUND",
+        "APP_NOT_FOUND",
+        "UNAUTHENTICATED",
+        "BAD_USER_INPUT",
+      ].includes(extractGqlErrorCode(e) ?? "")
+    )
+      throw missing();
+    throw error(503, grantError(null));
+  }
+  if (!app) throw missing();
   if (app.viewerManages !== true)
     throw error(
       403,
@@ -143,12 +169,10 @@ export async function grantChoices(client: GraphQLClient, appRef: string) {
       { appRef },
     ),
     client.request<{
-      app: { appAgents: { agent: Holder | null }[] | null } | null;
+      app: { appAgents: { agent: InstalledAgent | null }[] | null } | null;
     }>(APP_INSTALLED_AGENTS_QUERY, { ref: appRef }),
   ]);
-  const agents = readableInstalledAgents(
-    installed.app?.appAgents as Parameters<typeof readableInstalledAgents>[0],
-  );
+  const agents = readableInstalledAgents(installed.app?.appAgents);
   if (agents.kind === "withheld")
     throw error(
       503,
@@ -219,6 +243,45 @@ export async function grantHolders(
                   : t("grants.holder.unavailable", "Holder unavailable"),
             },
           ];
+        }
+      }),
+    ),
+  );
+}
+
+const GRANT_SUBJECT_NODE = /* GraphQL */ `
+  query GrantSubjectNode($ref: ID!) {
+    node(ref: $ref) {
+      id
+      name
+      urn
+    }
+  }
+`;
+export async function grantNodes(
+  client: GraphQLClient,
+  grants: Grant[],
+): Promise<Record<string, Holder | null>> {
+  const refs = [
+    ...new Set(
+      grants
+        .slice(0, 20)
+        .map(grantNodeRef)
+        .filter((ref): ref is string => ref !== null),
+    ),
+  ];
+  return Object.fromEntries(
+    await Promise.all(
+      refs.map(async (ref) => {
+        try {
+          const { node } = await client.request<{ node: Holder | null }>(
+            GRANT_SUBJECT_NODE,
+            { ref },
+          );
+          return [ref, node] as const;
+        } catch {
+          // A grant does not make its referenced node readable. Never invent a URN.
+          return [ref, null] as const;
         }
       }),
     ),
