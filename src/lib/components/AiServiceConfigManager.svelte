@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { testResultView, type AiConfigTestResult, type AiConfigTestView } from '$lib/ai-config-test';
   import { lookupOwn } from '$lib/lookup';
+  import { safeRedirect } from '$lib/safeRedirect';
   import { beforeNavigate } from '$app/navigation';
   import { AI_CONFIG_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
   import type { AiConfigOwnerType, AiConfigProvider, AiServiceConfig } from '$lib/types';
@@ -42,6 +43,7 @@
     ownerLabel = null,
     ownerUrn = null,
     currentUserId,
+    selectedContext = '[null,null]',
     configs,
     canManage = false,
     allowTest = false,
@@ -61,6 +63,7 @@
     ownerUrn?: string | null;
     /** Section keys Manager remounts by this principal; action tokens fence it too. */
     currentUserId: string;
+    selectedContext?: string;
     configs: AiServiceConfig[];
     canManage?: boolean;
     allowTest?: boolean;
@@ -111,6 +114,9 @@
   // Section owns persistent recovery, notices and replay locks.
   const mutationLocked = $derived(uncertainMutation || mutationUncertain);
   let error = $state<string | null>(null);
+  let signinHref = $state<string | null>(null);
+  let signinLink = $state<HTMLAnchorElement | null>(null);
+  let errorRegion = $state<HTMLDivElement | null>(null);
   // #937: one shape for both paths, so the result always reads the same way.
   let testResult = $state<AiConfigTestView | null>(null);
   let confirmDeleteId = $state<string | null>(null);
@@ -134,7 +140,29 @@
   let ownerGeneration = 0;
   let destroyed = false;
 
+  // BODY can be platform blur or a newer blank-page click. Track both focus
+  // and pointer intent without a reactive counter or an automatic replay.
+  let attentionVersion = 0;
+  type Attention = { version: number; element: Element | null };
+  const captureAttention = (): Attention => ({ version: attentionVersion, element: document.activeElement });
+  async function restoreAttention(
+    target: () => HTMLElement | null,
+    current: () => boolean,
+    attention: Attention,
+    reveal = false,
+  ) {
+    await tick();
+    // Recheck ownership AFTER rendering, before looking up a reused binding.
+    if (!current() || attention.version !== attentionVersion) return;
+    if (document.activeElement !== document.body && document.activeElement !== attention.element) return;
+    const element = target();
+    if (!element?.isConnected || element.matches(':disabled')) return;
+    if (reveal) errorRegion?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    element.focus({ preventScroll: true });
+  }
+
   type ActionToken = {
+    attention: Attention;
     generation: number;
     editorSession: number;
     noticeGeneration: number;
@@ -143,6 +171,7 @@
     ownerId: string;
     ownerGeneration: number;
     principalId: string;
+    returnPath: string;
     onCommitted: (outcome: AiConfigCommitted) => void | Promise<void>;
     onUncertain: (outcome: AiConfigUncertain) => void | Promise<void>;
     formFingerprint: string;
@@ -158,7 +187,100 @@
   const localMutationPending = $derived(
     pendingMutations.some((mutation) => mutation.ownerKey === ownerKey && mutation.principalId === currentUserId),
   );
-  const mutationBlocked = $derived(localMutationPending || mutationPending);
+  let identityChecking = $state(false);
+  const mutationBlocked = $derived(localMutationPending || mutationPending || identityChecking);
+  let draftPrincipal: { userId: string; selectedContext: string } | null = null;
+  let identitySequence = 0;
+  let identityController: AbortController | null = null;
+
+  function captureDraftPrincipal() {
+    draftPrincipal = { userId: currentUserId, selectedContext };
+    // Never adopt a different fresh identity as the owner of an existing
+    // editor. The loader identity is confirmed against this request's cookie.
+    void verifyDraftPrincipal();
+  }
+
+  function discardPrincipalDraft(attention: Attention) {
+    actionGeneration++;
+    actionController?.abort();
+    resetEditor();
+    resetForm();
+    confirmDeleteId = null;
+    busy = false;
+    error = s.principalChanged();
+    const generation = actionGeneration;
+    const owner = ownerKey;
+    const user = currentUserId;
+    const message = error;
+    void restoreAttention(() => errorRegion, () => !destroyed && generation === actionGeneration && owner === ownerKey && user === currentUserId && error === message, attention, true);
+  }
+
+  async function verifyDraftPrincipal(): Promise<boolean> {
+    const captured = draftPrincipal;
+    if (!captured || destroyed) return false;
+    const attention = captureAttention();
+    const sequence = ++identitySequence;
+    identityController?.abort();
+    const controller = new AbortController();
+    identityController = controller;
+    identityChecking = true;
+    const current = () => !destroyed && sequence === identitySequence && captured === draftPrincipal;
+    try {
+      const data = await withAiConfigTimeout(async signal => {
+        const response = await fetch('/api/ai-configs?principal=1', { cache: 'no-store', signal });
+        if (!response.ok) throw new Error('Identity unavailable');
+        return await response.json() as { principal?: unknown };
+      }, () => { throw new Error('Identity unavailable'); }, undefined, controller.signal);
+      if (!current()) return false;
+      const principal = data.principal;
+      if (captured.selectedContext !== selectedContext || captured.userId !== currentUserId) {
+        discardPrincipalDraft(attention);
+        return false;
+      }
+      // Anonymous/refused is not a different identity. Keep the in-memory
+      // draft; only a subsequent exact CRUD401 offers the sign-in CTA.
+      if (principal === null) return true;
+      if (!principal || typeof principal !== 'object') throw new Error('Identity unavailable');
+      const fresh = principal as { principalType?: unknown; userId?: unknown; appId?: unknown };
+      if (fresh.principalType !== 'USER' && fresh.principalType !== 'APP') throw new Error('Identity unavailable');
+      if (fresh.principalType === 'USER' && (typeof fresh.userId !== 'string' || fresh.appId !== null)) throw new Error('Identity unavailable');
+      if (fresh.principalType === 'APP' && (fresh.userId !== null || typeof fresh.appId !== 'string')) throw new Error('Identity unavailable');
+      if (fresh.principalType !== 'USER' || fresh.userId !== captured.userId) {
+        discardPrincipalDraft(attention);
+        return false;
+      }
+      return true;
+    } catch {
+      if (current()) error = s.principalUnavailable();
+      return false;
+    } finally {
+      if (sequence === identitySequence) {
+        identityChecking = false;
+        void restoreAttention(() => attention.element instanceof HTMLElement ? attention.element : null, current, attention);
+      }
+    }
+  }
+
+  onMount(() => {
+    const onFocus = () => {
+      if (formOpen || confirmDeleteId !== null) void verifyDraftPrincipal();
+    };
+    const onFocusIn = (event: FocusEvent) => {
+      if (event.target !== document.body) attentionVersion++;
+    };
+    const onPointer = (event: PointerEvent) => {
+      const focused = document.activeElement;
+      if (!(focused && focused !== document.body && event.target instanceof Node && focused.contains(event.target))) attentionVersion++;
+    };
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('focusin', onFocusIn, true);
+    window.addEventListener('pointerdown', onPointer, true);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('focusin', onFocusIn, true);
+      window.removeEventListener('pointerdown', onPointer, true);
+    };
+  });
 
   function clearNotice(): number {
     return onAction();
@@ -173,6 +295,8 @@
   }
 
   function beginAction(): ActionToken {
+    const attention = captureAttention();
+    signinHref = null;
     const noticeGeneration = clearNotice();
     busy = false;
     // Only non-mutating Test reads consume this signal. Mutation writes keep
@@ -180,6 +304,7 @@
     actionController?.abort();
     actionController = new AbortController();
     return {
+      attention,
       generation: ++actionGeneration,
       editorSession,
       noticeGeneration,
@@ -188,6 +313,7 @@
       ownerId: ownerAtVisit!.ownerId,
       ownerGeneration,
       principalId: currentUserId,
+      returnPath: safeRedirect(window.location.pathname),
       onCommitted,
       onUncertain,
       formFingerprint: formFingerprint(),
@@ -269,6 +395,14 @@
   }
 
   function resetEditor() {
+    // An armed delete shares this editor visit/principal. Closing the editor
+    // must close its confirmation too, rather than leave an enabled no-op.
+    confirmDeleteId = null;
+    draftPrincipal = null;
+    identitySequence++;
+    identityController?.abort();
+    identityChecking = false;
+    signinHref = null;
     endEditorSession(); // #1910: closing the editor ends the session a response belonged to
     formOpen = false;
     editId = null;
@@ -298,6 +432,8 @@
 
   onDestroy(() => {
     destroyed = true;
+    identitySequence++;
+    identityController?.abort();
     actionGeneration++;
     actionController?.abort();
   });
@@ -497,6 +633,7 @@
     savedConfig = null;
     editId = null;
     formOpen = true;
+    captureDraftPrincipal();
   }
 
   function openEdit(c: AiServiceConfig) {
@@ -523,6 +660,7 @@
     const shown = c.provider === 'openai-compatible' ? rest : (c.params ?? {});
     paramsText = c.params && Object.keys(shown).length > 0 ? JSON.stringify(shown, null, 2) : '';
     formOpen = true;
+    captureDraftPrincipal();
   }
 
   function closeForm() {
@@ -564,6 +702,8 @@
     return canonicalJson(next.value ?? null) !== canonicalJson(c.params ?? null);
   }
 
+  class SigninRequiredError extends Error {}
+
   class UncertainMutationError extends Error {
     constructor() {
       super('Request failed');
@@ -580,6 +720,9 @@
         body: JSON.stringify(payload),
         signal,
       });
+      // Exact CRUD 401 is definitive even if a proxy returned no JSON body.
+      // Never inspect or display upstream text to classify this refusal.
+      if (uncertainMutation && response.status === 401) return { response, body: null };
       return { response, body: await response.json() as unknown };
     })();
     try {
@@ -603,6 +746,7 @@
       // leave an unexplained pending lock forever.
       throw new UncertainMutationError();
     }
+    if (uncertainMutation && res.status === 401) throw new SigninRequiredError();
     const record = body && typeof body === 'object' && !Array.isArray(body)
       ? body as Record<string, unknown>
       : null;
@@ -661,6 +805,17 @@
 
   async function runMutation(options: MutationOptions) {
     const { action } = options;
+    if (!await verifyDraftPrincipal() || !isCurrent(action)) {
+      if (isCurrent(action)) busy = false;
+      return;
+    }
+    // A changed draft during the identity read needs another explicit submit;
+    // do not combine captured key/name fields with newer reactive values.
+    if (formFingerprint() !== action.formFingerprint) {
+      error = s.draftChanged();
+      busy = false;
+      return;
+    }
     const pendingMutation = trackMutation(action);
     try {
       try {
@@ -671,7 +826,14 @@
           // bounded readback finishes; settlement must not open a replay gap.
           await publishUncertain(action, s.mutationUnconfirmed(), pendingMutation);
         } else if (isCurrent(action)) {
-          error = e instanceof Error ? e.message : options.refusalFallback;
+          if (e instanceof SigninRequiredError) {
+            error = s.signinDraft();
+            // Only the pathname goes to the other tab. The editor and all of
+            // its values remain in this instance; no navigation/replay hook.
+            signinHref = `/signin?redirect=${encodeURIComponent(action.returnPath)}`;
+          } else {
+            error = e instanceof Error ? e.message : options.refusalFallback;
+          }
         }
         return;
       }
@@ -681,7 +843,10 @@
       await publishCommitted(action, options.successText, options.refreshFailedText, pendingMutation);
     } finally {
       finishMutation(pendingMutation);
-      if (isCurrent(action)) busy = false;
+      if (isCurrent(action)) {
+        busy = false;
+        if (signinHref) void restoreAttention(() => signinLink, () => isCurrent(action) && signinHref !== null, action.attention, true);
+      }
     }
   }
 
@@ -811,6 +976,11 @@
     });
     busy = true;
     try {
+      if (!await verifyDraftPrincipal() || !isCurrent(action)) return;
+      if (formFingerprint() !== action.formFingerprint) {
+        error = s.draftChanged();
+        return;
+      }
       if (editing) {
         // #937: a SAVED config, of ANY owner kind, tests BY ID through the
         // server's own run path (server#1378). The stored key stays there.
@@ -895,6 +1065,7 @@
     beginAction();
     error = null;
     confirmDeleteId = id;
+    if (!draftPrincipal) captureDraftPrincipal();
   }
 
   function cancelDelete() {
@@ -906,6 +1077,7 @@
 
 <section>
   <div data-testid="ai-config-manager-feedback" role="status" aria-live="polite" aria-atomic="true">
+    {#if identityChecking}<p class="mb-3 text-sm text-zinc-500 dark:text-zinc-400">{s.principalChecking()}</p>{/if}
     {#if mutationBlocked && !mutationLocked}
       <p data-testid="ai-config-recovery-pending" class="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
         {s.recoveryPending()}
@@ -914,12 +1086,18 @@
   </div>
   <!-- Always mounted so a refusal is announced whether it came from the open
        editor or a row action; only the alert's content changes. -->
-  <div data-testid="ai-config-error-feedback" role="alert" aria-live="assertive" aria-atomic="true">
+  <div bind:this={errorRegion} tabindex="-1" data-testid="ai-config-error-feedback" role="alert" aria-live="assertive" aria-atomic="true">
     {#if error}
       <div
         class="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
       >
-        {error}
+        <p>{error}</p>
+        {#if signinHref}
+          <a bind:this={signinLink} href={signinHref} target="_blank" rel="noopener noreferrer"
+            class="mt-1 inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
+          >{s.signinNewTab()}</a>
+          <p>{s.signinReturn()}</p>
+        {/if}
       </div>
     {/if}
   </div>

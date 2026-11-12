@@ -59,6 +59,7 @@
   } from '$lib/node-provenance';
   import NodeRoleInput from '$lib/components/NodeRoleInput.svelte';
   import { metaSavedDespiteFailure, nodeMetaReseed, nodeMetaSeedKey, savedButNotMoved } from '$lib/node-meta-seed';
+  import { bestEffortInvalidateAll } from '$lib/best-effort-invalidate-all';
   import { skillExportMenuHosts } from '$lib/skill-export';
   import NodeAssetCard from '$lib/components/assets/NodeAssetCard.svelte';
   import { canUploadToMemory } from '$lib/assets/can-upload';
@@ -852,7 +853,11 @@
       // lands after the reload. Unawaited, the reload finished later and
       // superforms rebound to the loader's fresh form, which erased both.
       // That is also what keeps the typed loc in the draft (#1989).
-      await invalidateAll();
+      // portal#1980: the reload is BEST-EFFORT — a rejecting invalidateAll()
+      // must not trade this known partial-save failure for a generic error
+      // (see bestEffortInvalidateAll for the rejection class and the
+      // error-boundary limit). The page keeps the action failure.
+      await bestEffortInvalidateAll('node-detail');
     },
   });
 

@@ -541,3 +541,38 @@ describe('CRUD auth refusal mapping (#1898)', () => {
     );
   }
 });
+
+
+describe('#1955 current-cookie principal read', () => {
+  it('returns no principal without a cookie and never queries or mutates', async () => {
+    const { GET } = await import('./+server');
+    const response = await GET(ev({ token: null, url: 'http://localhost/api/ai-configs?principal=1' }));
+    expect(await jsonOf(response)).toEqual({ principal: null });
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it.each([null, { principalType: 'USER', user: { id: 'fresh-user' }, appId: null }, { principalType: 'APP', user: null, appId: 'fresh-app' }])('reads existing authContext using this request token: %j', async context => {
+    mockRequest.mockResolvedValueOnce({ authContext: context });
+    const { GET } = await import('./+server');
+    const response = await GET(ev({ token: 'fresh-cookie-token', url: 'http://localhost/api/ai-configs?principal=1' }));
+    expect(response.status).toBe(200);
+    expect(await jsonOf(response)).toEqual({ principal: context === null ? null : {
+      principalType: context.principalType, userId: context.user?.id ?? null, appId: context.appId,
+    } });
+    expect(mockGqlClient.mock.calls[0][0]).toBe('fresh-cookie-token');
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    expect(mockRequest.mock.calls[0][0]).toMatch(/query AiConfigPrincipal.*authContext.*principalType.*user.*id.*appId/s);
+    expect(mockRequest.mock.calls[0][0]).not.toMatch(/mutation|apiKey/);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+  });
+
+  it('returns fixed-copy unavailable on an identity outage, never upstream text or a write', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('sensitive-upstream'));
+    const { GET } = await import('./+server');
+    const response = await GET(ev({ url: 'http://localhost/api/ai-configs?principal=1' }));
+    expect(response.status).toBe(503);
+    expect(await jsonOf(response)).toEqual({ error: 'Unable to verify your sign-in. Try again.' });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+});

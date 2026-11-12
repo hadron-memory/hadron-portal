@@ -30,6 +30,46 @@ describe('#1902 refreshed loc suggestion', () => {
     const fetcher = vi.fn().mockResolvedValue(response());
     await expect(refreshedNodeLoc('m','self','p:old','Foo',new AbortController().signal,fetcher)).rejects.toThrow();
   });
+  it('rejects no progress at that guard, using fresh Responses on every call (#1988)', async () => {
+    // The second fresh, valid response bounds the mutant: without the guard it
+    // returns a suggestion, rather than failing because a Response was consumed.
+    const fetcher = vi.fn()
+      .mockImplementationOnce(async () => page([], true))
+      .mockImplementation(async () => page([]));
+    await expect(refreshedNodeLoc('m', 'self', 'p:old', 'Foo', new AbortController().signal, fetcher))
+      .rejects.toThrow('Sibling read made no progress');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects failed=true even with otherwise valid rows and hasMore (#1988)', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ rows: [], hasMore: false, failed: true })));
+    await expect(refreshedNodeLoc('m', 'self', 'p:old', 'Foo', new AbortController().signal, fetcher))
+      .rejects.toThrow('Invalid sibling page');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, null, 0, 'false'])('rejects non-boolean hasMore=%s independently (#1988)', async (hasMore) => {
+    const fetcher = vi.fn()
+      .mockImplementationOnce(async () => new Response(JSON.stringify({ rows: [], hasMore })))
+      .mockImplementation(async () => page([]));
+    await expect(refreshedNodeLoc('m', 'self', 'p:old', 'Foo', new AbortController().signal, fetcher))
+      .rejects.toThrow('Invalid sibling page');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses the exhausted collision fallback rather than returning an occupied loc (#1988)', async () => {
+    const rows = Array.from({ length: 10_000 }, (_, i) => ({
+      id: `sibling-${i}`, loc: i === 0 ? 'p:foo' : `p:foo-${i + 1}`,
+    }));
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const offset = Number(new URL(String(input), 'http://localhost').searchParams.get('offset'));
+      return page(rows.slice(offset, offset + 20), offset + 20 < rows.length);
+    });
+    await expect(refreshedNodeLoc('m', 'self', 'p:old', 'Foo', new AbortController().signal, fetcher))
+      .rejects.toThrow('No available suggestion');
+    expect(fetcher).toHaveBeenCalledTimes(500);
+  });
+
   it('does not read after cancellation', async () => {
     const controller=new AbortController();controller.abort();const fetcher=vi.fn();
     await expect(refreshedNodeLoc('m','self','p:old','Foo',controller.signal,fetcher)).rejects.toThrow();

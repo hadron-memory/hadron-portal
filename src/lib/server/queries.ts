@@ -177,6 +177,17 @@ export const APP_FIELDS = /* GraphQL */ `
 // Queries
 // ---------------------------------------------------------------------------
 
+/** #1955: only current identity, never credentials or draft values. */
+export const AI_CONFIG_PRINCIPAL_QUERY = /* GraphQL */ `
+  query AiConfigPrincipal {
+    authContext {
+      principalType
+      user { id }
+      appId
+    }
+  }
+`;
+
 /**
  * #1091, hrn:node:hadronmemory.com:specs:cor:aut:010:05: whether the credential THIS
  * request presented authenticates. AUTHENTICATED, REFUSED (one answer for every
@@ -5748,5 +5759,12 @@ export const ACCOUNT_USAGE_PROJECTION_QUERY = /* GraphQL */ `
     window lengthMinutes status reason usedPct resetsAt observedAt lowPctAtReset highPctAtReset
     burn { lowPctPerHour highPctPerHour } perWorkerBurn { lowPctPerHour highPctPerHour }
     confidence shape runsOutAt ceilingPct
+  }
+`;
+
+// portal#1941: the signed-in person acknowledges through the existing server gate.
+export const ACKNOWLEDGE_ALARM_MUTATION = /* GraphQL */ `
+  mutation AcknowledgeAlarm($eventId: ID!) {
+    acknowledgeAlarm(eventId: $eventId) { id acknowledgedAt }
   }
 `;

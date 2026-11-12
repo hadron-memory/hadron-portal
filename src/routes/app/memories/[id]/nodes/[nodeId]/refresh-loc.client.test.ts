@@ -42,6 +42,31 @@ describe('#1902 Refresh request lifetime',()=>{
   expect(m.onrefresh).not.toHaveBeenCalled();expect(m.target.textContent).toContain('Could not check the new URN');expect(m.target.textContent).not.toContain('private synthetic detail');expect(button(m.target).disabled).toBe(false);
   button(m.target).click();await settle();expect(m.onrefresh).toHaveBeenCalledOnce();
  });
+ it('expires at ten seconds, preserves the draft, and permits only an explicit retry (#1988)',async()=>{
+  vi.useFakeTimers();
+  let signal!:AbortSignal;
+  const fetcher=vi.fn()
+   .mockImplementationOnce((_url,init)=>new Promise<Response>((_resolve,reject)=>{
+    signal=init.signal;
+    signal.addEventListener('abort',()=>reject(new Error('synthetic private timeout detail')),{once:true});
+   }))
+   .mockImplementationOnce(async()=>result());
+  vi.stubGlobal('fetch',fetcher);
+  const m=setup();button(m.target).click();await settle();
+  expect(fetcher).toHaveBeenCalledTimes(1);expect(button(m.target).disabled).toBe(true);
+  await vi.advanceTimersByTimeAsync(9_999);await settle();
+  expect(signal.aborted).toBe(false);expect(button(m.target).disabled).toBe(true);
+  expect(m.target.querySelector('[role="alert"]')!.textContent).toBe('');
+  await vi.advanceTimersByTimeAsync(1);await settle();
+  expect(signal.aborted).toBe(true);expect(m.onrefresh).not.toHaveBeenCalled();
+  expect(m.props.name).toBe('Foo');expect(m.props.loc).toBe('p:old');
+  expect(m.target.querySelector('[role="alert"]')!.textContent).toBe('Could not check the new URN. Try Refresh again, or edit the URN before saving.');
+  expect(button(m.target).disabled).toBe(false);expect(vi.getTimerCount()).toBe(0);
+  await vi.advanceTimersByTimeAsync(20_000);await settle();expect(fetcher).toHaveBeenCalledTimes(1);
+  button(m.target).click();await settle();
+  expect(fetcher).toHaveBeenCalledTimes(2);expect(m.onrefresh).toHaveBeenCalledExactlyOnceWith('p:foo');
+  expect(button(m.target).disabled).toBe(false);expect(m.target.querySelector('[role="alert"]')!.textContent).toBe('');
+ });
  it('cancels its deadline on teardown',async()=>{
   vi.useFakeTimers();vi.stubGlobal('fetch',vi.fn((_url,init)=>new Promise((_resolve,reject)=>init.signal.addEventListener('abort',()=>reject(new Error('aborted'))))));const m=setup();button(m.target).click();await tick();expect(vi.getTimerCount()).toBe(1);m.unmount();await settle();expect(vi.getTimerCount()).toBe(0);expect(m.onrefresh).not.toHaveBeenCalled();
  });

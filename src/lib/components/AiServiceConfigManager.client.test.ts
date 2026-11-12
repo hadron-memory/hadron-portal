@@ -24,6 +24,7 @@ beforeEach(() => {
   resetAiConfigRecoveryForTests();
   posts = [];
   vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
+    if (_url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
     const body = JSON.parse(init.body) as Record<string, unknown>;
     posts.push(body);
     const reply = body.action === 'endpoints'
@@ -104,6 +105,16 @@ async function settle() {
   flushSync();
 }
 
+// Wait for the actual control state around an immediate-response action,
+// rather than budgeting a fixed number of promise hops for the identity read.
+async function performAction(root: HTMLElement, label: string) {
+  const trigger = button(root, label);
+  await vi.waitFor(() => expect(trigger.disabled).toBe(false));
+  trigger.click();
+  flushSync();
+  await vi.waitFor(() => expect(!trigger.isConnected || !trigger.disabled).toBe(true));
+}
+
 describe('openai-compatible', () => {
   it('requires an endpoint, offers the protocol and tool calling, and says the key is required', async () => {
     const root = await open();
@@ -120,8 +131,7 @@ describe('openai-compatible', () => {
     set($<HTMLInputElement>(root, '#ac-name')!, 'local');
     set($<HTMLInputElement>(root, '#ac-model')!, 'qwen3');
     set($<HTMLInputElement>(root, '#ac-key')!, 'placeholder');
-    button(root, 'Save').click();
-    await settle();
+    await performAction(root, 'Save');
     expect(root.textContent).toContain('An OpenAI-compatible provider needs an endpoint.');
     expect(posts.filter((p) => p.action === 'create')).toHaveLength(0);
 
@@ -131,8 +141,7 @@ describe('openai-compatible', () => {
     )!;
     tools.click();
     flushSync();
-    button(root, 'Save').click();
-    await settle();
+    await performAction(root, 'Save');
     const create = posts.find((p) => p.action === 'create')!;
     expect(create).toMatchObject({
       provider: 'openai-compatible', endpoint: 'https://llm.example.com/v1', apiKey: 'placeholder', params: { toolCalling: true },
@@ -150,10 +159,7 @@ describe('openai-compatible', () => {
     set($<HTMLSelectElement>(root, '#ac-provider')!, 'glm');
     set($<HTMLInputElement>(root, '#ac-endpoint')!, '');
     await settle();
-    button(root, 'Save').click();
-    await settle();
-    await tick(60); // remount only after the committed update's recovery settles
-    flushSync();
+    await performAction(root, 'Save');
     let update = posts.find((p) => p.action === 'update')!;
     expect(update).toMatchObject({ provider: 'glm', endpoint: null });
     expect(update).toHaveProperty('params', null); // cleared, not "unchanged"
@@ -167,8 +173,7 @@ describe('openai-compatible', () => {
     set($<HTMLSelectElement>(root, '#ac-provider')!, 'glm');
     set($<HTMLInputElement>(root, '#ac-endpoint')!, '');
     await settle();
-    button(root, 'Save').click();
-    await settle();
+    await performAction(root, 'Save');
     update = posts.find((p) => p.action === 'update')!;
     expect(update.params).toEqual({ temperature: 0.3 });
   });
@@ -180,8 +185,7 @@ describe('openai-compatible', () => {
     set($<HTMLSelectElement>(root, '#ac-provider')!, 'glm');
     set($<HTMLInputElement>(root, '#ac-model')!, 'glm-5');
     set($<HTMLInputElement>(root, '#ac-key')!, 'k');
-    button(root, 'Test').click();
-    await settle();
+    await performAction(root, 'Test');
     expect(root.textContent).toContain('Save this configuration first, then Test it');
     expect(posts.filter((p) => p.action === 'test')).toHaveLength(0);
   });
@@ -205,17 +209,13 @@ describe('a saved glm config', () => {
     const root = await open({ configs: [config({ endpoint: 'https://api.z.ai/api/coding/paas/v4' })] });
     editRow(root);
     await settle();
-    button(root, 'Save').click();
-    await settle();
-    await tick(60); // the committed update now retains pending until the host callback resolves
-    flushSync();
+    await performAction(root, 'Save');
     expect('endpoint' in posts.find((p) => p.action === 'update')!).toBe(false);
 
     editRow(root);
     await settle();
     set($<HTMLInputElement>(root, '#ac-endpoint')!, '');
-    button(root, 'Save').click();
-    await settle();
+    await performAction(root, 'Save');
     expect(posts.filter((p) => p.action === 'update')[1]).toMatchObject({ endpoint: null });
   });
 
@@ -224,8 +224,7 @@ describe('a saved glm config', () => {
     editRow(root);
     await settle();
     set($<HTMLInputElement>(root, '#ac-endpoint')!, '');
-    button(root, 'Test').click();
-    await settle();
+    await performAction(root, 'Test');
     expect(posts.find((p) => p.action === 'testSaved')).toEqual({ action: 'testSaved', id: 'c1', override: { endpoint: null } });
   });
 
@@ -257,8 +256,7 @@ describe('switching to Bedrock', () => {
     expect(root.querySelector('#ac-endpoint')).toBeNull();
     set($<HTMLInputElement>(root, '#ac-name')!, 'default');
     set($<HTMLInputElement>(root, '#ac-model')!, 'anthropic.claude');
-    button(root, 'Save').click();
-    await settle();
+    await performAction(root, 'Save');
     // The platform's own bedrock config at its region host may go keyless.
     expect(root.textContent).not.toContain('needs its own API key');
     const create = posts.find((p) => p.action === 'create')!;
@@ -276,8 +274,7 @@ describe('Test with "Remove the stored key" ticked', () => {
     )!;
     remove.click();
     flushSync();
-    button(root, 'Test').click();
-    await settle();
+    await performAction(root, 'Test');
     expect(posts.find((p) => p.action === 'testSaved')).toEqual({ action: 'testSaved', id: 'c1', override: { apiKey: null } });
   });
 
@@ -285,8 +282,7 @@ describe('Test with "Remove the stored key" ticked', () => {
     const root = await open({ ownerType: 'HADRON_SERVER', configs: [config({ ownerType: 'HADRON_SERVER', provider: 'openai' })] });
     editRow(root);
     await settle();
-    button(root, 'Test').click();
-    await settle();
+    await performAction(root, 'Test');
     expect(posts.find((p) => p.action === 'testSaved')).toEqual({ action: 'testSaved', id: 'c1', override: {} });
   });
 });
@@ -305,8 +301,7 @@ describe('Test with edited Parameters (#951 Codex P2, hadron-server#1413)', () =
     editRow(root);
     await settle();
     typeParams(root, '{"maxTokens": 500}');
-    button(root, 'Test').click();
-    await settle();
+    await performAction(root, 'Test');
     expect(testSavedOverride().params).toEqual({ maxTokens: 500 });
     expect(root.textContent).not.toContain('weren’t part of this test');
   });
@@ -319,8 +314,7 @@ describe('Test with edited Parameters (#951 Codex P2, hadron-server#1413)', () =
     await settle();
     root.querySelector<HTMLInputElement>('input[aria-describedby="ac-tool-calling-hint"]')!.click();
     flushSync();
-    button(root, 'Test').click();
-    await settle();
+    await performAction(root, 'Test');
     expect(testSavedOverride().params).toEqual({ toolCalling: false, maxTokens: 100 });
   });
 
@@ -329,8 +323,7 @@ describe('Test with edited Parameters (#951 Codex P2, hadron-server#1413)', () =
     editRow(root);
     await settle();
     typeParams(root, '');
-    button(root, 'Test').click();
-    await settle();
+    await performAction(root, 'Test');
     const override = testSavedOverride();
     expect('params' in override).toBe(true);
     expect(override.params).toBeNull();
@@ -342,8 +335,7 @@ describe('Test with edited Parameters (#951 Codex P2, hadron-server#1413)', () =
     });
     editRow(root);
     await settle();
-    button(root, 'Test').click();
-    await settle();
+    await performAction(root, 'Test');
     expect('params' in testSavedOverride()).toBe(false);
   });
 
@@ -352,8 +344,7 @@ describe('Test with edited Parameters (#951 Codex P2, hadron-server#1413)', () =
     editRow(root);
     await settle();
     typeParams(root, '{nope');
-    button(root, 'Test').click();
-    await settle();
+    await performAction(root, 'Test');
     expect(root.textContent).toContain('Params must be valid JSON.');
     expect(posts.some((p) => p.action === 'testSaved')).toBe(false);
   });
@@ -365,8 +356,7 @@ describe('Test with the Model field cleared', () => {
     editRow(root);
     await settle();
     set($<HTMLInputElement>(root, '#ac-model')!, '');
-    button(root, 'Test').click();
-    await settle();
+    await performAction(root, 'Test');
     expect(root.textContent).toContain('Provider and model are required.');
     expect(posts.filter((p) => p.action === 'testSaved')).toHaveLength(0);
   });
@@ -377,7 +367,8 @@ describe('endpoint suggestions follow the provider (#951 Codex P2)', () => {
   function holdEndpoints(held: string[]) {
     const release = new Map<string, (urls: string[]) => void>();
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
-      const body = JSON.parse(init.body) as Record<string, unknown>;
+      if (_url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+    const body = JSON.parse(init.body) as Record<string, unknown>;
       posts.push(body);
       if (body.action === 'endpoints' && held.includes(String(body.provider))) {
         const urls = await new Promise<string[]>((r) => release.set(String(body.provider), r));
@@ -426,11 +417,11 @@ describe('AI config Delete confirm (#1020 review P2)', () => {
   it('arms an inline confirm whose "cannot be undone" question is visible, posting nothing yet', async () => {
     const root = await open({ configs: [config()] });
     menuDelete(root);
+    await settle();
     expect(root.textContent).toContain(aiConfigStrings.confirmDelete('default'));
     expect(posts.filter((p) => p.action === 'delete')).toHaveLength(0);
     // The confirm's own Delete is what posts, for the armed config.
-    button(root, 'Delete').click();
-    await settle();
+    await performAction(root, 'Delete');
     expect(posts.find((p) => p.action === 'delete')).toMatchObject({ id: 'c1' });
   });
 });
@@ -460,6 +451,7 @@ describe('a late save response must not replace the replacement editor’s basel
     const held = new Promise<AiServiceConfig>((resolve) => { release = resolve; });
     const deliveredRow = new Promise<void>((resolve) => { delivered = resolve; });
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
+      if (_url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       const body = JSON.parse(init.body) as Record<string, unknown>;
       posts.push(body);
       if (body.action === action) {
@@ -498,8 +490,9 @@ describe('a late save response must not replace the replacement editor’s basel
     editRow(m.target);
     await settle();
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://stale.example/v1');
+    await vi.waitFor(() => expect(button(m.target, 'Save').disabled).toBe(false));
     button(m.target, 'Save').click();
-    await settle(); // the update is in flight, held
+    await vi.waitFor(() => expect(posts.some(p => p.action === 'update')).toBe(true)); // the update is in flight, held
     expect(posts.find((p) => p.action === 'update')).toMatchObject({ endpoint: 'https://stale.example/v1' });
 
     // The owner visit changes while the response is in flight, closing the
@@ -514,8 +507,7 @@ describe('a late save response must not replace the replacement editor’s basel
     release({ ...row, endpoint: 'https://stale.example/v1' }); // the old save’s late response
     await settleAfterDelivery(delivered, m.target);
 
-    button(m.target, 'Save').click(); // fields unchanged since the reopen
-    await settle();
+    await performAction(m.target, 'Save'); // fields unchanged since the reopen
     const updates = posts.filter((p) => p.action === 'update');
     expect(updates).toHaveLength(2);
     const second = updates[1]!;
@@ -536,8 +528,9 @@ describe('a late save response must not replace the replacement editor’s basel
     set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-5');
     set($<HTMLInputElement>(m.target, '#ac-key')!, 'sk-test');
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://made.example/v1');
+    await vi.waitFor(() => expect(button(m.target, 'Save').disabled).toBe(false));
     button(m.target, 'Save').click();
-    await settle(); // the create is in flight, held
+    await vi.waitFor(() => expect(posts.some(p => p.action === 'create')).toBe(true)); // the create is in flight, held
     expect(posts.find((p) => p.action === 'create')).toMatchObject({ name: 'made', endpoint: 'https://made.example/v1' });
 
     // The owner visit changes while the response is in flight, closing the
@@ -556,8 +549,7 @@ describe('a late save response must not replace the replacement editor’s basel
     release(config({ id: 'c9', name: 'made', endpoint: 'https://made.example/v1' })); // the create’s late response
     await settleAfterDelivery(delivered, m.target);
 
-    button(m.target, 'Save').click(); // fields unchanged since the reopen
-    await settle();
+    await performAction(m.target, 'Save'); // fields unchanged since the reopen
     const updates = posts.filter((p) => p.action === 'update');
     expect(updates).toHaveLength(1);
     const only = updates[0]!;
@@ -577,8 +569,9 @@ describe('a late save response must not replace the replacement editor’s basel
     set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-5');
     set($<HTMLInputElement>(m.target, '#ac-key')!, 'sk-test');
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://made.example/v1');
+    await vi.waitFor(() => expect(button(m.target, 'Save').disabled).toBe(false));
     button(m.target, 'Save').click();
-    await settle(); // the create is in flight, held
+    await vi.waitFor(() => expect(posts.some(p => p.action === 'create')).toBe(true)); // the create is in flight, held
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://edited.example/v1'); // newer edit mid-flight
 
     release(config({ id: 'c9', name: 'made', endpoint: 'https://made.example/v1' }));
@@ -588,8 +581,7 @@ describe('a late save response must not replace the replacement editor’s basel
     expect($(m.target, '#ac-endpoint')).not.toBe(null);
     expect(($<HTMLInputElement>(m.target, '#ac-endpoint')!).value).toBe('https://edited.example/v1');
 
-    button(m.target, 'Save').click();
-    await settle();
+    await performAction(m.target, 'Save');
     expect(posts.filter((p) => p.action === 'create')).toHaveLength(1); // never a second create
     expect(posts.find((p) => p.action === 'update')).toMatchObject({ id: 'c9', endpoint: 'https://edited.example/v1' });
   });
@@ -604,8 +596,9 @@ describe('a late save response must not replace the replacement editor’s basel
     set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-5');
     set($<HTMLInputElement>(m.target, '#ac-key')!, 'sk-test');
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://made.example/v1');
+    await vi.waitFor(() => expect(button(m.target, 'Save').disabled).toBe(false));
     button(m.target, 'Save').click();
-    await settle(); // the create is in flight, held
+    await vi.waitFor(() => expect(posts.some(p => p.action === 'create')).toBe(true)); // the create is in flight, held
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://edited.example/v1'); // newer edit mid-flight
     // Arming the unrelated row's delete supersedes the save's ACTION
     // (actionGeneration bump, ungated by busy) without ending the editor
@@ -622,8 +615,7 @@ describe('a late save response must not replace the replacement editor’s basel
     // second create — the duplicate-row window.
     expect($(m.target, '#ac-endpoint')).not.toBe(null);
 
-    button(m.target, 'Save').click();
-    await settle();
+    await performAction(m.target, 'Save');
     expect(posts.filter((p) => p.action === 'create')).toHaveLength(1); // never a second create
     expect(posts.find((p) => p.action === 'update')).toMatchObject({ id: 'c9', endpoint: 'https://edited.example/v1' });
   });
@@ -644,8 +636,9 @@ describe('a late save response must not replace the replacement editor’s basel
     editRow(m.target);
     await settle();
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://stale.example/v1');
+    await vi.waitFor(() => expect(button(m.target, 'Save').disabled).toBe(false));
     button(m.target, 'Save').click();
-    await settle(); // the update is in flight, held
+    await vi.waitFor(() => expect(posts.some(p => p.action === 'update')).toBe(true)); // the update is in flight, held
 
     // Cancel closes the editor; the visit is unchanged. The pending mutation
     // keeps the row unopenable until it settles, so the reopen can only happen
@@ -659,8 +652,7 @@ describe('a late save response must not replace the replacement editor’s basel
 
     editRow(m.target); // a new session, seeded from the list row
     await settle();
-    button(m.target, 'Save').click(); // fields unchanged since the reopen
-    await settle();
+    await performAction(m.target, 'Save'); // fields unchanged since the reopen
     const updates = posts.filter((p) => p.action === 'update');
     expect(updates).toHaveLength(2);
     expect('endpoint' in updates[1]!).toBe(false); // no spurious endpoint change

@@ -5,7 +5,7 @@ import { createServer } from 'vite';
 import { chromium } from 'playwright';
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, plugins: [{
  name: 'table-cell-fixture', enforce: 'pre', transform(code, id) {
-  if (/\/(AppRunsTable|TasksAlarms|AiServiceConfigManager)\.svelte$/.test(id)) return code.replace("from '$app/navigation'", "from '$lib/test/stubs/app-navigation'");
+  if (/\/(AppRunsTable|TasksAlarms|AiServiceConfigManager)\.svelte$/.test(id)) return code.replace("from '$app/navigation'", "from '$lib/test/stubs/app-navigation'").replace("from '$app/stores'", "from '$lib/test/stubs/app-stores'");
   // Expose only the fixture's actual table objects, no production test API.
   if (id.endsWith('/createSvelteTable.svelte.ts')) return code.replace('return createTable(withFeatures(options));', 'const fixtureTable = createTable(withFeatures(options)); globalThis.__fixtureTables ??= []; globalThis.__fixtureTables.push(fixtureTable); return fixtureTable;');
  }
@@ -69,6 +69,12 @@ try {
    }, { css, dark });
    await page.evaluate(async kind => { const { mountOverflowFixture } = await import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'); window.stopFixture = mountOverflowFixture(document.getElementById('fixture'), kind); }, kind);
    await page.locator('tbody td').first().waitFor();
+   if (kind === 'alarms') {
+    const action = await page.locator('form').first().getAttribute('action');
+    const target = new URL(action, page.url());
+    assert.equal(target.searchParams.get('alarmBefore'), 'fixture-page-boundary', 'Alarms fixture supplies the current route slice to the real native form');
+    assert.equal(target.searchParams.getAll('/acknowledgeAlarm').length, 1, 'one intended named action');
+   }
    if (process.env.CELL_SHOTS) await page.screenshot({path:`${process.env.CELL_SHOTS}/${kind}-${width}-${dark?'dark':'light'}-default.png`,fullPage:true});
    assert.equal(await page.evaluate(() => matchMedia('(pointer: coarse)').matches), width === 390, 'actual pointer mode');
    const settle = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { t } from '$lib/i18n/t';
   import { onDestroy, untrack } from 'svelte';
-  import { invalidateAll } from '$app/navigation';
+  import { bestEffortInvalidateAll } from '$lib/best-effort-invalidate-all';
   import { compileOwnerKey, type CompileOwner, type InstallCompileView } from '$lib/boot-install';
   import Urn from './Urn.svelte';
   import BootProvenance from './BootProvenance.svelte';
@@ -54,8 +54,9 @@
       confirmStart = false;
       await load(stamp, expected);
       if (result.ok === true && epoch === stamp && key === expected) {
-        // Refresh the existing pointer panel too. A failed refresh cannot undo a confirmed write.
-        try { await invalidateAll(); } catch { /* the local outcome remains confirmed */ }
+        // Refresh the existing pointer panel too. A failed refresh cannot undo
+        // a confirmed write (and is warned about, not thrown: bestEffortInvalidateAll).
+        await bestEffortInvalidateAll('boot-install-compile');
       }
     } catch {
       if (epoch === stamp && key === expected) { success = false; notice = unknownText(intent); }

@@ -1530,7 +1530,13 @@ describe('App AI configuration readback lifecycle', () => {
     return m;
   }
 
-  function fillNewConfig(target: HTMLElement) {
+  async function readyAiButton(target: HTMLElement, label: string) {
+    const trigger = ([...target.querySelectorAll('button')] as HTMLButtonElement[]).find(b => b.textContent?.trim() === label)!;
+    await vi.waitFor(() => expect(trigger.disabled).toBe(false));
+    return trigger;
+  }
+
+  async function fillNewConfig(target: HTMLElement) {
     const add = [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Add configuration')!;
     add.click();
     flushSync();
@@ -1540,12 +1546,14 @@ describe('App AI configuration readback lifecycle', () => {
       input.dispatchEvent(new Event('input', { bubbles: true }));
       flushSync();
     }
-    ([...target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Save')!.click();
+    // The draft identity read precedes enabling its explicit submit.
+    (await readyAiButton(target, 'Save')).click();
   }
 
   it('keeps a pending mutation, uncertainty and its replay lock while the AI tab is hidden', async () => {
     let rejectCreate!: (error: Error) => void;
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
       const body = JSON.parse(init.body!);
       if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
@@ -1553,8 +1561,8 @@ describe('App AI configuration readback lifecycle', () => {
       throw new Error(`unexpected action: ${body.action}`);
     }));
     const m = await mountAi();
-    fillNewConfig(m.target);
-    await tick(3);
+    await fillNewConfig(m.target);
+    await vi.waitFor(() => expect(typeof rejectCreate).toBe('function'));
     const panel = m.target.querySelector<HTMLElement>('#panel-ai-configs')!;
     const region = m.target.querySelector<HTMLElement>('[data-testid="ai-config-feedback"]')!;
 
@@ -1578,6 +1586,7 @@ describe('App AI configuration readback lifecycle', () => {
     vi.useFakeTimers();
     let relatedSignal: AbortSignal | undefined;
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string; signal?: AbortSignal }) => {
+      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
         return { ok: true, json: async () => ({ configs: [] }) } as Response;
       }
@@ -1592,7 +1601,7 @@ describe('App AI configuration readback lifecycle', () => {
       throw new Error(`unexpected action: ${body.action}`);
     }));
     const m = await mountAi();
-    fillNewConfig(m.target);
+    await fillNewConfig(m.target);
     await tick(30);
     expect(relatedSignal?.aborted).toBe(false);
 
@@ -1602,6 +1611,7 @@ describe('App AI configuration readback lifecycle', () => {
 
   it('does not lock an org admin out when the App-member-only Chat read is withheld', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
         return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
       }
@@ -1615,7 +1625,7 @@ describe('App AI configuration readback lifecycle', () => {
       throw new Error(`unexpected action: ${body.action}`);
     }));
     const m = await mountAi({ chatConfigs: null });
-    fillNewConfig(m.target);
+    await fillNewConfig(m.target);
     await tick(40);
 
     const feedback = m.target.querySelector('[data-testid="ai-config-feedback"]')!;
@@ -1623,12 +1633,13 @@ describe('App AI configuration readback lifecycle', () => {
     expect(feedback.textContent).not.toContain('couldn’t be refreshed');
     ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Add configuration')!.click();
     await tick(3);
-    expect(([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Save')!.disabled).toBe(false);
+    await readyAiButton(m.target, 'Save');
   });
 
   it('refreshes both the owner grid and resolved Chat configs across create and delete', async () => {
     let configs = [] as typeof masked[];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1' || url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
         return { ok: true, json: async () => ({ configs }) } as Response;
       }
@@ -1647,7 +1658,7 @@ describe('App AI configuration readback lifecycle', () => {
       throw new Error(`unexpected action: ${body.action}`);
     }));
     const m = await mountAi({ chatConfigs: null });
-    fillNewConfig(m.target);
+    await fillNewConfig(m.target);
     await tick(40);
     expect(m.target.querySelector('[data-testid="ai-config-feedback"]')!.textContent).toContain('Saved “default”.');
 
@@ -1682,7 +1693,7 @@ describe('App AI configuration readback lifecycle', () => {
     flushSync();
     ([...m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')]).find((x) => x.textContent?.trim() === 'Delete')!.click();
     flushSync();
-    ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Delete')!.click();
+    (await readyAiButton(m.target, 'Delete')).click();
     await tick(40);
     expect(m.target.querySelector('[data-testid="ai-config-feedback"]')!.textContent).toContain('Deleted “default”.');
 
@@ -1695,6 +1706,7 @@ describe('App AI configuration readback lifecycle', () => {
   it('keeps recovery locked when a loader replacement drops the resolved-config readback', async () => {
     let releaseRelated!: (reply: Response) => void;
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
         return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
       }
@@ -1708,7 +1720,7 @@ describe('App AI configuration readback lifecycle', () => {
       throw new Error(`unexpected action: ${body.action}`);
     }));
     const m = await mountAi({ chatConfigs: [] });
-    fillNewConfig(m.target);
+    await fillNewConfig(m.target);
     await tick(30);
     expect(releaseRelated).toBeTypeOf('function');
 
@@ -1722,6 +1734,7 @@ describe('App AI configuration readback lifecycle', () => {
 
   it('supersedes a resolved-config working copy on a same-App null loader generation', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1' || url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
         return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
       }
@@ -1733,7 +1746,7 @@ describe('App AI configuration readback lifecycle', () => {
       throw new Error(`unexpected action: ${body.action}`);
     }));
     const m = await mountAi({ chatConfigs: null });
-    fillNewConfig(m.target);
+    await fillNewConfig(m.target);
     await tick(40);
     (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
     await tick(10);
@@ -1748,6 +1761,7 @@ describe('App AI configuration readback lifecycle', () => {
 
   it('masks stale resolved Chat configs when their readback fails after delete', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
         return { ok: true, json: async () => ({ configs: [] }) } as Response;
       }
@@ -1766,7 +1780,7 @@ describe('App AI configuration readback lifecycle', () => {
     flushSync();
     ([...m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')]).find((x) => x.textContent?.trim() === 'Delete')!.click();
     flushSync();
-    ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Delete')!.click();
+    (await readyAiButton(m.target, 'Delete')).click();
     await tick(40);
 
     (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
@@ -1779,6 +1793,7 @@ describe('App AI configuration readback lifecycle', () => {
     const fast = { ...masked, id: 'c2', name: 'fast' };
     let configs = [fast, masked];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1' || url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
         return { ok: true, json: async () => ({ configs }) } as Response;
       }
@@ -1810,12 +1825,11 @@ describe('App AI configuration readback lifecycle', () => {
     flushSync();
     ([...m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')]).find((x) => x.textContent?.trim() === 'Delete')!.click();
     flushSync();
-    ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Delete')!.click();
-    await tick(40);
+    (await readyAiButton(m.target, 'Delete')).click();
+    await vi.waitFor(() => expect(configs.map(c => c.id)).toEqual(['c1']));
 
     (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
-    await tick(10);
-    expect(optionValues(m.target)).toEqual(['default', 'c1']);
+    await vi.waitFor(() => expect(optionValues(m.target)).toEqual(['default', 'c1']));
     // The deleted pick is no longer shown (or sent): the dropdown falls back to `default`.
     expect(m.target.querySelector<HTMLSelectElement>('#agent-chat-ai-config')!.value).toBe('default');
   });

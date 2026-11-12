@@ -5,6 +5,7 @@
   // AiServiceConfigManager. Used identically by the Org / Agent / App surfaces
   // so the gating + notice copy lives in exactly one place.
   import { onDestroy } from 'svelte';
+  import { page } from '$app/stores';
   import type { ListPageNavigation } from '$lib/list-page';
   import AiServiceConfigManager from './AiServiceConfigManager.svelte';
   import Urn from './Urn.svelte';
@@ -44,6 +45,12 @@
     /** Refresh another loader slice; settle on abort so timed-out work is released. */
     onRefreshed?: (signal: AbortSignal) => boolean | Promise<boolean>;
   } = $props();
+
+  // Canonical portal selection: the App layout owns the selected org and
+  // the App route owns its selected App. Neither is server auth authority.
+  const selectedContext = $derived(JSON.stringify([
+    $page.data.activeOrgId ?? null, $page.params.appId ?? null,
+  ]));
 
   const canManage = $derived(
     members.some(
@@ -367,7 +374,7 @@
     {s.loadError()}
   </div>
 {:else if currentUserId}
-  {#key currentUserId}
+  {#key JSON.stringify([currentUserId, selectedContext])}
     <AiServiceConfigManager
       pagination={visiblePagination}
       {ownerType}
@@ -375,6 +382,7 @@
       {ownerLabel}
       {ownerUrn}
       {currentUserId}
+      {selectedContext}
       configs={visibleConfigs}
       canManage
       {allowTest}
