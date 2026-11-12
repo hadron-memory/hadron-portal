@@ -1,5 +1,5 @@
 import { installMarksOf, type AppAgentInstall } from '$lib/app-install-marks';
-import { memberRolesFormId } from './member-roles-form-id';
+import { memberRolesFormId, UNSCOPED_MEMBER_ROLES_FORM_ID } from './member-roles-form-id';
 import { loadAgentExtensions, loadSystemMemoryIdentity } from '$lib/server/agent-profile';
 import { agentBaseSchema, agentIndexRefsSchema } from './inheritance-schema';
 import { loadInheritanceManagement, loadBaseCandidates, baseVariables, indexVariables, SET_AGENT_BASE_MUTATION, SET_AGENT_INDEX_REFS_MUTATION } from '$lib/server/agent-inheritance-write';
@@ -780,7 +780,7 @@ export const actions: Actions = {
   // it lands at the field; any other refusal is a form-level message.
   updateMemberRoles: async ({ request, params, locals }) => {
     // The form's posted `__superform_id` (per Agent, portal#2068) wins over this fallback, so the result finds only that Agent's editor.
-    const form = await superValidate(await request.formData(), updateAgentMemberRolesFormAdapter, { id: 'updateMemberRoles' });
+    const form = await superValidate(await request.formData(), updateAgentMemberRolesFormAdapter, { id: UNSCOPED_MEMBER_ROLES_FORM_ID });
     if (!form.valid) return fail(400, { form });
 
     try {

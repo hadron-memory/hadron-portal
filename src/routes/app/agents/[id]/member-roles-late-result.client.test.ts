@@ -10,7 +10,6 @@
  * hrn:node:hadronmemory.com:hadron-portal:findings:stable-form-id-opts-into-invalidate-rebind
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
@@ -19,7 +18,7 @@ import { page, resetStubPage, setStubPage } from '$lib/test/stubs/app-stores';
 import { submitEnhancedDeferred, submitEnhanced } from '$lib/test/stubs/app-forms';
 import Page from './+page.svelte';
 import { pageData } from './page-fixture';
-import { memberRolesFormId } from './member-roles-form-id';
+import { memberRolesFormId, memberRolesSeedFor } from './member-roles-form-id';
 import { updateAgentMemberRolesSchema } from './schema';
 
 let mounted: Mounted<Record<string, unknown>> | undefined;
@@ -121,5 +120,30 @@ describe('late member-roles result across Agents (portal#2068)', () => {
     const { target } = await mountOn('agent-a', ['alpha']);
     const id = rolesForm(target)!.querySelector<HTMLInputElement>('input[name="__superform_id"]');
     expect(id?.value).toBe(memberRolesFormId('agent-a'));
+  });
+
+  it('this Agent\u2019s OWN refusal still shows on its own editor: the fence drops only another Agent\u2019s (BLIND P2 on #2071)', async () => {
+    const { target, props } = await mountOn('agent-a', ['alpha']);
+    await addRole(target, 'reviewer');
+    const sent = await submitEnhancedDeferred(rolesForm(target)!);
+
+    const refused = await resultFor('agent-a', ['alpha', 'reviewer'], { type: 'error', text: 'Own refusal' });
+    await sent.finish({ type: 'failure', status: 403, data: { form: refused } });
+    props.form = { form: refused } as never;
+    await tick(5);
+
+    expect(target.textContent).toContain('Own refusal');
+    expect(posted(target)).toEqual(['alpha', 'reviewer']);
+  });
+
+  it('the seed gate applies only this Agent\u2019s own result, in both directions (BLIND P2 on #2071)', () => {
+    const loaded = { id: memberRolesFormId('agent-a'), tag: 'loaded' };
+    const own = { id: memberRolesFormId('agent-a'), tag: 'own' };
+    const other = { id: memberRolesFormId('agent-b'), tag: 'other' };
+    const unscoped = { id: 'updateMemberRoles', tag: 'unscoped' };
+    expect(memberRolesSeedFor(own, loaded)).toBe(own);
+    expect(memberRolesSeedFor(other, loaded)).toBe(loaded);
+    expect(memberRolesSeedFor(unscoped, loaded)).toBe(loaded);
+    expect(memberRolesSeedFor(null, loaded)).toBe(loaded);
   });
 });

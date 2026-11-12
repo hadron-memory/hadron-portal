@@ -108,4 +108,9 @@ describe('Agent member-roles action (portal#1405)', () => {
     expect(formOf(await run([], id))).toMatchObject({ id, valid: false });
     expect(formOf(await run(['owner'], id))).toMatchObject({ id });
   });
+
+  it('the posted id wins; an id-less post falls back to the unscoped id (portal#2068, BLIND P3 on #2071)', async () => {
+    expect(formOf(await run(['owner'], 'updateMemberRoles:agent-a'))?.id).toBe('updateMemberRoles:agent-a');
+    expect(formOf(await run(['owner']))?.id).toBe('updateMemberRoles');
+  });
 });

@@ -35,6 +35,7 @@ describe('Agent page loader', () => {
     const data = await load({ params: { id: 'ag-1' }, locals: { token: 'tok', user: { id: 'user-1' } }, url: new URL('http://localhost/app/agents/ag-1') } as never);
     // An empty post fails validation, so no mutation runs and the action returns its form.
     const loadedId = formIdsOf(data).find((f) => f.key === formName)?.id;
+    expect(loadedId).toBeTruthy();
     // portal#2068: the member-roles form posts the id it was loaded with and the action answers under it.
     const body = new FormData();
     if (action === 'updateMemberRoles') body.set('__superform_id', loadedId!);

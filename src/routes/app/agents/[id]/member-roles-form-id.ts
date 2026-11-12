@@ -12,4 +12,16 @@
  */
 const PREFIX = 'updateMemberRoles';
 
+/** The id an action answers under when its post named none (an id-less native post). */
+export const UNSCOPED_MEMBER_ROLES_FORM_ID = PREFIX;
+
 export const memberRolesFormId = (agentId: string): string => `${PREFIX}:${agentId}`;
+
+/**
+ * Which form seeds an Agent's roles editor: the page's action result only when
+ * it carries THIS Agent's loaded form id, else the loaded form. A late result for
+ * another Agent, or one stamped with the unscoped id, never seeds it.
+ */
+export function memberRolesSeedFor<T extends { id: string }>(submitted: T | null, loaded: T): T {
+  return submitted && submitted.id === loaded.id ? submitted : loaded;
+}

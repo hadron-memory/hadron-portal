@@ -25,6 +25,7 @@
   import SelectMemory from '$lib/components/SelectMemory.svelte';
   import SelectOrg from '$lib/components/SelectOrg.svelte';
   import { submittedForm } from '$lib/forms/submitted-form';
+  import { memberRolesSeedFor } from './member-roles-form-id';
   import { t } from '$lib/i18n/t';
   import { eligibleCloneTargets, showCloneEntry } from '$lib/agents/clone';
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
@@ -368,7 +369,7 @@
   // action data would otherwise hand it to the editor that remounts for the next.
   const memberRolesSeed = $derived.by(() => {
     const submitted = submittedForm<AgentMemberRolesForm>(form, 'updateMemberRoles') as AgentMemberRolesSuperform | null;
-    return submitted && submitted.id === data.memberRolesForm.id ? submitted : data.memberRolesForm;
+    return memberRolesSeedFor(submitted, data.memberRolesForm);
   });
 
   const initialAddMemoryForm = untrack(() => submittedForm<AddAgentMemoryForm>(form, 'addMemory') as AddAgentMemorySuperform | null ?? data.addMemoryForm);
