@@ -3,14 +3,14 @@
  * no paid call: the real SDK over an intercepted fake fetch. These must pass
  * (and fail on their mutants) BEFORE any real key is introduced.
  */
-import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   LIVE_ENV, MAX_REQUESTS, WINDOW_MS, fileLedger, memoryLedger, redactDiagnostic, resolveGate,
 } from './liveProvider';
-import { MATRIX, runLiveFromEnv, runMatrix } from './liveProviderMatrix';
+import { MATRIX, formatSummary, runLiveFromEnv, runMatrix } from './liveProviderMatrix';
 
 const KEY = 'sk-ant-api03-SENTINELKEYabcdefghijklmnop1979zz';
 const START = Date.parse('2026-11-12T08:00:00Z');
@@ -87,6 +87,64 @@ describe('the gate decides before any request', () => {
   });
 });
 
+describe('one matrix per window, and an untrusted ledger fails closed', () => {
+  const run = (f: ReturnType<typeof vi.fn>, ledgerPath: string) =>
+    runLiveFromEnv(ENV, { realFetch: f as unknown as typeof fetch, now: () => NOW, ledgerPath, outDir: dir });
+
+  it('a second invocation after a completed matrix makes ZERO requests', async () => {
+    const f = vi.fn(async (_u: unknown, i?: RequestInit) => reply(i));
+    const ledgerPath = join(dir, 'ledger.json');
+    const first = await run(f, ledgerPath);
+    expect(first.ran).toBe(true);
+    expect(f).toHaveBeenCalledTimes(4);
+    const second = await run(f, ledgerPath);
+    expect(second).toEqual({ ran: false, decision: { status: 'refused', reason: 'matrix-already-run' } });
+    expect(f).toHaveBeenCalledTimes(4);
+  });
+
+  it('a run that stopped partway still consumes the claim', async () => {
+    const ledgerPath = join(dir, 'ledger.json');
+    const f = vi.fn(async (_u: unknown, i?: RequestInit) => reply(i));
+    const first = await runLiveFromEnv(ENV, { realFetch: f as unknown as typeof fetch, now: () => NOW, ledgerPath, outDir: dir, max: 1 });
+    expect(first.ran).toBe(true);
+    expect(f).toHaveBeenCalledTimes(1);
+    const g = vi.fn(async (_u: unknown, i?: RequestInit) => reply(i));
+    expect((await run(g, ledgerPath)).ran).toBe(false);
+    expect(g).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['truncated JSON', '{"windowStartMs":'],
+    ['not an object', '7'],
+    ['negative count', JSON.stringify({ windowStartMs: START, requests: -3 })],
+    ['missing window', JSON.stringify({ requests: 1 })],
+    ['non-integer count', JSON.stringify({ windowStartMs: START, requests: 'many' })],
+  ])('a corrupt ledger (%s) refuses with ZERO requests and is not overwritten', async (_n, body) => {
+    const ledgerPath = join(dir, 'ledger.json');
+    writeFileSync(ledgerPath, body);
+    const f = vi.fn(async () => ok());
+    expect(await run(f, ledgerPath)).toEqual({ ran: false, decision: { status: 'refused', reason: 'ledger-corrupt' } });
+    expect(f).not.toHaveBeenCalled();
+    expect(readFileSync(ledgerPath, 'utf8')).toBe(body);
+  });
+
+  it('an unreadable ledger (a directory in its place) refuses with ZERO requests', async () => {
+    const ledgerPath = join(dir, 'ledger.json');
+    mkdirSync(ledgerPath);
+    const f = vi.fn(async () => ok());
+    expect(await run(f, ledgerPath)).toEqual({ ran: false, decision: { status: 'refused', reason: 'ledger-corrupt' } });
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it('a missing ledger is a fresh window, and a well-formed ledger for another window does not count', async () => {
+    const ledgerPath = join(dir, 'ledger.json');
+    fileLedger(ledgerPath, START - WINDOW_MS).bump();
+    const f = vi.fn(async (_u: unknown, i?: RequestInit) => reply(i));
+    expect((await run(f, ledgerPath)).ran).toBe(true);
+    expect(f).toHaveBeenCalledTimes(4);
+  });
+});
+
 describe('the matrix drives the real call over a fake transport', () => {
   it('sends the four real request shapes, one request each, nothing else', async () => {
     const bodies: Array<Record<string, any>> = [];
@@ -153,6 +211,29 @@ describe('the cap bounds EVERY request, SDK retries included', () => {
   });
 });
 
+describe('redaction indexes by UTF-16 unit', () => {
+  it.each([
+    ['no prefix', ''],
+    ['12 astral emoji before the fragment', '\u{1F600}'.repeat(12)],
+    ['one astral char before the fragment', '\u{1F4A5}'],
+  ])('masks a truncated key tail after %s', (_n, prefix) => {
+    const tail = KEY.slice(-12);
+    const out = redactDiagnostic(`${prefix} rejected ...${tail} end`, KEY);
+    expect(out).not.toContain(tail);
+    expect(out).not.toContain(tail.slice(0, 8));
+    expect(out).toContain('end');
+  });
+
+  it('formatSummary redacts a key fragment placed in the operator-supplied model value', () => {
+    const summary = formatSummary({
+      result: { cases: [], requestsTotal: 0, cap: 12, stoppedBy: null, reproduced400: false, localDiagnostics: [] } as never,
+      head: 'h', model: `m-${KEY.slice(-12)}`, versions: { ai: '1', anthropic: '1' },
+      windowStartMs: START, windowEndMs: START + WINDOW_MS, startedMs: NOW, endedMs: NOW, apiKey: KEY,
+    });
+    expect(summary).not.toContain(KEY.slice(-12));
+  });
+});
+
 describe('a provider 400 is reported with closed fields only', () => {
   const FRAGMENT = KEY.slice(0, 20);
   const message = `bad request: key ${KEY} / head ${FRAGMENT} / tail ${KEY.slice(-12)} / Bearer ${KEY} / x-api-key: ${KEY}`;
@@ -179,7 +260,7 @@ describe('a provider 400 is reported with closed fields only', () => {
 
   it('writes the closed summary and the ledger under the output dir only', async () => {
     await runLiveFromEnv(ENV, { realFetch: (async () => bad()) as unknown as typeof fetch, now: () => NOW, ledgerPath: join(dir, 'l.json'), outDir: dir });
-    expect(readdirSync(dir).sort()).toEqual(['diagnostic.local.json', 'l.json', 'summary.txt']);
+    expect(readdirSync(dir).sort()).toEqual(['diagnostic.local.json', 'l.json', expect.stringMatching(/^l\.json\.run-\d+$/), 'summary.txt']);
   });
 });
 

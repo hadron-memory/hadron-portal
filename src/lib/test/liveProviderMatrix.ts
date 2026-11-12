@@ -9,7 +9,7 @@ import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { callAgentChatLlm, type HadronTool } from '$lib/server/llm/agentChatLlm';
 import {
-  LEDGER_PATH, LIVE_DIR, LIVE_ENV, MAX_REQUESTS, createGuard, fileLedger, redactDiagnostic, resolveGate,
+  LEDGER_PATH, LIVE_DIR, LIVE_ENV, MAX_REQUESTS, claimMatrixRun, createGuard, fileLedger, redactDiagnostic, resolveGate,
   type GateDecision, type Guard, type Ledger, type Observation, type ProviderErrorType,
 } from './liveProvider';
 
@@ -173,10 +173,22 @@ export async function runLiveFromEnv(env: Record<string, string | undefined>, de
   const ledgerPath = deps.ledgerPath ?? LEDGER_PATH;
   const outDir = deps.outDir ?? LIVE_DIR;
   const max = deps.max ?? MAX_REQUESTS;
-  const rawStart = Date.parse((env[LIVE_ENV.windowStart] ?? '').trim());
-  const used = Number.isFinite(rawStart) ? fileLedger(ledgerPath, rawStart).count() : 0;
+  // Env checks first: a skip or env refusal must not touch the ledger at all.
+  const envDecision = resolveGate(env, now(), 0, max);
+  if (envDecision.status !== 'ready') return { ran: false, decision: envDecision };
+  let used: number;
+  try {
+    used = fileLedger(ledgerPath, envDecision.windowStartMs).count();
+  } catch {
+    // Unknown prior usage: fail closed rather than treating it as zero.
+    return { ran: false, decision: { status: 'refused', reason: 'ledger-corrupt' } };
+  }
   const decision = resolveGate(env, now(), used, max);
   if (decision.status !== 'ready') return { ran: false, decision };
+  // One matrix per window: claim before the first request, refuse re-entry after any run.
+  if (!claimMatrixRun(ledgerPath, decision.windowStartMs)) {
+    return { ran: false, decision: { status: 'refused', reason: 'matrix-already-run' } };
+  }
 
   const startedMs = now();
   const result = await runMatrix(decision, {

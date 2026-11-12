@@ -18,7 +18,11 @@
  *            request cap spent); zero requests; a setup blocker.
  *   READY    the matrix may run: at most MAX_REQUESTS outbound HTTP requests
  *            TOTAL (SDK retries included), inside WINDOW_MS, counted in a local
- *            ledger so a re-run cannot get a second matrix.
+ *            ledger. A local run-claim file stops a second matrix in the same
+ *            window and working directory. This is an operator-cooperation
+ *            brake, not a lock: a new window value, another directory, or
+ *            deleting .live-provider/ starts fresh, so it never replaces the
+ *            per-run grant.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -39,7 +43,8 @@ export const LEDGER_PATH = `${LIVE_DIR}/ledger.json`;
 
 export type SkipReason = 'ci' | 'flag-off' | 'no-key';
 export type RefuseReason =
-  | 'no-model' | 'no-window' | 'bad-window' | 'window-in-future' | 'window-expired' | 'cap-exhausted';
+  | 'no-model' | 'no-window' | 'bad-window' | 'window-in-future' | 'window-expired' | 'cap-exhausted'
+  | 'matrix-already-run' | 'ledger-corrupt';
 
 export type GateDecision =
   | { status: 'skipped'; reason: SkipReason }
@@ -71,22 +76,53 @@ export function resolveGate(env: Env, nowMs: number, usedRequests: number, max =
 
 export interface Ledger { count(): number; bump(): void }
 
+/** An existing ledger that cannot be trusted: unknown prior usage, so no request may be made. */
+export class LedgerCorruptError extends Error {
+  constructor() { super('ledger-corrupt'); this.name = 'LedgerCorruptError'; }
+}
+
 export function fileLedger(path: string, windowStartMs: number): Ledger {
   const read = (): number => {
+    let raw: string;
     try {
-      const parsed = JSON.parse(readFileSync(path, 'utf8')) as { windowStartMs?: unknown; requests?: unknown };
-      return parsed.windowStartMs === windowStartMs && Number.isInteger(parsed.requests) ? (parsed.requests as number) : 0;
-    } catch {
-      return 0;
+      raw = readFileSync(path, 'utf8');
+    } catch (e) {
+      // No ledger yet is a fresh window; anything else (unreadable) is unknown usage.
+      if ((e as NodeJS.ErrnoException)?.code === 'ENOENT') return 0;
+      throw new LedgerCorruptError();
     }
+    let parsed: { windowStartMs?: unknown; requests?: unknown } | null;
+    try { parsed = JSON.parse(raw) as typeof parsed; } catch { throw new LedgerCorruptError(); }
+    if (parsed === null || typeof parsed !== 'object' || !Number.isInteger(parsed.windowStartMs)
+      || !Number.isInteger(parsed.requests) || (parsed.requests as number) < 0) throw new LedgerCorruptError();
+    // A well-formed ledger for another window is that window's usage, not this one's.
+    return parsed.windowStartMs === windowStartMs ? (parsed.requests as number) : 0;
   };
   return {
     count: read,
     bump() {
+      const next = read() + 1;
       mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, JSON.stringify({ windowStartMs, requests: read() + 1 }));
+      writeFileSync(path, JSON.stringify({ windowStartMs, requests: next }));
     },
   };
+}
+
+/**
+ * The one-matrix marker: created exclusively (`wx`) before the first request, so
+ * a second invocation in the same window and directory is refused whether the
+ * first run finished, stopped partway, or is still running. Returns false when
+ * the marker already exists.
+ */
+export function claimMatrixRun(ledgerPath: string, windowStartMs: number): boolean {
+  mkdirSync(dirname(ledgerPath), { recursive: true });
+  try {
+    writeFileSync(`${ledgerPath}.run-${windowStartMs}`, '1', { flag: 'wx' });
+    return true;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException)?.code === 'EEXIST') return false;
+    throw e;
+  }
 }
 
 export function memoryLedger(initial = 0): Ledger {
@@ -123,7 +159,8 @@ export function redactDiagnostic(text: string, apiKey: string, opts: { shapes?: 
       while (i + len < out.length && len < apiKey.length && apiKey.includes(out.slice(i, i + len + 1))) len += 1;
       if (len >= MIN_KEY_FRAGMENT) for (let k = i; k < i + len; k += 1) mask[k] = true;
     }
-    out = [...out].map((c, i) => (mask[i] ? '\u0000' : c)).join('').replace(/\u0000+/g, '[redacted]');
+    // Index by UTF-16 unit, like the mask: spreading would index by code point and drift after any non-BMP char.
+    out = out.split('').map((c, i) => (mask[i] ? '\u0000' : c)).join('').replace(/\u0000+/g, '[redacted]');
   }
   if (opts.shapes === false) return out;
   for (const shape of CREDENTIAL_SHAPES) out = out.replace(shape, '[redacted]');
