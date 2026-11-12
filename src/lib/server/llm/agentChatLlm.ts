@@ -249,7 +249,7 @@ function logLlmFailure(error: unknown, context: () => LlmFailureContext): void {
 // One home (hadron-server#4005 ruling): this set is the only copy of the
 // predicate. It moves to the server with #4005's portal slice; never add a
 // second list.
-const AUTO_TOOL_CHOICE_ANTHROPIC_MODELS: ReadonlySet<string> = new Set([
+export const AUTO_TOOL_CHOICE_ANTHROPIC_MODELS: ReadonlySet<string> = new Set([
   'claude-sonnet-5-5',
   'claude-opus-5-5',
   'claude-fable-5-2',
