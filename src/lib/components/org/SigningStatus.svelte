@@ -4,9 +4,10 @@
   // org must not read as protected where this deployment does not sign.
   //
   // The "not enforced" sentence rests on the server contract (hadron-server
-  // OrgBootPromptSigning, cor:agt:040:09 G2): `enforced` is the switch AND the
-  // deployment signing, so `required && !enforced` holds exactly when the
-  // deployment does not sign. If that contract changes, this copy must follow.
+  // OrgBootPromptSigning; hrn:node:hadronmemory.com:specs:cor:agt:040:09, G2):
+  // `enforced` is the switch AND the deployment signing, so `required &&
+  // !enforced` holds exactly when the deployment does not sign. If that
+  // contract changes, this copy must follow.
   import { t } from '$lib/i18n/t';
 
   let { required, enforced }: { required: boolean; enforced: boolean } = $props();
