@@ -17,15 +17,16 @@ const config = (i: number): AiServiceConfig => ({
   params: null, enabled: true, createdAt: '2026-11-11T00:00:00Z', updatedAt: null,
 });
 const all = Array.from({ length: 45 }, (_, i) => config(i));
-// Exactly what appListNavigation('/app/apps/app1?tab=ai', 'configOffset',
-// 'ai-configs', …) emits (app-list-pages.ts): href(0) DELETES the offset key,
-// so at offset 20 firstHref and previousHref (20 − PAGE_SIZE = 0) share the
-// bare tab URL, and Next advances by the served page. Fixture literals, not an
-// import of the helper, so the fixture cannot follow a production regression.
+// Exactly what the loader's appListNavigation(url, 'configOffset',
+// 'ai-configs', …) emits (app-list-pages.ts; +page.server.ts:1034): href()
+// always re-sets tab=ai-configs, and href(0) DELETES the offset key, so at
+// offset 20 firstHref and previousHref (20 − PAGE_SIZE = 0) share the tab-only
+// URL, and Next advances by the served page. Fixture literals, not an import
+// of the helper, so the fixture cannot follow a production regression.
 const page: ListPageNavigation = { offset: 20, count: 20, total: 45,
-  firstHref: '/app/apps/app1?tab=ai',
-  previousHref: '/app/apps/app1?tab=ai',
-  nextHref: '/app/apps/app1?tab=ai&configOffset=40' };
+  firstHref: '/app/apps/app1?tab=ai-configs',
+  previousHref: '/app/apps/app1?tab=ai-configs',
+  nextHref: '/app/apps/app1?tab=ai-configs&configOffset=40' };
 // A complete OrgMember/UserSummary, so prop drift stays compiler-visible.
 const member: OrgMember = {
   id: 'membership-1', role: 'ADMIN', canInvite: false, createdAt: '2026-11-11T00:00:00Z',
@@ -81,11 +82,12 @@ async function open(fresh: AiServiceConfig[] | null) {
   expect(pager(root)?.textContent).toContain('21–40 of 45');
   // The server page renders appListNavigation's shape at offset 20 (key
   // `configOffset`, page size 20): href(0) DELETES the key, so Previous points
-  // at the bare tab URL; First is unrendered at offset ≤ 20 even with a
-  // firstHref (ListPageNav gate); Next advances by the served page.
+  // at the tab-only URL (tab=ai-configs, no offset); First is unrendered at
+  // offset ≤ 20 even with a firstHref (ListPageNav gate); Next advances by the
+  // served page.
   expect(navLinks(root)).toEqual([
-    ['Previous', '/app/apps/app1?tab=ai'],
-    ['Next', '/app/apps/app1?tab=ai&configOffset=40'],
+    ['Previous', '/app/apps/app1?tab=ai-configs'],
+    ['Next', '/app/apps/app1?tab=ai-configs&configOffset=40'],
   ]);
   root.querySelector<HTMLButtonElement>('button[aria-label="Actions for config-20"]')!.click();
   flushSync();
@@ -119,8 +121,8 @@ it('pairs whole-owner mutation readback with client pagination, then restores a 
   // Previous steps back one full PAGE SIZE (20, not the 6 served), and 41–46
   // of 46 is the end so there is no Next.
   m.props.pagination = { offset: 40, count: 6, total: 46,
-    firstHref: '/app/apps/app1?tab=ai',
-    previousHref: '/app/apps/app1?tab=ai&configOffset=20',
+    firstHref: '/app/apps/app1?tab=ai-configs',
+    previousHref: '/app/apps/app1?tab=ai-configs&configOffset=20',
     nextHref: null };
   await settle();
   expect(pager(m.target)?.textContent).toContain('41–46 of 46');
@@ -129,8 +131,8 @@ it('pairs whole-owner mutation readback with client pagination, then restores a 
   // page, Previous back one full PAGE SIZE (not the 6 served) to offset 20,
   // and no Next — 41–46 of 46 is the end.
   expect(navLinks(m.target)).toEqual([
-    ['First', '/app/apps/app1?tab=ai'],
-    ['Previous', '/app/apps/app1?tab=ai&configOffset=20'],
+    ['First', '/app/apps/app1?tab=ai-configs'],
+    ['Previous', '/app/apps/app1?tab=ai-configs&configOffset=20'],
   ]);
   expect(m.target.querySelector('[data-testid="table-footer"]')).toBeNull();
   expect(rows(m.target)).toHaveLength(6);
