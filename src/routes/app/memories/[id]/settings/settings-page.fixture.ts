@@ -83,7 +83,7 @@ export function settingsGraph(overrides: Partial<Memory> = {}): Memory {
  */
 export async function settingsForms(graph: Memory, formVectorIndexEnabled = graph.vectorIndexEnabled, ref = graph.id) {
   const [form, vectorForm, marketplaceForm, schemaForm, deleteForm, retryEmbedsForm] = await Promise.all([
-    superValidate({}, zod4(memorySettingsSchema), { errors: false }),
+    superValidate({}, zod4(memorySettingsSchema), { errors: false, id: `updateMemorySettings:${ref}` }),
     // Seeded from the graph exactly as the route's load seeds it — the
     // chunk fields' visibility gates on the form's embeddingSource
     // (#1255's pins turn on chunk fields being live at render time).

@@ -215,6 +215,7 @@
     message: settingsMessage,
     allErrors: settingsAllErrors,
     submitting: settingsSubmitting,
+    formId: settingsFormId,
     enhance: settingsEnhance,
   } = superForm<MemorySettingsForm, App.Superforms.Message, MemorySettingsForm>(initialSettingsForm, {
     validators: zod4Client(memorySettingsSchema),
@@ -222,6 +223,20 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+  });
+
+  // #1909 late-result fence: the load stamps the form with a memory-bound id
+  // and the action answers with the same one, but this form lives in the page
+  // script, which SvelteKit reuses across /memories/A → /memories/B. Re-adopt
+  // the loaded stamp on navigation so A's late result no longer matches B's
+  // live form. Keyed on the stamp scalar (not the loader object), so a
+  // same-identity refresh is a no-op.
+  let settingsStamp = untrack(() => data.form.id);
+  $effect(() => {
+    const stamp = data.form.id;
+    if (stamp === settingsStamp) return;
+    settingsStamp = stamp;
+    untrack(() => settingsFormId.set(stamp));
   });
 
   let isEditing = $state(untrack(() => {
@@ -307,13 +322,20 @@
     isEditing = true;
   }
 
-  // Close only at a real principal boundary. A same-user access-read outage
-  // may disable submission, but it must not discard an unsaved draft.
+  // Close only at a real identity boundary: the principal OR the memory id
+  // (#1909 — SvelteKit reuses this component across /memories/A → /memories/B,
+  // so an editor opened for A would otherwise greet the user on B). Both are
+  // read as scalars, so a same-identity loader refresh (new objects, same ids)
+  // does not close it. A same-user access-read outage may disable submission,
+  // but it must not discard an unsaved draft.
   let editingPrincipal = untrack(() => data.user?.id ?? null);
+  let editingMemoryId = untrack(() => data.graph?.id ?? null);
+  const principalId = $derived(data.user?.id ?? null);
+  const memoryId = $derived(data.graph?.id ?? null);
   $effect(() => {
-    const principal = data.user?.id ?? null;
-    if (principal === editingPrincipal) return;
-    editingPrincipal = principal;
+    if (principalId === editingPrincipal && memoryId === editingMemoryId) return;
+    editingPrincipal = principalId;
+    editingMemoryId = memoryId;
     isEditing = false;
   });
 
@@ -828,13 +850,15 @@
           {/if}
         {/if}
 
+        </fieldset>
+        <!-- #1909: Save lives in the disabled-able fieldset; Cancel sits outside it
+             so management loss disables Save without trapping the open editor. -->
         <div class="flex gap-3">
-          <button type="submit" disabled={$settingsSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
+          <button type="submit" disabled={$settingsSubmitting || !canEditSettings} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
             {$settingsSubmitting ? 'Saving...' : 'Save'}
           </button>
           <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
         </div>
-        </fieldset>
       </form>
     {:else}
       <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
