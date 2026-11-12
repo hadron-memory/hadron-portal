@@ -20,14 +20,14 @@ const SERVER_EMPTY_EXTRACTION_SCHEMA = {
 const KEY = 'sk-ant-SYNTHETIC2032';
 const use = (input: unknown = { message: 'Reachable.', onTrack: true, data: {}, next_stage: null }, name = 'respond', id = 'tool1') => ({ type: 'tool_use', id, name, input });
 const reply = (content: unknown[]) => Response.json({ id: 'fixture', type: 'message', role: 'assistant', model: 'fixture', stop_reason: 'tool_use', content, usage: { input_tokens: 1, output_tokens: 1 } });
-let response: () => Response, bodies: any[], signals: Array<AbortSignal | null | undefined>, logs: unknown[][];
+let response: () => Response, bodies: any[], logs: unknown[][];
 let fetcher: ReturnType<typeof vi.fn>;
 beforeEach(() => {
-  request.mockReset(); __resetRateLimit(); bodies = []; signals = []; logs = [];
+  request.mockReset(); __resetRateLimit(); bodies = []; logs = [];
   response = () => reply([use()]);
   fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {
     expect(new Headers(init?.headers).get('x-api-key')).toBe(KEY);
-    bodies.push(JSON.parse(String(init?.body))); signals.push(init?.signal); return response();
+    bodies.push(JSON.parse(String(init?.body))); return response();
   });
   vi.stubGlobal('fetch', fetcher);
   vi.spyOn(console, 'warn').mockImplementation((...args) => { logs.push(args); });
@@ -37,10 +37,10 @@ const event = (body: Record<string, unknown>, token: string | null = 'synthetic-
   locals: { token, user: { id: 'synthetic-user' } },
   request: { json: async () => body }, url: new URL('http://localhost/api/ai-configs'),
 }) as any;
-const test = (extra: Record<string, unknown> = {}) => POST(event({ action: 'test', provider: 'anthropic', model: 'claude-sonnet-5-5', apiKey: KEY, ...extra }));
+const postTest = (extra: Record<string, unknown> = {}) => POST(event({ action: 'test', provider: 'anthropic', model: 'claude-sonnet-5-5', apiKey: KEY, ...extra }));
 
 it.each(['claude-sonnet-5-5', 'claude-haiku-5-5'])('%s uses the chat request builder and real respond schema', async model => {
-  const result = await test({ model });
+  const result = await postTest({ model });
   expect(await result.json()).toMatchObject({ ok: true, reply: 'Reachable.', model, provider: 'anthropic' });
   expect(bodies).toHaveLength(1);
   expect(bodies[0].model).toBe(model);
@@ -53,19 +53,19 @@ it.each(['text', 'two', 'other', 'missing-message', 'number-message', '400'])('%
   response = () => kind === '400' ? Response.json({ error: { type: 'invalid_request_error', message: secretText } }, { status: 400 }) : reply(
     kind === 'text' ? [{ type: 'text', text: secretText }] : kind === 'two' ? [use(), use(undefined, 'respond', 'tool2')]
     : kind === 'other' ? [use({}, 'other')] : kind === 'missing-message' ? [use({ onTrack: true })] : [use({ message: 42, onTrack: true })]);
-  const result = await test();
+  const result = await postTest();
   expect(await result.json()).toEqual({ ok: false, error: CHAT_ERROR.llmFailed, code: 'llmFailed' });
   expect(fetcher).toHaveBeenCalledOnce(); expect(request).not.toHaveBeenCalled();
   expect(logs).toHaveLength(1); expect(JSON.stringify(logs)).not.toMatch(/RAW_MODEL_TEXT|SYNTHETIC2032/);
 });
 it('no raw-text fallback even if the provider includes text beside a valid call', async () => {
   response = () => reply([{ type: 'text', text: 'RAW_MODEL_TEXT' }, use()]);
-  expect(await (await test()).json()).toMatchObject({ ok: true, reply: 'Reachable.' });
+  expect(await (await postTest()).json()).toMatchObject({ ok: true, reply: 'Reachable.' });
   expect(request).not.toHaveBeenCalled();
 });
 it('no SDK retry on a transient provider rejection', async () => {
   response = () => Response.json({ error: { type: 'overloaded_error', message: KEY } }, { status: 503 });
-  expect(await (await test()).json()).toMatchObject({ ok: false, code: 'llmFailed' });
+  expect(await (await postTest()).json()).toMatchObject({ ok: false, code: 'llmFailed' });
   expect(fetcher).toHaveBeenCalledOnce(); expect(request).not.toHaveBeenCalled();
 });
 it('the 20s deadline aborts a hung provider with a closed result', async () => {
@@ -78,16 +78,16 @@ it('the 20s deadline aborts a hung provider with a closed result', async () => {
     if (signal?.aborted) reject(signal.reason);
     else signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
   }));
-  expect(await (await test()).json()).toEqual({ ok: false, error: CHAT_ERROR.llmFailed, code: 'llmFailed' });
+  expect(await (await postTest()).json()).toEqual({ ok: false, error: CHAT_ERROR.llmFailed, code: 'llmFailed' });
   expect(fetcher).toHaveBeenCalledOnce(); expect(request).not.toHaveBeenCalled();
 });
 it('existing per-user 20/min limit prevents request 21', async () => {
-  for (let i = 0; i < 20; i++) expect((await test()).status).toBe(200);
-  expect((await test()).status).toBe(429); expect(fetcher).toHaveBeenCalledTimes(20);
+  for (let i = 0; i < 20; i++) expect((await postTest()).status).toBe(200);
+  expect((await postTest()).status).toBe(429); expect(fetcher).toHaveBeenCalledTimes(20);
   expect(request).not.toHaveBeenCalled();
 });
 it('authentication and inlineTestable refusal make no provider call', async () => {
   expect((await POST(event({ action: 'test' }, null))).status).toBe(401);
-  expect((await test({ provider: 'glm' })).status).toBe(400);
+  expect((await postTest({ provider: 'glm' })).status).toBe(400);
   expect(fetcher).not.toHaveBeenCalled(); expect(request).not.toHaveBeenCalled();
 });
