@@ -17,6 +17,20 @@ function setup(mode: 'tabs' | 'links', active = 'four', space = 280) {
   return { ...view, activate };
 }
 function key(el: Element, value: string) { el.dispatchEvent(new KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true })); flushSync(); }
+// portal#2006 item 2: a missing More button used to die as "Cannot read
+// properties of null" at its first use, with nothing about what the row had
+// actually rendered. Fail with the row's markup instead. The teardown above
+// (view.unmount registered in cleanups, drained by the file-level afterEach)
+// is the load-bearing half of setup and stays untouched — this helper only
+// changes the failure message.
+function moreButton(target: HTMLElement, context: string): HTMLButtonElement {
+  const more = target.querySelector<HTMLButtonElement>('[aria-haspopup=menu]');
+  if (!more) {
+    const rendered = target.innerHTML.replace(/\s+/g, ' ').slice(0, 600);
+    throw new Error(`More button not found (${context}): the row did not overflow into a menu. Rendered: ${rendered}`);
+  }
+  return more;
+}
 
 describe('bounded tab row', () => {
   it('swaps the selected overflow tab into the visible row and links its panel', async () => {
@@ -30,7 +44,7 @@ describe('bounded tab row', () => {
   });
   it.each(['tabs', 'links'] as const)('%s menu opens, moves, closes and returns focus', async mode => {
     const { target } = setup(mode); await tick(4);
-    const more = target.querySelector<HTMLButtonElement>('[aria-haspopup=menu]')!;
+    const more = moreButton(target, 'menu keyboard open');
     more.focus(); key(more, ' '); await tick(4);
     expect(more.getAttribute('aria-expanded')).toBe('true');
     const menuItems = target.querySelectorAll<HTMLElement>('[role=menuitem]');
@@ -44,27 +58,31 @@ describe('bounded tab row', () => {
     expect(target.querySelector('nav[aria-label=Views]')).not.toBeNull();
     expect(target.querySelector('[role=tablist], [role=tab], [aria-selected]')).toBeNull();
     expect(target.querySelector('[aria-current=page]')?.getAttribute('href')).toBe('/view/four');
-    target.querySelector<HTMLButtonElement>('[aria-haspopup=menu]')!.click(); await tick(4);
+    moreButton(target, 'links overflow menu').click(); await tick(4);
     expect([...target.querySelectorAll('[role=menuitem]')].every(el => el.tagName === 'A' && el.getAttribute('href'))).toBe(true);
   });
   it('tabs arrow through the visible choices and More, wrapping without skipping', async () => {
     const { target } = setup('tabs', 'one'); await tick(4);
     const tabs = target.querySelectorAll<HTMLElement>('[role=tab]');
     tabs[0].focus(); key(tabs[0], 'ArrowRight'); expect(document.activeElement).toBe(tabs[1]);
-    key(tabs[1], 'ArrowRight'); expect(document.activeElement).toBe(target.querySelector('[aria-haspopup=menu]'));
+    key(tabs[1], 'ArrowRight'); expect(document.activeElement).toBe(moreButton(target, 'arrow into More'));
     key(document.activeElement!, 'ArrowRight'); expect(document.activeElement).toBe(tabs[0]);
   });
   it('omits More at the exact fit and shows it one pixel below the threshold', async () => {
     const full = setup('tabs', 'one', 400); await tick(4);
     expect(full.target.querySelector('[aria-haspopup=menu]')).toBeNull();
     expect(full.target.querySelectorAll('[role=tab]')).toHaveLength(4);
+    // portal#2006 item 2: at the exact fit a missing More is EXPECTED, and the
+    // helper must say why in its own words — the rendered row included — rather
+    // than letting a later null deref name the wrong failure.
+    expect(() => moreButton(full.target, 'exact fit')).toThrow(/More button not found \(exact fit\): the row did not overflow into a menu\. Rendered: /);
     full.unmount();
     const narrow = setup('tabs', 'one', 399); await tick(4);
     expect(narrow.target.querySelector('[aria-haspopup=menu]')).not.toBeNull();
   });
   it('an overflow choice invokes the existing callback, and outside click closes without selecting', async () => {
     const { target, activate } = setup('tabs'); await tick(4);
-    const more = target.querySelector<HTMLButtonElement>('[aria-haspopup=menu]')!;
+    const more = moreButton(target, 'overflow choice');
     more.click(); await tick(4);
     target.querySelector<HTMLButtonElement>('[role=menuitem]')!.click(); await tick(4);
     expect(activate).toHaveBeenCalledExactlyOnceWith('two');
@@ -76,7 +94,7 @@ describe('bounded tab row', () => {
   });
   it('IME Escape leaves the menu open; body Escape closes only this open layer', async () => {
     const { target } = setup('tabs'); await tick(4);
-    const more = target.querySelector<HTMLButtonElement>('[aria-haspopup=menu]')!;
+    const more = moreButton(target, 'IME Escape');
     more.click(); await tick(4);
     document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true }));
     await tick(4); expect(target.querySelector('[role=menu]')).not.toBeNull();
@@ -85,7 +103,7 @@ describe('bounded tab row', () => {
   });
   it('unmount during the menu-open microtask does not focus an old row or leak a key listener', async () => {
     const { target, unmount } = setup('tabs'); await tick(4);
-    target.querySelector<HTMLButtonElement>('[aria-haspopup=menu]')!.click();
+    moreButton(target, 'unmount mid-open').click();
     unmount(); await tick(4);
     const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
     document.body.dispatchEvent(event); expect(event.defaultPrevented).toBe(false);
@@ -96,7 +114,7 @@ describe('bounded tab row', () => {
     // cancels its default action: neither should strand focus on BODY after
     // the focused menu item is removed. This is not a Kit router simulation.
     const { target, activate } = setup(mode); await tick(4);
-    const more = target.querySelector<HTMLButtonElement>('[aria-haspopup=menu]')!;
+    const more = moreButton(target, 'refused activation');
     more.click(); await tick(4);
     const choice = target.querySelector<HTMLElement>('[role=menuitem]')!;
     expect(document.activeElement).toBe(choice);
@@ -113,6 +131,10 @@ describe('bounded tab row', () => {
     const selected = wide.target.querySelector<HTMLElement>('[aria-selected=true], [aria-current=page]')!;
     expect(selected.className).toContain('whitespace-normal');
     expect(selected.className).toContain('max-w-full');
+    // portal#2006 item 1: break-words is the unit pin for the paint claim the
+    // geometry harness measured (#1994 evidence) — whitespace-normal alone
+    // wraps at spaces; break-words is what saves an unbroken label.
+    expect(selected.classList.contains('break-words')).toBe(true);
     expect(selected.className).not.toContain('shrink-0');
     expect(selected.textContent).toBe('one');
     for (const token of ['pointer-coarse:min-h-11', 'border-b-2', 'px-4', 'py-2', 'text-sm', 'font-medium', 'transition',
@@ -131,7 +153,7 @@ describe('bounded tab row', () => {
   });
   it.each(['tabs', 'links'] as const)('#1994 %s More items wrap without losing focus/touch/role classes', async mode => {
     const {target}=setup(mode);await tick(4);
-    target.querySelector<HTMLButtonElement>('[aria-haspopup=menu]')!.click();await tick(4);
+    moreButton(target, '#1994 menu wrap').click();await tick(4);
     const choices=[...target.querySelectorAll<HTMLElement>('[role=menuitem]')];
     expect(choices.length).toBeGreaterThan(0);
     for(const choice of choices){

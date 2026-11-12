@@ -37,6 +37,19 @@ export function nodeMetaSeed(node: NodeMetaSeedSource) {
 }
 
 /**
+ * portal#2023: the token a Save carries to prove which node state its draft was typed against.
+ *
+ * Every field `updateMeta` writes whole (`name`, `nodeType`, `description`, `alias`, `seq`, `tags`,
+ * `isRunnable`, `loc`, `role`), from the same `nodeMetaSeed` the form opens with, so the page and the
+ * action cannot disagree about what a field's value is. `roleSeed` is left out: it is the form's own
+ * bookkeeping, not node state. A string, so the action compares it exactly and echoes it unchanged.
+ */
+export function nodeMetaBaseline(node: NodeMetaSeedSource): string {
+  const { roleSeed: _roleSeed, ...state } = nodeMetaSeed(node);
+  return JSON.stringify(state);
+}
+
+/**
  * When the page must reseed the form: a different node, or the same node
  * whose stored role changed (after a role save the page reloads with the new
  * role, and a stale seed would make a later edit BACK to the old value look
@@ -94,11 +107,25 @@ export function savedButNotMoved(result: { type: string; data?: unknown }): { te
   const form = (result.data as { form?: unknown }).form as
     | { message?: { text?: unknown }; errors?: { loc?: unknown }; data?: { loc?: unknown } }
     | undefined;
+  // Superforms allows a field error to be a string or an array of strings (portal#2005 F6).
   const locErrors = form?.errors?.loc;
+  const locError = Array.isArray(locErrors) ? locErrors[0] : locErrors;
   const text =
     (typeof form?.message?.text === 'string' && form.message.text) ||
-    (Array.isArray(locErrors) && typeof locErrors[0] === 'string' && locErrors[0]) ||
+    (typeof locError === 'string' && locError) ||
     '';
   const loc = form?.data?.loc;
-  return text && typeof loc === 'string' ? { text, loc } : null;
+  // A refused move always had a typed, non-empty loc (an unchanged loc is not a move), so an empty
+  // one is not a refusal this page can keep.
+  return text && typeof loc === 'string' && loc !== '' ? { text, loc } : null;
+}
+
+/**
+ * portal#2005 F4: a refusal text with its trailing sentence punctuation and whitespace removed, so a
+ * sentence the page appends ("…It is still at {urn}.") never reads "…!. It is still at". The texts
+ * are the server's own words (they are not defined in this repo), so the strip happens where they
+ * are composed into a sentence, not where they originate.
+ */
+export function withoutTrailingPunctuation(text: string): string {
+  return text.replace(/[\s.!?:;,]+$/, '');
 }

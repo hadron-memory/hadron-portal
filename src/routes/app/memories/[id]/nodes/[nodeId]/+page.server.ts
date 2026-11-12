@@ -24,7 +24,7 @@ import { approvalRefusalStatus, approveRefusalText, bindApprovalToRevision, inte
 // is what `scripts/check-node-write-doors.mjs` fails.
 import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/server/nodeKindDoor';
 import { roleUpdate } from '$lib/node-role';
-import { nodeMetaSeed } from '$lib/node-meta-seed';
+import { nodeMetaBaseline, nodeMetaSeed, withoutTrailingPunctuation } from '$lib/node-meta-seed';
 import { parseExpectedRevision } from '$lib/node-revision';
 import { canonicalJson, isFingerprint, jsonFingerprint, parseDataSource, parsePropertiesSource, propertiesFingerprint, sameProperties } from '$lib/properties-source';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
@@ -834,17 +834,44 @@ export const actions: Actions = {
   },
 
   updateMeta: async ({ request, params, locals }) => {
-    const form = await superValidate<NodeUpdateMetaForm>(
-      await request.formData(),
-      nodeUpdateMetaFormAdapter,
-    );
-    if (!form.valid) return fail(400, { form });
+    const fd = await request.formData();
+    const form = await superValidate<NodeUpdateMetaForm>(fd, nodeUpdateMetaFormAdapter);
+    // portal#2023: the baseline the editor opened on. Every refusal that wrote nothing echoes it back
+    // beside the form: a full-page response (no JS, or a remount) restores the kept draft from the
+    // form, and the draft must keep the baseline it was typed against, or a retry would compare it
+    // with the fresh node and write it over the other editor's change. A failure AFTER the update
+    // committed does not echo it: the page advances the name itself (see onResult).
+    const baseline = fd.get('baseline');
+    // No baseline posted: echo the empty string, which no node state produces (nodeMetaBaseline is JSON),
+    // so the restored draft cannot be saved against the fresh node either until the editor is reloaded.
+    const metaBaseline = { metaBaseline: typeof baseline === 'string' ? baseline : '' };
+    const refuse = (status: number, text: string) => {
+      message(form, { type: 'error', text });
+      return fail(status, { form, ...metaBaseline });
+    };
+    if (!form.valid) return fail(400, { form, ...metaBaseline });
     const client = gqlClient(locals.token);
 
     const { node: currentNode } = await client.request<{ node: MemoryNode | null }>(
       NODE_BY_ID_QUERY, { ref: params.nodeId },
     );
     if (!currentNode) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
+
+    // portal#2023: the editor keeps an unsaved draft across a loader refresh, so
+    // the draft can be older than the node. This save writes every metadata
+    // field whole and moves the node whenever `loc` differs from the node's
+    // CURRENT loc, so an older draft would overwrite another editor's change and
+    // move a node they had moved back. The form therefore carries a token for
+    // the node state it was typed against (`nodeMetaBaseline`), like the Data and
+    // Properties editors carry `baseline`: a mismatch with the node as read just
+    // now refuses before any write, with no update and no moveNode. A missing
+    // baseline is refused too, never treated as "no conflict".
+    if (typeof baseline !== 'string') {
+      return refuse(400, t('node.meta.no-baseline', 'This editor is out of date, so nothing was saved. Reload the page and try again.'));
+    }
+    if (baseline !== nodeMetaBaseline(currentNode)) {
+      return refuse(409, t('node.meta.conflict', 'This node was changed since you opened the editor, so nothing was saved. Cancel to load the current values, then make your edit again.'));
+    }
 
     const name = form.data.name;
     // Accept only a canonical type or the node's existing one — otherwise keep
@@ -891,13 +918,13 @@ export const actions: Actions = {
     try {
       assertNodeUpdateDoor(currentNode, input);
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to save', NODE_WRITE_REFUSALS) }, { status: 500 });
+      return refuse(500, nodeWriteErrorText(e, 'Failed to save', NODE_WRITE_REFUSALS));
     }
 
     try {
       await client.request(nodeUpdateDocument(currentNode, input), { input });
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to save', NODE_WRITE_REFUSALS) }, { status: 500 });
+      return refuse(500, nodeWriteErrorText(e, 'Failed to save', NODE_WRITE_REFUSALS));
     }
 
     // Move if loc changed. #237: route the move through the node's OWN
@@ -943,7 +970,7 @@ export const actions: Actions = {
         // text and the typed loc across its reload, so the refusal is not
         // reverted out from under the user.
         const text = t('node.meta.saved-not-moved-at', 'Saved, but the node was not moved: {detail}. It is still at {urn}.', {
-          detail: detail.replace(/[.\s]+$/, ''), urn: composeNodeUrn(currentNode.memory.urn, currentNode.loc),
+          detail: withoutTrailingPunctuation(detail), urn: composeNodeUrn(currentNode.memory.urn, currentNode.loc),
         });
         if (status === 409) setError(form, 'loc', text);
         else message(form, { type: 'error', text });

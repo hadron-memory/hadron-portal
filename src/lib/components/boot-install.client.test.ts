@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { mountComponent, captureUnhandledRejections } from '$lib/test/mountComponent';
-import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import BootInstallCompile from './BootInstallCompile.svelte';
 import BootProvenance from './BootProvenance.svelte';
 const mounted: { unmount: () => void }[] = [];
@@ -236,5 +236,45 @@ describe('same-instance scope changes', () => {
     expect(m.target.textContent).toContain('Built revision 3');
     props.owner = { ...owner }; flushSync(); await settle();
     expect(m.target.textContent).toContain('Built revision 3');
+  });
+});
+
+// portal#2016 — the component's post-write invalidation is PINNED to the
+// guarded helper. Nothing else in this suite rejects the reload, so until this
+// case a bare `await invalidateAll()` in write()'s try left every test green.
+// The gate's binding rule: the rejection must come through the REAL
+// invalidateAll path (the stub's onInvalidateAll hook, which the navigation
+// stub awaits inside its invalidateAll), never a stubbed
+// bestEffortInvalidateAll — a stubbed helper stays green under exactly the
+// mutant this case exists to kill.
+describe('#2016: a rejecting post-write reload is the guard\'s to hold', () => {
+  it('keeps the committed compile success, releases busy, and warns once', async () => {
+    const fetcher = vi.fn().mockImplementation(async (_input: unknown, init?: { method?: string }) =>
+      init?.method === 'POST' ? response({ ok: true, key: view.key, text: 'Built revision 3.' }) : response(view));
+    vi.stubGlobal('fetch', fetcher);
+    navigationHooks.onInvalidateAll = async () => { throw new Error('reload rejected (fixture)'); };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const m = mount({ owner, canManage: true });
+    const rejections = await captureUnhandledRejections(async () => {
+      await settle();
+      button(m.target, 'Update the prompt').click();
+      await settle();
+    });
+    // Half one: nothing escapes — the rejection is the guard's to hold, and no
+    // teardown continuation crashes after it either.
+    expect(rejections, rejections.map(String).join(' | ')).toEqual([]);
+    // Half two: the page state the compile wrote stays visible. Under the
+    // mutant (a bare `await invalidateAll()` inside write()'s try) the
+    // rejection reaches write()'s own catch and flips the committed success to
+    // the unknown-failure text — both assertions below go red there.
+    expect(m.target.querySelector('[role=status]')?.textContent).toContain('Built revision 3.');
+    expect(m.target.textContent).not.toContain('Couldn’t confirm whether the prompt was built');
+    expect(button(m.target, 'Update the prompt').disabled).toBe(false);
+    // The guard leaves exactly ONE record, scoped, carrying the rejection.
+    const scoped = warn.mock.calls.map((c) => c.join(' ')).filter((l) => l.includes('[boot-install-compile] saved, but the reload after it failed'));
+    expect(scoped).toHaveLength(1);
+    expect(scoped[0]).toContain('reload rejected (fixture)');
+    expect(navigationCalls.filter((call) => call.fn === 'invalidateAll')).toHaveLength(1);
+    warn.mockRestore();
   });
 });

@@ -166,3 +166,64 @@ describe('org-detail Profile update action (#394)', () => {
     expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'boom' });
   });
 });
+
+// ── portal#1921: the boot-prompt signing section on the Profile tab ─────────
+
+describe('Profile tab: boot-prompt signing (portal#1921)', () => {
+  const gqlErr = (code: string) => ({ response: { errors: [{ message: 'server prose', extensions: { code } }] } });
+  const route = (signing: () => unknown) =>
+    mockRequest.mockImplementation(async (doc: string) => {
+      if (doc.includes('orgBootPromptSigning') || doc.includes('setOrgBootPromptSigning')) return signing();
+      return { organization: fakeOrg };
+    });
+
+  it('reads the switch as its own request, beside the org read', async () => {
+    route(() => ({ orgBootPromptSigning: { required: true, enforced: false, deploymentSigns: false } }));
+    const { load } = await importMod();
+    const r = (await load(ev({}))) as { signing: unknown };
+    expect(r.signing).toEqual({ kind: 'ok', required: true, enforced: false, deploymentSigns: false });
+    expect(mockRequest).toHaveBeenCalledWith(ORG_PROFILE_QUERY, { ref: 'org-id-123' });
+  });
+
+  it('FORBIDDEN hides the section and the tab still loads', async () => {
+    route(() => { throw gqlErr('FORBIDDEN'); });
+    const { load } = await importMod();
+    const r = (await load(ev({}))) as { signing: unknown; org: unknown };
+    expect(r.signing).toEqual({ kind: 'hidden' });
+    expect(r.org).toMatchObject({ id: 'org-id-123' });
+  });
+
+  it('a signing outage is failed and does not take the tab down', async () => {
+    route(() => { throw new Error('socket'); });
+    const { load } = await importMod();
+    const r = (await load(ev({}))) as { signing: unknown; org: unknown };
+    expect(r.signing).toEqual({ kind: 'failed' });
+    expect(r.org).toMatchObject({ id: 'org-id-123' });
+  });
+
+  describe('switchOff', () => {
+    const offEv = () => ({ params: { id: 'org-id-123' }, locals: { token: 't' } }) as never;
+
+    it('sends required:false and no previewToken key', async () => {
+      route(() => ({ setOrgBootPromptSigning: { required: false, enforced: false, deploymentSigns: true } }));
+      const { actions } = await importMod();
+      const r = await (actions as unknown as { switchOff: (e: never) => Promise<unknown> }).switchOff(offEv());
+      expect(r).toMatchObject({ signingOutcome: 'off' });
+      const call = mockRequest.mock.calls.find((c) => String(c[0]).includes('setOrgBootPromptSigning'))!;
+      expect(call[1]).toEqual({ org: 'org-id-123', required: false });
+      expect('previewToken' in call[1]).toBe(false);
+    });
+
+    it('FORBIDDEN is hidden, anything else is failed, with no server prose', async () => {
+      const { actions } = await importMod();
+      const sw = (actions as unknown as { switchOff: (e: never) => Promise<unknown> }).switchOff;
+      route(() => { throw gqlErr('FORBIDDEN'); });
+      const hidden = await sw(offEv());
+      expect(hidden).toMatchObject({ data: { signingOutcome: 'hidden' } });
+      route(() => { throw gqlErr('INTERNAL_SERVER_ERROR'); });
+      const failed = await sw(offEv());
+      expect(failed).toMatchObject({ data: { signingOutcome: 'failed' } });
+      expect(JSON.stringify([hidden, failed])).not.toContain('server prose');
+    });
+  });
+});

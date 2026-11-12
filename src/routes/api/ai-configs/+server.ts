@@ -13,6 +13,7 @@ import {
 import { fetchAllItems } from '$lib/server/paginate';
 import { inlineTestable } from '$lib/components/ai-config-manager';
 import { callAgentChatLlm } from '$lib/server/llm/agentChatLlm.js';
+import { RESPOND_TEST_TOOLS } from '$lib/server/llm/respondTestTool';
 import { publicChatError } from '$lib/server/llm/chatError.js';
 import { t } from '$lib/i18n/t';
 import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
@@ -89,7 +90,7 @@ function authRefusal(error: unknown): Response | null {
 }
 
 const TEST_SYSTEM =
-  'You are a test assistant. Reply with exactly one short sentence confirming you are reachable.';
+  'You are a test assistant. Call respond exactly once with one short sentence confirming you are reachable, onTrack true, empty data and next_stage null.';
 
 const READBACK_TIMEOUT_MS = 10_000;
 
@@ -370,14 +371,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           apiKey,
           model,
           systemMessage: TEST_SYSTEM,
-          tools: null,
+          tools: RESPOND_TEST_TOOLS,
+          respondTest: true,
           messages: [{ role: 'user', content: 'Are you there?' }],
         });
         return json({
           ok: true,
           provider,
           model,
-          reply: llmResult.respond.message ?? llmResult.rawText,
+          reply: llmResult.respond.message,
           usage: llmResult.usage,
         });
       } catch (e) {

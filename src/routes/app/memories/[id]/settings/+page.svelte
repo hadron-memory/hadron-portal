@@ -207,7 +207,11 @@
     ownerIsViewer || myMember?.role === 'ADMIN' || myMember?.role === 'OWNER',
   );
 
-  const initialSettingsForm = untrack(() => submittedForm<MemorySettingsForm>(form, 'updateMemorySettings') as MemorySettingsSuperform | null ?? data.form);
+  const initialSettingsForm = untrack(() => {
+    const submitted = submittedForm<MemorySettingsForm>(form, 'updateMemorySettings');
+    // #1909: only THIS memory's own submission may seed the form.
+    return (submitted && submitted.id === data.form.id ? submitted : null) as MemorySettingsSuperform | null ?? data.form;
+  });
   const {
     form: settingsForm,
     errors: settingsErrors,
@@ -215,8 +219,17 @@
     message: settingsMessage,
     allErrors: settingsAllErrors,
     submitting: settingsSubmitting,
+    formId: settingsFormId,
     enhance: settingsEnhance,
   } = superForm<MemorySettingsForm, App.Superforms.Message, MemorySettingsForm>(initialSettingsForm, {
+    // #1909 (Browser QA F1/F2 on #2045): Superforms rebinds a form from EVERY
+    // page.data update carrying its id, which discarded an open draft on a
+    // same-memory revalidation and let A's late success (and its invalidateAll)
+    // overwrite B's newer draft with B's stored values. 'never' is the one
+    // option that skips that data rebind; own results still apply through the
+    // id-matching page.form branch ('never' is truthy). The editor reseeds from
+    // the loader in openEdit, so nothing relies on the rebind.
+    applyAction: 'never',
     validators: zod4Client(memorySettingsSchema),
     validationMethod: 'oninput',
     scrollToError: 'smooth',
@@ -224,10 +237,24 @@
     clearOnSubmit: 'none',
   });
 
+  // #1909 late-result fence: the load stamps the form with a memory-bound id
+  // and the action answers with the same one, but this form lives in the page
+  // script, which SvelteKit reuses across /memories/A → /memories/B. Re-adopt
+  // the loaded stamp on navigation so A's late result no longer matches B's
+  // live form. Keyed on the stamp scalar (not the loader object), so a
+  // same-identity refresh is a no-op.
+  let settingsStamp = untrack(() => data.form.id);
+  $effect(() => {
+    const stamp = data.form.id;
+    if (stamp === settingsStamp) return;
+    settingsStamp = stamp;
+    untrack(() => settingsFormId.set(stamp));
+  });
+
   let isEditing = $state(untrack(() => {
     if (!canEditSettings) return false;
     const submitted = submittedForm<MemorySettingsForm>(form, 'updateMemorySettings');
-    return !!submitted && submitted.message?.type !== 'success';
+    return !!submitted && submitted.id === data.form.id && submitted.message?.type !== 'success';
   }));
   let confirmDelete = $state(false);
 
@@ -307,18 +334,34 @@
     isEditing = true;
   }
 
-  // Close only at a real principal boundary. A same-user access-read outage
-  // may disable submission, but it must not discard an unsaved draft.
+  // Close only at a real identity boundary: the principal OR the memory id
+  // (#1909 — SvelteKit reuses this component across /memories/A → /memories/B,
+  // so an editor opened for A would otherwise greet the user on B). Both are
+  // read as scalars, so a same-identity loader refresh (new objects, same ids)
+  // does not close it. A same-user access-read outage may disable submission,
+  // but it must not discard an unsaved draft.
   let editingPrincipal = untrack(() => data.user?.id ?? null);
+  let editingMemoryId = untrack(() => data.graph?.id ?? null);
+  const principalId = $derived(data.user?.id ?? null);
+  const memoryId = $derived(data.graph?.id ?? null);
   $effect(() => {
-    const principal = data.user?.id ?? null;
-    if (principal === editingPrincipal) return;
-    editingPrincipal = principal;
+    if (principalId === editingPrincipal && memoryId === editingMemoryId) return;
+    editingPrincipal = principalId;
+    editingMemoryId = memoryId;
     isEditing = false;
   });
 
-  const settingsActionError = $derived.by(() => {
+  // #1909 (LOCAL F1 on #2045): Superforms' own id gate refuses to BIND another
+  // memory's result, but the banner, error and completion consumers below read
+  // the page's action data by `_kind` alone, and $settingsMessage still holds an
+  // earlier save. Only a submission carrying THIS memory's loaded form id counts.
+  const currentSettingsSubmission = $derived.by(() => {
     const submitted = submittedForm<MemorySettingsForm>(form, 'updateMemorySettings');
+    return submitted && submitted.id === data.form.id ? submitted : null;
+  });
+
+  const settingsActionError = $derived.by(() => {
+    const submitted = currentSettingsSubmission;
     const message = $settingsMessage;
     const allErrors = $settingsAllErrors;
     if (!submitted) return null;
@@ -326,11 +369,12 @@
       ? message.text
       : (allErrors[0]?.messages[0] ?? null);
   });
-  const settingsActionSuccess = $derived(scopedActionSuccess<MemorySettingsForm>(form, 'updateMemorySettings', $settingsMessage));
+  const settingsActionSuccess = $derived(
+    currentSettingsSubmission && $settingsMessage?.type === 'success' ? $settingsMessage.text : null,
+  );
 
   $effect(() => {
-    const submitted = submittedForm<MemorySettingsForm>(form, 'updateMemorySettings');
-    if (submitted && $settingsMessage?.type === 'success') isEditing = false;
+    if (currentSettingsSubmission && $settingsMessage?.type === 'success') isEditing = false;
   });
 
   // ── Vector index (spec 033 §2/§3) ───────────────────────────────────
@@ -828,13 +872,15 @@
           {/if}
         {/if}
 
+        </fieldset>
+        <!-- #1909: Save lives in the disabled-able fieldset; Cancel sits outside it
+             so management loss disables Save without trapping the open editor. -->
         <div class="flex gap-3">
-          <button type="submit" disabled={$settingsSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
+          <button type="submit" disabled={$settingsSubmitting || !canEditSettings} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
             {$settingsSubmitting ? 'Saving...' : 'Save'}
           </button>
           <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
         </div>
-        </fieldset>
       </form>
     {:else}
       <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">

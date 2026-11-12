@@ -8,6 +8,7 @@
  * beneath the source memory.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { nodeMetaBaseline } from '$lib/node-meta-seed';
 import {
   MOVE_NODE_MUTATION,
   NODE_BY_ID_QUERY,
@@ -49,11 +50,11 @@ function stub(moveError?: unknown) {
   });
 }
 
-async function saveLoc(loc: string) {
+async function saveLoc(loc: string, baselineLoc = 'rules:copy') {
   const { actions } = await import('./+page.server');
   const fd = new FormData();
   for (const [k, v] of Object.entries({
-    name: 'Copy', nodeType: 'info', description: '', alias: '', seq: '1', tags: '', loc,
+    name: 'Copy', nodeType: 'info', description: '', alias: '', seq: '1', tags: '', loc, baseline: nodeMetaBaseline({ ...node, loc: baselineLoc }),
   })) fd.set(k, v);
   return (actions as Record<string, (e: never) => Promise<unknown>>).updateMeta({
     request: { formData: async () => fd },
@@ -112,7 +113,7 @@ describe('updateMeta location field takes a full node URN (#1876)', () => {
       }
       return {};
     });
-    await saveLoc(chain);
+    await saveLoc(chain, 'worker:system:reports:daily');
     expect(moves()).toEqual([{ sourceRef: 'pk', targetUrn: chain }]);
   });
 
@@ -127,6 +128,13 @@ describe('updateMeta location field takes a full node URN (#1876)', () => {
     const result = (await saveLoc('hrn:node:acme.com:mem-b:rules:original')) as { status?: number; data?: { metaSaved?: boolean } };
     expect(result.status).toBe(409);
     expect(result.data?.metaSaved).toBe(true);
+  });
+  it('a refusal text ending in terminal punctuation does not double it before the suffix (portal#2005 F4)', async () => {
+    stub(Object.assign(new Error('x'), { response: { errors: [{ message: 'That location is taken!', extensions: { code: 'NODE_ALREADY_EXISTS' } }] } }));
+    const result = (await saveLoc('rules:renamed')) as { data?: { form?: { errors?: { loc?: string[] } } } };
+    const text = result.data?.form?.errors?.loc?.[0] ?? '';
+    expect(text).toContain('Saved, but the node was not moved: That location is taken. It is still at ');
+    expect(text).not.toContain('!.');
   });
   it.each(['FORBIDDEN','NODE_WRITE_CONFLICT'])('#1902 Save preserves the existing %s refusal after a suggested move', async code => {
     stub(Object.assign(new Error('no'),{response:{errors:[{message:'refused',extensions:{code}}]}}));

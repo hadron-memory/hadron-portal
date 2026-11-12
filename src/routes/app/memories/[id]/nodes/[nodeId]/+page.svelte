@@ -59,7 +59,7 @@
     type ProvenanceResult,
   } from '$lib/node-provenance';
   import NodeRoleInput from '$lib/components/NodeRoleInput.svelte';
-  import { metaSavedDespiteFailure, nodeMetaReseed, nodeMetaSeed, nodeMetaSeedKey, savedButNotMoved } from '$lib/node-meta-seed';
+  import { metaSavedDespiteFailure, nodeMetaBaseline, nodeMetaReseed, nodeMetaSeed, nodeMetaSeedKey, savedButNotMoved } from '$lib/node-meta-seed';
   import { bestEffortInvalidateAll } from '$lib/best-effort-invalidate-all';
   import { skillExportMenuHosts } from '$lib/skill-export';
   import NodeAssetCard from '$lib/components/assets/NodeAssetCard.svelte';
@@ -854,6 +854,14 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    // portal#2023: opt this form out of Superforms' unconditional page-data
+    // rebind, which reset an unsaved draft whenever an unrelated loader
+    // refresh carried a changed node. 'never', NOT false: own ActionResults
+    // still apply ('never' is truthy), and false leaves the data-path rebind
+    // live. The reseeds are explicit: reseedFromSavedNode, the node-change
+    // effect, Cancel. See
+    // hrn:node:hadronmemory.com:hadron-portal:findings:stable-form-id-opts-into-invalidate-rebind
+    applyAction: 'never',
     onSubmit: () => { moveRefusal = null; savedCompletely = false; metaUnconfirmed = false; },
     // portal#2014: superforms' default onError RETHROWS before it clears
     // `submitting`, which left Save disabled on "Saving..." for good, so the
@@ -900,6 +908,10 @@
       // (see bestEffortInvalidateAll for the rejection class and the
       // error-boundary limit). The page keeps the action failure.
       await bestEffortInvalidateAll('node-detail');
+      // portal#2023: the edits ARE saved (only the move failed), so the next attempt is typed
+      // against the node as it now is. Taken from the reloaded node, not from what was posted: the
+      // server normalizes what it stores. Only a committed save reaches here (the return above).
+      metaBaseline = nodeMetaBaseline(node);
     },
   });
 
@@ -916,12 +928,22 @@
   // Reseed on a different node (everything) or a changed stored role on the
   // same node (role and its seed only): `nodeMetaReseed` decides, and the
   // field list is the loader's own (@codex on #929).
+  // portal#2023: the node state the editor was typed against (every field Save writes). Sent with
+  // every Save so the server can refuse a draft that is older than the node (see `updateMeta`).
+  // A full-page refusal restores the kept draft from the action's form (initialUpdateMetaForm), so it
+  // restores the baseline the draft was typed against too, which the action echoes as `metaBaseline`.
+  let metaBaseline = $state(untrack(() => {
+    const echoed = form && submittedForm<NodeUpdateMetaForm>(form, 'updateMeta')
+      ? (form as { metaBaseline?: unknown }).metaBaseline : undefined;
+    return typeof echoed === 'string' ? echoed : nodeMetaBaseline(node);
+  }));
   let updateMetaSeededFrom = $state(untrack(() => ({ id: node.id, role: node.role ?? null })));
   $effect(() => {
     if (nodeMetaSeedKey(updateMetaSeededFrom) === nodeMetaSeedKey(node)) return;
     const patch = nodeMetaReseed(updateMetaSeededFrom, node);
     updateMetaSeededFrom = { id: node.id, role: node.role ?? null };
     if (patch) updateMetaFormData.update((current) => ({ ...current, ...patch }), { taint: false });
+    if (patch && 'name' in patch) metaBaseline = nodeMetaBaseline(node);
   });
 
   // portal#2020: after a CONFIRMED, COMPLETE save the editor reopens from the
@@ -936,6 +958,7 @@
   function reseedFromSavedNode() {
     const seed = nodeMetaSeed(node);
     updateMetaSavedSeed = JSON.stringify(seed);
+    metaBaseline = nodeMetaBaseline(node);
     updateMetaFormData.set({ ...get(updateMetaFormData), ...seed }, { taint: false });
   }
   $effect(() => {
@@ -4365,6 +4388,7 @@
             <form method="POST" action="?/updateMeta" use:updateMetaEnhance novalidate
               class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
               <input type="hidden" name="_kind" bind:value={$updateMetaFormData._kind} />
+              <input type="hidden" name="baseline" value={metaBaseline} />
               {#if moveRefusal || metaUnconfirmed || updateMetaActionError}
                 <div role="alert" data-testid="node-meta-error" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{moveRefusal?.text ?? (metaUnconfirmed ? t('node.meta.unconfirmed', "The save wasn't confirmed. Check your connection, then Save again.") : updateMetaActionError)}</div>
               {/if}
@@ -4428,7 +4452,7 @@
                 <button type="submit" disabled={readOnly || $updateMetaSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-40">
                   {$updateMetaSubmitting ? t('node.meta.saving', 'Saving...') : $updateMetaMessage?.type === 'error' ? t('node.save.retry', 'Retry') : t('node.meta.save', 'Save')}
                 </button>
-                <button type="button" onclick={() => { isEditing = false; clearMetaRefusal(); }} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+                <button type="button" onclick={() => { isEditing = false; clearMetaRefusal(); reseedFromSavedNode(); }} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
               </div>
             </form>
           {:else}

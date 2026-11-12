@@ -14,10 +14,17 @@ import { invalidateAll } from '$app/navigation';
  * rejecting `invalidateAll()` — that path replaces the page and no catch can
  * preserve an outcome across it
  * (hrn:node:hadronmemory.com:hadron-portal:review:uncertain-mutation-outcome-outlives-action).
- * The rejection class that reaches this catch (a throwing `handleError` hook,
- * the root error page itself failing to load, a failed redirect chain) is
- * exactly what kit could NOT report — so this warn is the only record the
- * reload failed. The caller keeps showing its own committed-write outcome.
+ * Verified against @sveltejs/kit 2.55.0 `src/runtime/client/client.js`:
+ * `invalidateAll()` returns `_invalidate()`'s promise, and `_invalidate` awaits
+ * `load_route` directly — so a `load_route` rejection reaches this catch.
+ * `load_route` itself catches server-load errors and answers
+ * `load_root_error_page` (resolved, not rejected); what still rejects is
+ * exactly what kit could NOT report: `handle_error` awaits the app's
+ * `handleError` hook, so a throwing hook rejects; the root error page's own
+ * load failing rethrows out of `load_root_error_page` (only `Redirect` chains
+ * on); and a redirect answer chains through `_goto`, whose failure propagates.
+ * So this warn is the only record the reload failed. The caller keeps showing
+ * its own committed-write outcome.
  *
  * `scope` prefixes the warn like the page's other `[scope] …` diagnostics.
  */

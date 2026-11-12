@@ -145,6 +145,15 @@ try {
       const nameInput = page.locator('#ac-name');
       await nameInput.waitFor({ timeout: 2000 });
       assert.equal(await nameInput.inputValue(), name, `${where}: Edit opens this row`);
+      // #2051: the Edit heading carries the full legal name; a long uninterrupted
+      // token must wrap inside the editor card, never past it or the page. The
+      // name is wrapped, not truncated or rewritten.
+      const heading = page.getByRole('heading', { level: 3 }).filter({ hasText: name });
+      assert.equal((await heading.textContent()).trim(), `“${name}”`, `${where}: Edit heading shows the full name`);
+      const [card, title] = await Promise.all([heading.locator('xpath=..').boundingBox(), heading.boundingBox()]);
+      assert(card && title && title.x >= card.x - 0.5 && title.x + title.width <= card.x + card.width + 0.5, `${where}: Edit heading inside the editor card (${JSON.stringify({ card, title })})`);
+      assert(await heading.evaluate(el => el.scrollWidth <= el.clientWidth + 1), `${where}: Edit heading text does not overflow its box`);
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `${where}: Edit heading leaves the page no wider than the viewport`);
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
       await nameInput.waitFor({ state: 'detached', timeout: 2000 });
       if (width === 390) await assertActionAtScrollEdges(page, trigger, where, order === 'middle' ? 1 : -1);
