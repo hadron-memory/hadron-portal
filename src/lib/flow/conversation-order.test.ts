@@ -11,7 +11,7 @@ const conv = (loc: string, seq: number | null, data: Record<string, unknown> = {
 describe('orderOrdinaryConversations (Q13, Q14, Q14a)', () => {
   it('orders by seq ascending, nulls last, ties by loc in code-unit order', () => {
     const ordered = orderOrdinaryConversations([
-      conv('conversations:c', null),
+      conv('conversations:a0', null),
       conv('conversations:b', 2),
       conv('conversations:a', 2),
       conv('conversations:z', 1),
@@ -23,7 +23,7 @@ describe('orderOrdinaryConversations (Q13, Q14, Q14a)', () => {
       'conversations:a',
       'conversations:b',
       'conversations:B',
-      'conversations:c',
+      'conversations:a0',
     ]);
   });
 
