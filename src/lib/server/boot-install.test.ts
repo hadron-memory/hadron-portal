@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { readInstallPrompt, readProvenance, writeInstallPrompt } from './boot-install';
+import { PROVENANCE, readInstallPrompt, readProvenance, writeInstallPrompt } from './boot-install';
 const owner = { level: 'worker' as const, worker: 'w', app: 'a', agent: 'g' };
 const worker = { worker: { id: 'w', app: { id: 'a' }, agent: { id: 'g' }, bootPromptRef: null } };
 describe('portal#1666 install compile boundary', () => {
@@ -47,6 +47,14 @@ describe('portal#1666 install compile boundary', () => {
     expect(request.mock.calls[1][0]).toContain('createNode');
     expect(request.mock.calls[1][0]).not.toContain('updateNode');
     expect(request.mock.calls[1][1]).toEqual({ input: { install: { appRef: 'a', agentRef: 'g' }, loc: 'boot:workers:w:source', name: 'Worker boot prompt source', role: 'boot-prompt', content: '' } });
+  });
+  it('portal#1901: selects the occurrence kind and order the gate requires and carries them to each row', async () => {
+    expect(PROVENANCE).toMatch(/items \{[^}]*\bkind\b[^}]*\}/);
+    expect(PROVENANCE).toMatch(/items \{[^}]*\border\b[^}]*\}/);
+    const item = { nodeId: 'n1', kind: 'include', order: 4, depth: 1, revNo: 2, selection: { rev: null, approved: false, signed: false }, pruned: false };
+    const request = vi.fn().mockResolvedValueOnce({ compiledPromptProvenance: { items: [item], total: 1, hasMore: false, pruned: false } }).mockResolvedValueOnce({ nodeBatch: { nodes: [{ id: 'n1', urn: 'hrn:node:a.com:m:x', name: 'X' }], unavailable: [], omitted: [] } });
+    const page = await readProvenance({ request } as never, 'c', 3, 0);
+    expect(page?.items[0]).toMatchObject({ kind: 'include', order: 4 });
   });
   it('strips unreadable and deleted source identifiers and retention from the transport, but keeps truncation omission', async () => {
     // hrn:node:hadronmemory.com:specs:cor:api:040: omission is response-size truncation, disjoint from unavailable refs.

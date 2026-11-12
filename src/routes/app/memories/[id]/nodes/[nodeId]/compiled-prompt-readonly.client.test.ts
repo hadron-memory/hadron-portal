@@ -93,7 +93,8 @@ async function openSourceAndDirty(target: HTMLElement, tab: 'content' | 'abstrac
 for (const tab of ['content', 'abstract'] as const) {
   it(`${tab}: a compiled-boot-prompt is read-only with the recompile hint`, async () => {
     const { target } = await mountPage(tab, 'compiled-boot-prompt');
-    expect(target.querySelector('[data-testid="compiled-prompt-hint"]')?.textContent).toMatch(/boot source and compile again/);
+    // portal#1901: the Content tab's hint became the sources note; the Abstract tab keeps the short hint.
+    expect(target.querySelector('[data-testid="compiled-prompt-hint"]')?.textContent).toMatch(tab === 'content' ? /generated from the sources listed below/ : /boot source and compile again/);
     const { area, save } = await openSourceAndDirty(target, tab);
     expect(area.readOnly).toBe(true);
     expect(save.disabled).toBe(true);

@@ -84,6 +84,8 @@
   import type { MemoryNode, NodeEdge, NodeEdgeRemoval, NodeRevision } from '$lib/types';
   import type { PageData, ActionData } from './$types';
   import NodeStorageForm from './NodeStorageForm.svelte';
+  import CompiledPromptSources from '$lib/components/CompiledPromptSources.svelte';
+  import { compiledPromptOwner } from '$lib/compiled-prompt-owner';
   import { readMoreChildren } from './children-page';
   import {
     isFullyQualifiedNodeUrnInput,
@@ -160,8 +162,11 @@
   // a save is always refused, so its text and abstract are shown read-only with a pointer to the source.
   const isCompiledPrompt = $derived(node.nodeType === 'compiled-boot-prompt');
   const readOnly = $derived(data.canWriteMemory === false);
-  // Only the text editors; move, delete, history and the other doors keep their existing behavior (out of scope).
-  const textReadOnly = $derived(readOnly || isCompiledPrompt);
+  // portal#1901: a compiled node has no write door at all on this page (content, abstract, name/meta, data,
+  // properties, storage, flow, edges, move, restore, node delete). Approve, verify, signatures, duplicate and the
+  // reads stay, and so do delete-revision and clear-history: deleting history is not writing compiled text
+  // (hrn:node:hadronmemory.com:specs:cor:dmo:150:07), so those keep `readOnly`. The predicate is the node type, never the shared `boot-prompt` role.
+  const writeLocked = $derived(readOnly || isCompiledPrompt);
   let isEditing = $state(false);
   // #1989: a Save whose edits committed but whose move was refused. The page
   // holds the refusal and the loc the user typed, because the reload after it
@@ -1176,7 +1181,9 @@
     ...(!node.isRunnable ? [{ id: 'convert-to-task', label: t('node-actions.convert-to-task', 'Convert to task') }] : []),
     ...(canTestFlow ? [{ id: 'run', label: t('node-actions.run', 'Run') }] : []),
     { id: 'delete', label: t('node-actions.delete', 'Delete'), danger: true },
-  ].filter((action) => !readOnly || ['open-chat', 'download', 'print', 'export-skill'].includes(action.id)));
+  ].filter((action) => !readOnly || ['open-chat', 'download', 'print', 'export-skill'].includes(action.id))
+    .filter((action) => !isCompiledPrompt || !COMPILED_HIDDEN_ACTIONS.has(action.id)));
+  const COMPILED_HIDDEN_ACTIONS = new Set(['edit', 'move', 'delete', 'convert-to-task']);
 
   // portal#1175: a comment is feedback, so the actions that treat it as a node to
   // grow, relocate, copy or promote are not offered; Edit only to its author.
@@ -3026,7 +3033,7 @@
               <div class="flex items-center gap-2">
                 <button
                   type="submit"
-                  disabled={readOnly || !$moveFormData.target.trim() || $moveFormData.target.trim() === fullUrn || $moveSubmitting}
+                  disabled={writeLocked || !$moveFormData.target.trim() || $moveFormData.target.trim() === fullUrn || $moveSubmitting}
                   class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >{$moveSubmitting ? t('node-actions.move.moving', 'Moving...') : 'Move node'}</button>
                 <button type="button" onclick={() => (moveOpen = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
@@ -3087,7 +3094,7 @@
               <div class="flex items-center gap-2">
                 <button
                   type="submit"
-                  disabled={readOnly || $deleteSubmitting}
+                  disabled={writeLocked || $deleteSubmitting}
                   class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {$deleteSubmitting
@@ -3218,7 +3225,7 @@
     <!-- ═══ CONTENT TAB ═══ -->
     {#if activeTab === 'content'}
       {#if isCompiledPrompt}
-        <p class="mb-2 text-sm text-zinc-500 dark:text-zinc-400" data-testid="compiled-prompt-hint">{t('node.compiled-prompt.hint', 'This compiled boot prompt is read-only. Edit the boot source and compile again.')}</p>
+        <CompiledPromptSources nodeId={node.id} revision={node.revision} owner={compiledPromptOwner(data.graph)} />
       {/if}
       <div class="flex items-center justify-between">
         <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
@@ -3256,7 +3263,7 @@
             use:fillViewport={contentSaveRow}
             class="block w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
             placeholder={createNodeStrings.contentSourcePlaceholder()}
-            readonly={textReadOnly}
+            readonly={writeLocked}
             bind:value={contentDraft.text}
           ></textarea>
           <div bind:this={contentSaveRow} class="mt-2 flex flex-wrap items-center justify-end gap-2">
@@ -3276,7 +3283,7 @@
             <button
               bind:this={contentSaveButton}
               onclick={saveContent}
-              disabled={textReadOnly || saving || !contentDraft.dirty}
+              disabled={writeLocked || saving || !contentDraft.dirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
             >{saving ? t('node.text.saving', 'Saving…') : contentSaveError ? t('node.save.retry', 'Retry') : t('node.text.save', 'Save')}</button>
           </div>
@@ -3345,7 +3352,7 @@
             maxlength={ABSTRACT_MAX}
             placeholder={abstractPlaceholder()}
             aria-describedby={abstractHint ? 'node-abstract-search-hint' : undefined}
-            readonly={textReadOnly}
+            readonly={writeLocked}
             bind:value={abstractDraft.text}
           ></textarea>
           <div bind:this={abstractSaveRow} class="mt-2 flex flex-wrap items-center justify-between gap-2">
@@ -3366,7 +3373,7 @@
               <button
                 bind:this={abstractSaveButton}
                 onclick={saveAbstract}
-                disabled={textReadOnly || savingAbstract || !abstractDraft.dirty}
+                disabled={writeLocked || savingAbstract || !abstractDraft.dirty}
                 class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
               >{savingAbstract ? t('node.text.saving', 'Saving…') : abstractSaveError ? t('node.save.retry', 'Retry') : t('node.text.save', 'Save')}</button>
             </div>
@@ -3455,7 +3462,7 @@
             class="w-full min-h-[160px] max-h-[calc(100vh-16rem)] resize-none overflow-y-auto rounded-lg border bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none {dataParse.ok || dataEmpty ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 focus:border-red-500 dark:border-red-700'}"
             placeholder={'{\n  "key": "value"\n}'}
             spellcheck="false"
-            readonly={readOnly || savingData}
+            readonly={writeLocked || savingData}
             aria-busy={savingData}
             bind:value={dataDraft.text}
           ></textarea>
@@ -3473,7 +3480,7 @@
             <button
               type="button"
               onclick={saveData}
-              disabled={readOnly || savingData || !dataParse.ok || !dataDirty}
+              disabled={writeLocked || savingData || !dataParse.ok || !dataDirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
             >{savingData ? t('node.data.source.saving', 'Saving…') : dataSaveError ? t('node.save.retry', 'Retry') : t('node.data.source.save', 'Save')}</button>
           </div>
@@ -3563,7 +3570,7 @@
             aria-describedby="properties-source-status"
             class="w-full min-h-[160px] max-h-[calc(100vh-16rem)] resize-none overflow-y-auto rounded-lg border bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none {propertiesParse.ok ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 focus:border-red-500 dark:border-red-700'}"
             spellcheck="false"
-            readonly={readOnly || savingProperties}
+            readonly={writeLocked || savingProperties}
             aria-busy={savingProperties}
             bind:value={propertiesDraft.text}
           ></textarea>
@@ -3581,7 +3588,7 @@
             <button
               type="button"
               onclick={saveProperties}
-              disabled={readOnly || savingProperties || !propertiesParse.ok || !propertiesDirty}
+              disabled={writeLocked || savingProperties || !propertiesParse.ok || !propertiesDirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
             >{savingProperties ? t('node.properties.source.saving', 'Saving…') : propertiesSaveError ? t('node.save.retry', 'Retry') : t('node.properties.source.save', 'Save')}</button>
           </div>
@@ -3658,7 +3665,7 @@
          The action carries `tab=properties` so a submit that navigates fully
          (no JS yet) reopens this tab rather than the node's default one. -->
     <div class="mt-6" hidden={activeTab !== 'properties' || showPropertiesSource}>
-      <fieldset disabled={readOnly}>
+      <fieldset disabled={writeLocked}>
       <NodeStorageForm
         {node}
         memorySchema={data.graph.schema}
@@ -3667,7 +3674,7 @@
         action="?tab=properties&/updateStorage"
         skillCheck={data.skillCheck}
         runnableBlockedBy={data.runnableBlockedBy}
-        noWriteDoor={readOnly ? t('memory-detail.read-only', 'Read only — editing is unavailable for this memory.') : data.noWriteDoor}
+        noWriteDoor={readOnly ? t('memory-detail.read-only', 'Read only — editing is unavailable for this memory.') : isCompiledPrompt ? t('node.compiled-prompt.read-only', 'A compiled boot prompt is generated from its sources and can’t be edited here.') : data.noWriteDoor}
       />
       </fieldset>
     </div>
@@ -3698,7 +3705,7 @@
           </div>
         {/if}
 
-        <fieldset disabled={readOnly}>
+        <fieldset disabled={writeLocked}>
         <form method="POST" action="?/updateFlow" use:flowEnhance novalidate class="space-y-6">
           <!-- Extraction -->
           <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
@@ -3949,7 +3956,7 @@
       <div class="mb-4 flex items-center justify-between">
         <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Edges</h3>
         {#if !editingEdges}
-          <button type="button" onclick={startEditEdges} disabled={readOnly || hasUnreadableOutgoing}
+          <button type="button" onclick={startEditEdges} disabled={writeLocked || hasUnreadableOutgoing}
             title={hasUnreadableOutgoing ? t('node-edges.edit-blocked', 'This node has an edge into a memory you can’t access. Editing would remove it, so edge editing is disabled here.') : undefined}
             class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
             Edit edges
@@ -4072,7 +4079,7 @@
           </div>
 
           <div class="mt-4 flex items-center gap-2">
-            <button type="submit" disabled={readOnly || $edgesSubmitting} class="rounded-lg px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40" style="background: #fb8500;">
+            <button type="submit" disabled={writeLocked || $edgesSubmitting} class="rounded-lg px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40" style="background: #fb8500;">
               {$edgesSubmitting ? t('node.edges.saving', 'Saving...') : t('node.edges.save', 'Save edges')}
             </button>
             <button type="button" onclick={cancelEditEdges}
@@ -4241,7 +4248,7 @@
       <button type="button" class="fixed inset-0 z-40 cursor-default" aria-label={t('node.history.close-menu', 'Close menu')} onclick={() => (historyMenuFor = null)}></button>
       <div role="menu" class="fixed z-50 w-44 -translate-x-full rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900" style="left: {historyMenuX}px; top: {historyMenuY}px;">
         <button type="button" role="menuitem" onclick={() => onHistoryMenuSelect('display')} class="block w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('node.history.action.display', 'Display')}</button>
-        <button type="button" role="menuitem" disabled={readOnly} onclick={() => onHistoryMenuSelect('restore')} class="block w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('node.history.action.restore', 'Restore')}</button>
+        <button type="button" role="menuitem" disabled={writeLocked} onclick={() => onHistoryMenuSelect('restore')} class="block w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('node.history.action.restore', 'Restore')}</button>
         <div class="my-1 border-t border-zinc-200 dark:border-zinc-800"></div>
         <button type="button" role="menuitem" disabled={readOnly} onclick={() => onHistoryMenuSelect('delete')} class="block w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-800">{t('node.history.action.delete', 'Delete')}</button>
       </div>
@@ -4257,7 +4264,7 @@
           {#if historyError}<p role="alert" class="mt-2 text-xs text-red-500" data-testid="restore-error">{historyError}</p>{/if}
           <div class="mt-4 flex items-center justify-end gap-2">
             <button type="button" onclick={() => (restoreTarget = null)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">{t('node.history.restore.cancel', 'Cancel')}</button>
-            <button type="button" onclick={confirmRestore} disabled={readOnly || historyBusy} class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">{historyBusy ? t('node.history.restore.working', 'Restoring…') : t('node.history.restore.confirm', 'Restore')}</button>
+            <button type="button" onclick={confirmRestore} disabled={writeLocked || historyBusy} class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">{historyBusy ? t('node.history.restore.working', 'Restoring…') : t('node.history.restore.confirm', 'Restore')}</button>
           </div>
         </div>
       </div>
@@ -4280,7 +4287,7 @@
 
     <!-- ═══ SETTINGS TAB ═══ -->
     {#if activeTab === 'settings' || activeTab === 'info'}
-      {@const readOnly = activeTab === 'info' || data.canWriteMemory === false}
+      {@const readOnly = activeTab === 'info' || data.canWriteMemory === false || isCompiledPrompt}
       <div class="max-w-3xl space-y-8">
         <section>
           <div class="mb-4 flex items-center justify-between">

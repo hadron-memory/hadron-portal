@@ -124,10 +124,10 @@ export async function writeInstallPrompt(client: Client, owner: CompileOwner, in
       : t('boot.install.approval-state-unknown', 'Couldn’t confirm its approval state. Reload to check.');
   return { ok: true, key: compileOwnerKey(owner), text: `${t('boot.install.built-revision', 'Built revision {n}.', { n: result.revNo })} ${approvalText} ${servedNowText(state, owner, result.node.id)}${pointer}` };
 }
-export const PROVENANCE = /* GraphQL */ `query CompileProvenance($nodeRef: ID!, $revNo: Int!, $offset: Int!) { compiledPromptProvenance(nodeRef: $nodeRef, revNo: $revNo, offset: $offset, limit: 20) { items { nodeId depth revNo selection { rev approved signed } pruned } total hasMore pruned } }`;
+export const PROVENANCE = /* GraphQL */ `query CompileProvenance($nodeRef: ID!, $revNo: Int!, $offset: Int!) { compiledPromptProvenance(nodeRef: $nodeRef, revNo: $revNo, offset: $offset, limit: 20) { items { nodeId kind order depth revNo selection { rev approved signed } pruned } total hasMore pruned } }`;
 const NAMES = /* GraphQL */ `query CompileProvenanceNames($refs: [ID!]!) { nodeBatch(refs: $refs) { nodes { id urn name } unavailable omitted } }`;
 export async function readProvenance(client: Client, nodeRef: string, revNo: number, offset: number): Promise<ProvenancePage | null> {
-  type Occurrence = { nodeId: string; depth: number; revNo: number; selection: { rev: number | null; approved: boolean; signed: boolean }; pruned: boolean | null };
+  type Occurrence = { nodeId: string; kind: string; order: number; depth: number; revNo: number; selection: { rev: number | null; approved: boolean; signed: boolean }; pruned: boolean | null };
   const { compiledPromptProvenance: page } = await client.request<{ compiledPromptProvenance: { items: Occurrence[]; total: number; hasMore: boolean; pruned: boolean } | null }>(PROVENANCE, { nodeRef, revNo, offset });
   if (!page) return null;
   if (page.items.length === 0) return { items: [], total: page.total, hasMore: page.hasMore, pruned: page.pruned, offset };
