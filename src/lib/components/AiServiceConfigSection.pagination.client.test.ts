@@ -31,7 +31,7 @@ afterEach(() => { mounted?.unmount(); mounted = undefined; vi.unstubAllGlobals()
 async function open(fresh: AiServiceConfig[] | null) {
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     // portal#1955 checks the fresh cookie principal before any editor write.
-    if (url === '/api/ai-configs?principal=1') {
+    if (url === '/api/ai-configs/principal') {
       return new Response(JSON.stringify({ principal: { principalType: 'USER', userId: 'u1', appId: null } }));
     }
     if (url.startsWith('/api/ai-configs?') && !init?.method) {

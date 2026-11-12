@@ -37,7 +37,7 @@ try {
     let refuse = true;
     let freshUser = 'fixture-user';
     const identityAnswers = [];
-    await context.route('**/api/ai-configs?principal=1', route => { identityAnswers.push(freshUser === 'fixture-user' ? 'original' : 'different'); return route.fulfill({ json: { principal: { principalType: 'USER', userId: freshUser, appId: null } } }); });
+    await context.route('**/api/ai-configs/principal', route => { identityAnswers.push(freshUser === 'fixture-user' ? 'original' : 'different'); return route.fulfill({ json: { principal: { principalType: 'USER', userId: freshUser, appId: null } } }); });
     await context.route('**/api/ai-configs', route => {
       const action = route.request().postDataJSON().action;
       if (action === 'endpoints') return route.fulfill({ json: { endpoints: [] } });
@@ -127,7 +127,7 @@ try {
     }
     freshUser = 'different-fixture-user';
     if (touch) await save.tap(); else await page.keyboard.press('Enter');
-    try { await page.getByText('Your sign-in or selected context changed. The draft was discarded.', { exact: true }).waitFor({ timeout: 5000 }); }
+    try { await page.getByText('Your sign-in or the selected organization or app changed, so your draft was discarded. Open the form again to start over.', { exact: true }).waitFor({ timeout: 5000 }); }
     catch (error) {
       console.log(JSON.stringify({ touch, dark, writes, identityAnswers, alert: await page.getByTestId('ai-config-error-feedback').textContent(), editorPresent: await page.locator('#ac-key').count() }));
       throw error;

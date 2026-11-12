@@ -39,7 +39,7 @@ function stubFetch(
   readback: (url: string, signal?: AbortSignal) => Reply | Promise<Reply> = () => ({ body: { configs: [] } }),
 ) {
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string; signal?: AbortSignal }) => {
-    if (url === '/api/ai-configs?principal=1') { principalReads++; return response(principalReadHandler ? await principalReadHandler() : principalReply); }
+    if (url === '/api/ai-configs/principal') { principalReads++; return response(principalReadHandler ? await principalReadHandler() : principalReply); }
     if (url.startsWith('/api/ai-configs?') && init?.method !== 'POST') {
       readbacks.push(url);
       readbackSignals.push(init?.signal);
@@ -2010,7 +2010,7 @@ describe('#1898 follow-ups', () => {
     await settle();
     expect(principalReads).toBeGreaterThan(0);
     expect(m.target.querySelector('#ac-key')).toBeNull();
-    expect(m.target.textContent).toContain('Your sign-in or selected context changed. The draft was discarded.');
+    expect(m.target.textContent).toContain('Your sign-in or the selected organization or app changed, so your draft was discarded. Open the form again to start over.');
     expect(posts.filter(p => p.action === 'create')).toHaveLength(1);
     expect(m.target.querySelector('a[href^="/signin"]')).toBeNull();
   });
@@ -2126,6 +2126,84 @@ describe('#1898 follow-ups', () => {
     expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
   });
 
+  // ---- #1986 ---------------------------------------------------------------
+  const RECOVERY = 'Checking configurations before you can make another change…';
+  const different = { body: { principal: { principalType: 'USER', userId: 'different', appId: null } } };
+
+  it('names the organization or app the reader selected, and the next step, when a draft is discarded (#1986 Uma F3)', async () => {
+    const m = await open({ ownerLabel: 'Acme Org' }); await startCreate(m.target);
+    principalReadHandler = async () => different;
+    window.dispatchEvent(new Event('focus')); await settle();
+    const text = $<HTMLElement>(m.target, '[data-testid="ai-config-error-feedback"]')!.textContent ?? '';
+    expect(text).toContain('draft for Acme Org was discarded');
+    expect(text).toContain('Open the form again to start over.');
+    expect(text).not.toContain('selected context');
+  });
+
+  it('keeps the discard copy generic, never inventing a name, when no owner label was supplied (#1986)', async () => {
+    const m = await open(); await startCreate(m.target);
+    principalReadHandler = async () => different;
+    window.dispatchEvent(new Event('focus')); await settle();
+    const text = $<HTMLElement>(m.target, '[data-testid="ai-config-error-feedback"]')!.textContent ?? '';
+    expect(text).toContain('so your draft was discarded. Open the form again to start over.');
+    expect(text).not.toMatch(/draft for /);
+  });
+
+  it('an identity-only check announces "Checking your sign-in…" without the configuration-recovery sentence (#1986 Uma F4)', async () => {
+    const m = await open(); await startCreate(m.target);
+    let release!: (r: Reply) => void;
+    principalReadHandler = () => new Promise<Reply>(r => { release = r; });
+    window.dispatchEvent(new Event('focus')); await settle();
+    const status = $<HTMLElement>(m.target, '[data-testid="ai-config-manager-feedback"]')!;
+    expect(status.textContent).toContain('Checking your sign-in…');
+    expect(status.textContent).not.toContain(RECOVERY);
+    expect($(m.target, '[data-testid="ai-config-recovery-pending"]')).toBeNull();
+    expect(button(m.target, 'Save').disabled).toBe(true);
+    release(principalReply); await settle();
+    expect(status.textContent).not.toContain('Checking your sign-in…');
+  });
+
+  it('provider Test takes a fresh identity read and sends nothing until it answers (#1986 Ralion P3-1)', async () => {
+    const m = await open(); await startCreate(m.target);
+    const before = principalReads;
+    let release!: (r: Reply) => void;
+    principalReadHandler = () => new Promise<Reply>(r => { release = r; });
+    button(m.target, 'Test').click(); await settle();
+    expect(principalReads).toBe(before + 1);
+    expect(posts.filter(p => p.action === 'test')).toHaveLength(0);
+    release(principalReply); await settle();
+    expect(posts.filter(p => p.action === 'test')).toHaveLength(1);
+  });
+
+  it('a submit identity reply superseded by a focus check never writes, even when released first (#1986 Ralion P3-2)', async () => {
+    const m = await open(); await startCreate(m.target);
+    const releases: Array<(r: Reply) => void> = [];
+    principalReadHandler = () => new Promise<Reply>(r => { releases.push(r); });
+    button(m.target, 'Save').click(); await settle();
+    window.dispatchEvent(new Event('focus')); await settle();
+    expect(releases).toHaveLength(2);
+    releases[0](principalReply); await settle();
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
+    releases[1](principalReply); await settle();
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
+  });
+
+  it('editing the draft while the identity read is held never writes old and new fields together (#1986 Ralion P3-3)', async () => {
+    const m = await open(); await startCreate(m.target, 'first');
+    let release!: (r: Reply) => void;
+    principalReadHandler = () => new Promise<Reply>(r => { release = r; });
+    button(m.target, 'Save').click(); await settle();
+    set($<HTMLInputElement>(m.target, '#ac-name')!, 'second'); await settle();
+    release(principalReply); await settle();
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
+    expect(m.target.textContent).toContain('Your draft changed while checking your sign-in. Try again.');
+    principalReadHandler = null;
+    button(m.target, 'Save').click(); await settle();
+    const created = posts.filter(p => p.action === 'create');
+    expect(created).toHaveLength(1);
+    expect(created[0].name).toBe('second');
+  });
+
   it('focuses and reveals the discard alert when the fresh cookie user differs', async () => {
     const m = await open(); await startCreate(m.target);
     let release!: (r: Reply) => void;
@@ -2164,7 +2242,7 @@ describe('#1898 follow-ups', () => {
     const region = $<HTMLElement>(m.target, '[data-testid="ai-config-error-feedback"]')!;
     const scroll = vi.fn(); region.scrollIntoView = scroll;
     const observer = new MutationObserver(() => {
-      if (!region.textContent?.includes('The draft was discarded.')) return;
+      if (!region.textContent?.includes('was discarded.')) return;
       observer.disconnect();
       m.props.ownerId = 'o2';
       flushSync();

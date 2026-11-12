@@ -1553,7 +1553,7 @@ describe('App AI configuration readback lifecycle', () => {
   it('keeps a pending mutation, uncertainty and its replay lock while the AI tab is hidden', async () => {
     let rejectCreate!: (error: Error) => void;
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
-      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
       const body = JSON.parse(init.body!);
       if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
@@ -1586,7 +1586,7 @@ describe('App AI configuration readback lifecycle', () => {
     vi.useFakeTimers();
     let relatedSignal: AbortSignal | undefined;
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string; signal?: AbortSignal }) => {
-      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
         return { ok: true, json: async () => ({ configs: [] }) } as Response;
       }
@@ -1611,7 +1611,7 @@ describe('App AI configuration readback lifecycle', () => {
 
   it('does not lock an org admin out when the App-member-only Chat read is withheld', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
-      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
         return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
       }
@@ -1639,7 +1639,7 @@ describe('App AI configuration readback lifecycle', () => {
   it('refreshes both the owner grid and resolved Chat configs across create and delete', async () => {
     let configs = [] as typeof masked[];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
-      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1' || url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
         return { ok: true, json: async () => ({ configs }) } as Response;
       }
@@ -1706,7 +1706,7 @@ describe('App AI configuration readback lifecycle', () => {
   it('keeps recovery locked when a loader replacement drops the resolved-config readback', async () => {
     let releaseRelated!: (reply: Response) => void;
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
-      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
         return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
       }
@@ -1734,7 +1734,7 @@ describe('App AI configuration readback lifecycle', () => {
 
   it('supersedes a resolved-config working copy on a same-App null loader generation', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
-      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1' || url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
         return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
       }
@@ -1761,7 +1761,7 @@ describe('App AI configuration readback lifecycle', () => {
 
   it('masks stale resolved Chat configs when their readback fails after delete', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
-      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
         return { ok: true, json: async () => ({ configs: [] }) } as Response;
       }
@@ -1793,7 +1793,7 @@ describe('App AI configuration readback lifecycle', () => {
     const fast = { ...masked, id: 'c2', name: 'fast' };
     let configs = [fast, masked];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
-      if (url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1' || url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
         return { ok: true, json: async () => ({ configs }) } as Response;
       }
