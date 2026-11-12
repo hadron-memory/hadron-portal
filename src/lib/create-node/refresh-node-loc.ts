@@ -2,7 +2,14 @@ import { deriveDefaultLoc } from './derive-default-loc';
 
 /** On-demand complete sibling read, using the existing token-scoped paged
  * endpoint. A failed/partial read never changes the draft. Concurrent moves
- * can still race this suggestion; Save's existing move refusal is final. */
+ * can still race this suggestion; Save's existing move refusal is final.
+ *
+ * #1989: the suggestion can also land on a soft-deleted sibling's loc. The
+ * children read treats a tombstone as not-found for every caller (a normal
+ * read, hrn:node:hadronmemory.com:specs:cor:dmo:010:04), yet a tombstone still
+ * occupies its loc (hrn:node:hadronmemory.com:specs:cor:api:190:01). That is
+ * accepted: Save's refusal is final and the page shows it, rather than reading
+ * tombstones here, which the children read must not return. */
 export async function refreshedNodeLoc(
   memoryId: string, nodeId: string, savedLoc: string, name: string,
   signal: AbortSignal, fetcher: typeof fetch = fetch,

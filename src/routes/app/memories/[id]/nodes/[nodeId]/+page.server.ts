@@ -937,7 +937,14 @@ export const actions: Actions = {
         // /api/nodes/move endpoint and keeps it out of error monitoring.
         const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
         const detail = nodeWriteErrorText(e, 'Failed to move node', NODE_WRITE_REFUSALS);
-        const text = t('node.meta.saved-not-moved', 'Saved, but the node was not moved: {detail}', { detail });
+        // #1989: say what is true now: the edits are saved, nothing moved, and
+        // the node is still at its old address (a refused move writes nothing,
+        // hrn:node:hadronmemory.com:specs:cor:api:190:01). The page keeps this
+        // text and the typed loc across its reload, so the refusal is not
+        // reverted out from under the user.
+        const text = t('node.meta.saved-not-moved-at', 'Saved, but the node was not moved: {detail}. It is still at {urn}.', {
+          detail: detail.replace(/[.\s]+$/, ''), urn: composeNodeUrn(currentNode.memory.urn, currentNode.loc),
+        });
         if (status === 409) setError(form, 'loc', text);
         else message(form, { type: 'error', text });
         return fail(status, { form, metaSaved: true });

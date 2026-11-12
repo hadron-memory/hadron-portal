@@ -58,7 +58,7 @@
     type ProvenanceResult,
   } from '$lib/node-provenance';
   import NodeRoleInput from '$lib/components/NodeRoleInput.svelte';
-  import { metaSavedDespiteFailure, nodeMetaReseed, nodeMetaSeedKey } from '$lib/node-meta-seed';
+  import { metaSavedDespiteFailure, nodeMetaReseed, nodeMetaSeedKey, savedButNotMoved } from '$lib/node-meta-seed';
   import { bestEffortInvalidateAll } from '$lib/best-effort-invalidate-all';
   import { skillExportMenuHosts } from '$lib/skill-export';
   import NodeAssetCard from '$lib/components/assets/NodeAssetCard.svelte';
@@ -163,6 +163,13 @@
   // Only the text editors; move, delete, history and the other doors keep their existing behavior (out of scope).
   const textReadOnly = $derived(readOnly || isCompiledPrompt);
   let isEditing = $state(false);
+  // #1989: a Save whose edits committed but whose move was refused. The page
+  // holds the refusal and the loc the user typed, because the reload after it
+  // drops the action result and reseeds the form from the node (old loc, no
+  // error); left to superForm, the refusal vanished and the draft reverted.
+  // #1989: Save's move refusal, held by the page because the reload after a committed Save drops the
+  // action `form` the alert would otherwise read.
+  let moveRefusal = $state<{ text: string; loc: string } | null>(null);
 
   // Inline editing. #927: each text editor is a draft based on the revision it
   // opened on, and its save is refused when the node changed since. The drafts
@@ -830,21 +837,38 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    onSubmit: () => { moveRefusal = null; },
     onResult: async ({ result }) => {
-      if (result.type !== 'failure') isEditing = false;
+      if (result.type !== 'failure') { isEditing = false; return; }
       // Saved, but the move failed: keep the editor open to fix the location,
-      // and reload the node so the page shows what was actually saved.
+      // and reload the node so the page shows what was actually saved. The
+      // reload depends only on the save having committed, not on finding a
+      // refusal to keep (Glen's BLIND P2 on #2002).
+      if (!metaSavedDespiteFailure(result)) return;
+      // #1989: the refusal outlives that reload. The reload drops the action
+      // `form` the alert reads, so the page holds the refusal text itself.
+      moveRefusal = savedButNotMoved(result);
       // portal#1882: AWAIT the reload. Superforms awaits onResult before it
       // applies the result, so the failure (its message, the typed location)
       // lands after the reload. Unawaited, the reload finished later and
       // superforms rebound to the loader's fresh form, which erased both.
+      // That is also what keeps the typed loc in the draft (#1989).
       // portal#1980: the reload is BEST-EFFORT — a rejecting invalidateAll()
       // must not trade this known partial-save failure for a generic error
       // (see bestEffortInvalidateAll for the rejection class and the
       // error-boundary limit). The page keeps the action failure.
-      else if (metaSavedDespiteFailure(result)) await bestEffortInvalidateAll('node-detail');
+      await bestEffortInvalidateAll('node-detail');
     },
   });
+
+  /** Drop every trace of a failed Save: the page-held refusal and the failure superforms applied after the
+   *  awaited reload (portal#1882). Clearing only the first let Cancel then Edit show the old refusal again
+   *  (Clark's browser QA F1 on #2002). */
+  function clearMetaRefusal() {
+    moveRefusal = null;
+    updateMetaMessage.set(undefined);
+    updateMetaErrors.set({});
+  }
 
   // Reseed on a different node (everything) or a changed stored role on the
   // same node (role and its seed only): `nodeMetaReseed` decides, and the
@@ -2432,6 +2456,7 @@
       discussionOpened = activeTab === 'discussion';
       editingEdges = false;
       isEditing = false;
+      clearMetaRefusal();
       reorderMode = false;
       downloadOpen = false;
       dlError = null;
@@ -4275,8 +4300,8 @@
             <form method="POST" action="?/updateMeta" use:updateMetaEnhance novalidate
               class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
               <input type="hidden" name="_kind" bind:value={$updateMetaFormData._kind} />
-              {#if updateMetaActionError}
-                <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{updateMetaActionError}</div>
+              {#if moveRefusal || updateMetaActionError}
+                <div role="alert" data-testid="node-meta-error" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{moveRefusal?.text ?? updateMetaActionError}</div>
               {/if}
               <div>
                 <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
@@ -4338,7 +4363,7 @@
                 <button type="submit" disabled={readOnly || $updateMetaSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-40">
                   {$updateMetaSubmitting ? t('node.meta.saving', 'Saving...') : $updateMetaMessage?.type === 'error' ? t('node.save.retry', 'Retry') : t('node.meta.save', 'Save')}
                 </button>
-                <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+                <button type="button" onclick={() => { isEditing = false; clearMetaRefusal(); }} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
               </div>
             </form>
           {:else}
