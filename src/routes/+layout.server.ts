@@ -1,4 +1,4 @@
-import { error } from '@sveltejs/kit';
+import { error, type Cookies } from '@sveltejs/kit';
 import { ClientError } from 'graphql-request';
 import { t } from '$lib/i18n/t';
 import { gqlClient } from '$lib/server/api';
@@ -72,7 +72,7 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 /** Drop the cookie that backed `locals.token`: the impersonation one when it is
  *  active, so a refused impersonation hands the admin's session back untouched
  *  (PR #692 review, P1). `locals` itself is never written (#1117). */
-function dropActiveCookie(locals: App.Locals, cookies: Parameters<LayoutServerLoad>[0]['cookies']): void {
+function dropActiveCookie(locals: App.Locals, cookies: Cookies): void {
   cookies.delete(locals.impersonation ? 'hadron_impersonation' : 'hadron_token', { path: '/' });
 }
 
