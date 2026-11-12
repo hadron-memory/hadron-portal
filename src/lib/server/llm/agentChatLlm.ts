@@ -93,6 +93,8 @@ export async function callAgentChatLlm(args: {
   systemMessage: string;
   tools: HadronTool[] | null;
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  /** Inline config probe only: one bounded request and exactly one string-message respond call. */
+  respondTest?: true;
 }): Promise<AgentChatLlmResult> {
   const trace: LlmTrace = { stage: 'config' };
   try {
@@ -273,6 +275,8 @@ async function callAgentChatLlmUnsafe(args: {
   systemMessage: string;
   tools: HadronTool[] | null;
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  /** Inline config probe only: one bounded request and exactly one string-message respond call. */
+  respondTest?: true;
 }, trace: LlmTrace): Promise<AgentChatLlmResult> {
   const { provider, apiKey, model, systemMessage, messages } = args;
   const languageModel = createLanguageModel(provider, apiKey, model);
@@ -309,6 +313,7 @@ async function callAgentChatLlmUnsafe(args: {
   const systemForSdk = autoToolChoice
     ? (baseSystem === undefined ? RESPOND_ONCE_INSTRUCTION : `${baseSystem}\n\n${RESPOND_ONCE_INSTRUCTION}`)
     : baseSystem;
+  if (!respondTool && args.respondTest) throw new Error('Respond probe requires a tool');
   if (!respondTool) {
     // No extraction spec on this stage — fall back to plain text and wrap
     // it as a synthetic respond() call so the downstream processChatResponse
@@ -346,6 +351,8 @@ async function callAgentChatLlmUnsafe(args: {
     system: systemForSdk,
     messages: effectiveMessages.map((m) => ({ role: m.role, content: m.content })),
     tools: { respond: respondVercelTool },
+    // #2032's inline probe is one bounded request, with no SDK retry spend.
+    ...(args.respondTest ? { maxRetries: 0, abortSignal: AbortSignal.timeout(20_000) } : {}),
     // Force the LLM to call the respond tool on every turn. This is the
     // contract of the Chat API: one tool call per turn, no free-form text.
     // Models that reject a forced choice (#1979, usesAutoToolChoice) get
@@ -372,6 +379,12 @@ async function callAgentChatLlmUnsafe(args: {
   }
 
   const respondInput = firstCall.input as RespondCall;
+  // Config testing has a stricter success criterion than existing chat parsing.
+  // Keep normal turns' unvalidated first-call-wins behavior unchanged.
+  if (args.respondTest && (toolCalls.length !== 1 || typeof respondInput?.message !== 'string')) {
+    trace.stage = 'tool-output';
+    throw new Error('Invalid respond probe output');
+  }
   return {
     respond: respondInput,
     rawText: result.text ?? '',
