@@ -842,7 +842,9 @@ export const actions: Actions = {
     // with the fresh node and write it over the other editor's change. A failure AFTER the update
     // committed does not echo it: the page advances the name itself (see onResult).
     const baseline = fd.get('baseline');
-    const metaBaseline = typeof baseline === 'string' ? { metaBaseline: baseline } : {};
+    // No baseline posted: echo the empty string, which no node state produces (nodeMetaBaseline is JSON),
+    // so the restored draft cannot be saved against the fresh node either until the editor is reloaded.
+    const metaBaseline = { metaBaseline: typeof baseline === 'string' ? baseline : '' };
     const refuse = (status: number, text: string) => {
       message(form, { type: 'error', text });
       return fail(status, { form, ...metaBaseline });

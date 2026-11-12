@@ -282,6 +282,33 @@ describe('a full-page refusal keeps the draft AND the baseline it was typed agai
     expect(sent).not.toContain(MOVE_NODE_MUTATION);
   });
 
+  it('a save that carried NO baseline is refused again after a remount, not accepted against the fresh node (Gene on #2027)', async () => {
+    const { m } = await mountSettings();
+    buttonNamed(m.target, 'Edit')!.click();
+    flushSync();
+    type(input(m.target, 'editName'), 'Unsaved draft');
+    stored = OTHER;
+    // A caller that posts the form without the hidden baseline (a stale bundle, a script).
+    const fd = new FormData(metaForm(m.target));
+    fd.delete('baseline');
+    const refused = (await (actions as Record<string, (e: never) => Promise<unknown>>).updateMeta({
+      request: { formData: async () => fd },
+      params: { id: 'mem-A', nodeId: 'leaf-pk' },
+      locals: { token: 'tok' },
+    } as never)) as { status?: number; data?: Record<string, unknown> };
+    expect(refused.status).toBe(400);
+
+    const next = await remountWith(refused);
+    buttonNamed(next.target, 'Edit')!.click();
+    flushSync();
+    mockRequest.mockClear();
+    const retried = await postForm(next.target);
+    expect(retried.status).toBe(409);
+    const sent = mockRequest.mock.calls.map(([q]) => q);
+    expect(sent).not.toContain(UPDATE_NODE_MUTATION);
+    expect(sent).not.toContain(MOVE_NODE_MUTATION);
+  });
+
   it('a validation refusal also keeps its baseline (an empty name, then the node changes)', async () => {
     const { m } = await mountSettings();
     buttonNamed(m.target, 'Edit')!.click();
