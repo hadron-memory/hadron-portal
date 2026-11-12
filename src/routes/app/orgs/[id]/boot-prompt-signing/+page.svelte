@@ -142,10 +142,14 @@
         use:enhance={({ cancel }) => {
           if (submitting) { cancel(); return; }
           submitting = true;
+          // The preview this submission was made from. A response is bound to THIS, never to whatever
+          // the page holds when it lands: the page is reused across a param-only org navigation, and a
+          // late org-A answer must not become org B's preview.
+          const sentFrom = data.preview;
           return async ({ update, result }) => {
             try {
-              if (result.type === 'failure' && result.data?.outcome === 'stale' && result.data.preview) {
-                reloaded = { from: data.preview, preview: result.data.preview as PreviewRead };
+              if (result.type === 'failure' && result.data?.outcome === 'stale' && result.data.preview && data.preview === sentFrom) {
+                reloaded = { from: sentFrom, preview: result.data.preview as PreviewRead };
               }
               await update({ reset: false });
             } finally {

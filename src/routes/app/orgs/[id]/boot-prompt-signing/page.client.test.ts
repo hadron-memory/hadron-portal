@@ -11,7 +11,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { beginEnhanced, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import Page from './+page.svelte';
 
 const org = { id: 'org-1', name: 'Acme', urn: 'hrn:org:acme.com' };
@@ -71,5 +72,36 @@ describe('the submit latch', () => {
     flushSync();
     await tick();
     expect((t.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe('a late response is fenced to the submission it answers (LOCAL P2 F2)', () => {
+  it('org A\'s late STALE never replaces org B\'s preview after a param-only navigation', async () => {
+    setStubPage('http://localhost/app/orgs/org-a/boot-prompt-signing');
+    const props = reactiveProps<Record<string, unknown>>({ data: { org, sw, preview: ok('tok-org-A', [row(1)]) }, form: null });
+    mounted = mountComponent(Page as never, props as never);
+    const t = mounted.target;
+    const deliver = await beginEnhanced(form(t), { update: async () => {} });
+    // The page is reused for org B before A's response lands.
+    props.data = { org: { ...org, id: 'org-b' }, sw, preview: ok('tok-org-B', [row(2)]) };
+    flushSync();
+    await tick();
+    expect(tokenOf(t)).toBe('tok-org-B');
+    await deliver({ type: 'failure', status: 409, data: { outcome: 'stale', preview: ok('tok-late-A', [row(1), row(3)]) } });
+    flushSync();
+    await tick();
+    expect(tokenOf(t)).toBe('tok-org-B');
+  });
+
+  it('control: the same org\'s stale response still swaps in', async () => {
+    setStubPage('http://localhost/app/orgs/org-a/boot-prompt-signing');
+    const props = reactiveProps<Record<string, unknown>>({ data: { org, sw, preview: ok('tok-org-A', [row(1)]) }, form: null });
+    mounted = mountComponent(Page as never, props as never);
+    const t = mounted.target;
+    const deliver = await beginEnhanced(form(t), { update: async () => {} });
+    await deliver({ type: 'failure', status: 409, data: { outcome: 'stale', preview: ok('tok-fresh-A', [row(1), row(3)]) } });
+    flushSync();
+    await tick();
+    expect(tokenOf(t)).toBe('tok-fresh-A');
   });
 });
