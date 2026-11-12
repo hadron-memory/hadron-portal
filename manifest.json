@@ -1,0 +1,53 @@
+{
+  "portalHead": "d8312c933608c85647d6afdea8abb5d9b23f152b",
+  "serverHead": "6c4adcc4e24e2bdffb8c87b69f60d2d84bd3dff6",
+  "executor": "gpt-6-luna/OpenAI",
+  "verdictOwner": "Cameron/Codex/OpenAI",
+  "fixture": "synthetic display-only compiled provenance; real endpoint, no compile lifecycle claim",
+  "browserChecks": 30,
+  "campaign": {
+    "status": "PASS",
+    "started": 1794480408.139749,
+    "stage": "browser",
+    "upExit": 0,
+    "browserExit": 0,
+    "downExit": 0,
+    "instanceAbsent": true,
+    "portsClosed": true,
+    "stateAbsent": true,
+    "headsClean": true,
+    "ended": 1794480507.0334451,
+    "seconds": 99
+  },
+  "screenshots": [
+    {
+      "width": 390,
+      "theme": "light",
+      "file": "provenance-390-light.png",
+      "bytes": 76882,
+      "sha256": "55ee0673a275484e9ecb2e0208aa17be69c8d0be2d10117bf42bf628e7e4f3a9"
+    },
+    {
+      "width": 390,
+      "theme": "dark",
+      "file": "provenance-390-dark.png",
+      "bytes": 78637,
+      "sha256": "234642b44d72e28bb4764a1e1dcb764814dedd253d8a3b6e623ba8b42b78fe0a"
+    },
+    {
+      "width": 1280,
+      "theme": "light",
+      "file": "provenance-1280-light.png",
+      "bytes": 131088,
+      "sha256": "1464ca896790f5d7cb45821d153df0fcc44a25a32b55b1c889ef36c63a752435"
+    },
+    {
+      "width": 1280,
+      "theme": "dark",
+      "file": "provenance-1280-dark.png",
+      "bytes": 133407,
+      "sha256": "5db20d3410a581f2fadabd2a13ec38d98d1cfd8333adee3d15bbe87c31f706a4"
+    }
+  ],
+  "review": "Cameron viewed all four PNGs; synthetic data only, no tokens or real user data. Known phone overflow belongs to1991/2040."
+}
