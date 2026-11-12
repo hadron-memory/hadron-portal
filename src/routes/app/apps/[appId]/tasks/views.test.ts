@@ -102,6 +102,10 @@ describe('roster', () => {
     expect(order).toEqual([...order].sort((x, y) => x - y));
     expect(html).toContain('Your move');
     expect(html).toContain('2 unacknowledged alarm(s)');
+    // Uma's #2021 ruling: the count is the server's unacknowledged total,
+    // which includes alarms whose escalation ended, so the link must land on
+    // All — the only existing view that contains every counted alarm.
+    expect(html).toMatch(/href="\/app\/apps\/app-1\/tasks\?view=alarms&amp;alarms=all"[^>]*>2 unacknowledged alarm\(s\)</);
     // portal#1349: the link points at the immutable handle, with the handle as a quiet chip.
     expect(html).toContain('href="/app/apps/app-1/tasks/AT3.405"');
     expect(html).toContain('data-task-handle');
@@ -197,7 +201,30 @@ describe('alarms', () => {
     expect(inEffect).toContain('No alarms in effect.');
     expect(inEffect).not.toContain('No alarms on this page.');
     expect(inEffect).toContain('The In effect filter spans all');
+    // Uma on #2021: the App-wide empty state still owes the reader a way
+    // forward — out-of-effect alarms stay one click away (V77).
+    expect(inEffect).toMatch(/href="\/app\/apps\/app-1\/tasks\?view=alarms&amp;alarms=all"[^>]*>Show all alarms\./);
     expect(page(alarms([], 'acknowledged'))).toContain('Filters, search and sorting apply to this page.');
+  });
+
+  // portal#2021 (Atilla's BLIND P2): a cursor-bounded in-effect read — the
+  // acknowledgement flow reloads the same URL, and the acknowledged alarm may
+  // have been the only one in range — cannot claim App-wide absence. Newer
+  // in-effect alarms may sit above the cursor; the copy stays page-scoped and
+  // the Newest link sits beside it.
+  it('an empty in-effect page under a cursor claims only its stretch, with Newest beside it', () => {
+    for (const key of ['alarmBefore', 'alarmAfter']) {
+      setStubPage(`http://localhost/app/apps/app-1/tasks?view=alarms&${key}=old`, { appId: 'app-1' });
+      try {
+        const html = page(alarms([]));
+        expect(html).toContain('No alarms in effect on this page.');
+        expect(html).not.toContain('No alarms in effect.</p>');
+        expect(html).toMatch(/href="\/app\/apps\/app-1\/tasks\?view=alarms"[^>]*>Newest<\/a>/);
+        // The way forward under a cursor is Newest, not the App-wide cue's
+        // Show-all link: the two empty states stay distinct.
+        expect(html).not.toContain('Show all alarms.');
+      } finally { resetStubPage(); }
+    }
   });
 
   it('1935 removes the obsolete walk-cap notice; a failure is an alert', () => {

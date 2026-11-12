@@ -9,7 +9,9 @@
   backed by the server's alarmsInEffect filter (#3934, hrn:node:hadronmemory.com:specs:cor:agt:050:20) —
   unacknowledged and with no recorded escalation end. The server applies it
   App-wide before cutting the page, so this view's empty state is an App-wide
-  truth, and the client does not re-filter (it cannot re-derive
+  truth — on an unbounded read; a cursor-bounded page claims only its stretch
+  (portal#2021, Atilla's BLIND P2) — and the client does not re-filter (it
+  cannot re-derive
   escalationEndedAt from a row). Acknowledged and All stay page-local filters
   over the unfiltered read; when such a filter empties a page that has older
   pages behind it, the D cue says so with Next beside it. The unfiltered All
@@ -154,9 +156,16 @@
   // empty page there means none in effect at all — not a page-local claim.
   // Acknowledged and All remain page-local; the D cue below carries the
   // "older pages may hold matches" half for the one that can lie.
+  // portal#2021 (Atilla's BLIND P2): that App-wide truth holds only for an
+  // unbounded read. A cursor in the URL bounds it — the acknowledgement flow
+  // reloads the same URL, and the acknowledged alarm may have been the only
+  // one in range — so an empty page under a cursor claims only its stretch.
+  const cursorBounded = $derived(['alarmBefore', 'alarmAfter'].some((k) => $page.url.searchParams.get(k)));
   const emptyText = $derived(
     filter === 'in-effect'
-      ? t('app.tasks.alarms.empty.in-effect', 'No alarms in effect.')
+      ? cursorBounded
+        ? t('app.tasks.alarms.empty.in-effect.page', 'No alarms in effect on this page.')
+        : t('app.tasks.alarms.empty.in-effect', 'No alarms in effect.')
       : filter === 'acknowledged'
         ? t('app.tasks.alarms.empty.acknowledged', 'No acknowledged alarms on this page.')
         : t('app.tasks.alarms.empty.none', 'No alarms on this page.'),
@@ -222,12 +231,27 @@
   </div>
   {#if rows.length === 0}
     <div role="status" class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-empty-alarms={filter}>
-      <p>{emptyText}</p>
+      <p>
+        {emptyText}
+        <!-- Uma on #2021: an App-wide empty In effect still owes the reader a
+             way forward — out-of-effect alarms stay one click away (V77). -->
+        {#if filter === 'in-effect' && !cursorBounded}
+          <a href={filterHref('all')} class="inline-flex min-h-11 items-center font-medium text-indigo-600 underline dark:text-indigo-400">{t('app.tasks.alarms.empty.show-all', 'Show all alarms.')}</a>
+        {/if}
+      </p>
       <!-- portal#2000 D: a page-local filter that empties this page says so
            when older pages exist behind it — Next is right here, not only in
            the paging nav below. Server-side in-effect never needs it: its
-           empty page is the end of the read, not a page that filtered out. -->
-      {#if filter === 'acknowledged' && paging?.nextHref}
+           empty page is the end of the read, not a page that filtered out.
+           portal#2021 (Atilla's BLIND P2): a CURSOR-bounded in-effect read is
+           the exception — newer in-effect alarms may sit above the cursor, so
+           Newest is right here too, not only in the paging nav below. -->
+      {#if filter === 'in-effect' && cursorBounded}
+        <p class="mt-1">
+          {t('app.tasks.alarms.empty.newer-in-effect', 'Newer pages may hold alarms in effect.')}
+          <a href={filterHref('in-effect')} class="inline-flex min-h-11 items-center font-medium text-indigo-600 underline dark:text-indigo-400">{t('app.tasks.alarms.newest', 'Newest')}</a>
+        </p>
+      {:else if filter === 'acknowledged' && paging?.nextHref}
         <p class="mt-1">
           {t('app.tasks.alarms.empty.older-pages', 'Older pages may hold acknowledged alarms.')}
           <a href={paging.nextHref} class="inline-flex min-h-11 items-center font-medium text-indigo-600 underline dark:text-indigo-400">{t('app.tasks.alarms.next-page', 'Next')}</a>
