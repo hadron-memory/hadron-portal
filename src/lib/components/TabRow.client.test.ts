@@ -115,10 +115,33 @@ describe('bounded tab row', () => {
     expect(selected.className).toContain('max-w-full');
     expect(selected.className).not.toContain('shrink-0');
     expect(selected.textContent).toBe('one');
+    for (const token of ['pointer-coarse:min-h-11', 'border-b-2', 'px-4', 'py-2', 'text-sm', 'font-medium', 'transition',
+      'focus-visible:outline-2', 'focus-visible:outline-indigo-500', 'focus-visible:outline-offset-[-2px]']) {
+      expect(selected.classList.contains(token), `preserve ${token}`).toBe(true);
+    }
+    const measure = wide.target.querySelector<HTMLElement>('[data-tab-row-measure]')!;
+    expect(measure.classList.contains('whitespace-nowrap')).toBe(true);
+    expect(measure.classList.contains('shrink-0')).toBe(true);
+
     wide.unmount();
     const fits = setup(mode, 'one', 280); await tick(4);
     const ordinary = fits.target.querySelector<HTMLElement>('[aria-selected=true], [aria-current=page]')!;
     expect(ordinary.className).toContain('whitespace-nowrap');
     expect(ordinary.className).toContain('shrink-0');
   });
+  it.each(['tabs', 'links'] as const)('#1994 %s More items wrap without losing focus/touch/role classes', async mode => {
+    const {target}=setup(mode);await tick(4);
+    target.querySelector<HTMLButtonElement>('[aria-haspopup=menu]')!.click();await tick(4);
+    const choices=[...target.querySelectorAll<HTMLElement>('[role=menuitem]')];
+    expect(choices.length).toBeGreaterThan(0);
+    for(const choice of choices){
+      expect(choice.classList.contains('whitespace-normal')).toBe(true);
+      expect(choice.classList.contains('[overflow-wrap:anywhere]')).toBe(true);
+      expect(choice.classList.contains('whitespace-nowrap')).toBe(false);
+      expect(choice.classList.contains('pointer-coarse:min-h-11')).toBe(true);
+      expect(choice.classList.contains('focus:bg-zinc-100')).toBe(true);
+      expect(choice.getAttribute('tabindex')).toBe('-1');
+    }
+  });
+
 });
