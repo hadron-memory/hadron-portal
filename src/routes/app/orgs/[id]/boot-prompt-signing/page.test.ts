@@ -196,16 +196,24 @@ describe('portal#2074: the worker chip follows workerUrn, and positions are chec
   const cellWith = (body: string, needle: string) => cells(body).filter((c) => c.includes(needle));
   const wrow = { agentName: 'Atlas', agentUrn: 'hrn:agent:acme.com:zz-unrelated', workerId: 'w', workerName: 'Wren', workerUrn: 'hrn:worker:acme.com:app-1:wren-slug' };
 
-  it('each chip sits in its own cell, after that cell\'s name', () => {
+  it('each chip sits in the same cell as its name, after it', () => {
     const body = preview({ preview: ok([row(1, wrow)]) });
-    const agentCell = cellWith(body, 'zz-unrelated');
-    const workerCell = cellWith(body, 'wren-slug');
+    // Anchor on the NAME's cell, so a chip moved to another cell leaves the name's cell without it.
+    const agentCell = cellWith(body, 'Atlas');
+    const workerCell = cellWith(body, 'Wren');
     expect(agentCell).toHaveLength(1);
     expect(workerCell).toHaveLength(1);
-    expect(agentCell[0].indexOf('zz-unrelated')).toBeGreaterThan(agentCell[0].indexOf('Atlas'));
-    expect(workerCell[0].indexOf('wren-slug')).toBeGreaterThan(workerCell[0].indexOf('Wren'));
-    expect(agentCell[0]).not.toContain('wren-slug');
-    expect(workerCell[0]).not.toContain('zz-unrelated');
+    const a = agentCell[0];
+    const w = workerCell[0];
+    expect(a.indexOf('Atlas')).toBeGreaterThanOrEqual(0);
+    expect(a.indexOf('zz-unrelated')).toBeGreaterThan(a.indexOf('Atlas'));
+    expect(w.indexOf('Wren')).toBeGreaterThanOrEqual(0);
+    expect(w.indexOf('wren-slug')).toBeGreaterThan(w.indexOf('Wren'));
+    expect(a).not.toContain('wren-slug');
+    expect(w).not.toContain('zz-unrelated');
+    // And each chip appears in exactly one cell.
+    expect(cellWith(body, 'zz-unrelated')).toHaveLength(1);
+    expect(cellWith(body, 'wren-slug')).toHaveLength(1);
   });
 
   it('a workerUrn with no workerName still shows its chip, under a fallback label that is not derived from the URN', () => {
