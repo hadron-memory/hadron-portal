@@ -836,7 +836,20 @@ export const actions: Actions = {
   updateMeta: async ({ request, params, locals }) => {
     const fd = await request.formData();
     const form = await superValidate<NodeUpdateMetaForm>(fd, nodeUpdateMetaFormAdapter);
-    if (!form.valid) return fail(400, { form });
+    // portal#2023: the baseline the editor opened on. Every refusal that wrote nothing echoes it back
+    // beside the form: a full-page response (no JS, or a remount) restores the kept draft from the
+    // form, and the draft must keep the baseline it was typed against, or a retry would compare it
+    // with the fresh node and write it over the other editor's change. A failure AFTER the update
+    // committed does not echo it: the page advances the name itself (see onResult).
+    const baselineName = fd.get('baselineName');
+    const baselineLoc = fd.get('baselineLoc');
+    const metaBaseline = typeof baselineName === 'string' && typeof baselineLoc === 'string'
+      ? { metaBaseline: { name: baselineName, loc: baselineLoc } } : {};
+    const refuse = (status: number, text: string) => {
+      message(form, { type: 'error', text });
+      return fail(status, { form, ...metaBaseline });
+    };
+    if (!form.valid) return fail(400, { form, ...metaBaseline });
     const client = gqlClient(locals.token);
 
     const { node: currentNode } = await client.request<{ node: MemoryNode | null }>(
@@ -853,16 +866,11 @@ export const actions: Actions = {
     // mismatch with the node as read just now refuses before any write, with
     // no update and no moveNode. A missing baseline is refused too, never
     // treated as "no conflict".
-    const baselineName = fd.get('baselineName');
-    const baselineLoc = fd.get('baselineLoc');
     if (typeof baselineName !== 'string' || typeof baselineLoc !== 'string') {
-      return message(form, { type: 'error', text: t('node.meta.no-baseline', 'This editor is out of date, so nothing was saved. Reload the page and try again.') }, { status: 400 });
+      return refuse(400, t('node.meta.no-baseline', 'This editor is out of date, so nothing was saved. Reload the page and try again.'));
     }
     if (baselineName !== (currentNode.name ?? '') || baselineLoc !== currentNode.loc) {
-      return message(form, {
-        type: 'error',
-        text: t('node.meta.conflict', 'This node was changed (its name or location) since you opened the editor, so nothing was saved. Cancel to load the current values, then make your edit again.'),
-      }, { status: 409 });
+      return refuse(409, t('node.meta.conflict', 'This node was changed (its name or location) since you opened the editor, so nothing was saved. Cancel to load the current values, then make your edit again.'));
     }
 
     const name = form.data.name;
@@ -910,13 +918,13 @@ export const actions: Actions = {
     try {
       assertNodeUpdateDoor(currentNode, input);
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to save', NODE_WRITE_REFUSALS) }, { status: 500 });
+      return refuse(500, nodeWriteErrorText(e, 'Failed to save', NODE_WRITE_REFUSALS));
     }
 
     try {
       await client.request(nodeUpdateDocument(currentNode, input), { input });
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to save', NODE_WRITE_REFUSALS) }, { status: 500 });
+      return refuse(500, nodeWriteErrorText(e, 'Failed to save', NODE_WRITE_REFUSALS));
     }
 
     // Move if loc changed. #237: route the move through the node's OWN

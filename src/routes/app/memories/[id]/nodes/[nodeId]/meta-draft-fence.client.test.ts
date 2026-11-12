@@ -224,6 +224,71 @@ describe('saving a draft older than the node is refused, not written (portal#202
   });
 });
 
+describe('a full-page refusal keeps the draft AND the baseline it was typed against (Gene on #2027)', () => {
+  /** The refused action's answer, delivered as a fresh page load (no JS, or a remount), as kit does. */
+  async function remountWith(refused: { data?: Record<string, unknown> }) {
+    while (mounted.length) mounted.pop()!.unmount();
+    resetStubPage();
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    const fresh = await loaderData();
+    page.update((p) => ({ ...p, data: fresh, form: refused.data }));
+    const props = reactiveProps<Record<string, unknown>>({ data: fresh, form: refused.data });
+    const next = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(next);
+    document.body.appendChild(next.target);
+    await settle();
+    return next;
+  }
+
+  it('a retry from the remounted draft is refused again, with no update and no moveNode', async () => {
+    const { m } = await mountSettings();
+    buttonNamed(m.target, 'Edit')!.click();
+    flushSync();
+    type(input(m.target, 'editName'), 'Unsaved draft');
+    stored = OTHER;
+    const refused = await postForm(m.target);
+    expect(refused.status).toBe(409);
+
+    const next = await remountWith(refused);
+    buttonNamed(next.target, 'Edit')!.click();
+    flushSync();
+    expect(input(next.target, 'editName').value).toBe('Unsaved draft');
+    expect(hidden(next.target, 'baselineName')).toBe('Foo');
+    expect(hidden(next.target, 'baselineLoc')).toBe('foo');
+
+    mockRequest.mockClear();
+    const retried = await postForm(next.target);
+    expect(retried.status).toBe(409);
+    const sent = mockRequest.mock.calls.map(([q]) => q);
+    expect(sent).not.toContain(UPDATE_NODE_MUTATION);
+    expect(sent).not.toContain(MOVE_NODE_MUTATION);
+  });
+
+  it('a validation refusal also keeps its baseline (an empty name, then the node changes)', async () => {
+    const { m } = await mountSettings();
+    buttonNamed(m.target, 'Edit')!.click();
+    flushSync();
+    type(input(m.target, 'editName'), '');
+    const refused = await postForm(m.target);
+    expect(refused.status).toBe(400);
+    stored = OTHER;
+
+    const next = await remountWith(refused);
+    buttonNamed(next.target, 'Edit')!.click();
+    flushSync();
+    expect(hidden(next.target, 'baselineName')).toBe('Foo');
+    expect(hidden(next.target, 'baselineLoc')).toBe('foo');
+  });
+
+  it('control: a fresh load with no refusal takes its baseline from the node', async () => {
+    stored = OTHER;
+    const { m } = await mountSettings();
+    buttonNamed(m.target, 'Edit')!.click();
+    flushSync();
+    expect(hidden(m.target, 'baselineName')).toBe('Other tab saved');
+  });
+});
+
 describe('controls', () => {
   it('an ordinary save from an untouched baseline is accepted', async () => {
     const { m } = await mountSettings();

@@ -908,7 +908,15 @@
   // field list is the loader's own (@codex on #929).
   // portal#2023: the name and loc the editor was seeded from. Sent with every Save so the
   // server can refuse a draft that is older than the node (see `updateMeta`).
-  let metaBaseline = $state(untrack(() => ({ name: node.name ?? '', loc: node.loc })));
+  // A full-page refusal restores the kept draft from the action's form (initialUpdateMetaForm), so it
+  // restores the baseline the draft was typed against too, which the action echoes as `metaBaseline`.
+  let metaBaseline = $state(untrack(() => {
+    const echoed = form && submittedForm<NodeUpdateMetaForm>(form, 'updateMeta')
+      ? (form as { metaBaseline?: { name?: unknown; loc?: unknown } }).metaBaseline : undefined;
+    return typeof echoed?.name === 'string' && typeof echoed.loc === 'string'
+      ? { name: echoed.name, loc: echoed.loc }
+      : { name: node.name ?? '', loc: node.loc };
+  }));
   let updateMetaSeededFrom = $state(untrack(() => ({ id: node.id, role: node.role ?? null })));
   $effect(() => {
     if (nodeMetaSeedKey(updateMetaSeededFrom) === nodeMetaSeedKey(node)) return;
