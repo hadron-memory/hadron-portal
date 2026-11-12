@@ -190,6 +190,62 @@ describe('portal#1685 saved signature/trailer link advice', () => {
     expect(document.activeElement).toBe(retry);
     expect(root.textContent).toContain('Couldn’t check');
   });
+  it.each(['null', 'transport', 'failed-http'])('announces every failed Retry in the same mounted region: %s (#1918)', async mode => {
+    const fetcher = vi.fn().mockResolvedValue(response(null));
+    if (mode === 'transport') fetcher.mockRejectedValue(new Error('offline'));
+    if (mode === 'failed-http') fetcher.mockResolvedValue(response(null, false));
+    vi.stubGlobal('fetch', fetcher);
+    const { root } = await open();
+    const region = root.querySelector<HTMLElement>('[data-signature-lint]')!;
+    const outcome = region.querySelector('p');
+    const retry = region.querySelector<HTMLButtonElement>('button')!;
+    const zero = 'No worker-link warnings on the saved values.';
+    const initial = region.textContent!.trim();
+    let previous = initial;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      retry.focus(); retry.click(); await settle();
+      expect(root.querySelector('[data-signature-lint]')).toBe(region);
+      expect(root.querySelectorAll('[data-signature-lint]')).toHaveLength(1);
+      expect(region.querySelector('p')).toBe(outcome);
+      expect(region.getAttribute('aria-live')).toBe('polite');
+      expect(region.getAttribute('aria-atomic')).toBe('true');
+      expect(region.getAttribute('aria-busy')).toBe('false');
+      expect(region.textContent!.trim()).not.toBe(previous);
+      expect(outcome?.textContent).toBe(`Couldn’t check the worker link. Retry ${attempt} failed.`);
+      expect(region.textContent).not.toContain(zero);
+      expect(document.activeElement).toBe(retry);
+      previous = region.textContent!.trim();
+    }
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    fetcher.mockResolvedValue(response(page([])));
+    retry.click(); await settle();
+    expect(root.querySelector('[data-signature-lint]')).toBe(region);
+    expect(region.textContent).toContain(zero);
+    expect(document.activeElement).toBe(region);
+    // The successful read starts a new sequence: a later automatic refresh
+    // failure is the initial unavailable state, not an old failed Retry.
+    fetcher.mockResolvedValue(response(null));
+    type(root, 'edited after successful Retry'); await save(root);
+    expect(region.textContent!.trim()).toBe(initial);
+  });
+
+  it('starts a fresh Retry outcome sequence when the worker changes (#1918)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+    const { root, props } = await open();
+    const region = root.querySelector<HTMLElement>('[data-signature-lint]')!;
+    const initial = region.textContent!.trim();
+    const retry = region.querySelector<HTMLButtonElement>('button')!;
+    retry.click(); await settle();
+    const first = region.textContent!.trim();
+    retry.click(); await settle();
+    expect(region.textContent!.trim()).not.toBe(first);
+    props.workerId = 'b'; await settle();
+    expect(root.querySelector('[data-signature-lint]')).toBe(region);
+    expect(region.textContent!.trim()).toBe(initial);
+    region.querySelector<HTMLButtonElement>('button')!.click(); await settle();
+    expect(region.textContent!.trim()).toBe(first);
+  });
+
   it('retains the same live advice nodes through a successful save and identical lint refresh', async () => {
     let finish!: (r: unknown) => void;
     const warnings = page([item('signature'), item('trailer')]);
