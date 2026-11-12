@@ -177,6 +177,17 @@ export const APP_FIELDS = /* GraphQL */ `
 // Queries
 // ---------------------------------------------------------------------------
 
+/** #1955: only current identity, never credentials or draft values. */
+export const AI_CONFIG_PRINCIPAL_QUERY = /* GraphQL */ `
+  query AiConfigPrincipal {
+    authContext {
+      principalType
+      user { id }
+      appId
+    }
+  }
+`;
+
 /**
  * #1091, hrn:node:hadronmemory.com:specs:cor:aut:010:05: whether the credential THIS
  * request presented authenticates. AUTHENTICATED, REFUSED (one answer for every
