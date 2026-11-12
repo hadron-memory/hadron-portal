@@ -67,6 +67,13 @@ describe('preview page', () => {
     expect(body.indexOf('Couldn’t switch signing on')).toBeLessThan(body.indexOf('?/switchOn'));
   });
 
+  it('shows what happens beside the App, in the first column, not off-screen (QA F1)', () => {
+    const body = preview({ preview: ok([row(1)]) });
+    const firstRow = body.slice(body.indexOf('hrn:app:acme.com:app-1'));
+    expect(firstRow.indexOf('Stops: no signed revision')).toBeGreaterThan(-1);
+    expect(firstRow.indexOf('Stops: no signed revision')).toBeLessThan(firstRow.indexOf('Agent 1'));
+  });
+
   it('an empty preview says nothing would change and still offers Switch on', () => {
     const body = preview({ preview: ok([], { previewToken: 'tok-empty' }) });
     expect(body).toContain('Nothing would change.');

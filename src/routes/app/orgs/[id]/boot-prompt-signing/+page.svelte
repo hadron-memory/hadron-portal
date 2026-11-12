@@ -45,12 +45,12 @@
   let globalFilter = $state('');
   const columns: PortalColumnDef<PreviewRow>[] = [
     // Search matches what the cells show.
-    { accessorFn: (r) => r.appUrn, id: 'app', header: t('org.signing.col.app', 'App'), enableHiding: false, size: 260 },
+    // QA F1: the consequence rides in the FIRST column under its App, so it is on screen at 1280 and 390px.
+    { accessorFn: (r) => `${r.appUrn} ${stateWords(r)}`, id: 'app', header: t('org.signing.col.app', 'App'), enableHiding: false, size: 280 },
     { accessorFn: (r) => r.agentName, id: 'agent', header: t('org.signing.col.agent', 'Agent'), size: 180 },
     { accessorFn: (r) => workerWords(r), id: 'worker', header: t('org.signing.col.worker', 'Worker'), size: 200 },
     { accessorFn: (r) => r.compiledNodeUrn ?? '', id: 'node', header: t('org.signing.col.node', 'Compiled prompt'), size: 280 },
     { accessorFn: (r) => r.servedRevSeq, id: 'rev', header: t('org.signing.col.rev', 'Served revision'), size: 120 },
-    { accessorFn: (r) => stateWords(r), id: 'state', header: t('org.signing.col.state', 'What happens'), size: 260 },
   ];
   const table = createSvelteTable<PreviewRow>({
     get data() { return rows; },
@@ -112,6 +112,7 @@
           {#snippet cell(cell, row)}
             {#if cell.column.id === 'app'}
               <Urn value={row.appUrn} type="app" size={8} label={t('org.signing.urn.app', 'app')} />
+              <div class="mt-1 text-xs text-zinc-700 dark:text-zinc-300">{stateWords(row)}</div>
             {:else if cell.column.id === 'node'}
               {#if row.compiledNodeUrn}
                 <Urn value={row.compiledNodeUrn} type="node" size={8} label={t('org.signing.urn.node', 'node')} />
@@ -120,8 +121,6 @@
               {/if}
             {:else if cell.column.id === 'worker'}
               <div class="truncate">{workerWords(row)}</div>
-            {:else if cell.column.id === 'state'}
-              <div class="truncate">{stateWords(row)}</div>
             {:else}
               <div class="truncate">{cell.getValue()}</div>
             {/if}
