@@ -845,6 +845,13 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    // portal#2023: opt this form out of Superforms' unconditional page-data
+    // rebind, which reset an unsaved draft whenever an unrelated loader
+    // refresh carried a changed node (findings:stable-form-id-opts-into-
+    // invalidate-rebind). 'never', NOT false: own ActionResults still apply
+    // ('never' is truthy), and false leaves the data-path rebind live. The
+    // reseeds are explicit: reseedFromSavedNode, the node-change effect, Cancel.
+    applyAction: 'never',
     onSubmit: () => { moveRefusal = null; savedCompletely = false; },
     // portal#2020: superforms awaits the reload, THEN resets the form to its
     // initial (pre-save) values, so the reseed must come after that reset: here.
@@ -869,6 +876,10 @@
       // #1989: the refusal outlives that reload. The reload drops the action
       // `form` the alert reads, so the page holds the refusal text itself.
       moveRefusal = savedButNotMoved(result);
+      // portal#2023: the name IS saved now, so the next attempt's baseline is
+      // the saved name; the loc did not move and stays as it was.
+      const savedName = (result.data as { form?: { data?: { name?: unknown } } }).form?.data?.name;
+      if (typeof savedName === 'string') metaBaseline = { ...metaBaseline, name: savedName };
       // portal#1882: AWAIT the reload. Superforms awaits onResult before it
       // applies the result, so the failure (its message, the typed location)
       // lands after the reload. Unawaited, the reload finished later and
@@ -894,12 +905,16 @@
   // Reseed on a different node (everything) or a changed stored role on the
   // same node (role and its seed only): `nodeMetaReseed` decides, and the
   // field list is the loader's own (@codex on #929).
+  // portal#2023: the name and loc the editor was seeded from. Sent with every Save so the
+  // server can refuse a draft that is older than the node (see `updateMeta`).
+  let metaBaseline = $state(untrack(() => ({ name: node.name ?? '', loc: node.loc })));
   let updateMetaSeededFrom = $state(untrack(() => ({ id: node.id, role: node.role ?? null })));
   $effect(() => {
     if (nodeMetaSeedKey(updateMetaSeededFrom) === nodeMetaSeedKey(node)) return;
     const patch = nodeMetaReseed(updateMetaSeededFrom, node);
     updateMetaSeededFrom = { id: node.id, role: node.role ?? null };
     if (patch) updateMetaFormData.update((current) => ({ ...current, ...patch }), { taint: false });
+    if (patch && 'name' in patch) metaBaseline = { name: node.name ?? '', loc: node.loc };
   });
 
   // portal#2020: after a CONFIRMED, COMPLETE save the editor reopens from the
@@ -914,6 +929,7 @@
   function reseedFromSavedNode() {
     const seed = nodeMetaSeed(node);
     updateMetaSavedSeed = JSON.stringify(seed);
+    metaBaseline = { name: seed.name, loc: seed.loc };
     updateMetaFormData.set({ ...get(updateMetaFormData), ...seed }, { taint: false });
   }
   $effect(() => {
@@ -4343,6 +4359,8 @@
             <form method="POST" action="?/updateMeta" use:updateMetaEnhance novalidate
               class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
               <input type="hidden" name="_kind" bind:value={$updateMetaFormData._kind} />
+              <input type="hidden" name="baselineName" value={metaBaseline.name} />
+              <input type="hidden" name="baselineLoc" value={metaBaseline.loc} />
               {#if moveRefusal || updateMetaActionError}
                 <div role="alert" data-testid="node-meta-error" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{moveRefusal?.text ?? updateMetaActionError}</div>
               {/if}
@@ -4406,7 +4424,7 @@
                 <button type="submit" disabled={readOnly || $updateMetaSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-40">
                   {$updateMetaSubmitting ? t('node.meta.saving', 'Saving...') : $updateMetaMessage?.type === 'error' ? t('node.save.retry', 'Retry') : t('node.meta.save', 'Save')}
                 </button>
-                <button type="button" onclick={() => { isEditing = false; clearMetaRefusal(); }} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+                <button type="button" onclick={() => { isEditing = false; clearMetaRefusal(); reseedFromSavedNode(); }} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
               </div>
             </form>
           {:else}

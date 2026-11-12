@@ -130,6 +130,9 @@ describe('updateMeta', () => {
     seq: '1',
     tags: 'keep',
     loc: 'classify',
+    // portal#2023: the name and loc the editor opened on (the stub node's).
+    baselineName: 'Classify',
+    baselineLoc: 'classify',
     ...over,
   });
 
@@ -175,6 +178,9 @@ describe('updateMeta — Node.role (#921)', () => {
     seq: '1',
     tags: 'keep',
     loc: 'classify',
+    // portal#2023: the name and loc the editor opened on (the stub node's).
+    baselineName: 'Classify',
+    baselineLoc: 'classify',
     ...over,
   });
   const sent = (door: string) => mockRequest.mock.calls.find(([q]) => q === door)![1].input;
@@ -282,6 +288,7 @@ describe('updateMeta — the move happens AFTER the door is settled', () => {
       tags: 'keep',
       loc: 'somewhere:else',   // a MOVE, and
       isRunnable: 'on',        // a write with no door (review + task)
+      baselineName: 'Classify', baselineLoc: 'classify',
     })) as { status?: number };
 
     expect(result.status).toBe(500);
@@ -295,6 +302,7 @@ describe('updateMeta — the move happens AFTER the door is settled', () => {
     await run('updateMeta', {
       name: 'Classify', nodeType: 'info', description: '', alias: '',
       seq: '1', tags: 'keep', loc: 'somewhere:else',
+      baselineName: 'Classify', baselineLoc: 'classify',
     });
     // The update first, selected by id; then the move.
     expect(doorsUsed()).toEqual([UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION]);
@@ -315,6 +323,7 @@ describe('updateMeta — the move happens AFTER the door is settled', () => {
       name: 'Classify', nodeType: 'info', description: '', alias: '',
       seq: '1', tags: 'keep', loc: 'somewhere:else',
       role: 'spec.feature', roleSeed: 'spec',
+      baselineName: 'Classify', baselineLoc: 'classify',
     })) as { status?: number };
     expect(result.status).toBe(500);
     // The refused update was attempted; the move never was.

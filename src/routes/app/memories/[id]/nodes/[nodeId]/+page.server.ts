@@ -834,10 +834,8 @@ export const actions: Actions = {
   },
 
   updateMeta: async ({ request, params, locals }) => {
-    const form = await superValidate<NodeUpdateMetaForm>(
-      await request.formData(),
-      nodeUpdateMetaFormAdapter,
-    );
+    const fd = await request.formData();
+    const form = await superValidate<NodeUpdateMetaForm>(fd, nodeUpdateMetaFormAdapter);
     if (!form.valid) return fail(400, { form });
     const client = gqlClient(locals.token);
 
@@ -845,6 +843,27 @@ export const actions: Actions = {
       NODE_BY_ID_QUERY, { ref: params.nodeId },
     );
     if (!currentNode) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
+
+    // portal#2023: the editor keeps an unsaved draft across a loader refresh, so
+    // the draft can be older than the node. This save writes name whole and
+    // moves the node whenever `loc` differs from the node's CURRENT loc, so an
+    // older draft would overwrite another editor's name and move a node they
+    // had moved back. The form therefore carries the name and loc it was
+    // seeded from, like the Data and Properties editors carry `baseline`: a
+    // mismatch with the node as read just now refuses before any write, with
+    // no update and no moveNode. A missing baseline is refused too, never
+    // treated as "no conflict".
+    const baselineName = fd.get('baselineName');
+    const baselineLoc = fd.get('baselineLoc');
+    if (typeof baselineName !== 'string' || typeof baselineLoc !== 'string') {
+      return message(form, { type: 'error', text: t('node.meta.no-baseline', 'This editor is out of date, so nothing was saved. Reload the page and try again.') }, { status: 400 });
+    }
+    if (baselineName !== (currentNode.name ?? '') || baselineLoc !== currentNode.loc) {
+      return message(form, {
+        type: 'error',
+        text: t('node.meta.conflict', 'This node was changed (its name or location) since you opened the editor, so nothing was saved. Cancel to load the current values, then make your edit again.'),
+      }, { status: 409 });
+    }
 
     const name = form.data.name;
     // Accept only a canonical type or the node's existing one — otherwise keep

@@ -49,11 +49,11 @@ function stub(moveError?: unknown) {
   });
 }
 
-async function saveLoc(loc: string) {
+async function saveLoc(loc: string, baselineLoc = 'rules:copy') {
   const { actions } = await import('./+page.server');
   const fd = new FormData();
   for (const [k, v] of Object.entries({
-    name: 'Copy', nodeType: 'info', description: '', alias: '', seq: '1', tags: '', loc,
+    name: 'Copy', nodeType: 'info', description: '', alias: '', seq: '1', tags: '', loc, baselineName: 'Copy', baselineLoc,
   })) fd.set(k, v);
   return (actions as Record<string, (e: never) => Promise<unknown>>).updateMeta({
     request: { formData: async () => fd },
@@ -112,7 +112,7 @@ describe('updateMeta location field takes a full node URN (#1876)', () => {
       }
       return {};
     });
-    await saveLoc(chain);
+    await saveLoc(chain, 'worker:system:reports:daily');
     expect(moves()).toEqual([{ sourceRef: 'pk', targetUrn: chain }]);
   });
 

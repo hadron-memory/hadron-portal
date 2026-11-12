@@ -131,7 +131,7 @@ async function mountSettings() {
 /** The real action's answer to a Save that renames the node and moves it to `loc`. */
 async function realRefusal(loc: string) {
   const fd = new FormData();
-  for (const [k, v] of Object.entries({ _kind: 'updateMeta', name: 'Foo renamed', nodeType: 'info', description: '', alias: '', seq: '', tags: '', loc })) fd.set(k, v);
+  for (const [k, v] of Object.entries({ _kind: 'updateMeta', name: 'Foo renamed', nodeType: 'info', description: '', alias: '', seq: '', tags: '', loc, baselineName: 'Foo', baselineLoc: 'foo' })) fd.set(k, v);
   const r = (await (actions as Record<string, (e: never) => Promise<unknown>>).updateMeta({
     request: { formData: async () => fd },
     params: { id: 'mem-A', nodeId: 'leaf-pk' },
@@ -264,9 +264,11 @@ describe('a refused move after a committed Save stays visible (#1989)', () => {
     await settle();
     expect(metaAlert(m.target)).not.toBe(null);
     // Retry: the second Save commits (no move this time), so the editor closes and the refusal must not outlive it.
+    // The first Save DID commit the rename (only its move failed), so the node the action now reads carries it:
+    // the retry's baseline is the saved name (portal#2023).
     mockRequest.mockImplementation(async (doc: string) => {
       if (doc === UPDATE_NODE_MUTATION) return { updateNode: { ...NODE, name: 'Foo renamed' } };
-      if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY || doc === NODE_DATA_READ_QUERY) return { node: NODE };
+      if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY || doc === NODE_DATA_READ_QUERY) return { node: { ...NODE, name: 'Foo renamed' } };
       if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
       return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
     });
