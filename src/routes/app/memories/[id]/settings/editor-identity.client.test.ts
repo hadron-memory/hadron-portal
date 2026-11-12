@@ -234,3 +234,24 @@ describe('in-flight submit across A→B (#1909 characterization)', () => {
     expect(target.textContent).not.toContain('Changes saved.');
   });
 });
+
+describe('a message-less field error still renders (N9 on #2061, portal#2062)', () => {
+  it('shows the first field message through the settingsActionError fallback', async () => {
+    const { target, props } = await mountOn('mem-a', 'Alpha');
+    typeName(nameInput(target)!, 'Alpha DRAFT');
+    const sent = await submitEnhancedDeferred(editor(target)!);
+
+    // A server refusal naming a field, with no form-level `message`.
+    const refused = await superValidate({ displayName: 'Alpha DRAFT' }, zod4(memorySettingsSchema), { errors: false, id: 'updateMemorySettings:mem-a' });
+    refused.valid = false;
+    refused.errors = { displayName: ['Display name is taken.'] };
+    expect(refused.message).toBeUndefined();
+    await sent.finish({ type: 'failure', status: 400, data: { form: refused } });
+    props.form = { form: refused } as never;
+    await tick(5);
+
+    const alert = target.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain('Display name is taken.');
+    expect(editor(target)).not.toBeNull();
+  });
+});

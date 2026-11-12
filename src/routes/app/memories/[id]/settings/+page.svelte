@@ -873,8 +873,10 @@
         {/if}
 
         </fieldset>
-        <!-- #1909: Save lives in the disabled-able fieldset; Cancel sits outside it
-             so management loss disables Save without trapping the open editor. -->
+        <!-- #1909: Save and Cancel both sit outside the disabled-able fieldset. Save
+             carries its own `disabled` (submitting or no edit right), so management
+             loss disables Save while Cancel stays reachable and the open editor is
+             never trapped. -->
         <div class="flex gap-3">
           <button type="submit" disabled={$settingsSubmitting || !canEditSettings} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
             {$settingsSubmitting ? 'Saving...' : 'Save'}
