@@ -8,6 +8,7 @@
   import { formatPortalDate, formatPortalDateTime } from '$lib/format-portal-date';
   import { deleteNodeStrings } from '$lib/i18n/delete-node-strings';
   import { invalidateAll, goto } from '$app/navigation';
+  import { get } from 'svelte/store';
   import { canonicalJson, parseDataSource, parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
   import { displayJson, JsonDraft, SIGNED_OUT, submitJsonDraft, syncDraftWith } from '$lib/json-draft.svelte';
   import { deserialize, enhance } from '$app/forms';
@@ -58,7 +59,7 @@
     type ProvenanceResult,
   } from '$lib/node-provenance';
   import NodeRoleInput from '$lib/components/NodeRoleInput.svelte';
-  import { metaSavedDespiteFailure, nodeMetaReseed, nodeMetaSeedKey, savedButNotMoved } from '$lib/node-meta-seed';
+  import { metaSavedDespiteFailure, nodeMetaReseed, nodeMetaSeed, nodeMetaSeedKey, savedButNotMoved } from '$lib/node-meta-seed';
   import { bestEffortInvalidateAll } from '$lib/best-effort-invalidate-all';
   import { skillExportMenuHosts } from '$lib/skill-export';
   import NodeAssetCard from '$lib/components/assets/NodeAssetCard.svelte';
@@ -169,6 +170,8 @@
   // error); left to superForm, the refusal vanished and the draft reverted.
   // #1989: Save's move refusal, held by the page because the reload after a committed Save drops the
   // action `form` the alert would otherwise read.
+  /** portal#2020: the last updateMeta result was a confirmed, complete success. */
+  let savedCompletely = false;
   let moveRefusal = $state<{ text: string; loc: string } | null>(null);
 
   // Inline editing. #927: each text editor is a draft based on the revision it
@@ -837,9 +840,22 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
-    onSubmit: () => { moveRefusal = null; },
+    onSubmit: () => { moveRefusal = null; savedCompletely = false; },
+    // portal#2020: superforms awaits the reload, THEN resets the form to its
+    // initial (pre-save) values, so the reseed must come after that reset: here.
+    onUpdated: () => {
+      if (!savedCompletely) return;
+      savedCompletely = false;
+      reseedFromSavedNode();
+    },
     onResult: async ({ result }) => {
-      if (result.type !== 'failure') { isEditing = false; return; }
+      if (result.type !== 'failure') {
+        isEditing = false;
+        // portal#2020: only a confirmed complete success arms the reseed below.
+        savedCompletely = result.type === 'success';
+        return;
+      }
+      savedCompletely = false;
       // Saved, but the move failed: keep the editor open to fix the location,
       // and reload the node so the page shows what was actually saved. The
       // reload depends only on the save having committed, not on finding a
@@ -879,6 +895,26 @@
     const patch = nodeMetaReseed(updateMetaSeededFrom, node);
     updateMetaSeededFrom = { id: node.id, role: node.role ?? null };
     if (patch) updateMetaFormData.update((current) => ({ ...current, ...patch }), { taint: false });
+  });
+
+  // portal#2020: after a CONFIRMED, COMPLETE save the editor reopens from the
+  // node the server returned (`cor:dmo:060:02`: the server normalizes what it
+  // stores, so never the typed values). The effect above keys on id + role
+  // alone, so a same-node name/loc/description save left the pre-save seed and
+  // the next Save wrote the old values back. This one fires only while the
+  // editor is CLOSED: a partial success (#929), a refusal (#1989) and an unsaved
+  // draft all keep the editor open, so none of them is reseeded. The role pair
+  // stays with `nodeMetaReseed` (#921).
+  let updateMetaSavedSeed = $state(untrack(() => JSON.stringify(nodeMetaSeed(node))));
+  function reseedFromSavedNode() {
+    const seed = nodeMetaSeed(node);
+    updateMetaSavedSeed = JSON.stringify(seed);
+    updateMetaFormData.set({ ...get(updateMetaFormData), ...seed }, { taint: false });
+  }
+  $effect(() => {
+    if (JSON.stringify(nodeMetaSeed(node)) === untrack(() => updateMetaSavedSeed)) return;
+    if (untrack(() => isEditing)) return;
+    untrack(reseedFromSavedNode);
   });
 
   const initialDuplicateForm = untrack(() => submittedForm<NodeDuplicateForm>(form, 'duplicateNode') as NodeDuplicateSuperform | null ?? data.duplicateForm);
