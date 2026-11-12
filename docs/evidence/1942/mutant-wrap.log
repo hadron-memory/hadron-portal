@@ -1,0 +1,22 @@
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: runs: repaired text paints no neighboring pixels with net OFF
+
+546 !== 0
+
+    at pixelStrip (file:///home/orca/orca/workspaces/hadron-portal/juliet/scripts/test-table-cell-overflow-layout.mjs:37:9)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at process.processImmediate (node:internal/timers:452:9)
+    at process.callbackTrampoline (node:internal/async_hooks:130:17)
+    at async file:///home/orca/orca/workspaces/hadron-portal/juliet/scripts/test-table-cell-overflow-layout.mjs:114:18 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: 546,
+  expected: 0,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v22.23.3

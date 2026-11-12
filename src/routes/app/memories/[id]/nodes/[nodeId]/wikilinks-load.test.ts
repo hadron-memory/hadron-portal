@@ -8,6 +8,7 @@
  * no cross-memory bleed.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { serveMemoryReads } from '$lib/test/serveMemoryReads';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -41,8 +42,15 @@ async function runLoad(opts: {
       outgoingEdges: [], incomingEdges: [],
     },
   });
-  // The streamed Move-picker list; anything after it is unused by these cases.
-  mockRequest.mockResolvedValue({ memories: { items: [], total: 0 } });
+  // The aliased wikilink lookups answer from the seeded nodes (portal#1433: the
+  // layout no longer carries them). Anything else is the Move-picker list.
+  const reads = serveMemoryReads(opts.graphNodes, {
+    id: MEM,
+    urn: opts.memoryUrn ?? 'hrn:memory:hadronmemory.com::hadron-portal',
+  });
+  mockRequest.mockImplementation(async (doc: string, vars?: Record<string, unknown>) =>
+    reads(doc, vars) ?? { memories: { items: [], total: 0 } },
+  );
 
   const { load } = await import('./+page.server');
   const event = {
@@ -50,7 +58,6 @@ async function runLoad(opts: {
     locals: { token: 'tok' },
     url: new URL(`http://localhost/app/memories/${MEM}/nodes/leaf-pk`),
     parent: vi.fn().mockResolvedValue({
-      graphNodes: opts.graphNodes,
       graph: { id: MEM, urn: opts.memoryUrn ?? 'hrn:memory:hadronmemory.com::hadron-portal' },
       isConsumerMode: false,
       activeOrgId: 'org-1',
@@ -101,7 +108,7 @@ describe('node-detail load — wikilink resolution (#374)', () => {
     expect(result.wikilinks['findings:x']).toBeNull();
   });
 
-  it('resolves same-memory wikilinks without any extra GraphQL request', async () => {
+  it('resolves same-memory wikilinks in ONE batched request (portal#1433: no layout node list to read)', async () => {
     await runLoad({
       content: '[[findings:x]] [[findings:y]]',
       graphNodes: [
@@ -111,7 +118,7 @@ describe('node-detail load — wikilink resolution (#374)', () => {
     });
 
     const docs = mockRequest.mock.calls.map(([doc]) => String(doc));
-    expect(docs.some((d) => d.includes('WikilinkTargets'))).toBe(false);
+    expect(docs.filter((d) => d.includes('WikilinkTargets'))).toHaveLength(1);
   });
 
   it('returns an empty map for a node whose body has no wikilinks', async () => {

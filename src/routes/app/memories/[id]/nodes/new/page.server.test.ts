@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CREATE_NODE_MUTATION } from '$lib/server/queries';
+import { CREATE_NODE_MUTATION, MEMORY_ROLE_RULES_QUERY, NODE_CHILDREN_QUERY } from '$lib/server/queries';
+import { fakeFindNodesChildren, type FakeChildRow } from '$lib/test/fakeFindNodesChildren';
 
 const mockRequest = vi.fn();
 
@@ -29,6 +30,8 @@ function loadEvent(opts: {
 
   return {
     url,
+    params: { id: 'memory-1' },
+    locals: { token: 'test-token' },
     parent: vi.fn().mockResolvedValue({
       isConsumerMode: opts.isConsumerMode ?? false,
       activeOrgId: opts.activeOrgId ?? 'org-1',
@@ -74,6 +77,7 @@ async function runCreate(fields: Record<string, string>) {
 
 describe('new node load()', () => {
   it('seeds the form and normalizes deep-link loc data without initial errors', async () => {
+    serveSiblings([{ id: 's1', loc: 'parent:path:child' }, { id: 's2', loc: 'parent:path:child:deep' }, { id: 's3', loc: 'parent:other' }]);
     const { load } = await importMod();
     const event = loadEvent({
       parent: 'loc:parent/path',
@@ -90,7 +94,10 @@ describe('new node load()', () => {
     expect(result).toMatchObject({
       parentLoc: 'parent:path',
       prefillLoc: 'parent:child',
-      existingLocs: ['parent:child', 'other-node'],
+      // portal#1656: the siblings under ?parent, read with childrenOf — not the
+      // layout's graphNodes, which is no longer loaded (portal#1524).
+      existingLocs: ['parent:path:child'],
+      siblingsPartial: false,
     });
     expect((result as {
       form: { data: Record<string, string>; errors: Record<string, string[]> };
@@ -102,6 +109,7 @@ describe('new node load()', () => {
       abstract: '',
       tags: '',
       content: '',
+      role: '',
       objectType: '',
       propertiesJson: '',
     });
@@ -122,6 +130,65 @@ describe('new node load()', () => {
     const result = await load(loadEvent({ isConsumerMode: true, activeOrgId: 'personal-org', graph: { organizationId: null } }));
     expect(result).toBeTruthy();
     expect(superFormFrom(result)).toBeTruthy();
+  });
+});
+
+function serveSiblings(tree: FakeChildRow[], fail = false) {
+  mockRequest.mockImplementation(async (doc: string, vars?: Record<string, unknown>) => {
+    if (doc !== NODE_CHILDREN_QUERY) throw new Error('unexpected document');
+    if (fail) throw new Error('boom');
+    return fakeFindNodesChildren(tree, 'memory-1')(vars);
+  });
+}
+
+describe('new node load(): siblings for the default loc (portal#1656)', () => {
+  type Loaded = { existingLocs: string[]; siblingsPartial: boolean };
+  const run = async (parent: string) => (await (await importMod()).load(loadEvent({ parent }))) as unknown as Loaded;
+
+  it('reads the siblings under ?parent with childrenOf (no locPrefix, no sort), one bounded page', async () => {
+    serveSiblings([{ id: 'a', loc: 'p:a' }]);
+    await run('p');
+    const calls = mockRequest.mock.calls.filter(([d]) => d === NODE_CHILDREN_QUERY);
+    expect(calls).toHaveLength(1);
+    expect(calls[0][1]).toEqual({ memoryId: 'memory-1', childrenOf: 'p', limit: 21, offset: 0 });
+  });
+
+  it('suggests a loc that does not collide with siblings a and a-2', async () => {
+    serveSiblings([{ id: '1', loc: 'p:a' }, { id: '2', loc: 'p:a-2' }]);
+    const data = await run('p');
+    expect(data.existingLocs).toEqual(['p:a', 'p:a-2']);
+    expect(data.siblingsPartial).toBe(false);
+    const { deriveDefaultLoc } = await import('$lib/create-node/derive-default-loc');
+    expect(deriveDefaultLoc('A', 'p', data.existingLocs)).toBe('a-3');
+  });
+
+  it('with no ?parent, reads the top level', async () => {
+    serveSiblings([{ id: '1', loc: 'a' }, { id: '2', loc: 'a:kid' }]);
+    const data = await run('');
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ childrenOf: '' });
+    expect(data.existingLocs).toEqual(['a']);
+  });
+
+  it('a capped sibling page is partial: the suggestion may collide', async () => {
+    serveSiblings(Array.from({ length: 30 }, (_, i) => ({ id: `${i}`, loc: `p:s${String(i).padStart(2, '0')}` })));
+    const data = await run('p');
+    expect(data.siblingsPartial).toBe(true);
+  });
+
+  it('exactly 20 siblings is a complete page', async () => {
+    serveSiblings(Array.from({ length: 20 }, (_, i) => ({ id: `${i}`, loc: `p:s${String(i).padStart(2, '0')}` })));
+    const data = await run('p');
+    expect(data.existingLocs).toHaveLength(20);
+    expect(data.siblingsPartial).toBe(false);
+  });
+
+  it('a failed sibling read is partial, never "no siblings", and the form still loads', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    serveSiblings([], true);
+    const data = await run('p');
+    expect(data.existingLocs).toEqual([]);
+    expect(data.siblingsPartial).toBe(true);
+    expect(superFormFrom(data)).toBeTruthy();
   });
 });
 
@@ -343,5 +410,107 @@ describe('create refused for an include tag', () => {
     mockRequest.mockRejectedValueOnce(refusal('SOMETHING_ELSE'));
     const result = await runCreate({ name: 'Node', loc: 'node', nodeType: 'info' });
     expect(String((superFormFrom(result)?.message as { text?: string } | undefined)?.text)).not.toContain('include tag');
+  });
+});
+
+
+// #1670: choose a role when creating a node.
+describe('new node role (#1670)', () => {
+  const gqlRefusal = (code: string, extensions: Record<string, unknown>) => ({
+    response: { errors: [{ message: 'refused by the server', extensions: { code, ...extensions } }] },
+  });
+  const base = { name: 'Node', loc: 'node', nodeType: 'info' };
+  const sentInput = () => (mockRequest.mock.calls.find(([d]) => d === CREATE_NODE_MUTATION)![1] as { input: Record<string, unknown> }).input;
+
+  it('an empty role field sends no role', async () => {
+    mockRequest.mockResolvedValueOnce({ createNode: { id: 'n1' } });
+    await runCreate({ ...base, role: '' });
+    expect('role' in sentInput()).toBe(false);
+  });
+  it('a whitespace-only role field sends no role', async () => {
+    mockRequest.mockResolvedValueOnce({ createNode: { id: 'n1' } });
+    await runCreate({ ...base, role: '   ' });
+    expect('role' in sentInput()).toBe(false);
+  });
+  it('a typed role is sent trimmed only: case and dots kept, no closed list', async () => {
+    mockRequest.mockResolvedValueOnce({ createNode: { id: 'n1' } });
+    await runCreate({ ...base, role: '  Spec.Feature  ' });
+    expect(sentInput().role).toBe('Spec.Feature');
+  });
+  it('an invented role is sent as typed (suggestions never reject)', async () => {
+    mockRequest.mockResolvedValueOnce({ createNode: { id: 'n1' } });
+    await runCreate({ ...base, role: 'totally.made-up' });
+    expect(sentInput().role).toBe('totally.made-up');
+  });
+  it('create never sends authoredWith, a task, a revision or any human/surface flag', async () => {
+    mockRequest.mockResolvedValueOnce({ createNode: { id: 'n1' } });
+    await runCreate({ ...base, role: 'spec', authoredWith: 'HUMAN', human: 'true', task: 't', revision: '3', surface: 'portal' });
+    expect(Object.keys(sentInput()).sort()).toEqual(['content', 'abstract', 'description', 'loc', 'memoryId', 'name', 'nodeType', 'objectType', 'properties', 'role', 'tags'].filter((k) => k in sentInput()).sort());
+    for (const k of ['authoredWith', 'human', 'task', 'taskId', 'revision', 'expectedRevision', 'surface', 'trusted']) expect(k in sentInput()).toBe(false);
+  });
+
+  it('ROLE_NOT_DECLARED names the role and strict parent, and keeps everything typed', async () => {
+    mockRequest.mockRejectedValueOnce(gqlRefusal('ROLE_NOT_DECLARED', { role: 'spec.nope', strictParent: 'spec' }));
+    const result = await runCreate({ ...base, name: 'Keep me', description: 'kept', content: 'body', role: 'spec.nope' });
+    const f = superFormFrom(result) as { data: Record<string, string>; message: { text: string } };
+    expect(f.message.text).toContain('spec.nope');
+    expect(f.message.text).toContain('spec');
+    expect(f.message.text).toMatch(/declared sub-role|ask a manager/i);
+    expect(f.data).toMatchObject({ name: 'Keep me', description: 'kept', content: 'body', role: 'spec.nope' });
+  });
+  it('ROLE_WRITER_LEVEL_REQUIRED shows the level copy and keeps the input', async () => {
+    mockRequest.mockRejectedValueOnce(gqlRefusal('ROLE_WRITER_LEVEL_REQUIRED', { level: 'ADMIN', ruleRole: 'review', side: 'after' }));
+    const result = await runCreate({ ...base, role: 'review' });
+    const f = superFormFrom(result) as { data: Record<string, string>; message: { text: string } };
+    expect(f.message.text).toContain('review');
+    expect(f.message.text).toMatch(/admins or owners/);
+    expect(f.data.role).toBe('review');
+  });
+  it('ROLE_WRITERS_UNSUPPORTED and ROLE_GOVERNED (create) keep the input with the server reason', async () => {
+    mockRequest.mockRejectedValueOnce(gqlRefusal('ROLE_WRITERS_UNSUPPORTED', { level: 'OWNER', ruleRole: 'locked' }));
+    const a = superFormFrom(await runCreate({ ...base, role: 'locked' })) as { data: Record<string, string>; message: { text: string } };
+    expect(a.message.text).toMatch(/not supported yet/);
+    expect(a.data.role).toBe('locked');
+    mockRequest.mockRejectedValueOnce(gqlRefusal('ROLE_GOVERNED', { op: 'create', door: 'createSpecNode' }));
+    const b = superFormFrom(await runCreate({ ...base, role: 'spec' })) as { data: Record<string, string>; message: { text: string } };
+    expect(b.message.text).toContain('refused by the server');
+    expect(b.message.text).toMatch(/create a specification node/);
+    expect(b.data.role).toBe('spec');
+  });
+});
+
+describe('new node load(): declared roles for managers (#1670)', () => {
+  const rule = (role: string, over: Record<string, unknown> = {}) => ({
+    role, enabled: true, writers: 'ALL', strictSubRoles: false, descriptionNode: null, descriptionNodeState: 'NONE', ...over,
+  });
+  const serve = (config: unknown, fail = false) => mockRequest.mockImplementation(async (doc: string, vars?: Record<string, unknown>) => {
+    if (doc === MEMORY_ROLE_RULES_QUERY) {
+      if (fail) throw new Error('boom');
+      return { memory: { id: 'memory-1', config } };
+    }
+    return fakeFindNodesChildren([], 'memory-1')(vars);
+  });
+  type Loaded = { roleRules: unknown };
+  const run = async () => (await (await importMod()).load(loadEvent())) as unknown as Loaded;
+
+  it('a manager gets every rule row, disabled included', async () => {
+    serve({ rules: [rule('spec', { strictSubRoles: true }), rule('spec.feature', { enabled: false })] });
+    const { roleRules } = await run();
+    expect((roleRules as Array<{ role: string; enabled: boolean }>).map((r) => [r.role, r.enabled])).toEqual([['spec', true], ['spec.feature', false]]);
+  });
+  it('a non-manager (config null) gets no rule list and no config is invented', async () => {
+    serve(null);
+    expect((await run()).roleRules).toBeNull();
+  });
+  it('a failed rules read leaves the page working with no rule list', async () => {
+    serve(null, true);
+    expect((await run()).roleRules).toBeNull();
+  });
+  it('reads the rules with one narrow query for this memory', async () => {
+    serve({ rules: [] });
+    await run();
+    const calls = mockRequest.mock.calls.filter(([d]) => d === MEMORY_ROLE_RULES_QUERY);
+    expect(calls).toHaveLength(1);
+    expect(calls[0][1]).toEqual({ ref: 'memory-1' });
   });
 });

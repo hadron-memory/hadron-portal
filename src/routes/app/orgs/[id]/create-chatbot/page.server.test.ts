@@ -70,7 +70,7 @@ const baseFields = {
   agentName: 'Juno',
   agentSlug: 'juno',
   agentDescription: 'Helpful assistant',
-  systemPrompt: 'Be helpful.',
+
   visibility: 'PERSONAL',
   includeKnowledge: 'true',
   knowledgeMemoryName: 'Juno Knowledge',
@@ -99,7 +99,7 @@ describe('create chatbot action', () => {
       orgId: 'org-1',
       name: 'juno',
       description: 'Helpful assistant',
-      systemPrompt: 'Be helpful.',
+
       systemMemoryId: 'memory-1',
       visibility: 'PERSONAL',
     });
@@ -171,7 +171,7 @@ describe('create chatbot action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('maps duplicate system memory URN failures to a 409 field error', async () => {
+  it('does not classify an untyped memory fault by its prose', async () => {
     mockRequest.mockImplementation(async (query: string, vars: Record<string, unknown>) => {
       if (query === CREATE_MEMORY_MUTATION && vars.name === 'juno-system') {
         throw {
@@ -187,8 +187,9 @@ describe('create chatbot action', () => {
 
     const result = await runCreate(baseFields);
 
-    expect(result).toMatchObject({ status: 409 });
-    expect(fieldError(result, 'systemMemorySlug')).toBe('A memory with URN "org:juno-system" already exists');
+    expect(result).toMatchObject({ status: 500 });
+    expect(fieldError(result, 'systemMemorySlug')).toBeUndefined();
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
   });
 
   it('maps duplicate agent URN failures to a 409 field error', async () => {
@@ -197,7 +198,7 @@ describe('create chatbot action', () => {
       if (query === CREATE_AGENT_MUTATION) {
         throw {
           response: {
-            errors: [{ message: 'An agent with URN "org:juno" already exists' }],
+            errors: [{ message: 'An agent with URN "org:juno" already exists', extensions: { code: 'AGENT_URN_TAKEN' } }],
           },
         };
       }

@@ -293,6 +293,26 @@ describe('/api/nodes/search (#429)', () => {
     expect(body.snippets).toEqual({ n1: 'best chunk', n2: 'other node chunk' });
   });
 
+  it('portal#1433: a typeahead limit is forwarded, and capped is judged against it', async () => {
+    mockRequest.mockResolvedValue(findNodesResult(20));
+    const res = await POST(ev({ query: 'x', memoryIds: ['m1'], limit: 20 }));
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ limit: 20 });
+    expect((await res.json()).capped).toBe(true);
+  });
+
+  it.each([
+    [10_000, 500],
+    [0, 1],
+    [-5, 1],
+    [7.9, 7],
+    ['20', 500],
+    [Number.NaN, 500],
+  ])('portal#1433: clamps a requested limit of %s to %s', async (limit, sent) => {
+    mockRequest.mockResolvedValue(findNodesResult(0));
+    await POST(ev({ query: 'x', memoryIds: ['m1'], limit }));
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ limit: sent });
+  });
+
   it('flags capped when the result hits the limit', async () => {
     mockRequest.mockResolvedValue(findNodesResult(500));
     const res = await POST(ev({ query: 'foo', memoryIds: ['m1'] }));

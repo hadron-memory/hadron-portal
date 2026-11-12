@@ -1,3 +1,4 @@
+import { extractGqlError } from '$lib/gql-error';
 /**
  * 008-agent-installation T075: friendly translations for the typed
  * App-member errors thrown by the server. The server raises GraphQLError
@@ -35,9 +36,8 @@ export function appMemberErrorCode(e: unknown): string | null {
 
 /**
  * Translate a thrown App-member error to a friendly user-facing string
- * (routed through t() per T075). Falls back to the GraphQL error message
- * when the code is unrecognised, and finally to a generic message when
- * the input doesn't look like a GraphQL error at all.
+ * (routed through t() per T075). Unknown GraphQL faults use the shared safe envelope; intentional typed
+ * messages remain behind the explicit mappings below.
  */
 export function translateAppMemberError(e: unknown, fallback: string): string {
   const code = appMemberErrorCode(e);
@@ -63,12 +63,8 @@ export function translateAppMemberError(e: unknown, fallback: string): string {
         'This App has no Agent linked yet — link one before adding members.',
       );
     default: {
-      // Prefer the server's GraphQL error message when present so the
-      // user sees the most informative text, then the generic
-      // Error.message, and finally the caller-supplied fallback.
-      const errs = (e as GqlErrorLike)?.response?.errors;
-      if (errs?.[0]?.message) return errs[0].message;
-      return e instanceof Error ? e.message : fallback;
+      // No unknown server prose (portal#1132).
+      return extractGqlError(e, fallback);
     }
   }
 }

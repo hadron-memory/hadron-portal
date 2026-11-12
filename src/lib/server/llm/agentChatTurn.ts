@@ -1,18 +1,15 @@
 import { gqlClient } from '$lib/server/api';
 import {
-  RESOLVE_AI_CONFIG_QUERY,
   SEND_CHAT_MESSAGE_MUTATION,
   PROCESS_CHAT_RESPONSE_MUTATION,
   SAVE_CHAT_SUMMARY_MUTATION,
 } from '$lib/server/queries';
-import {
-  callAgentChatLlm,
-  isMissingEffectiveEndpoint,
-  portalRuntimeRefusal,
-  type HadronTool,
-} from './agentChatLlm.js';
-import type { AIProvider } from '$lib/types';
-import { ChatError, publicChatError } from './chatError.js';
+import { callAgentChatLlm, type HadronTool } from './agentChatLlm.js';
+import { publicChatError } from './chatError.js';
+import { llmModelVariable, resolveChatAi, type ChatAiResolution } from './chatAi.js';
+import { aiConfigChoiceVariable } from './aiConfigChoice.js';
+
+export { fetchAgentAIConfig } from './chatAi.js';
 
 /** Result of a single chat turn surfaced to the frontend. */
 export interface ChatTurnResult {
@@ -24,49 +21,6 @@ export interface ChatTurnResult {
   onTrack: boolean;
   offTrackReason: string | null;
   usage?: { inputTokens?: number; outputTokens?: number };
-}
-
-/** Fetch the agent's decrypted LLM config. Throws on missing config. */
-export async function fetchAgentAIConfig(
-  token: string | null,
-  agentId: string,
-  opts?: { appId?: string | null; configName?: string | null },
-): Promise<{ provider: AIProvider; apiKey: string; model: string }> {
-  // 036-ai-service-config: resolve a named config (default `default`) for the
-  // chat's context. Passing `appId` makes the walk App → Agent → Org → Host
-  // (so app-level configs apply); agentId-only stays Agent → Org → Host.
-  // `configName` lets the App chat pick a specific config. Returns the
-  // decrypted key. `resolveAIConfig` throws NoAiConfigAvailableError when
-  // nothing resolves — translate that into the "configure a provider"
-  // guidance, but let auth/transport errors propagate untouched.
-  let resolved: { provider: string; apiKey: string; model: string; effectiveEndpoint: string | null };
-  try {
-    const result = await gqlClient(token).request<{
-      resolveAIConfig: { provider: string; apiKey: string; model: string; effectiveEndpoint: string | null };
-    }>(RESOLVE_AI_CONFIG_QUERY, {
-      name: opts?.configName ?? 'default',
-      appRef: opts?.appId ?? undefined,
-      agentRef: agentId,
-    });
-    resolved = result.resolveAIConfig;
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : '';
-    if (msg.includes('NoAiConfigAvailable') || /no ai config|not configured/i.test(msg)) {
-      throw new ChatError('noConfig');
-    }
-    // A server without #1373 can't say where a config goes, so nothing is run.
-    if (isMissingEffectiveEndpoint(msg)) throw new ChatError('oldServer');
-    throw e;
-  }
-  // Stopgap (Holger, 2026-09-27): never run a config somewhere other than where
-  // it's meant to go, with its key. Refused BEFORE the key is handed to anything.
-  const refusal = portalRuntimeRefusal(resolved);
-  if (refusal) throw new ChatError('configUnsupported');
-  return {
-    provider: resolved.provider as AIProvider,
-    apiKey: resolved.apiKey,
-    model: resolved.model,
-  };
 }
 
 /**
@@ -87,20 +41,32 @@ export async function runChatTurn(args: {
   /** App context for config resolution (App chat tab). Optional — the
    *  agent-builder chat omits it and resolves in agent-context. */
   appId?: string | null;
-  /** Named config to run with (App chat picker). Defaults to `default`. */
+  /** Named config to run with, honoured only without an App (the Tester). Defaults to `default`. In an App the
+   *  config resolves from `aiConfigChoice`, else the chat (portal#1963). */
   configName?: string | null;
+  /** portal#1963: the AI config choice the user made, sent with sendChatMessage so the server stores it.
+   *  Omitted when no choice was made. The welcome turn never sends it (startChat already did). */
+  aiConfigChoice?: string;
   /** Pre-fetched startChat response for the welcome turn. Omitted for
    *  regular turns — in that case we call sendChatMessage first. */
   startPayload?: {
     systemMessage: string;
     tools: HadronTool[] | null;
   };
+  /** portal#1611: the config this REQUEST already resolved (before startChat),
+   *  reused for every turn of it, so the model reported to the server is the
+   *  model that runs. Omitted: this turn resolves its own. A failed
+   *  resolution is rethrown here, exactly as if this turn had resolved it. */
+  ai?: ChatAiResolution;
 }): Promise<ChatTurnResult> {
   const { token, agentId, chatId, userMessage, appId, configName, startPayload } = args;
   const client = gqlClient(token);
 
-  // 1. Fetch the agent's decrypted AI config
-  const ai = await fetchAgentAIConfig(token, agentId, { appId, configName });
+  // 1. The agent's decrypted AI config (resolved once per request when the
+  //    caller already did so).
+  const resolution = args.ai ?? await resolveChatAi(token, agentId, { appId, configName, chatId, aiConfigChoice: args.aiConfigChoice });
+  if (!resolution.ok) throw resolution.error;
+  const ai = resolution.ai;
 
   // 2. Get the compiled system prompt + tool schema + message history
   let systemMessage: string;
@@ -125,7 +91,7 @@ export async function runChatTurn(args: {
         messageHistory: Array<{ role: 'user' | 'assistant'; content: string }>;
         summarizationNeeded: { messageCount: number; prompt: string } | null;
       };
-    }>(SEND_CHAT_MESSAGE_MUTATION, { chatId, userMessage });
+    }>(SEND_CHAT_MESSAGE_MUTATION, { chatId, userMessage, ...llmModelVariable(resolution), ...aiConfigChoiceVariable(args.aiConfigChoice) });
     systemMessage = sendResult.sendChatMessage.systemMessage;
     tools = sendResult.sendChatMessage.tools;
     messageHistory = sendResult.sendChatMessage.messageHistory ?? [];

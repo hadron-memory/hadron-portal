@@ -1,3 +1,4 @@
+import type { TaskReference } from './references';
 /**
  * portal#1052 — the agent-task read shapes the Tasks views select, mirroring
  * the server SDL (schema/schema.graphql, hadron-server 4c55560a). Only the
@@ -19,6 +20,8 @@ export interface AgentTaskRequirements {
   familyIn: string[] | null;
   familyNotIn: string[] | null;
   excludeWorkerIds: string[] | null;
+  /** portal#1523: the lowest model tier the matcher may assign (low < mid < high); null = no minimum. */
+  minTier?: string | null;
 }
 
 export interface AgentTaskResult {
@@ -34,9 +37,20 @@ export interface AgentTaskSessionEndRequest {
   resolvedAt: string | null;
 }
 
+export interface AgentTaskHandBack {
+  code: string;
+  text: string | null;
+  handedBackAt: string;
+}
+
 /** A board or tree row. */
 export interface AgentTaskRow {
+  /** Missing data stays unknown; the blocked flag is never reconstructed from relations. */
+  priority?: number | null;
+  blocked?: boolean | null;
   id: string;
+  /** The immutable short handle (`AT3.405`), from server#2579. */
+  handle: string;
   parentTaskId: string | null;
   title: string;
   status: AgentTaskStatus;
@@ -53,7 +67,14 @@ export interface AgentTaskRow {
 
 /** The detail page's task: every field §5.1 shows. */
 export interface AgentTaskDetail extends AgentTaskRow {
+  /** portal#1607: the outside item the task claimed (hrn:node:hadronmemory.com:specs:cor:agt:120:02); set once at create. */
+  externalId?: string | null;
   appId: string;
+  /**
+   * portal#1575 (hadron-server#3112, hrn:node:hadronmemory.com:specs:cor:agt:050:01): the task's typed references, in order, empty when
+   * none. Untrusted stored strings: draw them only through `$lib/agent-tasks/references`.
+   */
+  references?: TaskReference[];
   description: string | null;
   requirements: AgentTaskRequirements | null;
   createdBy: AgentTaskParty | null;
@@ -66,6 +87,14 @@ export interface AgentTaskDetail extends AgentTaskRow {
   closeSessionWhenDone: boolean;
   result: AgentTaskResult | null;
   sessionEndRequest: AgentTaskSessionEndRequest | null;
+  /** portal#1571: the latest hand-back (hadron-server#2651); null when the task was never handed back. */
+  handBack?: AgentTaskHandBack | null;
+  /**
+   * portal#1340 (hadron-server#2420): the task's OWN optional JSON object, opaque to the platform.
+   * Never inherited from a parent; null when unset. The detail query selects it, so it needs a server that has the field
+   * (hadron-server#2877); a server without it rejects the read rather than omitting the field.
+   */
+  properties?: unknown;
 }
 
 export interface AgentTeamAlarmWake {
@@ -180,3 +209,19 @@ export type WriteCandidates = {
   /** The members read FAILED (a reload can fix it): `people` is unknown, not empty, and not withheld. */
   peopleFailed?: boolean;
 };
+
+/**
+ * portal#1349 — what a bare task id resolved to for display: its title and
+ * immutable handle, read through the server's readable-task gate. `null` in a
+ * refs map means unavailable (missing, unreadable, another App, or the read
+ * failed); callers render a neutral label and never a stale title or handle.
+ */
+export interface TaskRefInfo {
+  id: string;
+  handle: string;
+  title: string;
+}
+export type TaskRefs = Record<string, TaskRefInfo | null>;
+
+export interface TaskChoice { id: string; appId: string; title: string; handle: string; status: string }
+export interface TaskDependencyPage { items: TaskChoice[]; hasMore: boolean }

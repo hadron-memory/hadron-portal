@@ -11,10 +11,30 @@
  * Sorted by name, case-insensitively, because the install roster arrives in
  * install order and a larger team's list was unscannable.
  */
+import type { InstallImporter, InstallMarks } from '$lib/app-install-marks';
+
 export type CastableAgent = { id: string; name: string; personaRole?: string | null };
 
 export function castableAgentOptions<T extends CastableAgent>(installed: readonly T[]): T[] {
   return installed
     .filter((agent) => !!agent.personaRole?.trim())
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.id.localeCompare(b.id));
+}
+
+/**
+ * #1684, ruling 0141: an installed agent is preferred over a derived one. The
+ * form offers both, since a cast names its agent, with the installed ones first.
+ * An agent with no mark stays with the installed ones: only the server's
+ * DERIVED moves it, so a withheld answer leaves the plain list.
+ */
+export type CastGroups<T> = { installed: T[]; derived: Array<{ agent: T; importer: InstallImporter }> };
+
+export function castGroups<T extends CastableAgent>(options: readonly T[], marks: InstallMarks): CastGroups<T> {
+  const groups: CastGroups<T> = { installed: [], derived: [] };
+  for (const agent of options) {
+    const mark = marks[agent.id];
+    if (mark?.kind === 'derived') groups.derived.push({ agent, importer: mark.importer });
+    else groups.installed.push(agent);
+  }
+  return groups;
 }

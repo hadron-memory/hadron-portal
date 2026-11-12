@@ -1,3 +1,4 @@
+import { extractGqlError } from '$lib/server/gqlError';
 import { fail, error } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
@@ -670,7 +671,7 @@ export const actions: Actions = {
       };
       await client.request(nodeUpdateDocument(node.node, input), { input });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to save position' });
+      return fail(500, { error: extractGqlError(e, 'Failed to save position', ['NODE_WRITE_CONFLICT']) });
     }
   },
 
@@ -682,7 +683,7 @@ export const actions: Actions = {
     try {
       await client.request(DELETE_EDGE_MUTATION, { edgeRef: edgeId });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to delete edge' });
+      return fail(500, { error: extractGqlError(e, 'Failed to delete edge') });
     }
   },
 };

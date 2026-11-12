@@ -16,7 +16,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LEGACY_THREAD_PROBE_QUERY, NODE_BY_ID_QUERY } from '$lib/server/queries';
 import { chatPostTarget, isChatMessageNode, isChatNode } from '$lib/server/team-chat';
 import type { MemoryNode } from '$lib/types';
+import { serveMemoryReads, type SeedNode } from '$lib/test/serveMemoryReads';
 
+// portal#1433: the node reads that replaced the layout's graphNodes.
+let reads = serveMemoryReads([], { id: 'mem-1', urn: 'hrn:mem:acme.com:notes' });
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
 vi.mock('$lib/server/guards', () => ({ requireNonConsumer: vi.fn().mockResolvedValue(undefined) }));
@@ -73,7 +76,8 @@ describe('the predicate and the post target', () => {
 });
 
 function answerNode(node: unknown) {
-  mockRequest.mockImplementation(async (doc: string) => {
+  mockRequest.mockImplementation(async (doc: string, vars?: Record<string, unknown>) => {
+    { const served = reads(doc, vars); if (served !== undefined) return served; }
     if (doc === NODE_BY_ID_QUERY) return { node };
     // #926 part 2: the legacy root has a thread; the probe finds its message.
     if (doc === LEGACY_THREAD_PROBE_QUERY) {
@@ -90,6 +94,7 @@ const writes = () => mockRequest.mock.calls.map(([d]) => d as string).filter((d)
 
 describe('node detail load', () => {
   async function load(node: Record<string, unknown>, graphNodes: unknown[] = []) {
+    reads = serveMemoryReads(graphNodes as SeedNode[], { id: MEM, urn: 'hrn:mem:acme.com:m' });
     answerNode(node);
     const { load } = await import('./+page.server');
     return (await load({
@@ -97,7 +102,7 @@ describe('node detail load', () => {
       locals: { token: 'tok' },
       url: new URL(`http://localhost/app/memories/${MEM}/nodes/pk`),
       parent: vi.fn().mockResolvedValue({
-        graphNodes, graph: { id: MEM, urn: 'hrn:mem:acme.com:m', appId: 'app-1' },
+        graph: { id: MEM, urn: 'hrn:mem:acme.com:m', appId: 'app-1' },
         isConsumerMode: false, activeOrgId: 'org-1',
       }),
     } as never)) as unknown as { isChat: boolean; isChatMessage: boolean; canPostChat: boolean; openChat: unknown };

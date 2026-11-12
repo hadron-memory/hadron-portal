@@ -107,7 +107,8 @@ export function buildGraphViewData(nodes: MemoryNode[], memoryUrn?: string): Gra
         name: e.target!.name,
       }));
 
-    // Prefer the function-scoped memoryUrn parameter; fall back to the
+    // Prefer the authorized node URN even when its Memory record is withheld.
+    // Older reads use the function-scoped memoryUrn parameter; fall back to the
     // node's own memory.urn (some queries don't populate it). If neither
     // is available, render bare loc — composeNodeUrn would throw, and a
     // graph view shouldn't crash because a query shape changed.
@@ -118,7 +119,7 @@ export function buildGraphViewData(nodes: MemoryNode[], memoryUrn?: string): Gra
     topics.push({
       id: n.id, // use DB primary key as graph node ID
       loc: n.loc,
-      urn: ownerUrn && n.loc ? composeNodeUrn(ownerUrn, n.loc) : n.loc,
+      urn: n.urn || (ownerUrn && n.loc ? composeNodeUrn(ownerUrn, n.loc) : n.loc),
       name: n.name,
       depth,
       description: n.description ?? '',

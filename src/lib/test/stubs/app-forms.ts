@@ -16,6 +16,7 @@
  * `applyAction` records that result as the page's action data, as kit does.
  * What the form then does is superforms' own code, not this stub's.
  */
+import { isActionFailure } from '@sveltejs/kit';
 import { page } from './app-stores';
 
 /**
@@ -39,16 +40,20 @@ export function enhance(form: HTMLFormElement, submit?: unknown): { destroy: () 
 
 /**
  * Run superforms' submit callback for `form` as kit would on submit, and
- * report whether it cancelled. No request is made: the callback's returned
- * result handler is never invoked.
+ * report whether it cancelled. Pass `true` to also receive the FormData after
+ * superforms has processed it (including any JSON transport rewrite). No request
+ * is made: the callback's returned result handler is never invoked.
  */
-export async function submitEnhanced(form: HTMLFormElement): Promise<{ cancelled: boolean }> {
+export async function submitEnhanced(form: HTMLFormElement): Promise<{ cancelled: boolean }>;
+export async function submitEnhanced(form: HTMLFormElement, includeFormData: true): Promise<{ cancelled: boolean; formData: FormData }>;
+export async function submitEnhanced(form: HTMLFormElement, includeFormData = false): Promise<{ cancelled: boolean; formData?: FormData }> {
   const submit = enhanced.get(form);
   if (!submit) throw new Error('submitEnhanced: this form was never enhanced');
   let cancelled = false;
+  const formData = new FormData(form);
   await submit({
     action: new URL(form.action || 'http://localhost/'),
-    formData: new FormData(form),
+    formData,
     formElement: form,
     controller: new AbortController(),
     submitter: form.querySelector('[type="submit"]'),
@@ -56,7 +61,35 @@ export async function submitEnhanced(form: HTMLFormElement): Promise<{ cancelled
       cancelled = true;
     },
   });
-  return { cancelled };
+  return includeFormData ? { cancelled, formData } : { cancelled };
+}
+
+/**
+ * portal#1141 — start a submit now and deliver its result LATER: runs the
+ * submit callback as kit would and returns a function that hands the result
+ * handler the ActionResult a test chose, whenever the test decides. This is
+ * how a test proves what a LATE response does after the page moved on (a
+ * route change, a newer submit), which `submitEnhancedWithResult` cannot say
+ * because it delivers at once.
+ */
+export async function beginEnhanced(
+  form: HTMLFormElement,
+  opts: { update?: (o?: { reset?: boolean; invalidateAll?: boolean }) => Promise<void> } = {},
+): Promise<(result: { type: 'success' | 'failure'; status: number; data: Record<string, unknown> }) => Promise<void>> {
+  const submit = enhanced.get(form);
+  if (!submit) throw new Error('beginEnhanced: this form was never enhanced');
+  const action = new URL(form.action || 'http://localhost/');
+  const formData = new FormData(form);
+  const handler = await submit({
+    action,
+    formData,
+    formElement: form,
+    controller: new AbortController(),
+    submitter: form.querySelector('[type="submit"]'),
+    cancel: () => {},
+  });
+  if (typeof handler !== 'function') throw new Error('beginEnhanced: the submit callback returned no result handler');
+  return (result) => (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: opts.update ?? (async () => {}) });
 }
 
 /**
@@ -69,9 +102,8 @@ export async function submitEnhanced(form: HTMLFormElement): Promise<{ cancelled
 export async function submitEnhancedWithResult(
   form: HTMLFormElement,
   result: { type: 'success' | 'failure'; status: number; data: Record<string, unknown> },
-  // portal#1246: a test that pins what the callback does with kit's `update`
-  // (that it is called, and how) passes its own recorder here.
-  opts: { update?: (o?: { reset?: boolean; invalidateAll?: boolean }) => Promise<void> } = {},
+  // Preserve both a pending-result hook and kit-update recording callers.
+  opts: { update?: (o?: { reset?: boolean; invalidateAll?: boolean }) => Promise<void>; beforeResult?: () => Promise<void> } | (() => Promise<void>) = {},
 ): Promise<{ cancelled: boolean }> {
   const submit = enhanced.get(form);
   if (!submit) throw new Error('submitEnhancedWithResult: this form was never enhanced');
@@ -90,7 +122,62 @@ export async function submitEnhancedWithResult(
   });
   if (cancelled) return { cancelled };
   if (typeof handler !== 'function') throw new Error('submitEnhancedWithResult: superforms returned no result handler');
-  await (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: opts.update ?? (async () => {}) });
+  const options = typeof opts === 'function' ? { beforeResult: opts } : opts;
+  await options.beforeResult?.();
+  await (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: options.update ?? (async () => {}) });
+  return { cancelled };
+}
+
+/**
+ * Map a REAL route action's return value (from invoking `actions.x` directly)
+ * to the ActionResult kit derives for it, so a test hands superforms what the
+ * browser would. Kit's own class is the discriminator (`isActionFailure`,
+ * `@sveltejs/kit` src/exports/index.js: `fail()` returns an `ActionFailure`
+ * carrying `status` and `data`): superforms' `message()` with a status ≥ 400
+ * answers `fail(status, { form })` — an ActionFailure the browser receives as
+ * an ActionResult of type 'failure' whose data is the fail() payload — while
+ * without a status (or below 400) it returns the plain `{ form }` object,
+ * which kit types 'success' and which has NO `status` field at all on the
+ * direct return. A numeric-status sniff cannot stand in for the class: the
+ * WIRE shape of a success also carries a status
+ * (`{ type: 'success', status: 200, data }`), and under the old
+ * `typeof r.status === 'number'` check that shape read as a failure
+ * (portal#2016).
+ */
+export function actionResultOf(
+  r: Record<string, unknown>,
+): { type: 'success' | 'failure'; status: number; data: Record<string, unknown> } {
+  return isActionFailure(r)
+    ? { type: 'failure', status: r.status, data: (r.data as Record<string, unknown> | undefined) ?? {} }
+    : { type: 'success', status: 200, data: r };
+}
+
+/**
+ * portal#1528 — like `submitEnhancedWithResult`, but hands the result handler
+ * EXACTLY what kit's `enhance` would, including the shapes that are not an
+ * ActionResult: `{ type: 'error', error }` for a rejected fetch or a body that
+ * is not action JSON (an edge HTML page), and a bare `{ message }` for kit's own
+ * CSRF 403. Superforms decides what each one means; this only delivers it.
+ */
+export async function submitEnhancedWithRawResult(form: HTMLFormElement, result: unknown): Promise<{ cancelled: boolean }> {
+  const submit = enhanced.get(form);
+  if (!submit) throw new Error('submitEnhancedWithRawResult: this form was never enhanced');
+  let cancelled = false;
+  const action = new URL(form.action || 'http://localhost/');
+  const formData = new FormData(form);
+  const handler = await submit({
+    action,
+    formData,
+    formElement: form,
+    controller: new AbortController(),
+    submitter: form.querySelector('[type="submit"]'),
+    cancel: () => {
+      cancelled = true;
+    },
+  });
+  if (cancelled) return { cancelled };
+  if (typeof handler !== 'function') throw new Error('submitEnhancedWithRawResult: superforms returned no result handler');
+  await (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: async () => {} });
   return { cancelled };
 }
 
@@ -100,7 +187,11 @@ export async function submitEnhancedWithResult(
  * submit time) and `finish(result)` delivers the result after the test has
  * moved the page on. That is the interleaving a delayed response creates.
  */
-export async function submitEnhancedDeferred(form: HTMLFormElement): Promise<{
+export async function submitEnhancedDeferred(
+  form: HTMLFormElement,
+  // portal#1462: a test that needs to see whether a LATE result reached kit's `update` passes its own.
+  opts: { update?: (o?: { reset?: boolean; invalidateAll?: boolean }) => Promise<void> } = {},
+): Promise<{
   finish: (result: { type: 'success' | 'failure'; status: number; data: Record<string, unknown> }) => Promise<void>;
 }> {
   const submit = enhanced.get(form);
@@ -114,7 +205,7 @@ export async function submitEnhancedDeferred(form: HTMLFormElement): Promise<{
   if (typeof handler !== 'function') throw new Error('submitEnhancedDeferred: no result handler');
   return {
     finish: async (result) => {
-      await (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: async () => {} });
+      await (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: opts.update ?? (async () => {}) });
     },
   };
 }
@@ -126,8 +217,30 @@ export async function submitEnhancedDeferred(form: HTMLFormElement): Promise<{
  * downstream of a submit ever runs (#957). A no-op for other result types, and
  * never reached unless a test drives a result through `submitEnhancedWithResult`.
  */
+/** Every result handed to `applyAction`, in order. A suite resets it in `afterEach`. */
+export const kitAppliedResults: unknown[] = [];
+
+export function resetKitAppliedResults(): void {
+  kitAppliedResults.length = 0;
+}
+
 export function applyAction(result?: { type?: string; status?: number; data?: unknown }): Promise<void> {
+  kitAppliedResults.push(result);
   if (result && (result.type === 'success' || result.type === 'failure')) {
+    // Kit's applyAction resets focus to the document body once the result is
+    // applied (portal#1367: a native run saw it land BEFORE a form's own
+    // onUpdated). A stub that left focus alone hid that from every mounted test.
+    if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
+      document.activeElement.blur();
+      // Kit then focuses the body (tabindex -1 for the moment), which FIRES
+      // focusin on it: a listener that records the last focused element must
+      // not mistake that reset for the reader's own move (a native run saw it).
+      const had = document.body.getAttribute('tabindex');
+      document.body.setAttribute('tabindex', '-1');
+      document.body.focus();
+      if (had === null) document.body.removeAttribute('tabindex');
+      else document.body.setAttribute('tabindex', had);
+    }
     page.update((p) => ({ ...p, form: result.data ?? null, status: result.status ?? 200 }));
   }
   return Promise.resolve();

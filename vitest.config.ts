@@ -51,7 +51,20 @@ export default defineConfig({
           exclude: ['**/node_modules/**', 'src/**/*.client.test.ts'],
           environment: 'node',
         },
-        resolve: { alias: { $lib } },
+        resolve: { alias: {
+          $lib,
+          // SSR task-page rendering now includes the native reload URL. Share
+          // the same page-store fixture as mounted tests, rather than per-test mocks.
+          '$app/stores': resolve(__dirname, 'src/lib/test/stubs/app-stores.ts'),
+          // portal#1649: server-rendered pages whose children navigate or read the URL.
+          '$app/navigation': resolve(__dirname, 'src/lib/test/stubs/app-navigation.ts'),
+          '$app/state': resolve(__dirname, 'src/lib/test/stubs/app-state.ts'),
+          // portal#1022: the account loader (node lane, via page.server tests)
+          // builds the passkey-registration link from the public server base.
+          // Same stub the client lane resolves it to — a plain record tests
+          // can set per case.
+          '$env/dynamic/public': resolve(__dirname, 'src/lib/test/stubs/env-dynamic-public.ts'),
+        } },
       },
       {
         plugins: [svelte()],
@@ -76,6 +89,7 @@ export default defineConfig({
             '$app/navigation': resolve(__dirname, 'src/lib/test/stubs/app-navigation.ts'),
             '$app/environment': resolve(__dirname, 'src/lib/test/stubs/app-environment.ts'),
             '$app/stores': resolve(__dirname, 'src/lib/test/stubs/app-stores.ts'),
+            '$app/state': resolve(__dirname, 'src/lib/test/stubs/app-state.ts'),
             '$app/forms': resolve(__dirname, 'src/lib/test/stubs/app-forms.ts'),
             '$env/dynamic/public': resolve(__dirname, 'src/lib/test/stubs/env-dynamic-public.ts'),
           },

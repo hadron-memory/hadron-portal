@@ -1,6 +1,6 @@
 <script lang="ts">
   import DOMPurify from 'dompurify';
-  import { marked } from 'marked';
+  import { renderChatMarkdown } from '$lib/markdown/chat-markdown';
   import { t } from '$lib/i18n/t';
 
   let { agentId }: { agentId: string } = $props();
@@ -50,7 +50,7 @@
   }
 
   function renderMessageHtml(msg: string): string {
-    const raw = String(marked.parse(msg));
+    const raw = renderChatMarkdown(msg);
     return DOMPurify.sanitize(raw);
   }
 

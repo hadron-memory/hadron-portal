@@ -27,6 +27,9 @@ function asset(over: Partial<AssetSummary> = {}): AssetSummary {
     scanSignature: null,
     description: null,
     publicUrl: null,
+    publicLinkEnabled: false,
+    canManagePublicLink: false,
+    publicLinkAvailable: false,
     ...over,
   };
 }

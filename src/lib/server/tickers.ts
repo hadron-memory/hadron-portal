@@ -1,11 +1,14 @@
 import type { GraphQLClient } from 'graphql-request';
+import { readAllPages, type PageEnvelope } from '$lib/server/paged';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
 import type {
   AppTickerSettings,
   SubscriberPage,
-  Ticker,
+  TickerDetail,
   TickerListRow,
   TickerRead,
+  TickerRosterRead,
+  TickerTask,
   WorkerWakeSettings,
 } from '$lib/tickers/types';
 
@@ -59,7 +62,20 @@ export const TICKER_QUERY = /* GraphQL */ `
   query Ticker($ref: String!) {
     ticker(ref: $ref) {
       ...TickerFields
+      tickCode
       app { id }
+    }
+  }
+`;
+
+// portal#1384 — its OWN request, never a field on TICKER_QUERY: registerTaskLoc runs a lookup on
+// the server, and a field error inside TICKER_QUERY would turn the whole page into an error. Alone,
+// a failure blanks only the Task entry.
+export const TICKER_TASK_QUERY = /* GraphQL */ `
+  query TickerTask($ref: String!) {
+    ticker(ref: $ref) {
+      id
+      registerTaskLoc
     }
   }
 `;
@@ -96,15 +112,33 @@ export const WORKER_WAKE_SETTINGS_QUERY = /* GraphQL */ `
   }
 `;
 
+/**
+ * portal#1462 — apply the Agent's ticker templates to ONE worker (hadron-server#2860).
+ * The manager acts as themselves; the server decides, and the route's worker
+ * is the only one ever sent.
+ */
+export const APPLY_AGENT_TICKER_TEMPLATES_MUTATION = /* GraphQL */ `
+  mutation ApplyAgentTickerTemplates($workerRef: String!) {
+    applyAgentTickerTemplates(workerRef: $workerRef) {
+      created { effectiveCadenceSeconds template { id name } ticker { id name urn } }
+      alreadyPresent { id name }
+    }
+  }
+`;
+
 // Its OWN request, never a field on the keys list: `scopes` is non-null and
 // throws FORBIDDEN for anyone who doesn't manage the App, and a field error on
 // a non-null list member nulls the whole list. Selected beside the keys, it
 // would empty the App Keys tab for every non-manager.
 export const APP_KEY_SCOPES_QUERY = /* GraphQL */ `
-  query AppKeyScopes($appRef: ID!) {
-    appKeys(appRef: $appRef) {
-      id
-      scopes { scope hostId grantedAt }
+  query AppKeyScopes($appRef: ID!, $limit: Int, $offset: Int) {
+    appKeysPage(appRef: $appRef, limit: $limit, offset: $offset) {
+      items {
+        id
+        scopes { scope hostId grantedAt }
+      }
+      total
+      hasMore
     }
   }
 `;
@@ -143,12 +177,24 @@ export async function loadAppTickerSettings(client: GraphQLClient, appRef: strin
  * ticker's `app` is null under the same rule when the reader can't read the
  * App directly (#1209) — callers treat that as not-found, never dereference it.
  */
-export async function loadTicker(
-  client: GraphQLClient,
-  ref: string,
-): Promise<(Ticker & { app: { id: string } | null }) | null> {
-  const r = await client.request<{ ticker: (Ticker & { app: { id: string } | null }) | null }>(TICKER_QUERY, { ref });
+export async function loadTicker(client: GraphQLClient, ref: string): Promise<TickerDetail | null> {
+  const r = await client.request<{ ticker: TickerDetail | null }>(TICKER_QUERY, { ref });
   return r.ticker;
+}
+
+/**
+ * portal#1384 — the loc the team maps this ticker's code to. `ok` with a null value means the
+ * ticker itself came back null (gone or concealed since the facts were read): that is NOT an
+ * answer about the mapping, so the page renders nothing. `ok` with `registerTaskLoc: null` is the
+ * server's "no entry you can read". A thrown error is `failed`, never null.
+ */
+export async function loadTickerTask(client: GraphQLClient, ref: string): Promise<TickerRead<TickerTask | null>> {
+  try {
+    const r = await client.request<{ ticker: TickerTask | null }>(TICKER_TASK_QUERY, { ref });
+    return { kind: 'ok', value: r.ticker ? { registerTaskLoc: r.ticker.registerTaskLoc } : null };
+  } catch (e) {
+    return classify(e, `task read for ${ref}`, APP_CONCEALED);
+  }
 }
 
 export async function loadSubscribers(
@@ -165,6 +211,39 @@ export async function loadSubscribers(
     return { kind: 'ok', value: r.ticker?.subscribers ?? null };
   } catch (e) {
     return classify(e, `subscribers read for ${ref}`, APP_CONCEALED);
+  }
+}
+
+/**
+ * portal#1497 — the App's workers for the Add-subscriber chooser (D5): ONE
+ * `teamRoster` read, unpaged, retired workers already left out by the server.
+ * A typed refusal is `hidden` (this reader may not list the App's workers), an
+ * outage is `failed`, and neither is ever an empty list. A null name is kept:
+ * the chooser shows the id or URN, never drops the worker.
+ */
+export type { TickerRosterRead };
+
+export const TICKER_ROSTER_QUERY = /* GraphQL */ `
+  query TickerRoster($appRef: ID!) {
+    teamRoster(appRef: $appRef) {
+      workers { worker { id name urn } }
+    }
+  }
+`;
+
+export async function loadTickerRoster(client: GraphQLClient, appRef: string): Promise<TickerRosterRead> {
+  try {
+    const r = await client.request<{ teamRoster: { workers: { worker: { id: string; name: string | null; urn: string | null } }[] } }>(
+      TICKER_ROSTER_QUERY,
+      { appRef },
+    );
+    const workers = r.teamRoster.workers.map((w) => w.worker).filter((w) => typeof w?.id === 'string' && w.id !== '');
+    return { kind: 'ok', workers };
+  } catch (e) {
+    const code = extractGqlErrorCode(e);
+    if (code === 'APP_NOT_FOUND' || code === 'FORBIDDEN') return { kind: 'hidden' };
+    console.warn(`[tickers] roster read for ${appRef} failed (${code ?? 'transport'})`);
+    return { kind: 'failed' };
   }
 }
 
@@ -188,8 +267,14 @@ export type KeyScopesRead = { kind: 'ok'; byKey: Record<string, KeyScope[]> } | 
 
 export async function loadAppKeyScopes(client: GraphQLClient, appRef: string): Promise<KeyScopesRead> {
   try {
-    const r = await client.request<{ appKeys: { id: string; scopes: KeyScope[] }[] }>(APP_KEY_SCOPES_QUERY, { appRef });
-    return { kind: 'ok', byKey: Object.fromEntries(r.appKeys.map((k) => [k.id, k.scopes])) };
+    // Its own request, followed to the end like the key list (portal#1615);
+    // the two lists are joined by key id, never by position.
+    const keys = await readAllPages((limit, offset) =>
+      client
+        .request<{ appKeysPage: PageEnvelope<{ id: string; scopes: KeyScope[] }> }>(APP_KEY_SCOPES_QUERY, { appRef, limit, offset })
+        .then((r) => r.appKeysPage),
+    );
+    return { kind: 'ok', byKey: Object.fromEntries(keys.map((k) => [k.id, k.scopes])) };
   } catch (e) {
     const code = extractGqlErrorCode(e);
     if (code === 'FORBIDDEN') return { kind: 'hidden' };

@@ -32,9 +32,9 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     // as BAD_USER_INPUT — surface the server's message as a friendly 400 rather
     // than a generic 500 (matches the /api/nodes/search + move endpoints).
     if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') {
-      return json({ error: extractGqlError(e, 'Invalid clone target.') }, { status: 400 });
+      return json({ error: extractGqlError(e, 'Invalid clone target.', ["BAD_USER_INPUT"]) }, { status: 400 });
     }
     console.error('[memories/clone] failed:', e);
-    return json({ error: extractGqlError(e, 'Failed to clone memory') }, { status: 500 });
+    return json({ error: extractGqlError(e, 'Failed to clone memory', ["BAD_USER_INPUT"]) }, { status: 500 });
   }
 };

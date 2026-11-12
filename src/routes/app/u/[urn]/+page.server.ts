@@ -1,10 +1,11 @@
 import { error, redirect } from '@sveltejs/kit';
 import { ClientError } from 'graphql-request';
 import { gqlClient } from '$lib/server/api';
-import { RESOLVE_URN_QUERY } from '$lib/server/queries';
+import { PUBLIC_ORGANIZATION_ROUTE_QUERY, RESOLVE_URN_QUERY } from '$lib/server/queries';
 import { loadTicker } from '$lib/server/tickers';
 import { withQuery } from '$lib/safeRedirect';
 import { normalizeUrn } from '$lib/urn/parse-urn';
+import { encodeUrnPathSegment } from '$lib/urn/encode-urn-segment';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -31,7 +32,7 @@ import type { PageServerLoad } from './$types';
  * re-apply the original to a redirect target that carries none.
  */
 type UrnResolution = {
-  kind: 'memory' | 'node' | 'agent' | 'org' | 'app' | 'user' | 'worker';
+  kind: 'memory' | 'node' | 'agent' | 'org' | 'app' | 'user' | 'worker' | 'action';
   id: string;
   memoryId: string | null;
   organizationId: string | null;
@@ -50,7 +51,25 @@ const KNOWN_KINDS = new Set<UrnResolution['kind']>([
   // opposite of what a signature is for, and it made the platform look like it
   // was pointing at something that did not exist.
   'worker',
+  // #1360 / hadron-server#2610: `hrn:action:<root>:<agent-slug>:<code>` resolves
+  // to the register entry's node. Without a page for it a copied action link
+  // landed on this route's "No canonical portal page" 404.
+  'action',
 ]);
+
+/**
+ * #1846 slice B — membership still wins through resolveUrn. Only when that
+ * member-only resolution is absent/denied may an org-shaped URN use the
+ * server's closed public projection. Other kinds never get this fallback.
+ * Select just the id: this route redirects and must not invoke profile lists.
+ */
+async function publicOrganizationPath(urn: string, token: string | null | undefined): Promise<string | null> {
+  if (!/^(?:hrn|urn):org:/i.test(urn)) return null;
+  const { publicOrganization } = await gqlClient(token).request<{
+    publicOrganization: { id: string } | null;
+  }>(PUBLIC_ORGANIZATION_ROUTE_QUERY, { ref: urn });
+  return publicOrganization ? `/app/org/${publicOrganization.id}` : null;
+}
 
 export const load: PageServerLoad = async ({ params, locals, url }) => {
   const urn = normalizeUrn(params.urn);
@@ -98,7 +117,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         // what costs you the deep link's state.
         redirect(
           303,
-          `/signin?redirect=${encodeURIComponent(withQuery(`/app/u/${params.urn}`, url.search))}`,
+          `/signin?redirect=${encodeURIComponent(withQuery(`/app/u/${encodeUrnPathSegment(params.urn)}`, url.search))}`,
         );
       }
       if (
@@ -107,6 +126,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         code === 'FORBIDDEN' ||
         code === 'PERMISSION_DENIED'
       ) {
+        const publicTarget = await publicOrganizationPath(urn, locals.token);
+        if (publicTarget) redirect(307, withQuery(publicTarget, url.search));
         throw error(404, notFoundMessage(urn));
       }
     }
@@ -114,6 +135,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   }
 
   if (!resolveUrn) {
+    const publicTarget = await publicOrganizationPath(urn, locals.token);
+    if (publicTarget) redirect(307, withQuery(publicTarget, url.search));
     throw error(404, notFoundMessage(urn));
   }
 
@@ -310,7 +333,11 @@ function canonicalPath(r: UrnResolution): string | null {
     case 'memory':
       return `/app/memories/${r.id}`;
     case 'node':
-      // memoryId is always set for nodes by the server resolver.
+    case 'action':
+      // memoryId is always set for nodes by the server resolver. An action's
+      // `id` is its `register:<code>` node and `memoryId` the Agent's system
+      // memory (hadron-server#2610), so it opens that node's page — the same
+      // page as a node, with no finer page of its own (#1360).
       return r.memoryId ? `/app/memories/${r.memoryId}/nodes/${r.id}` : null;
     case 'org':
       return `/app/orgs/${r.id}`;

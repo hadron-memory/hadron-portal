@@ -1,5 +1,9 @@
 <script lang="ts">
-  import BootPrompt from './BootPrompt.svelte';
+  import TabRow from '$lib/components/TabRow.svelte';
+  import BootProvenance from '$lib/components/BootProvenance.svelte';
+  import AgentMemberRolesEditor from './AgentMemberRolesEditor.svelte';
+  import BootPromptSource from './BootPromptSource.svelte';
+  import StartBootSource from './StartBootSource.svelte';
   import AgentInheritanceSettings from '$lib/components/AgentInheritanceSettings.svelte';
   import AgentExtendedBy from '$lib/components/AgentExtendedBy.svelte';
   import type { NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
@@ -17,6 +21,7 @@
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import NodeTable, { type NodeRow } from '$lib/components/NodeTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
+  import AgentTickerTemplatesPanel from '$lib/components/tickers/AgentTickerTemplatesPanel.svelte';
   import SelectMemory from '$lib/components/SelectMemory.svelte';
   import SelectOrg from '$lib/components/SelectOrg.svelte';
   import { submittedForm } from '$lib/forms/submitted-form';
@@ -31,6 +36,7 @@
     addAgentMemorySchema,
     agentRegisterDefaultsSchema,
     agentResetContextSchema,
+    updateAgentMemberRolesSchema,
     agentSettingsSchema,
     deleteAgentSchema,
     removeAgentMemorySchema,
@@ -45,6 +51,8 @@
   type RemoveAgentMemoryForm = Infer<typeof removeAgentMemorySchema, 'zod4'>;
   type DeleteAgentForm = Infer<typeof deleteAgentSchema, 'zod4'>;
   type AgentSettingsSuperform = SuperValidated<AgentSettingsForm, App.Superforms.Message, AgentSettingsForm>;
+  type AgentMemberRolesForm = Infer<typeof updateAgentMemberRolesSchema, 'zod4'>;
+  type AgentMemberRolesSuperform = SuperValidated<AgentMemberRolesForm, App.Superforms.Message, AgentMemberRolesForm>;
   type AgentRegisterDefaultsSuperform = SuperValidated<AgentRegisterDefaultsForm, App.Superforms.Message, AgentRegisterDefaultsForm>;
   type AgentResetContextSuperform = SuperValidated<AgentResetContextForm, App.Superforms.Message, AgentResetContextForm>;
   type AddAgentMemorySuperform = SuperValidated<AddAgentMemoryForm, App.Superforms.Message, AddAgentMemoryForm>;
@@ -100,7 +108,7 @@
   const nextImportPosition = $derived((data as { nextImportPosition?: number }).nextImportPosition ?? 1);
   const bundleResult = $derived(form as { bundleError?: string; bundleAdded?: boolean } | null);
   let bundling = $state(false);
-  const bundledWithheldApps = $derived((data as { bundledWithheldApps?: number }).bundledWithheldApps ?? 0);
+  const bundledMayBeIncomplete = $derived((data as { bundledMayBeIncomplete?: boolean }).bundledMayBeIncomplete ?? false);
   const bundledAgents = $derived(
     (data as { bundledAgents?: BundledAgentRow[] }).bundledAgents ?? [],
   );
@@ -113,7 +121,7 @@
   // #352 tab reorg: Profile (agent info) is the landing tab; Memories and
   // AI Providers were split out of the old Settings tab; the old "Memory"
   // node browser is now "Nodes"; Settings keeps the danger zone.
-  type TabId = 'tasks' | 'processes' | 'profile' | 'boot' | 'memories' | 'apps' | 'bundled' | 'nodes' | 'chatbot' | 'ai' | 'settings';
+  type TabId = 'tasks' | 'processes' | 'profile' | 'boot' | 'memories' | 'apps' | 'tickers' | 'bundled' | 'nodes' | 'chatbot' | 'ai' | 'settings';
   let activeTab = $state<TabId>('profile');
 
   // ── Chatbot Control sub-tab state ────────────────────────────────────
@@ -203,10 +211,11 @@
     { id: 'processes', label: t('agent.processes.tab', 'Processes') },
     { id: 'memories', label: 'Memories' },
     { id: 'apps', label: 'Apps' },
+    { id: 'tickers', label: t('agent.tickers.tab', 'Ticker templates') },
     // #713: only for an agent that actually bundles others (a Team Agent and
     // its personas) — an always-empty tab on every ordinary agent is noise,
     // same reasoning as Chatbot Control below.
-    ...(bundledAgents.length > 0 || bundledWithheldApps > 0 || bundleCandidates.length > 0 || bundleCandidatesError ? [{ id: 'bundled' as TabId, label: 'Bundled agents' }] : []),
+    ...(bundledAgents.length > 0 || bundledMayBeIncomplete || bundleCandidates.length > 0 || bundleCandidatesError ? [{ id: 'bundled' as TabId, label: 'Bundled agents' }] : []),
     { id: 'nodes', label: 'Nodes' },
     ...(hasSystemMemory ? [{ id: 'chatbot' as TabId, label: 'Chatbot Control' }] : []),
     { id: 'ai', label: 'AI Providers' },
@@ -442,7 +451,7 @@
       name: agent.name ?? '',
       urnSlug: urnSlug(agent.urn),
       description: agent.description ?? '',
-      systemPrompt: agent.systemPrompt ?? '',
+
       visibility: agent.visibility ?? 'ORGANIZATION',
       systemMemoryId: '',
       personaRole: agent.personaRole ?? '',
@@ -509,14 +518,22 @@
     if ((form as { pointer?: PointerResult } | null)?.pointer) activeTab = 'settings';
   });
 
-  // A delayed action from another route instance must not seed this editor
-  // or reopen it. Superforms also uses this route-specific id to isolate stores.
-  const bootPromptSubmission = $derived.by(() => {
-    const result = submittedForm(form, 'bootPrompt') as typeof data.bootPromptForm | null;
-    return result?.id === data.bootPromptForm?.id ? result : null;
+  // A delayed action from another route instance must not seed these forms
+  // or reopen the tab. Superforms also uses this route-specific id to isolate stores.
+  const bootStartSubmission = $derived.by(() => {
+    const result = submittedForm(form, 'bootStart') as typeof data.bootStartForm | null;
+    return result?.id === data.bootStartForm?.id ? result : null;
+  });
+  const bootCompileSubmission = $derived.by(() => {
+    const result = submittedForm(form, 'bootCompile') as typeof data.bootCompileForm | null;
+    return result?.id === data.bootCompileForm?.id ? result : null;
+  });
+  const bootApproveSubmission = $derived.by(() => {
+    const result = submittedForm(form, 'bootApprove') as typeof data.bootApproveForm | null;
+    return result?.id === data.bootApproveForm?.id ? result : null;
   });
   $effect(() => {
-    if (bootPromptSubmission) activeTab = 'boot';
+    if (bootStartSubmission || bootCompileSubmission || bootApproveSubmission) activeTab = 'boot';
   });
 
   function submitMemoryRoleChange(e: Event) {
@@ -549,6 +566,49 @@
   // now enforced server-side, so an incongruent PUBLIC state can't be reached,
   // and the warnings were confusing for the non-PUBLIC cases.
   const visibilityLabel: Record<string, string> = { PERSONAL: 'Personal', ORGANIZATION: 'Organization', PUBLIC: 'Public' };
+
+  // portal#1850 (hrn:node:hadronmemory.com:specs:cor:dmo:050:19): plain words for each offer-readiness reason
+  // code, one line per reason in the server's (clone refusal's) order. The
+  // fallback prints the raw code so a new server code is VISIBLE, never
+  // swallowed. Subjects render as names only — the contract exposes no id or
+  // URN to link (see AgentOfferSubject in $lib/types). "organization" is the
+  // portal's established spelling (the Visibility row says Organization); the
+  // count pluralises the subject-carrying reasons (UX #1859: a sentence about
+  // three memories should not say "a memory").
+  const offerReasonText = (reason: { code: string; count: number }): string => {
+    const one = reason.count === 1;
+    switch (reason.code) {
+      case 'AGENT_NOT_PUBLIC': return t('agent.offer.reason.not-public', 'Not public — another organization can only subscribe to, install or clone a PUBLIC Agent');
+      case 'AGENT_RETIRED': return t('agent.offer.reason.retired', 'This Agent is retired');
+      case 'CLONE_LINKED_MEMORY_ENCRYPTED': return one
+        ? t('agent.offer.reason.memory-encrypted.one', 'A linked memory is encrypted')
+        : t('agent.offer.reason.memory-encrypted.many', '{count} linked memories are encrypted', { count: reason.count });
+      case 'CLONE_LINKED_MEMORY_UNREADABLE': return one
+        ? t('agent.offer.reason.memory-unreadable.one', 'A linked memory is not readable by another organization')
+        : t('agent.offer.reason.memory-unreadable.many', '{count} linked memories are not readable by another organization', { count: reason.count });
+      case 'CLONE_BASE_UNUSABLE': return one
+        ? t('agent.offer.reason.base-unusable.one', 'The base Agent can’t be used by another organization')
+        : t('agent.offer.reason.base-unusable.many', '{count} base Agents can’t be used by another organization', { count: reason.count });
+      case 'CLONE_IMPORT_UNUSABLE': return one
+        ? t('agent.offer.reason.import-unusable.one', 'An imported Agent can’t be used by another organization')
+        : t('agent.offer.reason.import-unusable.many', '{count} imported Agents can’t be used by another organization', { count: reason.count });
+      default: return t('agent.offer.reason.unknown', 'Blocked: {code}', { code: reason.code });
+    }
+  };
+  // The names and counts after a reason sentence, " · "-separated: names the
+  // server chose to show, then the cap overflow, then the subjects even the
+  // manager may not read (counts only — the hidden line carries its own noun,
+  // never a dangling "N you can't view"; UX #1859).
+  const offerReasonDetail = (reason: { subjects: Array<{ name: string }>; omittedByCap: number; hiddenByAccess: number }): string => {
+    const parts: string[] = [];
+    if (reason.subjects.length > 0) parts.push(reason.subjects.map((s) => s.name).join(', '));
+    if (reason.omittedByCap > 0) parts.push(t('agent.offer.more', '+{count} more', { count: reason.omittedByCap }));
+    if (reason.hiddenByAccess > 0) parts.push(reason.hiddenByAccess === 1
+      ? t('agent.offer.hidden.one', '1 more item you can’t view')
+      : t('agent.offer.hidden.many', '{count} more items you can’t view', { count: reason.hiddenByAccess }));
+    return parts.join(' · ');
+  };
+  const offerNotPublic = $derived((agent.offerReadiness?.reasons ?? []).some((r) => r.code === 'AGENT_NOT_PUBLIC'));
 
   let selectMemoryOpen = $state(false);
 
@@ -803,6 +863,16 @@
     <div class="min-w-0 flex-1">
       <h1 class="text-2xl font-bold text-zinc-900 dark:text-white"><span class="text-zinc-400 font-normal">Agent:</span> {agent.name}</h1>
       <Urn value={agent.urn} type="agent" />
+      <!-- #1335: the server-emitted current URN of a readable source. Null or
+           absent (a non-clone, or a source this viewer cannot read, which the
+           server does not tell apart) renders nothing at all: no placeholder,
+           no lookup. -->
+      {#if agent.clonedFromAgentRef}
+        <p class="mt-2 flex flex-wrap items-center gap-2 text-sm text-zinc-500" data-testid="clone-origin">
+          <span>{t('agent.cloned-from', 'Cloned from')}</span>
+          <Urn value={agent.clonedFromAgentRef} type="agent" linked />
+        </p>
+      {/if}
       {#if agent.description}
         <p class="mt-1 text-sm text-zinc-500">{agent.description}</p>
       {/if}
@@ -814,26 +884,8 @@
       <NodeActionsMenu label={t('agent.actions.label', 'Agent actions')} actions={profileActions} />
     {/if}
   </div>
-
-  <!-- Tabs — #747: the third instance of the strip #746 fixed on the App detail
-       page, and the one that gates a MemoryBrowser mount: the Nodes tab lives
-       behind it, so the component being usable at phone widths is moot if the
-       tab reaching it runs off the screen. Up to eight tabs here.
-       `shrink-0 whitespace-nowrap` is what makes it SCROLL rather than squash
-       the labels into unreadable columns. -->
-  <div class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
-    {#each tabs as tab}
-      <button
-        onclick={() => activeTab = tab.id}
-        class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
-          {activeTab === tab.id
-            ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-            : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
-      >
-        {tab.label}
-      </button>
-    {/each}
-  </div>
+  <TabRow items={tabs} active={activeTab} label={t('agent.tabs-label', 'Agent sections')} onselect={(id) => activeTab = id as typeof activeTab} />
+  <div class="space-y-4" role="tabpanel" id="panel-{activeTab}" aria-labelledby="tab-{activeTab}" tabindex="0">
 
   <!-- Action feedback lives at page level so it stays visible no matter which
        tab's form produced it (#352 split the agent / memory / delete forms
@@ -862,27 +914,40 @@
   {#if activeTab === 'processes' && data.inheritance}
     <AgentDefinitions agentId={agent.id} read={data.inheritance.processes} processes />
   {/if}
-  {#if data.bootPromptForm}
+  {#if data.bootSource}
     <div hidden={activeTab !== 'boot'}>
-      {#key data.bootPromptForm.id}
-        <BootPrompt canManage={data.canManageAgent} stored={agent.systemPrompt ?? ''} initial={data.bootPromptForm} submitted={bootPromptSubmission} />
-      {/key}
+      {#if data.bootSource.mode === 'legacy'}
+        <p class="mb-3 text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.no-source', 'This Agent has no boot prompt source yet.')}</p>
+        {#if data.bootSource.canStart}
+          {#key data.bootStartForm.id}<StartBootSource seeded={false} canManage={data.canManageAgent} initial={data.bootStartForm} submitted={bootStartSubmission} />{/key}
+        {/if}
+      {:else if data.bootSource.mode === 'source'}
+        <!-- portal#1485: keyed on the Agent's forms and the SOURCE revision, so a Refresh that brings a new source revision re-reads its lint. -->
+        {#key `${data.bootCompileForm.id}:${data.bootSource.node.id}:${data.bootSource.node.revision}`}
+          <BootPromptSource showProvenance={activeTab === 'boot'} agentId={agent.id} shown={activeTab === 'boot'} canManage={data.canManageAgent} source={data.bootSource.node} compiled={data.bootSource.compiled} compileInitial={data.bootCompileForm} approveInitial={data.bootApproveForm} noPointer={data.bootSource.noPointer} compileSubmitted={bootCompileSubmission} approveSubmitted={bootApproveSubmission} />
+        {/key}
+      {:else if data.bootSource.mode === 'compiled-only'}
+        <section data-boot-compiled-only>
+          <p role="status" class="mb-2 text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.compiled-only', 'You can’t see this Agent’s source, so this is the compiled prompt, read-only.')}</p>
+          <p class="mb-3 text-xs"><Urn value={data.bootSource.compiled.urn} type="node" /> <span class="text-zinc-500 dark:text-zinc-400">{t('agent.boot.source-revision', 'revision {n}', { n: data.bootSource.compiled.revision })}</span></p>
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex: a scrollable text region must be reachable by keyboard (WCAG 2.1.1) -->
+          <pre tabindex="0" aria-label={t('agent.boot.compiled-text-label', 'Compiled prompt text')} class="max-h-[32rem] overflow-auto whitespace-pre-wrap rounded-md border border-zinc-300 bg-zinc-50 p-3 font-mono text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">{data.bootSource.compiled.content}</pre>
+          {#if activeTab === 'boot'}{#key `${data.bootSource.compiled.id}:${data.bootSource.compiled.revision}`}<BootProvenance nodeId={data.bootSource.compiled.id} revision={data.bootSource.compiled.revision} />{/key}{/if}
+        </section>
+      {:else if data.bootSource.mode === 'source-missing'}
+        {#if data.bootSource.canStart}
+          {#key data.bootStartForm.id}<StartBootSource seeded={true} canManage={data.canManageAgent} initial={data.bootStartForm} submitted={bootStartSubmission} />{/key}
+        {:else}
+          <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.source-missing', 'This Agent points at a compiled prompt but has no source to edit.')}</p>
+        {/if}
+      {:else if data.bootSource.mode === 'source-unreadable'}
+        <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.source-unreadable', 'You can’t see this Agent’s boot prompt.')}</p>
+      {:else}
+        <p role="alert" class="text-sm text-red-600 dark:text-red-400">{t('agent.boot.unknown', 'The boot prompt could not be loaded. Reload the page to try again.')}</p>
+      {/if}
     </div>
   {/if}
   {#if activeTab === 'profile'}
-    {#if data.inheritance}
-      <section class="mb-6 min-w-0 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800" aria-label={t('agent.base.label', 'base Agent')}>
-        <h2 class="mb-2 font-semibold">{t('agent.base.heading', 'Base Agent')}</h2>
-        {#if data.inheritance.base.id}
-          <a class="break-words text-indigo-600 hover:underline dark:text-indigo-400" href="/app/agents/{encodeURIComponent(data.inheritance.base.id)}">{data.inheritance.base.agent?.name ?? data.inheritance.base.id}</a>
-          {#if data.inheritance.base.agent?.urn}<Urn value={data.inheritance.base.agent.urn} label={t('agent.base.label', 'base Agent')} linked />{/if}
-          {#if !data.inheritance.base.agent && !data.inheritance.base.error}<p class="text-sm text-zinc-500">{t('agent.base.unavailable', 'Base Agent details are unavailable.')}</p>{/if}
-        {:else if !data.inheritance.base.error}
-          <p class="text-sm text-zinc-500">{t('agent.base.none', 'No base Agent.')}</p>
-        {/if}
-        {#if data.inheritance.base.error}<p role="alert" class="break-words text-sm text-red-600">{data.inheritance.base.error}</p>{/if}
-      </section>
-    {/if}
     <div class="space-y-8">
 
       <!-- Agent info (read-only). #352 follow-up: Profile is an info-only tab;
@@ -908,6 +973,21 @@
               <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.personaRole}</span>
             </div>
           {/if}
+          {#if data.inheritance}
+            <div class="min-w-0 space-y-1 px-5 py-3">
+              <span class="text-sm text-zinc-500">{t('agent.base.heading', 'Base Agent')}</span>
+              {#if data.inheritance.base.id}
+                <div class="min-w-0">
+                  <a class="break-words text-sm text-indigo-600 hover:underline dark:text-indigo-400" href="/app/agents/{encodeURIComponent(data.inheritance.base.id)}">{data.inheritance.base.agent?.name ?? data.inheritance.base.id}</a>
+                  {#if data.inheritance.base.agent?.urn}<Urn value={data.inheritance.base.agent.urn} label={t('agent.base.label', 'base Agent')} linked />{/if}
+                </div>
+                {#if !data.inheritance.base.agent && !data.inheritance.base.error}<p class="text-sm text-zinc-500">{t('agent.base.unavailable', 'Base Agent details are unavailable.')}</p>{/if}
+              {:else if !data.inheritance.base.error}
+                <p class="text-sm text-zinc-500">{t('agent.base.none', 'No base Agent.')}</p>
+              {/if}
+              {#if data.inheritance.base.error}<p role="alert" class="break-words text-sm text-red-600">{data.inheritance.base.error}</p>{/if}
+            </div>
+          {/if}
           {#if data.systemMemoryIdentity?.urn}
             <div class="space-y-1 px-5 py-3">
               <span class="text-sm text-zinc-500">{t('agent.system-memory.label', 'Agent system memory')}</span>
@@ -927,6 +1007,50 @@
         </div>
       </section>
 
+      <!-- portal#1850 (hrn:node:hadronmemory.com:specs:cor:dmo:050:19): whether another organisation could
+           subscribe to, install and clone this Agent. Manager-only by contract:
+           offerReadiness is null for every other caller (PUBLIC readers
+           included), and null renders NOTHING — no heading, no state line, no
+           empty section. -->
+      {#if agent.offerReadiness}
+        <section class="max-w-lg">
+          <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">{t('agent.offer.heading', 'Offering')}</h2>
+          <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
+            {#if agent.offerReadiness.ready}
+              <div class="flex items-start gap-2 px-5 py-3">
+                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400"><path d="M20 6 9 17l-5-5"></path></svg>
+                <div>
+                  <p class="text-sm font-medium text-emerald-700 dark:text-emerald-400">{t('agent.offer.ready', 'Ready to be offered')}</p>
+                  <p class="mt-0.5 text-sm text-zinc-500">{t('agent.offer.ready.detail', 'Another organization could subscribe to, install and clone this Agent as it stands.')}</p>
+                </div>
+              </div>
+            {:else}
+              <div class="px-5 py-3">
+                <div class="flex items-start gap-2">
+                  <!-- Amber state icon mirrors the ready check: the words carry the meaning, the shape matches it (UX #1859). -->
+                  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                  <p class="text-sm font-medium text-amber-700 dark:text-amber-400">{t('agent.offer.not-ready', 'Not ready to be offered')}</p>
+                </div>
+                <ul class="mt-2 space-y-1">
+                  <!-- Unkeyed: the server emits one reason per code, but a duplicate code key would be a Svelte runtime error, and nothing here reorders (BLIND #1859). -->
+                  {#each agent.offerReadiness.reasons as reason}
+                    {@const detail = offerReasonDetail(reason)}
+                    <li class="text-sm text-zinc-900 dark:text-white">{offerReasonText(reason)}{#if detail}<span class="text-zinc-500">: {detail}</span>{:else}.{/if}</li>
+                  {/each}
+                </ul>
+                {#if offerNotPublic}
+                  <!-- "Make it PUBLIC" is the most common fix, and visibility
+                       lives on the Settings tab — a link to existing settings,
+                       not a make-ready action (out of scope per #1850). -->
+                  <p class="mt-3 text-sm text-zinc-500">
+                    {t('agent.offer.fix.visibility', 'Visibility can be changed in')} <button type="button" class="text-indigo-600 hover:underline dark:text-indigo-400" onclick={() => (activeTab = 'settings')}>{t('agent.offer.fix.settings', 'Settings')}</button>.
+                  </p>
+                {/if}
+              </div>
+            {/if}
+          </div>
+        </section>
+      {/if}
       <AgentExtendedBy agentId={agent.id} requestedAfter={data.extendedAfter ?? null} result={data.extendedBy ?? { items: [], endCursor: null, hasMore: false, failed: true }} />
 
       <!-- Capabilities — removed per FR-013 (spec 006-asset-upload-redesign).
@@ -959,8 +1083,14 @@
                 <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.installationPolicy.maxMembers}</span>
               </div>
               <div class="px-5 py-3">
-                <span class="text-sm text-zinc-500">Member roles</span>
-                <p class="mt-1 text-sm text-zinc-900 dark:text-white">{agent.installationPolicy.memberRoles.join(', ') || '—'}</p>
+                <!-- #1405: re-keyed per Agent, so a draft typed for A never sits in B's editor. -->
+                {#key agent.id}
+                  <AgentMemberRolesEditor
+                    canManage={!!data.canManageAgent}
+                    roles={agent.installationPolicy.memberRoles}
+                    initial={submittedForm<AgentMemberRolesForm>(form, 'updateMemberRoles') as AgentMemberRolesSuperform | null ?? data.memberRolesForm}
+                  />
+                {/key}
               </div>
             {/if}
             {#if agent.appCount !== undefined}
@@ -1133,6 +1263,16 @@
   />
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- TICKER TEMPLATES TAB — the tickers a worker cast from this Agent starts with (portal#1609) -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  {#if activeTab === 'tickers'}
+    <section>
+      <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">{t('agent.tickers.heading', 'Ticker templates')}</h2>
+      <AgentTickerTemplatesPanel agentId={data.agent.id} templates={data.tickerTemplates} impersonating={data.impersonating} />
+    </section>
+  {/if}
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
   <!-- APPS TAB — apps this agent is installed into (via the AppAgent join) -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'apps'}
@@ -1143,7 +1283,7 @@
         </h2>
         <!-- #648: a user-owned (org-less) agent installs as a PERSONAL app via
              the org-less create flow (org agents install from the org grid). -->
-        {#if !org}
+        {#if !agent.organizationId}
           <a
             href="/app/apps/new?agent={agent.id}"
             class="rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
@@ -1254,9 +1394,9 @@
       {:else if bundleResult?.bundleAdded}
         <p role="status" class="mb-3 text-sm text-green-700 dark:text-green-400">{t('agent.bundled.add.done', 'Agent bundled.')}</p>
       {/if}
-      {#if bundledWithheldApps > 0}
-        <p role="status" class="mb-3 text-xs text-zinc-500">
-          {t('agent.bundled.withheld', 'The agents installed in {count} App(s) aren’t visible to you, so this list may be incomplete.', { count: String(bundledWithheldApps) })}
+      {#if bundledMayBeIncomplete}
+        <p role="status" class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+          {t('agent.bundled.withheld', 'This list may be incomplete because some installed agents aren’t visible to you.')}
         </p>
       {/if}
       <!-- 24rem offset tuned to this page's chrome (breadcrumb + header + tab
@@ -1466,20 +1606,20 @@
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <!-- AI PROVIDERS TAB — agent-owned AI service configs (#352)            -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
-  {#if activeTab === 'ai'}
-    <!-- The agent's `default` config is one level of the resolution walk used
-         when the agent runs inside an App. -->
-    <section class="max-w-2xl">
+  <!-- Keep the Section mounted while hidden: switching tabs is not a readback,
+       so pending writes, uncertainty lockout and refreshed rows must survive. -->
+  <section class="max-w-2xl" hidden={activeTab !== 'ai'}>
       <AiServiceConfigSection
         ownerType="AGENT"
         ownerId={agent.id}
+        ownerLabel={agent.name}
+        ownerUrn={agent.urn}
         configs={data.agentConfigs ?? []}
         members={org?.members ?? []}
         currentUserId={data.currentUserId}
         configsError={data.configsError}
       />
     </section>
-  {/if}
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <!-- SETTINGS TAB — the rest (#352)                                      -->
@@ -1578,7 +1718,7 @@
               </div>
             {/if}
             <!-- The role belongs to the reusable Agent; the shared template
-                 now lives in systemPrompt (#1241). -->
+                 now lives in compiled boot prompt (#1241). -->
             <div>
               <label for="editPersonaRole" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('agent.persona.role', 'Persona role')}</label>
               <input id="editPersonaRole" name="personaRole" type="text" placeholder="backend-engineer" bind:value={$agentSettingsForm.personaRole}
@@ -1735,4 +1875,6 @@
       </section>
     </div>
   {/if}
+
+  </div>
 </div>

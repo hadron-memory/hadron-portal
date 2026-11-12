@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
 import { DELETE_EDGE_MUTATION } from '$lib/server/queries';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import type { Actions } from './$types';
 
 const mockRequest = vi.fn();
@@ -39,6 +40,22 @@ function superFormFrom(result: unknown) {
 function fieldError(result: unknown, field: string): string | undefined {
   return superFormFrom(result)?.errors?.[field]?.[0];
 }
+
+describe('edge detail load: form ids (#1320)', () => {
+  it('gives the update and delete forms their own Superforms ids', async () => {
+    const edge = { id: 'edge-pk', name: 'next', isRunnable: false, priority: 0, condition: null, data: null };
+    mockRequest.mockResolvedValue({
+      node: { id: 'source-pk', memoryId: 'mem-A', loc: 'a:b', name: 'B', data: {}, incomingEdges: [], outgoingEdges: [edge] },
+    });
+    const { load } = await import('./+page.server');
+    const result = await load({
+      params: { id: 'mem-A', nodeId: 'source-pk', edgeId: 'edge-pk' },
+      locals: { token: 'tok' },
+      parent: async () => ({ isConsumerMode: false }),
+    } as never);
+    expectDistinctFormIds(result, 2);
+  });
+});
 
 describe('edge detail update action Superforms validation', () => {
   it('updates an edge with normalized parser-backed fields and a typed success message', async () => {

@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import SelectTask from '$lib/components/agent-tasks/SelectTask.svelte';
+  import TaskReferencesEditor from '$lib/components/agent-tasks/TaskReferencesEditor.svelte';
+  import { readReferences } from '$lib/agent-tasks/references';
+  import type { TaskChoice } from '$lib/agent-tasks/types';
+  import { onMount, tick, untrack } from 'svelte';
   import { enhance } from '$app/forms';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import PartyPicker from '$lib/components/agent-tasks/PartyPicker.svelte';
@@ -9,6 +13,9 @@
   import { t } from '$lib/i18n/t';
   import type { WriteRefusal } from '$lib/agent-tasks/actions';
   import { localDateTimeToIso } from '$lib/agent-tasks/start-by';
+  import { MIN_TIERS, tierLabel } from '$lib/agent-tasks/tier';
+  import { taskHref } from '$lib/agent-tasks/handle';
+  import { markStreamHandled } from '$lib/mark-stream-handled';
   import type { ActionData, PageData } from './$types';
 
   /**
@@ -24,13 +31,23 @@
    */
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
+  // portal#1588 QA F2: the streamed memories promise can reject before (or
+  // regardless of) when the references editor's {#await} attaches, and a
+  // rejected promise with no handler at the checkpoint is an UNCAUGHT PAGE
+  // ERROR on the failure path (Celine: 4/4 runs, healthy path 0). Mark it
+  // handled here, at the page that owns the stream — the editor's
+  // {#await}/{:catch} still renders the failure copy from its own handler.
+  $effect(() => {
+    markStreamHandled(data.nodeMemories);
+  });
+
   const basePath = $derived(`/app/apps/${data.app.id}`);
   const appsHref = $derived(data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps');
 
   const result = $derived(form as { refusal?: WriteRefusal; values?: Record<string, string | string[]> } | null);
   const created = $derived(
     form && 'created' in form
-      ? (form as { created: { id: string | null }; committedWithError: boolean; warnings: TaskWarning[]; more: number })
+      ? (form as { created: { id: string | null; handle: string | null }; committedWithError: boolean; warnings: TaskWarning[]; more: number })
       : null,
   );
   let createdHeading = $state<HTMLElement | null>(null);
@@ -52,6 +69,18 @@
   let description = $state(v('description'));
   let source = $state(v('source'));
   let tags = $state(v('tags'));
+  let priority = $state(v('priority'));
+  let blockers = $state<string[]>(vs('blockedBy'));
+  let blockerLabels = $state<Record<string, string>>({});
+  let taskPicker = $state(false);
+  let planningApp = '';
+  $effect(() => {
+    const id = data.app.id;
+    untrack(() => {
+      if (planningApp && planningApp !== id) { priority = ''; blockers = []; blockerLabels = {}; taskPicker = false; }
+      planningApp = id;
+    });
+  });
   let owner = $state(v('owner') || 'me');
   let assignee = $state(v('assignee') || 'nobody');
   let familyIn = $state<string[]>(vs('familyIn'));
@@ -93,7 +122,8 @@
   /** A browser-to-portal failure (Diego's P2-1 on #1135): the task may exist, so the fixed line, and the form stays. */
   let transportRefusal = $state<WriteRefusal | null>(null);
   const shownRefusal = $derived(transportRefusal ?? result?.refusal ?? null);
-  const submit = () => {
+  const submit = ({ cancel }: { cancel: () => void }) => {
+    if (submitting) { cancel(); return; }
     submitting = true;
     transportRefusal = null;
     return async ({ result: r0, update }: { result: { type: string }; update: (o?: { reset?: boolean }) => Promise<void> }) => {
@@ -163,13 +193,14 @@
       </h2>
       <TaskWarnings warnings={created.warnings} more={created.more} />
       {#if created.created.id}
-        <a href="{basePath}/tasks/{encodeURIComponent(created.created.id)}" class="inline-block text-sm text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.new.open-created', 'Open the task')}</a>
+        <a href={taskHref(basePath, { id: created.created.id, handle: created.created.handle })} class="inline-block text-sm text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.new.open-created', 'Open the task')}</a>
       {:else}
         <a href="{basePath}/tasks" class="inline-block text-sm text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.new.find-created', 'Find it in the Tasks list')}</a>
       {/if}
     </section>
   {:else}
     <form method="POST" use:enhance={submit} class="space-y-5 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+
       <input type="hidden" name="startByUtc" value={startByUtc} />
 
       <div class="space-y-1">
@@ -183,6 +214,23 @@
         <label for="new-description" class={labelClass}>{t('app.tasks.new.description', 'Description')}</label>
         <textarea id="new-description" name="description" rows="4" class={inputClass} bind:value={description}></textarea>
       </div>
+
+      <fieldset disabled={submitting} class="space-y-3 rounded border border-zinc-200 p-3 dark:border-zinc-700">
+        <legend class={labelClass}>{t('app.tasks.planning', 'Priority and blockers')}</legend>
+        <label for="new-priority" class={labelClass}>{t('app.tasks.priority', 'Priority')}</label>
+        <select id="new-priority" name="priority" bind:value={priority} class={inputClass}>
+          <option value="">{t('app.tasks.priority.default', 'Use default (1, highest)')}</option>
+          {#each [1,2,3,4,5] as value}<option value={String(value)}>{value}</option>{/each}
+        </select>
+        <p class={helpClass}>{t('app.tasks.planning.create-authority', 'Setting priority or blockers requires permission to assign the new task. Leave them unset to use the defaults.')}</p>
+        <div class="flex flex-wrap gap-2">
+          {#each blockers as ref (ref)}
+            <input type="hidden" name="blockedBy" value={ref} />
+            <button type="button" class="rounded border px-2 py-1 text-sm" onclick={() => blockers = blockers.filter((id) => id !== ref)}>{blockerLabels[ref] ?? t('app.tasks.blocker.selected', 'Selected task')} · {t('app.tasks.blocker.remove', 'Remove')}</button>
+          {/each}
+        </div>
+        <button type="button" class="rounded border px-3 py-1 text-sm" onclick={() => taskPicker = true}>{t('app.tasks.blocker.choose', 'Choose a blocker')}</button>
+      </fieldset>
 
       <fieldset class="space-y-1">
         <legend class={labelClass}>{t('app.tasks.new.start', 'Where it starts')}</legend>
@@ -257,6 +305,14 @@
                   {#each data.candidates.workers as w (w.id)}<option value={w.id} selected={vs('excludeWorkers').includes(w.id)}>{w.name}</option>{/each}
                 </select>
               </div>
+              <div class="space-y-1">
+                <label for="new-min-tier" class={labelClass}>{t('app.tasks.new.min-tier', 'Minimum model tier')}</label>
+                <select id="new-min-tier" name="minTier" aria-describedby="new-min-tier-help" class={inputClass}>
+                  <option value="">{t('app.tasks.new.min-tier.any', 'Any')}</option>
+                  {#each MIN_TIERS as tier (tier)}<option value={tier} selected={v('minTier') === tier}>{tierLabel(tier)}</option>{/each}
+                </select>
+                <p id="new-min-tier-help" class={helpClass}>{t('app.tasks.new.min-tier.help', 'The task goes to the cheapest free worker at or above this tier. When a minimum is selected, a worker whose tier is unknown won’t be picked.')}</p>
+              </div>
             </div>
           </details>
         {/if}
@@ -273,6 +329,10 @@
         <input id="new-source" name="source" type="text" bind:value={source} aria-describedby="new-source-help" class={inputClass} />
         <p id="new-source-help" class={helpClass}>{t('app.tasks.new.source.help', 'A link, a URN or a note on where this came from.')}</p>
       </div>
+
+      <!-- portal#1575: typed references; a refused submit hands the list back, so nothing added is lost.
+           #1576 step 2: NODE is picked with SelectNode over the streamed readable memories. -->
+      <TaskReferencesEditor app={{ id: data.app.id, urn: data.app.urn ?? null }} nodeMemories={data.nodeMemories} initial={readReferences(v('references')) ?? []} idPrefix="new" invalid={fieldRefusal('references')} />
 
       <div class="space-y-1">
         <label for="new-tags" class={labelClass}>{t('app.tasks.new.tags', 'Tags')}</label>
@@ -302,3 +362,8 @@
     </form>
   {/if}
 </div>
+
+<SelectTask appId={data.app.id} bind:open={taskPicker} onselect={(task: TaskChoice) => {
+  if (!blockers.includes(task.id)) blockers = [...blockers, task.id];
+  blockerLabels = { ...blockerLabels, [task.id]: task.title };
+}} />

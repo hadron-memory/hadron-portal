@@ -21,7 +21,8 @@ try {
         const { mountSelectApp } = await import('/src/lib/test/fixtures/select-app-harness.ts');
         mountSelectApp(document.getElementById('app'));
       });
-      const select = page.getByRole('button', { name: 'Select', exact: true });
+      // #1605: the row's Select is named after its App.
+      const select = page.getByRole('button', { name: 'Select A long existing App name for a narrow viewport', exact: true });
       await select.waitFor();
       const measure = () => select.evaluate((button) => {
         const rect = button.getBoundingClientRect();

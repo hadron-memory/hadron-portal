@@ -31,7 +31,17 @@ export function submittedForm<T extends { _kind?: string }>(
 export function failedSubmission<T extends { _kind?: string }>(
   actionData: unknown,
   kind: T['_kind'],
+  /**
+   * #1522: only THIS form instance's submission. Page action data is applied
+   * by superforms globally BY ID, and sibling forms can share a `_kind` (the
+   * two chat send surfaces do), so `_kind` alone cannot tell whose result it
+   * is. With `formId`, another form's data — a late answer, or a result that
+   * outlived a navigation — no longer seeds this form.
+   */
+  formId?: string,
 ): SuperValidated<T, App.Superforms.Message, T> | null {
   const form = submittedForm<T>(actionData, kind);
-  return form && (!form.valid || form.message?.type === 'error') ? form : null;
+  if (!form) return null;
+  if (formId !== undefined && form.id !== formId) return null;
+  return !form.valid || form.message?.type === 'error' ? form : null;
 }

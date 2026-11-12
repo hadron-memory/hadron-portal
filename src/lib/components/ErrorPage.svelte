@@ -1,6 +1,8 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import { page } from '$app/stores';
   import { t } from '$lib/i18n/t';
+  import { validRequestId } from '$lib/error-request-id';
 
   // #567 — the styled error surface rendered by the `+error.svelte`
   // boundaries. Replaces SvelteKit's unstyled default page for thrown
@@ -10,7 +12,8 @@
   let {
     homeHref = '/',
     homeLabel = t('app.error.home', 'Go home'),
-  }: { homeHref?: string; homeLabel?: string } = $props();
+    children,
+  }: { homeHref?: string; homeLabel?: string; /** Extra context a boundary knows, shown under the message. */ children?: Snippet } = $props();
 
   const title = $derived.by(() => {
     switch ($page.status) {
@@ -39,6 +42,10 @@
         {$page.error.message}
       </p>
     {/if}
+    {#if $page.status >= 500 && validRequestId($page.error?.requestId)}
+      <p class="mt-3 break-all select-all text-sm text-zinc-600 dark:text-zinc-400">{t('error.request-id', 'Request ID: {id}', { id: $page.error?.requestId ?? '' })}</p>
+    {/if}
+    {@render children?.()}
     <div class="mt-8 flex items-center justify-center gap-3">
       <button
         type="button"

@@ -5,6 +5,7 @@
  * routing edge with the source's next free index.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -88,6 +89,9 @@ describe('load', () => {
     const result = await runLoad() as {
       edgeForms: Record<string, { data: Record<string, unknown>; errors: Record<string, string[]> }>;
     };
+    // edgeForms holds one form per edge; only the selected edge's is mounted.
+    const { edgeForms, ...mounted } = result as unknown as Record<string, Record<string, unknown>>;
+    expectDistinctFormIds({ ...mounted, edge: Object.values(edgeForms)[0] }, 2);
 
     expect(Object.keys(result.edgeForms)).toEqual(['edge-1', 'edge-2']);
     expect(result.edgeForms['edge-1'].data).toMatchObject({
@@ -166,7 +170,7 @@ describe('updateEdge', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('surfaces the GraphQL error message, not the raw ClientError payload', async () => {
+  it('suppresses uncoded GraphQL prose and the raw ClientError payload', async () => {
     mockRequest.mockRejectedValueOnce(
       Object.assign(new Error('huge query/variable dump'), {
         response: { errors: [{ message: 'Forbidden' }] },
@@ -179,7 +183,7 @@ describe('updateEdge', () => {
       condition: 'null',
     })) as { status: number; data: { error: string; edgeId: string } };
     expect(result.status).toBe(500);
-    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Forbidden' });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
     expect(superFormFrom(result)?.data?.edgeId).toBe('e1');
   });
 });

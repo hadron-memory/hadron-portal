@@ -5,7 +5,8 @@ import type { MemoryNode } from '$lib/types';
 function nodeHref(node: MemoryNode, basePath: string): string {
   if (basePath) return `${basePath}/nodes/${node.id}`;
   // #260: memory pages are org-less, so the fallback needs only the memory id.
-  const memId = node.memory?.id;
+  // `memory` is null on every inherited node (the server withholds it); the row's own memoryId is the address.
+  const memId = node.memory?.id ?? node.memoryId;
   if (memId) return `/app/memories/${memId}/nodes/${node.id}`;
   return '';
 }

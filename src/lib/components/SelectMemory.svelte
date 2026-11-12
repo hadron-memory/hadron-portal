@@ -1,7 +1,9 @@
 <script lang="ts">
   import type { PortalColumnDef } from '$lib/table/features';
+  import { pickerStrings } from '$lib/i18n/picker-strings';
   import { untrack } from 'svelte';
   import { focusTrap } from '$lib/a11y/focus-trap';
+  import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
   import { t } from '$lib/i18n/t';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
@@ -19,12 +21,56 @@
     placeholder = 'Search memories by name or URN...',
     onselect,
     open = $bindable(false),
+    clearOf = null,
+    keepOpen = false,
+    addedIds = null,
+    note = '',
   }: {
     memories: Memory[];
     placeholder?: string;
     onselect: (memory: Memory) => void;
     open?: boolean;
+    /**
+     * #1590: when stacked over a host dialog, the host element this picker
+     * must not cover (SelectNode's header row, with its title and Close).
+     * The picker starts below that element's bottom edge (its 70vh height
+     * still fits under a host header on any viewport taller than ~270px).
+     * Measured while open, and again on resize and on any scroll (#1600
+     * item 4: a scroll chaining to the host dialog moves its header).
+     */
+    clearOf?: HTMLElement | null;
+    /** #1736: several picks in one sitting. Selecting leaves the picker open, with Done to close it. */
+    keepOpen?: boolean;
+    /** Memories already picked: their rows read "Added" and cannot be picked again. */
+    addedIds?: ReadonlySet<string> | null;
+    /** A status line the host owns, such as how many are picked and the limit. */
+    note?: string;
   } = $props();
+
+  const STACK_GAP = 8; // px between the host's edge and this dialog
+  let clearTop = $state<number | null>(null);
+  $effect(() => {
+    if (!open || !clearOf) {
+      clearTop = null;
+      return;
+    }
+    const host = clearOf;
+    const measure = () => { clearTop = host.getBoundingClientRect().bottom + STACK_GAP; };
+    measure();
+    // Scroll does not bubble, so only a capture-phase listener on window sees
+    // a scroll on an inner scroller (the host dialog's own list, say).
+    const scrollOpts = { capture: true, passive: true } as const;
+    window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, scrollOpts);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure, scrollOpts);
+    };
+  });
+
+  // #1600 item 1: one string is both the visible heading and the dialog's
+  // accessible name, so the two cannot drift apart.
+  const title = $derived(t('select-memory.title', 'Choose a memory'));
 
   let query = $state('');
 
@@ -77,15 +123,14 @@
   const filteredRowCount = $derived(table.getFilteredRowModel().rows.length);
 
   function select(memory: Memory) {
+    if (addedIds?.has(memory.id)) return;
     onselect(memory);
-    open = false;
+    if (!keepOpen) open = false;
   }
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (open && e.key === 'Escape') {
-      open = false;
-    }
-  }
+  // Escape: consumed at this dialog's own layer — the shared helper owns the
+  // layering contract and the guards (src/lib/a11y/dialog-escape.ts).
+  const escapeFallback = { close: () => { open = false; } };
 
   // Reset search + pagination whenever the modal closes. `open` is the only
   // tracked dependency; the reset itself runs untracked because
@@ -101,21 +146,23 @@
   });
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-50 flex items-start justify-center pt-[10vh]" onclick={() => { open = false; }}>
+  <div class="fixed inset-0 z-50 flex items-start justify-center px-2 pt-[10vh]"
+    style={clearTop === null ? undefined : `padding-top: max(10vh, ${clearTop}px);`}
+    onclick={() => { open = false; }}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={t('select-memory.title', 'Choose a memory')}
+      aria-label={title}
       tabindex="-1"
       use:focusTrap
+      use:dialogEscapeFallback={escapeFallback}
       class="w-full max-w-2xl rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 flex flex-col"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => consumeEscapeAtDialog(e, escapeFallback)}
       style="max-height: 70vh;"
     >
       <!-- Header with search. The input must NOT focus itself via an action:
@@ -125,6 +172,7 @@
            trap moves focus to the first tabbable control — this input — after
            capturing the real opener. -->
       <div class="border-b border-zinc-200 p-4 dark:border-zinc-700">
+        <h2 class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{title}</h2>
         <input
           type="text"
           bind:value={query}
@@ -132,6 +180,7 @@
           aria-label={placeholder}
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
         />
+        {#if keepOpen}<p role="status" class="mt-2 text-xs text-zinc-600 dark:text-zinc-400">{note}</p>{/if}
       </div>
 
       <!-- Table -->
@@ -139,22 +188,34 @@
         {#if rows.length === 0}
           <div class="px-4 py-8 text-center text-sm text-zinc-500">No memories found.</div>
         {:else}
-          <table class="w-full text-sm border-collapse">
+          <table class="w-full table-fixed border-collapse text-sm sm:table-auto">
             <thead>
               <tr class="text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                 {#each table.getHeaderGroups()[0]?.headers ?? [] as header (header.id)}
-                  <th class="sticky top-0 border-b border-zinc-200 bg-zinc-50 px-4 py-2 text-left dark:border-zinc-800 dark:bg-zinc-800" style="width: {header.getSize()}px;">
+                  <!-- #1600 item 2: below sm the table is fixed-layout with no
+                       imposed widths (they sum past a phone's width, and a
+                       truncating URN chip's min-content is its full text in an
+                       auto table), and Organization folds into the Name cell,
+                       so every control stays inside the panel. -->
+                  <th class="sticky top-0 border-b border-zinc-200 bg-zinc-50 px-2 py-2 text-left sm:w-(--col-w) sm:px-4 dark:border-zinc-800 dark:bg-zinc-800 {header.column.id === 'orgName' ? 'hidden sm:table-cell' : ''}" style="--col-w: {header.getSize()}px;">
                     {header.column.columnDef.header}
                   </th>
                 {/each}
-                <th class="sticky top-0 border-b border-zinc-200 bg-zinc-50 px-4 py-2 dark:border-zinc-800 dark:bg-zinc-800 w-20"></th>
+                <th class="sticky top-0 border-b border-zinc-200 bg-zinc-50 w-20 px-2 py-2 sm:px-4 dark:border-zinc-800 dark:bg-zinc-800"></th>
               </tr>
             </thead>
             <tbody>
               {#each rows as row (row.id)}
                 <tr class="border-b border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800">
-                  <td class="px-4 py-2 text-sm font-medium text-zinc-900 dark:text-white">{row.original.name}</td>
-                  <td class="px-4 py-2 text-xs">
+                  <td class="px-2 py-2 text-sm font-medium break-words text-zinc-900 sm:px-4 dark:text-white">
+                    {row.original.name}
+                    <!-- #1604: only a real org folds under the name. Here a "—"
+                         is an unlabelled stray glyph, not an empty cell. -->
+                    {#if row.original.orgName}
+                      <div class="mt-1 text-xs font-normal text-zinc-600 sm:hidden dark:text-zinc-400">{row.original.orgName}</div>
+                    {/if}
+                  </td>
+                  <td class="px-2 py-2 text-xs sm:px-4">
                     <div class="flex items-center gap-2">
                       <div class="min-w-0 flex-1">
                         <Urn value={row.original.urn} type="memory" size={10} compact />
@@ -164,14 +225,17 @@
                       </a>
                     </div>
                   </td>
-                  <td class="px-4 py-2 text-sm text-zinc-600 dark:text-zinc-400">{row.original.orgName || '—'}</td>
-                  <td class="px-4 py-2 text-right">
+                  <td class="hidden px-4 py-2 text-sm text-zinc-600 sm:table-cell dark:text-zinc-400">{row.original.orgName || '—'}</td>
+                  <td class="px-2 py-2 text-right sm:px-4">
+                    <!-- aria-disabled, not disabled: picking must not drop focus out of the dialog. -->
                     <button
                       type="button"
                       onclick={() => select(row.original)}
-                      class="rounded bg-indigo-500 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-600 dark:bg-indigo-600 dark:hover:bg-indigo-700"
+                      aria-disabled={addedIds?.has(row.original.id) ? 'true' : undefined}
+                      aria-label={addedIds?.has(row.original.id) ? t('select-memory.added-named', 'Added {name}', { name: row.original.name }) : pickerStrings.selectNamed(row.original.name)}
+                      class="rounded px-3 py-1 text-xs font-medium pointer-coarse:min-h-11 {addedIds?.has(row.original.id) ? 'border border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-300' : 'bg-indigo-500 text-white hover:bg-indigo-600 dark:bg-indigo-600 dark:hover:bg-indigo-700'}"
                     >
-                      Select
+                      {addedIds?.has(row.original.id) ? t('select-memory.added', 'Added') : pickerStrings.select()}
                     </button>
                   </td>
                 </tr>
@@ -182,7 +246,7 @@
       </div>
 
       <!-- Footer with pagination -->
-      <div class="border-t border-zinc-200 flex items-center justify-between px-4 py-3 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
+      <div class="border-t border-zinc-200 flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
         <div>
           {rows.length > 0 && pageIndex >= 0 && pageCount > 0
             ? `${filteredRowCount} result${filteredRowCount !== 1 ? 's' : ''} · Page ${pageIndex + 1} of ${pageCount}`
@@ -206,7 +270,9 @@
             Next →
           </button>
         </div>
-        <div>Esc to close</div>
+        <!-- #1600 item 3: keyboard help; a touch device has no Esc. -->
+        <div class="pointer-coarse:hidden">Esc to close</div>
+        {#if keepOpen}<button type="button" onclick={() => { open = false; }} class="min-h-11 rounded bg-indigo-600 px-3 text-white">{t('select-memory.done', 'Done')}</button>{/if}
       </div>
     </div>
   </div>

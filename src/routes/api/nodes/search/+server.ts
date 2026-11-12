@@ -69,8 +69,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
 
   const body = await request.json();
-  const { query, mode, memoryIds, filter, sort, sortProperty, fields } = body as {
+  const { query, mode, memoryIds, filter, sort, sortProperty, fields, limit: requestedLimit } = body as {
     query?: unknown;
+    limit?: unknown;
     mode?: unknown;
     memoryIds?: unknown;
     filter?: {
@@ -90,6 +91,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   };
 
   const q = typeof query === 'string' ? query.trim() : '';
+  // Typeahead callers (portal#1433) ask for a handful of hits; clamp so a
+  // client cannot raise the cap above SEARCH_LIMIT or send a nonsense value.
+  const resultLimit =
+    typeof requestedLimit === 'number' && Number.isFinite(requestedLimit)
+      ? Math.min(SEARCH_LIMIT, Math.max(1, Math.floor(requestedLimit)))
+      : SEARCH_LIMIT;
   if (!Array.isArray(memoryIds) || memoryIds.length === 0) {
     return json({ nodes: [], total: null });
   }
@@ -197,7 +204,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       approvalState,
       minted,
       contentScope,
-      limit: SEARCH_LIMIT,
+      limit: resultLimit,
     });
 
   try {
@@ -289,7 +296,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       snippets,
       meta,
       total: r?.total ?? null,
-      capped: nodes.length >= SEARCH_LIMIT,
+      capped: nodes.length >= resultLimit,
       reason: noteReason,
       degraded: [...degraded],
       note: [degradeNote(noteReason, degraded, lexicalFallback, nodes.length), snippetsUnavailable ? t('search.snippets-unavailable', 'Matching passages are unavailable; ranked node results are shown.') : null].filter(Boolean).join(' ') || null,

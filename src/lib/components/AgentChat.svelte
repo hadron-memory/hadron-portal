@@ -1,7 +1,8 @@
 <script lang="ts">
+  import ServedPrompt from '$lib/components/ServedPrompt.svelte';
   import { onDestroy, onMount, tick } from 'svelte';
   import { replaceState } from '$app/navigation';
-  import { marked } from 'marked';
+  import { renderChatMarkdown } from '$lib/markdown/chat-markdown';
   import DOMPurify from 'dompurify';
   import type { Chat, ChatMessage } from '$lib/types';
   import AssetUploadButton from '$lib/components/assets/AssetUploadButton.svelte';
@@ -12,9 +13,14 @@
   import { scrollTopAfterPrepend } from '$lib/team-chat-refresh';
   import { t } from '$lib/i18n/t.js';
   import { chatScopeStrings } from '$lib/i18n/chat-scope-strings.js';
+  import {
+    chatAiChoiceLabel,
+    initialChatAiChoice,
+    type ChatAiChoiceOption,
+  } from '$lib/chat-ai-choice';
 
   function renderMarkdown(text: string): string {
-    const raw = marked.parse(text, { async: false }) as string;
+    const raw = renderChatMarkdown(text);
     return DOMPurify.sanitize(raw);
   }
 
@@ -22,15 +28,37 @@
   // asset uploads. The parent page picks the destination memory (for now,
   // the agent's first writable memory). Multi-writable memory-picker UX
   // is a follow-up; the dominant single-writable case auto-picks.
-  // 036-ai-service-config: the App chat tab passes appId + the picked
-  // configName so turns resolve in app-context against the chosen config.
-  // The agent-builder chat omits both (agent-context, `default`).
+  // 036-ai-service-config: the App chat tab passes appId so turns resolve in
+  // app-context. portal#1963 (hadron-server#3957): it also passes the server's
+  // list of AI config choices, and the chat shows a dropdown over them. The
+  // agent-builder chat omits both (agent-context, `default`, no dropdown).
   let {
     agentId,
     uploadMemoryId,
     appId,
-    configName,
-  }: { agentId: string; uploadMemoryId?: string; appId?: string; configName?: string } = $props();
+    aiChoices = null,
+  }: { agentId: string; uploadMemoryId?: string; appId?: string; aiChoices?: ChatAiChoiceOption[] | null } = $props();
+
+  // portal#1963: the choice stored with the open chat (null for a new chat, or none stored), and the one the
+  // user picked in the dropdown. A pick is what gets SENT, so the server stores it; until the user picks, the
+  // chat runs the shown config by name and sends no choice, exactly as before. The shown value mirrors the
+  // server's order: the stored choice while the list still has it, else the App's chatbot config, else default.
+  let storedAiChoice = $state<string | null>(null);
+  let pickedAiChoice = $state<string | null>(null);
+  const hasAiChoices = $derived(Array.isArray(aiChoices) && aiChoices.length > 0);
+  // A pick counts only while the list still has it: the list drops a config deleted or disabled on the AI
+  // tab, and config ids are per App, so a pick made in one App never carries into another's list.
+  const livePickedAiChoice = $derived(
+    pickedAiChoice !== null && hasAiChoices && aiChoices!.some((o) => o.value === pickedAiChoice) ? pickedAiChoice : null,
+  );
+  const shownAiChoice = $derived(
+    hasAiChoices ? (livePickedAiChoice ?? initialChatAiChoice(aiChoices!, storedAiChoice)) : null,
+  );
+  /** The body fields a start or a turn carries for the AI config: the pick only. No config name is ever sent;
+   *  the portal server resolves from the choice, else the chat's stored one (portal#1963, Juliet's BLIND F1). */
+  function aiConfigFields(): { aiConfigChoice?: string } {
+    return hasAiChoices && livePickedAiChoice !== null ? { aiConfigChoice: livePickedAiChoice } : {};
+  }
 
   let pendingAttachments = $state<AssetSummary[]>([]);
 
@@ -64,6 +92,9 @@
   let input = $state('');
   let sending = $state(false);
   let turnError = $state<string | null>(null);
+  // portal#916: set only for a turn the server half-saved (see handlePartialTurn). Carries the chat it belongs to
+  // so it can never show in, or reload, another chat.
+  let partialTurnNotice = $state<{ chatId: string; text: string; refreshFailed: boolean } | null>(null);
 
   // Inline rename state
   let renamingChatId = $state<string | null>(null);
@@ -300,16 +331,21 @@
   async function startNewChat() {
     loadingChat = true;
     turnError = null;
+    partialTurnNotice = null;
     messages = [];
     // A chat that does not exist yet has no history behind it.
     resetScrollback();
+    // portal#1963: leaving an open chat for a new one starts from the preselection, never from the old chat's
+    // choice. A pick made while no chat was open is meant for this new chat and is kept.
+    if (activeChatId !== null) pickedAiChoice = null;
+    storedAiChoice = null;
     activeChatId = null;
     activeChatMeta = null;
     try {
       const res = await fetch('/api/agent-chat/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId, scope: nextChatScope, appId, configName }),
+        body: JSON.stringify({ agentId, scope: nextChatScope, appId, ...aiConfigFields() }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -378,6 +414,7 @@
     if (activeChatId === chatId) return;
     loadingChat = true;
     turnError = null;
+    partialTurnNotice = null;
     welcomeNotice = null;
     messages = [];
     // Cleared BEFORE the fetch, not only on success: an in-flight scroll-up
@@ -386,6 +423,9 @@
     activeChatId = chatId;
     syncChatIdToUrl(chatId);
     activeChatMeta = null;
+    // portal#1963: the reopened chat shows its own stored choice, not the previous chat's pick.
+    pickedAiChoice = null;
+    storedAiChoice = chats.find((c) => c.loc === chatId || c.id === chatId)?.aiConfigChoice ?? null;
     try {
       const res = await fetch('/api/agent-chat/resume', {
         method: 'POST',
@@ -394,6 +434,8 @@
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? 'Failed to resume chat');
+      // The fresh read wins over the list row, unless the user picked while it was in flight.
+      if (activeChatId === chatId) storedAiChoice = body.chat?.aiConfigChoice ?? null;
       activeChatMeta = {
         title: body.chat.title,
         conversationName: body.chat.conversationName,
@@ -402,6 +444,9 @@
         // from MY_CHATS_QUERY which now selects it.
         scope: body.chat.scope === 'shared' ? 'shared' : 'private',
       };
+      // Chat switch stays tolerant, as before #916: a missing list opens an empty
+      // transcript. The strict check lives in the partial-turn reload only, where
+      // the transcript on screen must not be replaced by nothing.
       messages = body.messages ?? [];
       // #793: the tail page plus the server's word on whether anything precedes
       // it. `hasOlder` comes from the endpoint, never from `messages.length` —
@@ -422,9 +467,13 @@
     const text = input.trim();
     if (!text || !activeChatId || sending) return;
     const chatId = activeChatId;
+    // portal#916: the window this turn was issued in. A chat id is not unique over time (leave and reopen the same
+    // chat and it is a new window), so the fence is captured HERE, when the turn is issued, never after its response.
+    const issuedWindow = windowGeneration;
     input = '';
     sending = true;
     turnError = null;
+    partialTurnNotice = null;
     welcomeNotice = null;
 
     // Optimistic user bubble
@@ -443,10 +492,19 @@
       const res = await fetch('/api/agent-chat/turn', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId, chatId, userMessage: text, appId, configName }),
+        body: JSON.stringify({ agentId, chatId, userMessage: text, appId, ...aiConfigFields() }),
       });
       const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? 'Turn failed');
+      if (!res.ok) {
+        // portal#916: the server saved both messages before refusing the extraction. A rollback plus refill would
+        // invite a resend that duplicates the turn, so reload instead. The route sets the flag only for a
+        // recognised structured marker; without it this is today's failure path, unchanged.
+        if (res.status === 409 && body.partialTurn === true) {
+          await handlePartialTurn(chatId, issuedWindow, typeof body.error === 'string' && body.error.trim() !== '' ? body.error : t('agent-chat.partial-turn.generic', "Your message was sent and the reply was saved. You don't need to send it again."));
+          return;
+        }
+        throw new Error(body.error ?? 'Turn failed');
+      }
 
       // Assistant bubble
       messages = [
@@ -487,6 +545,41 @@
     } finally {
       sending = false;
     }
+  }
+
+  /**
+   * portal#916: a turn the server half-saved (reply and counter saved, extraction refused, stage not run).
+   * Reloads the conversation through the same resume read, shows the route's fixed message as a notice, keeps the
+   * current stage (no toast), and NEVER touches `input`: the sent text is not put back, and a draft the user typed
+   * since stays. Applies only to the chat the turn belonged to, and to the window it was sent in.
+   */
+  async function handlePartialTurn(chatId: string, generation: number, notice: string) {
+    // An old turn belongs to the window it was issued in: if the user left and reopened the chat since, the fresh
+    // window already loaded the saved messages and this turn must neither reload it again nor explain itself there.
+    if (destroyed || activeChatId !== chatId || windowGeneration !== generation) return;
+    let reloaded = false;
+    try {
+      const res = await fetch('/api/agent-chat/resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, chatId }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error('reload failed');
+      // The user may have switched chats, or reopened this one, while the read was in flight.
+      if (destroyed || activeChatId !== chatId || windowGeneration !== generation) return;
+      // A 200 without a messages list is not a reload: keep what is shown and say so.
+      if (!Array.isArray(body.messages)) throw new Error('reload returned no messages');
+      messages = body.messages;
+      resetScrollback({ messages, hasOlder: body.hasOlder });
+      reloaded = true;
+      scrollMessagesToBottom();
+    } catch {
+      if (destroyed || activeChatId !== chatId || windowGeneration !== generation) return;
+    }
+    // Truthful when the reload failed: the reply is saved, but this screen may not show it.
+    partialTurnNotice = { chatId, text: notice, refreshFailed: !reloaded };
+    refreshChatList();
   }
 
   function onInputKeydown(e: KeyboardEvent) {
@@ -554,6 +647,7 @@
         messages = [];
         resetScrollback();
         welcomeNotice = null;
+        partialTurnNotice = null;
       }
       await refreshChatList();
     } catch (e) {
@@ -709,8 +803,15 @@
   <!-- ── Active chat ─────────────────────────────────────────────────── -->
   <main class="flex min-h-0 min-w-0 flex-1 flex-col">
     {#if !activeChatId && !loadingChat}
-      <div class="flex min-h-0 flex-1 items-center justify-center p-8 text-center text-sm text-zinc-500">
-        Select a chat from the list or click <span class="mx-1 font-semibold text-zinc-700 dark:text-zinc-300">+ New chat</span> to start a new one.
+      <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-8 text-center text-sm text-zinc-500">
+        <p>Select a chat from the list or click <span class="mx-1 font-semibold text-zinc-700 dark:text-zinc-300">+ New chat</span> to start a new one.</p>
+        <!-- portal#1611: a refused or failed start has no chat pane to show its
+             error in; without this the user saw nothing at all. -->
+        {#if turnError}
+          <div role="alert" class="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+            {turnError}
+          </div>
+        {/if}
       </div>
     {:else}
       <!-- Header -->
@@ -760,6 +861,17 @@
       {#if welcomeNotice}
         <div class="mx-4 mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
           {welcomeNotice}
+        </div>
+      {/if}
+
+      <!-- portal#1665: what this chat was given (hrn:node:hadronmemory.com:specs:cor:agt:040:03), for the chat OPEN here. Asked by
+           {agentId, chatId} and found in the viewer's own list server-side; an end user who does not
+           manage the App gets an empty answer and sees nothing (no "no records" text). -->
+      {#if activeChatId && !loadingChat}
+        <div class="mx-4 mt-2">
+          {#key activeChatId}
+            <ServedPrompt collapsible source="chat" {agentId} chatId={activeChatId} />
+          {/key}
         </div>
       {/if}
 
@@ -816,6 +928,19 @@
         {/if}
       </div>
 
+      <!-- The status region stays mounted (empty) so the notice that arrives later is announced; a live region that is
+           mounted already populated is not reliably read. Margins live on the notice, not the region. -->
+      <div role="status" data-testid="partial-turn-notice">
+        {#if partialTurnNotice && partialTurnNotice.chatId === activeChatId}
+          <div class="mx-4 mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            <p>{partialTurnNotice.text}</p>
+            {#if partialTurnNotice.refreshFailed}
+              <p class="mt-1">{t('agent-chat.partial-turn.refresh-failed', "The conversation couldn't be refreshed, so the saved messages may not be shown here. Reload the page to see them.")}</p>
+            {/if}
+          </div>
+        {/if}
+      </div>
+
       {#if turnError}
         <div class="mx-4 mb-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
           {turnError}
@@ -865,6 +990,26 @@
             Send
           </button>
         </div>
+      </div>
+    {/if}
+    {#if hasAiChoices}
+      <!-- portal#1963: the AI config for this chat (or, with none open, the next one). Below the chat, where
+           model pickers sit in most chat apps. A config the portal can't run yet stays listed, disabled, with
+           its reason in the label: the server's list never carries a config's own disabled state.
+           `min-w-0` lets a long label give way on a phone (#740). -->
+      <div class="flex items-center gap-2 border-t border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800">
+        <label for="agent-chat-ai-config" class="shrink-0 text-zinc-500 dark:text-zinc-400">{t('agent-chat.ai-config.label', 'AI config')}</label>
+        <select
+          id="agent-chat-ai-config"
+          value={shownAiChoice ?? ''}
+          disabled={sending || loadingChat}
+          onchange={(e) => (pickedAiChoice = e.currentTarget.value)}
+          class="min-w-0 truncate rounded-lg border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+        >
+          {#each aiChoices ?? [] as choice (choice.value)}
+            <option value={choice.value} disabled={choice.unavailableReason !== null}>{chatAiChoiceLabel(choice)}</option>
+          {/each}
+        </select>
       </div>
     {/if}
   </main>

@@ -31,10 +31,10 @@
       </div>
       <div class="min-w-0">
         <dt class="font-medium text-zinc-900 dark:text-white">
-          {t('app.tickers.settings.budget', '{n} wake-ups a day', { n: s.dailyWakeBudget })}
+          {t('app.tickers.settings.budget', '{n} ticker wakes a day', { n: s.dailyWakeBudget })}
           {#if s.dailyWakeBudgetDerived}<span class="font-normal text-zinc-500 dark:text-zinc-400">{t('app.tickers.settings.budget.derived', '(set automatically from the team’s size)')}</span>{/if}
         </dt>
-        <dd class="text-zinc-600 dark:text-zinc-400">{t('app.tickers.settings.budget.help', 'Mentions from managers don’t count. When it runs out, wake-ups wait until the next UTC day, and the team chat gets one notice.')}</dd>
+        <dd class="text-zinc-600 dark:text-zinc-400">{t('app.tickers.settings.budget.help', 'Mentions from managers don’t count. When it runs out, wakes wait until the next UTC day, and the team chat gets one notice.')}</dd>
       </div>
     </dl>
     <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tickers.settings.who', 'Only whoever manages the App can change these settings.')}</p>

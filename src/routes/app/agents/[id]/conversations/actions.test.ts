@@ -5,6 +5,7 @@
  * merges data.position without clobbering the node's other data keys.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import { parse, visit, Kind } from 'graphql';
 import {
   UPDATE_NODE_MUTATION,
@@ -820,6 +821,16 @@ describe('load', () => {
       conversationGoalForms: Record<string, { data: { _kind: string; systemMemoryId: string; convLoc: string; goalDescriptionsText: string; goalSignalsText: string } }>;
       stageExtractionForms: Record<string, { data: { _kind: string; systemMemoryId: string; stageLoc: string; extractionSpec: string } }>;
     };
+    // edgeForms / stageExtractionForms / promptForms hold one form per row, but
+    // the page mounts only the SELECTED (or editing) row's form, so each record
+    // counts once.
+    const { edgeForms, stageExtractionForms, promptForms, ...mounted } = result as Record<string, Record<string, unknown>>;
+    expectDistinctFormIds({
+      ...mounted,
+      edge: Object.values(edgeForms)[0],
+      stage: Object.values(stageExtractionForms ?? {})[0],
+      prompt: Object.values(promptForms ?? {})[0],
+    }, 5);
 
     expect(result.addConversationForm.data).toMatchObject({ _kind: 'addConversation', systemMemoryId: 'mem-1', name: '' });
     expect(result.addEdgeForm.data).toMatchObject({

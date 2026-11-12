@@ -84,9 +84,9 @@ describe('pointerAction', () => {
     expect(r.data.pointer.nodeRef).toBe('still-here');
   });
 
-  it('an unknown code keeps the server message, with no lead', async () => {
+  it('an unknown code uses generic copy, with no lead', async () => {
     const r = (await pointerAction(fd({ nodeRef: 'n' }), 'app', 'k', () => Promise.reject(refused('SOMETHING_ELSE')))) as { data: { pointer: { refusal: { lead: unknown; message: string } } } };
-    expect(r.data.pointer.refusal).toMatchObject({ lead: null, message: 'The server says no.' });
+    expect(r.data.pointer.refusal).toMatchObject({ lead: null, message: 'Something went wrong on our side.' });
   });
 
   it('a payloadless or transport error shows a fixed line, never the thrown message (it carries the query)', async () => {

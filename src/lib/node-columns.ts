@@ -37,6 +37,8 @@ export interface NodeColumnRow {
   user?: ColumnUser | null;
   agent: ColumnActor | null;
   worker: ColumnActor | null;
+  /** portal#1346: the node's embedding state, shown only when the memory is vector-indexed. */
+  embedding?: { pendingAt: string | null; failedAt: string | null; error: string | null };
 }
 
 export function chunkIds(ids: readonly string[], size: number = COLUMN_BATCH): string[][] {

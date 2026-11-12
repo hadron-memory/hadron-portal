@@ -1,6 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError } from '$lib/server/gqlError';
+import { nodeWriteErrorText } from '$lib/node-role-refusal';
 import { requireNonConsumer } from '$lib/server/guards';
 import { RECOVERY_NODE_QUERY, RESTORE_NODE_MUTATION } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
@@ -32,7 +32,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       // The server's own refusal says what to do first (e.g. restore a deleted
       // ancestor), so it is shown as-is rather than paraphrased.
-      return fail(409, { error: extractGqlError(e, 'Failed to restore') });
+      return fail(409, { error: nodeWriteErrorText(e, 'Failed to restore', ["CONFLICT"]) });
     }
     redirect(303, `/app/memories/${params.id}/nodes/${params.nodeId}`);
   },

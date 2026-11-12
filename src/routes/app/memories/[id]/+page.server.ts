@@ -11,6 +11,15 @@ import type { PageServerLoad } from './$types';
 // deep link's state has to survive TWO hops. Fixing only the resolver left the
 // memory kind — alone among the seven — still silently losing its query string
 // at this second hop.
-export const load: PageServerLoad = ({ params, url }) => {
+//
+// #1394: wait for the parent layout before redirecting. The app layout writes
+// the active-org cookie after its GraphQL awaits, and SvelteKit runs layout and
+// page loads in parallel, so a redirect that settles first can let the response
+// be generated before `cookies.set` runs ("Cannot use cookies.set(...) after the
+// response has been generated"). A defensive ordering on a static lead; the root
+// cause of the intermittent 500 is unconfirmed. Same pattern as
+// routes/app/assets/+page.server.ts.
+export const load: PageServerLoad = async ({ params, url, parent }) => {
+  await parent();
   redirect(307, withQuery(`/app/memories/${params.id}/info`, url.search));
 };
