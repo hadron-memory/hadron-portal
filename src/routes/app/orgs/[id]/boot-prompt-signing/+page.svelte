@@ -39,7 +39,9 @@
     n === 1
       ? t('org.signing.count.one', 'Switching on would change 1 boot prompt.')
       : t('org.signing.count.other', 'Switching on would change {count} boot prompts.', { count: n });
-  const workerWords = (r: PreviewRow): string => r.workerName ?? t('org.signing.row.all-workers', 'All chats and uncustomised workers');
+  // A worker URN with no name (the SDL allows it) is still a worker row: label it, never derive a name from the URN.
+  const workerWords = (r: PreviewRow): string =>
+    r.workerName ?? (r.workerUrn ? t('org.signing.row.unnamed-worker', 'Unnamed worker') : t('org.signing.row.all-workers', 'All chats and uncustomised workers'));
 
   const rows = $derived<PreviewRow[]>(preview?.kind === 'ok' ? preview.rows : []);
   let globalFilter = $state('');
@@ -126,7 +128,7 @@
               {/if}
             {:else if cell.column.id === 'worker'}
               <div class="truncate">{workerWords(row)}</div>
-              {#if row.workerName && row.workerUrn}
+              {#if row.workerUrn}
                 <Urn value={row.workerUrn} type="worker" size={8} compact label={t('org.signing.urn.worker', 'worker')} />
               {/if}
             {:else}
