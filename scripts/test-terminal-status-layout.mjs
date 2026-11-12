@@ -3,10 +3,15 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
+import { spawnSync } from 'node:child_process';
 const server = await createServer({server:{host:'127.0.0.1',port:0},plugins:[{
  name:'terminal-containment-mutant',enforce:'pre',transform(code,id){
-  if(process.env.TERMINAL_CONTAINMENT_MUTANT==='1' && id.endsWith('/TerminalStatus.svelte'))
-   return code.replace('inline-flex max-w-full min-w-0 flex-wrap','inline-flex flex-wrap');
+  if(process.env.TERMINAL_CONTAINMENT_MUTANT==='1' && id.endsWith('/TerminalStatus.svelte')) {
+   const mutated=code.replace('inline-flex max-w-full min-w-0 flex-wrap','inline-flex flex-wrap');
+   assert.notEqual(mutated,code,'containment mutant must change the production component');
+   console.log('TERMINAL_CONTAINMENT_MUTANT_APPLIED');
+   return mutated;
+  }
  }
 }]});
 let browser;
@@ -30,13 +35,15 @@ try {
    window.stopTerminal=mount(document.getElementById('terminal'),'dark');
    window.stopFull=mount(document.getElementById('full'),'dark',false);
   });
-  const pill=page.locator('#terminal span[title]');await pill.waitFor();
+  const pill=page.locator('#terminal span[title]');await pill.waitFor({state:'attached'});
   const fullBefore=await page.locator('#full').innerHTML();
   for(const width of [220,140,320,220]) {
    await page.locator('col').first().evaluate((el,width)=>{el.style.width=`${width}px`;el.closest('table').style.width=`${width+220}px`},width);
    const geometry=await pill.evaluate(el=>{
-    const rect=x=>{const r=x.getBoundingClientRect();return {left:r.left,right:r.right,width:r.width}};
-    const td=el.closest('td'),outer=el.parentElement;return {cell:rect(td),outer:rect(outer),pill:rect(el),title:el.title,text:el.textContent,overflow:getComputedStyle(el).textOverflow,scroll:el.scrollWidth,client:el.clientWidth,age:outer.textContent};
+    const rect=x=>{const r=x.getBoundingClientRect();return {left:r.left,right:r.right,width:r.width,height:r.height}};
+    const td=el.closest('td'),outer=el.parentElement,age=el.nextElementSibling;
+    const ageRange=document.createRange();ageRange.selectNodeContents(age);
+    const style=getComputedStyle(el);return {cell:rect(td),outer:rect(outer),pill:rect(el),title:el.title,text:el.textContent,overflow:getComputedStyle(el).textOverflow,scroll:el.scrollWidth,client:el.clientWidth,age:outer.textContent,ageBounds:rect(ageRange),lineHeight:parseFloat(style.lineHeight),display:style.display,visibility:style.visibility,opacity:style.opacity};
    });results.push({dark,width,...geometry});
    if(process.env.TERMINAL_SHOTS)await page.screenshot({path:`${process.env.TERMINAL_SHOTS}/${dark?'dark':'light'}-${width}.png`});
    assert.equal(geometry.title,'Dark: Agent not running (plain shell)');
@@ -44,6 +51,13 @@ try {
    assert.ok(geometry.outer.right<=geometry.cell.right+0.5,`compact wrapper bleeds at ${width}px: ${JSON.stringify(geometry)}`);
    assert.ok(geometry.pill.right<=geometry.cell.right+0.5,'pill bounded');
    assert.equal(geometry.overflow,'ellipsis');
+   assert.ok(geometry.pill.width>50,'pill retains visible width');
+   assert.ok(geometry.pill.height>0 && geometry.pill.height<2*geometry.lineHeight,'pill remains one visible line');
+   assert.notEqual(geometry.display,'none');assert.equal(geometry.visibility,'visible');assert.equal(geometry.opacity,'1');
+   assert.ok(geometry.pill.left>=geometry.cell.left,'pill starts inside cell');
+   assert.ok(geometry.ageBounds.left>=geometry.cell.left && geometry.ageBounds.right<=geometry.cell.right+0.5,'age glyphs stay inside cell');
+   if(width===140)assert.ok(geometry.scroll>geometry.client,'narrow pill actually truncates');
+   if(width===320)assert.ok(geometry.scroll<=geometry.client,'wider pill exposes the full value');
    assert.equal(await page.locator('#full').innerHTML(),fullBefore,'compact resizing leaves full form unchanged');
    // A Range measures untruncated text, not painted glyphs. Compare actual
    // neighboring pixels with the terminal hidden/visible instead.
@@ -72,3 +86,16 @@ try {
  await browser?.close();await server.close();
 }
 console.log('Terminal compact geometry, full-value title, Task controls, null/not-reported and full form PASS');
+
+// The normal command (including CI) must prove the production constraint is
+// discriminating. An arbitrary child error is not a successful mutant kill.
+if(process.env.TERMINAL_CONTAINMENT_MUTANT!=='1') {
+ const {TERMINAL_SHOTS,...env}=process.env;
+ const mutant=spawnSync(process.execPath,[import.meta.filename],{
+  env:{...env,TERMINAL_CONTAINMENT_MUTANT:'1'},encoding:'utf8',timeout:60000,
+ });
+ assert.equal(mutant.status,1,`mutant must fail normally: ${mutant.error ?? mutant.stderr}`);
+ assert.ok(mutant.stdout.includes('TERMINAL_CONTAINMENT_MUTANT_APPLIED'),'production mutant applied');
+ assert.ok(mutant.stderr.includes('compact wrapper bleeds at 220px'),'mutant fails the containment oracle');
+ console.log('Production containment mutant applied and killed by geometry pin');
+}
