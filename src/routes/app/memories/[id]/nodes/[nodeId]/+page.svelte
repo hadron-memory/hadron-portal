@@ -898,7 +898,7 @@
   });
 
   // portal#2020: after a CONFIRMED, COMPLETE save the editor reopens from the
-  // node the server returned (`cor:dmo:060:02`: the server normalizes what it
+  // node the server returned (`hrn:node:hadronmemory.com:specs:cor:dmo:060:02`: the server normalizes what it
   // stores, so never the typed values). The effect above keys on id + role
   // alone, so a same-node name/loc/description save left the pre-save seed and
   // the next Save wrote the old values back. This one fires only while the

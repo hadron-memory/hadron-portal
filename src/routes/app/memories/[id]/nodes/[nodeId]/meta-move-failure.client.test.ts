@@ -367,7 +367,7 @@ describe('#1882: a failed location move in Settings says so', () => {
 // portal#2020 — after a CONFIRMED, COMPLETE save the Settings editor must reopen
 // from what the server saved. Reseed keyed on node id + role alone left name,
 // loc and the rest at their pre-save seed, so a later Save wrote the old values
-// back (a real `moveNode` back to the old loc, cor:api:190:01).
+// back (a real `moveNode` back to the old loc, hrn:node:hadronmemory.com:specs:cor:api:190:01).
 const editorValue = (target: HTMLElement, selector: string) => target.querySelector<HTMLInputElement>(selector)!.value;
 const calls = (doc: string) => mockRequest.mock.calls.filter((c) => c[0] === doc).length;
 
