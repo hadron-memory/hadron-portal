@@ -50,6 +50,17 @@ try {
           await outcome.waitFor();
           assert.ok(await outcome.evaluate(el => Boolean(el.compareDocumentPosition(document.querySelector('section[aria-label="Built from"]')) & Node.DOCUMENT_POSITION_FOLLOWING)));
         }
+        // #1991: the provenance table's own scroller must not overflow at 390px (it was 470px in 272px),
+        // while desktop keeps all three columns at their sizes.
+        const table = page.locator('section[aria-label="Built from"] [data-testid="data-table-scroller"]');
+        if (await table.count()) {
+          const scroller = await table.evaluate(el => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+          assert.ok(scroller.scroll <= scroller.client, `${variant}/${theme}/${width}: provenance scroller overflows (${scroller.scroll}/${scroller.client})`);
+          const shown = await page.locator('section[aria-label="Built from"] thead th').evaluateAll(ths => ths.map(th => getComputedStyle(th).display !== 'none'));
+          assert.deepEqual(shown, width === 390 ? [true, false, false] : [true, true, true], `${variant}/${theme}/${width}: visible provenance columns`);
+          if (width === 390) assert.ok(await page.locator('[data-phone-settings]').first().isVisible(), `${variant}/${theme}/${width}: Include settings folded under the source`);
+          else assert.ok(!(await page.locator('[data-phone-settings]').first().isVisible()), `${variant}/${theme}/${width}: folded settings hidden on desktop`);
+        }
         const measured = await page.evaluate(() => ({ width: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth, html: document.body.innerHTML }));
         assert.equal(measured.scroll, measured.width, `${variant}/${theme}/${width}: horizontal page overflow`);
         assert.ok(!measured.html.includes('private-node-id'), `${variant}/${theme}/${width}: concealed provenance node ID rendered`);

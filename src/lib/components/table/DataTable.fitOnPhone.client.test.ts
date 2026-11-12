@@ -34,8 +34,8 @@ beforeEach(() => {
   });
 });
 
-function mount(fitOnPhone: boolean, multiColumn = false, stickyEndColumn?: string, secondSize = 400, rowClass?: (item: { name: string }) => string) {
-  const m = mountComponent(Harness, { fitOnPhone, multiColumn, stickyEndColumn, secondSize, rowClass });
+function mount(fitOnPhone: boolean, multiColumn = false, stickyEndColumn?: string, secondSize = 400, rowClass?: (item: { name: string }) => string, phoneHiddenColumns?: string[]) {
+  const m = mountComponent(Harness, { fitOnPhone, multiColumn, stickyEndColumn, secondSize, rowClass, phoneHiddenColumns });
   mounted.push(m);
   flushSync();
   return {
@@ -160,5 +160,32 @@ describe('DataTable phone width', () => {
     expect(rows[0].className).toContain('bg-white');
     expect(rows[0].className).toContain('dark:bg-zinc-950');
     expect(rows[0].className).toContain('opacity-60');
+  });
+});
+
+// portal#1991: a multi-column table whose other columns are hidden below `sm` by CSS fits the
+// phone as a single column, with desktop sizing and resize handles untouched.
+describe('DataTable phoneHiddenColumns (#1991)', () => {
+  it('hides the named column on the phone by class and fits the one that remains', () => {
+    const { headers, cells, separators, style } = mount(true, true, undefined, 400, undefined, ['second']);
+    expect(headers[1].className).toContain('max-sm:hidden');
+    expect(cells[1].className).toContain('max-sm:hidden');
+    expect(headers[0].className).not.toContain('max-sm:hidden');
+    expect(cells[0].className).not.toContain('max-sm:hidden');
+    expect(style()).toContain('--phone-table-w: 100%');
+    expect(headers[0].className).toContain('max-sm:w-full');
+    // Desktop is untouched: both saved widths and both resize handles remain.
+    expect(style()).toContain('--table-desktop-w: max(100%, 2000px)');
+    expect(headers.map((h) => h.style.getPropertyValue('--col-w'))).toEqual(['1600px', '400px']);
+    expect(separators).toHaveLength(2);
+  });
+  it('control: with nothing hidden, two columns do NOT fit the phone', () => {
+    const { headers, style } = mount(true, true);
+    expect(style()).toContain('--phone-table-w: max(100%, 2000px)');
+    for (const header of headers) expect(header.className).not.toContain('max-sm:hidden');
+  });
+  it('control: hiding a column without fitOnPhone does not collapse the width', () => {
+    const { style } = mount(false, true, undefined, 400, undefined, ['second']);
+    expect(style()).toContain('--phone-table-w: max(100%, 2000px)');
   });
 });
