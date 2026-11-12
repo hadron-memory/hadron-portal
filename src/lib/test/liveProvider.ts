@@ -130,11 +130,6 @@ export function memoryLedger(initial = 0): Ledger {
   return { count: () => n, bump: () => { n += 1; } };
 }
 
-/** Read the count without a window (used to decide the gate before the window is parsed). */
-export function ledgerCountFor(path: string, windowStartMs: number): number {
-  return fileLedger(path, windowStartMs).count();
-}
-
 // ── Redaction of the one place a provider message may be looked at (local diagnostic only) ──
 
 const CREDENTIAL_SHAPES: RegExp[] = [

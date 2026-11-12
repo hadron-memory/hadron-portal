@@ -18,17 +18,21 @@ import { describe, expect, it } from 'vitest';
 import { LIVE_ENV } from '$lib/test/liveProvider';
 import { runLiveFromEnv } from '$lib/test/liveProviderMatrix';
 
-const optedIn = process.env[LIVE_ENV.flag] === '1' && (process.env.CI ?? '') === '' && (process.env[LIVE_ENV.key] ?? '') !== '';
+// Same rule as resolveGate: the module, not this file, decides skipped vs refused.
+const optedIn = process.env[LIVE_ENV.flag] === '1' && (process.env.CI ?? '') === '' && (process.env[LIVE_ENV.key] ?? '').trim() !== '';
+
+// vitest's default 5s would kill a real run mid-flight after the ledger has
+// already spent the window. 12 sequential requests plus SDK retry backoff fit well inside this.
+const LIVE_TEST_TIMEOUT_MS = 10 * 60 * 1000;
 
 describe.skipIf(!optedIn)('#1979 live Anthropic matrix (opt-in, one bounded run)', () => {
   it('runs the one matrix or stops with a closed refusal', async () => {
     const report = await runLiveFromEnv(process.env, { realFetch: globalThis.fetch });
     if (!report.ran) {
       // A setup/authorisation refusal: closed reason only, zero requests.
-      expect(['refused']).toContain(report.decision.status);
-      throw new Error(`live run refused: ${report.decision.status === 'refused' ? report.decision.reason : 'skipped'}`);
+      throw new Error(`live run ${report.decision.status}: ${report.decision.reason}`);
     }
     process.stdout.write(`${report.summary}\n`);
     expect(report.result.requestsTotal).toBeLessThanOrEqual(report.result.cap);
-  });
+  }, LIVE_TEST_TIMEOUT_MS);
 });

@@ -136,6 +136,23 @@ describe('one matrix per window, and an untrusted ledger fails closed', () => {
     expect(f).not.toHaveBeenCalled();
   });
 
+  it('two overlapping invocations: exactly one runs, so the ledger has a single writer', async () => {
+    const ledgerPath = join(dir, 'ledger.json');
+    const f = vi.fn(async (_u: unknown, i?: RequestInit) => { await Promise.resolve(); return reply(i); });
+    const [a, b] = await Promise.all([run(f, ledgerPath), run(f, ledgerPath)]);
+    expect([a.ran, b.ran].sort()).toEqual([false, true]);
+    expect(f).toHaveBeenCalledTimes(4);
+    expect(JSON.parse(readFileSync(ledgerPath, 'utf8')).requests).toBe(4);
+  });
+
+  it('a rejecting transport (connection reset) is a closed per-case outcome, not a crash', async () => {
+    const f = vi.fn(async () => { throw new TypeError('fetch failed'); });
+    const report = await run(f, join(dir, 'ledger.json'));
+    if (!report.ran) throw new Error('should run');
+    expect(report.result.cases.every((c) => c.outcome !== 'ok')).toBe(true);
+    expect(report.summary).not.toContain('fetch failed');
+  });
+
   it('a missing ledger is a fresh window, and a well-formed ledger for another window does not count', async () => {
     const ledgerPath = join(dir, 'ledger.json');
     fileLedger(ledgerPath, START - WINDOW_MS).bump();
