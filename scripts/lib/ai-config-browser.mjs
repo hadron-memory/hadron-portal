@@ -36,12 +36,36 @@ async function configs(request, portal, ownerId) {
 function sameFixture(row, expected) {
   return row && typeof row.id === 'string' && row.id && ['name', 'ownerId', 'ownerType', 'provider', 'model'].every(key => row[key] === expected[key]);
 }
+// A create whose outcome the harness cannot see (lost response, a non-200 after
+// commit, a body that fails the identity check) may still have committed a row.
+// Config names are lower-case canonical and unique per owner (hrn:node:hadronmemory.com:specs:cor:dmo:050:10), so
+// when nothing carried the name before, exactly one identity-verified row with it
+// afterwards is this run's own. Anything else is left alone and reported.
+async function reconcileUncertainCreate(request, portal, expected) {
+  const after = (await configs(request, portal, expected.ownerId)).filter(row => row.name === expected.name);
+  if (after.length === 0) return undefined;
+  assert(after.length === 1 && sameFixture(after[0], expected), 'An uncertain create left a fixture this run cannot prove its own; not deleting it');
+  return after[0];
+}
+async function cleanupOwned(request, portal, expected, owned) {
+  const current = (await configs(request, portal, expected.ownerId)).find(row => row.id === owned.id);
+  assert(sameFixture(current, expected), 'Refusing cleanup of a changed fixture');
+  const response = await request.post(`${portal}/api/ai-configs`, { data: { action: 'delete', id: owned.id } });
+  assert(response.ok() && (await response.json()).ok, 'Owned fixture cleanup failed');
+  assert(!(await configs(request, portal, expected.ownerId)).some(row => row.id === owned.id), 'Owned fixture remains after cleanup');
+  console.log('Owned synthetic fixture cleanup PASS');
+}
 export async function withSyntheticConfig(request, portal, expected, probe) {
+  // sameFixture compares names exactly; the server stores them lower-case, so a
+  // mixed-case fixture name would read as an identity mismatch.
+  assert(expected.name === expected.name.toLowerCase(), 'Synthetic fixture names must be lower-case (the server stores them canonical)');
   const before = (await configs(request, portal, expected.ownerId)).filter(row => row.name === expected.name);
-  let owned;
+  let owned, conflicted = false, attempted = false, primary, failed = false;
   try {
+    attempted = true;
     const response = await request.post(`${portal}/api/ai-configs`, { data: { action: 'create', ...expected, apiKey: 'synthetic-unused-key' } });
     if (response.status() === 409) {
+      conflicted = true;
       const after = (await configs(request, portal, expected.ownerId)).filter(row => row.name === expected.name);
       assert(before.length === 1 && after.length === 1 && sameFixture(before[0], expected) && sameFixture(after[0], expected) && before[0].id === after[0].id, 'Conflict does not prove the intended pre-existing fixture');
       // Borrowed identity verified, but never owned or deleted by this run.
@@ -52,16 +76,17 @@ export async function withSyntheticConfig(request, portal, expected, probe) {
       owned = body.config;
     }
     await probe();
-  } finally {
-    if (owned) {
-      const current = (await configs(request, portal, expected.ownerId)).find(row => row.id === owned.id);
-      assert(sameFixture(current, expected), 'Refusing cleanup of a changed fixture');
-      const response = await request.post(`${portal}/api/ai-configs`, { data: { action: 'delete', id: owned.id } });
-      assert(response.ok() && (await response.json()).ok, 'Owned fixture cleanup failed');
-      assert(!(await configs(request, portal, expected.ownerId)).some(row => row.id === owned.id), 'Owned fixture remains after cleanup');
-      console.log('Owned synthetic fixture cleanup PASS');
-    }
-  }
+  } catch (error) { failed = true; primary = error; }
+  let cleanup, cleanupFailed = false;
+  try {
+    if (!owned && attempted && !conflicted && before.length === 0) owned = await reconcileUncertainCreate(request, portal, expected);
+    if (owned) await cleanupOwned(request, portal, expected, owned);
+  } catch (error) { cleanupFailed = true; cleanup = error; }
+  // The probe failure is the reason the run failed; a cleanup diagnostic rides
+  // beside it rather than replacing it.
+  if (failed && cleanupFailed) throw new AggregateError([primary, cleanup], `${primary?.message ?? primary}; cleanup also failed: ${cleanup?.message ?? cleanup}`);
+  if (failed) throw primary;
+  if (cleanupFailed) throw cleanup;
 }
 
 // Used before EACH menu action. Both scroll extremes matter: a reordered sticky
