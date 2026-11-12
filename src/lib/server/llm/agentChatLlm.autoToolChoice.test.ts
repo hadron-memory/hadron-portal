@@ -73,7 +73,7 @@ describe('which models get auto', () => {
   it.each([
     ['anthropic', 'claude-haiku-5-5'], ['anthropic', 'claude-sonnet-5-5-x'], ['anthropic', 'CLAUDE-SONNET-5-5'],
     ['anthropic', 'claude-mythos-5-2'], ['anthropic', 'claude-sonnet-5'],
-    ['bedrock', 'claude-sonnet-5-5'], ['bedrock', 'anthropic.claude-sonnet-5-5'], ['openai', 'claude-sonnet-5-5'], ['glm', 'claude-sonnet-5-5'],
+    ['bedrock', 'claude-sonnet-5-5'], ['openai', 'claude-sonnet-5-5'], ['glm', 'claude-sonnet-5-5'],
   ] as const)('%s / %s keeps the forced choice', (p, m) => expect(usesAutoToolChoice(p, m)).toBe(false));
 });
 

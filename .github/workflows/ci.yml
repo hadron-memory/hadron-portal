@@ -158,17 +158,13 @@ jobs:
       - name: Check
         run: pnpm check
 
-      # portal#1985: a documented local `.env` (both names shipped in
-      # `.env.example`) makes svelte-kit sync type the keys as REQUIRED in
-      # the generated ambient — the shape every local dev runs, and the one
-      # that broke `pnpm check` at the account fixture's `delete` while the
-      # no-`.env` step above (CI's shape) stayed green. Pin both shapes. The
-      # values are synthetic loopbacks and check is static — nothing is
-      # contacted, nothing secret is read. Removed before Build, which is
-      # verified to need no env at all.
+      # portal#1985/#2035: configured keys become required in generated
+      # ambient types. Pin every key shipped in the documented setup, plus
+      # the no-.env control above. Check is static; nothing is contacted.
+      # Remove the synthetic env before the environment-free Build.
       - name: Check with documented .env
         run: |
-          printf 'PUBLIC_SERVER_URL=http://127.0.0.1:19999\nLOCAL_SERVER_URL=http://127.0.0.1:19999\n' > .env
+          cp .env.example .env
           pnpm check
           rm .env
 
