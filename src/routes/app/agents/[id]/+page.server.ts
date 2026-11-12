@@ -44,6 +44,8 @@ import {
   REMOVE_MEMORY_FROM_AGENT_MUTATION,
   AI_SERVICE_CONFIGS_QUERY,
   AGENT_REGISTER_DEFAULTS_QUERY,
+  AGENT_RESET_CONTEXT_QUERY,
+  UPDATE_AGENT_RESET_CONTEXT_MUTATION,
   AGENT_BOOT_POINTER_QUERY,
   AGENT_BOOT_START_QUERY,
   CREATE_NODE_MUTATION,
@@ -61,6 +63,7 @@ import {
   bootApproveSchema,
   addAgentMemorySchema,
   agentRegisterDefaultsSchema,
+  agentResetContextSchema,
   agentSettingsSchema,
   deleteAgentSchema,
   removeAgentMemorySchema,
@@ -81,6 +84,7 @@ const AGENT_ORG_QUERY = /* GraphQL */ `
 
 const agentSettingsFormAdapter = zod4(agentSettingsSchema);
 const agentRegisterDefaultsFormAdapter = zod4(agentRegisterDefaultsSchema);
+const agentResetContextFormAdapter = zod4(agentResetContextSchema);
 const updateAgentMemberRolesFormAdapter = zod4(updateAgentMemberRolesSchema);
 const addAgentMemoryFormAdapter = zod4(addAgentMemorySchema);
 const updateAgentMemoryRoleFormAdapter = zod4(updateAgentMemoryRoleSchema);
@@ -89,6 +93,10 @@ const deleteAgentFormAdapter = zod4(deleteAgentSchema);
 
 type AddAgentMemoryForm = Infer<typeof addAgentMemorySchema, 'zod4'>;
 type DeleteAgentForm = Infer<typeof deleteAgentSchema, 'zod4'>;
+
+// #1275: ok = the server's value; absent = this server has no such field;
+// failed = the read failed for another reason.
+type ResetContextState = { kind: 'ok'; value: boolean } | { kind: 'absent' } | { kind: 'failed' };
 
 function urnSlug(urn: string): string {
   const idx = urn.lastIndexOf(':');
@@ -165,7 +173,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     return [] as AgentAppLite[];
   };
 
-  const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult, registerDefaultsResult, inheritance, inheritanceManagement, baseCandidates, bootPointer, canManageAgent] = await Promise.all([
+  const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult, registerDefaultsResult, resetContext, inheritance, inheritanceManagement, baseCandidates, bootPointer, canManageAgent] = await Promise.all([
     allMemoryIds.length > 0
       ? drainFindNodes<{ node: MemoryNode }>(
           client, GRAPH_NODES_QUERY, { memoryIds: allMemoryIds },
@@ -212,6 +220,17 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       )
       .then((r) => r.agent?.registerDefaults ?? null)
       .catch(() => null),
+    // #1275: its own read. A server that has not deployed the field refuses the
+    // document at validation, which is "absent" (the control is not rendered,
+    // and nothing is said); any other failure is "failed", stated, never read
+    // as the setting being off.
+    client
+      .request<{ agent: { resetContextAfterTask: boolean } | null }>(
+        AGENT_RESET_CONTEXT_QUERY, { ref: agent.id },
+      )
+      .then((r): ResetContextState => r.agent ? { kind: 'ok', value: r.agent.resetContextAfterTask } : { kind: 'failed' })
+      .catch((e: unknown): ResetContextState =>
+        extractGqlErrorCode(e) === 'GRAPHQL_VALIDATION_FAILED' ? { kind: 'absent' } : { kind: 'failed' }),
     loadAgentInheritance(client, agent.id),
     loadInheritanceManagement(client, agent.id, agent.urn, locals.user?.id ?? null, !!locals.impersonation),
     // #1108/#1278: parent-agent candidates include readable active org grants.
@@ -337,7 +356,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       .map((n) => ({ ...n, memory: memoryMap.get(n.memoryId) ?? null }));
   }
   orgSystemMemories = sysMemResult;
-  const [form, registerDefaultsForm, memberRolesForm, addMemoryForm, updateMemoryRoleForm, removeMemoryForm, deleteForm] = await Promise.all([
+  const [form, registerDefaultsForm, resetContextForm, memberRolesForm, addMemoryForm, updateMemoryRoleForm, removeMemoryForm, deleteForm] = await Promise.all([
     superValidate({
       name: agent.name ?? '',
       urnSlug: urnSlug(agent.urn),
@@ -351,6 +370,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       { mentionOnly: registerDefaultsResult?.mentionOnly ?? false },
       agentRegisterDefaultsFormAdapter,
       { errors: false },
+    ),
+    superValidate(
+      { resetContextAfterTask: resetContext.kind === 'ok' ? resetContext.value : false },
+      agentResetContextFormAdapter,
+      { id: `resetContext:${params.id}`, errors: false },
     ),
     superValidate(
       { roles: agent.installationPolicy?.memberRoles ?? [] },
@@ -426,6 +450,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     ),
     registerDefaults: registerDefaultsResult,
     registerDefaultsForm,
+    resetContext,
+    resetContextForm,
     memberRolesForm,
     bootPointer,
     canManageAgent,
@@ -714,6 +740,35 @@ export const actions: Actions = {
           return message(form, { type: 'error', text: t('agent.register-defaults.error.not-found', 'This agent is not available to you.') }, { status: 404 });
         default:
           return message(form, { type: 'error', text: t('agent.register-defaults.error.failed', 'The default was not saved. Changing it needs the agent’s owner or an organization admin.') }, { status: 500 });
+      }
+    }
+  },
+
+  // #1275: only resetContextAfterTask is sent, always as an explicit boolean
+  // (omitted would mean "unchanged" on the server, so a clear must say false).
+  // The server's updateAgent gate decides who may; the page derives no
+  // permission, it renders the refusal as text.
+  updateResetContext: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), agentResetContextFormAdapter, { id: `resetContext:${params.id}` });
+    if (!form.valid) return fail(400, { form });
+
+    try {
+      await gqlClient(locals.token).request(UPDATE_AGENT_RESET_CONTEXT_MUTATION, {
+        ref: params.id,
+        resetContextAfterTask: form.data.resetContextAfterTask,
+      });
+      return message(form, { type: 'success', text: t('agent.reset-context.saved', 'Saved.') });
+    } catch (e: unknown) {
+      // updateAgent's owner gate refuses with an UNTYPED Error('Forbidden'), so
+      // a refusal can't be told from a crash by code: the fallback states what
+      // saving needs, not why it failed (as for registerDefaults, #942).
+      switch (extractGqlErrorCode(e)) {
+        case 'FORBIDDEN':
+          return message(form, { type: 'error', text: t('agent.reset-context.error.forbidden', 'Only the agent’s owner or an organization admin can change this.') }, { status: 403 });
+        case 'AGENT_NOT_FOUND':
+          return message(form, { type: 'error', text: t('agent.reset-context.error.not-found', 'This agent is not available to you.') }, { status: 404 });
+        default:
+          return message(form, { type: 'error', text: t('agent.reset-context.error.failed', 'Not saved. Changing this needs the agent’s owner or an organization admin.') }, { status: 500 });
       }
     }
   },

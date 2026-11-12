@@ -38,6 +38,13 @@ export const agentRegisterDefaultsSchema = z.object({
   mentionOnly: z.boolean().default(false),
 });
 
+// #1275: whether a worker's host resets its context when its task ends. An
+// unchecked checkbox is absent from the POST, which parses as an explicit false.
+export const agentResetContextSchema = z.object({
+  _kind: z.literal('resetContext').default('resetContext'),
+  resetContextAfterTask: z.boolean().default(false),
+});
+
 // portal#1405 (R211, hrn:node:hadronmemory.com:specs:cor:dmo:050:04): the roles people can have in Apps using
 // this Agent. Posted as repeated `roles` entries; an empty list is refused here
 // and by the server, so an Agent always offers at least one role.
@@ -78,6 +85,7 @@ export const deleteAgentSchema = z.object({
 
 export type AgentSettingsSchema = typeof agentSettingsSchema;
 export type AgentRegisterDefaultsSchema = typeof agentRegisterDefaultsSchema;
+export type AgentResetContextSchema = typeof agentResetContextSchema;
 export type UpdateAgentMemberRolesSchema = typeof updateAgentMemberRolesSchema;
 export type AddAgentMemorySchema = typeof addAgentMemorySchema;
 export type UpdateAgentMemoryRoleSchema = typeof updateAgentMemoryRoleSchema;

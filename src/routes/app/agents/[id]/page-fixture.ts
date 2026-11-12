@@ -10,6 +10,7 @@ import {
   bootApproveSchema,
   addAgentMemorySchema,
   agentRegisterDefaultsSchema,
+  agentResetContextSchema,
   agentSettingsSchema,
   deleteAgentSchema,
   removeAgentMemorySchema,
@@ -29,6 +30,7 @@ export async function pageData(
   id: string,
   registerDefaults: { mentionOnly: boolean } | null,
   agentOverride: Record<string, unknown> = {},
+  resetContext: { kind: 'ok'; value: boolean } | { kind: 'absent' } | { kind: 'failed' } = { kind: 'absent' },
 ) {
   return {
     agent: { ...agent(id), ...agentOverride },
@@ -57,6 +59,11 @@ export async function pageData(
     registerDefaultsForm: await superValidate(
       { mentionOnly: registerDefaults?.mentionOnly ?? false },
       zod4(agentRegisterDefaultsSchema), { errors: false },
+    ),
+    resetContext,
+    resetContextForm: await superValidate(
+      { resetContextAfterTask: resetContext.kind === 'ok' ? resetContext.value : false },
+      zod4(agentResetContextSchema), { id: `resetContext:${id}`, errors: false },
     ),
     addMemoryForm: await superValidate(zod4(addAgentMemorySchema), { errors: false }),
     updateMemoryRoleForm: await superValidate(zod4(updateAgentMemoryRoleSchema), { errors: false }),
