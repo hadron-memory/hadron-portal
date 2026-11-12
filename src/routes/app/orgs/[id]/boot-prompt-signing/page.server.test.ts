@@ -13,7 +13,9 @@ import {
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
-beforeEach(() => mockRequest.mockReset());
+beforeEach(() => {
+  mockRequest.mockReset();
+});
 
 const gqlErr = (code: string) => ({ response: { errors: [{ message: 'server prose', extensions: { code } }] } });
 const off = { orgBootPromptSigning: { required: false, enforced: false, deploymentSigns: true } };

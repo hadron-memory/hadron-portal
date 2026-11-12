@@ -3,6 +3,7 @@ import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { loadOrgDetail } from '$lib/server/org-detail';
+import { loadOrgSigningSwitch, setOrgSigning } from '$lib/server/org-boot-prompt-signing';
 import { extractGqlError } from '$lib/server/gqlError';
 import { UPDATE_ORGANIZATION_MUTATION, ORG_PROFILE_QUERY } from '$lib/server/queries';
 import { parseDisplayUrn } from '$lib/urn/parse-urn';
@@ -32,13 +33,20 @@ const orgProfileFormAdapter = zod4(orgProfileSchema);
 // is a system-managed listing flag, not a user-facing public/private toggle.
 export const load: PageServerLoad = async ({ params, locals }) => {
   // #845: the layout carries chrome only; this tab needs the full org.
-  const org = await loadOrgDetail(locals.token, params.id, ORG_PROFILE_QUERY);
+  // portal#1921: the boot-prompt signing switch is its OWN request, read beside
+  // the org and never folded into ORG_PROFILE_QUERY. Every non-admin gets
+  // FORBIDDEN from the server, which is `hidden` (the section is absent); an
+  // outage is `failed`. It never throws, so it cannot take the tab down.
+  const [org, signing] = await Promise.all([
+    loadOrgDetail(locals.token, params.id, ORG_PROFILE_QUERY),
+    loadOrgSigningSwitch(gqlClient(locals.token), params.id),
+  ]);
   const form = await superValidate(
     { name: org.name ?? '', urn: parseDisplayUrn(org.urn, 'org').bareValue },
     orgProfileFormAdapter,
     { errors: false },
   );
-  return { org, currentUserId: locals.user?.id ?? null, form };
+  return { org, currentUserId: locals.user?.id ?? null, form, signing };
 };
 
 export const actions: Actions = {
@@ -74,5 +82,17 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return message(form, { type: 'error', text: extractGqlError(e, 'Failed to update organization') }, { status: 500 });
     }
+  },
+
+  // portal#1921: switch the org's boot-prompt signing OFF. No preview and no
+  // token (off is idempotent on the server). The intent is stated here, never
+  // read from the form (review:explicit-mutation-intent). Outcomes carry fixed
+  // words only: FORBIDDEN is `hidden` (the section vanishes, nothing is said
+  // about the org's state) and any other failure is `failed`.
+  switchOff: async ({ params, locals }) => {
+    const r = await setOrgSigning(gqlClient(locals.token), params.id, { required: false });
+    if (r.kind === 'ok') return { signingOutcome: 'off' as const, signing: { required: r.required, enforced: r.enforced, deploymentSigns: r.deploymentSigns } };
+    if (r.kind === 'hidden') return fail(403, { signingOutcome: 'hidden' as const });
+    return fail(500, { signingOutcome: 'failed' as const });
   },
 };
