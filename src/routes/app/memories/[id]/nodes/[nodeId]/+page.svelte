@@ -844,7 +844,12 @@
     clearOnSubmit: 'none',
     onSubmit: () => { moveRefusal = null; },
     onResult: async ({ result }) => {
-      if (result.type !== 'failure') { isEditing = false; return; }
+      // Only a CONFIRMED success closes the editor (portal#2014). A failure keeps
+      // it open to fix the location; an `error` result (no action response
+      // arrived, so the save wasn't confirmed) keeps it open too, or a dropped
+      // request hides the typed edits on exactly the retry that matters. A
+      // redirect navigates away and unmounts the page, so it needs no close.
+      if (result.type === 'success') { isEditing = false; return; }
       // Saved, but the move failed: keep the editor open to fix the location,
       // and reload the node so the page shows what was actually saved. The
       // reload depends only on the save having committed, not on finding a
