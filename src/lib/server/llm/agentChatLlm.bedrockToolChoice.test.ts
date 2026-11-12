@@ -84,3 +84,10 @@ it('two calls and malformed input keep the merged baseline', async () => {
   response = () => reply([toolUse({ data: 'unvalidated' })]);
   expect((await call(LISTED[0])).respond).toEqual({ data: 'unvalidated' });
 });
+
+it('forced control also preserves first-call-wins without validation', async () => {
+  response = () => reply([toolUse({ message: 'first' }), toolUse({ message: 'second' })]);
+  expect((await call('anthropic.claude-haiku-5-5')).respond).toEqual({ message: 'first' });
+  expect(bodies[0].toolConfig.toolChoice).toEqual({ tool: { name: 'respond' } });
+  expect(bodies[0].toolConfig.tools[0].toolSpec.inputSchema.json).toEqual(SCHEMA);
+});
