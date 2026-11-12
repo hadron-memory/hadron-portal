@@ -24,7 +24,7 @@ import { approvalRefusalStatus, approveRefusalText, bindApprovalToRevision, inte
 // is what `scripts/check-node-write-doors.mjs` fails.
 import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/server/nodeKindDoor';
 import { roleUpdate } from '$lib/node-role';
-import { nodeMetaBaseline, nodeMetaSeed } from '$lib/node-meta-seed';
+import { nodeMetaBaseline, nodeMetaSeed, withoutTrailingPunctuation } from '$lib/node-meta-seed';
 import { parseExpectedRevision } from '$lib/node-revision';
 import { canonicalJson, isFingerprint, jsonFingerprint, parseDataSource, parsePropertiesSource, propertiesFingerprint, sameProperties } from '$lib/properties-source';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
@@ -970,7 +970,7 @@ export const actions: Actions = {
         // text and the typed loc across its reload, so the refusal is not
         // reverted out from under the user.
         const text = t('node.meta.saved-not-moved-at', 'Saved, but the node was not moved: {detail}. It is still at {urn}.', {
-          detail: detail.replace(/[.\s]+$/, ''), urn: composeNodeUrn(currentNode.memory.urn, currentNode.loc),
+          detail: withoutTrailingPunctuation(detail), urn: composeNodeUrn(currentNode.memory.urn, currentNode.loc),
         });
         if (status === 409) setError(form, 'loc', text);
         else message(form, { type: 'error', text });

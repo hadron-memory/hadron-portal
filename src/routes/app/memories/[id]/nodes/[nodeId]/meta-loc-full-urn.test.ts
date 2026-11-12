@@ -129,6 +129,13 @@ describe('updateMeta location field takes a full node URN (#1876)', () => {
     expect(result.status).toBe(409);
     expect(result.data?.metaSaved).toBe(true);
   });
+  it('a refusal text ending in terminal punctuation does not double it before the suffix (portal#2005 F4)', async () => {
+    stub(Object.assign(new Error('x'), { response: { errors: [{ message: 'That location is taken!', extensions: { code: 'NODE_ALREADY_EXISTS' } }] } }));
+    const result = (await saveLoc('rules:renamed')) as { data?: { form?: { errors?: { loc?: string[] } } } };
+    const text = result.data?.form?.errors?.loc?.[0] ?? '';
+    expect(text).toContain('Saved, but the node was not moved: That location is taken. It is still at ');
+    expect(text).not.toContain('!.');
+  });
   it.each(['FORBIDDEN','NODE_WRITE_CONFLICT'])('#1902 Save preserves the existing %s refusal after a suggested move', async code => {
     stub(Object.assign(new Error('no'),{response:{errors:[{message:'refused',extensions:{code}}]}}));
     const result=await saveLoc('rules:copy-2') as {status?:number;data?:{metaSaved?:boolean;form?:{message?:{text?:string}}}};

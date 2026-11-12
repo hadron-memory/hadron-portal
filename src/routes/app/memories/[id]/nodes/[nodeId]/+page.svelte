@@ -909,6 +909,13 @@
     },
   });
 
+  // portal#2005 F5: the page-held refusal belongs to an open editor. Cancel, a new Save and a node
+  // change clear it explicitly; this clears it on ANY other way the editor closes, so it can never be
+  // there waiting when Edit reopens.
+  $effect(() => {
+    if (!isEditing) moveRefusal = null;
+  });
+
   /** Drop every trace of a failed Save: the page-held refusal and the failure superforms applied after the
    *  awaited reload (portal#1882). Clearing only the first let Cancel then Edit show the old refusal again
    *  (Clark's browser QA F1 on #2002). */
