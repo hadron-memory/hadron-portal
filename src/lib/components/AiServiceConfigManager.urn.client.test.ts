@@ -44,3 +44,38 @@ describe('visible AI config URNs are searchable (#1907)', () => {
     }
   });
 });
+
+
+describe('AI config name sorting with URNs (#2004)', () => {
+  it('sorts by name in both directions, not by the URN search value', async () => {
+    // Reachable discriminator: a trailing hyphen cannot be a URN atom, so
+    // zeta- has no URN. Among URN-bearing rows the common prefix + name
+    // means name and URN order cannot oppose one another.
+    const urn = 'hrn:aiconf:acme.com:org:alpha';
+    mounted = mountComponent(AiServiceConfigManager as never, {
+      ...managerCallbacks(), ownerType: 'ORGANIZATION', ownerId: 'o1', currentUserId: 'u1',
+      configs: [config('zeta', 'zeta-', null), config('alpha', 'alpha', urn)],
+    } as never) as Mounted<Record<string, unknown>>;
+    await tick();
+    const target = mounted.target;
+    const rows = () => [...target.querySelectorAll('tbody tr')];
+    const names = () => rows().map(row => row.querySelector('td')?.querySelector('span')?.textContent);
+    // Two rows fit on the current page; deliberately start in reverse order.
+    expect(names()).toEqual(['zeta-', 'alpha']);
+    expect(rows()[0].querySelector('[title^="hrn:aiconf:"]')).toBeNull();
+    expect(rows()[1].querySelector('[title^="hrn:aiconf:"]')?.getAttribute('title')).toBe(urn);
+    const header = [...target.querySelectorAll('th')].find(th => th.textContent?.includes('Name'));
+    expect(header).toBeTruthy();
+    const sort = header!;
+    for (const [direction, expected] of [
+      ['ascending', ['alpha', 'zeta-']],
+      ['descending', ['zeta-', 'alpha']],
+    ] as const) {
+      sort!.click();
+      flushSync();
+      await tick();
+      expect(header!.getAttribute('aria-sort')).toBe(direction);
+      expect(names()).toEqual(expected);
+    }
+  });
+});
