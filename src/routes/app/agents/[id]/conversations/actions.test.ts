@@ -33,7 +33,7 @@ beforeEach(() => {
 });
 
 async function runAction(
-  name: 'addConversation' | 'addStage' | 'updateEdge' | 'updateExtractionSpec' | 'updateGoals' | 'updatePrompt' | 'addEdge' | 'savePosition',
+  name: 'addConversation' | 'addStage' | 'updateEdge' | 'updateExtractionSpec' | 'updateGoals' | 'moveConversation' | 'updateEntryCondition' | 'updatePrompt' | 'addEdge' | 'savePosition',
   fields: Record<string, string>,
 ) {
   const { actions } = await import('./+page.server');
@@ -733,6 +733,212 @@ describe('updateGoals', () => {
     });
   });
 });
+
+// --- S7 (#2064): start order and entry condition -----------------------------
+
+type Row = { id: string; loc: string; seq: number | null; data?: Record<string, unknown> };
+
+/** Route mock GraphQL traffic by document: list reads, per-node reads, writes. */
+function routeConversationTraffic(
+  rows: Row[],
+  opts: { nodeData?: Record<string, Record<string, unknown>>; failWriteAt?: number; failWith?: unknown } = {},
+) {
+  const writes: Array<{ loc: string; input: Record<string, unknown> }> = [];
+  mockRequest.mockImplementation(async (doc: string, vars?: Record<string, unknown>) => {
+    if (typeof doc === 'string' && doc.includes('findNodes')) {
+      if (vars?.offset) return { findNodes: { hits: [] } };
+      return {
+        findNodes: {
+          hits: rows.map((r) => ({
+            node: { memoryId: 'mem-1', nodeType: 'system', name: r.loc, description: null, data: {}, outgoingEdges: [], ...r },
+          })),
+        },
+      };
+    }
+    if (typeof doc === 'string' && doc.includes('NodeDataByLoc')) {
+      const loc = String(vars?.ref);
+      return { node: { data: opts.nodeData?.[loc] ?? rows.find((r) => r.loc === loc)?.data ?? {}, role: null, isRunnable: null } };
+    }
+    const input = (vars as { input: Record<string, unknown> }).input;
+    if (opts.failWriteAt !== undefined && writes.length === opts.failWriteAt) {
+      writes.push({ loc: String(input.loc), input });
+      throw opts.failWith ?? new Error('write refused');
+    }
+    writes.push({ loc: String(input.loc), input });
+    return {};
+  });
+  return writes;
+}
+
+describe('moveConversation (start order, B4)', () => {
+  const rows: Row[] = [
+    { id: 'c1', loc: 'conversations:a', seq: 10 },
+    { id: 'c2', loc: 'conversations:b', seq: 20 },
+    { id: 'c3', loc: 'conversations:c', seq: 30 },
+    { id: 'c4', loc: 'conversations:setup', seq: null, data: { isSetup: true } },
+  ];
+
+  it('writes only seq for the two swapped conversations, never data', async () => {
+    const writes = routeConversationTraffic(rows);
+    const result = await runAction('moveConversation', {
+      systemMemoryId: 'mem-1', convLoc: 'conversations:b', direction: 'earlier',
+    });
+    expect(result).toMatchObject({ form: { valid: true, message: { type: 'success' } } });
+    expect(writes.map((w) => w.input)).toEqual([
+      { memoryId: 'mem-1', loc: 'conversations:a', seq: 20 },
+      { memoryId: 'mem-1', loc: 'conversations:b', seq: 10 },
+    ]);
+    expect(writes.every((w) => !('data' in w.input))).toBe(true);
+  });
+
+  it('renumbers every ordinary conversation 1..n when one has no seq, leaving setup alone', async () => {
+    const writes = routeConversationTraffic([
+      { id: 'c1', loc: 'conversations:a', seq: null },
+      { id: 'c2', loc: 'conversations:b', seq: 7 },
+      { id: 'c3', loc: 'conversations:setup', seq: null, data: { isSetup: true } },
+    ]);
+    await runAction('moveConversation', { systemMemoryId: 'mem-1', convLoc: 'conversations:a', direction: 'earlier' });
+    // Displayed order b (7), a (no seq, so last); after the move a, b.
+    expect(writes.map((w) => [w.loc, w.input.seq])).toEqual([
+      ['conversations:a', 1],
+      ['conversations:b', 2],
+    ]);
+  });
+
+  it('stops at the first refused write: earlier writes stay, later ones are never attempted, and the error says it was partial', async () => {
+    const writes = routeConversationTraffic(
+      [
+        { id: 'c1', loc: 'conversations:a', seq: null },
+        { id: 'c2', loc: 'conversations:b', seq: null },
+        { id: 'c3', loc: 'conversations:c', seq: null },
+      ],
+      { failWriteAt: 1 },
+    );
+    const result = (await runAction('moveConversation', {
+      systemMemoryId: 'mem-1', convLoc: 'conversations:c', direction: 'earlier',
+    })) as { status: number; data: { form: { message: { type: string; text: string } } } };
+    // Plan: a=1, c=2, b=3. Write 0 (a→1) lands, write 1 (c→2) is refused, b→3 is never tried.
+    expect(writes).toHaveLength(2);
+    expect(writes.every((w) => !('data' in w.input))).toBe(true);
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Start order was only partly saved. Try again.' });
+  });
+
+  it('does not show the raw server message for a refused write', async () => {
+    routeConversationTraffic(rows, { failWriteAt: 0, failWith: { response: { errors: [{ message: 'secret internals', extensions: { code: 'SOMETHING_ODD' } }] } } });
+    const result = (await runAction('moveConversation', {
+      systemMemoryId: 'mem-1', convLoc: 'conversations:b', direction: 'earlier',
+    })) as { data: { form: { message: { text: string } } } };
+    expect(result.data.form.message.text).not.toContain('secret internals');
+  });
+
+  it('does nothing for a move off the end of the order', async () => {
+    const writes = routeConversationTraffic(rows);
+    const result = await runAction('moveConversation', { systemMemoryId: 'mem-1', convLoc: 'conversations:a', direction: 'earlier' });
+    expect(result).toMatchObject({ form: { valid: true } });
+    expect(writes).toEqual([]);
+  });
+
+  it('rejects a stage loc and an unknown direction before any request', async () => {
+    const bad1 = (await runAction('moveConversation', { systemMemoryId: 'mem-1', convLoc: 'conversations:a:s', direction: 'earlier' })) as { status: number };
+    const bad2 = (await runAction('moveConversation', { systemMemoryId: 'mem-1', convLoc: 'conversations:a', direction: 'sideways' })) as { status: number };
+    expect(bad1.status).toBe(400);
+    expect(bad2.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe('updateEntryCondition', () => {
+  const stored = {
+    stageOrder: ['start', 'end'],
+    goalDescriptions: ['Find a mentor'],
+    goalSignals: ['I need help'],
+    position: { x: 4, y: 8 },
+    futureKey: { keep: true },
+  };
+  const cond = { '==': [{ var: 'memory.business_type' }, 'retail'] };
+
+  it('writes data.entryCondition and keeps every other data key', async () => {
+    const writes = routeConversationTraffic([{ id: 'c1', loc: 'conversations:demo', seq: 1, data: stored }]);
+    const result = await runAction('updateEntryCondition', {
+      systemMemoryId: 'mem-1', convLoc: 'conversations:demo', condition: JSON.stringify(cond), intent: 'save',
+    });
+    expect(result).toMatchObject({ form: { valid: true, message: { type: 'success' } } });
+    expect(writes[0].input).toEqual({
+      memoryId: 'mem-1', loc: 'conversations:demo', data: { ...stored, entryCondition: cond },
+    });
+  });
+
+  it('Clear removes only entryCondition', async () => {
+    const writes = routeConversationTraffic([
+      { id: 'c1', loc: 'conversations:demo', seq: 1, data: { ...stored, entryCondition: cond } },
+    ]);
+    await runAction('updateEntryCondition', {
+      systemMemoryId: 'mem-1', convLoc: 'conversations:demo', condition: JSON.stringify(cond), intent: 'clear',
+    });
+    expect(writes[0].input).toEqual({ memoryId: 'mem-1', loc: 'conversations:demo', data: stored });
+  });
+
+  it('saving an emptied builder clears the condition rather than storing null', async () => {
+    const writes = routeConversationTraffic([
+      { id: 'c1', loc: 'conversations:demo', seq: 1, data: { ...stored, entryCondition: cond } },
+    ]);
+    await runAction('updateEntryCondition', {
+      systemMemoryId: 'mem-1', convLoc: 'conversations:demo', condition: 'null', intent: 'save',
+    });
+    expect(writes[0].input.data).toEqual(stored);
+  });
+
+  it('refuses a chat.* variable before any request', async () => {
+    const result = (await runAction('updateEntryCondition', {
+      systemMemoryId: 'mem-1', convLoc: 'conversations:demo',
+      condition: JSON.stringify({ '>': [{ var: 'chat.message_count' }, 1] }), intent: 'save',
+    })) as { status: number; data: { form: { errors: { condition?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.condition?.[0]).toBe('A start condition can use only memory and agent facts.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('refuses to put a start condition on a setup or fallback conversation', async () => {
+    const writes = routeConversationTraffic([{ id: 'c1', loc: 'conversations:setup', seq: null, data: { isSetup: true } }]);
+    const result = (await runAction('updateEntryCondition', {
+      systemMemoryId: 'mem-1', convLoc: 'conversations:setup', condition: JSON.stringify(cond), intent: 'save',
+    })) as { status: number };
+    expect(result.status).toBe(400);
+    expect(writes).toEqual([]);
+  });
+
+  it.each([
+    ['SCOPE_NOT_AVAILABLE_AT_START', 'A start condition can use only memory and agent facts.'],
+    ['INVALID_JSONLOGIC', "This start condition isn't valid. Check it and try again."],
+    ['DISALLOWED_OPERATOR', "This start condition isn't valid. Check it and try again."],
+    ['UNKNOWN_SCOPE', "This start condition isn't valid. Check it and try again."],
+  ])('maps INVALID_ENTRY_CONDITION reason %s to its own copy, never the raw message', async (reason, text) => {
+    routeConversationTraffic([{ id: 'c1', loc: 'conversations:demo', seq: 1, data: stored }], {
+      failWriteAt: 0,
+      failWith: {
+        response: { errors: [{ message: 'raw server words', extensions: { code: 'INVALID_ENTRY_CONDITION', reason, detail: { field: 'chat.x' } } }] },
+      },
+    });
+    const result = (await runAction('updateEntryCondition', {
+      systemMemoryId: 'mem-1', convLoc: 'conversations:demo', condition: JSON.stringify(cond), intent: 'save',
+    })) as { status: number; data: { form: { message: { type: string; text: string } } } };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text });
+  });
+
+  it('maps an unknown INVALID_ENTRY_CONDITION reason to the generic save error', async () => {
+    routeConversationTraffic([{ id: 'c1', loc: 'conversations:demo', seq: 1, data: stored }], {
+      failWriteAt: 0,
+      failWith: { response: { errors: [{ message: 'raw server words', extensions: { code: 'INVALID_ENTRY_CONDITION', reason: 'FUTURE_REASON' } }] } },
+    });
+    const result = (await runAction('updateEntryCondition', {
+      systemMemoryId: 'mem-1', convLoc: 'conversations:demo', condition: JSON.stringify(cond), intent: 'save',
+    })) as { data: { form: { message: { text: string } } } };
+    expect(result.data.form.message.text).toBe('Failed to save the start condition.');
+  });
+});
+
 
 describe('load', () => {
   it('seeds a Superform for each rendered conversation edge', async () => {
