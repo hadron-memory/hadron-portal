@@ -183,7 +183,9 @@ describe('POST /api/ai-configs', () => {
     expect(body.reply).toBe('I am here.');
     const llmArgs = mockCallAgentChatLlm.mock.calls[0][0];
     expect(llmArgs.apiKey).toBe('sk-x');
-    expect(llmArgs.tools).toBeNull();
+    expect(llmArgs.tools).toHaveLength(1);
+    expect(llmArgs.tools[0].name).toBe('respond');
+    expect(llmArgs.respondTest).toBe(true);
     // No GraphQL needed for the inline path.
     expect(mockRequest).not.toHaveBeenCalled();
   });

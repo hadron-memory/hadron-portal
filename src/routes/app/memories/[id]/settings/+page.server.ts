@@ -161,7 +161,10 @@ export const load: PageServerLoad = async ({ locals, parent, params }) => {
       })
     : false;
   const [form, vectorForm, marketplaceForm, schemaForm, deleteForm, retryEmbedsForm] = await Promise.all([
-    superValidate<MemorySettingsForm>(settingsFormDefaults(graph), memorySettingsFormAdapter, { errors: false }),
+    // #1909: memory-bound id, stamped here and in `?/update` from the SAME
+    // route param, so a late result from memory A cannot match memory B's
+    // live form (hrn:node:hadronmemory.com:hadron-portal:review:superforms-late-result-crosses-entity-navigation).
+    superValidate<MemorySettingsForm>(settingsFormDefaults(graph), memorySettingsFormAdapter, { errors: false, id: `updateMemorySettings:${params.id}` }),
     superValidate<VectorIndexSettingsForm>(
       {
         vectorIndexEnabled: graph.vectorIndexEnabled ?? false,
@@ -220,7 +223,7 @@ export const actions: Actions = {
   update: async ({ request, params, locals }) => {
     const fd = await request.formData();
     if (fd.has('urnSlug') && !fd.has('urnSlugPresent')) fd.set('urnSlugPresent', 'true');
-    const form = await superValidate(fd, memorySettingsFormAdapter);
+    const form = await superValidate(fd, memorySettingsFormAdapter, { id: `updateMemorySettings:${params.id}` });
     if (!form.valid) return fail(400, { form });
 
     const displayName = form.data.displayName || undefined;
