@@ -128,6 +128,24 @@ export async function submitEnhancedWithResult(
 }
 
 /**
+ * Map a REAL route action's return value (from invoking `actions.x` directly)
+ * to the ActionResult kit derives for it, so a test hands superforms what the
+ * browser would. Superforms' `message()` carries the discrimination: with a
+ * status ≥ 400 it returns `fail(status, { form })` — an ActionResult of type
+ * 'failure' whose data is the fail() payload — while without a status (or
+ * below 400) it returns the plain `{ form }` object, type 'success', which has
+ * NO `status` field at all when the action is invoked directly. That absent
+ * field is the discriminator, not a missing default.
+ */
+export function actionResultOf(
+  r: Record<string, unknown>,
+): { type: 'success' | 'failure'; status: number; data: Record<string, unknown> } {
+  return typeof r.status === 'number'
+    ? { type: 'failure', status: r.status, data: (r.data as Record<string, unknown> | undefined) ?? {} }
+    : { type: 'success', status: 200, data: r };
+}
+
+/**
  * portal#1528 — like `submitEnhancedWithResult`, but hands the result handler
  * EXACTLY what kit's `enhance` would, including the shapes that are not an
  * ActionResult: `{ type: 'error', error }` for a rejected fetch or a body that
