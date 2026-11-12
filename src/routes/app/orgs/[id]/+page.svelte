@@ -180,10 +180,11 @@
               use:enhance={({ cancel }) => {
                 if (switchingOff) { cancel(); return; }
                 switchingOff = true;
-                return async ({ update }) => {
+                return async ({ update, result }) => {
                   await update();
                   switchingOff = false;
-                  confirmingOff = false;
+                  // Keep the confirm open when it failed, so Try again is one click.
+                  if (result.type !== 'failure' && result.type !== 'error') confirmingOff = false;
                 };
               }}
               class="flex flex-wrap items-center gap-3"

@@ -140,4 +140,21 @@ describe('switchOn', () => {
     expect(r).toMatchObject({ data: { outcome: 'failed' } });
     expect(JSON.stringify(r)).not.toContain('server prose');
   });
+
+  it('STALE whose reload is refused is hidden, not a blank card (code-review F1)', async () => {
+    route({
+      SetOrgBootPromptSigning: () => { throw gqlErr('BOOT_PROMPT_SIGNING_PREVIEW_STALE'); },
+      OrgBootPromptSigningPreview: () => { throw gqlErr('FORBIDDEN'); },
+    });
+    const { actions } = await mod();
+    const r = await actions.switchOn(actEv({ previewToken: 'tok-old' }));
+    expect(r).toMatchObject({ status: 403, data: { outcome: 'hidden' } });
+  });
+
+  it('refuses an oversized token without a mutation (code-review F7)', async () => {
+    const { actions } = await mod();
+    const r = await actions.switchOn(actEv({ previewToken: 'x'.repeat(4097) }));
+    expect(r).toMatchObject({ status: 400, data: { outcome: 'no_review' } });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
 });

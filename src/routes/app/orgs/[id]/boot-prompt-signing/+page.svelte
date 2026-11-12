@@ -18,7 +18,8 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
   // A stale switch-on returns the freshly loaded preview in its own result.
-  const preview = $derived<PreviewRead | null>(form && 'preview' in form && form.preview ? (form.preview as PreviewRead) : data.preview);
+  // Only a STALE result carries a reloaded preview; any other result leaves the loaded one.
+  const preview = $derived<PreviewRead | null>(form && 'outcome' in form && form.outcome === 'stale' && 'preview' in form && form.preview ? (form.preview as PreviewRead) : data.preview);
   const outcome = $derived(form && 'outcome' in form ? form.outcome : null);
   const done = $derived(outcome === 'done');
   const org = $derived(data.org);

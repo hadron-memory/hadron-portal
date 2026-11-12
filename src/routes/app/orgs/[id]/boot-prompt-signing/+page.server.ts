@@ -23,6 +23,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   return { sw, preview };
 };
 
+const MAX_TOKEN_LENGTH = 4096;
+
 export const actions: Actions = {
   // The token comes from the preview the page rendered: a hidden input inside
   // that preview's own form. The portal cannot prove it was *shown*, only that
@@ -31,7 +33,8 @@ export const actions: Actions = {
   // real gate. `required` is stated here, never read from the form.
   switchOn: async ({ request, params, locals }) => {
     const token = String((await request.formData()).get('previewToken') ?? '').trim();
-    if (!token) return fail(400, { outcome: 'no_review' as const });
+    // A real token is a short signed string; bound it so a forged POST cannot ride a huge value to the server.
+    if (!token || token.length > MAX_TOKEN_LENGTH) return fail(400, { outcome: 'no_review' as const });
     const client = gqlClient(locals.token);
     const r = await setOrgSigning(client, params.id, { required: true, previewToken: token });
     if (r.kind === 'ok') return { outcome: 'done' as const, signing: { required: r.required, enforced: r.enforced, deploymentSigns: r.deploymentSigns } };
@@ -40,6 +43,8 @@ export const actions: Actions = {
       // The reloaded preview rides in the action result: invalidateAll() would
       // drop a failed action's form (hrn:node:hadronmemory.com:hadron-portal:findings:invalidateall-drops-failed-action-form).
       const preview = await loadSigningPreview(client, params.id);
+      // Lost the audience between the two calls: say nothing about the org (not a blank card).
+      if (preview.kind === 'hidden') return fail(403, { outcome: 'hidden' as const });
       return fail(409, { outcome: 'stale' as const, preview });
     }
     return fail(500, { outcome: 'failed' as const });
