@@ -389,3 +389,15 @@ describe('Agents tab: boot-prompt pointers (portal#1142 S8)', () => {
     expect(rows(target).map((r) => r.textContent?.includes('Scribe'))).toEqual([true]);
   });
 });
+
+// #1904: grant discovery follows the server's manager fact, never App role labels.
+describe('App Grants discovery', () => {
+  it.each([
+    [{ kind: 'known', manages: true }, true],
+    [{ kind: 'known', manages: false }, false],
+    [{ kind: 'unknown' }, false],
+  ] as const)('only offers the section for an affirmative manager read (%j)', async (viewerManages, offered) => {
+    const target = await mountTab('agents', { data: { viewerManages } });
+    expect(!!target.querySelector('a[href="/app/apps/a1/grants"]')).toBe(offered);
+  });
+});
