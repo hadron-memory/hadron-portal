@@ -1,5 +1,6 @@
 <script lang="ts">
   import TabRow from '$lib/components/TabRow.svelte';
+  import RefreshNodeLoc from './RefreshNodeLoc.svelte';
   import { locOfSameMemoryTarget } from '$lib/urn/move-destination';
   import { Expand } from 'lucide-svelte';
   import MoveLocationInput from '$lib/components/MoveLocationInput.svelte';
@@ -58,6 +59,7 @@
   } from '$lib/node-provenance';
   import NodeRoleInput from '$lib/components/NodeRoleInput.svelte';
   import { metaSavedDespiteFailure, nodeMetaReseed, nodeMetaSeedKey } from '$lib/node-meta-seed';
+  import { bestEffortInvalidateAll } from '$lib/best-effort-invalidate-all';
   import { skillExportMenuHosts } from '$lib/skill-export';
   import NodeAssetCard from '$lib/components/assets/NodeAssetCard.svelte';
   import { canUploadToMemory } from '$lib/assets/can-upload';
@@ -833,11 +835,19 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
-    onResult: ({ result }) => {
+    onResult: async ({ result }) => {
       if (result.type !== 'failure') isEditing = false;
       // Saved, but the move failed: keep the editor open to fix the location,
       // and reload the node so the page shows what was actually saved.
-      else if (metaSavedDespiteFailure(result)) void invalidateAll();
+      // portal#1882: AWAIT the reload. Superforms awaits onResult before it
+      // applies the result, so the failure (its message, the typed location)
+      // lands after the reload. Unawaited, the reload finished later and
+      // superforms rebound to the loader's fresh form, which erased both.
+      // portal#1980: the reload is BEST-EFFORT — a rejecting invalidateAll()
+      // must not trade this known partial-save failure for a generic error
+      // (see bestEffortInvalidateAll for the rejection class and the
+      // error-boundary limit). The page keeps the action failure.
+      else if (metaSavedDespiteFailure(result)) await bestEffortInvalidateAll('node-detail');
     },
   });
 
@@ -4293,12 +4303,20 @@
               <!-- #921: Node.role, an open string, distinct from the Type above. -->
               <NodeRoleInput bind:value={$updateMetaFormData.role} seed={$updateMetaFormData.roleSeed} {inputClass} />
               <div>
-                <label for="editLoc" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN <span class="text-zinc-500">(changing this moves the node)</span></label>
+                <div class="mb-1 flex flex-wrap items-start justify-between gap-2">
+                  <label for="editLoc" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN <span class="text-zinc-500">(changing this moves the node)</span></label>
+                  <RefreshNodeLoc memoryId={node.memoryId} nodeId={node.id} savedName={node.name} savedLoc={node.loc}
+                    name={$updateMetaFormData.name ?? ''} loc={$updateMetaFormData.loc ?? ''} disabled={$updateMetaSubmitting}
+                    onrefresh={(loc) => { $updateMetaFormData.loc = loc; }} />
+                </div>
                 <div class="flex items-stretch">
                   <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{data.graph.urn}:</span>
                   <input id="editLoc" name="loc" type="text" bind:value={$updateMetaFormData.loc}
                     class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
                 </div>
+                {#if ($updateMetaFormData.loc ?? '') !== node.loc}
+                  <p data-testid="node-loc-move-warning" class="mt-2 text-xs text-zinc-600 dark:text-zinc-400">{t('node.meta.loc-move-warning', 'Saving moves this node and its children to the new URN. Links written as the old URN are not updated. Old URNs of minted nodes keep working; others may stop working.')}</p>
+                {/if}
               </div>
               <div>
                 <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>

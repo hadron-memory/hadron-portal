@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { testResultView, type AiConfigTestResult, type AiConfigTestView } from '$lib/ai-config-test';
   import { lookupOwn } from '$lib/lookup';
-  import { beforeNavigate, invalidateAll } from '$app/navigation';
+  import { safeRedirect } from '$lib/safeRedirect';
+  import { beforeNavigate } from '$app/navigation';
   import { AI_CONFIG_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
   import type { AiConfigOwnerType, AiConfigProvider, AiServiceConfig } from '$lib/types';
   import { aiConfigStrings as s } from '$lib/i18n/ai-config-strings';
@@ -15,8 +16,8 @@
   import type { ListPageNavigation } from '$lib/list-page';
   import NodeActionsMenu from './NodeActionsMenu.svelte';
   import Urn from './Urn.svelte';
-  import { aiConfigReloadHref, parseAiConfig, withAiConfigTimeout } from './ai-config-readback';
-  import { getAiConfigRecoveryStore, nextAiConfigMutationId, nextAiConfigRecoveryId } from './ai-config-recovery';
+  import { parseAiConfig, withAiConfigTimeout } from './ai-config-readback';
+  import { nextAiConfigMutationId } from './ai-config-recovery';
   import {
     isValidConfigName,
     resolveKeyInput,
@@ -42,68 +43,16 @@
     ownerLabel = null,
     ownerUrn = null,
     currentUserId,
+    selectedContext = '[null,null]',
     configs,
     canManage = false,
     allowTest = false,
     mutationUncertain = false,
     mutationPending = false,
-    onMutationPending = standaloneMutationPending,
-    onAction = standaloneAction,
-    // Standalone use predates the Section wrapper: keep its original refresh,
-    // including the rejection path that used to reach the mutation catch.
-    onCommitted = async (outcome) => {
-      const scope = outcome.recoveryScope ?? standaloneScope;
-      const recovery = recoveryFor(scope);
-      if (outcome.uncertainText) recovery.setUncertainty(outcome.ownerKey, outcome.uncertainText);
-      if (outcome.ownerKey !== `${ownerType}:${ownerId}` || scope !== standaloneScope || destroyed) {
-        recovery.defer(outcome);
-        return;
-      }
-      recovery.discardDeferred(outcome);
-      if (!outcome.uncertainText && outcome.noticeGeneration === standaloneNoticeGeneration) {
-        showStandaloneNotice(outcome.successText);
-      }
-      const mine = ++standaloneRefreshGeneration;
-      activeStandalone.set(standaloneActiveKey(scope, outcome.ownerKey), { outcome, generation: mine, recoveryScope: scope });
-      let failed = false;
-      try {
-        await withAiConfigTimeout(
-          () => invalidateAll(),
-          () => { throw new Error('AI configuration refresh timed out'); },
-        );
-      } catch {
-        failed = true;
-      }
-      if (destroyed || outcome.ownerKey !== `${ownerType}:${ownerId}` || scope !== standaloneScope || mine !== standaloneRefreshGeneration) {
-        const key = standaloneActiveKey(scope, outcome.ownerKey);
-        const active = activeStandalone.get(key);
-        // Owner/principal teardown already defers the active outcome. Re-deferring
-        // it here would resurrect work after a newer replay has succeeded.
-        if (active?.outcome === outcome && active.generation === mine) {
-          activeStandalone.delete(key);
-          recovery.defer(outcome);
-        }
-        return;
-      }
-      if (!outcome.uncertainText) {
-        recovery.setRefreshWarning(outcome.ownerKey, failed ? outcome.refreshFailedText : null);
-      }
-      finishStandaloneActive(outcome, mine);
-    },
-    onUncertain = (outcome) => {
-      const scope = outcome.recoveryScope ?? standaloneScope;
-      recoveryFor(scope).setUncertainty(outcome.ownerKey, outcome.text);
-      if (!outcome.reconcileOnly && outcome.ownerKey === `${ownerType}:${ownerId}` && scope === standaloneScope && !destroyed) return;
-      return onCommitted({
-        ownerKey: outcome.ownerKey,
-        mutationId: outcome.mutationId,
-        noticeGeneration: -1,
-        successText: '',
-        refreshFailedText: '',
-        uncertainText: outcome.text,
-        recoveryScope: scope,
-      });
-    },
+    onMutationPending,
+    onAction,
+    onCommitted,
+    onUncertain,
   }: {
     pagination?: ListPageNavigation;
     ownerType: AiConfigOwnerType;
@@ -112,8 +61,9 @@
     ownerLabel?: string | null;
     /** The same already-authorized owner's URN; null omits the chip. */
     ownerUrn?: string | null;
-    /** Principal scope for standalone recovery; required so no two users share one scope. Section also keys remounts by it. */
+    /** Section keys Manager remounts by this principal; action tokens fence it too. */
     currentUserId: string;
+    selectedContext?: string;
     configs: AiServiceConfig[];
     canManage?: boolean;
     allowTest?: boolean;
@@ -121,10 +71,10 @@
     mutationUncertain?: boolean;
     /** Section-owned in-flight lock survives manager teardown/remount. */
     mutationPending?: boolean;
-    onMutationPending?: (outcome: AiConfigMutationPending) => void;
-    onAction?: () => number;
-    onCommitted?: (outcome: AiConfigCommitted) => void | Promise<void>;
-    onUncertain?: (outcome: AiConfigUncertain) => void | Promise<void>;
+    onMutationPending: (outcome: AiConfigMutationPending) => void;
+    onAction: () => number;
+    onCommitted: (outcome: AiConfigCommitted) => void | Promise<void>;
+    onUncertain: (outcome: AiConfigUncertain) => void | Promise<void>;
   } = $props();
 
   const WELL_KNOWN = ['default', 'fast', 'frontier'];
@@ -161,31 +111,12 @@
   let knownEndpoints = $state<KnownEndpoint[]>([]);
   let busy = $state(false);
   let uncertainMutation = $state(false);
-  let standaloneWarning = $state<string | null>(null);
-  let standaloneRefreshWarning = $state<string | null>(null);
-  let standaloneNotice = $state<string | null>(null);
-  let standaloneNoticeGeneration = 0;
-  let standaloneNoticeTimer: ReturnType<typeof setTimeout> | null = null;
-  let standaloneRefreshGeneration = 0;
-  let hadStandaloneScope = false;
-  const standaloneScope = $derived(`standalone:${currentUserId}`);
-  const sharesStandaloneRecovery = $derived(onMutationPending === standaloneMutationPending);
-  const activeStandalone = new Map<string, { outcome: AiConfigCommitted; generation: number; recoveryScope: string }>();
-  let syncingStandaloneRecovery = false;
-
-  function recoveryFor(scope = standaloneScope) {
-    return getAiConfigRecoveryStore(scope);
-  }
-
-  function standaloneActiveKey(scope: string, key: string) {
-    return `${scope}\n${key}`;
-  }
-
-  function standaloneMutationPending(outcome: AiConfigMutationPending) {
-    recoveryFor(outcome.recoveryScope).setPending(outcome);
-  }
-  const mutationLocked = $derived(uncertainMutation || mutationUncertain || standaloneRefreshWarning !== null);
+  // Section owns persistent recovery, notices and replay locks.
+  const mutationLocked = $derived(uncertainMutation || mutationUncertain);
   let error = $state<string | null>(null);
+  let signinHref = $state<string | null>(null);
+  let signinLink = $state<HTMLAnchorElement | null>(null);
+  let errorRegion = $state<HTMLDivElement | null>(null);
   // #937: one shape for both paths, so the result always reads the same way.
   let testResult = $state<AiConfigTestView | null>(null);
   let confirmDeleteId = $state<string | null>(null);
@@ -193,21 +124,54 @@
   // generation additionally distinguishes A → B → A, where ownerKey matches
   // again but the old request no longer belongs to the current editor.
   let actionGeneration = 0;
+  // Editor sessions are coarser than actions: a Test click or arming a delete
+  // bumps actionGeneration without ending the editor, while cancel, close and
+  // any (re)open end the session a save response belonged to (#1910).
+  let editorSession = 0;
+  // #1984: the one way an editor session ends. A path that closes or (re)opens
+  // the editor calls this at its own position; the open paths deliberately
+  // don't go through resetEditor, which also clears error and test state.
+  function endEditorSession() {
+    editorSession++;
+  }
   let actionController: AbortController | null = null;
   let ownerKey = $state('');
   let ownerAtVisit: { ownerType: AiConfigOwnerType; ownerId: string } | null = null;
   let ownerGeneration = 0;
   let destroyed = false;
 
+  // BODY can be platform blur or a newer blank-page click. Track both focus
+  // and pointer intent without a reactive counter or an automatic replay.
+  let attentionVersion = 0;
+  type Attention = { version: number; element: Element | null };
+  const captureAttention = (): Attention => ({ version: attentionVersion, element: document.activeElement });
+  async function restoreAttention(
+    target: () => HTMLElement | null,
+    current: () => boolean,
+    attention: Attention,
+    reveal = false,
+  ) {
+    await tick();
+    // Recheck ownership AFTER rendering, before looking up a reused binding.
+    if (!current() || attention.version !== attentionVersion) return;
+    if (document.activeElement !== document.body && document.activeElement !== attention.element) return;
+    const element = target();
+    if (!element?.isConnected || element.matches(':disabled')) return;
+    if (reveal) errorRegion?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    element.focus({ preventScroll: true });
+  }
+
   type ActionToken = {
+    attention: Attention;
     generation: number;
+    editorSession: number;
     noticeGeneration: number;
     ownerKey: string;
     ownerType: AiConfigOwnerType;
     ownerId: string;
     ownerGeneration: number;
-    recoveryScope: string;
-    standaloneRecovery: boolean;
+    principalId: string;
+    returnPath: string;
     onCommitted: (outcome: AiConfigCommitted) => void | Promise<void>;
     onUncertain: (outcome: AiConfigUncertain) => void | Promise<void>;
     formFingerprint: string;
@@ -216,32 +180,110 @@
   type PendingMutation = {
     id: number;
     ownerKey: string;
-    recoveryScope: string;
-    standaloneRecovery: boolean;
+    principalId: string;
     notify: (outcome: AiConfigMutationPending) => void;
   };
   let pendingMutations = $state<PendingMutation[]>([]);
   const localMutationPending = $derived(
-    pendingMutations.some((mutation) => mutation.ownerKey === ownerKey && mutation.recoveryScope === standaloneScope),
+    pendingMutations.some((mutation) => mutation.ownerKey === ownerKey && mutation.principalId === currentUserId),
   );
-  const mutationBlocked = $derived(localMutationPending || mutationPending);
+  let identityChecking = $state(false);
+  const mutationBlocked = $derived(localMutationPending || mutationPending || identityChecking);
+  // #1986 (Uma F4): the configuration-recovery sentence describes only a
+  // mutation check. An identity-only check says "Checking your sign-in…" alone.
+  const recoveryChecking = $derived(localMutationPending || mutationPending);
+  let draftPrincipal: { userId: string; selectedContext: string } | null = null;
+  let identitySequence = 0;
+  let identityController: AbortController | null = null;
 
-  function standaloneAction(): number {
-    standaloneNoticeGeneration++;
-    if (standaloneNoticeTimer !== null) clearTimeout(standaloneNoticeTimer);
-    standaloneNoticeTimer = null;
-    standaloneNotice = null;
-    return standaloneNoticeGeneration;
+  function captureDraftPrincipal() {
+    draftPrincipal = { userId: currentUserId, selectedContext };
+    // Never adopt a different fresh identity as the owner of an existing
+    // editor. The loader identity is confirmed against this request's cookie.
+    void verifyDraftPrincipal();
   }
 
-  function showStandaloneNotice(text: string) {
-    if (standaloneNoticeTimer !== null) clearTimeout(standaloneNoticeTimer);
-    standaloneNotice = text;
-    standaloneNoticeTimer = setTimeout(() => {
-      standaloneNotice = null;
-      standaloneNoticeTimer = null;
-    }, 6000);
+  function discardPrincipalDraft(attention: Attention) {
+    actionGeneration++;
+    actionController?.abort();
+    resetEditor();
+    resetForm();
+    confirmDeleteId = null;
+    busy = false;
+    error = s.principalChanged(ownerLabel);
+    const generation = actionGeneration;
+    const owner = ownerKey;
+    const user = currentUserId;
+    const message = error;
+    void restoreAttention(() => errorRegion, () => !destroyed && generation === actionGeneration && owner === ownerKey && user === currentUserId && error === message, attention, true);
   }
+
+  async function verifyDraftPrincipal(): Promise<boolean> {
+    const captured = draftPrincipal;
+    if (!captured || destroyed) return false;
+    const attention = captureAttention();
+    const sequence = ++identitySequence;
+    identityController?.abort();
+    const controller = new AbortController();
+    identityController = controller;
+    identityChecking = true;
+    const current = () => !destroyed && sequence === identitySequence && captured === draftPrincipal;
+    try {
+      const data = await withAiConfigTimeout(async signal => {
+        const response = await fetch('/api/ai-configs/principal', { cache: 'no-store', signal });
+        if (!response.ok) throw new Error('Identity unavailable');
+        return await response.json() as { principal?: unknown };
+      }, () => { throw new Error('Identity unavailable'); }, undefined, controller.signal);
+      if (!current()) return false;
+      const principal = data.principal;
+      if (captured.selectedContext !== selectedContext || captured.userId !== currentUserId) {
+        discardPrincipalDraft(attention);
+        return false;
+      }
+      // Anonymous/refused is not a different identity. Keep the in-memory
+      // draft; only a subsequent exact CRUD401 offers the sign-in CTA.
+      if (principal === null) return true;
+      if (!principal || typeof principal !== 'object') throw new Error('Identity unavailable');
+      const fresh = principal as { principalType?: unknown; userId?: unknown; appId?: unknown };
+      if (fresh.principalType !== 'USER' && fresh.principalType !== 'APP') throw new Error('Identity unavailable');
+      if (fresh.principalType === 'USER' && (typeof fresh.userId !== 'string' || fresh.appId !== null)) throw new Error('Identity unavailable');
+      if (fresh.principalType === 'APP' && (fresh.userId !== null || typeof fresh.appId !== 'string')) throw new Error('Identity unavailable');
+      if (fresh.principalType !== 'USER' || fresh.userId !== captured.userId) {
+        discardPrincipalDraft(attention);
+        return false;
+      }
+      return true;
+    } catch {
+      if (current()) error = s.principalUnavailable();
+      return false;
+    } finally {
+      if (sequence === identitySequence) {
+        identityChecking = false;
+        void restoreAttention(() => attention.element instanceof HTMLElement ? attention.element : null, current, attention);
+      }
+    }
+  }
+
+  onMount(() => {
+    const onFocus = () => {
+      if (formOpen || confirmDeleteId !== null) void verifyDraftPrincipal();
+    };
+    const onFocusIn = (event: FocusEvent) => {
+      if (event.target !== document.body) attentionVersion++;
+    };
+    const onPointer = (event: PointerEvent) => {
+      const focused = document.activeElement;
+      if (!(focused && focused !== document.body && event.target instanceof Node && focused.contains(event.target))) attentionVersion++;
+    };
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('focusin', onFocusIn, true);
+    window.addEventListener('pointerdown', onPointer, true);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('focusin', onFocusIn, true);
+      window.removeEventListener('pointerdown', onPointer, true);
+    };
+  });
 
   function clearNotice(): number {
     return onAction();
@@ -256,6 +298,8 @@
   }
 
   function beginAction(): ActionToken {
+    const attention = captureAttention();
+    signinHref = null;
     const noticeGeneration = clearNotice();
     busy = false;
     // Only non-mutating Test reads consume this signal. Mutation writes keep
@@ -263,14 +307,16 @@
     actionController?.abort();
     actionController = new AbortController();
     return {
+      attention,
       generation: ++actionGeneration,
+      editorSession,
       noticeGeneration,
       ownerKey,
       ownerType: ownerAtVisit!.ownerType,
       ownerId: ownerAtVisit!.ownerId,
       ownerGeneration,
-      recoveryScope: standaloneScope,
-      standaloneRecovery: sharesStandaloneRecovery,
+      principalId: currentUserId,
+      returnPath: safeRedirect(window.location.pathname),
       onCommitted,
       onUncertain,
       formFingerprint: formFingerprint(),
@@ -284,12 +330,40 @@
       action.ownerKey === ownerKey &&
       action.ownerKey === `${ownerType}:${ownerId}` &&
       action.ownerGeneration === ownerGeneration &&
-      action.recoveryScope === standaloneScope
+      action.principalId === currentUserId
     );
   }
 
   function isCurrent(action: ActionToken): boolean {
     return !destroyed && action.generation === actionGeneration && isOwnerVisitCurrent(action);
+  }
+
+  // #1910: a save response belongs to the editor SESSION it was sent from, not
+  // to whichever action is newest. A Test click or delete-arm supersedes the
+  // action (generation bump) without ending the session — that response still
+  // seeds its own editor's baseline and still converts a preserved create
+  // draft into an update of the new row, so a second Save can never POST
+  // create again (the duplicate-create window). A response whose session ended
+  // (cancel, close, reopen, owner or user switch) is dropped: the Section's
+  // committed readback reconciles the row a stale write produced, so the
+  // replacement editor keeps the row it was opened against. The create and
+  // update paths share this fence so they cannot drift apart.
+  function isEditorSessionCurrent(action: ActionToken): boolean {
+    return !destroyed && action.editorSession === editorSession && isOwnerVisitCurrent(action);
+  }
+
+  function seedBaseline(
+    action: ActionToken,
+    saved: AiServiceConfig | null,
+    seed: (row: AiServiceConfig) => void,
+  ): void {
+    if (!isEditorSessionCurrent(action)) return;
+    if (saved) seed(saved);
+    else if (formFingerprint() !== action.formFingerprint) {
+      // The write may have committed, but without a complete saved row a
+      // preserved draft cannot safely become an update. Reconcile it.
+      throw new UncertainMutationError();
+    }
   }
 
   function trackMutation(action: ActionToken): number {
@@ -300,15 +374,13 @@
     pendingMutations = [...pendingMutations, {
       id,
       ownerKey: action.ownerKey,
-      recoveryScope: action.recoveryScope,
-      standaloneRecovery: action.standaloneRecovery,
+      principalId: action.principalId,
       notify,
     }];
     notify({
       ownerKey: action.ownerKey,
       mutationId: id,
       pending: true,
-      recoveryScope: action.recoveryScope,
     });
     return id;
   }
@@ -322,109 +394,25 @@
       ownerKey: finished.ownerKey,
       mutationId: id,
       pending: false,
-      ...(finished.standaloneRecovery ? { recoveryScope: finished.recoveryScope } : {}),
     });
   }
 
   function resetEditor() {
+    // An armed delete shares this editor visit/principal. Closing the editor
+    // must close its confirmation too, rather than leave an enabled no-op.
+    confirmDeleteId = null;
+    draftPrincipal = null;
+    identitySequence++;
+    identityController?.abort();
+    identityChecking = false;
+    signinHref = null;
+    endEditorSession(); // #1910: closing the editor ends the session a response belonged to
     formOpen = false;
     editId = null;
     savedConfig = null;
     error = null;
     testResult = null;
   }
-
-  function finishStandaloneActive(outcome: AiConfigCommitted, generation: number) {
-    const scope = outcome.recoveryScope ?? standaloneScope;
-    const key = standaloneActiveKey(scope, outcome.ownerKey);
-    const active = activeStandalone.get(key);
-    if (active?.outcome === outcome && active.generation === generation) {
-      activeStandalone.delete(key);
-    }
-  }
-
-  function scheduleStandaloneRecovery(ownerKey: string, recover: () => void | Promise<void>) {
-    const scope = standaloneScope;
-    const recovery = recoveryFor(scope);
-    const recoveryId = nextAiConfigRecoveryId();
-    recovery.setPending({ ownerKey, mutationId: recoveryId, pending: true, recoveryScope: scope });
-    pendingMutations = [
-      ...pendingMutations.filter((mutation) => mutation.recoveryScope !== scope || !mutation.standaloneRecovery),
-      ...recovery.pending().map(({ mutationId, ownerKey: key }) => ({ id: mutationId, ownerKey: key, recoveryScope: scope, standaloneRecovery: true, notify: standaloneMutationPending })),
-    ];
-    queueMicrotask(async () => {
-      try {
-        await recover();
-      } finally {
-        recovery.setPending({ ownerKey, mutationId: recoveryId, pending: false, recoveryScope: scope });
-      }
-    });
-  }
-
-  function syncStandaloneRecovery() {
-    if (destroyed || syncingStandaloneRecovery || !sharesStandaloneRecovery) return;
-    syncingStandaloneRecovery = true;
-    try {
-      const scope = standaloneScope;
-      const recovery = recoveryFor(scope);
-      const recoveryOwnerKey = `${ownerType}:${ownerId}`;
-      pendingMutations = [
-        ...pendingMutations.filter((mutation) => mutation.recoveryScope !== scope || !mutation.standaloneRecovery),
-        ...recovery.pending().map(({ mutationId, ownerKey: key }) => ({ id: mutationId, ownerKey: key, recoveryScope: scope, standaloneRecovery: true, notify: standaloneMutationPending })),
-      ];
-      standaloneWarning = recovery.uncertainty(recoveryOwnerKey);
-      uncertainMutation = standaloneWarning !== null;
-      standaloneRefreshWarning = recovery.refreshWarning(recoveryOwnerKey);
-      const deferred = recovery.takeDeferred(recoveryOwnerKey);
-      if (deferred) {
-        // Preserve object identity: the store's WeakMap orders outcomes by it.
-        deferred.recoveryScope ??= scope;
-        scheduleStandaloneRecovery(recoveryOwnerKey, () => onCommitted(deferred));
-      }
-    } finally {
-      syncingStandaloneRecovery = false;
-    }
-  }
-
-  // Effects never run during SSR, so a server render neither creates nor
-  // subscribes a module-global recovery store. A principal switch unsubscribes
-  // the old scope and fences its in-flight readback before syncing the new one.
-  $effect(() => {
-    const scopeChanged = hadStandaloneScope;
-    hadStandaloneScope = true;
-    if (!sharesStandaloneRecovery) {
-      untrack(() => {
-        uncertainMutation = false;
-        standaloneWarning = null;
-        standaloneRefreshWarning = null;
-      });
-      return;
-    }
-    const scope = standaloneScope;
-    const recovery = recoveryFor(scope);
-    ownerGeneration++;
-    actionGeneration++;
-    actionController?.abort();
-    if (scopeChanged) untrack(clearNotice);
-    resetEditor();
-    configFilter = '';
-    confirmDeleteId = null;
-    busy = false;
-    const stop = untrack(() => {
-      const unsubscribe = recovery.subscribe(syncStandaloneRecovery);
-      syncStandaloneRecovery();
-      return unsubscribe;
-    });
-    return () => {
-      standaloneRefreshGeneration++;
-      for (const [key, active] of activeStandalone) {
-        if (active.recoveryScope !== scope) continue;
-        recovery.defer(active.outcome);
-        activeStandalone.delete(key);
-      }
-      stop();
-    };
-  });
 
   // Track the scalar owner identity, not a refreshed configs/loader object.
   // Same-owner invalidation must preserve a pending draft and its outcome.
@@ -441,36 +429,27 @@
     resetEditor();
     configFilter = '';
     confirmDeleteId = null;
-    if (!sharesStandaloneRecovery) {
-      uncertainMutation = false;
-      standaloneWarning = null;
-      standaloneRefreshWarning = null;
-    }
-    standaloneRefreshGeneration++;
+    uncertainMutation = false;
     busy = false;
-    const activeKey = standaloneActiveKey(standaloneScope, previousOwnerKey);
-    const active = activeStandalone.get(activeKey);
-    if (active) {
-      activeStandalone.delete(activeKey);
-      recoveryFor(active.recoveryScope).defer(active.outcome);
-    }
-    syncStandaloneRecovery();
   });
 
   onDestroy(() => {
     destroyed = true;
-    if (standaloneNoticeTimer !== null) clearTimeout(standaloneNoticeTimer);
-    standaloneNoticeTimer = null;
-    for (const active of activeStandalone.values()) recoveryFor(active.recoveryScope).defer(active.outcome);
-    activeStandalone.clear();
+    identitySequence++;
+    identityController?.abort();
     actionGeneration++;
     actionController?.abort();
   });
 
-  // The acknowledged write is the newest baseline this editor knows: a retained
-  // older row must not win, or a preserved draft diffs against stale fields and
-  // omits an endpoint/apiStyle:null that is still needed. openEdit, openCreate
-  // and resetEditor clear savedConfig, so it never outlives its editor session.
+  // The baseline is the freshest row this editor session knows: its own
+  // acknowledged write (savedConfig — a retained older row must not win, or a
+  // preserved draft diffs against stale fields and omits an
+  // endpoint/apiStyle:null that is still needed), else the live configs row,
+  // which a mid-edit refresh MAY replace so the diff follows the server's
+  // current row rather than the row the editor was opened against. openEdit,
+  // openCreate and resetEditor clear savedConfig, and seedBaseline only sets it
+  // while its own editor session is still current (#1910), so it never
+  // outlives its editor session.
   const editing = $derived(editId ? (savedConfig?.id === editId ? savedConfig : (configs.find((c) => c.id === editId) ?? null)) : null);
 
   // Keep a paged editor's source row in place, including browser Back/Forward.
@@ -593,10 +572,10 @@
     // Numeric accessor per hrn:node:hadronmemory.com:hadron-portal:review:date-column-sorts-by-instant — a raw date
     // string reaches TanStack's alphanumeric comparator, which reads the digit
     // groups and ignores the offset, ordering by wall clock rather than instant.
-    { accessorFn: (row) => configDateMs(row.createdAt), id: 'createdAt', header: t('ai-config.column.created', 'Created'), size: 170 },
+    { accessorFn: (row) => configDateMs(row.createdAt), id: 'createdAt', header: t('ai-config.column.created', 'Created'), size: 200 },
     // 170, not 120 (#1020 review): the cell's widest STATE is the inline Delete
     // confirm (question + buttons), not the ⋯ trigger; 120 clipped it.
-    { id: 'actions', header: t('ai-config.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 170 },
+    { id: 'actions', header: t('ai-config.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 170, minSize: 170 },
   ];
   const configFmt: Record<string, (v: unknown) => string> = {
     createdAt: (v) => (v == null ? '—' : new Date(v as number).toLocaleString()),
@@ -607,6 +586,7 @@
       return configs;
     },
     columns: configColumns,
+    defaultColumn: { minSize: 40 },
     enableMultiSort: false,
     enableColumnResizing: true,
     columnResizeMode: 'onChange',
@@ -625,6 +605,7 @@
     // The extras carry the wire ISO the accessor discarded, for a reader
     // pasting a timestamp from an API response.
     globalFilterFn: makeGlobalFilterFn<AiServiceConfig>(configFmt, {
+      name: (row) => ownerType === 'ORGANIZATION' ? row.urn ?? '' : '',
       createdAt: (row) => row.createdAt,
     }),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
@@ -649,17 +630,20 @@
   }
 
   function openCreate() {
+    endEditorSession(); // #1910: a reopened editor is a new session
     beginAction();
     resetForm();
     savedConfig = null;
     editId = null;
     formOpen = true;
+    captureDraftPrincipal();
   }
 
   function openEdit(c: AiServiceConfig) {
     // The row is stale while its committed readback is pending. Opening it now
     // would seed a full-field update that could revert the just-saved values.
     if (mutationBlocked || mutationLocked) return;
+    endEditorSession(); // #1910: a reopened editor is a new session
     beginAction();
     resetForm();
     savedConfig = null;
@@ -679,6 +663,7 @@
     const shown = c.provider === 'openai-compatible' ? rest : (c.params ?? {});
     paramsText = c.params && Object.keys(shown).length > 0 ? JSON.stringify(shown, null, 2) : '';
     formOpen = true;
+    captureDraftPrincipal();
   }
 
   function closeForm() {
@@ -720,6 +705,8 @@
     return canonicalJson(next.value ?? null) !== canonicalJson(c.params ?? null);
   }
 
+  class SigninRequiredError extends Error {}
+
   class UncertainMutationError extends Error {
     constructor() {
       super('Request failed');
@@ -736,6 +723,9 @@
         body: JSON.stringify(payload),
         signal,
       });
+      // Exact CRUD 401 is definitive even if a proxy returned no JSON body.
+      // Never inspect or display upstream text to classify this refusal.
+      if (uncertainMutation && response.status === 401) return { response, body: null };
       return { response, body: await response.json() as unknown };
     })();
     try {
@@ -759,6 +749,7 @@
       // leave an unexplained pending lock forever.
       throw new UncertainMutationError();
     }
+    if (uncertainMutation && res.status === 401) throw new SigninRequiredError();
     const record = body && typeof body === 'object' && !Array.isArray(body)
       ? body as Record<string, unknown>
       : null;
@@ -791,7 +782,6 @@
         ownerKey: action.ownerKey,
         mutationId,
         text,
-        recoveryScope: action.recoveryScope,
       });
     }
     // A → B → A must not publish the old visit into the new editor, but the
@@ -802,7 +792,6 @@
       mutationId,
       text,
       reconcileOnly: true,
-      recoveryScope: action.recoveryScope,
     });
   }
 
@@ -814,12 +803,22 @@
       noticeGeneration: isOwnerVisitCurrent(action) ? action.noticeGeneration : -1,
       successText,
       refreshFailedText,
-      recoveryScope: action.recoveryScope,
     });
   }
 
   async function runMutation(options: MutationOptions) {
     const { action } = options;
+    if (!await verifyDraftPrincipal() || !isCurrent(action)) {
+      if (isCurrent(action)) busy = false;
+      return;
+    }
+    // A changed draft during the identity read needs another explicit submit;
+    // do not combine captured key/name fields with newer reactive values.
+    if (formFingerprint() !== action.formFingerprint) {
+      error = s.draftChanged();
+      busy = false;
+      return;
+    }
     const pendingMutation = trackMutation(action);
     try {
       try {
@@ -830,7 +829,14 @@
           // bounded readback finishes; settlement must not open a replay gap.
           await publishUncertain(action, s.mutationUnconfirmed(), pendingMutation);
         } else if (isCurrent(action)) {
-          error = e instanceof Error ? e.message : options.refusalFallback;
+          if (e instanceof SigninRequiredError) {
+            error = s.signinDraft();
+            // Only the pathname goes to the other tab. The editor and all of
+            // its values remain in this instance; no navigation/replay hook.
+            signinHref = `/signin?redirect=${encodeURIComponent(action.returnPath)}`;
+          } else {
+            error = e instanceof Error ? e.message : options.refusalFallback;
+          }
         }
         return;
       }
@@ -840,7 +846,10 @@
       await publishCommitted(action, options.successText, options.refreshFailedText, pendingMutation);
     } finally {
       finishMutation(pendingMutation);
-      if (isCurrent(action)) busy = false;
+      if (isCurrent(action)) {
+        busy = false;
+        if (signinHref) void restoreAttention(() => signinLink, () => isCurrent(action) && signinHref !== null, action.attention, true);
+      }
     }
   }
 
@@ -911,14 +920,7 @@
             apiStyle: apiStyleInput || undefined,
           }, true);
           const saved = parseAiConfig(result.config);
-          if (saved) {
-            createdId = saved.id;
-            savedConfig = saved;
-          } else if (isCurrent(action) && formFingerprint() !== action.formFingerprint) {
-            // The write may have committed, but without a complete saved row a
-            // preserved draft cannot safely become an update. Reconcile it.
-            throw new UncertainMutationError();
-          }
+          seedBaseline(action, saved, (row) => { createdId = row.id; savedConfig = row; });
         } else {
           const keyArg = resolveApiKeyAction({ removeKey: clearKey, enteredKey });
           // Absent = unchanged, null = back to the provider default.
@@ -937,10 +939,7 @@
             ...(apiStyle !== undefined ? { apiStyle } : {}),
           }, true);
           const saved = parseAiConfig(result.config);
-          if (saved) savedConfig = saved;
-          else if (isCurrent(action) && formFingerprint() !== action.formFingerprint) {
-            throw new UncertainMutationError();
-          }
+          seedBaseline(action, saved, (row) => { savedConfig = row; });
         }
       },
       successText: s.saveSuccess(name),
@@ -950,7 +949,10 @@
         // The request captured the old values. Close only if the reader did not
         // make newer edits while it was in flight. A preserved create draft is
         // now an UPDATE of the row the server returned, never a second create.
-        if (!isCurrent(action)) return;
+        // Session currency (not action generation): a Test click mid-flight
+        // supersedes the action without ending the editor that must still
+        // absorb this outcome (#1910 review: the same-session supersede).
+        if (!isEditorSessionCurrent(action)) return;
         if (formFingerprint() === action.formFingerprint) resetEditor();
         else if (createdId !== null) editId = createdId;
       },
@@ -977,6 +979,11 @@
     });
     busy = true;
     try {
+      if (!await verifyDraftPrincipal() || !isCurrent(action)) return;
+      if (formFingerprint() !== action.formFingerprint) {
+        error = s.draftChanged();
+        return;
+      }
       if (editing) {
         // #937: a SAVED config, of ANY owner kind, tests BY ID through the
         // server's own run path (server#1378). The stored key stays there.
@@ -1061,6 +1068,7 @@
     beginAction();
     error = null;
     confirmDeleteId = id;
+    if (!draftPrincipal) captureDraftPrincipal();
   }
 
   function cancelDelete() {
@@ -1072,30 +1080,8 @@
 
 <section>
   <div data-testid="ai-config-manager-feedback" role="status" aria-live="polite" aria-atomic="true">
-    {#if standaloneWarning}
-      <div
-        class="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
-      >
-        {standaloneWarning}
-        <a href={aiConfigReloadHref()} data-sveltekit-reload class="ml-1 underline">{s.reloadPage()}</a>
-      </div>
-    {/if}
-    {#if standaloneRefreshWarning}
-      <div
-        class="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
-      >
-        {standaloneRefreshWarning}
-        <a href={aiConfigReloadHref()} data-sveltekit-reload class="ml-1 underline">{s.reloadPage()}</a>
-      </div>
-    {/if}
-    {#if standaloneNotice}
-      <div
-        class="mb-3 rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300"
-      >
-        {standaloneNotice}
-      </div>
-    {/if}
-    {#if mutationBlocked && !mutationLocked}
+    {#if identityChecking}<p class="mb-3 text-sm text-zinc-500 dark:text-zinc-400">{s.principalChecking()}</p>{/if}
+    {#if recoveryChecking && !mutationLocked}
       <p data-testid="ai-config-recovery-pending" class="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
         {s.recoveryPending()}
       </p>
@@ -1103,17 +1089,23 @@
   </div>
   <!-- Always mounted so a refusal is announced whether it came from the open
        editor or a row action; only the alert's content changes. -->
-  <div data-testid="ai-config-error-feedback" role="alert" aria-live="assertive" aria-atomic="true">
+  <div bind:this={errorRegion} tabindex="-1" data-testid="ai-config-error-feedback" role="alert" aria-live="assertive" aria-atomic="true">
     {#if error}
       <div
         class="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
       >
-        {error}
+        <p>{error}</p>
+        {#if signinHref}
+          <a bind:this={signinLink} href={signinHref} target="_blank" rel="noopener noreferrer"
+            class="mt-1 inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
+          >{s.signinNewTab()}</a>
+          <p>{s.signinReturn()}</p>
+        {/if}
       </div>
     {/if}
   </div>
-  <div class="mb-3 flex items-start justify-between gap-4">
-    <div>
+  <div class="mb-3 flex flex-col items-start justify-between gap-4 sm:flex-row">
+    <div class="min-w-0">
       <h2 class="font-semibold text-zinc-900 dark:text-white">{s.heading()}</h2>
       {#if ownerLabel}
         <p class="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">{s.ownerCaption(ownerLabel)}</p>
@@ -1391,10 +1383,13 @@
       <p class="text-sm text-zinc-500">{pagination && (pagination.offset > 0 || pagination.total > 0) ? t('ai-config.empty.page', 'No AI configurations on this page.') : s.empty()}</p>
     {/if}
   {:else}
+    <div class="config-grid min-w-0">
     <DataTable
+      containCells
       table={configTable}
       showFooter={!pagination}
       listKey="ai-configs"
+      stickyEndColumn="actions"
       searchPlaceholder={pagination ? t('ai-config.search.page', 'Search configs on this page…') : t('ai-config.search.placeholder', 'Search configs...')}
       searchAriaLabel={pagination ? t('ai-config.search.page.aria', 'Search AI provider configs on this page') : t('ai-config.search.aria-label', 'Search AI provider configs')}
       bind:globalFilter={configFilter}
@@ -1403,14 +1398,18 @@
       {#snippet cell(cell, c)}
         <!-- Dim content, never the row: row opacity traps its fixed menu below later rows (#1867). -->
         {#if cell.column.id === 'name'}
-          <span class:opacity-60={!c.enabled} class="truncate font-mono text-sm font-medium text-zinc-900 dark:text-white">{c.name}</span>
+          <span class:opacity-60={!c.enabled} class="block min-w-0 max-w-full font-mono text-sm font-medium [overflow-wrap:anywhere] text-zinc-900 dark:text-white">{c.name}</span>
+          {#if ownerType === 'ORGANIZATION' && c.urn}
+            <!-- #1907 is display-only; aiconf has no canonical portal detail page. -->
+            <div class="mt-1 min-w-0 max-w-full"><Urn value={c.urn} size={10} compact copyUrl={false} label={t('ai-config.urn-label', 'AI configuration')} /></div>
+          {/if}
         {:else if cell.column.id === 'enabled'}
           {#if c.enabled}
-            <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">
+            <span class="inline-block max-w-full rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">
               {s.enabledBadge()}
             </span>
           {:else}
-            <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500 opacity-60 dark:bg-zinc-800 dark:text-zinc-400">
+            <span class="inline-block max-w-full rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500 opacity-60 dark:bg-zinc-800 dark:text-zinc-400">
               {s.disabledBadge()}
             </span>
           {/if}
@@ -1424,8 +1423,8 @@
                    place (the share-page idiom): the irreversibility question
                    stays visible here, not only on the menu item's title,
                    which keyboard and touch users never see. Wraps, if narrow. -->
-              <div class="flex flex-wrap items-center gap-1.5">
-                <span class="text-xs text-zinc-500">{s.confirmQuestion()}</span>
+              <div class="flex min-w-0 flex-wrap items-center gap-1.5 [overflow-wrap:anywhere]">
+                <span class="min-w-0 [overflow-wrap:anywhere] text-xs text-zinc-500">{s.confirmDelete(c.name)}</span>
                 <button
                   type="button"
                   onclick={() => doDelete(c.id, c.name)}
@@ -1463,13 +1462,21 @@
           {/if}
         {:else}
           {@const f = configFmt[cell.column.id]}
-          <div class:opacity-60={!c.enabled} class="truncate">{f ? f(cell.getValue()) : (cell.getValue() ?? '—')}</div>
+          <div class:opacity-60={!c.enabled} class="min-w-0 max-w-full [overflow-wrap:anywhere]">{f ? f(cell.getValue()) : (cell.getValue() ?? '—')}</div>
         {/if}
       {/snippet}
     </DataTable>
+    </div>
   {/if}
   {#if pagination}
     <ListPageNav page={pagination} label={t('app.ai-config.pages', 'AI config pages')} disabled={formOpen || busy || confirmDeleteId !== null} />
     {#if formOpen}<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{t('app.ai-config.page-edit', 'Save or cancel the form before changing pages.')}</p>{/if}
   {/if}
 </section>
+
+<style>
+  /* Table actions reserve space; fixed menu descendants keep their viewport position. */
+  .config-grid :global(td button) { min-height: 44px; min-width: 44px; }
+  .config-grid :global(td [data-node-actions] > button) { display: inline-flex; }
+  .config-grid :global(td button:focus-visible) { outline: 2px solid var(--color-indigo-500); outline-offset: 2px; }
+</style>

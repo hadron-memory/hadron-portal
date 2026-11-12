@@ -79,6 +79,15 @@ function endpointArgs(src: { endpoint?: string | null; apiStyle?: string | null 
   };
 }
 
+// Only definitive auth codes are safe to retry as draft-local refusals.
+// Never echo GraphQL text: it can contain provider credentials.
+function authRefusal(error: unknown): Response | null {
+  const code = extractGqlErrorCode(error);
+  if (code === 'FORBIDDEN') return json({ error: t('ai-config.error.forbidden', 'Forbidden') }, { status: 403 });
+  if (code === 'UNAUTHENTICATED') return json({ error: t('ai-config.error.unauthorized', 'Unauthorized') }, { status: 401 });
+  return null;
+}
+
 const TEST_SYSTEM =
   'You are a test assistant. Reply with exactly one short sentence confirming you are reachable.';
 
@@ -208,6 +217,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         );
         return json({ ok: true, config: data.createAiServiceConfig });
       } catch (e) {
+        const refusal = authRefusal(e);
+        if (refusal) return refusal;
         const code = extractGqlErrorCode(e);
         if (code === 'DuplicateAiServiceConfigNameError') {
           return json({ error: t('ai-config.error.duplicate-name', 'An AI configuration with this name already exists for this owner.') }, { status: 409 });
@@ -250,6 +261,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         );
         return json({ ok: true, config: data.updateAiServiceConfig });
       } catch (e) {
+        const refusal = authRefusal(e);
+        if (refusal) return refusal;
         const code = extractGqlErrorCode(e);
         if (code === 'DuplicateAiServiceConfigNameError') {
           return json({ error: t('ai-config.error.duplicate-name', 'An AI configuration with this name already exists for this owner.') }, { status: 409 });
@@ -268,7 +281,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       try {
         await client.request(DELETE_AI_SERVICE_CONFIG_MUTATION, { id: body.id });
         return json({ ok: true });
-      } catch {
+      } catch (e) {
+        const refusal = authRefusal(e);
+        if (refusal) return refusal;
         return json({ error: t('ai-config.error.delete-failed', 'Failed to delete AI configuration.') }, { status: 500 });
       }
     }

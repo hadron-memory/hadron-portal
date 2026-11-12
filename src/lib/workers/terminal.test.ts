@@ -50,8 +50,8 @@ describe('labels', () => {
   it('keeps the agreed words for the common reasons', () => {
     expect(terminalReasonLabel('model_at_capacity')).toBe('Model at capacity');
     expect(terminalReasonLabel('menu_or_question')).toBe('Waiting at a menu or question');
-    // portal#1495 (Uma, UX): "tick" was jargon; the wake-up is the reader-facing word.
-    expect(terminalReasonLabel('no_turn_for_due_ticker')).toBe('Missed its wake-up');
+    // portal#1938 (Holger): "Tickers" is the official name; supersedes the portal#1495 "wake-up is the reader-facing word" ruling. A single missed wake is not a missed ticker (hrn:node:hadronmemory.com:specs:cor:agt:080:15).
+    expect(terminalReasonLabel('no_turn_for_due_ticker')).toBe('Missed its ticker wake');
   });
 
   it('an unknown state or reason shows fixed copy and logs nothing', () => {
@@ -69,41 +69,41 @@ describe('terminalBadge', () => {
   const read = { status: 'locked', reason: 'model_at_capacity', checkedAt: '2026-10-31T11:55:00.000Z' };
 
   it('a visible reader with a returned null terminal sees Not reported', () => {
-    expect(terminalBadge(null, true)).toMatchObject({ state: 'not-reported', label: 'Not reported' });
+    expect(terminalBadge(null, true, NOW)).toMatchObject({ state: 'not-reported', label: 'Not reported' });
   });
 
   it('absent (no roster entry, failed or unselected read) is no badge, apart from a returned null', () => {
-    expect(terminalBadge(undefined, true)).toBeNull();
-    expect(terminalBadge(null, true)).not.toBeNull();
+    expect(terminalBadge(undefined, true, NOW)).toBeNull();
+    expect(terminalBadge(null, true, NOW)).not.toBeNull();
   });
 
   it('a reader without internals sees nothing, even for a terminal object or null', () => {
-    expect(terminalBadge(read, false)).toBeNull();
-    expect(terminalBadge(null, false)).toBeNull();
+    expect(terminalBadge(read, false, NOW)).toBeNull();
+    expect(terminalBadge(null, false, NOW)).toBeNull();
   });
 
   it.each([
     ['idle', null, 'Idle'],
     ['busy', null, 'Busy'],
     ['locked', 'model_at_capacity', 'Locked: Model at capacity'],
-    ['dark', 'no_turn_for_due_ticker', 'Dark: Missed its wake-up'],
+    ['dark', 'no_turn_for_due_ticker', 'Dark: Missed its ticker wake'],
   ])('%s with %s reads %s', (status, reason, summary) => {
-    const b = terminalBadge({ status, reason, checkedAt: read.checkedAt }, true)!;
+    const b = terminalBadge({ status, reason, checkedAt: read.checkedAt }, true, NOW)!;
     expect(terminalSummary(b)).toBe(summary);
   });
 
   it('an unknown state or reason keeps the fixed copy in the summary', () => {
-    const b = terminalBadge({ status: 'quantum', reason: 'solar_flare', checkedAt: read.checkedAt }, true)!;
+    const b = terminalBadge({ status: 'quantum', reason: 'solar_flare', checkedAt: read.checkedAt }, true, NOW)!;
     expect(b.state).toBe('unknown');
     expect(terminalSummary(b)).toBe('Unknown state: Other reason');
     expect(terminalSummary(b)).not.toContain('solar');
     expect(terminalSummary(b)).not.toContain('quantum');
   });
 
-  it('a stale report keeps its server state: age never derives dark or idle', () => {
-    const b = terminalBadge({ status: 'busy', reason: null, checkedAt: '2026-10-01T00:00:00.000Z' }, true)!;
-    expect(b.state).toBe('busy');
-    expect(terminalSummary(b)).toBe('Busy');
+  it('#1948 an old report withholds its status and reason without mutating the stored report', () => {
+    const b = terminalBadge({ status: 'busy', reason: null, checkedAt: '2026-10-01T00:00:00.000Z' }, true, NOW)!;
+    expect(b.state).toBe('stale');
+    expect(terminalSummary(b)).toBe('Stale');
   });
 });
 
@@ -147,5 +147,30 @@ describe('age', () => {
       expect(terminalLastTurn(ahead(60_000), NOW)).toBe('Last turn: now');
       expect(terminalLastTurn(ahead(60_001), NOW)).toBe('Last turn: not known');
     });
+  });
+});
+
+
+describe('#1948 read-time staleness', () => {
+  const at = (age: number) => new Date(NOW - age).toISOString();
+  it.each(['idle', 'busy', 'locked', 'dark', 'quantum'])('withholds old %s and its reason, keeping the age', (status) => {
+    const report = { status, reason: 'model_at_capacity', checkedAt: at(8 * 60 * 60_000) };
+    const b = terminalBadge(report, true, NOW)!;
+    expect(b).toMatchObject({state: 'stale', label: 'Stale', reason: null, checkedAt: report.checkedAt});
+    expect(terminalSummary(b)).toBe('Stale');
+    expect(terminalCheckedAge(b.checkedAt, NOW)).toMatch(/8.*ago/);
+    expect(report).toEqual({status, reason: 'model_at_capacity', checkedAt: at(8 * 60 * 60_000)});
+  });
+  it.each([3 * 60_000, 30 * 60_000])('age %i ms is still fresh (strict older-than boundary)', (age) => {
+    expect(terminalBadge({status: 'idle', checkedAt: at(age)}, true, NOW)).toMatchObject({state: 'idle', label: 'Idle'});
+  });
+  it('one millisecond past thirty minutes is stale', () => {
+    expect(terminalBadge({status: 'idle', checkedAt: at(30 * 60_000 + 1)}, true, NOW)?.state).toBe('stale');
+  });
+  it.each([undefined, null, '', 'invalid', at(-59_000), at(-60_000), at(-60_001)])('unknown/future checkedAt %s is not claimed stale', (checkedAt) => {
+    expect(terminalBadge({status: 'idle', checkedAt}, true, NOW)?.state).toBe('idle');
+  });
+  it('old but hidden data stays absent, including unknown status/reason', () => {
+    expect(terminalBadge({status:'quantum',reason:'solar_flare',checkedAt:at(8*60*60_000)}, false, NOW)).toBeNull();
   });
 });

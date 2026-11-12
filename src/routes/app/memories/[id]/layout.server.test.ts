@@ -104,16 +104,21 @@ describe('memory-detail layout — no node-list drain (portal#1524)', () => {
 
 
 describe('reader-shared memory controls (#646)', () => {
-  it.each([false, true])('carries the server write decision %s for the current user and memory URN', async (canWrite) => {
+  it.each([
+    { canWrite: false, canManage: false },
+    { canWrite: true, canManage: false },
+    { canWrite: true, canManage: true },
+  ])('carries independent server write/manage decisions for the current user and memory URN', async ({ canWrite, canManage }) => {
     routeMock({});
     const normal = mockRequest.getMockImplementation()!;
     mockRequest.mockImplementation((q, v) => q === SELF_CAN_WRITE_QUERY
-      ? Promise.resolve({ effectiveAccess: { canWrite } }) : normal(q, v));
+      ? Promise.resolve({ effectiveAccess: { canWrite, canManage } }) : normal(q, v));
     const event = ev();
     event.locals.user = { id: 'reader-user' } as any;
     const data = await (await importLoad())(event) as any;
     expect(mockRequest).toHaveBeenCalledWith(SELF_CAN_WRITE_QUERY, { user: 'reader-user', resource: 'org::mem' });
     expect(data.canWriteMemory).toBe(canWrite);
+    expect(data.canManageMemory).toBe(canManage);
   });
   it('keeps the memory readable but offers no writes when the access check fails', async () => {
     routeMock({});
@@ -125,6 +130,7 @@ describe('reader-shared memory controls (#646)', () => {
     const data = await (await importLoad())(event) as any;
     expect(data.graph.id).toBe('mem-1');
     expect(data.canWriteMemory).toBe(false);
+    expect(data.canManageMemory).toBe(false);
   });
 });
 
@@ -149,6 +155,68 @@ describe('memory layout payload slimming (portal#1429)', () => {
     expect(queries).toContain(MEMORY_LAYOUT_ORG_QUERY);
     expect(queries).not.toContain(ORGANIZATION_QUERY);
     expect(data.org?.id).toBe('org-1');
+  });
+
+  it('skips the member hydration query when the nested organization is already null', async () => {
+    routeMock({});
+    const normal = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation((q, v) => {
+      if (q === MEMORY_BY_ID_QUERY) return Promise.resolve({
+        memory: { id: 'mem-1', urn: 'hrn:mem:acme.com:mem', name: 'Mem', organizationId: 'org-1', organization: null },
+      });
+      return normal(q, v);
+    });
+    const data = (await (await importLoad())(ev())) as { org: unknown; orgReadFailed: boolean };
+    expect(mockRequest.mock.calls.map(([query]) => query)).not.toContain(MEMORY_LAYOUT_ORG_QUERY);
+    expect(data.org).toBeNull();
+    expect(data.orgReadFailed).toBe(false);
+  });
+
+  it.each(['FORBIDDEN', 'UNAUTHENTICATED'])('maps a member-query %s to non-membership, not an outage', async (code) => {
+    routeMock({});
+    const normal = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation((q, v) => {
+      if (q === MEMORY_BY_ID_QUERY) return Promise.resolve({
+        memory: { id: 'mem-1', urn: 'hrn:mem:acme.com:mem', name: 'Mem', organizationId: 'org-1', organization: { id: 'org-1', name: 'Org' } },
+      });
+      if (q === MEMORY_LAYOUT_ORG_QUERY) return Promise.reject({
+        response: { errors: [{ message: code, extensions: { code } }] },
+      });
+      return normal(q, v);
+    });
+    const data = (await (await importLoad())(ev())) as { org: unknown; orgReadFailed: boolean };
+    expect(data.org).toBeNull();
+    expect(data.orgReadFailed).toBe(false);
+  });
+
+  it('does not treat a permanent organization refusal as a transient outage', async () => {
+    routeMock({});
+    const normal = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation((q, v) => {
+      if (q === MEMORY_BY_ID_QUERY) return Promise.resolve({
+        memory: { id: 'mem-1', urn: 'hrn:mem:acme.com:mem', name: 'Mem', organizationId: 'org-1', organization: { id: 'org-1', name: 'Org' } },
+      });
+      if (q === MEMORY_LAYOUT_ORG_QUERY) return Promise.reject({
+        response: { errors: [{ message: 'Organization not found', extensions: { code: 'ORGANIZATION_NOT_FOUND' } }] },
+      });
+      return normal(q, v);
+    });
+    const data = (await (await importLoad())(ev())) as { org: unknown; orgReadFailed: boolean };
+    expect(data.org).toBeNull();
+    expect(data.orgReadFailed).toBe(false);
+  });
+
+  it('distinguishes an org read outage from a non-member null response', async () => {
+    routeMock({});
+    const normal = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation((q, v) => {
+      if (q === MEMORY_BY_ID_QUERY) return Promise.resolve({ memory: { id: 'mem-1', urn: 'hrn:mem:acme.com:mem', name: 'Mem', organizationId: 'org-1' } });
+      if (q === MEMORY_LAYOUT_ORG_QUERY) return Promise.reject(new Error('timeout'));
+      return normal(q, v);
+    });
+    const data = (await (await importLoad())(ev())) as { org: unknown; orgReadFailed: boolean };
+    expect(data.org).toBeNull();
+    expect(data.orgReadFailed).toBe(true);
   });
 
   it('the slim org document selects none of the list resolvers no memory route reads', () => {

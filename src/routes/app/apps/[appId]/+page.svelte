@@ -2,6 +2,7 @@
   import TabRow from '$lib/components/TabRow.svelte';
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import AppRunsPanel from './runs/AppRunsPanel.svelte';
+  import ChatbotAiConfigSetting from './ChatbotAiConfigSetting.svelte';
   import TaskIntegrations from './TaskIntegrations.svelte';
   import { taskHref } from '$lib/agent-tasks/handle';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
@@ -24,6 +25,7 @@
   import AccessibleMemories from './AccessibleMemories.svelte';
   import { appMemoryTargets } from '$lib/app-memory-scope';
   import AgentChat from '$lib/components/AgentChat.svelte';
+  import { liveChatAiChoices } from '$lib/chat-ai-choice';
   import TeamChatThread from '$lib/components/TeamChatThread.svelte';
   import TeamChatSearch from '$lib/components/TeamChatSearch.svelte';
   import { teamChatSearchStrings } from '$lib/i18n/team-chat-search-strings';
@@ -124,7 +126,7 @@
   import { readResolvedAiConfigs } from '$lib/components/ai-config-readback';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import TerminalStatus from '$lib/components/TerminalStatus.svelte';
-  import { terminalBadge, terminalCheckedAge, terminalSummary } from '$lib/workers/terminal';
+  import { terminalBadge, terminalCheckedAge, terminalSummary, TERMINAL_STALE_AFTER_MS } from '$lib/workers/terminal';
   import { createDisplayClock } from '$lib/workers/display-clock.svelte';
   import { workerInternalsVisible } from '$lib/worker-profile';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
@@ -137,6 +139,7 @@
   import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker, AiServiceConfig } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import type { AppTabId } from './tab-intent';
+  import AppNodeRoleTemplates from './AppNodeRoleTemplates.svelte';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
   import { reportsToOf, reportsToSortKey, teamPlacementOf } from '$lib/worker-reports-to';
@@ -486,8 +489,20 @@
   // is "not answered"; only a returned null is "Not reported".
   function terminalBadgeOf(worker: Worker) {
     const entry = rosterEntry(worker.id);
-    return entry ? terminalBadge(entry.terminal, workerInternalsVisible(worker)) : null;
+    return entry ? terminalBadge(entry.terminal, workerInternalsVisible(worker), terminalNow) : null;
   }
+  // Only reported badges this reader can see count; null/undefined and
+  // internals-hidden rows cannot imply either freshness or staleness.
+  const allTerminalReportsStale = $derived.by(() => {
+    let reported = 0;
+    for (const worker of sortedStaff) {
+      const badge = terminalBadgeOf(worker);
+      if (!badge || badge.state === 'not-reported') continue;
+      reported++;
+      if (badge.state !== 'stale') return false;
+    }
+    return reported > 0;
+  });
   // portal#1495 BLIND P2 (#1618, George) — the searchable age must reach the
   // filter as DATA, not as a live clock read inside the filter callback.
   // TanStack memoizes the filtered row model on data + filter state; values
@@ -668,6 +683,14 @@
     globalFilterFn: makeGlobalFilterFn<Worker>(
       {},
       {
+        hold: (worker) => {
+          // Search only identity displayed for a known hold, never a masked or
+          // stale projection whose row does not disclose a holder.
+          const hold = workerHold(worker, data.user?.id);
+          if (hold.kind !== 'self' && hold.kind !== 'other') return '';
+          const holder = rosterEntry(worker.id)?.heldBy;
+          return holder ? `${holder.name ?? holder.handle ?? ''} ${holder.urn ?? ''}` : '';
+        },
         terminal: (row: Worker) => (row as (typeof staffRows)[number]).terminalAgeSearch,
       },
     ),
@@ -862,14 +885,13 @@
     configs: AiServiceConfig[] | null;
   } | null>(null);
   let chatConfigReads = 0;
-  const chatConfigs = $derived(
-    chatConfigReread &&
+  const chatConfigRereadActive = $derived(
+    chatConfigReread !== null &&
     chatConfigReread.against === data &&
     chatConfigReread.appRef === app.id &&
-    chatConfigReread.agentRef === app.agentId
-      ? chatConfigReread.configs
-      : data.chatConfigs,
+    chatConfigReread.agentRef === app.agentId,
   );
+  const chatConfigs = $derived(chatConfigRereadActive ? chatConfigReread!.configs : data.chatConfigs);
   async function refreshChatConfigs(signal?: AbortSignal): Promise<boolean> {
     const agentRef = app.agentId;
     if (!agentRef) return true;
@@ -899,33 +921,21 @@
     chatConfigReread = { against, appRef, agentRef, configs: fresh };
     return true;
   }
+  // portal#1963: the dropdown's options follow the live config read, so an AI-tab delete or disable drops
+  // its entry without a reload (liveChatAiChoices).
+  const liveAiChoices = $derived(
+    liveChatAiChoices(
+      data.aiChoices ?? null,
+      chatConfigs,
+      chatConfigRereadActive && chatConfigs === null,
+    ),
+  );
   const usableChatConfigs = $derived((chatConfigs ?? []).filter((c) => c.hasApiKey));
   // null chatConfigs = couldn't list (e.g. viewer isn't an App member) →
   // unknown → don't block the chat.
   const llmReady = $derived(chatConfigs === null ? null : usableChatConfigs.length > 0);
   const appChatRender = $derived(
     chooseAppChatTabRender({ surfaces: app.surfaces, agentId: app.agentId, agents: app.agents, llmReady }),
-  );
-  // Picker selection overlaid on the default (`default`, else first usable).
-  let selectedConfigName = $state<string | null>(null);
-  const chatSelectionIdentity = $derived(`${app.id}:${app.agentId ?? ''}`);
-  let previousChatSelectionIdentity = '';
-  $effect(() => {
-    const next = chatSelectionIdentity;
-    if (next === previousChatSelectionIdentity) return;
-    previousChatSelectionIdentity = next;
-    selectedConfigName = null;
-  });
-  // Validate the pick against the (possibly refreshed) usable set: if the
-  // selected config was deleted/disabled on the AI Service Configs tab, the
-  // resolved-config working copy falls back to default → first rather than
-  // sending a name that no longer resolves.
-  const effectiveConfigName = $derived(
-    selectedConfigName && usableChatConfigs.some((c) => c.name === selectedConfigName)
-      ? selectedConfigName
-      : (usableChatConfigs.find((c) => c.name === 'default')?.name
-          ?? usableChatConfigs[0]?.name
-          ?? null),
   );
   // #733: the tab is addressable as `?tab=<id>`. This is not a nicety — the
   // worklog's whole job is answering "which worker sessions produced this PR?",
@@ -1052,6 +1062,9 @@
     { id: 'keys', label: t('app.tabs.keys', 'App Keys') },
     { id: 'ai-configs', label: t('app.tabs.ai-configs', 'AI Service Configs') },
     { id: 'settings', label: 'Settings' },
+    // #1936: the former /node-role-templates page, in place. Shown to everyone who
+    // saw the old link (the page itself); writes stay gated on `canManage`.
+    { id: 'node-role-templates', label: t('config.templates', 'Node-role templates') },
     ...(!hasChatSurface ? [{ id: 'client' as TabId, label: 'Client' }] : []),
   ]);
   $effect(() => {
@@ -1161,14 +1174,27 @@
     // re-latches; its own goto returned above.
     tabNavigationPending = false;
   });
+  // #1936: the templates manager guards its draft against ROUTE changes (beforeNavigate), but a
+  // declined route change only cancels the router: this function would still select the tab and
+  // unmount the draft (LOCAL P2 D1). So the page asks first, for every way out of the tab, and
+  // clears the manager's copy of the question so its own route guard does not ask a second time.
+  // If we then do not land on the chosen tab, the question is put back with the draft.
+  let templatesLeaveMessage = $state<string | null>(null);
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
+    let asked: string | null = null;
+    if (activeTab === 'node-role-templates' && id !== activeTab && templatesLeaveMessage) {
+      if (!window.confirm(templatesLeaveMessage)) return;
+      asked = templatesLeaveMessage;
+      templatesLeaveMessage = null;
+    }
+    let landed = false;
     const mine = ++tabNavigation, appId = app.id, principalId = data.currentUserId;
     let ownNavigationHref: string | null = null;
     try {
       // A second choice supersedes an in-flight Runs navigation, including
       // a choice of a normally local tab. Its loader URL must agree as well.
-      if (id === 'runs' || tabNavigationPending) {
+      if (id === 'runs' || id === 'node-role-templates' || tabNavigationPending) {
         tabNavigationPending = true;
         const href = `/app/apps/${encodeURIComponent(appId)}?tab=${id}`;
         if (id === 'runs') {
@@ -1195,6 +1221,7 @@
         if (tabNavigationCancelled) return;
       }
       if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
+      landed = true;
       activeTab = id;
       await tick();
       if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id}`)?.focus();
@@ -1202,6 +1229,7 @@
     finally {
       if (ownNavigationHref && tabNavigationHref === ownNavigationHref) tabNavigationHref = null;
       if (mine === tabNavigation) tabNavigationPending = false;
+      if (asked && !landed && tabAlive && activeTab === 'node-role-templates') templatesLeaveMessage = asked;
     }
   }
 
@@ -2100,7 +2128,6 @@
     } finally { downloading = false; }
   }
 </script>
-<a data-sveltekit-preload-data="off" href={`/app/apps/${encodeURIComponent(data.app.id)}/node-role-templates`} class="inline-flex min-h-11 items-center text-indigo-700 underline dark:text-indigo-300">{t('config.templates', 'Node-role templates')}</a>
 
 
 <svelte:head><title>{app.name} · Apps · {org ? `${org.name} · ` : ''}Hadron</title></svelte:head>
@@ -2192,6 +2219,7 @@
     { id: 'tasks', label: t('app.tabs.tasks', 'Tasks'), href: `/app/apps/${app.id}/tasks` },
     { id: 'tickers', label: t('app.tabs.tickers', 'Tickers'), href: `/app/apps/${app.id}/tickers` },
     { id: 'stops', label: t('app.tabs.stops', 'Stops'), href: `/app/apps/${app.id}/stops` },
+    { id: 'usage', label: t('app.tabs.token-use', 'Token use'), href: `/app/apps/${app.id}/usage` },
     { id: 'register', label: t('app.tabs.register', 'Action register'), href: `/app/apps/${app.id}/register` },
     { id: 'automations', label: t('app.tabs.automations', 'Automations'), href: `/app/apps/${app.id}/automations` }
   ]} active={activeTab} label={t('app.tabs-label', 'App sections')} onselect={(id) => { void focusTab(id as TabId); }} />
@@ -2268,42 +2296,12 @@
           <AgentChat
             agentId={app.agentId}
             appId={app.id}
-            configName={effectiveConfigName ?? undefined}
+            aiChoices={liveAiChoices}
             uploadMemoryId={writableMemoryIds[0]}
           />
         </div>
-        {#if usableChatConfigs.length > 0}
-          <!-- Config picker sits below the chat, next to where the composer
-               lives — matching where model pickers appear in most chat apps. -->
-          <div class="mt-2 flex items-center gap-2 text-sm">
-            <label for="chat-config" class="text-zinc-500">{t('app-chat.config.label', 'AI config')}</label>
-            <!-- #740: `min-w-0` is the load-bearing half. A <select> sizes to
-                 its LONGEST OPTION, and these read
-                 "default (bedrock · us.anthropic.claude-sonnet-4-6)" — 370px,
-                 which pushed 94px past the right edge of a 390px viewport and
-                 was the last thing making the whole page scroll sideways after
-                 the shell and the tab strip were fixed. A flex item's default
-                 `min-width: auto` refuses to shrink below that intrinsic
-                 width, so `truncate` alone would not have helped.
-
-                 `min-w-0` WITHOUT `flex-1`, on purpose: the default
-                 `flex: 0 1 auto` already permits shrinking, so the control
-                 keeps its natural width wherever there is room — desktop is
-                 pixel-identical — and gives way only where there isn't.
-                 `flex-1` (which I tried first) makes it GROW to fill the row,
-                 changing a desktop surface to fix a phone one. -->
-            <select
-              id="chat-config"
-              value={effectiveConfigName ?? ''}
-              onchange={(e) => (selectedConfigName = e.currentTarget.value)}
-              class="min-w-0 truncate rounded-lg border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
-            >
-              {#each usableChatConfigs as c (c.id)}
-                <option value={c.name}>{c.name} ({c.provider} · {c.model})</option>
-              {/each}
-            </select>
-          </div>
-        {/if}
+        <!-- portal#1963: the AI config dropdown now lives in AgentChat, over the server's list of the App's
+             own configs (hadron-server#3957); the chat stores what the user picks. -->
       {:else if appChatRender === 'no-llm-config'}
         <div class="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="min-height: 300px;">
           <div class="max-w-md text-center">
@@ -2577,6 +2575,12 @@
   {#if activeTab === 'runs'}
     <div role="tabpanel" id="panel-runs" aria-labelledby="tab-runs" tabindex="0" class="min-w-0 focus-visible:outline-2 focus-visible:outline-indigo-500">
       {#if currentRunsPanel}<AppRunsPanel data={currentRunsPanel} {form} />{:else}<p role="status">{t('runs.loading', 'Loading runs…')}</p>{/if}
+    </div>
+  {/if}
+
+  {#if activeTab === 'node-role-templates'}
+    <div id="panel-node-role-templates" role="tabpanel" aria-labelledby="tab-node-role-templates" tabindex="0" class="min-w-0 focus-visible:outline-2 focus-visible:outline-indigo-500">
+      {#if data.templatesPanel}<AppNodeRoleTemplates data={data.templatesPanel} bind:leaveMessage={templatesLeaveMessage} />{:else}<p role="status">{t('config.templates-loading', 'Loading templates…')}</p>{/if}
     </div>
   {/if}
 
@@ -2961,6 +2965,9 @@
         {:else if teamRoster?.kind === 'hidden'}
           <p role="status" class="text-xs text-zinc-500">{t('app.staff.roster.hidden', 'Task and pause state are not shown to you.')}</p>
         {/if}
+        {#if allTerminalReportsStale}
+          <p data-testid="terminal-stale-note" class="text-xs text-zinc-600 dark:text-zinc-400">{t('app.staff.terminal-stale-note', 'All terminal reports in this list are older than {minutes} minutes.', { minutes: TERMINAL_STALE_AFTER_MS / 60_000 })}</p>
+        {/if}
         <!-- #756 — TanStack grid, replacing a bespoke <ul>. Same chrome as every
              other portal list (search, column toggle, sortable/resizable
              headers, pagination) via the shared DataTable.
@@ -3066,22 +3073,37 @@
                    staffing we did not read. Absence of a claim beats a confident
                    wrong one. -->
               {@const hold = workerHold(worker, data.user?.id)}
+              <!-- portal#1168 / hadron-server#2223 — the roster read names the
+                   holder. Null is nobody, a deleted holder, or a masked read,
+                   which the server does not tell apart: a hold we know exists
+                   (`hold.kind`) with no holder falls back to the unnamed line,
+                   never a guess. `name` is null both withheld and unset, so the
+                   handle stands in. -->
+              {@const holder = rosterEntry(worker.id)?.heldBy ?? null}
               {#if hold.kind === 'self'}
                 <span class="text-xs font-medium text-indigo-600 dark:text-indigo-400">
-                  {t('app.staff.held.you', 'Your name — held by you')}
+                  {holder?.name ?? holder?.handle ?? t('app.staff.held.you', 'Your name — held by you')}
                   {#if hold.since}
                     <span class="font-normal text-zinc-500">· {t('app.staff.held.since', 'since')} {formatDate(hold.since)}</span>
                   {/if}
                 </span>
+                {#if holder?.urn}
+                  <div><Urn value={holder.urn} type="user" compact /></div>
+                {/if}
               {:else if hold.kind === 'other'}
                 <span class="text-xs text-zinc-500">
-                  <!-- Unnamed until the server resolves the holder (#748) —
-                       resolving it here would be one query per roster row. -->
-                  {t('app.staff.held.other', 'Held by another member')}
+                  {#if holder}
+                    {holder.name ?? holder.handle ?? t('app.staff.held.other', 'Held by another member')}
+                  {:else}
+                    {t('app.staff.held.other', 'Held by another member')}
+                  {/if}
                   {#if hold.since}
                     · {t('app.staff.held.since', 'since')} {formatDate(hold.since)}
                   {/if}
                 </span>
+                {#if holder?.urn}
+                  <div><Urn value={holder.urn} type="user" compact /></div>
+                {/if}
               {:else}
                 <span class="text-xs text-zinc-400">—</span>
               {/if}
@@ -3712,6 +3734,17 @@
           </div>
         {/if}
       </section>
+
+      <!-- portal#1963: the App's chatbot AI config. Keyed on the App, so a pick never follows the person to another App. -->
+      {#if app.agentId}
+        {#key app.id}
+          <ChatbotAiConfigSetting
+            choices={data.aiChoices ?? null}
+            current={data.chatbotAiConfig ?? { ok: false }}
+            manages={data.viewerManages?.kind === 'known' ? data.viewerManages.manages : null}
+          />
+        {/key}
+      {/if}
 
       <!-- portal#1607: the App's task integrations. Keyed on propertiesRevision (null = no section)
            and viewerManages (edit controls); unknown viewerManages keeps the controls, as the key controls do. -->

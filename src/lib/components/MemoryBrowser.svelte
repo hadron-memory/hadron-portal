@@ -791,9 +791,30 @@
   let activeMemoryUrns = $state<Set<string>>(new Set());
   let activeNodeTypes = $state<Set<string>>(new Set());
   let activeTags = $state<Set<string>>(new Set());
+  // portal#1058 V74 (hrn:node:hadronmemory.com:hadron-dev-team-shared:decisions:2026-11-11-vera-rulings-portal-search-guidance):
+  // Node Types and Tags refine content only. A comment hit has no tags and the
+  // type `comment`, so applying them to it would silently empty the comment
+  // results. Under Comments the two controls are disabled (a choice made under
+  // Content is kept, not applied); under All they filter only the content rows.
+  const refinementsOff = $derived(contentScope === 'COMMENTS');
+  // portal#1930 (Uma 6787706001): the reason is visible page text, not a
+  // hover title, and only when there is a disabled control for it to explain.
+  const showTypeFilter = $derived(availableNodeTypes.length > 1);
+  const showTagsFilter = $derived(availableTags.length > 0);
+  const REFINEMENT_HINT_ID = 'refinement-off-hint';
+  const refinementHintShown = $derived(refinementsOff && (showTypeFilter || showTagsFilter));
+  const refinementHintId = $derived(refinementHintShown ? REFINEMENT_HINT_ID : undefined);
 
   // Dropdown open state
   let openDropdown = $state<'memory' | 'type' | 'tags' | 'fields' | 'properties' | null>(null);
+  // Close at the user's scope change, even if another change happens before
+  // effects flush. Keep selections and unrelated menus intact.
+  function changeContentScope(value: ContentScope) {
+    contentScope = value;
+    if (value === 'COMMENTS' && (openDropdown === 'type' || openDropdown === 'tags')) {
+      openDropdown = null;
+    }
+  }
 
   function toggleDropdown(d: 'memory' | 'type' | 'tags' | 'fields' | 'properties') {
     openDropdown = openDropdown === d ? null : d;
@@ -917,6 +938,7 @@
   const filteredNodes = $derived(
     displayNodes.filter((n) => {
       if (activeMemoryUrns.size > 0 && !activeMemoryUrns.has(memoryIdentity(n)?.urn ?? '')) return false;
+      if (n.comment) return true;
       if (activeNodeTypes.size > 0 && !activeNodeTypes.has(n.nodeType ?? 'info')) return false;
       if (activeTags.size > 0 && !(n.tags ?? []).some((t) => activeTags.has(t))) return false;
       return true;
@@ -1137,15 +1159,16 @@
     {/if}
 
     <!-- Node type dropdown -->
-    {#if availableNodeTypes.length > 1}
+    {#if showTypeFilter}
       <div class="relative filter-dropdown">
-        <button onclick={() => toggleDropdown('type')}
-          class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition
+        <button onclick={() => toggleDropdown('type')} disabled={refinementsOff}
+          aria-describedby={refinementHintId}
+          class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50
             {activeNodeTypes.size > 0 ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600'}">
           Node Types {#if activeNodeTypes.size > 0}<span class="rounded-full bg-indigo-500 px-1.5 text-[10px] text-white">{activeNodeTypes.size}</span>{/if}
           <svg width="10" height="10" viewBox="0 0 10 10" class="transition-transform {openDropdown === 'type' ? 'rotate-180' : ''}"><path d="M2 4 L5 7 L8 4" stroke="currentColor" fill="none" stroke-width="1.5"/></svg>
         </button>
-        {#if openDropdown === 'type'}
+        {#if openDropdown === 'type' && !refinementsOff}
           <div class="absolute left-0 top-full z-20 mt-1 w-44 rounded-lg border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
             {#if activeNodeTypes.size > 0}
               <button onclick={() => { activeNodeTypes = new Set(); }} class="mb-1 w-full rounded px-2 py-1 text-left text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-zinc-800">Clear</button>
@@ -1163,15 +1186,16 @@
     {/if}
 
     <!-- Tags dropdown -->
-    {#if availableTags.length > 0}
+    {#if showTagsFilter}
       <div class="relative filter-dropdown">
-        <button onclick={() => toggleDropdown('tags')}
-          class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition
+        <button onclick={() => toggleDropdown('tags')} disabled={refinementsOff}
+          aria-describedby={refinementHintId}
+          class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50
             {activeTags.size > 0 ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600'}">
           Tags {#if activeTags.size > 0}<span class="rounded-full bg-indigo-500 px-1.5 text-[10px] text-white">{activeTags.size}</span>{/if}
           <svg width="10" height="10" viewBox="0 0 10 10" class="transition-transform {openDropdown === 'tags' ? 'rotate-180' : ''}"><path d="M2 4 L5 7 L8 4" stroke="currentColor" fill="none" stroke-width="1.5"/></svg>
         </button>
-        {#if openDropdown === 'tags'}
+        {#if openDropdown === 'tags' && !refinementsOff}
           <div class="absolute left-0 top-full z-20 mt-1 max-h-64 w-48 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
             {#if activeTags.size > 0}
               <button onclick={() => { activeTags = new Set(); }} class="mb-1 w-full rounded px-2 py-1 text-left text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-zinc-800">Clear</button>
@@ -1359,7 +1383,9 @@
     <!-- portal#1174: a bare "Content" beside "Node Types" read as a second type filter; name what it is. One label wraps both so they never split across lines, and the select takes its accessible name from the visible word (an aria-label would override it, WCAG 2.5.3). -->
     <label class="inline-flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
       <span>{t('memory-browser.scope-label', 'Show')}</span>
-    <select bind:value={contentScope} id="scope-filter" data-testid="scope-filter"
+    <!-- Disabled controls may be omitted by assistive technology; the enabled
+         Show select must also carry the visible explanation. -->
+    <select value={contentScope} onchange={(event) => changeContentScope(event.currentTarget.value as ContentScope)} id="scope-filter" data-testid="scope-filter" aria-describedby={refinementHintId}
       class="rounded-lg border px-2 py-1.5 text-xs
         {contentScope !== 'CONTENT' ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400'}">
       <option value="CONTENT">{t('memory-browser.scope.content', 'Content')}</option>
@@ -1474,6 +1500,9 @@
         {#if serverResults !== null}{searchedNodes.length} result{searchedNodes.length === 1 ? '' : 's'}{:else}{searchedNodes.length}{searchedNodes.length !== displayTotal ? ` / ${displayTotal}` : ''}{/if}
       </span>
     </div>
+    {#if refinementHintShown}
+      <p id={REFINEMENT_HINT_ID} class="basis-full text-xs leading-snug text-zinc-500 dark:text-zinc-400">{t('memory-browser.refinement-content-only-hint', 'Node Types and Tags filter content, not comments. Your selections are kept for Content.')}</p>
+    {/if}
   </div>
 
   <!-- Search status: server error (red) or a degrade note (amber, e.g. fuzzy

@@ -64,7 +64,7 @@ function serve(world: ReturnType<typeof synthMemory>, stats: Map<string, QuerySt
     const limit = Math.min(Number(vars?.limit ?? 1000), SERVER_PAGE);
     const offset = Number(vars?.offset ?? 0);
     if (query === MEMORY_BY_ID_QUERY) return note('memory', { memory: world.memory });
-    if (query === SELF_CAN_WRITE_QUERY) return note('canWrite', { effectiveAccess: { canWrite: true } });
+    if (query === SELF_CAN_WRITE_QUERY) return note('canWrite', { effectiveAccess: { canWrite: true, canManage: true } });
     if (query === MEMORY_LAYOUT_ORG_QUERY) return note('organization', { organization: null });
     if (query === MEMORY_NODES_QUERY) {
       return note('memoryNodes', { memoryNodes: { nodes: world.nodes.slice(offset, offset + limit), total: world.nodes.length } });
@@ -83,7 +83,7 @@ const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.len
 // portal#1524 then took graphNodes out too (the Nodes tree and Graph are off), so
 // the layout no longer drains the node list: pages are 0 and the payload does not
 // grow with the memory. `nodesOff` replaces the list.
-const KEYS = ['org', 'graph', 'canWriteMemory', 'nodesOff', 'nodesTotal', 'nodesFailed'] as const;
+const KEYS = ['org', 'orgReadFailed', 'graph', 'canWriteMemory', 'canManageMemory', 'nodesOff', 'nodesTotal', 'nodesFailed'] as const;
 
 export async function profile(nodeCount: number, runs = 3) {
   const world = synthMemory(nodeCount);

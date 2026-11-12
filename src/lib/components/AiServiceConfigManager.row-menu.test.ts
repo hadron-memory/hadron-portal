@@ -8,14 +8,12 @@
  * jsdom territory — AssetTable/row-menu.client tests cover that idiom —
  * this pins the SSR surface.)
  */
-import { describe, expect, it, vi } from 'vitest';
+import { managerCallbacks } from '$lib/test/ai-config-manager-callbacks';
+import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import AiServiceConfigManager from './AiServiceConfigManager.svelte';
 import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 import type { AiServiceConfig } from '$lib/types';
-
-// The node lane has no `$app/*`; a server render never navigates.
-vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), beforeNavigate: vi.fn() }));
 
 const CONFIG = {
   id: 'cfg-1',
@@ -38,7 +36,7 @@ const CONFIG = {
 
 function body() {
   return render(AiServiceConfigManager, {
-    props: { ownerType: 'ORGANIZATION', ownerId: 'org-1', currentUserId: 'u1', configs: [CONFIG], canManage: true },
+    props: { ...managerCallbacks(), ownerType: 'ORGANIZATION', ownerId: 'org-1', currentUserId: 'u1', configs: [CONFIG], canManage: true },
   }).body;
 }
 

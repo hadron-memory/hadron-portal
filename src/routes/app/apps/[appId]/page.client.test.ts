@@ -332,6 +332,58 @@ describe('Worker agents tab (#1009)', () => {
     expect(columnTexts(target, 'Task')[1]).toBe('—');
   });
 
+  it.each(['Sample Holder', 'hrn:user:acme.com:sample-holder'])('finds a worker by displayed holder identity: %s (#1168)', async (needle) => {
+    const target = await mountStaff([worker({ heldByUserId: 'u9' })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: {
+        id: 'u9', name: 'Sample Holder', handle: 'sample-holder', urn: 'hrn:user:acme.com:sample-holder',
+      } }) },
+    });
+    expect(columnTexts(target, 'Name held by')[0]).toContain('Sample Holder');
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    search.value = needle;
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(2);
+    expect(names(target)).toContain('Ada');
+  });
+
+  it.each(['self', 'other'])('renders the authorized %s holder name and copyable URN (#1168)', async (kind) => {
+    const target = await mountStaff([worker({ heldByUserId: kind === 'self' ? 'u1' : 'u9' })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: {
+        id: kind === 'self' ? 'u1' : 'u9', name: 'Sample Holder', handle: 'sample-holder', urn: 'hrn:user:acme.com:sample-holder',
+      } }) },
+    });
+    const cell = target.querySelector('tbody tr')!;
+    expect(columnTexts(target, 'Name held by')[0]).toContain('Sample Holder');
+    expect(cell.querySelector('[title="hrn:user:acme.com:sample-holder"]')).not.toBeNull();
+  });
+
+  it.each([null, { id: 'u9', name: null, handle: null, urn: null }])('keeps a masked holder unnamed and unsearchable (#1168)', async (holder) => {
+    const target = await mountStaff([worker({ heldByUserId: 'u9' })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: holder }) },
+    });
+    expect(columnTexts(target, 'Name held by')[0]).toContain('Held by another member');
+    expect(target.querySelector('[title="hrn:user:acme.com:sample-holder"]')).toBeNull();
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    search.value = 'Sample Holder';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(2);
+    expect(names(target)).toEqual([]);
+  });
+
+  it.each([null, undefined])('does not search an undisclosed holder projection (#1168)', async (heldByUserId) => {
+    const target = await mountStaff([worker({ heldByUserId })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: {
+        id: 'u9', name: 'Sample Holder', handle: 'sample-holder', urn: 'hrn:user:acme.com:sample-holder',
+      } }) },
+    });
+    expect(columnTexts(target, 'Name held by')[0]).toBe('—');
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    search.value = 'Sample Holder';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(2);
+    expect(names(target)).toEqual([]);
+  });
+
   // Greta LOCAL P2 on portal#1375: a current task the loader could not resolve is
   // "Task unavailable": no link, no stale title, unsearchable, and not the "no task" dash.
   it('an unresolved current task is neutral “Task unavailable”, unlinked and unsearchable; a resolved one is found by its handle', async () => {
@@ -805,7 +857,7 @@ describe('Worker agents tab (#1009)', () => {
       expect(col[0]).toContain('Locked: Model at capacity');
       expect(col[1]).toContain('Idle');
       expect(col[2]).toContain('Busy');
-      expect(col[3]).toContain('Dark: Missed its wake-up');
+      expect(col[3]).toContain('Dark: Missed its ticker wake');
       for (const c of col) expect(c).toMatch(/checked .*ago/);
       // The session Status cell is untouched by the terminal.
       expect(colTexts(target, 'Status')).toEqual(Array(4).fill('No recorded activity'));
@@ -843,12 +895,51 @@ describe('Worker agents tab (#1009)', () => {
       expect(await search(target, 'Dark')).toEqual(['Bo']);
     });
 
-    it('a stale report keeps its server state', async () => {
+    it('#1948 a stale report withholds its server state from the badge and search', async () => {
       const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term({ status: 'busy', reason: null, checkedAt: '2026-10-01T00:00:00.000Z' }) }) }));
       const cell = colTexts(target, 'Terminal')[0];
-      expect(cell).toContain('Busy');
+      expect(cell).toContain('Stale');
       expect(cell).toMatch(/checked .*ago/);
-      expect(cell).not.toMatch(/Dark|Idle/);
+      expect(cell).not.toMatch(/Dark|Idle|Busy/);
+      expect(await search(target, 'Busy')).toEqual([]);
+      expect(await search(target, 'Stale')).toEqual(['Ada']);
+    });
+
+    const staleNote = (target: HTMLElement) => target.querySelectorAll('[data-testid="terminal-stale-note"]');
+    it('#1948 all reported rows stale shows one note; unreported and missing rows do not count', async () => {
+      const target = await mountTerminal([w('w1','Ada'), w('w2','Bo'), w('w3','Cy')], ok({
+        w1: entry({terminal: term({checkedAt:'2026-10-31T04:00:00.000Z'})}), w2: entry({terminal:null}),
+      }));
+      expect(staleNote(target)).toHaveLength(1);
+      expect(staleNote(target)[0].textContent).toMatch(/30 minutes/);
+    });
+    it.each(['fresh', 'unknown-time'])('#1948 a %s report suppresses the all-stale note', async (kind) => {
+      const target = await mountTerminal([w('w1','Ada'),w('w2','Bo')],ok({
+        w1:entry({terminal:term({checkedAt:'2026-10-31T04:00:00.000Z'})}),
+        w2:entry({terminal:term({checkedAt:kind==='fresh'?'2026-10-31T11:57:00.000Z':null})}),
+      }));
+      expect(colTexts(target,'Terminal')[0]).toContain('Stale');
+      expect(staleNote(target)).toHaveLength(0);
+    });
+    it('#1948 no report or internals-hidden old report never manufactures an all-stale note', async () => {
+      const target=await mountTerminal([w('w1','Ada'),w('w2','Bo',{hasLiveSession:null})],ok({
+        w1:entry({terminal:null}),w2:entry({terminal:term({checkedAt:'2026-10-31T04:00:00.000Z'})}),
+      }));
+      expect(staleNote(target)).toHaveLength(0);
+    });
+    it('#1948 a clock tick makes stale display, note and active grid search agree', async () => {
+      vi.useFakeTimers();
+      const target=await mountTerminal([w('w1','Ada')],ok({w1:entry({terminal:term({status:'idle',reason:null,checkedAt:'2026-10-31T11:30:00.000Z'})})}));
+      expect(colTexts(target,'Terminal')[0]).toContain('Idle');
+      expect(staleNote(target)).toHaveLength(0);
+      expect(await search(target,'Idle')).toEqual(['Ada']);
+      await vi.advanceTimersByTimeAsync(30_000); await tick(2);
+      // No second input event: the active filter must invalidate on the clock tick itself.
+      expect(target.querySelectorAll('tbody a[href^="/app/workers/"]')).toHaveLength(0);
+      expect(await search(target,'Idle')).toEqual([]);
+      expect(await search(target,'Stale')).toEqual(['Ada']);
+      expect(colTexts(target,'Terminal')[0]).toContain('Stale');
+      expect(staleNote(target)).toHaveLength(1);
     });
 
     it('a future or unparsable checkedAt is time unknown', async () => {
@@ -1404,12 +1495,25 @@ describe('App AI configuration readback lifecycle', () => {
     createdAt: '2026-11-08T00:00:00Z', updatedAt: null,
   };
 
+  // portal#1963: the loader's dropdown options (chatAiChoiceOptions output). The value is the config id.
+  const choice = (id: string, name: string, over: Record<string, unknown> = {}) => ({
+    value: id, name, provider: 'anthropic', model: 'claude-sonnet-5', isDefault: false,
+    isAppChatbotConfig: false, unavailableReason: null, ...over,
+  });
+  const defaultChoice = {
+    value: 'default', name: 'default', provider: null, model: null, isDefault: true,
+    isAppChatbotConfig: false, unavailableReason: null,
+  };
+  const optionValues = (target: HTMLElement) =>
+    [...target.querySelectorAll<HTMLOptionElement>('#agent-chat-ai-config option')].map((o) => o.value);
+
   async function mountAi(dataOver: Record<string, unknown> = {}) {
     setStubPage('https://example.test/app/apps/a1?tab=ai-configs', { appId: 'a1' });
     const data = await pageData();
     const m = mountComponent(Page as never, reactiveProps({
       data: {
         ...data,
+        aiChoices: [defaultChoice, choice('c1', 'default')],
         ...dataOver,
         initialTab: 'ai-configs', selectedChatKey: AGENT_CHAT_KEY,
         app: {
@@ -1426,7 +1530,13 @@ describe('App AI configuration readback lifecycle', () => {
     return m;
   }
 
-  function fillNewConfig(target: HTMLElement) {
+  async function readyAiButton(target: HTMLElement, label: string) {
+    const trigger = ([...target.querySelectorAll('button')] as HTMLButtonElement[]).find(b => b.textContent?.trim() === label)!;
+    await vi.waitFor(() => expect(trigger.disabled).toBe(false));
+    return trigger;
+  }
+
+  async function fillNewConfig(target: HTMLElement) {
     const add = [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Add configuration')!;
     add.click();
     flushSync();
@@ -1436,12 +1546,14 @@ describe('App AI configuration readback lifecycle', () => {
       input.dispatchEvent(new Event('input', { bubbles: true }));
       flushSync();
     }
-    ([...target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Save')!.click();
+    // The draft identity read precedes enabling its explicit submit.
+    (await readyAiButton(target, 'Save')).click();
   }
 
   it('keeps a pending mutation, uncertainty and its replay lock while the AI tab is hidden', async () => {
     let rejectCreate!: (error: Error) => void;
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
       const body = JSON.parse(init.body!);
       if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
@@ -1449,8 +1561,8 @@ describe('App AI configuration readback lifecycle', () => {
       throw new Error(`unexpected action: ${body.action}`);
     }));
     const m = await mountAi();
-    fillNewConfig(m.target);
-    await tick(3);
+    await fillNewConfig(m.target);
+    await vi.waitFor(() => expect(typeof rejectCreate).toBe('function'));
     const panel = m.target.querySelector<HTMLElement>('#panel-ai-configs')!;
     const region = m.target.querySelector<HTMLElement>('[data-testid="ai-config-feedback"]')!;
 
@@ -1474,6 +1586,7 @@ describe('App AI configuration readback lifecycle', () => {
     vi.useFakeTimers();
     let relatedSignal: AbortSignal | undefined;
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string; signal?: AbortSignal }) => {
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
         return { ok: true, json: async () => ({ configs: [] }) } as Response;
       }
@@ -1488,7 +1601,7 @@ describe('App AI configuration readback lifecycle', () => {
       throw new Error(`unexpected action: ${body.action}`);
     }));
     const m = await mountAi();
-    fillNewConfig(m.target);
+    await fillNewConfig(m.target);
     await tick(30);
     expect(relatedSignal?.aborted).toBe(false);
 
@@ -1498,6 +1611,7 @@ describe('App AI configuration readback lifecycle', () => {
 
   it('does not lock an org admin out when the App-member-only Chat read is withheld', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
         return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
       }
@@ -1511,7 +1625,7 @@ describe('App AI configuration readback lifecycle', () => {
       throw new Error(`unexpected action: ${body.action}`);
     }));
     const m = await mountAi({ chatConfigs: null });
-    fillNewConfig(m.target);
+    await fillNewConfig(m.target);
     await tick(40);
 
     const feedback = m.target.querySelector('[data-testid="ai-config-feedback"]')!;
@@ -1519,12 +1633,13 @@ describe('App AI configuration readback lifecycle', () => {
     expect(feedback.textContent).not.toContain('couldn’t be refreshed');
     ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Add configuration')!.click();
     await tick(3);
-    expect(([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Save')!.disabled).toBe(false);
+    await readyAiButton(m.target, 'Save');
   });
 
   it('refreshes both the owner grid and resolved Chat configs across create and delete', async () => {
     let configs = [] as typeof masked[];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1' || url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
         return { ok: true, json: async () => ({ configs }) } as Response;
       }
@@ -1543,13 +1658,13 @@ describe('App AI configuration readback lifecycle', () => {
       throw new Error(`unexpected action: ${body.action}`);
     }));
     const m = await mountAi({ chatConfigs: null });
-    fillNewConfig(m.target);
+    await fillNewConfig(m.target);
     await tick(40);
     expect(m.target.querySelector('[data-testid="ai-config-feedback"]')!.textContent).toContain('Saved “default”.');
 
     (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
     await tick(10);
-    expect(m.target.querySelector('#chat-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
+    expect(m.target.querySelector('#agent-chat-ai-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
 
     // Null loader reads are not identity tokens: App B must not inherit A's
     // resolved list, and returning to A restores only A's working copy.
@@ -1563,13 +1678,14 @@ describe('App AI configuration readback lifecycle', () => {
       app: { ...appA.app, id: 'b1', agentId: 'ag2' },
       chatConfigs: null,
       appConfigs: [],
+      aiChoices: null,
     };
     await tick(10);
-    expect(m.target.querySelector('#chat-config')).toBeNull();
+    expect(m.target.querySelector('#agent-chat-ai-config')).toBeNull();
     appA.appConfigs = [masked];
     m.props.data = appA;
     await tick(10);
-    expect(m.target.querySelector('#chat-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
+    expect(m.target.querySelector('#agent-chat-ai-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
 
     (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
     await tick(3);
@@ -1577,19 +1693,20 @@ describe('App AI configuration readback lifecycle', () => {
     flushSync();
     ([...m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')]).find((x) => x.textContent?.trim() === 'Delete')!.click();
     flushSync();
-    ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Delete')!.click();
+    (await readyAiButton(m.target, 'Delete')).click();
     await tick(40);
     expect(m.target.querySelector('[data-testid="ai-config-feedback"]')!.textContent).toContain('Deleted “default”.');
 
     (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
     await tick(10);
-    expect(m.target.querySelector('#chat-config')).toBeNull();
+    expect(m.target.querySelector('#agent-chat-ai-config')).toBeNull();
     expect(m.target.querySelector('#panel-chats')!.textContent).toContain('Connect an LLM provider to enable agent chat');
   });
 
   it('keeps recovery locked when a loader replacement drops the resolved-config readback', async () => {
     let releaseRelated!: (reply: Response) => void;
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
         return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
       }
@@ -1603,7 +1720,7 @@ describe('App AI configuration readback lifecycle', () => {
       throw new Error(`unexpected action: ${body.action}`);
     }));
     const m = await mountAi({ chatConfigs: [] });
-    fillNewConfig(m.target);
+    await fillNewConfig(m.target);
     await tick(30);
     expect(releaseRelated).toBeTypeOf('function');
 
@@ -1617,6 +1734,7 @@ describe('App AI configuration readback lifecycle', () => {
 
   it('supersedes a resolved-config working copy on a same-App null loader generation', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1' || url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
         return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
       }
@@ -1628,20 +1746,22 @@ describe('App AI configuration readback lifecycle', () => {
       throw new Error(`unexpected action: ${body.action}`);
     }));
     const m = await mountAi({ chatConfigs: null });
-    fillNewConfig(m.target);
+    await fillNewConfig(m.target);
     await tick(40);
     (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
     await tick(10);
-    expect(m.target.querySelector('#chat-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
+    expect(m.target.querySelector('#agent-chat-ai-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
 
+    // The new loader generation's list wins over the superseded working copy.
     const loader = m.props.data as Record<string, unknown>;
-    m.props.data = { ...loader, chatConfigs: null };
+    m.props.data = { ...loader, chatConfigs: null, aiChoices: [defaultChoice] };
     await tick(10);
-    expect(m.target.querySelector('#chat-config')).toBeNull();
+    expect(optionValues(m.target)).toEqual(['default']);
   });
 
   it('masks stale resolved Chat configs when their readback fails after delete', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
         return { ok: true, json: async () => ({ configs: [] }) } as Response;
       }
@@ -1660,12 +1780,58 @@ describe('App AI configuration readback lifecycle', () => {
     flushSync();
     ([...m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')]).find((x) => x.textContent?.trim() === 'Delete')!.click();
     flushSync();
-    ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Delete')!.click();
+    (await readyAiButton(m.target, 'Delete')).click();
     await tick(40);
 
     (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
     await tick(10);
-    expect(m.target.querySelector('#chat-config')).toBeNull();
+    // Nothing but `default` can be vouched for once the readback failed.
+    expect(optionValues(m.target)).toEqual(['default']);
+  });
+
+  it('drops a deleted config from the dropdown without a reload (portal#1963)', async () => {
+    const fast = { ...masked, id: 'c2', name: 'fast' };
+    let configs = [fast, masked];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1' || url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        return { ok: true, json: async () => ({ configs }) } as Response;
+      }
+      if (url.startsWith('/api/agent-chat/list')) return { ok: true, json: async () => ({ chats: [] }) } as Response;
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'delete') {
+        configs = [masked];
+        return { ok: true, json: async () => ({ ok: true }) } as Response;
+      }
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi({
+      chatConfigs: [fast, masked], appConfigs: [fast, masked],
+      aiChoices: [defaultChoice, choice('c2', 'fast'), choice('c1', 'default')],
+    });
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    const picker = m.target.querySelector<HTMLSelectElement>('#agent-chat-ai-config')!;
+    picker.value = 'c2';
+    picker.dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+    expect(optionValues(m.target)).toEqual(['default', 'c2', 'c1']);
+
+    (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
+    await tick(3);
+    (m.target.querySelector('button[aria-label="Actions for fast"]') as HTMLButtonElement).click();
+    flushSync();
+    ([...m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')]).find((x) => x.textContent?.trim() === 'Delete')!.click();
+    flushSync();
+    (await readyAiButton(m.target, 'Delete')).click();
+    await vi.waitFor(() => expect(configs.map(c => c.id)).toEqual(['c1']));
+
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(optionValues(m.target)).toEqual(['default', 'c1']));
+    // The deleted pick is no longer shown (or sent): the dropdown falls back to `default`.
+    expect(m.target.querySelector<HTMLSelectElement>('#agent-chat-ai-config')!.value).toBe('default');
   });
 
   it('resets the Chat config selection when App or agent identity changes', async () => {
@@ -1674,23 +1840,26 @@ describe('App AI configuration readback lifecycle', () => {
       if (url.startsWith('/api/agent-chat/list')) return { ok: true, json: async () => ({ chats: [] }) } as Response;
       throw new Error(`unexpected fetch: ${url}`);
     }));
-    const m = await mountAi({ chatConfigs: [fast, masked] });
+    const m = await mountAi({
+      chatConfigs: [fast, masked], aiChoices: [defaultChoice, choice('c2', 'fast'), choice('c1', 'default')],
+    });
     (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
     await tick(10);
-    const picker = m.target.querySelector<HTMLSelectElement>('#chat-config')!;
-    picker.value = 'fast';
+    const picker = m.target.querySelector<HTMLSelectElement>('#agent-chat-ai-config')!;
+    picker.value = 'c2';
     picker.dispatchEvent(new Event('change', { bubbles: true }));
     flushSync();
-    expect(picker.value).toBe('fast');
+    expect(picker.value).toBe('c2');
 
     const loader = m.props.data as { app: Record<string, unknown> };
     m.props.data = {
       ...loader,
       app: { ...loader.app, id: 'b1', agentId: 'ag2' },
-      chatConfigs: [fast, masked],
+      chatConfigs: [{ ...fast, id: 'b2' }, { ...masked, id: 'b3' }],
+      aiChoices: [defaultChoice, choice('b2', 'fast'), choice('b3', 'default')],
     };
     await tick(10);
-    expect(m.target.querySelector<HTMLSelectElement>('#chat-config')!.value).toBe('default');
+    expect(m.target.querySelector<HTMLSelectElement>('#agent-chat-ai-config')!.value).toBe('default');
   });
 });
 

@@ -1,6 +1,8 @@
 import { APP_DISPLAY_PAGE_SIZE, appListOffset, appListNavigation } from './app-list-pages';
 import { loadAppRunsPage, loadAppRunsExtras } from '$lib/server/app-runs-page';
 import { flowRoots } from '$lib/flow/flows';
+import { chatAiChoiceOptions, type ChatAiChoiceRow } from '$lib/server/llm/chatAiChoices';
+import { extractGqlErrorCode as chatbotErrorCode } from '$lib/gql-error';
 import { runAppFlow } from '$lib/server/run-app-flow';
 import { readChannelPage, postToChannel } from '$lib/server/channel-chat';
 import { withRegisteredChannels } from '$lib/app-chats';
@@ -49,6 +51,9 @@ import {
   APP_CHANNELS_QUERY,
   AI_SERVICE_CONFIGS_QUERY,
   RESOLVE_AI_SERVICE_CONFIGS_QUERY,
+  CHAT_AI_CONFIG_CHOICES_QUERY,
+  APP_CHATBOT_AI_CONFIG_QUERY,
+  SET_APP_CHATBOT_AI_CONFIG_MUTATION,
   WORKERS_QUERY,
   CAST_WORKER_MUTATION,
   RETIRE_WORKER_MUTATION,
@@ -72,6 +77,7 @@ import { loadTeamChatTail, teamChatRefusalOf } from '$lib/server/team-chat';
 import { NO_TEAM_FILTER, parseTeamParam } from '$lib/team-chat-filter';
 import { chatMessageNodeTypes, loadChatMessages } from '$lib/server/team-chat';
 import { resolveTabIntent } from './tab-intent';
+import { loadTemplatesPanel } from './templates-panel';
 import {
   addMember,
   addAppMemberFormAdapter,
@@ -545,7 +551,7 @@ function slugOfUrn(urn: string): string {
 
 const APP_CONCEALED_REFUSALS: readonly string[] = ['FORBIDDEN', 'NOT_FOUND', 'APP_NOT_FOUND', 'UNAUTHENTICATED', 'BAD_USER_INPUT'];
 
-export const load: PageServerLoad = async ({ params, locals, url }) => {
+export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) => {
   // #785: this load no longer carries the team chat's refresh. The poll reads
   // `team-chat/+server.ts` directly, because a background tick must not be able
   // to re-run THIS function — its failure paths are fatal (a 404 on an org
@@ -742,6 +748,22 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // ⇒ the page treats readiness as "don't block"). Only meaningful with an
   // agent linked.
   const userId = locals.user?.id ?? null;
+  // portal#1963 (hadron-server#3957): what a chat of this App may choose its AI config from, and the App's
+  // chatbot config. Each its own read, coerced on failure so neither can null the page: no list means no
+  // dropdown (the chat runs `default`, as before); a failed setting read says so rather than showing "none".
+  const aiChoiceRowsP: Promise<ChatAiChoiceRow[] | null> = app.agentId
+    ? client
+        .request<{ chatAiConfigChoices: ChatAiChoiceRow[] }>(CHAT_AI_CONFIG_CHOICES_QUERY, { appRef: params.appId })
+        .then((r) => r.chatAiConfigChoices)
+        .catch((e) => {
+          console.warn(`[chat-ai-choices] list failed for ${params.appId}:`, chatbotErrorCode(e) ?? 'error');
+          return null;
+        })
+    : Promise.resolve(null);
+  const chatbotAiConfigP: Promise<{ ok: true; configId: string | null } | { ok: false }> = client
+    .request<{ app: { chatbotAiConfigId: string | null } | null }>(APP_CHATBOT_AI_CONFIG_QUERY, { ref: params.appId })
+    .then((r) => ({ ok: true as const, configId: r.app?.chatbotAiConfigId ?? null }))
+    .catch(() => ({ ok: false as const }));
   const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, viewerManages, teamRoster, bootPointers, installMarks, liveStops, appProperties] = await Promise.all([
     client
       .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: APP_NODES_LIMIT })
@@ -989,7 +1011,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
   const runsSection = initialTab === 'runs' ? await loadAppRunsPage(client, params.appId, url.searchParams) : null;
   const runsExtras = initialTab === 'runs' ? await loadAppRunsExtras(client, params.appId) : null;
+  // #1936: the node-role templates tab's data, for that tab only.
+  const templatesPanel = await loadTemplatesPanel(initialTab, locals, setHeaders, params.appId);
   return {
+    templatesPanel,
     runsPanel: runsSection && runsExtras ? { ...runsSection, app, flows: flowRoots(nodesData.appNodes), flowsCapped: isCapped(nodesData.appNodes?.length ?? 0, APP_NODES_LIMIT), flowsScanned: nodesData.appNodes?.length ?? 0, ...runsExtras } : null,
     appMemoryScope,
     appMemories: app.organizationId ? orgAppMemories : appMemoriesFromScope(appMemoryScope, app.id),
@@ -1003,6 +1028,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     appNodes: nodesData.appNodes,
     appNodesCapped: isCapped(nodesData.appNodes?.length ?? 0, APP_NODES_LIMIT),
     chatConfigs,
+    aiChoices: await aiChoiceRowsP.then((rows) => (rows ? chatAiChoiceOptions(rows, chatConfigs) : null)),
+    chatbotAiConfig: await chatbotAiConfigP,
     appConfigs: configsData?.items ?? [],
     configsPage: appListNavigation(url, 'configOffset', 'ai-configs', configOffset, configsData?.items.length ?? 0, configsData?.total ?? 0),
     configsError: configsData === null,
@@ -1120,6 +1147,28 @@ export const actions: Actions = {
     const agentRef = String(fd.get('agentRef') ?? '');
     return pointerAction(fd, 'app', appAgentPointerKey(params.appId, agentRef), (nodeRef) =>
       gqlClient(locals.token).request(SET_APP_AGENT_BOOT_PROMPT_MUTATION, { appRef: params.appId, agentRef, nodeRef }));
+  },
+
+  // portal#1963 (hadron-server#3957): set or clear the App's chatbot AI config. The server's gate decides who
+  // may (whoever manages the App); a refusal is one fixed message per kind, never the server's text.
+  setChatbotAiConfig: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const raw = fd.get('configId');
+    const configId = typeof raw === 'string' && raw !== '' ? raw : null;
+    try {
+      await gqlClient(locals.token).request(SET_APP_CHATBOT_AI_CONFIG_MUTATION, { appRef: params.appId, configId });
+      return { chatbotAiConfig: { ok: true as const, configId } };
+    } catch (e: unknown) {
+      const code = chatbotErrorCode(e);
+      if (code === 'AiServiceConfigNotFoundError') {
+        return fail(409, { chatbotAiConfig: { ok: false as const, error: t('app.chatbot-ai-config.not-own', "That config isn't one of this App's AI configs any more. Reload and pick another.") } });
+      }
+      if (code === 'FORBIDDEN' || code === 'APP_NOT_FOUND') {
+        return fail(403, { chatbotAiConfig: { ok: false as const, error: t('app.chatbot-ai-config.forbidden', 'Only whoever manages this App can change its chatbot AI config.') } });
+      }
+      console.warn('[setChatbotAiConfig] failed:', code ?? 'error');
+      return fail(500, { chatbotAiConfig: { ok: false as const, error: t('app.chatbot-ai-config.failed', "The chatbot AI config couldn't be saved. Try again.") } });
+    }
   },
 
   update: async ({ request, params, locals }) => {

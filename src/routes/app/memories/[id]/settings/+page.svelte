@@ -16,6 +16,8 @@
   import { deleteMemoryStrings } from '$lib/i18n/delete-memory-strings';
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
+  import { isSharePrincipal } from '$lib/memory/can-manage-shares';
+  import { canEditMemorySettings } from '$lib/memory/can-access-settings';
   import { enhance } from '$app/forms';
   import VectorHealthTable from '$lib/components/VectorHealthTable.svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
@@ -96,7 +98,20 @@
   // stating even when the viewer IS the owner, because "you own this" is
   // reassurance the page was never actually giving.
   const owner = $derived(data.owner);
-  const ownerIsViewer = $derived(!!data.ownerUserId && data.ownerUserId === data.user?.id);
+  const ownerIsViewer = $derived(isSharePrincipal(g, data.user));
+  // updateMemory uses manage authority. The shared predicate includes the
+  // direct org-role fallback because effectiveAccess.canManage can under-report it.
+  const canEditSettings = $derived(canEditMemorySettings({
+    memory: g,
+    user: data.user,
+    orgAvailable: !!data.org,
+    orgReadFailed: data.orgReadFailed === true,
+    canManageMemory: data.canManageMemory === true,
+    canWriteMemory: data.canWriteMemory === true,
+    impersonating: data.impersonation != null,
+    myMember,
+  }));
+  const platformAdmin = $derived(data.user?.roles?.includes('ADMIN') || data.user?.roles?.includes('OWNER'));
   const canDelete = $derived(
     !isAgentSystem &&
       (isOwnerOnly
@@ -107,7 +122,6 @@
   // The server repeats both source and destination authorization at preview
   // and apply. These gates only avoid presenting a dead control. A strict
   // personal/private owner is the one exception to platform-admin override.
-  const platformAdmin = $derived(data.user?.roles?.includes('ADMIN') || data.user?.roles?.includes('OWNER'));
   const canTransfer = $derived(
     !isAgentSystem && g.class !== 'app' &&
       (isOwnerOnly ? ownerIsViewer :
@@ -211,6 +225,7 @@
   });
 
   let isEditing = $state(untrack(() => {
+    if (!canEditSettings) return false;
     const submitted = submittedForm<MemorySettingsForm>(form, 'updateMemorySettings');
     return !!submitted && submitted.message?.type !== 'success';
   }));
@@ -229,7 +244,7 @@
     const wantEdit = sp.get('edit') === '1';
     const wantDelete = sp.get('delete') === '1';
     if (!wantEdit && !wantDelete) return;
-    if (wantEdit) openEdit();
+    if (wantEdit) untrack(() => openEdit());
     if (wantDelete) confirmDelete = true;
     const u = new URL($page.url);
     u.searchParams.delete('edit');
@@ -267,6 +282,7 @@
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 
   function openEdit() {
+    if (!canEditSettings) return;
     settingsForm.update((current) => ({
       ...current,
       displayName: g.name ?? '',
@@ -290,6 +306,16 @@
     }), { taint: false });
     isEditing = true;
   }
+
+  // Close only at a real principal boundary. A same-user access-read outage
+  // may disable submission, but it must not discard an unsaved draft.
+  let editingPrincipal = untrack(() => data.user?.id ?? null);
+  $effect(() => {
+    const principal = data.user?.id ?? null;
+    if (principal === editingPrincipal) return;
+    editingPrincipal = principal;
+    isEditing = false;
+  });
 
   const settingsActionError = $derived.by(() => {
     const submitted = submittedForm<MemorySettingsForm>(form, 'updateMemorySettings');
@@ -656,7 +682,7 @@
 
 <svelte:head><title>{g.name} &middot; Settings &middot; Hadron</title></svelte:head>
 
-<fieldset disabled={data.canWriteMemory === false} class="space-y-8">
+<fieldset disabled={data.impersonation != null || (data.canWriteMemory === false && !canEditSettings)} class="space-y-8">
   {#if settingsActionSuccess && !isEditing}
     <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{settingsActionSuccess}</div>
   {/if}
@@ -665,13 +691,14 @@
   <section class="max-w-lg">
     <div class="mb-4 flex items-center justify-between">
       <h2 class="font-semibold text-zinc-900 dark:text-white">Memory</h2>
-      {#if !isEditing}
+      {#if !isEditing && canEditSettings}
         <button onclick={openEdit} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
       {/if}
     </div>
 
     {#if isEditing}
       <form id="graph-settings" method="POST" action="?/update" use:settingsEnhance class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
+        <fieldset disabled={!canEditSettings} class="min-w-0 space-y-4">
         <input type="hidden" name="_kind" value={$settingsForm._kind} />
         {#if settingsActionError}
           <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{settingsActionError}</div>
@@ -807,6 +834,7 @@
           </button>
           <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
         </div>
+        </fieldset>
       </form>
     {:else}
       <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
@@ -903,6 +931,7 @@
     <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Vector index</h2>
     <form bind:this={viFormEl} method="POST" action="?/updateVectorIndex" use:vectorEnhance
       class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
+      <fieldset disabled={!canEditSettings} class="min-w-0 space-y-4">
       <input type="hidden" name="_kind" value={$vectorForm._kind} />
       <!-- Booleans submitted as explicit hidden values (unchecked checkboxes
            don't post; the server needs true/false, not present/absent). -->
@@ -1020,21 +1049,20 @@
           </button>
         </div>
       {/if}
+      </fieldset>
     </form>
 
     <!-- #841: listing is a deliberate second step after visibility, so it is
          its own card rather than a field on the visibility form. Offered for
-         knowledge memories to callers who can edit (`canWriteMemory`, the
-         layout's server-resolved effective write access). `=== true`, not
-         `!== false`: an absent value must not read as a grant — the card
-         disappears unless the server positively said this caller can write.
+         knowledge memories to callers with memory-manage authority
+         (`canEditSettings`, including the direct org-admin fallback).
          Deliberately NOT gated on vector-index state, which has nothing to
          do with the catalogue.
 
          Keyed by `g.id` so a [id] navigation REMOUNTS the card's form — the
          page component is reused, and the key is what fences memory A's
          superForm stores from memory B (Gene's P2-1 on #1244). -->
-    {#if g.class === 'knowledge' && data.canWriteMemory === true}
+    {#if g.class === 'knowledge' && canEditSettings}
       {#key g.id}
         <MarketplaceListingCard {data} {form} />
       {/key}
@@ -1160,6 +1188,7 @@
     <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Property schema</h2>
     <form bind:this={schemaFormEl} method="POST" action="?/updateSchema" use:schemaEnhance
       class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
+      <fieldset disabled={!canEditSettings} class="min-w-0 space-y-4">
       <input type="hidden" name="_kind" value={$schemaForm._kind} />
 
       {#if schemaActionError}
@@ -1230,6 +1259,7 @@
           </button>
         </div>
       {/if}
+      </fieldset>
     </form>
   </section>
 
@@ -1384,7 +1414,7 @@
   {/if}
 </fieldset>
 
-{#if data.roleConfigAvailable}
+{#if data.roleConfigAvailable && canEditSettings}
   <section class="mt-8 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
     <h2 class="font-semibold">{t('config.node-roles', 'Node roles')}</h2>
     <a data-sveltekit-preload-data="off" href={`/app/memories/${encodeURIComponent(g.id)}/settings/node-roles`} class="mt-2 inline-flex min-h-11 items-center text-indigo-700 underline dark:text-indigo-300">{t('config.manage-rules', 'Manage node-role rules')}</a>

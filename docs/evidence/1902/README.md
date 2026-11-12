@@ -1,0 +1,9 @@
+# #1902 author browser evidence
+
+Real signed-in Chromium, owned fresh disposable `george1902` stack: server28e2e9ef7, API14902/portal15902, synthetic alpha-admin/e2e-alpha only. The three `refresh-parent` fixtures were created in this private database; no production/shared-dev/provider calls. Portal ran this branch through Vite, not a hosted deploy. These are author checks; independent gate QA remains required.
+
+At desktop1280 and phone390, both Light and Dark selected through the real Theme menu: open Settings/Edit, change Old to New Name; the URN stays refresh-parent:old before Refresh. Refresh reads existing children, fills refresh-parent:new-name-2 because its sibling occupies new-name, and displays the exact D1 wording. Screenshots show that draft before Save. The final phone/dark pass saves through the existing action; own database read confirms the same node id now has name New Name and loc refresh-parent:new-name-2. No write is issued by Refresh. Mounted/route tests separately cover readonly, stale/cancelled replies, current-return controls and existing move refusals.
+
+`browser-results.txt` is the final run; `author-browser.mjs` retains the synthetic fixture-specific probe. It assumes the named fresh stack/fixtures and Vite-dev hydration metadata; it is evidence, not a generic production runbook. Initial harness attempts used Settings as a button instead of tab, then omitted the phone More menu, and manually toggled the html class instead of updating the theme store. Those runs were discarded; final screenshots use real tab/menu/theme controls. The source assertions were retained.
+
+Limits: headless Chromium, fixed1280/390, synthetic unminted nodes, no live minted-descendant/alias/permission-revocation injection. No screen-reader, production or deployment claim. Screenshots contain only synthetic data. Stack/Vite stopped after the run; database fixtures disappear with the owned stack.

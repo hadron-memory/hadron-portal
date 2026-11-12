@@ -5,13 +5,12 @@ import type { AssetSummary } from '$lib/api/assetUpload';
 export interface Memory {
   id: string;
   /**
-   * Owning org — NULL for a user-owned (org-less) memory (spec 047: personal /
-   * private memories created with no orgId, `ownerUserId` = caller). The
-   * `chk_memory_owner_xor` constraint makes org and user ownership mutually
-   * exclusive, so this is null exactly when the memory belongs to a user.
+   * Tenant organization, or null for an org-less memory. Personal/private
+   * memories may still be org-anchored while ALSO carrying the strict principal
+   * in `userId`; organizationId and userId are not mutually exclusive.
    */
   organizationId: string | null;
-  organization?: OrgSummary;
+  organization?: OrgSummary | null;
   urn: string;
   name: string;
   shortDescription: string | null;
@@ -66,6 +65,7 @@ export interface Memory {
   // selects it — treat `undefined` as "unknown", not as "refuses uploads", or a
   // slim projection would silently hide the affordance everywhere.
   acceptsUploads?: boolean;
+  /** Strict user principal for personal/private memories; independent of tenant organizationId. */
   userId?: string | null;
   userMemoryOfAgentId?: string | null;
   anonymousExpiresAt?: string | null;
@@ -203,6 +203,8 @@ export interface Chat {
   scope: 'private' | 'shared';
   /** Spec 017 — chat author (chat-root createdBy). Null on legacy chats. */
   createdBy: string | null;
+  /** portal#1963 (hadron-server#3957): `default`, a config id, or null when the chat stored no choice. */
+  aiConfigChoice?: string | null;
 }
 
 /** One message in a chat history. */
@@ -582,6 +584,31 @@ export interface OrgSummary {
   urn: string;
 }
 
+/** hrn:node:hadronmemory.com:specs:cor:acl:080:02 — the only resource shape exposed by a public organization. */
+export interface PublicResourceRef {
+  id: string;
+  name: string;
+  urn: string;
+  description: string | null;
+}
+
+/** A bounded page of the same closed public-resource projection. */
+export interface PublicResourceRefsPage {
+  items: PublicResourceRef[];
+  total: number;
+  hasMore: boolean;
+}
+
+/** A closed, non-member-safe projection; deliberately not an Organization. */
+export interface PublicOrganization {
+  id: string;
+  name: string;
+  urn: string;
+  listedOnMarketplace: boolean;
+  publicMemoriesPage: PublicResourceRefsPage;
+  publicAgentsPage: PublicResourceRefsPage;
+}
+
 export interface Organization {
   id: string;
   name: string;
@@ -956,6 +983,8 @@ export type AiConfigProvider = AIProvider | 'openai-compatible';
 
 export interface AiServiceConfig {
   id: string;
+  /** Nullable server-computed address; omitted by older masked fixtures. */
+  urn?: string | null;
   name: string;
   ownerType: AiConfigOwnerType;
   ownerId: string;

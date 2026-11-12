@@ -68,6 +68,7 @@ const params = (value: unknown): value is AiServiceConfig['params'] =>
 export function parseAiConfig(raw: unknown): AiServiceConfig | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const c = raw as Record<string, unknown>;
+  if (c.urn !== undefined && !textOrNull(c.urn)) return null;
   if (!text(c.id) || !c.id || !text(c.name) || !ownerType(c.ownerType) || !text(c.ownerId)) return null;
   if (!provider(c.provider) || !text(c.model) || !textOrNull(c.endpoint) || !textOrNull(c.effectiveEndpoint)) return null;
   if (!apiStyle(c.apiStyle) || !apiStyle(c.effectiveApiStyle) || !bool(c.hasApiKey)) return null;
@@ -75,6 +76,7 @@ export function parseAiConfig(raw: unknown): AiServiceConfig | null {
   if (!text(c.createdAt) || !textOrNull(c.updatedAt)) return null;
   return {
     id: c.id,
+    ...(c.urn !== undefined ? { urn: c.urn as string | null } : {}),
     name: c.name,
     ownerType: c.ownerType,
     ownerId: c.ownerId,

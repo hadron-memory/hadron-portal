@@ -110,7 +110,7 @@
     <TickersNotParticipant what="wake" />
   {:else if wake.kind === 'failed'}
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-      {t('worker.wake.failed', 'Couldn’t load this worker’s wake-ups.')}
+      {t('worker.wake.failed', 'Couldn’t load this worker’s tickers.')}
       <a href="?tab=wake" data-sveltekit-reload class="ml-2 font-medium underline">{t('worker.wake.retry', 'Try again')}</a>
     </div>
   {:else if status}
@@ -134,7 +134,7 @@
       {#if minCadence != null}
         <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{t('worker.wake.floor', 'No worker is woken more often than every {every} in this App.', { every: cadenceText(minCadence) })}</p>
       {/if}
-      <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('worker.wake.router', 'A router delivers the wake-ups. This page shows when the worker is due, not whether a wake-up was delivered.')}</p>
+      <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('worker.wake.router', 'A router delivers the wakes. This page shows when the worker is due, not whether a wake was delivered.')}</p>
     </div>
 
     <dl class="grid gap-3 rounded-xl border border-zinc-200 bg-white p-4 text-sm sm:grid-cols-3 dark:border-zinc-800 dark:bg-zinc-900" data-testid="wake-settings">

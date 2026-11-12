@@ -128,4 +128,13 @@ describe('updateMeta location field takes a full node URN (#1876)', () => {
     expect(result.status).toBe(409);
     expect(result.data?.metaSaved).toBe(true);
   });
+  it.each(['FORBIDDEN','NODE_WRITE_CONFLICT'])('#1902 Save preserves the existing %s refusal after a suggested move', async code => {
+    stub(Object.assign(new Error('no'),{response:{errors:[{message:'refused',extensions:{code}}]}}));
+    const result=await saveLoc('rules:copy-2') as {status?:number;data?:{metaSaved?:boolean;form?:{message?:{text?:string}}}};
+    expect(result.status).toBe(500);
+    expect(result.data?.metaSaved).toBe(true);
+    expect(result.data?.form?.message?.text).toContain('Saved, but the node was not moved:');
+    expect(moves()).toEqual([{sourceRef:'pk',targetUrn:'hrn:node:acme.com:mem-a:rules:copy-2'}]);
+  });
+
 });

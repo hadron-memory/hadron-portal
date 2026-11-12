@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { flushSync, type ComponentProps } from 'svelte';
+import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import {
@@ -9,7 +9,9 @@ import {
 } from '$lib/test/stubs/app-navigation';
 import AiServiceConfigSection from './AiServiceConfigSection.svelte';
 import AiServiceConfigManager from './AiServiceConfigManager.svelte';
-import { getAiConfigRecoveryStore, resetAiConfigRecoveryForTests } from './ai-config-recovery';
+import { managerCallbacks } from '$lib/test/ai-config-manager-callbacks';
+import { resetAiConfigRecoveryForTests } from './ai-config-recovery';
+import { page as stubPage, resetStubPage } from '$lib/test/stubs/app-stores';
 import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 import type { AiServiceConfig } from '$lib/types';
 
@@ -19,6 +21,9 @@ type Reply = { ok?: boolean; status?: number; body?: Record<string, unknown> | n
 const mounted: Array<Mounted<Props>> = [];
 let posts: Array<Record<string, unknown>>;
 let readbacks: string[];
+let principalReply: Reply;
+let principalReads: number;
+let principalReadHandler: (() => Reply | Promise<Reply>) | null;
 let readbackSignals: Array<AbortSignal | undefined>;
 
 function response(reply: Reply): Response {
@@ -34,6 +39,7 @@ function stubFetch(
   readback: (url: string, signal?: AbortSignal) => Reply | Promise<Reply> = () => ({ body: { configs: [] } }),
 ) {
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string; signal?: AbortSignal }) => {
+    if (url === '/api/ai-configs/principal') { principalReads++; return response(principalReadHandler ? await principalReadHandler() : principalReply); }
     if (url.startsWith('/api/ai-configs?') && init?.method !== 'POST') {
       readbacks.push(url);
       readbackSignals.push(init?.signal);
@@ -52,6 +58,10 @@ function stubFetch(
 beforeEach(() => {
   resetAiConfigRecoveryForTests();
   posts = [];
+  resetStubPage();
+  principalReads = 0;
+  principalReadHandler = null;
+  principalReply = { body: { principal: { principalType: 'USER', userId: 'u1', appId: null } } };
   readbacks = [];
   readbackSignals = [];
   resetNavigationCalls();
@@ -77,12 +87,13 @@ function config(over: Partial<AiServiceConfig> = {}): AiServiceConfig {
 
 async function open(props: Props = {}, component: unknown = AiServiceConfigSection) {
   const m = mountComponent(component as never, reactiveProps({
+    ...managerCallbacks(),
     ownerType: 'ORGANIZATION', ownerId: 'o1', configs: [], canManage: true, allowTest: true,
     members: [{ user: { id: 'u1' }, role: 'ADMIN' }], currentUserId: 'u1',
     ...props,
   }) as never) as Mounted<Props>;
   mounted.push(m);
-  await tick(2);
+  await settle();
   return m;
 }
 
@@ -194,6 +205,7 @@ describe('AI configuration acknowledgement (#303)', () => {
     expect(feedback(target).textContent).toContain('Saved “default”.');
 
     menuDelete(target);
+    await settle();
     button(target, 'Delete').click();
     await settle();
     expect(feedback(target).textContent).toContain('Deleted “default”.');
@@ -207,6 +219,7 @@ describe('AI configuration acknowledgement (#303)', () => {
     expect(target.querySelector('#ac-name')).not.toBeNull();
 
     menuDelete(target);
+    await settle();
     button(target, 'Delete').click();
     await settle();
 
@@ -226,15 +239,16 @@ describe('AI configuration acknowledgement (#303)', () => {
     editRow(target);
     await settle();
     menuDelete(target);
+    await settle();
     button(target, 'Delete').click();
-    await tick(2);
+    await settle();
 
     const question = [...target.querySelectorAll<HTMLSpanElement>('span')]
-      .find((el) => el.textContent?.trim() === aiConfigStrings.confirmQuestion())!;
+      .find((el) => el.textContent?.trim() === aiConfigStrings.confirmDelete('default'))!;
     const cancel = [...question.parentElement!.querySelectorAll<HTMLButtonElement>('button')]
       .find((el) => el.textContent?.trim() === 'Cancel')!;
     cancel.click();
-    await tick(2);
+    await settle();
     expect(target.querySelector('#ac-name')).not.toBeNull();
     releaseDelete({});
     await settle();
@@ -288,6 +302,7 @@ describe('AI configuration acknowledgement (#303)', () => {
     stubFetch(() => ({}), () => { throw new Error('synthetic refresh failure'); });
     const { target } = await open({ configs: [config()] });
     menuDelete(target);
+    await settle();
     button(target, 'Delete').click();
     await settle();
 
@@ -336,7 +351,7 @@ describe('AI configuration acknowledgement (#303)', () => {
     const stale = await open({ ownerLabel: 'First' });
     await startCreate(stale.target, 'fast');
     button(stale.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     stale.props.ownerId = 'o2';
     stale.props.ownerLabel = 'Second';
@@ -358,7 +373,7 @@ describe('AI configuration acknowledgement (#303)', () => {
     const fresh = await open();
     await startCreate(fresh.target, 'fast');
     button(fresh.target, 'Save').click();
-    await tick(2);
+    await settle();
     releaseFresh();
     await settle();
     expect(feedback(fresh.target).textContent).toContain('Saved “fast”.');
@@ -376,7 +391,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     const { target } = await open();
     await startCreate(target, 'fast');
     button(target, 'Save').click();
-    await tick(2);
+    await settle();
     button(target, 'Cancel').click();
     release();
     await settle();
@@ -499,7 +514,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     const { target } = await open();
     await startCreate(target);
     button(target, 'Test').click();
-    await tick(2);
+    await settle();
 
     await vi.advanceTimersByTimeAsync(10_000);
     flushSync();
@@ -522,7 +537,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     editRow(target);
     await settle();
     button(target, 'Test').click();
-    await tick(2);
+    await settle();
 
     button(target, 'Cancel').click();
     await settle();
@@ -542,7 +557,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     editRow(m.target);
     await settle();
     button(m.target, 'Test').click();
-    await tick(2);
+    await settle();
 
     m.props.ownerId = 'o2';
     await settle();
@@ -558,7 +573,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     const { target } = await open();
     await startCreate(target, 'fast');
     button(target, 'Save').click();
-    await tick(2);
+    await settle();
     button(target, 'Cancel').click();
     rejectCreate(new Error('dropped response'));
     await settle();
@@ -606,6 +621,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     const second = config({ id: 'c2', name: 'fast' });
     const { target } = await open({ configs: [config(), second] });
     menuDelete(target, 'default');
+    await settle();
     button(target, 'Delete').click();
     await settle();
     expect(feedback(target).querySelector('a[data-sveltekit-reload]')).not.toBeNull();
@@ -650,15 +666,6 @@ describe('AI configuration feedback lifecycle review controls', () => {
     expect(button(target, 'Save').disabled).toBe(true);
     button(target, 'Save').click();
     expect(posts.filter((p) => p.action === 'create')).toHaveLength(1);
-  });
-
-  it('preserves the previous refresh behavior for a standalone manager', async () => {
-    const { target } = await open({}, AiServiceConfigManager);
-    await startCreate(target, 'fast');
-    button(target, 'Save').click();
-    await settle();
-
-    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
   });
 
   it('keeps the page and committed warning when the section-owned readback fails', async () => {
@@ -716,6 +723,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     stubFetch(() => ({}), () => ({ body: { configs: [fresh] } }));
     const m = await open({ configs: [config()] });
     editRow(m.target);
+    await settle();
     button(m.target, 'Save').click();
     await settle();
     expect(m.target.textContent).toContain('fast');
@@ -732,6 +740,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     stubFetch(() => ({}), () => held);
     const stale = await open({ configs: [config()] });
     editRow(stale.target);
+    await settle();
     button(stale.target, 'Save').click();
     await settle();
 
@@ -748,12 +757,14 @@ describe('AI configuration feedback lifecycle review controls', () => {
     let releaseFresh!: (reply: Reply) => void;
     const freshHeld = new Promise<Reply>((resolve) => { releaseFresh = resolve; });
     stubFetch(() => ({}), () => freshHeld);
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
     const fresh = await open({
       configs: [config()],
       currentUserId: 'u2',
       members: [{ user: { id: 'u2' }, role: 'ADMIN' }],
     });
     editRow(fresh.target);
+    await settle();
     button(fresh.target, 'Save').click();
     await settle();
     releaseFresh({ body: { configs: [config({ id: 'c2', name: 'fast' })] } });
@@ -772,7 +783,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     m.props.ownerId = 'o2';
     await settle();
@@ -783,56 +794,6 @@ describe('AI configuration feedback lifecycle review controls', () => {
     button(m.target, 'Add configuration').click();
     await settle();
     expect(button(m.target, 'Save').disabled).toBe(false);
-  });
-
-  it('shows standalone uncertainty with readback instead of a silent replay lock', async () => {
-    stubFetch(async (body) => {
-      if (body.action === 'create') throw new Error('dropped response');
-      return {};
-    });
-    const { target } = await open({}, AiServiceConfigManager);
-    await startCreate(target, 'fast');
-    button(target, 'Save').click();
-    await settle();
-
-    const region = $<HTMLElement>(target, '[data-testid="ai-config-manager-feedback"]')!;
-    expect(region.textContent).toContain('couldn’t confirm the change went through');
-    expect(region.querySelector('a[data-sveltekit-reload]')).not.toBeNull();
-    expect(button(target, 'Save').disabled).toBe(true);
-  });
-
-  it('reports a standalone committed refresh rejection instead of dropping it', async () => {
-    navigationHooks.onInvalidateAll = () => { throw new Error('refresh rejected'); };
-    const { target } = await open({}, AiServiceConfigManager);
-    await startCreate(target, 'fast');
-    button(target, 'Save').click();
-    await settle();
-
-    const region = $<HTMLElement>(target, '[data-testid="ai-config-manager-feedback"]')!;
-    expect(region.textContent).toContain('Saved “fast”, but the configurations couldn’t be refreshed');
-    expect(region.querySelector('a[data-sveltekit-reload]')).not.toBeNull();
-    expect(button(target, 'Add configuration')).not.toBeNull();
-  });
-
-  it('holds a follow-up standalone mutation until the committed refresh settles', async () => {
-    let releaseRefresh!: () => void;
-    navigationHooks.onInvalidateAll = () => new Promise<void>((resolve) => { releaseRefresh = resolve; });
-    const { target } = await open({}, AiServiceConfigManager);
-    await startCreate(target, 'fast');
-    button(target, 'Save').click();
-    await settle();
-    await startCreate(target, 'frontier');
-    expect(button(target, 'Save').disabled).toBe(true);
-    button(target, 'Save').click();
-    expect(posts.filter((p) => p.action === 'create')).toHaveLength(1);
-
-    releaseRefresh();
-    await settle();
-    expect(button(target, 'Save').disabled).toBe(false);
-    button(target, 'Save').click();
-    await settle();
-    expect(posts.filter((p) => p.action === 'create')).toHaveLength(2);
-    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(2);
   });
 
   it('acknowledges immediately and bounds a hung section readback', async () => {
@@ -877,6 +838,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     expect(readbackSignals[0]?.aborted).toBe(false);
 
     m.props.currentUserId = 'u2';
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
     m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
     await settle();
     expect(readbackSignals[0]?.aborted).toBe(true);
@@ -916,8 +878,9 @@ describe('AI configuration feedback lifecycle review controls', () => {
     });
     const { target } = await open({ configs: [config()] });
     menuDelete(target);
+    await settle();
     button(target, 'Delete').click();
-    await tick(2);
+    await settle();
     button(target, 'Cancel').click();
     release();
     await settle();
@@ -938,7 +901,7 @@ describe('AI configuration review fix pins', () => {
     const { target } = await open();
     await startCreate(target, 'fast');
     button(target, 'Save').click();
-    await tick(2);
+    await settle();
 
     button(target, 'Cancel').click();
     await settle();
@@ -994,7 +957,7 @@ describe('AI configuration review fix pins', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     m.props.ownerId = 'o2';
     await settle();
@@ -1024,7 +987,7 @@ describe('AI configuration review fix pins', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     m.props.ownerId = 'o2';
     await settle();
@@ -1069,6 +1032,7 @@ describe('AI configuration review fix pins', () => {
     expect(region.textContent?.trim()).toBe('');
 
     menuDelete(target);
+    await settle();
     button(target, 'Delete').click();
     await settle();
 
@@ -1090,7 +1054,7 @@ describe('AI configuration review fix pins', () => {
     const { target } = await open();
     await startCreate(target, 'fast');
     button(target, 'Save').click();
-    await tick(2);
+    await settle();
 
     button(target, 'Cancel').click();
     await settle();
@@ -1120,7 +1084,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     m.props.configsError = true;
     await settle();
@@ -1187,7 +1151,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     const { target } = await open();
     await startCreate(target, 'fast');
     button(target, 'Save').click();
-    await tick(2);
+    await settle();
 
     button(target, 'Cancel').click();
     await settle();
@@ -1224,7 +1188,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(button(target, 'Save').disabled).toBe(true);
   });
 
-  it('uses the action-start owner identity for payload, pending registration and outcome', async () => {
+  it('does not send the old owner draft when identity verification crosses an owner change', async () => {
     stubFetch(() => ({}));
     const m = await open();
     await startCreate(m.target, 'fast');
@@ -1234,10 +1198,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     button(m.target, 'Save').click();
     await settle();
 
-    expect(posts.filter((p) => p.action === 'create')).toHaveLength(1);
-    expect(posts.find((p) => p.action === 'create')).toMatchObject({
-      ownerType: 'ORGANIZATION', ownerId: 'o1',
-    });
+    expect(posts.filter((p) => p.action === 'create')).toHaveLength(0);
     expect(feedback(m.target).textContent?.trim()).toBe('');
   });
 
@@ -1251,7 +1212,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     m.props.ownerId = 'o2';
     await settle();
@@ -1276,7 +1237,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     m.props.ownerId = 'o2';
     await settle();
@@ -1298,32 +1259,6 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(feedback(m.target).textContent).toContain('couldn’t confirm the change went through');
   });
 
-  it('locks replay when standalone stale-owner reconciliation fails', async () => {
-    let rejectCreate!: (error: Error) => void;
-    stubFetch(async (body) => {
-      if (body.action === 'create') await new Promise<never>((_, reject) => { rejectCreate = reject; });
-      return {};
-    });
-    navigationHooks.onInvalidateAll = () => { throw new Error('refresh rejected'); };
-    const m = await open({}, AiServiceConfigManager);
-    await startCreate(m.target, 'fast');
-    button(m.target, 'Save').click();
-    await tick(2);
-
-    m.props.ownerId = 'o2';
-    await settle();
-    m.props.ownerId = 'o1';
-    await settle();
-    rejectCreate(new Error('dropped response'));
-    await settle();
-
-    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-manager-feedback"]')!;
-    expect(region.textContent).toContain('couldn’t confirm the change went through');
-    button(m.target, 'Add configuration').click();
-    await settle();
-    expect(button(m.target, 'Save').disabled).toBe(true);
-  });
-
   it('restarts uncertain reconciliation when its readback crosses A → B → A', async () => {
     let rejectCreate!: (error: Error) => void;
     const releases: Array<(reply: Reply) => void> = [];
@@ -1334,7 +1269,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
     m.props.ownerId = 'o2';
     await settle();
     m.props.ownerId = 'o1';
@@ -1404,7 +1339,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     const first = await open();
     await startCreate(first.target, 'fast');
     button(first.target, 'Save').click();
-    await tick(2);
+    await settle();
     mounted.splice(mounted.indexOf(first), 1);
     first.unmount();
 
@@ -1423,56 +1358,6 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(feedback(second.target).textContent).toContain('couldn’t confirm the change went through');
   });
 
-  it('defers standalone recovery when its owner changes during invalidation', async () => {
-    let rejectCreate!: (error: Error) => void;
-    const refreshes: Array<{ resolve: () => void; reject: (error: Error) => void }> = [];
-    stubFetch(async (body) => {
-      if (body.action === 'create') await new Promise<never>((_, reject) => { rejectCreate = reject; });
-      return {};
-    });
-    navigationHooks.onInvalidateAll = () => new Promise<void>((resolve, reject) => {
-      refreshes.push({ resolve: () => resolve(), reject });
-    });
-    const m = await open({}, AiServiceConfigManager);
-    await startCreate(m.target, 'fast');
-    button(m.target, 'Save').click();
-    await tick(2);
-    m.props.ownerId = 'o2';
-    await settle();
-    m.props.ownerId = 'o1';
-    await settle();
-    rejectCreate(new Error('dropped response'));
-    await settle();
-    expect(refreshes).toHaveLength(1);
-
-    m.props.ownerId = 'o2';
-    await settle();
-    refreshes[0].resolve();
-    await settle();
-    m.props.ownerId = 'o1';
-    await settle();
-    expect(refreshes).toHaveLength(2);
-    button(m.target, 'Add configuration').click();
-    await settle();
-    expect(button(m.target, 'Save').disabled).toBe(true);
-
-    m.props.ownerId = 'o2';
-    await settle();
-    m.props.ownerId = 'o1';
-    await settle();
-    expect(refreshes).toHaveLength(3);
-    refreshes[1].resolve();
-    await settle();
-    button(m.target, 'Add configuration').click();
-    await settle();
-    expect(button(m.target, 'Save').disabled).toBe(true);
-
-    refreshes[2].reject(new Error('refresh rejected'));
-    await settle();
-    expect(button(m.target, 'Save').disabled).toBe(true);
-    expect(m.target.textContent).toContain('couldn’t confirm the change went through');
-  });
-
   it('keeps uncertainty after a late related success because the write may still commit', async () => {
     vi.useFakeTimers();
     let rejectCreate!: (error: Error) => void;
@@ -1485,7 +1370,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open({ onRefreshed: () => related });
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
     m.props.ownerId = 'o2';
     await settle();
     m.props.ownerId = 'o1';
@@ -1552,9 +1437,10 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     m.props.currentUserId = 'u2';
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
     m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
     await settle();
     releaseCreate();
@@ -1567,6 +1453,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     await settle();
 
     m.props.currentUserId = 'u1';
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u1', appId: null } } };
     m.props.members = [{ user: { id: 'u1' }, role: 'ADMIN' }];
     await settle();
     expect(readbacks).toHaveLength(1);
@@ -1612,9 +1499,10 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open();
     await startCreate(m.target, 'first');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     m.props.currentUserId = 'u2';
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
     m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
     m.props.configsError = true;
     await settle();
@@ -1622,7 +1510,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     await settle();
     await startCreate(m.target, 'second');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
     expect(creates).toHaveLength(2);
 
     // Both Manager instances used mutation ID 1. The old user's refusal must
@@ -1670,6 +1558,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(feedback(m.target).textContent).toContain('couldn’t be refreshed');
 
     m.props.currentUserId = 'u2';
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
     m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
     await settle();
     expect(feedback(m.target).textContent).not.toContain('couldn’t be refreshed');
@@ -1678,6 +1567,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(button(m.target, 'Save').disabled).toBe(false);
 
     m.props.currentUserId = 'u1';
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u1', appId: null } } };
     m.props.members = [{ user: { id: 'u1' }, role: 'ADMIN' }];
     await settle();
     expect(feedback(m.target).textContent).toContain('couldn’t be refreshed');
@@ -1724,6 +1614,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect($<HTMLInputElement>(m.target, '#ac-key')!.value).toBe('synthetic-key');
 
     m.props.currentUserId = 'u2';
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
     m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
     await settle();
     expect(feedback(m.target).textContent).not.toContain('couldn’t confirm the change went through');
@@ -1734,93 +1625,13 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(button(m.target, 'Save').disabled).toBe(false);
 
     m.props.currentUserId = 'u1';
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u1', appId: null } } };
     m.props.members = [{ user: { id: 'u1' }, role: 'ADMIN' }];
     await settle();
     expect(feedback(m.target).textContent).toContain('couldn’t confirm the change went through');
     button(m.target, 'Add configuration').click();
     await settle();
     expect(button(m.target, 'Save').disabled).toBe(true);
-  });
-
-  it('keeps a standalone draft when only the onAction callback identity changes', async () => {
-    const m = await open({ onAction: () => 0 }, AiServiceConfigManager);
-    await startCreate(m.target, 'first');
-
-    m.props.onAction = () => 0;
-    await settle();
-    expect($<HTMLInputElement>(m.target, '#ac-name')!.value).toBe('first');
-    expect($<HTMLInputElement>(m.target, '#ac-key')!.value).toBe('synthetic-key');
-  });
-
-  it('clears standalone locks when recovery ownership changes', async () => {
-    stubFetch(async (body) => {
-      if (body.action === 'create') throw new Error('dropped response');
-      return {};
-    });
-    const m = await open({}, AiServiceConfigManager);
-    await startCreate(m.target, 'first');
-    button(m.target, 'Save').click();
-    await settle();
-    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-manager-feedback"]')!;
-    expect(region.textContent).toContain('couldn’t confirm the change went through');
-
-    m.props.onMutationPending = () => {};
-    await settle();
-    expect(region.textContent).not.toContain('couldn’t confirm the change went through');
-    expect(button(m.target, 'Save').disabled).toBe(false);
-  });
-
-  it('settles the original standalone scope when ownership and principal change in flight', async () => {
-    let releaseCreate!: () => void;
-    const createHeld = new Promise<void>((resolve) => { releaseCreate = resolve; });
-    stubFetch(async (body) => {
-      if (body.action === 'create') {
-        await createHeld;
-        throw new Error('dropped response');
-      }
-      return {};
-    });
-    const m = await open({}, AiServiceConfigManager);
-    await startCreate(m.target, 'first');
-    button(m.target, 'Save').click();
-    await tick(2);
-
-    m.props.onMutationPending = vi.fn();
-    m.props.currentUserId = 'u2';
-    await settle();
-    releaseCreate();
-    await settle();
-
-    const first = getAiConfigRecoveryStore('standalone:u1');
-    const second = getAiConfigRecoveryStore('standalone:u2');
-    expect(first.uncertainty('ORGANIZATION:o1')).toContain('couldn’t confirm the change went through');
-    expect(second.uncertainty('ORGANIZATION:o1')).toBeNull();
-    expect(first.pending()).toEqual([]);
-  });
-
-  it('keeps a custom-callback mutation in its originating principal scope', async () => {
-    let releaseCreate!: () => void;
-    const createHeld = new Promise<void>((resolve) => { releaseCreate = resolve; });
-    const pending = vi.fn();
-    stubFetch(async (body) => {
-      if (body.action === 'create') {
-        await createHeld;
-        throw new Error('dropped response');
-      }
-      return {};
-    });
-    const m = await open({ onMutationPending: pending }, AiServiceConfigManager);
-    await startCreate(m.target, 'first');
-    button(m.target, 'Save').click();
-    await tick(2);
-
-    m.props.currentUserId = 'u2';
-    await settle();
-    releaseCreate();
-    await settle();
-    expect(getAiConfigRecoveryStore('standalone:u1').uncertainty('ORGANIZATION:o1')).toContain('couldn’t confirm the change went through');
-    expect(getAiConfigRecoveryStore('standalone:u2').uncertainty('ORGANIZATION:o1')).toBeNull();
-    expect(pending).toHaveBeenLastCalledWith(expect.objectContaining({ pending: false }));
   });
 
   it('settles an uncertain outcome through the callback captured at action start', async () => {
@@ -1838,123 +1649,14 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open({ onUncertain: first }, AiServiceConfigManager);
     await startCreate(m.target, 'first');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     m.props.onUncertain = second;
     await settle();
     releaseCreate();
     await settle();
-    expect(first).toHaveBeenCalledWith(expect.objectContaining({ recoveryScope: 'standalone:u1' }));
+    expect(first).toHaveBeenCalledWith(expect.objectContaining({ ownerKey: 'ORGANIZATION:o1' }));
     expect(second).not.toHaveBeenCalled();
-  });
-
-  it('retains a custom pending registration when standalone handling resumes', async () => {
-    let releaseCreate!: (reply: Reply) => void;
-    const pending = vi.fn();
-    stubFetch((body) => {
-      if (body.action === 'create') return new Promise<Reply>((resolve) => { releaseCreate = resolve; });
-      return {};
-    });
-    const m = await open({ onMutationPending: pending }, AiServiceConfigManager);
-    await startCreate(m.target, 'first');
-    button(m.target, 'Save').click();
-    await tick(2);
-
-    m.props.onMutationPending = undefined;
-    await settle();
-    button(m.target, 'Add configuration').click();
-    await settle();
-    expect(button(m.target, 'Save').disabled).toBe(true);
-    releaseCreate({});
-    await settle();
-    expect(button(m.target, 'Save').disabled).toBe(false);
-    expect(pending).toHaveBeenLastCalledWith(expect.objectContaining({ pending: false }));
-  });
-
-  it('resyncs standalone recovery when the principal changes in place', async () => {
-    stubFetch(async (body) => {
-      if (body.action === 'create') throw new Error('dropped response');
-      return {};
-    });
-    const m = await open({ currentUserId: 'u1' }, AiServiceConfigManager);
-    await startCreate(m.target, 'first');
-    button(m.target, 'Save').click();
-    await settle();
-    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-manager-feedback"]')!;
-    expect(region.textContent).toContain('couldn’t confirm the change went through');
-
-    m.props.currentUserId = 'u2';
-    await settle();
-    expect(region.textContent).not.toContain('couldn’t confirm the change went through');
-    expect(m.target.querySelector('#ac-key')).toBeNull();
-    button(m.target, 'Add configuration').click();
-    await settle();
-    expect(button(m.target, 'Save').disabled).toBe(false);
-    button(m.target, 'Cancel').click();
-    await settle();
-
-    m.props.currentUserId = 'u1';
-    await settle();
-    expect(region.textContent).toContain('couldn’t confirm the change went through');
-    button(m.target, 'Add configuration').click();
-    await settle();
-    expect(button(m.target, 'Save').disabled).toBe(true);
-  });
-
-  it('isolates standalone uncertainty and replay locks by principal', async () => {
-    stubFetch(async (body) => {
-      if (body.action === 'create') throw new Error('dropped response');
-      return {};
-    });
-    const first = await open({ currentUserId: 'u1' }, AiServiceConfigManager);
-    await startCreate(first.target, 'first');
-    button(first.target, 'Save').click();
-    await settle();
-    const firstFeedback = $<HTMLElement>(first.target, '[data-testid="ai-config-manager-feedback"]')!;
-    expect(firstFeedback.textContent).toContain('couldn’t confirm the change went through');
-    mounted.splice(mounted.indexOf(first), 1);
-    first.unmount();
-
-    const second = await open({ currentUserId: 'u2' }, AiServiceConfigManager);
-    const secondFeedback = $<HTMLElement>(second.target, '[data-testid="ai-config-manager-feedback"]')!;
-    expect(secondFeedback.textContent).not.toContain('couldn’t confirm the change went through');
-    button(second.target, 'Add configuration').click();
-    await settle();
-    expect(button(second.target, 'Save').disabled).toBe(false);
-  });
-
-  it('acknowledges a standalone committed save in the Manager live region', async () => {
-    const m = await open({}, AiServiceConfigManager);
-    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-manager-feedback"]')!;
-    await startCreate(m.target, 'fast');
-    button(m.target, 'Save').click();
-    await settle();
-
-    expect(region.textContent).toContain('Saved “fast”.');
-    expect(navigationCalls.filter((call) => call.fn === 'invalidateAll')).toHaveLength(1);
-  });
-
-  it('retains standalone pending recovery across Manager destroy and remount', async () => {
-    let releaseCreate!: () => void;
-    const createHeld = new Promise<void>((resolve) => { releaseCreate = resolve; });
-    stubFetch(async (body) => {
-      if (body.action === 'create') await createHeld;
-      return {};
-    });
-    const first = await open({}, AiServiceConfigManager);
-    await startCreate(first.target, 'first');
-    button(first.target, 'Save').click();
-    await tick(2);
-    mounted.splice(mounted.indexOf(first), 1);
-    first.unmount();
-
-    const second = await open({}, AiServiceConfigManager);
-    button(second.target, 'Add configuration').click();
-    await settle();
-    expect(button(second.target, 'Save').disabled).toBe(true);
-    releaseCreate();
-    await settle();
-    expect(button(second.target, 'Save').disabled).toBe(false);
   });
 
   it('does not carry a wrapped owner-A uncertainty lock into owner B', async () => {
@@ -2052,7 +1754,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
 
     set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-7');
     releaseCreate({ body: { ok: true, config: created } });
@@ -2077,7 +1779,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     await startCreate(m.target, 'fast');
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://old.example');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, '');
     releaseCreate({ body: { ok: true, config: created } });
     await settle();
@@ -2100,13 +1802,13 @@ describe('AI configuration code-review lifecycle pins', () => {
     const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
     set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-6');
     releaseCreate({ body: { ok: true, config: created } });
     await settle();
 
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
     set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-7');
     releaseUpdate({ body: { ok: true, config: { ...created, name: 'renamed', model: 'glm-6', hasApiKey: false } } });
     await settle();
@@ -2128,7 +1830,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     await settle();
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://new.example');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
     set($<HTMLInputElement>(m.target, '#ac-endpoint')!, '');
     releaseUpdate({ body: { ok: true, config: { ...older, endpoint: 'https://new.example' } } });
     await settle();
@@ -2142,29 +1844,21 @@ describe('AI configuration code-review lifecycle pins', () => {
     expect(updates[1]).toMatchObject({ id: 'c1', endpoint: null });
   });
 
-  it('requires a principal identity for the standalone manager', () => {
-    // Type-level pin (enforced by `pnpm check`): an optional currentUserId would
-    // let every standalone instance share one `standalone:` recovery scope.
-    // @ts-expect-error currentUserId is required
-    const missing: ComponentProps<typeof AiServiceConfigManager> = { ownerType: 'ORGANIZATION', ownerId: 'o1', configs: [] };
-    expect(missing).toBeDefined();
-  });
-
   it('locks a preserved create draft when the response omits the created id', async () => {
     let releaseCreate!: (reply: Reply) => void;
     stubFetch((body) => {
       if (body.action === 'create') return new Promise<Reply>((resolve) => { releaseCreate = resolve; });
       return {};
     });
-    const m = await open({}, AiServiceConfigManager);
+    const m = await open();
     await startCreate(m.target, 'fast');
     button(m.target, 'Save').click();
-    await tick(2);
+    await settle();
     set($<HTMLInputElement>(m.target, '#ac-model')!, 'glm-7');
 
     releaseCreate({});
     await settle();
-    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-manager-feedback"]')!;
+    const region = feedback(m.target);
     expect(region.textContent).toContain('couldn’t confirm the change went through');
     expect(button(m.target, 'Save').disabled).toBe(true);
     expect(posts.filter((body) => body.action === 'create')).toHaveLength(1);
@@ -2178,5 +1872,456 @@ describe('AI configuration code-review lifecycle pins', () => {
     m.props.configs = [config({ id: 'c2', name: 'default', ownerId: 'o2' })];
     await settle();
     expect(m.target.querySelector(`button[aria-label="${aiConfigStrings.actionsLabel('default')}"]`)).not.toBeNull();
+  });
+});
+
+describe('#1898 follow-ups', () => {
+  it('names the config in the visible delete question even when the name column is scrolled away', async () => {
+    const m = await open({ configs: [config({ name: 'fast' })] });
+    menuDelete(m.target, 'fast');
+    await settle();
+    const deleteButton = button(m.target, 'Delete');
+    expect(deleteButton.parentElement?.textContent).toContain('fast');
+    expect(deleteButton.parentElement?.textContent).toContain('cannot be undone');
+    expect(posts.filter(p => p.action === 'delete')).toHaveLength(0);
+  });
+  it('fades Previous while the section editor holds pagination', async () => {
+    const m = await open({ pagination: { offset: 20, count: 20, total: 60, previousHref: '?configOffset=0', nextHref: '?configOffset=40' } });
+    await startCreate(m.target);
+    const previous = [...m.target.querySelectorAll('[aria-disabled="true"]')].find(e => e.textContent === 'Previous');
+    expect(previous).toBeDefined();
+    expect(previous?.classList.contains('opacity-50')).toBe(true);
+    expect(m.target.querySelector('a[rel="prev"]')).toBeNull();
+  });
+  it.each([401, 403])('keeps an auth-refused %i draft editable without replay lock', async (status) => {
+    stubFetch(body => body.action === 'create' ? { ok: false, status, body: { error: status === 401 ? 'Unauthorized' : 'Forbidden' } } : {});
+    const m = await open();
+    await startCreate(m.target, 'fast');
+    button(m.target, 'Save').click();
+    await settle();
+    expect(button(m.target, 'Save').disabled).toBe(false);
+    expect($<HTMLInputElement>(m.target, '#ac-name')!.value).toBe('fast');
+    expect(m.target.querySelector('[role="alert"]')?.textContent).toContain(status === 401 ? 'Sign in again to save your draft.' : 'Forbidden');
+    expect(feedback(m.target).textContent).not.toContain('couldn’t confirm');
+    expect(readbacks).toHaveLength(0);
+  });
+
+  it.each(['create', 'update', 'delete'])('offers pathname-only new-tab recovery only after exact %s 401', async (action) => {
+    window.history.replaceState({}, '', '/app/orgs/o1/integrations?private=synthetic#draft');
+    let refused = true;
+    stubFetch(body => body.action === action && refused
+      ? { ok: false, status: 401, body: { error: 'untrusted-upstream-text' } } : {});
+    const m = await open({ configs: action === 'create' ? [] : [config()] });
+    const alert = m.target.querySelector('[data-testid="ai-config-error-feedback"]');
+    expect(alert?.textContent?.trim()).toBe('');
+    if (action === 'create') await startCreate(m.target, 'fast');
+    else if (action === 'update') {
+      editRow(m.target); await settle();
+    await settle();
+      set($<HTMLInputElement>(m.target, '#ac-model')!, 'new-model');
+    } else { menuDelete(m.target); await settle(); }
+    const submit = button(m.target, action === 'delete' ? 'Delete' : 'Save');
+    submit.focus(); submit.click();
+    await settle();
+    expect(m.target.querySelector('[data-testid="ai-config-error-feedback"]')).toBe(alert);
+    expect(alert?.textContent).toContain('Sign in again to save your draft.');
+    expect(alert?.textContent).not.toContain('untrusted-upstream-text');
+    const link = alert?.querySelector('a');
+    expect(document.activeElement).toBe(link);
+    expect(link?.getAttribute('href')).toBe('/signin?redirect=%2Fapp%2Forgs%2Fo1%2Fintegrations');
+    expect(link?.target).toBe('_blank');
+    expect(link?.rel.split(' ')).toContain('noopener');
+    expect(link?.textContent).toContain('Sign in');
+    expect(link?.textContent).toContain('new tab');
+    const originalInput = m.target.querySelector('#ac-model');
+    const originalKey = $<HTMLInputElement>(m.target, '#ac-key')?.value;
+    for (const store of [localStorage, sessionStorage]) {
+      const entries = Array.from({ length: store.length }, (_, index) => {
+        const key = store.key(index)!;
+        return [key, store.getItem(key)];
+      });
+      expect(JSON.stringify(entries)).not.toContain('synthetic-key');
+    }
+    // Returning from a cancelled/successful tab does not replay or reload.
+    window.dispatchEvent(new Event('focus'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await settle();
+    expect(posts.filter(p => p.action === action)).toHaveLength(1);
+    expect(m.target.querySelector('#ac-model')).toBe(originalInput);
+    expect($<HTMLInputElement>(m.target, '#ac-key')?.value).toBe(originalKey);
+    expect(alert?.querySelector('a')).toBe(link);
+    expect(readbacks).toHaveLength(0);
+    expect(navigationCalls).toHaveLength(0);
+    refused = false;
+    button(m.target, action === 'delete' ? 'Delete' : 'Save').click();
+    await settle();
+    expect(posts.filter(p => p.action === action)).toHaveLength(2);
+    expect(alert?.querySelector('a')).toBeNull();
+  });
+
+  it.each([400, 403, 404, 500])('never offers sign-in for status %i even when its text claims Unauthorized', async status => {
+    stubFetch(body => body.action === 'create'
+      ? { ok: false, status, body: { error: 'Unauthorized' } } : {});
+    const m = await open();
+    await startCreate(m.target);
+    button(m.target, 'Save').click(); await settle();
+    expect(m.target.querySelector('a[href^="/signin"]')).toBeNull();
+  });
+
+  it.each(['user', 'owner'])('discards a late 401 and old draft after the %s prop changes', async kind => {
+    let release!: (reply: Reply) => void;
+    stubFetch(body => body.action === 'create' ? new Promise<Reply>(resolve => { release = resolve; }) : {});
+    const m = await open();
+    await startCreate(m.target);
+    button(m.target, 'Save').click(); await settle();
+    if (kind === 'user') {
+      m.props.currentUserId = 'u2';
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
+      m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
+    } else m.props.ownerId = 'o2';
+    await settle();
+    release({ ok: false, status: 401, body: { error: 'Unauthorized' } });
+    await settle();
+    expect(m.target.querySelector('#ac-key')).toBeNull();
+    expect(m.target.querySelector('a[href^="/signin"]')).toBeNull();
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(1);
+  });
+
+  it('discards recovery presentation and its draft on ordinary unmount/remount', async () => {
+    stubFetch(body => body.action === 'create' ? { ok: false, status: 401 } : {});
+    const first = await open(); await startCreate(first.target);
+    button(first.target, 'Save').click(); await settle();
+    expect(first.target.querySelector('a[href^="/signin"]')).not.toBeNull();
+    mounted.splice(mounted.indexOf(first), 1); first.unmount();
+    const next = await open();
+    expect(next.target.querySelector('#ac-key')).toBeNull();
+    expect(next.target.querySelector('a[href^="/signin"]')).toBeNull();
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(1);
+  });
+
+  it.each(['focus', 'retry'])('drops the original principal draft on %s when another tab changed the cookie user', async trigger => {
+    stubFetch(body => body.action === 'create' ? { ok: false, status: 401 } : {});
+    const m = await open(); await startCreate(m.target);
+    button(m.target, 'Save').click(); await settle();
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(1);
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
+    if (trigger === 'focus') window.dispatchEvent(new Event('focus'));
+    else button(m.target, 'Save').click();
+    await settle();
+    expect(principalReads).toBeGreaterThan(0);
+    expect(m.target.querySelector('#ac-key')).toBeNull();
+    expect(m.target.textContent).toContain('Your sign-in or the selected organization or app changed, so your draft was discarded. Open the form again to start over.');
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(1);
+    expect(m.target.querySelector('a[href^="/signin"]')).toBeNull();
+  });
+
+  it.each(['activeOrgId', 'appId'])('discards the same-user draft when selected %s changes', async field => {
+    stubPage.update(p => ({ ...p, data: { activeOrgId: 'o1' }, params: { appId: 'a1' } }));
+    const m = await open(); await startCreate(m.target);
+    stubPage.update(p => field === 'activeOrgId'
+      ? { ...p, data: { activeOrgId: 'o2' } }
+      : { ...p, params: { appId: 'a2' } });
+    await settle();
+    expect(m.target.querySelector('#ac-key')).toBeNull();
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
+  });
+
+  it('keeps an anonymous draft on focus and blocks unknown identity reads without writing', async () => {
+    const m = await open(); await startCreate(m.target);
+    principalReply = { body: { principal: null } };
+    window.dispatchEvent(new Event('focus')); await settle();
+    expect($<HTMLInputElement>(m.target, '#ac-key')?.value).toBe('synthetic-key');
+    principalReply = { ok: false, status: 503, body: { error: 'untrusted' } };
+    button(m.target, 'Save').click(); await settle();
+    expect(m.target.textContent).toContain('Unable to verify your sign-in. Try again.');
+    expect($<HTMLInputElement>(m.target, '#ac-key')?.value).toBe('synthetic-key');
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
+    expect(m.target.textContent).not.toContain('untrusted');
+  });
+
+  it.each([{}, { principalType: 'USER', userId: null, appId: null }, { principalType: 'UNKNOWN', userId: 'u1', appId: null }])('preserves the draft and refuses writes for malformed identity %j', async principal => {
+    const m = await open(); await startCreate(m.target);
+    principalReply = { body: { principal } };
+    button(m.target, 'Save').click(); await settle();
+    expect($<HTMLInputElement>(m.target, '#ac-key')?.value).toBe('synthetic-key');
+    expect(m.target.textContent).toContain('Unable to verify your sign-in. Try again.');
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
+  });
+
+  it('bounds a held identity read without leaking the key or keeping the submit locked', async () => {
+    vi.useFakeTimers();
+    const m = await open(); await startCreate(m.target);
+    principalReadHandler = () => new Promise<Reply>(() => {});
+    const submit = button(m.target, 'Save');
+    submit.click(); await settle();
+    expect(submit.disabled).toBe(true);
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(10_000); await settle();
+    expect(button(m.target, 'Save').disabled).toBe(false);
+    expect($<HTMLInputElement>(m.target, '#ac-key')?.value).toBe('synthetic-key');
+    principalReadHandler = null;
+    button(m.target, 'Save').click(); await settle();
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(1);
+  });
+
+  it('checks focus even during an older in-flight write, without replaying it', async () => {
+    let release!: (reply: Reply) => void;
+    stubFetch(body => body.action === 'create' ? new Promise<Reply>(resolve => { release = resolve; }) : {});
+    const m = await open(); await startCreate(m.target);
+    button(m.target, 'Save').click(); await settle();
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(1);
+    principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
+    window.dispatchEvent(new Event('focus')); await settle();
+    expect(m.target.querySelector('#ac-key')).toBeNull();
+    release({}); await settle();
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(1);
+    expect(m.target.querySelector('#ac-key')).toBeNull();
+  });
+
+  it('cancels the armed delete with its editor, then lets a newly armed delete verify and execute', async () => {
+    const m = await open({ configs: [config()] });
+    editRow(m.target); await settle();
+    menuDelete(m.target); await settle();
+    expect([...m.target.querySelectorAll('button')].filter(el => el.textContent?.trim() === 'Cancel')).toHaveLength(2);
+    button(m.target, 'Cancel').click(); await settle();
+    expect(m.target.querySelector('#ac-key')).toBeNull();
+    expect([...m.target.querySelectorAll('button')].filter(el => el.textContent?.trim() === 'Delete')).toHaveLength(0);
+    menuDelete(m.target); await settle();
+    button(m.target, 'Delete').click(); await settle();
+    expect(posts.filter(p => p.action === 'delete')).toHaveLength(1);
+  });
+
+  // Model Chromium's disabled-button blur: jsdom itself keeps Save focused.
+  function blurDisabledSubmit() {
+    document.body.tabIndex = -1;
+    document.body.focus();
+    document.body.removeAttribute('tabindex');
+    expect(document.activeElement).toBe(document.body);
+  }
+
+  it('hands a 401 to its visible Sign in link after disabled Save falls to BODY', async () => {
+    let release!: (r: Reply) => void;
+    stubFetch(body => body.action === 'create' ? new Promise<Reply>(r => { release = r; }) : {});
+    const m = await open(); await startCreate(m.target);
+    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-error-feedback"]')!;
+    const scroll = vi.fn(); region.scrollIntoView = scroll;
+    const submit = button(m.target, 'Save'); submit.focus(); submit.click(); await settle();
+    expect(submit.disabled).toBe(true); blurDisabledSubmit();
+    release({ ok: false, status: 401 }); await settle();
+    expect(document.activeElement).toBe(region.querySelector('a'));
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(button(m.target, 'Save').disabled).toBe(false);
+  });
+
+  it('restores the original enabled control after a same-user window-focus identity check', async () => {
+    const m = await open(); await startCreate(m.target);
+    let release!: (r: Reply) => void;
+    principalReadHandler = () => new Promise<Reply>(r => { release = r; });
+    const submit = button(m.target, 'Save'); submit.focus();
+    window.dispatchEvent(new Event('focus')); await settle();
+    expect(submit.disabled).toBe(true); blurDisabledSubmit();
+    release(principalReply); await settle();
+    expect(submit.disabled).toBe(false);
+    expect(document.activeElement).toBe(submit);
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
+  });
+
+  // ---- #1986 ---------------------------------------------------------------
+  const RECOVERY = 'Checking configurations before you can make another change…';
+  const different = { body: { principal: { principalType: 'USER', userId: 'different', appId: null } } };
+
+  it('names the organization or app the reader selected, and the next step, when a draft is discarded (#1986 Uma F3)', async () => {
+    const m = await open({ ownerLabel: 'Acme Org' }); await startCreate(m.target);
+    principalReadHandler = async () => different;
+    window.dispatchEvent(new Event('focus')); await settle();
+    const text = $<HTMLElement>(m.target, '[data-testid="ai-config-error-feedback"]')!.textContent ?? '';
+    expect(text).toContain('draft for Acme Org was discarded');
+    expect(text).toContain('Open the form again to start over.');
+    expect(text).not.toContain('selected context');
+  });
+
+  it('keeps the discard copy generic, never inventing a name, when no owner label was supplied (#1986)', async () => {
+    const m = await open(); await startCreate(m.target);
+    principalReadHandler = async () => different;
+    window.dispatchEvent(new Event('focus')); await settle();
+    const text = $<HTMLElement>(m.target, '[data-testid="ai-config-error-feedback"]')!.textContent ?? '';
+    expect(text).toContain('so your draft was discarded. Open the form again to start over.');
+    expect(text).not.toMatch(/draft for /);
+  });
+
+  it('an identity-only check announces "Checking your sign-in…" without the configuration-recovery sentence (#1986 Uma F4)', async () => {
+    const m = await open(); await startCreate(m.target);
+    let release!: (r: Reply) => void;
+    principalReadHandler = () => new Promise<Reply>(r => { release = r; });
+    window.dispatchEvent(new Event('focus')); await settle();
+    const status = $<HTMLElement>(m.target, '[data-testid="ai-config-manager-feedback"]')!;
+    expect(status.textContent).toContain('Checking your sign-in…');
+    expect(status.textContent).not.toContain(RECOVERY);
+    expect($(m.target, '[data-testid="ai-config-recovery-pending"]')).toBeNull();
+    expect(button(m.target, 'Save').disabled).toBe(true);
+    release(principalReply); await settle();
+    expect(status.textContent).not.toContain('Checking your sign-in…');
+  });
+
+  it('provider Test takes a fresh identity read and sends nothing until it answers (#1986 Ralion P3-1)', async () => {
+    const m = await open(); await startCreate(m.target);
+    const before = principalReads;
+    let release!: (r: Reply) => void;
+    principalReadHandler = () => new Promise<Reply>(r => { release = r; });
+    button(m.target, 'Test').click(); await settle();
+    expect(principalReads).toBe(before + 1);
+    expect(posts.filter(p => p.action === 'test')).toHaveLength(0);
+    release(principalReply); await settle();
+    expect(posts.filter(p => p.action === 'test')).toHaveLength(1);
+  });
+
+  it('a submit identity reply superseded by a focus check never writes, even when released first (#1986 Ralion P3-2)', async () => {
+    const m = await open(); await startCreate(m.target);
+    const releases: Array<(r: Reply) => void> = [];
+    principalReadHandler = () => new Promise<Reply>(r => { releases.push(r); });
+    button(m.target, 'Save').click(); await settle();
+    window.dispatchEvent(new Event('focus')); await settle();
+    expect(releases).toHaveLength(2);
+    releases[0](principalReply); await settle();
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
+    releases[1](principalReply); await settle();
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
+  });
+
+  it('editing the draft while the identity read is held never writes old and new fields together (#1986 Ralion P3-3)', async () => {
+    const m = await open(); await startCreate(m.target, 'first');
+    let release!: (r: Reply) => void;
+    principalReadHandler = () => new Promise<Reply>(r => { release = r; });
+    button(m.target, 'Save').click(); await settle();
+    set($<HTMLInputElement>(m.target, '#ac-name')!, 'second'); await settle();
+    release(principalReply); await settle();
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
+    expect(m.target.textContent).toContain('Your draft changed while checking your sign-in. Try again.');
+    principalReadHandler = null;
+    button(m.target, 'Save').click(); await settle();
+    const created = posts.filter(p => p.action === 'create');
+    expect(created).toHaveLength(1);
+    expect(created[0].name).toBe('second');
+  });
+
+  it('focuses and reveals the discard alert when the fresh cookie user differs', async () => {
+    const m = await open(); await startCreate(m.target);
+    let release!: (r: Reply) => void;
+    principalReadHandler = () => new Promise<Reply>(r => { release = r; });
+    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-error-feedback"]')!;
+    const scroll = vi.fn(); region.scrollIntoView = scroll;
+    const submit = button(m.target, 'Save'); submit.focus();
+    window.dispatchEvent(new Event('focus')); await settle(); blurDisabledSubmit();
+    release({ body: { principal: { principalType: 'USER', userId: 'different', appId: null } } }); await settle();
+    expect(m.target.querySelector('#ac-key')).toBeNull();
+    expect(document.activeElement).toBe(region);
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
+  });
+
+  it.each(['control', 'blank-pointer'])('does not steal newer %s attention for a late 401', async attention => {
+    let release!: (r: Reply) => void;
+    stubFetch(body => body.action === 'create' ? new Promise<Reply>(r => { release = r; }) : {});
+    const m = await open(); await startCreate(m.target);
+    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-error-feedback"]')!;
+    const scroll = vi.fn(); region.scrollIntoView = scroll;
+    const submit = button(m.target, 'Save'); submit.focus(); submit.click(); await settle(); blurDisabledSubmit();
+    const cancel = button(m.target, 'Cancel');
+    if (attention === 'control') cancel.focus();
+    else m.target.querySelector('h2')!.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    release({ ok: false, status: 401 }); await settle();
+    expect(document.activeElement).toBe(attention === 'control' ? cancel : document.body);
+    expect(scroll).not.toHaveBeenCalled();
+    expect(region.querySelector('a')).not.toBeNull();
+  });
+
+  it('does not focus a reused alert after an owner change at the render boundary', async () => {
+    const m = await open({}, AiServiceConfigManager); await startCreate(m.target);
+    let release!: (r: Reply) => void;
+    principalReadHandler = () => new Promise<Reply>(r => { release = r; });
+    const region = $<HTMLElement>(m.target, '[data-testid="ai-config-error-feedback"]')!;
+    const scroll = vi.fn(); region.scrollIntoView = scroll;
+    const observer = new MutationObserver(() => {
+      if (!region.textContent?.includes('was discarded.')) return;
+      observer.disconnect();
+      m.props.ownerId = 'o2';
+      flushSync();
+    });
+    observer.observe(region, { subtree: true, childList: true });
+    try {
+      const submit = button(m.target, 'Save'); submit.focus();
+      window.dispatchEvent(new Event('focus')); await settle(); blurDisabledSubmit();
+      release({ body: { principal: { principalType: 'USER', userId: 'different', appId: null } } }); await settle();
+      expect(m.props.ownerId).toBe('o2');
+      expect(region.textContent?.trim()).toBe('');
+      expect(document.activeElement).toBe(document.body);
+      expect(scroll).not.toHaveBeenCalled();
+    } finally { observer.disconnect(); }
+  });
+
+});
+
+describe('a dropped stale write is reconciled by the Section’s committed readback (#1910)', () => {
+  it('delivers the created row on revisit through the deferred readback, and a reopened editor diffs against it', async () => {
+    // The create response is held until released; the readback serves the new
+    // row as a LATER write left it (fresh endpoint), not as the delayed
+    // create's own copy.
+    let releaseCreate!: (reply: Reply) => void;
+    const created = { body: { ok: true, config: config({ id: 'c9', name: 'made', endpoint: 'https://made.example/v1' }) } };
+    const refreshed = config({ id: 'c9', name: 'made', endpoint: 'https://fresh.example/v1' });
+    stubFetch(
+      (body) => {
+        if (body.action === 'create') return new Promise<Reply>((resolve) => { releaseCreate = resolve; });
+        return {};
+      },
+      () => ({ body: { configs: [refreshed] } }),
+    );
+    const m = await open({ configs: [] });
+    await startCreate(m.target, 'made');
+    set($<HTMLInputElement>(m.target, '#ac-endpoint')!, 'https://made.example/v1');
+    await vi.waitFor(() => expect(button(m.target, 'Save').disabled).toBe(false));
+    button(m.target, 'Save').click();
+    await vi.waitFor(() => expect(posts.some(p => p.action === 'create')).toBe(true)); // the create is in flight, held
+    expect(posts.find((p) => p.action === 'create')).toMatchObject({ name: 'made' });
+
+    // The owner visit changes while the response is in flight, closing the
+    // create editor. Nothing about owner o1 is read while o2 is visible.
+    (m.props as { ownerId: string }).ownerId = 'o2';
+    await settle();
+    expect(m.target.querySelector('#ac-endpoint')).toBe(null);
+    expect(m.target.textContent).not.toContain('“made”');
+    expect(readbacks).toHaveLength(0);
+
+    // The create commits late. The Manager drops it (#1910: dead editor
+    // session), but the Section still defers the committed outcome for o1 —
+    // the dropped row is reconciled by readback, never by the editor.
+    releaseCreate(created);
+    await settle();
+    expect(readbacks).toHaveLength(0); // deferred, not read while o2 is visible
+
+    // Revisiting o1 replays the deferred outcome: a readback fetch fires and
+    // the row lands in the list through the real machinery — no hand-assigned
+    // configs anywhere.
+    (m.props as { ownerId: string }).ownerId = 'o1';
+    await settle();
+    expect(readbacks).toEqual(['/api/ai-configs?ownerType=ORGANIZATION&ownerId=o1']);
+    // #1984: the row itself, by its actions trigger. A replayed `Saved “made”`
+    // notice would satisfy a whole-target text match with no row in the list.
+    expect(
+      m.target.querySelector(`button[aria-label="${aiConfigStrings.actionsLabel('made')}"]`),
+    ).not.toBe(null);
+
+    // The reopened editor is seeded from the READBACK row: unchanged fields
+    // are omitted. A stale response that had seeded the baseline instead
+    // would send endpoint: 'https://fresh.example/v1' as a spurious change.
+    editRow(m.target, 'made');
+    await settle();
+    await vi.waitFor(() => expect(button(m.target, 'Save').disabled).toBe(false));
+    button(m.target, 'Save').click();
+    await settle();
+    expect(posts.filter((p) => p.action === 'create')).toHaveLength(1);
+    const update = posts.find((p) => p.action === 'update')!;
+    expect(update).toMatchObject({ id: 'c9' });
+    expect('endpoint' in update).toBe(false);
   });
 });

@@ -464,12 +464,8 @@
     if ((form as { pointer?: PointerResult } | null)?.pointer) activeTab = 'settings';
   });
 
-  // A delayed action from another route instance must not seed this editor
-  // or reopen it. Superforms also uses this route-specific id to isolate stores.
-  const bootSourceSubmission = $derived.by(() => {
-    const result = submittedForm(form, 'bootSource') as typeof data.bootSourceForm | null;
-    return result?.id === data.bootSourceForm?.id ? result : null;
-  });
+  // A delayed action from another route instance must not seed these forms
+  // or reopen the tab. Superforms also uses this route-specific id to isolate stores.
   const bootStartSubmission = $derived.by(() => {
     const result = submittedForm(form, 'bootStart') as typeof data.bootStartForm | null;
     return result?.id === data.bootStartForm?.id ? result : null;
@@ -482,18 +478,8 @@
     const result = submittedForm(form, 'bootApprove') as typeof data.bootApproveForm | null;
     return result?.id === data.bootApproveForm?.id ? result : null;
   });
-  // Which side of the source switch is showing. Held here because a save remounts the
-  // source view on its new revision; it belongs to the Agent, not to the revision.
-  let bootView = $state<'source' | 'resolved'>('source');
-  let bootViewAgentId = untrack(() => data.agent.id);
   $effect(() => {
-    const agentId = data.agent.id;
-    untrack(() => {
-      if (agentId !== bootViewAgentId) { bootViewAgentId = agentId; bootView = 'source'; }
-    });
-  });
-  $effect(() => {
-    if (bootSourceSubmission || bootStartSubmission || bootCompileSubmission || bootApproveSubmission) activeTab = 'boot';
+    if (bootStartSubmission || bootCompileSubmission || bootApproveSubmission) activeTab = 'boot';
   });
 
   function submitMemoryRoleChange(e: Event) {
@@ -882,9 +868,9 @@
           {#key data.bootStartForm.id}<StartBootSource seeded={false} canManage={data.canManageAgent} initial={data.bootStartForm} submitted={bootStartSubmission} />{/key}
         {/if}
       {:else if data.bootSource.mode === 'source'}
-        <!-- Keyed on the SOURCE only: a compiled-only change (compile, approve, reload) must not reset a dirty source draft. -->
-        {#key `${data.bootSourceForm.id}:${data.bootSource.node.revision}`}
-          <BootPromptSource showProvenance={activeTab === 'boot'} agentId={agent.id} shown={activeTab === 'boot'} bind:view={bootView} canManage={data.canManageAgent} urn={data.bootSource.node.urn} revision={data.bootSource.node.revision} compiled={data.bootSource.compiled} initial={data.bootSourceForm} compileInitial={data.bootCompileForm} approveInitial={data.bootApproveForm} noPointer={data.bootSource.noPointer} submitted={bootSourceSubmission} compileSubmitted={bootCompileSubmission} approveSubmitted={bootApproveSubmission} />
+        <!-- portal#1485: keyed on the Agent's forms and the SOURCE revision, so a Refresh that brings a new source revision re-reads its lint. -->
+        {#key `${data.bootCompileForm.id}:${data.bootSource.node.id}:${data.bootSource.node.revision}`}
+          <BootPromptSource showProvenance={activeTab === 'boot'} agentId={agent.id} shown={activeTab === 'boot'} canManage={data.canManageAgent} source={data.bootSource.node} compiled={data.bootSource.compiled} compileInitial={data.bootCompileForm} approveInitial={data.bootApproveForm} noPointer={data.bootSource.noPointer} compileSubmitted={bootCompileSubmission} approveSubmitted={bootApproveSubmission} />
         {/key}
       {:else if data.bootSource.mode === 'compiled-only'}
         <section data-boot-compiled-only>

@@ -168,6 +168,16 @@
       invalidateAll: true,
       clearOnSubmit: 'none',
       resetForm: true,
+      // #1916: runs BEFORE superforms' `invalidateAll`, so the fresh page data
+      // that reload brings is known to answer this viewer's own post.
+      onUpdate: ({ form: f, result }) => {
+        if (result.type === 'success' && f.valid && f.message?.type !== 'error') {
+          postedToTail = true;
+          // Re-armed here as well as in onUpdated: the reload's render (and its
+          // stick-to-bottom scroll) happens before onUpdated runs.
+          stickToBottom = true;
+        }
+      },
       onUpdated: ({ form: f }) => {
         // Clear the reply target only on a SUCCESSFUL post. Clearing it on
         // failure would silently downgrade a retried reply into a top-level
@@ -228,6 +238,12 @@
   // to the full-thread count (including posts made while catching up).
   let pendingNewerCount = $state(0);
   let dataGeneration = $state(0);
+  // #1916: set by a SUCCESSFUL post, consumed by the next fresh page data. A
+  // plain `let`, not state: the effect below reads it and must not depend on it.
+  // A restored or catching-up window can sit more than a page behind the tail;
+  // for a reader the gap rule keeps that window, but the tail a post brings
+  // holds the message just sent, and posting means "I am at the end".
+  let postedToTail = false;
   // #1137: the server's typed head refusal as it arrived on a poll or an older
   // page, after the initial load. It belongs to the generation that read it:
   // fresh page data (a new filter, App or post) clears it below.
@@ -245,15 +261,20 @@
       const filterChanged = previousFilterKey !== filterKey;
       previousFilterKey = filterKey;
       liveRefusal = null;
+      const jumpToTail = postedToTail;
+      postedToTail = false;
       if (onViewStateChange && !loadError) {
-        const previous = filterChanged ? null : polled ?? (firstWindow && restoredView ? { items: restoredView.items, total: restoredView.total } : null);
+        const kept = filterChanged ? null : polled ?? (firstWindow && restoredView ? { items: restoredView.items, total: restoredView.total } : null);
+        // Disjoint after your own post: take the fresh tail, as a first paint would.
+        const jumped = jumpToTail && !!kept && resumeTranscript(kept, messages, total) === kept;
+        const previous = jumped ? null : kept;
         const resumed = resumeTranscript(previous, messages, total);
         pendingNewerCount = resumed === previous ? (firstWindow ? restoredView?.pendingNewer ?? 0 : pendingNewerCount) : 0;
         polled = resumed;
         if (firstWindow && restoredView && !filterChanged) {
           olderRemainingCount = restoredView.olderRemaining;
           olderExhausted = restoredView.olderExhausted;
-        } else if (firstWindow || filterChanged) {
+        } else if (firstWindow || filterChanged || jumped) {
           olderRemainingCount = Math.max(0, total - messages.length);
           olderExhausted = false;
         }

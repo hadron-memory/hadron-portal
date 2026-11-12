@@ -116,6 +116,11 @@ jobs:
       - name: Check compact URN keyboard and touch layout
         run: pnpm test:urn-compact-layout
 
+      # portal#1711: the TaskHistory link values — touch targets, wrapping and
+      # overflow at 390px and 1280px, in real Chromium with compiled CSS.
+      - name: Check TaskHistory link layout
+        run: pnpm test:task-history-links-layout
+
       # portal#1700: the Nodes tab reads one bounded page per action and keeps its DOM windowed (real Chromium).
       - name: Check Nodes tab lazy reads
         run: pnpm test:nodes-tab-lazy
@@ -123,11 +128,17 @@ jobs:
       - name: Check shared tab-row overflow and keyboard layout
         run: pnpm test:tab-row-layout
 
+      - name: Check opt-in table cell paint and interactive minima
+        run: pnpm test:table-cell-overflow-layout
+
       - name: Check App Runs table layout
         run: pnpm test:app-runs-layout
 
       - name: Check disabled AI config row menu pointer access
         run: pnpm test:ai-config-row-menu
+
+      - name: Check AI config sign-in recovery navigation
+        run: pnpm test:ai-config-signin-recovery
 
       - name: Check invitation clipboard feedback
         run: pnpm test:invite-copy
@@ -139,6 +150,11 @@ jobs:
       - name: Check stacked memory picker layout
         run: pnpm test:stacked-memory-layout
 
+      # #1932: full-graph Check exceeded the hosted ~2 GiB default. The
+      # measured 4 GiB bound is Check-only; its preload reports sampled heap
+      # and process peak RSS in the job summary; either warns above 75%
+      # of the heap budget (RSS is conservative and includes native memory).
+      # No files/diagnostics are excluded; failure still fails this step.
       - name: Check
         run: pnpm check
 

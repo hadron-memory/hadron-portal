@@ -33,7 +33,7 @@
   import { goto } from '$app/navigation';
   import { parseHandle, taskHref } from '$lib/agent-tasks/handle';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
-  import type { PageData } from './$types';
+  import type { ActionData, PageData } from './$types';
 
   /**
    * portal#1052 — the App's task board (design §4): root tasks in one
@@ -41,7 +41,7 @@
    * page (§4.1's fallback: the Subtasks cell links there, anchored at
    * #subtasks).
    */
-  let { data }: { data: PageData } = $props();
+  let { data, form = null }: { data: PageData; form?: ActionData | null } = $props();
 
   const basePath = $derived(`/app/apps/${data.app.id}`);
   const appsHref = $derived(data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps');
@@ -231,7 +231,7 @@
   {:else if data.view === 'composition' && data.composition}
     <TasksComposition composition={data.composition} {basePath} impersonating={data.impersonating} />
   {:else if data.view === 'alarms' && data.alarms}
-    <TasksAlarms alarms={data.alarms} filter={data.alarmFilter} limit={data.alarmsLimit} refs={data.refs} {basePath} impersonating={data.impersonating} />
+    <TasksAlarms ackResult={form?.alarmAck ?? null} alarms={data.alarms} filter={data.alarmFilter} paging={data.alarmPaging} refs={data.refs} {basePath} impersonating={data.impersonating} />
   {:else if !board}
     <!-- The loader always reads the board for the board view; if it ever doesn't, say so rather than show nothing. -->
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">

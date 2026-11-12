@@ -5,7 +5,11 @@ import { extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/gql-error';
 export const CHAT_ERROR = {
   noConfig: t('agent-chat.error.no-config', 'Agent has no LLM provider configured. Set one in agent settings first.'),
   oldServer: t('agent-chat.error.old-server', "The Hadron server didn't recognize effectiveEndpoint, which portal chats need to check where an AI configuration sends requests, so the chat won't run. The server may be older than this portal."),
+  credentialUnavailable: t('agent-chat.error.credential-unavailable', 'The credentials for this AI configuration are not available to this portal session. Ask whoever manages the configuration for access, or use an available configuration.'),
   configUnsupported: t('agent-chat.error.config-unsupported', 'This AI configuration cannot run in portal chats. Check its provider and endpoint.'),
+  // portal#1963 (hadron-server#3957): the server refused the chat's AI config choice (another App's, deleted, or
+  // unknown: one answer for all three). Fixed copy only; the id is never echoed.
+  configChoiceUnavailable: t('agent-chat.error.config-choice-unavailable', "That AI config isn't available for this chat any more. Pick another one and send again."),
   llmFailed: t('agent-chat.error.llm-failed', 'The AI turn could not be completed. Check the provider configuration and try again.'),
   fixtureEndedWelcome: t('agent-chat.error.fixture-ended-welcome', 'Chat ended during the welcome turn before the fixture message was sent.'),
   // portal#1665 — the server's closed set of boot-prompt refusals (hrn:node:hadronmemory.com:specs:cor:agt:040:10). One fixed message each.
@@ -55,9 +59,15 @@ export function bootPromptRefusalCode(error: unknown): ChatErrorCode | null {
   return serverCode && Object.hasOwn(BOOT_PROMPT_REFUSALS, serverCode) ? BOOT_PROMPT_REFUSALS[serverCode] : null;
 }
 
+/** portal#1963: startChat / sendChatMessage refused the `aiConfigChoice` (code alone, never the message). */
+export function configChoiceRefusalCode(error: unknown): ChatErrorCode | null {
+  return extractGqlErrorCode(error) === 'AiServiceConfigNotFoundError' ? 'configChoiceUnavailable' : null;
+}
+
 /** "Fix the setup first" cases answer 409; anything else is a generic 500. */
 const CONFLICT_CODES: ReadonlySet<ChatErrorCode> = new Set<ChatErrorCode>([
   'noConfig',
+  'configChoiceUnavailable',
   'bootPromptNotSet',
   'bootPromptTargetDeleted',
   'bootPromptNotApproved',
@@ -67,7 +77,7 @@ const CONFLICT_CODES: ReadonlySet<ChatErrorCode> = new Set<ChatErrorCode>([
 ]);
 
 export function publicChatError(error: unknown): { code: ChatErrorCode; message: string; status: number } {
-  const code = error instanceof ChatError ? error.code : (bootPromptRefusalCode(error) ?? 'failed');
+  const code = error instanceof ChatError ? error.code : (bootPromptRefusalCode(error) ?? configChoiceRefusalCode(error) ?? 'failed');
   return { code, message: CHAT_ERROR[code], status: CONFLICT_CODES.has(code) ? 409 : 500 };
 }
 

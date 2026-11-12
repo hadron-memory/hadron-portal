@@ -1,10 +1,11 @@
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
+import { readAiConfigChoice } from '$lib/server/llm/aiConfigChoice.js';
 import { partialTurnRefusal, publicChatError } from '$lib/server/llm/chatError.js';
 import type { RequestHandler } from './$types';
 
 /**
  * POST /api/agent-chat/turn
- * Body: { agentId: string, chatId: string, userMessage: string }
+ * Body: { agentId: string, chatId: string, userMessage: string, appId?, configName?, aiConfigChoice? }
  *
  * Runs one full chat turn: sendChatMessage → LLM call → processChatResponse.
  * Returns the assistant's message plus stage transition info.
@@ -23,6 +24,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     userMessage?: string;
     appId?: string;
     configName?: string;
+    aiConfigChoice?: unknown;
   };
   try {
     body = await request.json();
@@ -39,6 +41,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     );
   }
 
+  // portal#1963: a malformed choice is refused before anything is written.
+  const choice = readAiConfigChoice(body.aiConfigChoice);
+  if (!choice.ok) {
+    return new Response(JSON.stringify({ error: 'aiConfigChoice must be a config id or "default"' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   try {
     const turn = await runChatTurn({
       token: locals.token,
@@ -47,6 +58,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       userMessage: body.userMessage,
       appId: body.appId,
       configName: body.configName,
+      aiConfigChoice: choice.value,
     });
     return new Response(JSON.stringify(turn), {
       status: 200,

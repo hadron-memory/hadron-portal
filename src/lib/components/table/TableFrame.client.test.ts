@@ -50,6 +50,37 @@ describe('TableFrame (#1021)', () => {
     expect(q('table-header').className).not.toMatch(/(^|\s)flex(\s|$)/);
   });
 
+  it('closes and reopens through the original toggle without losing filter state or focus', async () => {
+    const { q } = mountFrame();
+    const toggle = q('table-header-toggle');
+    const search = q('search') as HTMLInputElement;
+    search.value = 'Alpha';
+
+    toggle.click();
+    await tick();
+    await tick();
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(q('table-header').hidden).toBe(false);
+    expect(toggle.className).not.toMatch(/(^|\s)hidden(\s|$)/);
+    expect(document.activeElement).toBe(search);
+
+    toggle.click();
+    await tick();
+    await tick();
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(q('table-header').hidden).toBe(true);
+    expect(document.activeElement).toBe(toggle);
+    expect(search.value).toBe('Alpha');
+
+    toggle.click();
+    await tick();
+    await tick();
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(q('table-header').hidden).toBe(false);
+    expect(search.value).toBe('Alpha');
+    expect(document.activeElement).toBe(search);
+  });
+
   it('attaches to the table when open: shared border, squared table corners; not when folded', () => {
     const { q, target } = mountFrame();
     const wrapper = q('scroller').parentElement!;

@@ -177,6 +177,17 @@ export const APP_FIELDS = /* GraphQL */ `
 // Queries
 // ---------------------------------------------------------------------------
 
+/** #1955: only current identity, never credentials or draft values. */
+export const AI_CONFIG_PRINCIPAL_QUERY = /* GraphQL */ `
+  query AiConfigPrincipal {
+    authContext {
+      principalType
+      user { id }
+      appId
+    }
+  }
+`;
+
 /**
  * #1091, hrn:node:hadronmemory.com:specs:cor:aut:010:05: whether the credential THIS
  * request presented authenticates. AUTHENTICATED, REFUSED (one answer for every
@@ -260,6 +271,7 @@ export const MEMORY_BY_ID_QUERY = /* GraphQL */ `
   query MemoryById($ref: ID!) {
     memory(ref: $ref) {
       ...MemoryFields
+      organization { urn }
       subscriptions {
         id
         role
@@ -618,6 +630,61 @@ export const MEMORY_LAYOUT_ORG_QUERY = /* GraphQL */ `
         id
         role
         user { id }
+      }
+    }
+  }
+`;
+
+export const MEMORY_OWNER_PUBLIC_ORG_QUERY = /* GraphQL */ `
+  query MemoryOwnerPublicOrg($ref: ID!) {
+    publicOrganization(ref: $ref) {
+      id
+      name
+      urn
+    }
+  }
+`;
+
+/** #1846: /app/u needs only the canonical id, never the profile's nested lists. */
+export const PUBLIC_ORGANIZATION_ROUTE_QUERY = /* GraphQL */ `
+  query PublicOrganizationRoute($ref: ID!) {
+    publicOrganization(ref: $ref) { id }
+  }
+`;
+
+/**
+ * hrn:node:hadronmemory.com:specs:cor:acl:080:02 — the bounded, closed
+ * projections rendered by /app/org/[id]. The portal's static GraphQL validator
+ * requires argument and variable names to match, so the independently paged
+ * kinds use one bounded request each rather than generated literals.
+ */
+export const PUBLIC_ORGANIZATION_MEMORIES_QUERY = /* GraphQL */ `
+  query PublicOrganizationMemories($ref: ID!, $limit: Int, $offset: Int) {
+    publicOrganization(ref: $ref) {
+      id
+      name
+      urn
+      listedOnMarketplace
+      publicMemoriesPage(limit: $limit, offset: $offset) {
+        items { id name urn description }
+        total
+        hasMore
+      }
+    }
+  }
+`;
+
+export const PUBLIC_ORGANIZATION_AGENTS_QUERY = /* GraphQL */ `
+  query PublicOrganizationAgents($ref: ID!, $limit: Int, $offset: Int) {
+    publicOrganization(ref: $ref) {
+      id
+      name
+      urn
+      listedOnMarketplace
+      publicAgentsPage(limit: $limit, offset: $offset) {
+        items { id name urn description }
+        total
+        hasMore
       }
     }
   }
@@ -2129,6 +2196,7 @@ export const UNINSTALL_AGENT_FROM_APP_MUTATION = /* GraphQL */ `
 export const AI_SERVICE_CONFIG_FIELDS = /* GraphQL */ `
   fragment AiServiceConfigFields on AiServiceConfig {
     id
+    urn
     name
     ownerType
     ownerId
@@ -2212,11 +2280,13 @@ export const DELETE_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
   }
 `;
 
-// Privileged — returns the DECRYPTED key. Server gates on org-ADMIN / platform.
+// Resolution identity can exist without credentials. Only the source manager
+// receives credential material; consumers must refuse withheld/null keys.
 // Used only server-side (runtime chat path + Test); never sent to the browser.
 export const RESOLVE_AI_CONFIG_QUERY = /* GraphQL */ `
-  query ResolveAIConfig($name: String, $appRef: ID, $agentRef: ID) {
-    resolveAIConfig(name: $name, appRef: $appRef, agentRef: $agentRef) {
+  query ResolveAIConfig($name: String, $appRef: ID, $agentRef: ID, $chatId: ID) {
+    # portal#1963: chatId (hadron-server#3957) lets the server apply the chat's stored choice.
+    resolveAIConfig(name: $name, appRef: $appRef, agentRef: $agentRef, chatId: $chatId) {
       provider
       model
       apiKey
@@ -2229,16 +2299,13 @@ export const RESOLVE_AI_CONFIG_QUERY = /* GraphQL */ `
   }
 `;
 
-// #928: the Agent tester's readiness probe. The SAME resolution the tester's
-// runtime performs (fetchAgentAIConfig: name default, agentRef, no app), so
-// the two cannot disagree: inherited Agent -> Org -> Host configs count, a
-// nearer enabled config without a key fails closed, and the server alone
-// decides what makes a config usable. Deliberately selects NO key material:
-// the decrypted key stays on the server, and nothing here can leak it to the
-// page. Same gate as the runtime (org ADMIN of the effective org).
+// Server-only tester readiness: request credential presence under the same
+// resolution contract as the runtime. The loader projects identity fields
+// explicitly and never returns the key or credential-bearing params.
 export const AI_CONFIG_READINESS_QUERY = /* GraphQL */ `
   query AiConfigReadiness($name: String, $agentRef: ID) {
     resolveAIConfig(name: $name, agentRef: $agentRef) {
+      apiKey
       name
       ownerType
       provider
@@ -2263,6 +2330,51 @@ export const RESOLVE_AI_SERVICE_CONFIGS_QUERY = /* GraphQL */ `
   }
 `;
 
+/**
+ * portal#1963 (hadron-server#3957, hrn:node:hadronmemory.com:specs:cor:dmo:050:10): what a chat of this App may
+ * choose its AI config from — the App's own enabled configs plus one `default` entry. Never a key, key preview,
+ * params or endpoint. Any App member; anyone else gets APP_NOT_FOUND.
+ */
+export const CHAT_AI_CONFIG_CHOICES_QUERY = /* GraphQL */ `
+  query ChatAiConfigChoices($appRef: ID!) {
+    chatAiConfigChoices(appRef: $appRef) {
+      value
+      name
+      provider
+      model
+      isDefault
+      isAppChatbotConfig
+    }
+  }
+`;
+
+/**
+ * portal#1963 (hadron-server#3957): the App's chatbot AI config id. Its own query, not APP_QUERY, so a server
+ * without the field fails this read alone and never the App page. Null for anyone who is neither a member nor
+ * whoever manages the App, and null when unset.
+ */
+export const APP_CHATBOT_AI_CONFIG_QUERY = /* GraphQL */ `
+  query AppChatbotAiConfig($ref: ID!) {
+    app(ref: $ref) {
+      id
+      chatbotAiConfigId
+    }
+  }
+`;
+
+/**
+ * portal#1963 (hadron-server#3957, hrn:node:hadronmemory.com:specs:cor:dmo:050:12): set (configId) or clear (null)
+ * the App's chatbot AI config. Whoever manages the App.
+ */
+export const SET_APP_CHATBOT_AI_CONFIG_MUTATION = /* GraphQL */ `
+  mutation SetAppChatbotAiConfig($appRef: ID!, $configId: ID) {
+    setAppChatbotAiConfig(appRef: $appRef, configId: $configId) {
+      id
+      chatbotAiConfigId
+    }
+  }
+`;
+
 export const MY_CHATS_QUERY = /* GraphQL */ `
   query MyChats($agentRef: ID!, $limit: Int, $offset: Int) {
     myChats(agentRef: $agentRef, limit: $limit, offset: $offset) {
@@ -2276,6 +2388,8 @@ export const MY_CHATS_QUERY = /* GraphQL */ `
       lastMessageAt
       scope
       createdBy
+      # portal#1963 (hadron-server#3957): the AI config choice stored with the chat, or null.
+      aiConfigChoice
     }
   }
 `;
@@ -2303,6 +2417,7 @@ export const START_CHAT_MUTATION = /* GraphQL */ `
     $scope: ChatScope
     $isTestRun: Boolean
     $llmModel: String
+    $aiConfigChoice: String
   ) {
     startChat(
       agentId: $agentId
@@ -2310,6 +2425,8 @@ export const START_CHAT_MUTATION = /* GraphQL */ `
       scope: $scope
       isTestRun: $isTestRun
       llmModel: $llmModel
+      # portal#1963 (hadron-server#3957): omitted unless the user picked one.
+      aiConfigChoice: $aiConfigChoice
     ) {
       chatId
       systemMessage
@@ -2321,8 +2438,8 @@ export const START_CHAT_MUTATION = /* GraphQL */ `
 `;
 
 export const SEND_CHAT_MESSAGE_MUTATION = /* GraphQL */ `
-  mutation SendChatMessage($chatId: String!, $userMessage: String!, $llmModel: String) {
-    sendChatMessage(chatId: $chatId, userMessage: $userMessage, llmModel: $llmModel) {
+  mutation SendChatMessage($chatId: String!, $userMessage: String!, $llmModel: String, $aiConfigChoice: String) {
+    sendChatMessage(chatId: $chatId, userMessage: $userMessage, llmModel: $llmModel, aiConfigChoice: $aiConfigChoice) {
       systemMessage
       tools
       messageHistory
@@ -4770,13 +4887,13 @@ export const APP_SHARED_MEMORY_QUERY = /* GraphQL */ `
 `;
 
 /**
- * #942: may the caller write this memory? `resource` MUST be the memory's
- * `hrn:mem:` URN: a bare id is read as an AiServiceConfig id and answers
- * NOT_FOUND.
+ * #942: may the caller write or manage this memory? `resource` MUST be the
+ * memory's `hrn:mem:` URN: a bare id is read as an AiServiceConfig id and
+ * answers NOT_FOUND.
  */
 export const SELF_CAN_WRITE_QUERY = /* GraphQL */ `
   query SelfCanWrite($user: ID!, $resource: ID!) {
-    effectiveAccess(user: $user, resource: $resource) { canWrite }
+    effectiveAccess(user: $user, resource: $resource) { canWrite canManage }
   }
 `;
 
@@ -4883,20 +5000,18 @@ export const BOOT_SOURCE_QUERY = /* GraphQL */ `
 export const BOOT_COMPILED_QUERY = /* GraphQL */ `
   query BootCompiled($ref: ID!) {
     node(ref: $ref, raw: true) {
-      id urn revision content
+      id urn memoryId revision content
       approvalStatus { state approval { revision } }
       lintWarnings(first: 50) { items { kind position text targetUrn pinnedRevision newerRevision workerField } total nextCursor }
     }
   }
 `;
 
-// portal#1667 — the saved source as this reader can read it. raw: false, so never
-// feed an editor from it: includes are filled in by the server, as the reader, and a
-// target the reader can't have comes back as the server's notice. Revisions can't be
-// pinned here, so `revision` is what says which one was resolved.
-export const BOOT_RESOLVED_SOURCE_QUERY = /* GraphQL */ `
-  query BootResolvedSource($ref: ID!, $memoryRef: ID!) {
-    node(ref: $ref, memoryRef: $memoryRef, raw: false) { id revision content }
+// portal#1485 — the source's approval for the workflow's optional review step. Its own
+// request: the client throws on any error in a response, and this status is advisory.
+export const BOOT_SOURCE_APPROVAL_QUERY = /* GraphQL */ `
+  query BootSourceApproval($ref: ID!) {
+    node(ref: $ref, raw: true) { id revision approvalStatus { state approval { revision } } }
   }
 `;
 
@@ -5337,6 +5452,8 @@ export const APP_TEAM_ROSTER_QUERY = /* GraphQL */ `
         checkStatus { status pendingReason }
         pausedUntil
         currentTask { id title status }
+        heldBy { id handle urn name }
+        heldAt
         # portal#1492: state, reason and age only — never the host label or prompt.
         terminal { status reason checkedAt }
       }
@@ -5357,8 +5474,8 @@ export const AGENT_TASK_REF_QUERY = /* GraphQL */ `
 `;
 
 export const AGENT_ALARMS_QUERY = /* GraphQL */ `
-  query AgentAlarms($appRef: ID!, $after: ID, $limit: Int) {
-    agentTeamEvents(appRef: $appRef, alarmsOnly: true, after: $after, limit: $limit) {
+  query AgentAlarms($appRef: ID!, $before: ID, $after: ID, $newestFirst: Boolean, $limit: Int) {
+    agentTeamEvents(appRef: $appRef, alarmsOnly: true, newestFirst: $newestFirst, before: $before, after: $after, limit: $limit) {
       id
       type
       severity
@@ -5619,5 +5736,35 @@ export const CHANGE_WORKER_AGENT_MUTATION = /* GraphQL */ `
 export const APP_CASTABLE_AGENTS_QUERY = /* GraphQL */ `
   query AppCastableAgents($ref: ID!) {
     app(ref: $ref) { id appAgents { agent { id name urn description personaRole } } }
+  }
+`;
+
+// #1908: isolated usage reads, never placed on a shared App fragment.
+export const APP_USAGE_ACCOUNTS_QUERY = /* GraphQL */ `
+  query AppUsageAccounts($appRef: ID!) {
+    accountUsageAccounts(appRef: $appRef) {
+      asOf complete accounts { account host family newestSnapshotAt workers workersConfigured }
+    }
+  }
+`;
+export const ACCOUNT_USAGE_PROJECTION_QUERY = /* GraphQL */ `
+  query AccountUsageProjection($appRef: ID!, $account: String!, $host: String, $family: String, $whatIf: AccountUsageWhatIfInput) {
+    accountUsageProjection(appRef: $appRef, account: $account, host: $host, family: $family, whatIf: $whatIf) {
+      account host family asOf newestSnapshotAt workers workersConfigured
+      windows { ...UsageWindowFields }
+      whatIf { adjusted { ...UsageWindowFields } target { account baseline { ...UsageWindowFields } adjusted { ...UsageWindowFields } } }
+    }
+  }
+  fragment UsageWindowFields on AccountUsageWindowProjection {
+    window lengthMinutes status reason usedPct resetsAt observedAt lowPctAtReset highPctAtReset
+    burn { lowPctPerHour highPctPerHour } perWorkerBurn { lowPctPerHour highPctPerHour }
+    confidence shape runsOutAt ceilingPct
+  }
+`;
+
+// portal#1941: the signed-in person acknowledges through the existing server gate.
+export const ACKNOWLEDGE_ALARM_MUTATION = /* GraphQL */ `
+  mutation AcknowledgeAlarm($eventId: ID!) {
+    acknowledgeAlarm(eventId: $eventId) { id acknowledgedAt }
   }
 `;

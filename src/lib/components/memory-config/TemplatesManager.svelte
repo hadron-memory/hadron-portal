@@ -17,7 +17,7 @@
   import type { Rule, Template, OwnerType, ApplyPreview } from '$lib/memory-config/types';
   import TaskWarnings from './TaskWarnings.svelte';
   import { normalizeWarnings } from '$lib/memory-config/warnings';
-  let { initial, ownerType, ownerRef, readOnly, canManage, memories, memoriesFailed }: { initial: Template[]; ownerType: OwnerType; ownerRef: string; readOnly: boolean; canManage: boolean; memories: { id: string; name: string; urn: string }[]; memoriesFailed: boolean } = $props();
+  let { initial, ownerType, ownerRef, readOnly, canManage, memories, memoriesFailed, leaveMessage = $bindable(null) }: { leaveMessage?: string | null; initial: Template[]; ownerType: OwnerType; ownerRef: string; readOnly: boolean; canManage: boolean; memories: { id: string; name: string; urn: string }[]; memoriesFailed: boolean } = $props();
   let snapshot = untrack(() => initial);
   let templates = $state(untrack(() => initial)), editing = $state<Template | null | undefined>(undefined);
   let nameInput = $state<HTMLInputElement>();
@@ -32,8 +32,16 @@
   let preview = $state<ApplyPreview | null>(null), previewStale = $state(false);
   let bulk = $state<Template | null>(null), bulkPending = $state(false);
   $effect(() => { if (initial !== snapshot) { snapshot = initial; templates = initial; chosen = null; preview = null; } });
+  // The confirmation text while there is something to lose, else null. A route change asks
+  // through beforeNavigate below, from the bound `leaveMessage`; a host that swaps this manager
+  // out itself (the App page's tabs, #1936) reads it, asks the question, and clears it to say
+  // "already asked".
+  const leaveText = $derived(editing !== undefined || ruleIndex !== null || pending || bulkPending
+    ? (pending || bulkPending ? t('config.leave-pending', 'An operation is still running. Leave this page? Leaving does not cancel it.') : t('config.discard-draft', 'Leave this page and discard your unsaved changes?'))
+    : null);
+  $effect(() => { leaveMessage = leaveText; });
   beforeNavigate(({ cancel }) => {
-    if ((editing !== undefined || ruleIndex !== null || pending || bulkPending) && !window.confirm(pending || bulkPending ? t('config.leave-pending', 'An operation is still running. Leave this page? Leaving does not cancel it.') : t('config.discard-draft', 'Leave this page and discard your unsaved changes?'))) cancel();
+    if (leaveMessage && !window.confirm(leaveMessage)) cancel();
   });
   $effect(() => { if (editing !== undefined && nameInput?.isConnected) nameInput.focus(); });
   const writable = $derived(canManage && !readOnly);

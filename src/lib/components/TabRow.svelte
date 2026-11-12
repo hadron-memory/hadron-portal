@@ -27,9 +27,18 @@
   let alive = true;
   onDestroy(() => { alive = false; });
   const escape = { close: () => close(true) };
-  const base = 'pointer-coarse:min-h-11 shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-indigo-500 focus-visible:outline-offset-[-2px]';
+  const base = 'pointer-coarse:min-h-11 border-b-2 px-4 py-2 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-indigo-500 focus-visible:outline-offset-[-2px]';
+  const nowrap = 'shrink-0 whitespace-nowrap';
+  // A selected label wider than the whole column cannot shrink or sit on a second
+  // line of the row; let its own text wrap (still whole and readable) so neither
+  // the row nor the page grows past the column (#1895).
+  const oversizeSelection = $derived(available !== null && available > 0 &&
+    (widths[items.findIndex(item => item.id === active)] ?? 0) > available);
   function style(id: string) {
-    return `${base} ${id === active ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}`;
+    const fit = id === active && oversizeSelection
+      ? 'min-w-0 max-w-full whitespace-normal break-words text-left'
+      : nowrap;
+    return `${base} ${fit} ${id === active ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}`;
   }
   function measureRow() {
     if (!alive || !root || !measure) return;
@@ -129,11 +138,13 @@
   </svelte:element>
   {#if open && hidden.length}
     <div bind:this={menu} role="menu" use:dialogEscapeFallback={escape} aria-label={t('tab-row.more-label', 'More sections')} tabindex="-1" onkeydown={menuKey} class="absolute right-0 top-full z-30 max-h-80 max-w-[calc(100vw-2rem)] overflow-auto rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+      <!-- anywhere also lowers the shrink-to-fit menu's intrinsic minimum;
+           break-word wraps paint but can leave the menu wider than the column. -->
       {#each hidden as item (item.id)}
         {#if item.href}
-          <a role="menuitem" tabindex="-1" href={item.href} data-sveltekit-reload={item.reload || undefined} data-sveltekit-preload-data={item.preload} class="pointer-coarse:min-h-11 block whitespace-nowrap px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-100 focus:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800" onclick={() => close(true)}>{@render caption(item)}</a>
+          <a role="menuitem" tabindex="-1" href={item.href} data-sveltekit-reload={item.reload || undefined} data-sveltekit-preload-data={item.preload} class="pointer-coarse:min-h-11 block whitespace-normal [overflow-wrap:anywhere] px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-100 focus:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800" onclick={() => close(true)}>{@render caption(item)}</a>
         {:else}
-          <button type="button" role="menuitem" tabindex="-1" class="pointer-coarse:min-h-11 block w-full whitespace-nowrap px-4 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100 focus:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800" onclick={async () => { close(true); onselect?.(item.id); await tick(); if (!alive || active !== item.id) return; root?.querySelector<HTMLElement>(`[role=tab][aria-selected=true]`)?.focus(); }}>{@render caption(item)}</button>
+          <button type="button" role="menuitem" tabindex="-1" class="pointer-coarse:min-h-11 block w-full whitespace-normal [overflow-wrap:anywhere] px-4 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100 focus:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800" onclick={async () => { close(true); onselect?.(item.id); await tick(); if (!alive || active !== item.id) return; root?.querySelector<HTMLElement>(`[role=tab][aria-selected=true]`)?.focus(); }}>{@render caption(item)}</button>
         {/if}
       {/each}
     </div>
@@ -141,6 +152,6 @@
 </div>
 <!-- Off-layout labels supply intrinsic widths without duplicate interactive controls. -->
 <div bind:this={measure} aria-hidden="true" inert class="pointer-events-none fixed left-0 top-0 invisible flex w-max">
-  {#each items as item (item.id)}<span data-tab-row-measure class={base}>{@render caption(item)}</span>{/each}
-  <span data-more-measure class={base}>{t('tab-row.more', 'More')} <span>▾</span></span>
+  {#each items as item (item.id)}<span data-tab-row-measure class={`${base} ${nowrap}`}>{@render caption(item)}</span>{/each}
+  <span data-more-measure class={`${base} ${nowrap}`}>{t('tab-row.more', 'More')} <span>▾</span></span>
 </div>

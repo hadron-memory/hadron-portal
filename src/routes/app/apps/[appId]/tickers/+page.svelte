@@ -140,7 +140,7 @@
       <span class="font-normal text-zinc-400">{t('app.tickers.title.prefix', 'Tickers:')}</span> {data.app.name}
     </h1>
     <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-      {t('app.tickers.intro', 'A ticker decides when the workers subscribed to it are due a wake-up. A router delivers the wake-ups; this page only shows who is due and when.')}
+      {t('app.tickers.intro', 'A ticker decides when the workers subscribed to it are due a wake. A router delivers the wakes; this page only shows who is due and when.')}
     </p>
   </div>
 
@@ -178,9 +178,9 @@
       <div role="status" class="space-y-2 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-testid="tickers-empty">
         <p>
           <span class="font-medium text-zinc-900 dark:text-white">{t('app.tickers.empty.lead', 'No tickers yet.')}</span>
-          {t('app.tickers.empty.body', 'A mention already makes a worker due at once, unless its mentions are off or it is paused. A ticker adds scheduled wake-ups: every so often, it makes the workers subscribed to it that have unread messages due.')}
+          {t('app.tickers.empty.body', 'A mention already makes a worker due at once, unless its mentions are off or it is paused. A ticker adds scheduled wakes: every so often, it makes the workers subscribed to it that have unread messages due.')}
         </p>
-        <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tickers.empty.router', 'A router delivers the wake-ups. This page only decides who is due and when.')}</p>
+        <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tickers.empty.router', 'A router delivers the wakes. This page only decides who is due and when.')}</p>
       </div>
     {:else}
       <DataTable
