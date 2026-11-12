@@ -24,7 +24,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { page, resetStubPage, setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
-import { actionResultOf, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { actionResultOf, submitEnhancedWithRawResult, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { MOVE_NODE_MUTATION, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY, UPDATE_NODE_MUTATION } from '$lib/server/queries';
 import { nodeMetaBaseline } from '$lib/node-meta-seed';
 import Page from './+page.svelte';
@@ -240,6 +240,50 @@ describe('a failed save that wrote nothing leaves the baseline alone (Glen on #2
     const retried = await postForm(m.target);
     expect(retried.status).toBeUndefined();
     expect(mockRequest.mock.calls.map(([q]) => q)).toContain(UPDATE_NODE_MUTATION);
+  });
+});
+
+describe('an unconfirmed save under the fence (portal#2014 composed with portal#2023)', () => {
+  const UNCONFIRMED = /save wasn't confirmed/i;
+
+  it('keeps the draft and the baseline, shows the unconfirmed text, and the retry is accepted', async () => {
+    const { m } = await mountSettings();
+    buttonNamed(m.target, 'Edit')!.click();
+    flushSync();
+    type(input(m.target, 'editName'), 'Unsaved draft');
+
+    // No action response arrived (a dropped request): kit hands superforms an `error` result.
+    await submitEnhancedWithRawResult(metaForm(m.target), { type: 'error', error: new Error('network') });
+    await settle();
+
+    expect(m.target.querySelector('[data-testid="node-meta-error"]')?.textContent).toMatch(UNCONFIRMED);
+    expect(input(m.target, 'editName').value).toBe('Unsaved draft');
+    expect(hidden(m.target, 'baseline')).toBe(nodeMetaBaseline(NODE));
+    // Save is usable again (the point of #2014's no-rethrow onError).
+    expect(Array.from(m.target.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Save')?.disabled ?? false).toBe(false);
+
+    mockRequest.mockClear();
+    const retried = await postForm(m.target);
+    expect(retried.status).toBeUndefined();
+    expect(mockRequest.mock.calls.map(([q]) => q)).toContain(UPDATE_NODE_MUTATION);
+  });
+
+  it('an unconfirmed save followed by another editor\'s change is still refused on retry, not written over', async () => {
+    const { m, props } = await mountSettings();
+    buttonNamed(m.target, 'Edit')!.click();
+    flushSync();
+    type(input(m.target, 'editName'), 'Unsaved draft');
+    await submitEnhancedWithRawResult(metaForm(m.target), { type: 'error', error: new Error('network') });
+    await settle();
+    stored = OTHER;
+    await refreshLoader(props);
+
+    mockRequest.mockClear();
+    const retried = await postForm(m.target);
+    expect(retried.status).toBe(409);
+    const sent = mockRequest.mock.calls.map(([q]) => q);
+    expect(sent).not.toContain(UPDATE_NODE_MUTATION);
+    expect(sent).not.toContain(MOVE_NODE_MUTATION);
   });
 });
 
