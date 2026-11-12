@@ -26,7 +26,7 @@
  * does not await the reload (portal#1882's fix), and the alert assertions fail
  * when the page does not hold the refusal (#1989's).
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { nodeMetaBaseline } from '$lib/node-meta-seed';
 import { flushSync } from 'svelte';
 import { get } from 'svelte/store';
@@ -70,6 +70,8 @@ const mounted: Array<Mounted<Record<string, unknown>>> = [];
 let reloaded: () => Promise<void> = async () => {};
 /** Kit hands the page store's action data to the page as its `form` prop; the stub's applyAction sets only the store. */
 let mirrorKitForm: () => void = () => {};
+/** Restored in afterEach: a spy left installed would hide a real warning in every later test file's run order (portal#2005 F8). */
+let warnSpy: MockInstance<typeof console.warn>;
 beforeEach(() => {
   mockRequest.mockReset();
   mockRequest.mockImplementation(async (doc: string) => {
@@ -79,10 +81,11 @@ beforeEach(() => {
     return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
   });
   resetNavigationCalls();
-  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
 });
 afterEach(() => {
+  warnSpy.mockRestore();
   while (mounted.length) mounted.pop()!.unmount();
   delete navigationHooks.onInvalidateAll;
   vi.unstubAllGlobals();
@@ -148,6 +151,22 @@ const metaAlert = (target: HTMLElement) =>
 const buttonNamed = (target: HTMLElement, label: string) =>
   Array.from(target.querySelectorAll('button')).find((b) => b.textContent?.trim() === label);
 
+/**
+ * portal#2005 (Glen's delta F2): wait for the reload, but fail with a message that says so if the page
+ * never reloads, instead of hanging into the vitest timeout.
+ */
+async function reloadRan(ms = 2000): Promise<void> {
+  let timer: ReturnType<typeof setTimeout>;
+  const never = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`the page did not reload within ${ms}ms (invalidateAll never delivered fresh data)`)), ms);
+  });
+  try {
+    await Promise.race([reloaded(), never]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
+
 async function settle() {
   for (let i = 0; i < 10; i++) await tick();
   flushSync();
@@ -177,7 +196,7 @@ describe('a refused move after a committed Save stays visible (#1989)', () => {
     await submitEnhancedWithResult(m.target.querySelector<HTMLFormElement>('form[action="?/updateMeta"]')!, {
       type: 'failure', status: r.status, data: r.data,
     });
-    await reloaded();
+    await reloadRan();
     await settle();
 
     expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true); // the reload ran
@@ -223,7 +242,7 @@ describe('a refused move after a committed Save stays visible (#1989)', () => {
     await submitEnhancedWithResult(m.target.querySelector<HTMLFormElement>('form[action="?/updateMeta"]')!, {
       type: 'failure', status: r.status, data: r.data,
     });
-    await reloaded();
+    await reloadRan();
     await settle();
     // As in a browser: superforms applies the failure after the awaited reload, and kit passes it to the page.
     mirrorKitForm();
