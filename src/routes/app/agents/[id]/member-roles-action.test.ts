@@ -102,4 +102,10 @@ describe('Agent member-roles action (portal#1405)', () => {
     expect(formOf(await run(['owner'], 'updateMemberRoles:agent-a'))).toMatchObject({ id: 'updateMemberRoles:agent-a' });
     expect(formOf(await run([], 'updateMemberRoles:agent-a'))).toMatchObject({ id: 'updateMemberRoles:agent-a' });
   });
+
+  it('answers a native POST under the scoped id its markup names, refusals included (portal#2068, LOCAL F1 on #2071)', async () => {
+    const id = 'updateMemberRoles:agent-a';
+    expect(formOf(await run([], id))).toMatchObject({ id, valid: false });
+    expect(formOf(await run(['owner'], id))).toMatchObject({ id });
+  });
 });

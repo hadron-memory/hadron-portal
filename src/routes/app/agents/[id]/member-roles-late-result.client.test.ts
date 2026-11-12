@@ -116,4 +116,10 @@ describe('late member-roles result across Agents (portal#2068)', () => {
     expect(save(target)!.disabled).toBe(true);
     expect(target.textContent).not.toContain('A refusal');
   });
+
+  it('a native (non-enhanced) POST names this Agent\u2019s form id, so its own refusal comes back to it (LOCAL F1 on #2071)', async () => {
+    const { target } = await mountOn('agent-a', ['alpha']);
+    const id = rolesForm(target)!.querySelector<HTMLInputElement>('input[name="__superform_id"]');
+    expect(id?.value).toBe(memberRolesFormId('agent-a'));
+  });
 });
