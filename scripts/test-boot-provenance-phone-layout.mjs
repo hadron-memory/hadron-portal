@@ -16,9 +16,10 @@ const shots = process.env.BOOT_PROVENANCE_SHOTS;
 if (shots) await mkdir(shots, { recursive: true });
 const LIST_KEY = 'boot-prompt-provenance';
 const savedSizing = width => width === 1280 ? { name: 900, selection: 400, pruned: 300 } : width < 640 ? { name: 500, selection: 300, pruned: 200 } : null;
-// What each row must still say on a phone, where the two narrow columns fold away.
+// What each row must still say on a phone, where the two narrow columns fold away:
+// Include settings as a labelled line, and a pruned row's "No longer kept" (#1757).
 const expected = [
-  ['Engineering safety and collaboration', 'Latest revision · Approved only', 'Kept'],
+  ['Engineering safety and collaboration', 'Latest revision · Approved only'],
   ['Not available to you', 'Latest revision · Approved only'],
   ['Previous operating guide', 'Revision 4 · Approved and signed only', 'No longer kept'],
 ];
@@ -67,7 +68,7 @@ try {
           assert.ok(Math.abs(g.table - g.client) <= 1, `${label}: the table fits its scroller (${g.table}px vs ${g.client}px)`);
           assert.equal(await headers.count(), 1, `${label}: one visible column header on a phone`);
           assert.equal(await page.getByTestId('data-table-scroller').getByRole('separator').count(), 0, `${label}: no resize handle while the phone layout is active`);
-          // Nothing is lost: each row still carries its settings and retention, as visible text.
+          // Each row still carries its settings, and a pruned row its retention, as visible text.
           for (let i = 0; i < expected.length; i++) {
             const row = rows.nth(i);
             for (const piece of expected[i]) assert.ok((await row.innerText()).includes(piece), `${label}: row ${i + 1} shows "${piece}" on a phone`);

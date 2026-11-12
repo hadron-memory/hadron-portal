@@ -2,15 +2,15 @@
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
-  let { fitOnPhone = true, multiColumn = false, stickyEndColumn, secondSize = 400, rowClass }: { fitOnPhone?: boolean; multiColumn?: boolean; stickyEndColumn?: string; secondSize?: number; rowClass?: (item: { name: string }) => string } = $props();
+  let { fitOnPhone = true, multiColumn = false, stickyEndColumn, secondSize = 400, rowClass, phoneColumn, hidden = [] }: { fitOnPhone?: boolean; multiColumn?: boolean; stickyEndColumn?: string; secondSize?: number; rowClass?: (item: { name: string }) => string; phoneColumn?: string; hidden?: string[] } = $props();
   const columns = $derived<PortalColumnDef<{ name: string }>[]>([
     { accessorKey: 'name', header: 'Name', size: 1600, enableHiding: false },
     ...(multiColumn ? [{ accessorKey: 'name', id: 'second', header: 'Second', size: secondSize, enableHiding: false }] : []),
   ]);
-  const table = createSvelteTable({ data: [{ name: 'Row' }], get columns() { return columns; } });
+  const table = createSvelteTable({ data: [{ name: 'Row' }], get columns() { return columns; }, initialState: { get columnVisibility() { return Object.fromEntries(hidden.map(id => [id, false])); } } });
   let globalFilter = $state('');
 </script>
 
-<DataTable {table} {fitOnPhone} {stickyEndColumn} {rowClass} listKey="test:fit-on-phone" searchPlaceholder="Search" searchAriaLabel="Search" bind:globalFilter>
+<DataTable {table} {fitOnPhone} {stickyEndColumn} {rowClass} {phoneColumn} listKey="test:fit-on-phone" searchPlaceholder="Search" searchAriaLabel="Search" bind:globalFilter>
   {#snippet cell()}<span>Row</span>{/snippet}
 </DataTable>

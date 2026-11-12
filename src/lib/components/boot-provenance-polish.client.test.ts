@@ -186,3 +186,40 @@ describe('portal#1757 table search literals go through t()', () => {
     expect(src).toMatch(/searchAriaLabel=\{t\(/);
   });
 });
+
+// portal#1991: below `sm` only the Source column renders, so it carries Include
+// settings as a labelled line (hidden from `sm` up, where the column says it).
+// Retention needs no second copy: the detail line already says "No longer kept"
+// for a pruned row, and only for one (#1757, pinned above). The breakpoint itself is CSS, so its executed proof is
+// scripts/test-boot-provenance-phone-layout.mjs; this pins the markup it needs.
+describe('portal#1991 the Source cell carries Include settings for a phone', () => {
+  const phoneDetail = (row: Element) => row.querySelector('[data-testid="provenance-phone-detail"]');
+  const pairs = (dl: Element) => [...dl.querySelectorAll('dt')].map(dt => [text(dt).trim(), text(dt.nextElementSibling!).trim()]);
+  it('labels the folded value with its column header, hidden from sm up', async () => {
+    const m = await mountProvenance([
+      row({ selection: { rev: 4, approved: true, signed: true }, pruned: true }),
+      row({ pruned: false }),
+      row({ pruned: null, name: null, urn: null }),
+    ]);
+    const rows = [...m.target.querySelectorAll('tbody tr')];
+    const details = rows.map(phoneDetail);
+    for (const dl of details) {
+      expect(dl).not.toBeNull();
+      expect(dl!.closest('td')).toBe(dl!.closest('tr')!.querySelector('td'));
+      expect(dl!.classList.contains('sm:hidden')).toBe(true);
+    }
+    expect(pairs(details[0]!)).toEqual([['Include settings', 'Revision 4 · Approved and signed only']]);
+    expect(pairs(details[1]!)).toEqual([['Include settings', 'Latest revision']]);
+    expect(pairs(details[2]!)).toEqual([['Include settings', 'Latest revision']]);
+    // One "No longer kept" per pruned row in the Source cell: the detail line's, not a second copy.
+    expect(text(rows[0].querySelector('td')!).match(/No longer kept/g)).toHaveLength(1);
+  });
+  it('drops the two narrow columns below sm and keeps Source', async () => {
+    const m = await mountProvenance([row()]);
+    const headers = [...m.target.querySelectorAll('thead th')];
+    expect(headers.map(h => h.classList.contains('max-sm:hidden'))).toEqual([false, true, true]);
+    expect(headers[0].classList.contains('max-sm:w-full')).toBe(true);
+    const cells = [...m.target.querySelectorAll('tbody td')];
+    expect(cells.map(c => c.classList.contains('max-sm:hidden'))).toEqual([false, true, true]);
+  });
+});

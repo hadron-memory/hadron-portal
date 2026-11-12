@@ -40,6 +40,7 @@
     sortButtons = false,
     maxHeight = 'max(200px, calc(100vh - 23rem))',
     fitOnPhone = false,
+    phoneColumn,
     containCells = false,
     stickyEndColumn,
     rowClass,
@@ -65,6 +66,11 @@
     maxHeight?: string;
     /** Fit a SINGLE-column table and its header to the scroller on phones; desktop saved widths stay live. */
     fitOnPhone?: boolean;
+    /** Below `sm`, render ONLY this column, fitted to the scroller (#1991). The
+     *  caller's cell for it must carry what the other columns say there, in
+     *  `sm:hidden` lines. Desktop sizing, saved widths and resizing are
+     *  untouched; ignored while the user has hidden this column. */
+    phoneColumn?: string;
     /** Opt-in cell boundary repair; callers must also adapt their cell content. */
     containCells?: boolean;
     /** Keep one row-action column reachable on phones, independent of saved order. */
@@ -94,6 +100,11 @@
   // and corrected at hydration — a visible flash on exactly the phones the
   // clamp exists for. CSS evaluates before first paint and needs no listener.
   const singleColumnFit = $derived(fitOnPhone && table.getVisibleLeafColumns().length === 1);
+  // #1991: the phone shows one column, so it fits exactly like a single-column
+  // table; the others are display:none below `sm` (CSS, no listener, no flash)
+  // and the stored TanStack visibility and sizes are never touched.
+  const phoneOnly = $derived(phoneColumn && table.getVisibleLeafColumns().some(column => column.id === phoneColumn) ? phoneColumn : undefined);
+  const phoneFit = $derived(singleColumnFit || phoneOnly !== undefined);
   const endColumn = $derived(stickyEndColumn
     ? table.getVisibleLeafColumns().find(column => column.id === stickyEndColumn)
     : undefined);
@@ -104,7 +115,7 @@
   // stale or hand-edited saved view applies columnSizing raw, with no
   // minSize floor) would otherwise go negative and WIDEN the phone table
   // past the desktop total while the header still clamps to 170.
-  const phoneTableWidth = $derived(singleColumnFit
+  const phoneTableWidth = $derived(phoneFit
     ? '100%'
     : `max(100%, ${table.getCenterTotalSize() - (endColumn ? Math.max(endColumn.getSize(), PHONE_END_COLUMN_PX) - PHONE_END_COLUMN_PX : 0)}px)`);
   // The RENDERED phone width stays a flat 170 floor — min(size, 170) was
@@ -162,7 +173,7 @@
         <tr class="text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
           {#each headerGroup.headers as header (header.id)}
             <th
-              class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 w-[var(--col-w)] {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''} {header.column.id === stickyEndColumn ? 'max-sm:left-0 max-sm:right-0 max-sm:z-20' : ''}{endColumn?.id === header.column.id && !singleColumnFit ? ' max-sm:w-[var(--phone-end-w)]' : ''}{singleColumnFit ? ' max-sm:w-full' : ''}"
+              class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 w-[var(--col-w)] {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''} {header.column.id === stickyEndColumn ? 'max-sm:left-0 max-sm:right-0 max-sm:z-20' : ''}{endColumn?.id === header.column.id && !phoneFit ? ' max-sm:w-[var(--phone-end-w)]' : ''}{singleColumnFit || header.column.id === phoneOnly ? ' max-sm:w-full' : ''}{phoneOnly && header.column.id !== phoneOnly ? ' max-sm:hidden' : ''}"
               style="--col-w: {header.getSize()}px;"
               tabindex={!sortButtons && header.column.getCanSort() ? 0 : undefined}
               aria-sort={header.column.getIsSorted() === 'asc' ? 'ascending' : header.column.getIsSorted() === 'desc' ? 'descending' : undefined}
@@ -190,7 +201,7 @@
                 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
                 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
                 <div
-                  class="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none hover:bg-indigo-400 focus:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-300 {singleColumnFit || header.column.id === endColumn?.id ? 'max-sm:hidden ' : ''}{header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
+                  class="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none hover:bg-indigo-400 focus:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-300 {phoneFit || header.column.id === endColumn?.id ? 'max-sm:hidden ' : ''}{header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
                   role="separator"
                   aria-orientation="vertical"
                   aria-label={tableStrings.resizeColumn()}
@@ -220,7 +231,7 @@
           {...rowAttrs ? rowAttrs(row.original) : {}}
         >
           {#each row.getVisibleCells() as c (c.id)}
-            <td data-cell-contained={containCells ? '' : undefined} class="{containCells ? 'overflow-hidden [overflow-wrap:anywhere]' : ''} border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400 {c.column.id === stickyEndColumn ? 'max-sm:sticky max-sm:left-0 max-sm:right-0 max-sm:z-[1] max-sm:bg-inherit max-sm:focus-within:z-30 max-sm:has-[[data-menu-open]]:z-30' : ''}">
+            <td data-cell-contained={containCells ? '' : undefined} class="{containCells ? 'overflow-hidden [overflow-wrap:anywhere]' : ''} border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400 {phoneOnly && c.column.id !== phoneOnly ? 'max-sm:hidden ' : ''}{c.column.id === stickyEndColumn ? 'max-sm:sticky max-sm:left-0 max-sm:right-0 max-sm:z-[1] max-sm:bg-inherit max-sm:focus-within:z-30 max-sm:has-[[data-menu-open]]:z-30' : ''}">
               {@render cell(c, row.original)}
             </td>
           {/each}

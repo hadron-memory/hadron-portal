@@ -72,4 +72,40 @@ describe('DataTable phone width in SSR markup', () => {
     expect(body).toContain('--phone-table-w: max(100%, 2000px)');
     expect(body).not.toContain('max-sm:w-full');
   });
+
+  // #1991: a multi-column table may name ONE column to render alone below `sm`.
+  // The others drop out by CSS, so the stored visibility and sizes are untouched
+  // and desktop keeps live TanStack sizing (and its resize handles).
+  it('renders only the phoneColumn below sm, fitted, with desktop sizing intact', () => {
+    const body = html({ fitOnPhone: false, multiColumn: true, phoneColumn: 'name' });
+    expect(body).toContain('--table-desktop-w: max(100%, 2000px)');
+    expect(body).toContain('--phone-table-w: 100%');
+    const headers = body.match(/<th\s[^>]*>/g) ?? [];
+    expect(headers).toHaveLength(2);
+    expect(headers[0]).toContain('max-sm:w-full');
+    expect(headers[0]).not.toContain('max-sm:hidden');
+    expect(headers[1]).toContain('max-sm:hidden');
+    expect(headers[1]).not.toContain('max-sm:w-full');
+    const cells = body.match(/<td\s[^>]*>/g) ?? [];
+    expect(cells).toHaveLength(2);
+    expect(cells[0]).not.toContain('max-sm:hidden');
+    expect(cells[1]).toContain('max-sm:hidden');
+    // Resize handles stay for a desktop and leave the phone with the layout.
+    const handles = body.match(/<div[^>]*role="separator"[^>]*>/g) ?? [];
+    expect(handles).toHaveLength(2);
+    for (const handle of handles) expect(handle).toContain('max-sm:hidden');
+  });
+
+  it('ignores a phoneColumn the user has hidden, keeping every other column on the phone', () => {
+    const body = html({ fitOnPhone: false, multiColumn: true, phoneColumn: 'second', hidden: ['second'] });
+    expect(body).toContain('--phone-table-w: max(100%, 1600px)');
+    expect(body).not.toContain('max-sm:hidden');
+    expect(body).not.toContain('max-sm:w-full');
+  });
+
+  it('leaves a table without phoneColumn exactly as before', () => {
+    const body = html({ fitOnPhone: false, multiColumn: true });
+    expect(body).toContain('--phone-table-w: max(100%, 2000px)');
+    expect(body).not.toContain('max-sm:hidden');
+  });
 });

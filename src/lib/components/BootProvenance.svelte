@@ -15,6 +15,8 @@
   const identity = $derived(`${nodeId}:${revision}`);
   // Three columns, not five: revision and depth read as detail under the source's name, so a phone
   // is not asked to scroll sideways for numbers a reader rarely needs (portal#1757).
+  // Below `sm` only Source renders (portal#1991). It carries Include settings as a labelled line;
+  // retention already reaches the phone through the detail line, for a pruned row only (#1757).
   const columns: PortalColumnDef<ProvenanceRow>[] = [
     { accessorKey: 'name', header: t('boot.provenance.name', 'Source'), size: 220 },
     { id: 'selection', header: t('boot.provenance.settings', 'Include settings'), size: 150 },
@@ -56,11 +58,14 @@
     <section aria-label={t('boot.provenance.title', 'Built from')} class="space-y-2">
       <svelte:element this={`h${headingLevel}`} class="font-semibold">{t("boot.install.a3d5f43902", "Built from")}</svelte:element>
       {#if page.pruned}<p>{t("boot.install.2bb11af10a", "This revision’s text is no longer kept.")}</p>{/if}
-      <DataTable {table} listKey="boot-prompt-provenance" searchPlaceholder={t('boot.provenance.search', 'Search this page…')} searchAriaLabel={t('boot.provenance.search-label', 'Search provenance on this page')} showSearch={false} showFooter={false}>
+      <DataTable {table} listKey="boot-prompt-provenance" searchPlaceholder={t('boot.provenance.search', 'Search this page…')} searchAriaLabel={t('boot.provenance.search-label', 'Search provenance on this page')} showSearch={false} showFooter={false} phoneColumn="name">
         {#snippet cell(cell, item)}
           {#if cell.column.id === 'name'}
             {#if item.urn && item.name}<span>{item.name}</span> <Urn value={item.urn} type="node" linked={linkSources} />{:else}{item.omitted && !uniformUnavailable ? t('boot.provenance.omitted', 'name not loaded') : t('boot.provenance.unavailable', 'Not available to you')}{/if}
             <div class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('boot.provenance.detail', 'Revision {n} · Depth {d}', { n: item.revNo, d: item.depth })}{item.pruned === true ? ` · ${t('boot.provenance.pruned', 'No longer kept')}` : ''} · {t('boot.provenance.occurrence', '{kind}, order {order}', { kind: item.kind, order: item.order })}</div>
+            <dl data-testid="provenance-phone-detail" class="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 text-xs sm:hidden">
+              <dt class="font-medium text-zinc-700 dark:text-zinc-300">{t('boot.provenance.settings', 'Include settings')}</dt><dd>{settingsText(item.selection)}</dd>
+            </dl>
           {:else if cell.column.id === 'selection'}
             {settingsText(item.selection)}
           {:else if cell.column.id === 'pruned'}
