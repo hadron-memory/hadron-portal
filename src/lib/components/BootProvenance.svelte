@@ -13,8 +13,11 @@
   let attemptedOffset = 0;
   let region: HTMLDivElement;
   const identity = $derived(`${nodeId}:${revision}`);
-  // Three columns, not five (and one on a phone, where Include settings folds under the source and Text kept is the detail line's suffix): revision and depth read as detail under the source's name, so a phone
-  // is not asked to scroll sideways for numbers a reader rarely needs (portal#1757).
+  // Three columns, not five: revision and depth read as detail under the source's name, so a phone
+  // is not asked to scroll sideways for numbers a reader rarely needs (portal#1757). On a phone it is
+  // one column (portal#1991): Include settings folds under the source, and Text kept is dropped. Its
+  // only affirmative state, "Kept", is not repeated there; absence of the detail line's
+  // " · No longer kept" reads as kept, and a pruned row still says so at every width.
   const columns: PortalColumnDef<ProvenanceRow>[] = [
     { accessorKey: 'name', header: t('boot.provenance.name', 'Source'), size: 220 },
     { id: 'selection', header: t('boot.provenance.settings', 'Include settings'), size: 150 },

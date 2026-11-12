@@ -34,8 +34,8 @@ beforeEach(() => {
   });
 });
 
-function mount(fitOnPhone: boolean, multiColumn = false, stickyEndColumn?: string, secondSize = 400, rowClass?: (item: { name: string }) => string, phoneHiddenColumns?: string[]) {
-  const m = mountComponent(Harness, { fitOnPhone, multiColumn, stickyEndColumn, secondSize, rowClass, phoneHiddenColumns });
+function mount(fitOnPhone: boolean, multiColumn = false, stickyEndColumn?: string, secondSize = 400, rowClass?: (item: { name: string }) => string, phoneHiddenColumns?: string[], hiddenColumns?: string[]) {
+  const m = mountComponent(Harness, { fitOnPhone, multiColumn, stickyEndColumn, secondSize, rowClass, phoneHiddenColumns, hiddenColumns });
   mounted.push(m);
   flushSync();
   return {
@@ -187,5 +187,22 @@ describe('DataTable phoneHiddenColumns (#1991)', () => {
   it('control: hiding a column without fitOnPhone does not collapse the width', () => {
     const { style } = mount(false, true, undefined, 400, undefined, ['second']);
     expect(style()).toContain('--phone-table-w: max(100%, 2000px)');
+  });
+  it('never goes blank: when the only column NOT named is itself hidden, nothing is hidden on the phone', () => {
+    // #1991 local review: hide "name" (Columns toggle or a restored saved view), phoneHidden=['second'].
+    const { headers, cells, style } = mount(true, true, undefined, 400, undefined, ['second'], ['name']);
+    expect(headers).toHaveLength(1);
+    expect(headers[0].className).not.toContain('max-sm:hidden');
+    expect(cells[0].className).not.toContain('max-sm:hidden');
+    expect(style()).toContain('--phone-table-w: 100%');
+  });
+  it('a single visible column on the phone drops the stray right border', () => {
+    const { headers, cells } = mount(true, true, undefined, 400, undefined, ['second']);
+    expect(headers[0].className).toContain('max-sm:border-r-0');
+    expect(cells[0].className).toContain('max-sm:border-r-0');
+  });
+  it('control: no phone fit, no border change', () => {
+    const { headers } = mount(false, true);
+    expect(headers[0].className).not.toContain('max-sm:border-r-0');
   });
 });
