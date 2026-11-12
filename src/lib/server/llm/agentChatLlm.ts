@@ -215,6 +215,32 @@ function logLlmFailure(error: unknown, context: () => LlmFailureContext): void {
   }
 }
 
+// ── #1979: models that reject a forced tool_choice ──────────────────────────
+//
+// Anthropic documents that for these models `tool_choice` of type `tool` or
+// `any` returns a 400 regardless of thinking settings; `auto` is the
+// supported choice (platform docs, tool use: "Forcing tool use"). Verified
+// live on claude-sonnet-5-5 (#1979). The ids are exact and verbatim from the
+// Anthropic models overview; Mythos 5.2 / Fable 5.1 / Mythos 5.1 have no
+// documented API id and are NOT listed. Bedrock is not covered (unverified).
+// Haiku 5.5 accepts a forced choice and stays forced.
+const AUTO_TOOL_CHOICE_ANTHROPIC_MODELS: ReadonlySet<string> = new Set([
+  'claude-sonnet-5-5',
+  'claude-opus-5-5',
+  'claude-fable-5-2',
+]);
+
+export function usesAutoToolChoice(provider: AIProvider, model: string): boolean {
+  return provider === 'anthropic' && AUTO_TOOL_CHOICE_ANTHROPIC_MODELS.has(model);
+}
+
+/**
+ * Appended to the system text per turn, for the listed models only, because
+ * `auto` (unlike a forced choice) lets the model answer in text. Never stored.
+ */
+export const RESPOND_ONCE_INSTRUCTION =
+  'Respond by calling the respond tool exactly once. Do not answer in free text.';
+
 async function callAgentChatLlmUnsafe(args: {
   provider: AIProvider;
   apiKey: string;
@@ -247,13 +273,17 @@ async function callAgentChatLlmUnsafe(args: {
   //     path can produce strings like `"<agent prompt>\n\n"` when a stage
   //     prompt is empty (see startChat resolver).
   const trimmedSystem = systemMessage.trim();
-  const systemForSdk = trimmedSystem.length > 0 ? trimmedSystem : undefined;
+  const baseSystem = trimmedSystem.length > 0 ? trimmedSystem : undefined;
 
   // Find the respond tool. Hadron always ships a single tool per stage but
   // the array shape leaves room for more later.
   const respondTool = (args.tools ?? []).find((t) => t.name === 'respond');
   trace.stage = 'request';
   trace.branch = respondTool ? 'respond' : 'plain';
+  const autoToolChoice = respondTool !== undefined && usesAutoToolChoice(provider, model);
+  const systemForSdk = autoToolChoice
+    ? (baseSystem === undefined ? RESPOND_ONCE_INSTRUCTION : `${baseSystem}\n\n${RESPOND_ONCE_INSTRUCTION}`)
+    : baseSystem;
   if (!respondTool) {
     // No extraction spec on this stage — fall back to plain text and wrap
     // it as a synthetic respond() call so the downstream processChatResponse
@@ -293,7 +323,10 @@ async function callAgentChatLlmUnsafe(args: {
     tools: { respond: respondVercelTool },
     // Force the LLM to call the respond tool on every turn. This is the
     // contract of the Chat API: one tool call per turn, no free-form text.
-    toolChoice: { type: 'tool', toolName: 'respond' },
+    // Models that reject a forced choice (#1979, usesAutoToolChoice) get
+    // `auto` plus the appended instruction; a reply with no respond call then
+    // takes the same closed failure below as any other missing call.
+    toolChoice: autoToolChoice ? 'auto' : { type: 'tool', toolName: 'respond' },
     // A single "step" is one tool call — the SDK would otherwise run the
     // tool and loop for a follow-up text generation, which we don't want.
     stopWhen: ({ steps }) => steps.length >= 1,

@@ -24,12 +24,13 @@ beforeEach(() => {
   mockRequest.mockReset();
 });
 
-function event(impersonating = false) {
+function event(impersonating = false, localsOverride: Partial<App.Locals> = {}) {
   const deleted: string[] = [];
   const locals = {
     token: 'tok',
     user: { id: 'u1', roles: ['user'] },
     impersonation: impersonating ? { adminId: 'admin-1' } : null,
+    ...localsOverride,
   };
   return { locals, deleted, cookies: { delete: (name: string) => deleted.push(name) } };
 }
@@ -146,7 +147,15 @@ describe('#1120: transient Me failures preserve credentials and answer 503', () 
  * path (drop nothing), so a server without the field changes nothing.
  */
 describe('#1091: a null `me` asks authenticationStatus, and only REFUSED drops the cookie', () => {
-  const statusQuery = () => String(mockRequest.mock.calls[1]?.[0] ?? '');
+  // Found by its text, not its position: a shifted call order must fail loudly
+  // rather than read as ''.
+  const queries = () => mockRequest.mock.calls.map((call) => String(call[0] ?? ''));
+  const statusQuery = () => queries().find((q) => /\bauthenticationStatus\b/.test(q)) ?? '';
+  const askedStatusAfterMe = () => {
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+    expect(queries()[0]).toMatch(/\bquery Me\b/);
+    expect(statusQuery()).not.toBe('');
+  };
 
   for (const impersonating of [false, true]) {
     it('REFUSED drops only the active cookie and says so (impersonating=' + impersonating + ')', async () => {
@@ -156,8 +165,7 @@ describe('#1091: a null `me` asks authenticationStatus, and only REFUSED drops t
       expect(await rootLoad(ev)).toEqual({ user: null, sessionCleared: true });
       expect(ev.deleted).toEqual([impersonating ? 'hadron_impersonation' : 'hadron_token']);
       expect(ev.locals).toEqual(before);
-      expect(mockRequest).toHaveBeenCalledTimes(2);
-      expect(statusQuery()).toMatch(/\bauthenticationStatus\b/);
+      askedStatusAfterMe();
       expect(statusQuery()).not.toMatch(/\bme\b/);
     });
   }
@@ -173,6 +181,7 @@ describe('#1091: a null `me` asks authenticationStatus, and only REFUSED drops t
     mockRequest.mockResolvedValueOnce({ me: null }).mockResolvedValueOnce(answer);
     expect(await rootLoad(ev)).toEqual({ user: null });
     expect(ev.deleted).toEqual([]);
+    askedStatusAfterMe();
   });
 
   const failure = (status: number, code?: string) => new ClientError(
@@ -192,6 +201,7 @@ describe('#1091: a null `me` asks authenticationStatus, and only REFUSED drops t
     mockRequest.mockResolvedValueOnce({ me: null }).mockRejectedValueOnce(err());
     expect(await rootLoad(ev)).toEqual({ user: null });
     expect(ev.deleted).toEqual([]);
+    askedStatusAfterMe();
     // The ClientError carries the request headers (the bearer token): never log it.
     for (const call of warn.mock.calls) expect(call.some((arg) => arg instanceof Error)).toBe(false);
     warn.mockRestore();
@@ -217,7 +227,7 @@ describe('#1091: a null `me` asks authenticationStatus, and only REFUSED drops t
     expect(second.deleted).toEqual(['hadron_token']);
     // Hop 3 has no cookie: the root asks nothing and clears nothing.
     mockRequest.mockClear();
-    expect(await rootLoad({ ...event(false), locals: { token: null, user: null, impersonation: null } } as never)).toEqual({ user: null });
+    expect(await rootLoad(event(false, { token: null, user: null, impersonation: null }))).toEqual({ user: null });
     expect(mockRequest).not.toHaveBeenCalled();
   });
 });

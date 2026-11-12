@@ -282,7 +282,16 @@ describe('account load: the passkey-registration link (portal#1022)', () => {
   beforeEach(() => {
     capabilities.mockReset().mockResolvedValue(new Set(['passkey-registration']));
     mockRequest.mockReset().mockResolvedValue({ me: null });
-    delete publicEnv.PUBLIC_SERVER_URL;
+    // portal#1985: with a documented local `.env` (both names shipped in
+    // `.env.example`), svelte-kit sync types PUBLIC_SERVER_URL as REQUIRED in
+    // the generated ambient — and `delete` on a required property is TS2790,
+    // so the documented configuration broke `pnpm check` while CI (no `.env`,
+    // template-literal index signature) stayed green. Reflect.deleteProperty
+    // is the function form of the delete operator, typed against PropertyKey:
+    // legal under both ambient shapes, and it still removes the own property,
+    // so the "unset" test below sees a genuine absence after the tests above
+    // assigned synthetic bases.
+    Reflect.deleteProperty(publicEnv, 'PUBLIC_SERVER_URL');
   });
 
   it('links to the server-hosted registration page while the switch is on', async () => {
