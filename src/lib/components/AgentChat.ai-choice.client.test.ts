@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mountComponent, tick, wait } from '$lib/test/mountComponent';
+import type { ComponentProps } from 'svelte';
+import { mountComponent, tick, wait, type Mounted } from '$lib/test/mountComponent';
 import AgentChat from './AgentChat.svelte';
 import type { ChatAiChoiceOption } from '$lib/chat-ai-choice';
 
@@ -77,12 +78,28 @@ async function until(ready: () => boolean, what: string, ms = 2000): Promise<voi
 const listLoaded = () => until(() => calls('/api/agent-chat/list') > 0, 'the chat list to load');
 const last = (path: string) => [...bodies].reverse().find((b) => b.url === path)!.body;
 
-afterEach(() => { vi.unstubAllGlobals(); });
+/**
+ * Every mount is torn down in afterEach even when a poll times out before the test reaches its own
+ * `unmount()`, so one timed-out test cannot leave a live component behind to fail the next one.
+ */
+const live = new Set<Mounted<Record<string, unknown>>>();
+function mountChat(props: ComponentProps<typeof AgentChat>) {
+  const m = mountComponent(AgentChat, props) as unknown as Mounted<Record<string, unknown>>;
+  live.add(m);
+  return m;
+}
+afterEach(() => {
+  for (const m of live) {
+    try { m.unmount(); } catch { /* already unmounted by the test */ }
+  }
+  live.clear();
+  vi.unstubAllGlobals();
+});
 
 describe('AgentChat: the AI config dropdown (#1963)', () => {
   it('lists the choices and preselects the App chatbot config', async () => {
     stub();
-    const m = mountComponent(AgentChat, { agentId: 'a1', appId: 'app-1', aiChoices: CHOICES });
+    const m = mountChat({ agentId: 'a1', appId: 'app-1', aiChoices: CHOICES });
     await listLoaded();
     const s = select()!;
     expect([...s.options].map((o) => o.value)).toEqual(['default', 'cfg-fast', 'cfg-smart', 'cfg-custom']);
@@ -92,7 +109,7 @@ describe('AgentChat: the AI config dropdown (#1963)', () => {
 
   it('shows a config the portal cannot run as disabled, with its reason', async () => {
     stub();
-    const m = mountComponent(AgentChat, { agentId: 'a1', appId: 'app-1', aiChoices: CHOICES });
+    const m = mountChat({ agentId: 'a1', appId: 'app-1', aiChoices: CHOICES });
     await listLoaded();
     const custom = [...select()!.options].find((o) => o.value === 'cfg-custom')!;
     expect(custom.disabled).toBe(true);
@@ -102,7 +119,7 @@ describe('AgentChat: the AI config dropdown (#1963)', () => {
 
   it('with no choice made, starts and sends no config name and no aiConfigChoice (the server resolves)', async () => {
     stub();
-    const m = mountComponent(AgentChat, { agentId: 'a1', appId: 'app-1', aiChoices: CHOICES });
+    const m = mountChat({ agentId: 'a1', appId: 'app-1', aiChoices: CHOICES });
     await listLoaded();
     await newChat();
     for (const body of [last('/api/agent-chat/start')]) {
@@ -117,7 +134,7 @@ describe('AgentChat: the AI config dropdown (#1963)', () => {
 
   it('a changed choice goes with the next turn by id only, never with a name (BLIND F1)', async () => {
     stub();
-    const m = mountComponent(AgentChat, { agentId: 'a1', appId: 'app-1', aiChoices: CHOICES });
+    const m = mountChat({ agentId: 'a1', appId: 'app-1', aiChoices: CHOICES });
     await listLoaded();
     await newChat();
     const s = select()!;
@@ -140,9 +157,9 @@ describe('AgentChat: the AI config dropdown (#1963)', () => {
 
   it('a new chat shows the App chatbot config the turn will run, even when the portal cannot run it (#1997)', async () => {
     stub();
-    const m = mountComponent(AgentChat, { agentId: 'a1', appId: 'app-1', aiChoices: UNAVAILABLE_APP_CONFIG });
-    await listLoaded();
+    const m = mountChat({ agentId: 'a1', appId: 'app-1', aiChoices: UNAVAILABLE_APP_CONFIG });
     try {
+      await listLoaded();
       const s = select()!;
       expect(s.value).toBe('cfg-appbot');
       const shown = s.options[s.selectedIndex];
@@ -157,9 +174,9 @@ describe('AgentChat: the AI config dropdown (#1963)', () => {
 
   it('picking Default from that shown config sends aiConfigChoice default (#1997)', async () => {
     stub();
-    const m = mountComponent(AgentChat, { agentId: 'a1', appId: 'app-1', aiChoices: UNAVAILABLE_APP_CONFIG });
-    await listLoaded();
+    const m = mountChat({ agentId: 'a1', appId: 'app-1', aiChoices: UNAVAILABLE_APP_CONFIG });
     try {
+      await listLoaded();
       await newChat();
       const s = select()!;
       // Precondition: the pick below is a change FROM the shown App config, not a no-op.
@@ -176,7 +193,7 @@ describe('AgentChat: the AI config dropdown (#1963)', () => {
 
   it('a reopened chat shows the choice stored with it', async () => {
     stub('cfg-fast');
-    const m = mountComponent(AgentChat, { agentId: 'a1', appId: 'app-1', aiChoices: CHOICES });
+    const m = mountChat({ agentId: 'a1', appId: 'app-1', aiChoices: CHOICES });
     await listLoaded();
     await until(() => [...document.querySelectorAll('button')].some((b) => /^\s*Old/.test(b.textContent ?? '')), 'the old chat to be listed');
     clickButton(/^\s*Old/);
@@ -192,7 +209,7 @@ describe('AgentChat: the AI config dropdown (#1963)', () => {
 
   it('without choices (no App, or the list could not be read) there is no dropdown', async () => {
     stub();
-    const m = mountComponent(AgentChat, { agentId: 'a1' });
+    const m = mountChat({ agentId: 'a1' });
     await listLoaded();
     expect(select()).toBeNull();
     m.unmount();
