@@ -19,3 +19,6 @@ public
 
 # Claude Design reference screenshots show real account/org data
 design/screenshots/
+
+# #1979 live-provider test output (ledger, summary, redacted local diagnostic)
+.live-provider/
