@@ -1135,7 +1135,7 @@
       class="mb-4 space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900"
     >
       {#if editing}
-        <h3 class="text-sm font-medium text-zinc-900 dark:text-white">{s.editorTitle(editing.name)}</h3>
+        <h3 class="text-sm font-medium text-zinc-900 [overflow-wrap:anywhere] dark:text-white">{s.editorTitle(editing.name)}</h3>
       {/if}
       <div>
         <label for="ac-name" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
