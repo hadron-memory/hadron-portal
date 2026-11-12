@@ -201,15 +201,16 @@ function type(target: HTMLElement, selector: string, value: string) {
 // a test-chosen mock: `install` replaces mockRequest after the action's own
 // node read, so each branch (move fails / update fails / success) answers its
 // own documents truthfully.
-async function runMetaSave(target: HTMLElement, edit: { name?: string; loc?: string }, mock: (doc: string) => unknown) {
+async function runMetaSave(target: HTMLElement, edit: { name?: string; loc?: string; description?: string }, mock: (doc: string, vars?: Record<string, unknown>) => unknown) {
   buttonNamed(target, 'Edit')!.click();
   flushSync();
   if (edit.name !== undefined) type(target, '#editName', edit.name);
   if (edit.loc !== undefined) type(target, '#editLoc', edit.loc);
+  if (edit.description !== undefined) type(target, '#editDescription', edit.description);
   const form = target.querySelector<HTMLFormElement>('form[action="?/updateMeta"]')!;
-  mockRequest.mockImplementation(async (doc: string) => {
+  mockRequest.mockImplementation(async (doc: string, vars?: Record<string, unknown>) => {
     if (doc === NODE_BY_ID_QUERY) return { node: stored }; // the action's own read
-    return mock(doc);
+    return mock(doc, vars);
   });
   const r = (await actions.updateMeta({
     request: { formData: async () => new FormData(form) },
@@ -388,5 +389,61 @@ describe('#1882: a failed location move in Settings says so', () => {
     expect(target.querySelector('#editName')).toBeNull();
     expect(buttonNamed(target, 'Edit')).toBeTruthy();
     expect(target.querySelector('[role="status"]')?.textContent ?? '').not.toBe('');
+  });
+});
+
+// portal#2020 — after a CONFIRMED, COMPLETE save the Settings editor must reopen
+// from what the server saved. Reseed keyed on node id + role alone left name,
+// loc and the rest at their pre-save seed, so a later Save wrote the old values
+// back (a real `moveNode` back to the old loc, hrn:node:hadronmemory.com:specs:cor:api:190:01).
+const editorValue = (target: HTMLElement, selector: string) => target.querySelector<HTMLInputElement>(selector)!.value;
+const calls = (doc: string) => mockRequest.mock.calls.filter((c) => c[0] === doc).length;
+
+/** A save whose update AND move both commit; the server stores `saved`. */
+const saveCompletely = (target: HTMLElement, edit: { name?: string; loc?: string; description?: string }, saved: Record<string, unknown>) =>
+  runMetaSave(target, edit, (doc, vars) => {
+    if (doc === UPDATE_NODE_MUTATION) { stored = { ...NODE, ...saved, loc: NODE.loc }; return { updateNode: stored }; }
+    if (doc === MOVE_NODE_MUTATION) { stored = { ...stored, ...saved }; serve(); return { moveNode: stored }; }
+    // The page's own later reads (reload, satellites) get serve()'s truthful answers.
+    serve();
+    return mockRequest(doc, vars);
+  });
+
+describe('#2020: Edit reopens from the saved node after a complete save', () => {
+  it('a rename plus move reopens with the new name and loc (M1)', async () => {
+    const target = await mountSettings();
+    await saveCompletely(target, { name: 'Renamed', loc: 'renamed' }, { name: 'Renamed', loc: 'renamed' });
+    buttonNamed(target, 'Edit')!.click();
+    flushSync();
+    expect(editorValue(target, '#editName')).toBe('Renamed');
+    expect(editorValue(target, '#editLoc')).toBe('renamed');
+  });
+
+  it('Edit then Save with nothing changed issues no move and writes the saved values back, not the old ones (acceptance)', async () => {
+    const target = await mountSettings();
+    await saveCompletely(target, { name: 'Renamed', loc: 'renamed' }, { name: 'Renamed', loc: 'renamed' });
+    buttonNamed(target, 'Edit')!.click();
+    flushSync();
+    mockRequest.mockClear();
+    serve();
+    const form = target.querySelector<HTMLFormElement>('form[action="?/updateMeta"]')!;
+    await actions.updateMeta({
+      request: { formData: async () => new FormData(form) },
+      params: { id: 'mem-A', nodeId: 'leaf-pk' },
+      locals: { token: 'tok' },
+    } as never);
+    expect(calls(MOVE_NODE_MUTATION)).toBe(0);
+    // The action always sends its update (it has no no-op short-circuit, pre-existing); what matters
+    // is that it carries the SAVED name, never the pre-save seed.
+    const updates = mockRequest.mock.calls.filter((c) => c[0] === UPDATE_NODE_MUTATION);
+    expect(updates.map((c) => (c[1] as { input: { name: string } }).input.name)).toEqual(['Renamed']);
+  });
+
+  it('reseeds from the server\'s value, not the typed one (M2)', async () => {
+    const target = await mountSettings();
+    await saveCompletely(target, { description: 'typed text' }, { description: 'normalized by the server' });
+    buttonNamed(target, 'Edit')!.click();
+    flushSync();
+    expect(editorValue(target, '#editDescription')).toBe('normalized by the server');
   });
 });
