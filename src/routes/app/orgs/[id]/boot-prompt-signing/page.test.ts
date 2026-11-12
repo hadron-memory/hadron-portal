@@ -48,6 +48,25 @@ describe('preview page', () => {
     expect(body).toContain('Switch on');
   });
 
+  it('says "1 boot prompt" at one, not "1 boot prompts" (UX P2)', () => {
+    expect(preview({ preview: ok([row(1)]) })).toContain('Switching on would change 1 boot prompt.');
+    expect(preview({ preview: ok([row(1)]) })).not.toContain('1 boot prompts');
+    expect(preview({ preview: { kind: 'too_many', enforced: false, deploymentSigns: true, total: 1 } })).not.toContain('1 boot prompts');
+  });
+
+  it('renders the CLI command in <code>, not as backticks in copy (UX P3)', () => {
+    const body = preview({ preview: { kind: 'too_many', enforced: false, deploymentSigns: true, total: 5000 } });
+    expect(body).toContain('<code');
+    expect(body).toContain('hadron org signing on');
+    expect(body).not.toContain('`');
+  });
+
+  it('switch-on feedback sits directly above the Switch on form, not at the top (UX P3)', () => {
+    const body = preview({ preview: ok([row(1)]) }, { outcome: 'failed' });
+    expect(body.indexOf('Couldn’t switch signing on')).toBeGreaterThan(body.indexOf('Agent 1'));
+    expect(body.indexOf('Couldn’t switch signing on')).toBeLessThan(body.indexOf('?/switchOn'));
+  });
+
   it('an empty preview says nothing would change and still offers Switch on', () => {
     const body = preview({ preview: ok([], { previewToken: 'tok-empty' }) });
     expect(body).toContain('Nothing would change.');

@@ -157,4 +157,13 @@ describe('switchOn', () => {
     expect(r).toMatchObject({ status: 400, data: { outcome: 'no_review' } });
     expect(mockRequest).not.toHaveBeenCalled();
   });
+
+  it('the preview read refused after the switch read succeeded is a 404 (Rico P3)', async () => {
+    route({
+      'query OrgBootPromptSigning($org': () => off,
+      OrgBootPromptSigningPreview: () => { throw gqlErr('FORBIDDEN'); },
+    });
+    const { load } = await mod();
+    await expect(load(ev())).rejects.toMatchObject({ status: 404 });
+  });
 });
