@@ -856,6 +856,15 @@
     },
   });
 
+  /** Drop every trace of a failed Save: the page-held refusal and the failure superforms applied after the
+   *  awaited reload (portal#1882). Clearing only the first let Cancel then Edit show the old refusal again
+   *  (Clark's browser QA F1 on #2002). */
+  function clearMetaRefusal() {
+    moveRefusal = null;
+    updateMetaMessage.set(undefined);
+    updateMetaErrors.set({});
+  }
+
   // Reseed on a different node (everything) or a changed stored role on the
   // same node (role and its seed only): `nodeMetaReseed` decides, and the
   // field list is the loader's own (@codex on #929).
@@ -2442,7 +2451,7 @@
       discussionOpened = activeTab === 'discussion';
       editingEdges = false;
       isEditing = false;
-      moveRefusal = null;
+      clearMetaRefusal();
       reorderMode = false;
       downloadOpen = false;
       dlError = null;
@@ -4349,7 +4358,7 @@
                 <button type="submit" disabled={readOnly || $updateMetaSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-40">
                   {$updateMetaSubmitting ? t('node.meta.saving', 'Saving...') : $updateMetaMessage?.type === 'error' ? t('node.save.retry', 'Retry') : t('node.meta.save', 'Save')}
                 </button>
-                <button type="button" onclick={() => { isEditing = false; moveRefusal = null; }} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+                <button type="button" onclick={() => { isEditing = false; clearMetaRefusal(); }} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
               </div>
             </form>
           {:else}

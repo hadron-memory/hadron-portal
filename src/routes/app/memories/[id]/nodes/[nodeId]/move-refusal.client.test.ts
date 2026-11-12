@@ -204,7 +204,17 @@ describe('a refused move after a committed Save stays visible (#1989)', () => {
     expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
   });
 
-  it('Cancel clears the refusal superforms applied too, so reopening Edit shows none (Clark QA F1 on #2002)', async () => {
+  it.each([
+    ['an occupied destination (409, a loc error)', null],
+    ['any other move failure (500, the form message)', new Error('boom')],
+  ])('Cancel clears the refusal superforms applied too, so reopening Edit shows none: %s (Clark QA F1 on #2002)', async (_label, moveError) => {
+    if (moveError) {
+      const base = mockRequest.getMockImplementation()!;
+      mockRequest.mockImplementation(async (doc: string, ...rest: unknown[]) => {
+        if (doc === MOVE_NODE_MUTATION) throw moveError;
+        return base(doc, ...rest);
+      });
+    }
     const m = await mountSettings();
     buttonNamed(m.target, 'Edit')!.click();
     flushSync();
@@ -218,6 +228,7 @@ describe('a refused move after a committed Save stays visible (#1989)', () => {
     mirrorKitForm();
     await settle();
     expect(metaAlert(m.target)?.textContent).toContain('Saved, but the node was not moved');
+    expect(r.status).toBe(moveError ? 500 : 409);
     buttonNamed(m.target, 'Cancel')!.click();
     flushSync();
     buttonNamed(m.target, 'Edit')!.click();
