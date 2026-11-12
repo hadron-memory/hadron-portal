@@ -1,0 +1,18 @@
+{
+  "subject": "hadron-portal#2040",
+  "portalHead": "a879da62421fec79ef7b6f35f9941c38ecde458b",
+  "serverHead": "6c4adcc4e24e2bdffb8c87b69f60d2d84bd3dff6",
+  "executor": "Coco delegated /root/qa2040, actual gpt-6-luna / OpenAI",
+  "reviewer": "Coco, gpt-6.1-sol / OpenAI",
+  "scope": "Real signed-in synthetic disposable stack; worker Boot briefing; three provenance rows. PNGs visually inspected for secrets and real data before publication.",
+  "files": {
+    "1280-light-restored-custom-view.png": "6c2c2adecd53f4e83d8f5b1db691860a8145a91ffc1121e6b337fa37623ff583",
+    "1280-dark-restored-custom-view.png": "5c2ef464918fed886ebc69bc3289db8e2e2162bf96c14253c0cccbd1ea43e2bb",
+    "390-light-standard.png": "232221e5bc6ac2620223b3d906e8d4b460b16f1b8465739cf63acb9820b5a351",
+    "390-dark-standard.png": "ad3be14c68c1f5d75901633fccdaa3480e223649812e9f263545f579c04ff6bd",
+    "1280-hide-source-then-390.png": "5a91a380e351c504dadc9466e24e2f51f51b6e30720f476cd14e3f5f304c43b5",
+    "manifest.json": "c0eb3154931ceb850f4aeac92036338b4f40317812be14c3b42459ac7d5532de",
+    "phone-standard.json": "7f1806ac9f0a8fb214cba558c0890679c85844ddd2373b785b1ddffb7f7d475f",
+    "hide-source-transition.json": "4241800d3c0ae36efbd803e5af7f134f334d1a431d579561c9d9eecda5494488"
+  }
+}

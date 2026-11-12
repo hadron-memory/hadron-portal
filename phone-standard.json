@@ -1,0 +1,78 @@
+{
+  "viewportWidth": 390,
+  "coarse": true,
+  "themes": {
+    "light": {
+      "internalScroller": {
+        "client": 272,
+        "scroll": 272,
+        "table": 272,
+        "headers": [
+          {
+            "name": "SOURCE\n⇅",
+            "display": "table-cell"
+          },
+          {
+            "name": "Include settings  ",
+            "display": "none"
+          },
+          {
+            "name": "Text kept  ",
+            "display": "none"
+          }
+        ]
+      },
+      "visibleRows": 3,
+      "phoneSettings": [
+        {
+          "visible": true,
+          "text": "Include settings: Latest revision"
+        },
+        {
+          "visible": true,
+          "text": "Include settings: Latest revision"
+        },
+        {
+          "visible": true,
+          "text": "Include settings: Latest revision"
+        }
+      ]
+    },
+    "dark": {
+      "internalScroller": {
+        "client": 272,
+        "scroll": 272,
+        "table": 272,
+        "headers": [
+          {
+            "name": "SOURCE\n⇅",
+            "display": "table-cell"
+          },
+          {
+            "name": "Include settings  ",
+            "display": "none"
+          },
+          {
+            "name": "Text kept  ",
+            "display": "none"
+          }
+        ]
+      },
+      "visibleRows": 3,
+      "phoneSettings": [
+        {
+          "visible": true,
+          "text": "Include settings: Latest revision"
+        },
+        {
+          "visible": true,
+          "text": "Include settings: Latest revision"
+        },
+        {
+          "visible": true,
+          "text": "Include settings: Latest revision"
+        }
+      ]
+    }
+  }
+}

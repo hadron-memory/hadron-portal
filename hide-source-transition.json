@@ -1,0 +1,68 @@
+{
+  "signedInAs": "alpha-admin synthetic E2E fixture",
+  "sequence": [
+    "viewport 1280",
+    "Columns → uncheck Source",
+    "viewport 390"
+  ],
+  "coarsePointer": true,
+  "provenanceRows": 3,
+  "desktopCells": [
+    {
+      "display": "table-cell",
+      "text": "Latest revision"
+    },
+    {
+      "display": "table-cell",
+      "text": "Kept"
+    },
+    {
+      "display": "table-cell",
+      "text": "Latest revision"
+    },
+    {
+      "display": "table-cell",
+      "text": "Kept"
+    },
+    {
+      "display": "table-cell",
+      "text": "Latest revision"
+    },
+    {
+      "display": "table-cell",
+      "text": "Kept"
+    }
+  ],
+  "phoneInternalScroller": {
+    "client": 272,
+    "scroll": 272,
+    "table": 272
+  },
+  "phoneCells": [
+    {
+      "display": "table-cell",
+      "text": "Latest revision"
+    },
+    {
+      "display": "table-cell",
+      "text": "Kept"
+    },
+    {
+      "display": "table-cell",
+      "text": "Latest revision"
+    },
+    {
+      "display": "table-cell",
+      "text": "Kept"
+    },
+    {
+      "display": "table-cell",
+      "text": "Latest revision"
+    },
+    {
+      "display": "table-cell",
+      "text": "Kept"
+    }
+  ],
+  "visibleRowCount": 3
+}

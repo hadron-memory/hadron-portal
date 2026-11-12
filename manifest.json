@@ -1,0 +1,107 @@
+{
+  "portalHead": "a879da62421fec79ef7b6f35f9941c38ecde458b",
+  "serverHead": "6c4adcc4e24e2bdffb8c87b69f60d2d84bd3dff6",
+  "signedInAs": "alpha-admin@e2e.test synthetic E2E fixture",
+  "stack": "qa2040 (Incus) API 18640 portal 18641",
+  "provenanceRows": 3,
+  "desktopInitial": {
+    "client": 732,
+    "scroll": 732,
+    "table": 732,
+    "headers": [
+      {
+        "text": "SOURCE\n\u21c5",
+        "width": 343,
+        "css": "--col-w: 220px;"
+      },
+      {
+        "text": "INCLUDE SETTINGS",
+        "width": 234,
+        "css": "--col-w: 150px;"
+      },
+      {
+        "text": "TEXT KEPT",
+        "width": 156,
+        "css": "--col-w: 100px;"
+      }
+    ]
+  },
+  "resized": {
+    "client": 732,
+    "scroll": 732,
+    "table": 732,
+    "headers": [
+      {
+        "text": "SOURCE\n\u21c5",
+        "width": 453,
+        "css": "--col-w: 406px;"
+      },
+      {
+        "text": "INCLUDE SETTINGS",
+        "width": 167,
+        "css": "--col-w: 150px;"
+      },
+      {
+        "text": "TEXT KEPT",
+        "width": 112,
+        "css": "--col-w: 100px;"
+      }
+    ]
+  },
+  "savedWidths": [
+    453,
+    167,
+    112
+  ],
+  "restoredWidths": [
+    453,
+    167,
+    112
+  ],
+  "hiddenSourceCells": [
+    {
+      "display": "table-cell",
+      "text": "Latest revision"
+    },
+    {
+      "display": "table-cell",
+      "text": "Kept"
+    },
+    {
+      "display": "table-cell",
+      "text": "Latest revision"
+    },
+    {
+      "display": "table-cell",
+      "text": "Kept"
+    },
+    {
+      "display": "table-cell",
+      "text": "Latest revision"
+    },
+    {
+      "display": "table-cell",
+      "text": "Kept"
+    }
+  ],
+  "coarsePointer": true,
+  "uncaughtPageErrors": [],
+  "screenshots": [
+    "1280-dark-restored-custom-view.png",
+    "1280-hide-source-then-390.png",
+    "1280-light-restored-custom-view.png",
+    "390-dark-source-hidden-clean.png",
+    "390-dark-source-hidden.png",
+    "390-dark-standard.png",
+    "390-light-standard.png"
+  ],
+  "savedViewName": "QA desktop restored widths",
+  "desktopRestoredWidthsMatchSaved": true,
+  "phoneStandardMeasurements": "phone-standard.json (captured before hiding Source; 390px light/dark, coarse pointer)",
+  "sourceHiddenPhoneTransition": "hide-source-transition.json (hide at 1280, then resize to 390)",
+  "phoneAfterHideStandalone": "phone-observation.json (Source hidden directly at 390)",
+  "limitations": [
+    "Synthetic disposable Incus fixture data; no provider or production/shared DB calls.",
+    "No approval or worker pointer lifecycle assertions; acceptance limited to the DataTable layout and saved-view claims."
+  ]
+}
