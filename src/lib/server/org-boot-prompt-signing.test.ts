@@ -29,6 +29,8 @@ const row = (n: number, over: Record<string, unknown> = {}) => ({
   agentName: `Agent ${n}`,
   workerId: null,
   workerName: null,
+  agentUrn: null,
+  workerUrn: null,
   compiledNodeId: `node-${n}`,
   compiledNodeUrn: `hrn:node:acme.com:m:boot-${n}`,
   servedRevSeq: 3,
@@ -190,5 +192,27 @@ describe('switching on and off', () => {
     const r = await setOrgSigning(client(() => { throw { response: { status: 403, errors: [{ message: 'prose', extensions: { code: 'IMPERSONATION_READ_ONLY' } }] } }; }), 'org-1', { required: false });
     expect(r).toEqual({ kind: 'failed' });
     expect(JSON.stringify(r)).not.toContain('prose');
+  });
+});
+
+describe('portal#2067: the preview selects and passes through agentUrn and workerUrn', () => {
+  it('selects both fields on the preview rows', () => {
+    expect(ORG_BOOT_PROMPT_SIGNING_PREVIEW_QUERY).toMatch(/\bagentUrn\b/);
+    expect(ORG_BOOT_PROMPT_SIGNING_PREVIEW_QUERY).toMatch(/\bworkerUrn\b/);
+  });
+
+  it('returns the server strings verbatim, and null stays null', async () => {
+    const rows = [
+      row(1, { agentUrn: 'hrn:agent:other.org:slug-unrelated', workerId: 'w', workerName: 'Wren', workerUrn: 'hrn:worker:acme.com:app-1:wren-the-slug' }),
+      row(2, { agentUrn: 'hrn:agent:acme.com:agent-2' }),
+      row(3),
+    ];
+    const r = await loadSigningPreview(client(() => wrap(page(rows))), 'org-1');
+    expect(r.kind).toBe('ok');
+    if (r.kind !== 'ok') return;
+    expect(r.rows[0].agentUrn).toBe('hrn:agent:other.org:slug-unrelated');
+    expect(r.rows[0].workerUrn).toBe('hrn:worker:acme.com:app-1:wren-the-slug');
+    expect(r.rows[1].workerUrn).toBeNull();
+    expect(r.rows[2].agentUrn).toBeNull();
   });
 });

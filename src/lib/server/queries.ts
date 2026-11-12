@@ -840,8 +840,10 @@ export const ORG_BOOT_PROMPT_SIGNING_PREVIEW_QUERY = /* GraphQL */ `
         appUrn
         agentId
         agentName
+        agentUrn
         workerId
         workerName
+        workerUrn
         compiledNodeId
         compiledNodeUrn
         servedRevSeq

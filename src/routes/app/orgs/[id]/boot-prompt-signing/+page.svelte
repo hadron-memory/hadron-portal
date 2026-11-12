@@ -119,8 +119,16 @@
               {:else}
                 <span class="text-xs text-zinc-500 dark:text-zinc-400">{t('org.signing.none', 'None')}</span>
               {/if}
+            {:else if cell.column.id === 'agent'}
+              <div class="truncate">{row.agentName}</div>
+              {#if row.agentUrn}
+                <Urn value={row.agentUrn} type="agent" size={8} compact label={t('org.signing.urn.agent', 'agent')} />
+              {/if}
             {:else if cell.column.id === 'worker'}
               <div class="truncate">{workerWords(row)}</div>
+              {#if row.workerName && row.workerUrn}
+                <Urn value={row.workerUrn} type="worker" size={8} compact label={t('org.signing.urn.worker', 'worker')} />
+              {/if}
             {:else}
               <div class="truncate">{cell.getValue()}</div>
             {/if}
