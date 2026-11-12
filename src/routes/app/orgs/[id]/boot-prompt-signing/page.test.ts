@@ -17,7 +17,7 @@ import { orgProfileSchema } from '../schema';
 const org = { id: 'org-1', name: 'Acme', urn: 'hrn:org:acme.com' };
 const row = (n: number, over: Record<string, unknown> = {}) => ({
   appId: `a${n}`, appUrn: `hrn:app:acme.com:app-${n}`, agentId: `g${n}`, agentName: `Agent ${n}`,
-  workerId: null, workerName: null, compiledNodeId: `n${n}`, compiledNodeUrn: `hrn:node:acme.com:m:boot-${n}`,
+  workerId: null, workerName: null, agentUrn: null, workerUrn: null, compiledNodeId: `n${n}`, compiledNodeUrn: `hrn:node:acme.com:m:boot-${n}`,
   servedRevSeq: 4, state: 'UNSIGNED_STOPS', changesToRevSeq: null, ...over,
 });
 const ok = (rows: unknown[], over: Record<string, unknown> = {}) => ({
@@ -164,5 +164,29 @@ describe('Profile tab: signing section', () => {
     expect(body).toContain('Couldn’t load boot prompt signing.');
     expect(body).not.toContain('enforced');
     expect(body).not.toContain('Switch on');
+  });
+});
+
+describe('portal#2067: Agent and Worker URN chips under the names', () => {
+  const chips = (body: string) => [...body.matchAll(/title="Copy ([a-z]+) URN"/g)].map((m) => m[1]);
+  it('a worker row shows an agent chip and a worker chip, each below its name', () => {
+    const body = preview({
+      preview: ok([row(1, { agentName: 'Atlas', agentUrn: 'hrn:agent:acme.com:zz-unrelated', workerId: 'w', workerName: 'Wren', workerUrn: 'hrn:worker:acme.com:app-1:wren-slug' })]),
+    });
+    expect(chips(body)).toEqual(expect.arrayContaining(['agent', 'worker']));
+    expect(body.indexOf('zz-unrelated')).toBeGreaterThan(body.indexOf('Atlas'));
+    expect(body.indexOf('wren-slug')).toBeGreaterThan(body.indexOf('Wren'));
+  });
+  it('an install-level row shows the agent chip and NO worker chip', () => {
+    const body = preview({ preview: ok([row(1, { agentUrn: 'hrn:agent:acme.com:ag-1' })]) });
+    expect(chips(body)).toContain('agent');
+    expect(chips(body)).not.toContain('worker');
+  });
+  it('null URNs render the names alone: no chip, no fallback text', () => {
+    const body = preview({ preview: ok([row(1, { workerId: 'w', workerName: 'Wren' })]) });
+    expect(chips(body)).not.toContain('agent');
+    expect(chips(body)).not.toContain('worker');
+    expect(body).toContain('Agent 1');
+    expect(body).toContain('Wren');
   });
 });

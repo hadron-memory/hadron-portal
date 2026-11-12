@@ -28,8 +28,12 @@ export type PreviewRow = {
   appUrn: string;
   agentId: string;
   agentName: string;
+  /** The server's string, shown verbatim (hrn:node:hadronmemory.com:specs:cor:api:240:01); null when it cannot be derived. */
+  agentUrn: string | null;
   workerId: string | null;
   workerName: string | null;
+  /** Null on an install-level row or when it cannot be derived. */
+  workerUrn: string | null;
   compiledNodeId: string;
   compiledNodeUrn: string | null;
   servedRevSeq: number;

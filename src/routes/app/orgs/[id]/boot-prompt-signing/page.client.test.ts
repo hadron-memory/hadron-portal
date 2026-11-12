@@ -18,7 +18,7 @@ import Page from './+page.svelte';
 const org = { id: 'org-1', name: 'Acme', urn: 'hrn:org:acme.com' };
 const row = (n: number) => ({
   appId: `a${n}`, appUrn: `hrn:app:acme.com:app-${n}`, agentId: `g${n}`, agentName: `Agent ${n}`,
-  workerId: null, workerName: null, compiledNodeId: `n${n}`, compiledNodeUrn: null,
+  workerId: null, workerName: null, agentUrn: null, workerUrn: null, compiledNodeId: `n${n}`, compiledNodeUrn: null,
   servedRevSeq: 4, state: 'UNSIGNED_STOPS', changesToRevSeq: null,
 });
 const ok = (token: string, rows: unknown[]) => ({
@@ -103,5 +103,18 @@ describe('a late response is fenced to the submission it answers (LOCAL P2 F2)',
     flushSync();
     await tick();
     expect(tokenOf(t)).toBe('tok-fresh-A');
+  });
+});
+
+describe('portal#2067: the chip carries the server string byte for byte', () => {
+  it('copying the agent and worker chips writes the fixture URNs unchanged', async () => {
+    const written: string[] = [];
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (v: string) => { written.push(v); } } });
+    const agentUrn = 'hrn:agent:other.org:zz-unrelated-slug';
+    const workerUrn = 'hrn:worker:acme.com:app-1:wren-slug-9';
+    const t = mountPage(ok('tok', [{ ...row(1), agentName: 'Atlas', agentUrn, workerId: 'w', workerName: 'Wren', workerUrn }]));
+    (t.querySelector('button[title="Copy agent URN"]') as HTMLButtonElement).click();
+    (t.querySelector('button[title="Copy worker URN"]') as HTMLButtonElement).click();
+    expect(written).toEqual([agentUrn, workerUrn]);
   });
 });
