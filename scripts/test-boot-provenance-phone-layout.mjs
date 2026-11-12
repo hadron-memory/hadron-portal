@@ -48,6 +48,7 @@ try {
           // A phone page column: 16px gutters on each side, as the agent page lays it out.
           document.body.innerHTML = `<style>${css}</style><main id="col" style="max-width:1000px;margin:24px 16px"></main>`;
           document.body.style.background = theme === 'dark' ? '#09090b' : '#fafafa';
+          document.body.style.color = theme === 'dark' ? '#f4f4f5' : '#18181b';
           localStorage.clear();
           if (sizing) {
             const view = { sorting: [], columnFilters: [], globalFilter: '', columnVisibility: {}, columnOrder: [], columnSizing: sizing, pagination: { pageIndex: 0, pageSize: 20 } };

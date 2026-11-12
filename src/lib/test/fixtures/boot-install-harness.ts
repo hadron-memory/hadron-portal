@@ -4,10 +4,10 @@ import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
 import BootProvenance from '$lib/components/BootProvenance.svelte';
 const selection = { rev: null, approved: true, signed: false };
 const provenancePage = { offset: 0, total: 3, hasMore: false, pruned: false, items: [
-  { name: 'Engineering safety and collaboration', urn: 'hrn:node:example.com:policies:engineering:safety', omitted: false, depth: 0, revNo: 3, selection, pruned: false },
+  { name: 'Engineering safety and collaboration', urn: 'hrn:node:example.com:policies:engineering:safety', omitted: false, kind: 'include', order: 1, depth: 0, revNo: 3, selection, pruned: false },
   // This concealed row really carries an ID: the layout assertion must fail if it is exposed.
-  { nodeId: 'private-node-id', name: null, urn: null, omitted: false, depth: 1, revNo: 2, selection, pruned: null },
-  { name: 'Previous operating guide', urn: 'hrn:node:example.com:policies:guide', omitted: false, depth: 1, revNo: 1, selection: { rev: 4, approved: true, signed: true }, pruned: true },
+  { nodeId: 'private-node-id', name: null, urn: null, omitted: false, kind: 'include', order: 2, depth: 1, revNo: 2, selection, pruned: null },
+  { name: 'Previous operating guide', urn: 'hrn:node:example.com:policies:guide', omitted: false, kind: 'include', order: 3, depth: 1, revNo: 1, selection: { rev: 4, approved: true, signed: true }, pruned: true },
 ] };
 /** The provenance table alone (portal#1991): three rows, one per retention state. */
 export function mountBootProvenance(target: HTMLElement) {
