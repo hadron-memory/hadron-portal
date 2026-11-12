@@ -190,3 +190,49 @@ describe('portal#2067: Agent and Worker URN chips under the names', () => {
     expect(body).toContain('Wren');
   });
 });
+
+describe('portal#2074: the worker chip follows workerUrn, and positions are checked per cell', () => {
+  const cells = (body: string) => [...body.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/g)].map((m) => m[1]);
+  const cellWith = (body: string, needle: string) => cells(body).filter((c) => c.includes(needle));
+  const wrow = { agentName: 'Atlas', agentUrn: 'hrn:agent:acme.com:zz-unrelated', workerId: 'w', workerName: 'Wren', workerUrn: 'hrn:worker:acme.com:app-1:wren-slug' };
+
+  it('each chip sits in the same cell as its name, after it', () => {
+    const body = preview({ preview: ok([row(1, wrow)]) });
+    // Anchor on the NAME's cell, so a chip moved to another cell leaves the name's cell without it.
+    const agentCell = cellWith(body, 'Atlas');
+    const workerCell = cellWith(body, 'Wren');
+    expect(agentCell).toHaveLength(1);
+    expect(workerCell).toHaveLength(1);
+    const a = agentCell[0];
+    const w = workerCell[0];
+    expect(a.indexOf('Atlas')).toBeGreaterThanOrEqual(0);
+    expect(a.indexOf('zz-unrelated')).toBeGreaterThan(a.indexOf('Atlas'));
+    expect(w.indexOf('Wren')).toBeGreaterThanOrEqual(0);
+    expect(w.indexOf('wren-slug')).toBeGreaterThan(w.indexOf('Wren'));
+    expect(a).not.toContain('wren-slug');
+    expect(w).not.toContain('zz-unrelated');
+    // And each chip appears in exactly one cell.
+    expect(cellWith(body, 'zz-unrelated')).toHaveLength(1);
+    expect(cellWith(body, 'wren-slug')).toHaveLength(1);
+  });
+
+  it('a workerUrn with no workerName still shows its chip, under a fallback label that is not derived from the URN', () => {
+    const body = preview({ preview: ok([row(1, { ...wrow, workerName: null })]) });
+    const cell = cellWith(body, 'wren-slug');
+    expect(cell).toHaveLength(1);
+    expect(cell[0]).toContain('Unnamed worker');
+    expect(cell[0]).not.toContain('All chats and uncustomised workers');
+    // The name line is the fixed label, with nothing taken from the slug.
+    expect(/<div class="truncate">([^<]*)<\/div>/.exec(cell[0])?.[1]).toBe('Unnamed worker');
+  });
+
+  it('a worker name with no URN is name-only, and an install row keeps its label with no chip', () => {
+    const named = cellWith(preview({ preview: ok([row(1, { ...wrow, workerUrn: null })]) }), 'Wren');
+    expect(named).toHaveLength(1);
+    expect(named[0]).not.toContain('Copy worker URN');
+    const install = preview({ preview: ok([row(1)]) });
+    expect(cellWith(install, 'All chats and uncustomised workers')).toHaveLength(1);
+    expect(install).not.toContain('Copy worker URN');
+    expect(install).not.toContain('Unnamed worker');
+  });
+});
