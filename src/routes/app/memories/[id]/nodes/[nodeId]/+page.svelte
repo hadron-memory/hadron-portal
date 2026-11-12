@@ -181,6 +181,12 @@
   // portal#2014: a Save whose request died (an `error` result) was not confirmed.
   // The page holds its own text: a custom superforms onError sets no message.
   let metaUnconfirmed = $state(false);
+  // #2048: custom onError already owns this request's feedback. Superforms
+  // also applies the error to page.form; retain its identity after Cancel so
+  // that duplicate raw banner cannot outlive the form's helpful notice.
+  // Compare the error instance, never its text: other actions still own theirs.
+  let handledMetaError = $state.raw<unknown>(null);
+  const pageActionError = $derived(form?.error === handledMetaError ? null : form?.error);
 
   // Inline editing. #927: each text editor is a draft based on the revision it
   // opened on, and its save is refused when the node changed since. The drafts
@@ -855,7 +861,7 @@
     // superforms finish the submit and re-enable Save (the portal#1528
     // submitFailure pattern); the page shows its own text instead. See
     // hrn:node:hadronmemory.com:hadron-portal:findings:superforms-default-onerror-leaves-submitting-stuck.
-    onError: () => { metaUnconfirmed = true; },
+    onError: ({ result }) => { metaUnconfirmed = true; handledMetaError = result.error; },
     // portal#2020: superforms awaits the reload, THEN resets the form to its
     // initial (pre-save) values, so the reseed must come after that reset: here.
     onUpdated: () => {
@@ -3162,8 +3168,8 @@
     </div>
   </div>
 
-  {#if form?.error}
-    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  {#if pageActionError}
+    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{pageActionError}</div>
   {/if}
 
   <!-- portal#696: a reference node's file, downloadable from the node itself.

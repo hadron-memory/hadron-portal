@@ -70,6 +70,8 @@ const PARENT = {
   user: { id: 'u1' },
 };
 const HREF = 'http://localhost/app/memories/mem-A/nodes/leaf-pk?tab=settings';
+const transportError = () => new TypeError('Failed to fetch');
+const transportErrorText = String(transportError());
 
 const gqlError = (code: string, message: string) =>
   new ClientError({ status: 200, headers: new Headers(), body: '', errors: [new GraphQLError(message, { extensions: { code } })] }, { query: 'mutation fixture' });
@@ -354,7 +356,7 @@ describe('#1882: a failed location move in Settings says so', () => {
     const form = target.querySelector<HTMLFormElement>('form[action="?/updateMeta"]')!;
     let rethrown: unknown;
     const rejections = await captureUnhandledRejections(async () => {
-      await submitEnhancedWithRawResult(form, { type: 'error', error: new TypeError('Failed to fetch'), status: 500 }).catch((e: unknown) => { rethrown = e; });
+      await submitEnhancedWithRawResult(form, { type: 'error', error: transportError(), status: 500 }).catch((e: unknown) => { rethrown = e; });
       for (let i = 0; i < 10; i++) await tick();
       await new Promise((resolve) => setTimeout(resolve, 0));
       for (let i = 0; i < 10; i++) await tick();
@@ -453,14 +455,14 @@ describe('#1882: a failed location move in Settings says so', () => {
     await submitErrorResult(target, { name: 'Renamed', loc: 'renamed' });
     expect(metaAlert(target)).toContain("The save wasn't confirmed.");
     expect(saveButton(target).disabled).toBe(false);
-    expect(target.textContent).not.toContain('TypeError: Failed to fetch');
+    expect(target.textContent).not.toContain(transportErrorText);
     buttonNamed(target, 'Cancel')!.click();
     flushSync();
-    expect(target.textContent).not.toContain('TypeError: Failed to fetch');
+    expect(target.textContent).not.toContain(transportErrorText);
     buttonNamed(target, 'Edit')!.click();
     flushSync();
     expect(metaAlert(target)).toBe('');
-    expect(target.textContent).not.toContain('TypeError: Failed to fetch');
+    expect(target.textContent).not.toContain(transportErrorText);
   });
 
   it('keeps a later unrelated page error, even with the same text (#2048 control)', async () => {
@@ -469,9 +471,9 @@ describe('#1882: a failed location move in Settings says so', () => {
     buttonNamed(target, 'Cancel')!.click();
     flushSync();
     // A different action result: same diagnostic text, different error instance.
-    page.update(p => ({ ...p, form: { type: 'error', error: new TypeError('Failed to fetch') } }));
+    page.update(p => ({ ...p, form: { type: 'error', error: transportError() } }));
     flushSync();
-    expect(target.textContent).toContain('TypeError: Failed to fetch');
+    expect(target.textContent).toContain(transportErrorText);
   });
 
   it('a successful save closes the editor; the metaSaved reload branch never runs', async () => {
