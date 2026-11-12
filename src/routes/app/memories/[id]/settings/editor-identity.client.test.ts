@@ -167,4 +167,38 @@ describe('in-flight submit across A→B (#1909 characterization)', () => {
     expect(nameInput(target)?.value ?? 'Beta').toBe('Beta');
     expect(target.textContent).not.toContain('Changes saved.');
   });
+
+  it('after an earlier A success, A\'s late refusal neither closes B\'s editor nor shows old feedback (LOCAL F1 on #2045)', async () => {
+    const { target, props } = await mountOn('mem-a', 'Alpha');
+    const saved = await superValidate({ displayName: 'Alpha 1' }, zod4(memorySettingsSchema), { errors: false, id: 'updateMemorySettings:mem-a' });
+    saved.message = { type: 'success', text: 'Changes saved.' };
+    typeName(nameInput(target)!, 'Alpha 1');
+    const first = await submitEnhancedDeferred(editor(target)!);
+    await first.finish({ type: 'success', status: 200, data: { form: saved } });
+    props.form = { form: saved } as never;
+    await tick(5);
+    expect(target.textContent).toContain('Changes saved.');
+
+    buttonLabelled(target, 'Edit')!.click();
+    await tick(3);
+    typeName(nameInput(target)!, 'Alpha 2');
+    const late = await submitEnhancedDeferred(editor(target)!);
+
+    props.form = null as never; // the router clears action data on navigation
+    await navigate(props, 'mem-b', await loaderData('mem-b', 'Beta'));
+    buttonLabelled(target, 'Edit')!.click();
+    await tick(3);
+    typeName(nameInput(target)!, 'Beta DRAFT');
+
+    const refused = await superValidate({ displayName: 'Alpha 2' }, zod4(memorySettingsSchema), { errors: false, id: 'updateMemorySettings:mem-a' });
+    refused.message = { type: 'error', text: 'A save denied' };
+    await late.finish({ type: 'failure', status: 403, data: { form: refused } });
+    props.form = { form: refused } as never;
+    await tick(5);
+
+    expect(editor(target)).not.toBeNull();
+    expect(nameInput(target)!.value).toBe('Beta DRAFT');
+    expect(target.textContent).not.toContain('Changes saved.');
+    expect(target.textContent).not.toContain('A save denied');
+  });
 });

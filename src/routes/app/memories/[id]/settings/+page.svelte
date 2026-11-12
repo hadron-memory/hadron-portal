@@ -207,7 +207,11 @@
     ownerIsViewer || myMember?.role === 'ADMIN' || myMember?.role === 'OWNER',
   );
 
-  const initialSettingsForm = untrack(() => submittedForm<MemorySettingsForm>(form, 'updateMemorySettings') as MemorySettingsSuperform | null ?? data.form);
+  const initialSettingsForm = untrack(() => {
+    const submitted = submittedForm<MemorySettingsForm>(form, 'updateMemorySettings');
+    // #1909: only THIS memory's own submission may seed the form.
+    return (submitted && submitted.id === data.form.id ? submitted : null) as MemorySettingsSuperform | null ?? data.form;
+  });
   const {
     form: settingsForm,
     errors: settingsErrors,
@@ -242,7 +246,7 @@
   let isEditing = $state(untrack(() => {
     if (!canEditSettings) return false;
     const submitted = submittedForm<MemorySettingsForm>(form, 'updateMemorySettings');
-    return !!submitted && submitted.message?.type !== 'success';
+    return !!submitted && submitted.id === data.form.id && submitted.message?.type !== 'success';
   }));
   let confirmDelete = $state(false);
 
@@ -339,8 +343,17 @@
     isEditing = false;
   });
 
-  const settingsActionError = $derived.by(() => {
+  // #1909 (LOCAL F1 on #2045): Superforms' own id gate refuses to BIND another
+  // memory's result, but the banner, error and completion consumers below read
+  // the page's action data by `_kind` alone, and $settingsMessage still holds an
+  // earlier save. Only a submission carrying THIS memory's loaded form id counts.
+  const currentSettingsSubmission = $derived.by(() => {
     const submitted = submittedForm<MemorySettingsForm>(form, 'updateMemorySettings');
+    return submitted && submitted.id === data.form.id ? submitted : null;
+  });
+
+  const settingsActionError = $derived.by(() => {
+    const submitted = currentSettingsSubmission;
     const message = $settingsMessage;
     const allErrors = $settingsAllErrors;
     if (!submitted) return null;
@@ -348,11 +361,12 @@
       ? message.text
       : (allErrors[0]?.messages[0] ?? null);
   });
-  const settingsActionSuccess = $derived(scopedActionSuccess<MemorySettingsForm>(form, 'updateMemorySettings', $settingsMessage));
+  const settingsActionSuccess = $derived(
+    currentSettingsSubmission && $settingsMessage?.type === 'success' ? $settingsMessage.text : null,
+  );
 
   $effect(() => {
-    const submitted = submittedForm<MemorySettingsForm>(form, 'updateMemorySettings');
-    if (submitted && $settingsMessage?.type === 'success') isEditing = false;
+    if (currentSettingsSubmission && $settingsMessage?.type === 'success') isEditing = false;
   });
 
   // ── Vector index (spec 033 §2/§3) ───────────────────────────────────
