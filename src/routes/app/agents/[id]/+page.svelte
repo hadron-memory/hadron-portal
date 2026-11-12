@@ -363,6 +363,14 @@
   // Save is offered only for a change, so an unchanged value sends nothing.
   const resetContextChanged = $derived($resetContextForm.resetContextAfterTask !== resetContextSaved);
 
+  // portal#2068: only THIS Agent's own result may seed its roles editor. A late
+  // result for the Agent just left carries that Agent's form id; the page-wide
+  // action data would otherwise hand it to the editor that remounts for the next.
+  const memberRolesSeed = $derived.by(() => {
+    const submitted = submittedForm<AgentMemberRolesForm>(form, 'updateMemberRoles') as AgentMemberRolesSuperform | null;
+    return submitted && submitted.id === data.memberRolesForm.id ? submitted : data.memberRolesForm;
+  });
+
   const initialAddMemoryForm = untrack(() => submittedForm<AddAgentMemoryForm>(form, 'addMemory') as AddAgentMemorySuperform | null ?? data.addMemoryForm);
   const {
     form: addMemoryForm,
@@ -1088,7 +1096,7 @@
                   <AgentMemberRolesEditor
                     canManage={!!data.canManageAgent}
                     roles={agent.installationPolicy.memberRoles}
-                    initial={submittedForm<AgentMemberRolesForm>(form, 'updateMemberRoles') as AgentMemberRolesSuperform | null ?? data.memberRolesForm}
+                    initial={memberRolesSeed}
                   />
                 {/key}
               </div>
