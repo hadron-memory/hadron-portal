@@ -189,6 +189,9 @@
   );
   let identityChecking = $state(false);
   const mutationBlocked = $derived(localMutationPending || mutationPending || identityChecking);
+  // #1986 (Uma F4): the configuration-recovery sentence describes only a
+  // mutation check. An identity-only check says "Checking your sign-in…" alone.
+  const recoveryChecking = $derived(localMutationPending || mutationPending);
   let draftPrincipal: { userId: string; selectedContext: string } | null = null;
   let identitySequence = 0;
   let identityController: AbortController | null = null;
@@ -207,7 +210,7 @@
     resetForm();
     confirmDeleteId = null;
     busy = false;
-    error = s.principalChanged();
+    error = s.principalChanged(ownerLabel);
     const generation = actionGeneration;
     const owner = ownerKey;
     const user = currentUserId;
@@ -227,7 +230,7 @@
     const current = () => !destroyed && sequence === identitySequence && captured === draftPrincipal;
     try {
       const data = await withAiConfigTimeout(async signal => {
-        const response = await fetch('/api/ai-configs?principal=1', { cache: 'no-store', signal });
+        const response = await fetch('/api/ai-configs/principal', { cache: 'no-store', signal });
         if (!response.ok) throw new Error('Identity unavailable');
         return await response.json() as { principal?: unknown };
       }, () => { throw new Error('Identity unavailable'); }, undefined, controller.signal);
@@ -1078,7 +1081,7 @@
 <section>
   <div data-testid="ai-config-manager-feedback" role="status" aria-live="polite" aria-atomic="true">
     {#if identityChecking}<p class="mb-3 text-sm text-zinc-500 dark:text-zinc-400">{s.principalChecking()}</p>{/if}
-    {#if mutationBlocked && !mutationLocked}
+    {#if recoveryChecking && !mutationLocked}
       <p data-testid="ai-config-recovery-pending" class="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
         {s.recoveryPending()}
       </p>

@@ -24,7 +24,7 @@ beforeEach(() => {
   resetAiConfigRecoveryForTests();
   posts = [];
   vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
-    if (_url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+    if (_url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
     const body = JSON.parse(init.body) as Record<string, unknown>;
     posts.push(body);
     const reply = body.action === 'endpoints'
@@ -367,7 +367,7 @@ describe('endpoint suggestions follow the provider (#951 Codex P2)', () => {
   function holdEndpoints(held: string[]) {
     const release = new Map<string, (urls: string[]) => void>();
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
-      if (_url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+      if (_url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
     const body = JSON.parse(init.body) as Record<string, unknown>;
       posts.push(body);
       if (body.action === 'endpoints' && held.includes(String(body.provider))) {
@@ -451,7 +451,7 @@ describe('a late save response must not replace the replacement editor’s basel
     const held = new Promise<AiServiceConfig>((resolve) => { release = resolve; });
     const deliveredRow = new Promise<void>((resolve) => { delivered = resolve; });
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
-      if (_url === '/api/ai-configs?principal=1') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+      if (_url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
       const body = JSON.parse(init.body) as Record<string, unknown>;
       posts.push(body);
       if (body.action === action) {

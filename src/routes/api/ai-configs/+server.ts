@@ -2,7 +2,6 @@ import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
 import {
-  AI_CONFIG_PRINCIPAL_QUERY,
   CREATE_AI_SERVICE_CONFIG_MUTATION,
   UPDATE_AI_SERVICE_CONFIG_MUTATION,
   DELETE_AI_SERVICE_CONFIG_MUTATION,
@@ -117,22 +116,6 @@ function readbackClient(token: string, parent: AbortSignal) {
 // and a server deadline cancel the upstream GraphQL fetch as well.
 export const GET: RequestHandler = async ({ locals, url, request }) => {
   const headers = { 'cache-control': 'no-store' };
-  if (url.searchParams.get('principal') === '1') {
-    // Read the existing server identity using this request's cookie. No JWT
-    // decode fallback, auth mutation, draft payload or new write precondition.
-    if (!locals.token) return json({ principal: null }, { headers });
-    try {
-      const data = await gqlClient(locals.token, request.signal).request<{
-        authContext: { principalType: string; user: { id: string } | null; appId: string | null } | null;
-      }>(AI_CONFIG_PRINCIPAL_QUERY);
-      if (data.authContext === null) return json({ principal: null }, { headers });
-      const context = data.authContext;
-      if (!context || !['USER', 'APP'].includes(context.principalType)) throw new Error('Identity unavailable');
-      return json({ principal: { principalType: context.principalType, userId: context.user?.id ?? null, appId: context.appId } }, { headers });
-    } catch {
-      return json({ error: aiConfigStrings.principalUnavailable() }, { status: 503, headers });
-    }
-  }
   if (!locals.token) return json({ error: 'Unauthorized' }, { status: 401, headers });
 
   const readback = readbackClient(locals.token, request.signal);
