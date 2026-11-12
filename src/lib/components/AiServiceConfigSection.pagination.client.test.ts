@@ -19,6 +19,9 @@ const page = { offset: 20, count: 20, total: 45, firstHref: null,
   previousHref: '/app/apps/app1?tab=ai&configOffset=0', nextHref: '/app/apps/app1?tab=ai&configOffset=40' };
 const pager = (root: HTMLElement) => root.querySelector('nav[aria-label="AI config pages"]');
 const rows = (root: HTMLElement) => root.querySelectorAll('tbody tr');
+/** [label, href] for every anchor the server pager renders, in markup order. */
+const navLinks = (root: HTMLElement) =>
+  [...(pager(root)?.querySelectorAll('a') ?? [])].map(a => [a.textContent?.trim(), a.getAttribute('href')] as const);
 const button = (root: HTMLElement, text: string) => {
   const found = [...root.querySelectorAll('button')].find(el => el.textContent?.trim() === text);
   if (!found) throw new Error(`Missing button ${text}`);
@@ -52,6 +55,14 @@ async function open(fresh: AiServiceConfig[] | null) {
   const root = mounted.target;
   expect(rows(root)).toHaveLength(20);
   expect(pager(root)?.textContent).toContain('21–40 of 45');
+  // The server page renders appListNavigation's shape at offset 20 (key
+  // `configOffset`, page size 20): href(0) DELETES the key, so Previous points
+  // at the bare tab URL; First is unrendered at offset ≤ 20 even with a
+  // firstHref (ListPageNav gate); Next advances by the served page.
+  expect(navLinks(root)).toEqual([
+    ['Previous', '/app/apps/app1?tab=ai'],
+    ['Next', '/app/apps/app1?tab=ai&configOffset=40'],
+  ]);
   root.querySelector<HTMLButtonElement>('button[aria-label="Actions for config-20"]')!.click();
   flushSync();
   [...root.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(el => el.textContent?.trim() === 'Edit')!.click();
@@ -84,6 +95,14 @@ it('pairs whole-owner mutation readback with client pagination, then restores a 
   m.props.pagination = { ...page, offset: 40, count: 6, total: 46, nextHref: null };
   await settle();
   expect(pager(m.target)?.textContent).toContain('41–46 of 46');
+  // The restored page carries its own server navigation in the same
+  // appListNavigation shape: First (offset 40 > 20) to the key-less first
+  // page, Previous back one full PAGE SIZE (not the 6 served) to offset 20,
+  // and no Next — 41–46 of 46 is the end.
+  expect(navLinks(m.target)).toEqual([
+    ['First', '/app/apps/app1?tab=ai'],
+    ['Previous', '/app/apps/app1?tab=ai&configOffset=20'],
+  ]);
   expect(m.target.querySelector('[data-testid="table-footer"]')).toBeNull();
   expect(rows(m.target)).toHaveLength(6);
 });
