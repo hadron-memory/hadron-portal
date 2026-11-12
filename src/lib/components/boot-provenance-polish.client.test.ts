@@ -60,7 +60,37 @@ describe('portal#1757 phone columns', () => {
     const source = text(m.target.querySelector('tbody tr td')!);
     expect(source).toContain('Style');
     expect(source).toContain('Revision 7');
-    expect(source).toContain('depth 2');
+    expect(source).toContain('Depth 2');
+  });
+});
+
+// portal#1862 (Uma's call, UX 2026-11-11): the Source detail reads like the Include settings
+// row ("Revision 3 · Signed only"), so the two scan as one pattern, with no comma and no
+// lower-case "depth". A pruned revision keeps its " · No longer kept" suffix.
+describe('portal#1862 the Source detail line is `Revision {n} · Depth {d}`', () => {
+  const detail = (el: Element) => text(el.querySelector('tbody tr td div')!);
+  it('renders the mid-dot form, not the comma form', async () => {
+    const m = await mountProvenance([row({ revNo: 3, depth: 0 })]);
+    expect(detail(m.target)).toMatch(/^Revision 3 · Depth 0 · /);
+    expect(detail(m.target)).not.toMatch(/depth 0|Revision 3,/);
+  });
+  it('adds " · No longer kept" for a pruned revision, directly after the depth', async () => {
+    const m = await mountProvenance([row({ revNo: 3, depth: 0, pruned: true })]);
+    expect(detail(m.target)).toMatch(/^Revision 3 · Depth 0 · No longer kept · /);
+  });
+  it('has no pruned suffix for a kept revision', async () => {
+    const m = await mountProvenance([row({ revNo: 3, depth: 0, pruned: false })]);
+    expect(detail(m.target)).not.toMatch(/No longer kept/);
+  });
+  it('keeps BOTH "No longer kept" copies for a pruned item: the detail line and the Text kept cell', async () => {
+    const m = await mountProvenance([row({ pruned: true })]);
+    const cells = [...m.target.querySelectorAll('tbody tr td')].map(text);
+    expect(cells[0]).toContain('No longer kept');
+    expect(cells[2]).toContain('No longer kept');
+  });
+  it('leaves the Include settings text unchanged', async () => {
+    const m = await mountProvenance([row({ selection: { rev: 3, approved: false, signed: true } })]);
+    expect(text(m.target.querySelectorAll('tbody tr td')[1])).toContain('Revision 3 · Signed only');
   });
 });
 

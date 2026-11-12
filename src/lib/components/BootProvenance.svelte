@@ -63,7 +63,7 @@
         {#snippet cell(cell, item)}
           {#if cell.column.id === 'name'}
             {#if item.urn && item.name}<span>{item.name}</span> <Urn value={item.urn} type="node" linked={linkSources} />{:else}{item.omitted && !uniformUnavailable ? t('boot.provenance.omitted', 'name not loaded') : t('boot.provenance.unavailable', 'Not available to you')}{/if}
-            <div class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('boot.provenance.detail', 'Revision {n}, depth {d}', { n: item.revNo, d: item.depth })}{item.pruned === true ? ` · ${t('boot.provenance.pruned', 'No longer kept')}` : ''} · {t('boot.provenance.occurrence', '{kind}, order {order}', { kind: item.kind, order: item.order })}</div>
+            <div class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('boot.provenance.detail', 'Revision {n} · Depth {d}', { n: item.revNo, d: item.depth })}{item.pruned === true ? ` · ${t('boot.provenance.pruned', 'No longer kept')}` : ''} · {t('boot.provenance.occurrence', '{kind}, order {order}', { kind: item.kind, order: item.order })}</div>
             <!-- Phone only: the Include settings column is hidden below sm (CSS), so the same text rides here. "No longer kept" is already in the detail line above. -->
             <div class="mt-1 text-xs text-zinc-500 dark:text-zinc-400 sm:hidden" data-phone-settings>{t('boot.provenance.settings', 'Include settings')}: {settingsText(item.selection)}</div>
           {:else if cell.column.id === 'selection'}
