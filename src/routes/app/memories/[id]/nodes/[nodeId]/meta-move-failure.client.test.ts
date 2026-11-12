@@ -309,12 +309,14 @@ describe('#1882: a failed location move in Settings says so', () => {
     expect(get(page).form).not.toBeNull();
     // The best-effort swallow WARNS: for the rejection classes that reach the
     // catch, kit's own reporting is what failed, so this is the only record.
-    // Assert it here, then consume it so the strict afterEach gate holds for
-    // every other test.
-    const warn = consoleMsgs.find((m) => m.text.includes('saved, but the reload after it failed'));
-    expect(warn?.level).toBe('warn');
-    expect(warn?.text).toContain('reload rejected (fixture)');
-    consoleMsgs.length = 0;
+    // Assert it here, then consume ONLY that entry so the strict afterEach gate
+    // still holds — for this test's remaining messages and every other one
+    // (portal#2016: clearing everything would let unrelated noise through).
+    const warnIdx = consoleMsgs.findIndex((m) => m.text.includes('saved, but the reload after it failed'));
+    expect(warnIdx).toBeGreaterThanOrEqual(0);
+    expect(consoleMsgs[warnIdx].level).toBe('warn');
+    expect(consoleMsgs[warnIdx].text).toContain('reload rejected (fixture)');
+    consoleMsgs.splice(warnIdx, 1);
   });
 
   // The two branches onResult must NOT touch (the #1967 review asked for them
