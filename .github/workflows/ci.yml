@@ -131,6 +131,19 @@ jobs:
       - name: Check opt-in table cell paint and interactive minima
         run: pnpm test:table-cell-overflow-layout
 
+      - name: Check compact terminal containment
+        run: pnpm test:terminal-status-layout
+        env:
+          TERMINAL_SHOTS: test-results/terminal-status
+
+      - name: Upload terminal containment screenshots and geometry
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-status-layout
+          path: test-results/terminal-status
+          if-no-files-found: ignore
+
       - name: Check App Runs table layout
         run: pnpm test:app-runs-layout
 

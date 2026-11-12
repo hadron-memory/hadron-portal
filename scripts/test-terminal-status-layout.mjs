@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
-const server = await createServer({server:{host:'127.0.0.1',port:0}});
+const server = await createServer({server:{host:'127.0.0.1',port:0},plugins:[{
+ name:'terminal-containment-mutant',enforce:'pre',transform(code,id){
+  if(process.env.TERMINAL_CONTAINMENT_MUTANT==='1' && id.endsWith('/TerminalStatus.svelte'))
+   return code.replace('inline-flex max-w-full min-w-0 flex-wrap','inline-flex flex-wrap');
+ }
+}]});
 let browser;
 const results=[];
 try {
@@ -26,6 +31,7 @@ try {
    window.stopFull=mount(document.getElementById('full'),'dark',false);
   });
   const pill=page.locator('#terminal span[title]');await pill.waitFor();
+  const fullBefore=await page.locator('#full').innerHTML();
   for(const width of [220,140,320,220]) {
    await page.locator('col').first().evaluate((el,width)=>{el.style.width=`${width}px`;el.closest('table').style.width=`${width+220}px`},width);
    const geometry=await pill.evaluate(el=>{
@@ -38,11 +44,22 @@ try {
    assert.ok(geometry.outer.right<=geometry.cell.right+0.5,`compact wrapper bleeds at ${width}px: ${JSON.stringify(geometry)}`);
    assert.ok(geometry.pill.right<=geometry.cell.right+0.5,'pill bounded');
    assert.equal(geometry.overflow,'ellipsis');
+   assert.equal(await page.locator('#full').innerHTML(),fullBefore,'compact resizing leaves full form unchanged');
+   // A Range measures untruncated text, not painted glyphs. Compare actual
+   // neighboring pixels with the terminal hidden/visible instead.
+   const td=pill.locator('xpath=ancestor::td');const box=await td.boundingBox();
+   const clip={x:Math.ceil(box.x+box.width+1),y:Math.ceil(box.y),width:40,height:Math.floor(box.height)};
+   const visible=await page.screenshot({clip});
+   await page.locator('#terminal').evaluate(el=>el.style.visibility='hidden');
+   const hidden=await page.screenshot({clip});
+   await page.locator('#terminal').evaluate(el=>el.style.visibility='');
+   assert.ok(visible.equals(hidden),'terminal paints no pixels into neighboring Task');
    await pill.hover(); // existing full-value title remains on the un-clipped pill.
    await page.getByRole('button',{name:'Task action'}).click();
    await page.getByRole('link',{name:'Synthetic assigned task'}).click();
+   assert.equal(new URL(page.url()).hash,'#task');
   }
-  assert.equal(await page.locator('#full').innerText(),'Dark\nAgent not running (plain shell)\nNo turn reported\nchecked 16 min. ago');
+  assert.equal(await page.locator('#full').innerText(),'Dark\nAgent not running (plain shell)\nLast turn: not known\nchecked 16 min. ago');
   for(const mode of ['hidden','not-reported']) {
    await page.evaluate(async mode=>{const {mountTerminalFixture}=await import('/src/lib/test/fixtures/terminal-status-harness.ts');window.stopEmpty=mountTerminalFixture(document.getElementById('empty'),mode)},mode);
    assert.equal(await page.locator('#empty').innerText(),mode==='hidden'?'':'Not reported');
