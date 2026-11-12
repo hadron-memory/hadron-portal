@@ -16,6 +16,7 @@
  * `applyAction` records that result as the page's action data, as kit does.
  * What the form then does is superforms' own code, not this stub's.
  */
+import { isActionFailure } from '@sveltejs/kit';
 import { page } from './app-stores';
 
 /**
@@ -130,17 +131,23 @@ export async function submitEnhancedWithResult(
 /**
  * Map a REAL route action's return value (from invoking `actions.x` directly)
  * to the ActionResult kit derives for it, so a test hands superforms what the
- * browser would. Superforms' `message()` carries the discrimination: with a
- * status ≥ 400 it returns `fail(status, { form })` — an ActionResult of type
- * 'failure' whose data is the fail() payload — while without a status (or
- * below 400) it returns the plain `{ form }` object, type 'success', which has
- * NO `status` field at all when the action is invoked directly. That absent
- * field is the discriminator, not a missing default.
+ * browser would. Kit's own class is the discriminator (`isActionFailure`,
+ * `@sveltejs/kit` src/exports/index.js: `fail()` returns an `ActionFailure`
+ * carrying `status` and `data`): superforms' `message()` with a status ≥ 400
+ * answers `fail(status, { form })` — an ActionFailure the browser receives as
+ * an ActionResult of type 'failure' whose data is the fail() payload — while
+ * without a status (or below 400) it returns the plain `{ form }` object,
+ * which kit types 'success' and which has NO `status` field at all on the
+ * direct return. A numeric-status sniff cannot stand in for the class: the
+ * WIRE shape of a success also carries a status
+ * (`{ type: 'success', status: 200, data }`), and under the old
+ * `typeof r.status === 'number'` check that shape read as a failure
+ * (portal#2016).
  */
 export function actionResultOf(
   r: Record<string, unknown>,
 ): { type: 'success' | 'failure'; status: number; data: Record<string, unknown> } {
-  return typeof r.status === 'number'
+  return isActionFailure(r)
     ? { type: 'failure', status: r.status, data: (r.data as Record<string, unknown> | undefined) ?? {} }
     : { type: 'success', status: 200, data: r };
 }
