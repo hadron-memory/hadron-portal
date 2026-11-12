@@ -17,9 +17,12 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
-  // A stale switch-on returns the freshly loaded preview in its own result.
-  // Only a STALE result carries a reloaded preview; any other result leaves the loaded one.
-  const preview = $derived<PreviewRead | null>(form && 'outcome' in form && form.outcome === 'stale' && 'preview' in form && form.preview ? (form.preview as PreviewRead) : data.preview);
+  // A stale switch-on answers with the freshly loaded preview. The page KEEPS it, set from the
+  // submit callback below, so a later failed attempt still shows (and re-posts the token of) the
+  // preview the user last reviewed, never the loader's expired one. It is tied to the loaded
+  // preview it replaced, so a real reload (a new `data.preview`) drops it.
+  let reloaded = $state.raw<{ from: unknown; preview: PreviewRead } | null>(null);
+  const preview = $derived<PreviewRead | null>(reloaded && reloaded.from === data.preview ? reloaded.preview : data.preview);
   const outcome = $derived(form && 'outcome' in form ? form.outcome : null);
   const done = $derived(outcome === 'done');
   const org = $derived(data.org);
@@ -31,6 +34,11 @@
       : r.state === 'REVISION_CHANGES'
         ? t('org.signing.row.changes', 'Falls back to revision {rev}', { rev: r.changesToRevSeq })
         : t('org.signing.row.stops', 'Stops: no signed revision');
+  // t() has no plural support: two keys, chosen here.
+  const countWords = (n: number): string =>
+    n === 1
+      ? t('org.signing.count.one', 'Switching on would change 1 boot prompt.')
+      : t('org.signing.count.other', 'Switching on would change {count} boot prompts.', { count: n });
   const workerWords = (r: PreviewRow): string => r.workerName ?? t('org.signing.row.all-workers', 'All chats and uncustomised workers');
 
   const rows = $derived<PreviewRow[]>(preview?.kind === 'ok' ? preview.rows : []);
@@ -80,21 +88,13 @@
       <p role="status" class="text-sm text-amber-800 dark:text-amber-200">{t('org.signing.stale', 'What would change has changed, or this review is more than 10 minutes old. Look again before switching on.')}</p>
       <a href="/app/orgs/{org.id}/boot-prompt-signing" data-sveltekit-reload class="inline-block rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('org.signing.look-again', 'Look again')}</a>
     {:else if preview?.kind === 'too_many'}
-      <p class="text-sm text-zinc-700 dark:text-zinc-300">{t('org.signing.count', 'Switching on would change {count} boot prompts.', { count: preview.total })}</p>
-      <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('org.signing.too-many', 'Too many to review here; use the CLI (`hadron org signing on`).')}</p>
+      <p class="text-sm text-zinc-700 dark:text-zinc-300">{countWords(preview.total)}</p>
+      <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('org.signing.too-many', 'Too many to review here; use the CLI:')} <code class="rounded bg-zinc-100 px-1 py-0.5 text-xs dark:bg-zinc-800">hadron org signing on</code></p>
     {:else if preview?.kind === 'ok'}
-      {#if outcome === 'stale'}
-        <p role="status" class="text-sm text-amber-800 dark:text-amber-200">{t('org.signing.stale', 'What would change has changed, or this review is more than 10 minutes old. Look again before switching on.')}</p>
-      {:else if outcome === 'failed'}
-        <p role="alert" class="text-sm text-red-700 dark:text-red-300">{t('org.signing.on-failed', 'Couldn’t switch signing on. Try again.')}</p>
-      {:else if outcome === 'no_review'}
-        <p role="alert" class="text-sm text-red-700 dark:text-red-300">{t('org.signing.no-review', 'Review what would change first.')}</p>
-      {/if}
-
       <p class="text-sm font-medium text-zinc-900 dark:text-white">
         {preview.total === 0
           ? t('org.signing.nothing', 'Nothing would change.')
-          : t('org.signing.count', 'Switching on would change {count} boot prompts.', { count: preview.total })}
+          : countWords(preview.total)}
       </p>
       {#if !preview.deploymentSigns}
         <p class="text-sm text-amber-800 dark:text-amber-200">{t('org.signing.not-signing', 'This deployment doesn’t sign boot prompts yet, so switching on records the requirement but nothing is refused here until it does.')}</p>
@@ -129,15 +129,29 @@
         </DataTable>
       {/if}
 
+      {#if outcome === 'stale'}
+        <p role="status" class="text-sm text-amber-800 dark:text-amber-200">{t('org.signing.stale', 'What would change has changed, or this review is more than 10 minutes old. Look again before switching on.')}</p>
+      {:else if outcome === 'failed'}
+        <p role="alert" class="text-sm text-red-700 dark:text-red-300">{t('org.signing.on-failed', 'Couldn’t switch signing on. Try again.')}</p>
+      {:else if outcome === 'no_review'}
+        <p role="alert" class="text-sm text-red-700 dark:text-red-300">{t('org.signing.no-review', 'Review what would change first.')}</p>
+      {/if}
+
       <form
         method="POST"
         action="?/switchOn"
         use:enhance={({ cancel }) => {
           if (submitting) { cancel(); return; }
           submitting = true;
-          return async ({ update }) => {
-            await update({ reset: false });
-            submitting = false;
+          return async ({ update, result }) => {
+            try {
+              if (result.type === 'failure' && result.data?.outcome === 'stale' && result.data.preview) {
+                reloaded = { from: data.preview, preview: result.data.preview as PreviewRead };
+              }
+              await update({ reset: false });
+            } finally {
+              submitting = false;
+            }
           };
         }}
         class="flex items-center gap-3"

@@ -92,11 +92,12 @@ describe('preview page', () => {
     expect(body).not.toContain('?/switchOn');
   });
 
-  it('a stale switch-on shows the fixed copy and the FRESH token', () => {
-    const body = preview({ preview: ok([row(1)], { previewToken: 'tok-old' }) }, { outcome: 'stale', preview: ok([row(1), row(2)], { previewToken: 'tok-fresh' }) });
+  it('a stale switch-on shows the fixed copy, over the preview the loader just reloaded', () => {
+    // A native (no-JS) POST re-runs the load, so `data.preview` is already the fresh one; the
+    // enhanced path swaps the reloaded preview in from its submit callback (page.client.test.ts).
+    const body = preview({ preview: ok([row(1), row(2)], { previewToken: 'tok-fresh' }) }, { outcome: 'stale' });
     expect(body).toContain('Look again before switching on.');
     expect(body).toContain('value="tok-fresh"');
-    expect(body).not.toContain('tok-old');
   });
 
   it('already required shows the state and no preview, no form (R5)', () => {

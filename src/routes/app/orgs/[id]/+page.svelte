@@ -181,10 +181,13 @@
                 if (switchingOff) { cancel(); return; }
                 switchingOff = true;
                 return async ({ update, result }) => {
-                  await update();
-                  switchingOff = false;
-                  // Keep the confirm open when it failed, so Try again is one click.
-                  if (result.type !== 'failure' && result.type !== 'error') confirmingOff = false;
+                  try {
+                    await update();
+                    // Keep the confirm open when it failed, so Try again is one click.
+                    if (result.type !== 'failure' && result.type !== 'error') confirmingOff = false;
+                  } finally {
+                    switchingOff = false;
+                  }
                 };
               }}
               class="flex flex-wrap items-center gap-3"
