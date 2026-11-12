@@ -164,7 +164,8 @@ describe('in-flight submit across A→B (#1909 characterization)', () => {
     props.form = { form: validated } as never;
     await tick(5);
 
-    expect(nameInput(target)?.value ?? 'Beta').toBe('Beta');
+    expect(editor(target)).not.toBeNull();
+    expect(nameInput(target)!.value).toBe('Beta');
     expect(target.textContent).not.toContain('Changes saved.');
   });
 
@@ -200,5 +201,36 @@ describe('in-flight submit across A→B (#1909 characterization)', () => {
     expect(nameInput(target)!.value).toBe('Beta DRAFT');
     expect(target.textContent).not.toContain('Changes saved.');
     expect(target.textContent).not.toContain('A save denied');
+  });
+
+  it('keeps the open draft across a REAL same-memory revalidation (fresh loader forms, Browser QA F1 on #2045)', async () => {
+    const { target, props } = await mountOn('mem-a', 'Alpha');
+    typeName(nameInput(target)!, 'Alpha DRAFT');
+    await navigate(props, 'mem-a', await loaderData('mem-a', 'Alpha'));
+    expect(editor(target)).not.toBeNull();
+    expect(nameInput(target)!.value).toBe('Alpha DRAFT');
+  });
+
+  it('A\'s late success plus the follow-up revalidation does not overwrite B\'s newer draft (Browser QA F2 on #2045)', async () => {
+    const { target, props } = await mountOn('mem-a', 'Alpha');
+    typeName(nameInput(target)!, 'Alpha SAVED');
+    const sent = await submitEnhancedDeferred(editor(target)!);
+
+    await navigate(props, 'mem-b', await loaderData('mem-b', 'Beta'));
+    buttonLabelled(target, 'Edit')!.click();
+    await tick(3);
+    typeName(nameInput(target)!, 'Beta DRAFT');
+
+    const saved = await superValidate({ displayName: 'Alpha SAVED' }, zod4(memorySettingsSchema), { errors: false, id: 'updateMemorySettings:mem-a' });
+    saved.message = { type: 'success', text: 'Changes saved.' };
+    await sent.finish({ type: 'success', status: 200, data: { form: saved } });
+    props.form = { form: saved } as never;
+    await tick(3);
+    // kit's invalidateAll after the (late) success: B reloaded, fresh forms.
+    await navigate(props, 'mem-b', await loaderData('mem-b', 'Beta'));
+
+    expect(editor(target)).not.toBeNull();
+    expect(nameInput(target)!.value).toBe('Beta DRAFT');
+    expect(target.textContent).not.toContain('Changes saved.');
   });
 });

@@ -222,6 +222,14 @@
     formId: settingsFormId,
     enhance: settingsEnhance,
   } = superForm<MemorySettingsForm, App.Superforms.Message, MemorySettingsForm>(initialSettingsForm, {
+    // #1909 (Browser QA F1/F2 on #2045): Superforms rebinds a form from EVERY
+    // page.data update carrying its id, which discarded an open draft on a
+    // same-memory revalidation and let A's late success (and its invalidateAll)
+    // overwrite B's newer draft with B's stored values. 'never' is the one
+    // option that skips that data rebind; own results still apply through the
+    // id-matching page.form branch ('never' is truthy). The editor reseeds from
+    // the loader in openEdit, so nothing relies on the rebind.
+    applyAction: 'never',
     validators: zod4Client(memorySettingsSchema),
     validationMethod: 'oninput',
     scrollToError: 'smooth',
