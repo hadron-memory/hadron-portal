@@ -847,10 +847,11 @@
     clearOnSubmit: 'none',
     // portal#2023: opt this form out of Superforms' unconditional page-data
     // rebind, which reset an unsaved draft whenever an unrelated loader
-    // refresh carried a changed node (findings:stable-form-id-opts-into-
-    // invalidate-rebind). 'never', NOT false: own ActionResults still apply
-    // ('never' is truthy), and false leaves the data-path rebind live. The
-    // reseeds are explicit: reseedFromSavedNode, the node-change effect, Cancel.
+    // refresh carried a changed node. 'never', NOT false: own ActionResults
+    // still apply ('never' is truthy), and false leaves the data-path rebind
+    // live. The reseeds are explicit: reseedFromSavedNode, the node-change
+    // effect, Cancel. See
+    // hrn:node:hadronmemory.com:hadron-portal:findings:stable-form-id-opts-into-invalidate-rebind
     applyAction: 'never',
     onSubmit: () => { moveRefusal = null; savedCompletely = false; },
     // portal#2020: superforms awaits the reload, THEN resets the form to its
