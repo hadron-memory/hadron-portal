@@ -33,6 +33,19 @@ export const emailSignInStrings = {
       last: names[names.length - 1],
     }),
 
+  /**
+   * portal#1091 last leg: the success answer after an email submit. The passkey
+   * step is qualified on the server ("depending on how this server is set up"),
+   * never promised, and says nothing about any one account's credentials. The
+   * link must be opened in this browser: the login-state nonce is bound to it
+   * (portal#1663).
+   */
+  linkSent: (): string =>
+    t(
+      'email-sign-in.server.link-sent',
+      'Check your email for a sign-in link and open it in this browser. Depending on how this server is set up, you may then be asked to confirm with a passkey. You can close this page.',
+    ),
+
   /** portal#1528: the bound fired; the send may still happen, so this never says it failed. */
   unconfirmed: (): string =>
     t('email-sign-in.server.unconfirmed', "We couldn't confirm your sign-in link was sent. If it hasn't arrived in a minute, try again or use another sign-in method."),
