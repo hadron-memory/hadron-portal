@@ -4,6 +4,7 @@ import { resolveSegment } from '$lib/agent-tasks/handle';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
 import {
   AGENT_ALARMS_QUERY,
+  AGENT_ALARMS_IN_EFFECT_QUERY,
   AGENT_TASK_ANCESTOR_QUERY,
   AGENT_TASKS_APP_QUERY,
   AGENT_TASK_EVENTS_QUERY,
@@ -337,15 +338,26 @@ export const ALARMS_PAGE_SIZE = 20;
 /** #1935 / server#3933: one bounded newest-end read, continued by before.
  * No history walk or total cap. The look-ahead is not served, so the next
  * cursor is the oldest row actually shown, not the row beyond the page.
+ *
+ * portal#2000 A: `inEffect` asks the server for alarms in effect only
+ * (#3934's alarmsInEffect — unacknowledged and no recorded escalation end,
+ * hrn:node:hadronmemory.com:specs:cor:agt:050:20). The server applies it App-wide before cutting the page
+ * through the unchanged gate and order, so an empty page there means none
+ * in effect anywhere the viewer may read — not "none on this page". The
+ * reads are separate documents (see queries.ts): the in-effect one names the
+ * new argument, and every other filter's read stays byte-identical to its
+ * pre-#2000 wire shape.
  */
 export async function loadAlarms(
   client: GraphQLClient,
   appRef: string,
   before?: string,
   after?: string,
+  inEffect = false,
 ): Promise<TaskRead<{ alarms: AgentAlarm[]; nextBefore: string | null; previousAfter: string | null }>> {
   try {
-    const r = await client.request<{ agentTeamEvents: AgentAlarm[] }>(AGENT_ALARMS_QUERY,
+    const r = await client.request<{ agentTeamEvents: AgentAlarm[] }>(
+      inEffect ? AGENT_ALARMS_IN_EFFECT_QUERY : AGENT_ALARMS_QUERY,
       { appRef, before, after, newestFirst: !after, limit: ALARMS_PAGE_SIZE + 1 });
     const more = r.agentTeamEvents.length > ALARMS_PAGE_SIZE;
     const alarms = r.agentTeamEvents.slice(0, ALARMS_PAGE_SIZE);

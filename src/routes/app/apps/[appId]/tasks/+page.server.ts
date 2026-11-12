@@ -80,7 +80,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     const before = url.searchParams.get('alarmBefore') || undefined;
     const after = url.searchParams.get('alarmAfter') || undefined;
     if (before && after) throw error(400, 'Choose one alarm page direction');
-    const alarms = await loadAlarms(client, app.id, before, after);
+    const alarms = await loadAlarms(client, app.id, before, after, alarmFilter === 'in-effect');
     const href = (key: 'alarmBefore' | 'alarmAfter', cursor: string) => {
       const target = new URL(url);
       target.searchParams.delete('alarmBefore');

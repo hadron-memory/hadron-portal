@@ -5489,6 +5489,30 @@ export const AGENT_ALARMS_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#2000 A: the In effect read is its own document, deliberately. Naming
+// #3934's alarmsInEffect argument in the shared document would make EVERY
+// alarms read fail validation against a server older than the argument
+// (GraphQL validates the document, not the values; dev stacks do lag — see
+// the pinned tests/e2e/server-revision.txt history). Keeping the pre-existing
+// document byte-identical means a stale server costs only the new default
+// view: the page-local Acknowledged/All reads keep their exact pre-#2000
+// wire shape.
+export const AGENT_ALARMS_IN_EFFECT_QUERY = /* GraphQL */ `
+  query AgentAlarmsInEffect($appRef: ID!, $before: ID, $after: ID, $newestFirst: Boolean, $limit: Int) {
+    agentTeamEvents(appRef: $appRef, alarmsOnly: true, alarmsInEffect: true, newestFirst: $newestFirst, before: $before, after: $after, limit: $limit) {
+      id
+      type
+      severity
+      taskId
+      createdAt
+      subjectWorker { id kind name urn }
+      acknowledgedAt
+      acknowledgedBy { id kind name urn }
+      wakes { chainIndex dueAt wokenAt owner { id kind name urn } }
+    }
+  }
+`;
+
 // ---------------------------------------------------------------------------
 // portal#1090 — task writes (create, assign, reassign, cancel, make ready,
 // park). Each write

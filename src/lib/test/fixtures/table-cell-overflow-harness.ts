@@ -16,7 +16,7 @@ export function mountOverflowFixture(target: HTMLElement, kind: string) {
     setStubPage('http://localhost/app/apps/fixture/tasks?view=alarms&alarmBefore=fixture-page-boundary', { appId: 'fixture' });
     const instance = mount(TasksAlarms, { target, props: {
       alarms: { kind: 'ok', value: { nextBefore: null, alarms: [{ id: 'fixture-alarm', type: 'stall.no-progress', severity: 'ALARM', taskId: 'fixture-task', createdAt: date, subjectWorker: { kind: 'WORKER', id: 'fixture-worker', name: 'LongWorkerNameWithFortyUnbrokenCharactersAB', urn: 'hrn:worker:example.test:fixture:worker' }, acknowledgedAt: null, acknowledgedBy: null, wakes: [] }] } },
-      filter: 'open', refs: { 'fixture-task': { id: 'fixture-task', handle: 'AT0.1234.5678.9012', title: 'LongTaskTitleWithFortyUnbrokenCharactersABC' } }, basePath: '/app/apps/fixture',
+      filter: 'in-effect', refs: { 'fixture-task': { id: 'fixture-task', handle: 'AT0.1234.5678.9012', title: 'LongTaskTitleWithFortyUnbrokenCharactersABC' } }, basePath: '/app/apps/fixture',
     } });
     return () => unmount(instance);
   }

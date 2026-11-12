@@ -2,7 +2,7 @@
  * portal#1052 — the board's and the task page's loaders.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AGENT_ALARMS_QUERY, AGENT_TASK_DETAIL_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_TREE_QUERY, AGENT_TASKS_APP_QUERY, PULL_REQUEST_READINESS_QUERY, TASK_REVIEW_EVENTS_QUERY, AGENT_TASKS_BOARD_QUERY, AGENT_TASK_REF_QUERY, TASK_DEPENDENCIES_QUERY, TEAM_COMPOSITION_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
+import { AGENT_ALARMS_QUERY, AGENT_ALARMS_IN_EFFECT_QUERY, AGENT_TASK_DETAIL_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_TREE_QUERY, AGENT_TASKS_APP_QUERY, PULL_REQUEST_READINESS_QUERY, TASK_REVIEW_EVENTS_QUERY, AGENT_TASKS_BOARD_QUERY, AGENT_TASK_REF_QUERY, TASK_DEPENDENCIES_QUERY, TEAM_COMPOSITION_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
 import { markStreamHandled } from '$lib/mark-stream-handled';
 import { selectsFieldPath } from '$lib/test/graphql-selection';
 
@@ -143,7 +143,7 @@ describe('views (slice 2)', () => {
     if (q === TEAM_COMPOSITION_QUERY) return { teamComposition: { appId: 'app-1', asOf: '2026-10-16T00:00:00Z', lanes: [] } };
     if (q === TEAM_ROSTER_QUERY) return { teamRoster: { asOf: '2026-10-16T00:00:00Z', workers: [{ startedTasks: ['t1'], pendingTasks: [], waitingOn: [], unreactedChildTask: null, alarms: [] }] } };
     if (q === AGENT_TASK_REF_QUERY) return { agentTask: { id: 't1', appId: 'app-1', handle: 'AT3', title: 'Ship it' } };
-    if (q === AGENT_ALARMS_QUERY) return { agentTeamEvents: [] };
+    if (q === AGENT_ALARMS_QUERY || q === AGENT_ALARMS_IN_EFFECT_QUERY) return { agentTeamEvents: [] };
     if (q === AGENT_TASKS_BOARD_QUERY) return { agentTasks: [] };
     throw new Error('unexpected');
   };
@@ -172,7 +172,7 @@ describe('views (slice 2)', () => {
     expect(r.refs).toEqual({});
     expect(request).toHaveBeenCalledWith(TEAM_COMPOSITION_QUERY, { appRef: 'app-1' });
     const asked = request.mock.calls.map((c) => c[0]);
-    for (const other of [AGENT_TASKS_BOARD_QUERY, TEAM_ROSTER_QUERY, AGENT_ALARMS_QUERY, AGENT_TASK_REF_QUERY]) expect(asked).not.toContain(other);
+    for (const other of [AGENT_TASKS_BOARD_QUERY, TEAM_ROSTER_QUERY, AGENT_ALARMS_QUERY, AGENT_ALARMS_IN_EFFECT_QUERY, AGENT_TASK_REF_QUERY]) expect(asked).not.toContain(other);
   });
 
   it('a failed composition read reaches the page as failed, not as an empty team or a thrown load', async () => {
@@ -190,12 +190,28 @@ describe('views (slice 2)', () => {
     expect((await loadBoard()).composition).toBeNull();
   });
 
-  it('the alarms view reads alarms, defaulting the filter to open', async () => {
+  // portal#2000 A: the default view is In effect, and the server does the
+  // filtering (its own document naming alarmsInEffect, #3934) App-wide before
+  // the page is cut — an empty answer really means no alarms in effect, not
+  // none on this page.
+  it('the alarms view reads alarms server-filtered to in effect, the default', async () => {
     request.mockImplementation(answer);
     const r = await loadBoard('?view=alarms');
     expect(r.alarms).toMatchObject({ kind: 'ok' });
-    expect(r.alarmFilter).toBe('open');
+    expect(r.alarmFilter).toBe('in-effect');
+    expect(request).toHaveBeenCalledWith(AGENT_ALARMS_IN_EFFECT_QUERY, expect.objectContaining({ appRef: 'app-1' }));
     expect(request.mock.calls.map((c) => c[0])).not.toContain(TEAM_ROSTER_QUERY);
+  });
+
+  it('page-local alarm filters read the untouched document; a pre-#2000 open link lands on in effect', async () => {
+    request.mockImplementation(answer);
+    await loadBoard('?view=alarms&alarms=acknowledged');
+    expect(request).toHaveBeenCalledWith(AGENT_ALARMS_QUERY, { appRef: 'app-1', before: undefined, after: undefined, newestFirst: true, limit: 21 });
+    expect(request.mock.calls.filter((c) => c[0] === AGENT_ALARMS_IN_EFFECT_QUERY)).toHaveLength(0);
+    request.mockClear();
+    const legacy = await loadBoard('?view=alarms&alarms=open');
+    expect(legacy.alarmFilter).toBe('in-effect');
+    expect(request).toHaveBeenCalledWith(AGENT_ALARMS_IN_EFFECT_QUERY, expect.objectContaining({ appRef: 'app-1' }));
   });
 
   it('an unknown view falls back to the board', async () => {
