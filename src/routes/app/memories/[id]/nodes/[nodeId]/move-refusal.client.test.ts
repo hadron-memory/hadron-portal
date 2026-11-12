@@ -21,9 +21,10 @@
  * reads the draft. `reloaded()` resolves once the fresh loader data is in;
  * `settle()` then lets the page's continuation and superForm's reseed run.
  * An earlier version only counted ticks, read the draft before the reseed,
- * and so passed whether or not the typed loc was re-applied (Gizelle's LOCAL
- * F1 on #2002). Awaited, the draft assertion discriminates: it fails when the
- * page's identity guard skips the re-apply.
+ * and so passed whether or not the typed loc survived (Gizelle's LOCAL F1 on
+ * #2002). Awaited, the draft assertion discriminates: it fails when the page
+ * does not await the reload (portal#1882's fix), and the alert assertions fail
+ * when the page does not hold the refusal (#1989's).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
@@ -106,8 +107,10 @@ async function mountSettings() {
   await tick();
   flushSync();
   // The reload, as kit runs it: fresh loader data, and no action `form`.
+  // One promise per mount, resolved by the first reload and never replaced: each test saves once, and since
+  // portal#1882 awaits the reload inside onResult, the submit can settle after the reload has finished.
   let done!: () => void;
-  let reload = new Promise<void>((r) => (done = r));
+  const reload = new Promise<void>((r) => (done = r));
   reloaded = () => reload;
   navigationHooks.onInvalidateAll = async () => {
     const fresh = await loaderData();
@@ -115,7 +118,6 @@ async function mountSettings() {
     props.data = fresh;
     props.form = null;
     done();
-    reload = new Promise<void>((r) => (done = r));
   };
   return m;
 }
@@ -172,7 +174,7 @@ describe('a refused move after a committed Save stays visible (#1989)', () => {
     await settle();
 
     expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true); // the reload ran
-    // The reseed put the old loc back; the page re-applied the typed one (F1).
+    // The reseed would put the old loc back; the awaited reload keeps the typed one.
     expect(locInput()?.value).toBe('taken');
     const alert = metaAlert(m.target);
     expect(alert?.textContent).toContain('Saved, but the node was not moved');

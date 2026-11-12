@@ -466,6 +466,7 @@
     // The extras carry the wire ISO the accessor discarded, for a reader
     // pasting a timestamp from an API response.
     globalFilterFn: makeGlobalFilterFn<AiServiceConfig>(configFmt, {
+      name: (row) => ownerType === 'ORGANIZATION' ? row.urn ?? '' : '',
       createdAt: (row) => row.createdAt,
     }),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
@@ -1217,6 +1218,10 @@
         <!-- Dim content, never the row: row opacity traps its fixed menu below later rows (#1867). -->
         {#if cell.column.id === 'name'}
           <span class:opacity-60={!c.enabled} class="block min-w-0 max-w-full font-mono text-sm font-medium [overflow-wrap:anywhere] text-zinc-900 dark:text-white">{c.name}</span>
+          {#if ownerType === 'ORGANIZATION' && c.urn}
+            <!-- #1907 is display-only; aiconf has no canonical portal detail page. -->
+            <div class="mt-1 min-w-0 max-w-full"><Urn value={c.urn} size={10} compact copyUrl={false} label={t('ai-config.urn-label', 'AI configuration')} /></div>
+          {/if}
         {:else if cell.column.id === 'enabled'}
           {#if c.enabled}
             <span class="inline-block max-w-full rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">

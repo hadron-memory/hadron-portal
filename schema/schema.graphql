@@ -1,4 +1,4 @@
-# Exported from hadron-server 28e2e9ef7e8d0fd4ce6ec91dc2c754aaf576c131 (28e2e9ef7e8d0fd4ce6ec91dc2c754aaf576c131, 2026-11-11T10:23:03-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 9478620fd24f5a924edb83dcd77b3fa7812cd6b5 (9478620fd, 2026-11-11T12:38:22-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -14063,9 +14063,11 @@ type Query {
 
   """
   #3933 (hrn:node:hadronmemory.com:specs:cor:api:120:04) — agentTeamEvents with the page's end told: the same arguments, gate,
-  filters, order and paging, returning hasMore and nextCursor so a reader knows whether older (or newer) events remain without
+  filters, order and paging (except the page-size floor below), returning hasMore and nextCursor so a reader knows whether older (or newer) events remain without
   another read. nextCursor is the id of the last event served when more remain, to pass as after (oldest-first) or, with
-  newestFirst, as before; null on the last page.
+  newestFirst, as before; null on the last page, and non-null whenever hasMore is true. The page size has a floor of 1:
+  limit is at least 1 (0 or less reads one event, never an empty page), default 20, cap 200 served and never refused
+  (hrn:node:hadronmemory.com:specs:cor:api:120:04). The legacy agentTeamEvents keeps limit 0 as an empty list.
   """
   agentTeamEventsPage(after: ID, alarmsOnly: Boolean, appRef: ID!, before: ID, codePrefix: String, limit: Int, newestFirst: Boolean, since: DateTime, taskId: ID, types: [String!]): AgentTeamEventsPage!
 
@@ -17016,7 +17018,7 @@ input ResumeSessionInput {
   expectedWorkerId, expectedWorkerName (null unless the caller may read that worker), foundWorkerId,
   foundWorkerName and foundSource (CLAIM or LIVE_SESSION), before any write: no claim is consumed and no
   session is started, ended or touched. With nothing of the caller's waiting the answer stays
-  NOTHING_TO_RESUME. Omitted or null: unchanged. Blank: BAD_USER_INPUT.
+  NOTHING_TO_RESUME. Omitted or null: unchanged. Blank or not an id (a URN or a name): BAD_USER_INPUT, before any read.
   """
   expectedWorkerId: ID
 

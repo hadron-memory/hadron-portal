@@ -166,9 +166,9 @@
   // holds the refusal and the loc the user typed, because the reload after it
   // drops the action result and reseeds the form from the node (old loc, no
   // error); left to superForm, the refusal vanished and the draft reverted.
-  // Raw, not deep: the reload's continuation checks it is still THIS refusal by identity, and a deep
-  // $state would hand back a proxy that never equals the object assigned (Gizelle's LOCAL F1 on #2002).
-  let moveRefusal = $state.raw<{ text: string; loc: string } | null>(null);
+  // #1989: Save's move refusal, held by the page because the reload after a committed Save drops the
+  // action `form` the alert would otherwise read.
+  let moveRefusal = $state<{ text: string; loc: string } | null>(null);
 
   // Inline editing. #927: each text editor is a draft based on the revision it
   // opened on, and its save is refused when the node changed since. The drafts
@@ -837,21 +837,22 @@
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
     onSubmit: () => { moveRefusal = null; },
-    onResult: ({ result }) => {
+    onResult: async ({ result }) => {
       if (result.type !== 'failure') { isEditing = false; return; }
       // Saved, but the move failed: keep the editor open to fix the location,
       // and reload the node so the page shows what was actually saved. The
       // reload depends only on the save having committed, not on finding a
-      // refusal to keep (Glen's BLIND P2 on #2002). When there is one, the
-      // refusal and the typed loc outlive that reload (#1989); the loc goes
-      // back into the draft once, after superForm's reseed, never as a write.
+      // refusal to keep (Glen's BLIND P2 on #2002).
       if (!metaSavedDespiteFailure(result)) return;
-      const refused = savedButNotMoved(result);
-      moveRefusal = refused;
-      void invalidateAll().then(() => {
-        if (!refused || moveRefusal !== refused) return;
-        updateMetaFormData.update((current) => ({ ...current, loc: refused.loc }), { taint: true });
-      });
+      // #1989: the refusal outlives that reload. The reload drops the action
+      // `form` the alert reads, so the page holds the refusal text itself.
+      moveRefusal = savedButNotMoved(result);
+      // portal#1882: AWAIT the reload. Superforms awaits onResult before it
+      // applies the result, so the failure (its message, the typed location)
+      // lands after the reload. Unawaited, the reload finished later and
+      // superforms rebound to the loader's fresh form, which erased both.
+      // That is also what keeps the typed loc in the draft (#1989).
+      await invalidateAll();
     },
   });
 

@@ -44,9 +44,9 @@ describe('#1956 fixture ownership', () => {
   });
 });
 describe('#1956 scroll-edge oracle', () => {
-  function scene(clipped?: string) {
+  function scene(clipped?: string, covered?: string) {
     let edge = '';
-    return { seen: [] as string[], page: { locator: () => ({ allTextContents: async () => ['Name', 'Actions'] }), getByTestId: () => ({ evaluate: async (_fn: unknown, value: string) => { edge = value; }, boundingBox: async () => ({ x: 10, width: 200 }) }) }, trigger: { boundingBox: async () => ({ x: edge === clipped ? -20 : 20, width: 40 }) }, edge: () => edge };
+    return { seen: [] as string[], page: { locator: () => ({ allTextContents: async () => ['Name', 'Actions'] }), getByTestId: () => ({ evaluate: async (_fn: unknown, value: string) => { edge = value; }, boundingBox: async () => ({ x: 10, width: 200 }) }) }, trigger: { boundingBox: async () => ({ x: edge === clipped ? -20 : 20, width: 40 }), evaluate: async () => (edge === covered ? { ok: false, top: 'SPAN.opacity-60' } : { ok: true, top: 'BUTTON' }) }, edge: () => edge };
   }
   it('visits left and right in order', async () => {
     const s = scene(); const edges: string[] = []; const box = s.trigger.boundingBox;
@@ -55,5 +55,9 @@ describe('#1956 scroll-edge oracle', () => {
   });
   it.each(['left', 'right'])('rejects clipping at the %s edge', async edge => {
     const s = scene(edge); await expect(assertActionAtScrollEdges(s.page, s.trigger, 'synthetic')).rejects.toThrow(`${edge} edge`);
+  });
+  // #1996: inside the scroller but covered by a neighbouring cell's content.
+  it.each(['left', 'right'])('rejects an Actions trigger another element covers at the %s edge', async edge => {
+    const s = scene(undefined, edge); await expect(assertActionAtScrollEdges(s.page, s.trigger, 'synthetic')).rejects.toThrow(`receives the pointer at the ${edge} edge (hit SPAN.opacity-60)`);
   });
 });

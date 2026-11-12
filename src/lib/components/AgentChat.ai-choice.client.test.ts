@@ -113,6 +113,45 @@ describe('AgentChat: the AI config dropdown (#1963)', () => {
     m.unmount();
   });
 
+  // portal#1997: with no pick, the server runs the App chatbot config even when the portal can't run it, so
+  // that config is what the dropdown shows, and Default stays pickable to choose the walk instead.
+  const UNRUNNABLE_APP_CONFIG: ChatAiChoiceOption[] = [
+    opt({ value: 'default', name: 'default', provider: null, model: null, isDefault: true }),
+    opt({ value: 'cfg-fast', name: 'fast', model: 'haiku' }),
+    opt({ value: 'cfg-appbot', name: 'appbot', model: 'k2', isAppChatbotConfig: true, unavailableReason: 'no key available here' }),
+  ];
+
+  it('a new chat shows the App chatbot config the turn will run, even when the portal cannot run it (#1997)', async () => {
+    stub();
+    const m = mountComponent(AgentChat, { agentId: 'a1', appId: 'app-1', aiChoices: UNRUNNABLE_APP_CONFIG });
+    await wait(20);
+    try {
+      const s = select()!;
+      expect(s.value).toBe('cfg-appbot');
+      const shown = s.options[s.selectedIndex];
+      expect(shown.textContent).toContain('no key available here');
+      expect([...s.options].find((o) => o.value === 'default')!.disabled).toBe(false);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('picking Default from that shown config sends aiConfigChoice default (#1997)', async () => {
+    stub();
+    const m = mountComponent(AgentChat, { agentId: 'a1', appId: 'app-1', aiChoices: UNRUNNABLE_APP_CONFIG });
+    await wait(20);
+    clickButton(/New chat/);
+    await wait(30);
+    await tick();
+    const s = select()!;
+    s.value = 'default';
+    s.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick();
+    await send('hi');
+    expect(last('/api/agent-chat/turn')).toMatchObject({ aiConfigChoice: 'default' });
+    m.unmount();
+  });
+
   it('a reopened chat shows the choice stored with it', async () => {
     stub('cfg-fast');
     const m = mountComponent(AgentChat, { agentId: 'a1', appId: 'app-1', aiChoices: CHOICES });
