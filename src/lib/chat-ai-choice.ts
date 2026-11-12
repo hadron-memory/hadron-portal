@@ -28,10 +28,14 @@ export type ChatAiChoiceOption = {
   unavailableReason: string | null;
 };
 
-/** The value the dropdown shows: the stored choice while the list has it, else the App's chatbot config, else `default`. */
+/**
+ * The value the dropdown shows: the stored choice while the list has it, else the App's chatbot config, else
+ * `default`. The App's chatbot config is shown even when the portal can't run it (its label says why): an
+ * un-picked turn runs it all the same, so showing `default` would name a config that never runs (portal#1997).
+ */
 export function initialChatAiChoice(options: readonly ChatAiChoiceOption[], stored: string | null | undefined): string {
   if (stored && options.some((o) => o.value === stored)) return stored;
-  const appConfig = options.find((o) => o.isAppChatbotConfig && !o.isDefault && o.unavailableReason === null);
+  const appConfig = options.find((o) => o.isAppChatbotConfig && !o.isDefault);
   return appConfig?.value ?? DEFAULT_CHAT_AI_CHOICE;
 }
 
