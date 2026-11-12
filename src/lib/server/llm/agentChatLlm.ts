@@ -219,14 +219,39 @@ function logLlmFailure(error: unknown, context: () => LlmFailureContext): void {
 
 // ── #1979: models that reject a forced tool_choice ──────────────────────────
 //
-// Anthropic documents that for these models `tool_choice` of type `tool` or
-// `any` returns a 400 regardless of thinking settings; `auto` is the
-// supported choice (platform docs, tool use: "Forcing tool use"). Verified
-// live on claude-sonnet-5-5 (#1979). The ids are exact and verbatim from the
-// Anthropic models overview; Mythos 5.2 / Fable 5.1 / Mythos 5.1 have no
-// documented API id and are NOT listed on the Anthropic provider.
-// Haiku 5.5 accepts a forced choice and stays forced.
-const AUTO_TOOL_CHOICE_ANTHROPIC_MODELS: ReadonlySet<string> = new Set([
+// A maintained list of exact ids (#2037). Matching is exact and
+// case-sensitive, and the configured id is always sent verbatim: this set only
+// picks `auto` versus the forced choice. An id not listed here keeps the
+// forced choice and fails closed as before (provider 400 -> `llmFailed`).
+//
+// Evidence, read 2026-11-12. Each id needs BOTH sources before it is listed:
+// 1. Tool use, "Forcing tool use" restriction table
+//    https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools
+//    Row "Claude Fable 5.2, Claude Mythos 5.2, Claude Opus 5.5, Claude Sonnet
+//    5.5, Claude Fable 5.1, and Claude Mythos 5.1": "`any` and `tool` return a
+//    400 error". Haiku 5.5 is not named there and stays forced. Verified live
+//    on claude-sonnet-5-5 (#1979).
+// 2. Models overview table and "Model IDs and versioning"
+//    https://platform.claude.com/docs/en/models/overview
+//    https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions
+//    API ID = API alias = `claude-fable-5-2`, `claude-opus-5-5`,
+//    `claude-sonnet-5-5`. "For the 4.6 generation and later, the dateless ID is
+//    the canonical model ID for that release. It maps to a single, fixed model
+//    snapshot." So no dated snapshot, alias or suffixed form of these models is
+//    documented, and none is admitted: a pattern would only admit guesses.
+// Mythos 5.2 / Fable 5.1 / Mythos 5.1 are named in the restriction row, but
+// the models table gives them no API id, so they are NOT listed.
+//
+// Review trigger: the portal-engineer role owns this list. Re-read both pages
+// when Anthropic announces a model or changes either table, and at least every
+// 30 days; update the read date above, and add an id only with both citations.
+// The docs snapshot in agentChatLlm.toolChoiceEvidence.test.ts is the test
+// oracle and changes with this list.
+//
+// One home (hadron-server#4005 ruling): this set is the only copy of the
+// predicate. It moves to the server with #4005's portal slice; never add a
+// second list.
+export const AUTO_TOOL_CHOICE_ANTHROPIC_MODELS: ReadonlySet<string> = new Set([
   'claude-sonnet-5-5',
   'claude-opus-5-5',
   'claude-fable-5-2',
