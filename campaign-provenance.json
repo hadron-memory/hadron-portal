@@ -1,0 +1,40 @@
+{
+  "transcript": {
+    "localPath": "/home/orca/.config/orca/codex-accounts/90d2971b-b2c5-431e-823d-b45e5d8c0b1f/home/sessions/2026/11/12/rollout-2026-11-12T11-32-26-01a1cf87-cdad-7973-965b-936c6811022d.jsonl",
+    "sha256": "ff80357fe70ec5698eabaa32f5f410f7cadec13abef3366eaef87c3341675070",
+    "rawNotIncluded": "Contains disposable stack credentials in tool output."
+  },
+  "session": {
+    "startedAt": "2026-11-12T11:32:26.181Z",
+    "turnContextAt": "2026-11-12T11:32:27.387Z",
+    "turnId": "01a1cf87-cdb9-7081-ae21-4572c2c6b35f",
+    "currentProcessModelRecordCount": 1,
+    "model": "gpt-6-luna",
+    "effort": "medium",
+    "modelContextWindow": 258400,
+    "bootstrapToolDefinitionCounts": {
+      "namespaceCount": 3,
+      "nestedToolCount": 10,
+      "byNamespace": {
+        "functions": 3,
+        "clock": 1,
+        "collaboration": 6
+      }
+    }
+  },
+  "stackUp": {
+    "command": "scripts/e2e/stack.sh up qa2040 18640 18641",
+    "transcriptTimestamp": "2026-11-12T11:33:54.393Z",
+    "toolCallOrdinal": 116,
+    "callId": "ctc_0804c3af0fa601f4016af5a41fe59c87d280acbd626f8cff00",
+    "commandPayloadSha256": "b480c1014f9d1eab55ec8d8ba4f771eb2911250edc8bfe5659fbdf5d91f1741a",
+    "completedAt": "2026-11-12T11:34:59.741Z",
+    "elapsedSeconds": 65.348,
+    "backend": "incus"
+  },
+  "subjects": {
+    "portal": "a879da62421fec79ef7b6f35f9941c38ecde458b",
+    "server": "6c4adcc4e24e2bdffb8c87b69f60d2d84bd3dff6"
+  },
+  "note": "Model record and bootstrap window precede stack up in the live session transcript; census JSON was extracted after the campaign from those transcript records."
+}
