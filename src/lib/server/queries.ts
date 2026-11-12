@@ -813,6 +813,55 @@ export const ORG_EXCHANGE_CONNECTIONS_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#1921 (hadron-server#3894): the org boot-prompt signing switch. Each is
+// its OWN document, never a field on ORG_PROFILE_QUERY: a refusal here (every
+// non-admin gets FORBIDDEN) must reach only this section, not the whole tab.
+export const ORG_BOOT_PROMPT_SIGNING_QUERY = /* GraphQL */ `
+  query OrgBootPromptSigning($org: ID!) {
+    orgBootPromptSigning(org: $org) {
+      required
+      enforced
+      deploymentSigns
+    }
+  }
+`;
+
+export const ORG_BOOT_PROMPT_SIGNING_PREVIEW_QUERY = /* GraphQL */ `
+  query OrgBootPromptSigningPreview($org: ID!, $first: Int, $after: String) {
+    orgBootPromptSigningPreview(org: $org, first: $first, after: $after) {
+      enforced
+      deploymentSigns
+      total
+      hasMore
+      endCursor
+      previewToken
+      rows {
+        appId
+        appUrn
+        agentId
+        agentName
+        workerId
+        workerName
+        compiledNodeId
+        compiledNodeUrn
+        servedRevSeq
+        state
+        changesToRevSeq
+      }
+    }
+  }
+`;
+
+export const SET_ORG_BOOT_PROMPT_SIGNING_MUTATION = /* GraphQL */ `
+  mutation SetOrgBootPromptSigning($org: ID!, $required: Boolean!, $previewToken: String) {
+    setOrgBootPromptSigning(org: $org, required: $required, previewToken: $previewToken) {
+      required
+      enforced
+      deploymentSigns
+    }
+  }
+`;
+
 export const ORG_PROFILE_QUERY = /* GraphQL */ `
   ${ORG_FIELDS}
   ${MEMORY_FIELDS}
