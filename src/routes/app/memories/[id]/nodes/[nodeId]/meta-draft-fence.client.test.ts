@@ -26,6 +26,7 @@ import { page, resetStubPage, setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { actionResultOf, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { MOVE_NODE_MUTATION, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY, UPDATE_NODE_MUTATION } from '$lib/server/queries';
+import { nodeMetaBaseline } from '$lib/node-meta-seed';
 import Page from './+page.svelte';
 import { actions, load } from './+page.server';
 
@@ -161,8 +162,7 @@ describe('an unsaved draft survives a loader refresh (portal#2023)', () => {
     await refreshLoader(props);
 
     expect(input(m.target, 'editLoc').value).toBe('my:typed:loc');
-    expect(hidden(m.target, 'baselineName')).toBe('Foo');
-    expect(hidden(m.target, 'baselineLoc')).toBe('foo');
+    expect(hidden(m.target, 'baseline')).toBe(nodeMetaBaseline(NODE));
   });
 });
 
@@ -215,11 +215,30 @@ describe('saving a draft older than the node is refused, not written (portal#202
     flushSync();
 
     expect(input(m.target, 'editName').value).toBe('Other tab saved');
-    expect(hidden(m.target, 'baselineName')).toBe('Other tab saved');
-    expect(hidden(m.target, 'baselineLoc')).toBe('moved:elsewhere');
+    expect(hidden(m.target, 'baseline')).toBe(nodeMetaBaseline(OTHER));
     mockRequest.mockClear();
     const r = await postForm(m.target);
     expect(r.status).toBeUndefined();
+    expect(mockRequest.mock.calls.map(([q]) => q)).toContain(UPDATE_NODE_MUTATION);
+  });
+});
+
+describe('a failed save that wrote nothing leaves the baseline alone (Glen on #2027)', () => {
+  it('an invalid name is refused, and the corrected retry is accepted, not refused as a conflict', async () => {
+    const { m } = await mountSettings();
+    buttonNamed(m.target, 'Edit')!.click();
+    flushSync();
+    type(input(m.target, 'editName'), '');
+    const refused = await postForm(m.target);
+    expect(refused.status).toBe(400);
+    await submitEnhancedWithResult(metaForm(m.target), actionResultOf(refused as never));
+    await settle();
+
+    expect(hidden(m.target, 'baseline')).toBe(nodeMetaBaseline(NODE));
+    type(input(m.target, 'editName'), 'Foo corrected');
+    mockRequest.mockClear();
+    const retried = await postForm(m.target);
+    expect(retried.status).toBeUndefined();
     expect(mockRequest.mock.calls.map(([q]) => q)).toContain(UPDATE_NODE_MUTATION);
   });
 });
@@ -253,8 +272,7 @@ describe('a full-page refusal keeps the draft AND the baseline it was typed agai
     buttonNamed(next.target, 'Edit')!.click();
     flushSync();
     expect(input(next.target, 'editName').value).toBe('Unsaved draft');
-    expect(hidden(next.target, 'baselineName')).toBe('Foo');
-    expect(hidden(next.target, 'baselineLoc')).toBe('foo');
+    expect(hidden(next.target, 'baseline')).toBe(nodeMetaBaseline(NODE));
 
     mockRequest.mockClear();
     const retried = await postForm(next.target);
@@ -276,8 +294,7 @@ describe('a full-page refusal keeps the draft AND the baseline it was typed agai
     const next = await remountWith(refused);
     buttonNamed(next.target, 'Edit')!.click();
     flushSync();
-    expect(hidden(next.target, 'baselineName')).toBe('Foo');
-    expect(hidden(next.target, 'baselineLoc')).toBe('foo');
+    expect(hidden(next.target, 'baseline')).toBe(nodeMetaBaseline(NODE));
   });
 
   it('control: a fresh load with no refusal takes its baseline from the node', async () => {
@@ -285,7 +302,7 @@ describe('a full-page refusal keeps the draft AND the baseline it was typed agai
     const { m } = await mountSettings();
     buttonNamed(m.target, 'Edit')!.click();
     flushSync();
-    expect(hidden(m.target, 'baselineName')).toBe('Other tab saved');
+    expect(hidden(m.target, 'baseline')).toBe(nodeMetaBaseline(OTHER));
   });
 });
 
@@ -307,6 +324,6 @@ describe('controls', () => {
     buttonNamed(m.target, 'Edit')!.click();
     flushSync();
     expect(input(m.target, 'editName').value).toBe('Other tab saved');
-    expect(hidden(m.target, 'baselineLoc')).toBe('moved:elsewhere');
+    expect(hidden(m.target, 'baseline')).toBe(nodeMetaBaseline(OTHER));
   });
 });

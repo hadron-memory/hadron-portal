@@ -59,7 +59,7 @@
     type ProvenanceResult,
   } from '$lib/node-provenance';
   import NodeRoleInput from '$lib/components/NodeRoleInput.svelte';
-  import { metaSavedDespiteFailure, nodeMetaReseed, nodeMetaSeed, nodeMetaSeedKey, savedButNotMoved } from '$lib/node-meta-seed';
+  import { metaSavedDespiteFailure, nodeMetaBaseline, nodeMetaReseed, nodeMetaSeed, nodeMetaSeedKey, savedButNotMoved } from '$lib/node-meta-seed';
   import { bestEffortInvalidateAll } from '$lib/best-effort-invalidate-all';
   import { skillExportMenuHosts } from '$lib/skill-export';
   import NodeAssetCard from '$lib/components/assets/NodeAssetCard.svelte';
@@ -877,10 +877,6 @@
       // #1989: the refusal outlives that reload. The reload drops the action
       // `form` the alert reads, so the page holds the refusal text itself.
       moveRefusal = savedButNotMoved(result);
-      // portal#2023: the name IS saved now, so the next attempt's baseline is
-      // the saved name; the loc did not move and stays as it was.
-      const savedName = (result.data as { form?: { data?: { name?: unknown } } }).form?.data?.name;
-      if (typeof savedName === 'string') metaBaseline = { ...metaBaseline, name: savedName };
       // portal#1882: AWAIT the reload. Superforms awaits onResult before it
       // applies the result, so the failure (its message, the typed location)
       // lands after the reload. Unawaited, the reload finished later and
@@ -891,6 +887,10 @@
       // (see bestEffortInvalidateAll for the rejection class and the
       // error-boundary limit). The page keeps the action failure.
       await bestEffortInvalidateAll('node-detail');
+      // portal#2023: the edits ARE saved (only the move failed), so the next attempt is typed
+      // against the node as it now is. Taken from the reloaded node, not from what was posted: the
+      // server normalizes what it stores. Only a committed save reaches here (the return above).
+      metaBaseline = nodeMetaBaseline(node);
     },
   });
 
@@ -906,16 +906,14 @@
   // Reseed on a different node (everything) or a changed stored role on the
   // same node (role and its seed only): `nodeMetaReseed` decides, and the
   // field list is the loader's own (@codex on #929).
-  // portal#2023: the name and loc the editor was seeded from. Sent with every Save so the
-  // server can refuse a draft that is older than the node (see `updateMeta`).
+  // portal#2023: the node state the editor was typed against (every field Save writes). Sent with
+  // every Save so the server can refuse a draft that is older than the node (see `updateMeta`).
   // A full-page refusal restores the kept draft from the action's form (initialUpdateMetaForm), so it
   // restores the baseline the draft was typed against too, which the action echoes as `metaBaseline`.
   let metaBaseline = $state(untrack(() => {
     const echoed = form && submittedForm<NodeUpdateMetaForm>(form, 'updateMeta')
-      ? (form as { metaBaseline?: { name?: unknown; loc?: unknown } }).metaBaseline : undefined;
-    return typeof echoed?.name === 'string' && typeof echoed.loc === 'string'
-      ? { name: echoed.name, loc: echoed.loc }
-      : { name: node.name ?? '', loc: node.loc };
+      ? (form as { metaBaseline?: unknown }).metaBaseline : undefined;
+    return typeof echoed === 'string' ? echoed : nodeMetaBaseline(node);
   }));
   let updateMetaSeededFrom = $state(untrack(() => ({ id: node.id, role: node.role ?? null })));
   $effect(() => {
@@ -923,7 +921,7 @@
     const patch = nodeMetaReseed(updateMetaSeededFrom, node);
     updateMetaSeededFrom = { id: node.id, role: node.role ?? null };
     if (patch) updateMetaFormData.update((current) => ({ ...current, ...patch }), { taint: false });
-    if (patch && 'name' in patch) metaBaseline = { name: node.name ?? '', loc: node.loc };
+    if (patch && 'name' in patch) metaBaseline = nodeMetaBaseline(node);
   });
 
   // portal#2020: after a CONFIRMED, COMPLETE save the editor reopens from the
@@ -938,7 +936,7 @@
   function reseedFromSavedNode() {
     const seed = nodeMetaSeed(node);
     updateMetaSavedSeed = JSON.stringify(seed);
-    metaBaseline = { name: seed.name, loc: seed.loc };
+    metaBaseline = nodeMetaBaseline(node);
     updateMetaFormData.set({ ...get(updateMetaFormData), ...seed }, { taint: false });
   }
   $effect(() => {
@@ -4368,8 +4366,7 @@
             <form method="POST" action="?/updateMeta" use:updateMetaEnhance novalidate
               class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
               <input type="hidden" name="_kind" bind:value={$updateMetaFormData._kind} />
-              <input type="hidden" name="baselineName" value={metaBaseline.name} />
-              <input type="hidden" name="baselineLoc" value={metaBaseline.loc} />
+              <input type="hidden" name="baseline" value={metaBaseline} />
               {#if moveRefusal || updateMetaActionError}
                 <div role="alert" data-testid="node-meta-error" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{moveRefusal?.text ?? updateMetaActionError}</div>
               {/if}

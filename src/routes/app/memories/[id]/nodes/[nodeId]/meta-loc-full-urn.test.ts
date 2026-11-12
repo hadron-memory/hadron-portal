@@ -8,6 +8,7 @@
  * beneath the source memory.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { nodeMetaBaseline } from '$lib/node-meta-seed';
 import {
   MOVE_NODE_MUTATION,
   NODE_BY_ID_QUERY,
@@ -53,7 +54,7 @@ async function saveLoc(loc: string, baselineLoc = 'rules:copy') {
   const { actions } = await import('./+page.server');
   const fd = new FormData();
   for (const [k, v] of Object.entries({
-    name: 'Copy', nodeType: 'info', description: '', alias: '', seq: '1', tags: '', loc, baselineName: 'Copy', baselineLoc,
+    name: 'Copy', nodeType: 'info', description: '', alias: '', seq: '1', tags: '', loc, baseline: nodeMetaBaseline({ ...node, loc: baselineLoc }),
   })) fd.set(k, v);
   return (actions as Record<string, (e: never) => Promise<unknown>>).updateMeta({
     request: { formData: async () => fd },

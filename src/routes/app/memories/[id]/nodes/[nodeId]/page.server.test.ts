@@ -10,6 +10,7 @@
  * `graphNodes` instead of issuing a memory-blind GraphQL lookup.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { nodeMetaBaseline } from '$lib/node-meta-seed';
 import { jsonFingerprint } from '$lib/properties-source';
 import { MOVE_NODE_MUTATION, NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY, UPDATE_NODE_MUTATION } from '$lib/server/queries';
 
@@ -460,6 +461,10 @@ function actionEvent(opts: {
   } as unknown as Parameters<Actions[keyof Actions]>[0];
 }
 
+/** The baseline token a Save from an editor opened on this node carries (portal#2023). */
+const baselineOf = (over: Record<string, unknown>) =>
+  nodeMetaBaseline({ name: '', loc: '', nodeType: 'info', alias: null, description: null, seq: null, tags: [], isRunnable: false, role: null, ...over } as never);
+
 function superFormFrom(result: unknown) {
   return (result as {
     data?: { form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean } };
@@ -773,7 +778,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
       gid: 'mem-A',
       nodeId: 'pk-r',
       // Loc unchanged → no MOVE_NODE_MUTATION, so the update is call index 1.
-      form: { name: 'r', loc: 'r', isRunnable: 'true', baselineName: 'r', baselineLoc: 'r' },
+      form: { name: 'r', loc: 'r', isRunnable: 'true', baseline: baselineOf({ name: 'r', loc: 'r', nodeType: 'task', isRunnable: null }) },
     }));
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { isRunnable?: unknown } }];
@@ -799,7 +804,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     await actions.updateMeta(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk-r2',
-      form: { name: 'r2', loc: 'r2', baselineName: 'r2', baselineLoc: 'r2' },
+      form: { name: 'r2', loc: 'r2', baseline: baselineOf({ name: 'r2', loc: 'r2', nodeType: 'task', isRunnable: true }) },
     }));
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { isRunnable?: unknown } }];
@@ -852,7 +857,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
       const result = (await actions.updateMeta(actionEvent({
         gid: 'mem-A', nodeId: 'pk-c',
         // The draft was opened on the OLD name and loc and still carries the old loc.
-        form: { name: 'My draft', loc: 'old:loc', baselineName: 'Old name', baselineLoc: 'old:loc' },
+        form: { name: 'My draft', loc: 'old:loc', baseline: baselineOf({ name: 'Old name', loc: 'old:loc' }) },
       }))) as { status: number };
       expect(result.status).toBe(409);
       expect((superFormFrom(result)?.message as { text?: string } | undefined)?.text).toMatch(/changed.*nothing was saved/i);
@@ -865,7 +870,18 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
       const actions = await importActions();
       const result = (await actions.updateMeta(actionEvent({
         gid: 'mem-A', nodeId: 'pk-c',
-        form: { name: 'My draft', loc: 'same', baselineName: 'Old name', baselineLoc: 'same' },
+        form: { name: 'My draft', loc: 'same', baseline: baselineOf({ name: 'Old name', loc: 'same' }) },
+      }))) as { status: number };
+      expect(result.status).toBe(409);
+      expect(sent()).toEqual([NODE_BY_ID_QUERY]);
+    });
+
+    it('refuses when ANOTHER field changed under the draft (description), not only name and loc (Glen on #2027)', async () => {
+      mockRequest.mockResolvedValueOnce(stored({ loc: 'same', name: 'Same', description: 'changed by the other editor' }));
+      const actions = await importActions();
+      const result = (await actions.updateMeta(actionEvent({
+        gid: 'mem-A', nodeId: 'pk-c',
+        form: { name: 'Same', loc: 'same', description: 'my stale draft', baseline: baselineOf({ name: 'Same', loc: 'same' }) },
       }))) as { status: number };
       expect(result.status).toBe(409);
       expect(sent()).toEqual([NODE_BY_ID_QUERY]);
@@ -887,7 +903,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
       const actions = await importActions();
       await actions.updateMeta(actionEvent({
         gid: 'mem-A', nodeId: 'pk-c',
-        form: { name: 'Renamed', loc: 'moved:by:other', baselineName: 'Other editor name', baselineLoc: 'moved:by:other' },
+        form: { name: 'Renamed', loc: 'moved:by:other', baseline: baselineOf({ name: 'Other editor name', loc: 'moved:by:other' }) },
       }));
       expect(sent()).toEqual([NODE_BY_ID_QUERY, UPDATE_NODE_MUTATION]);
     });
@@ -927,7 +943,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     const result = (await actions.updateMeta(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk-r5',
-      form: { name: 'source', loc: 'target', baselineName: 'source', baselineLoc: 'source' },
+      form: { name: 'source', loc: 'target', baseline: baselineOf({ name: 'source', loc: 'source' }) },
     }))) as { status: number };
 
     expect(result.status).toBe(409);

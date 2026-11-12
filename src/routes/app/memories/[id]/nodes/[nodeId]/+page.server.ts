@@ -24,7 +24,7 @@ import { approvalRefusalStatus, approveRefusalText, bindApprovalToRevision, inte
 // is what `scripts/check-node-write-doors.mjs` fails.
 import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/server/nodeKindDoor';
 import { roleUpdate } from '$lib/node-role';
-import { nodeMetaSeed } from '$lib/node-meta-seed';
+import { nodeMetaBaseline, nodeMetaSeed } from '$lib/node-meta-seed';
 import { parseExpectedRevision } from '$lib/node-revision';
 import { canonicalJson, isFingerprint, jsonFingerprint, parseDataSource, parsePropertiesSource, propertiesFingerprint, sameProperties } from '$lib/properties-source';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
@@ -841,10 +841,8 @@ export const actions: Actions = {
     // form, and the draft must keep the baseline it was typed against, or a retry would compare it
     // with the fresh node and write it over the other editor's change. A failure AFTER the update
     // committed does not echo it: the page advances the name itself (see onResult).
-    const baselineName = fd.get('baselineName');
-    const baselineLoc = fd.get('baselineLoc');
-    const metaBaseline = typeof baselineName === 'string' && typeof baselineLoc === 'string'
-      ? { metaBaseline: { name: baselineName, loc: baselineLoc } } : {};
+    const baseline = fd.get('baseline');
+    const metaBaseline = typeof baseline === 'string' ? { metaBaseline: baseline } : {};
     const refuse = (status: number, text: string) => {
       message(form, { type: 'error', text });
       return fail(status, { form, ...metaBaseline });
@@ -858,19 +856,19 @@ export const actions: Actions = {
     if (!currentNode) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
 
     // portal#2023: the editor keeps an unsaved draft across a loader refresh, so
-    // the draft can be older than the node. This save writes name whole and
-    // moves the node whenever `loc` differs from the node's CURRENT loc, so an
-    // older draft would overwrite another editor's name and move a node they
-    // had moved back. The form therefore carries the name and loc it was
-    // seeded from, like the Data and Properties editors carry `baseline`: a
-    // mismatch with the node as read just now refuses before any write, with
-    // no update and no moveNode. A missing baseline is refused too, never
-    // treated as "no conflict".
-    if (typeof baselineName !== 'string' || typeof baselineLoc !== 'string') {
+    // the draft can be older than the node. This save writes every metadata
+    // field whole and moves the node whenever `loc` differs from the node's
+    // CURRENT loc, so an older draft would overwrite another editor's change and
+    // move a node they had moved back. The form therefore carries a token for
+    // the node state it was typed against (`nodeMetaBaseline`), like the Data and
+    // Properties editors carry `baseline`: a mismatch with the node as read just
+    // now refuses before any write, with no update and no moveNode. A missing
+    // baseline is refused too, never treated as "no conflict".
+    if (typeof baseline !== 'string') {
       return refuse(400, t('node.meta.no-baseline', 'This editor is out of date, so nothing was saved. Reload the page and try again.'));
     }
-    if (baselineName !== (currentNode.name ?? '') || baselineLoc !== currentNode.loc) {
-      return refuse(409, t('node.meta.conflict', 'This node was changed (its name or location) since you opened the editor, so nothing was saved. Cancel to load the current values, then make your edit again.'));
+    if (baseline !== nodeMetaBaseline(currentNode)) {
+      return refuse(409, t('node.meta.conflict', 'This node was changed since you opened the editor, so nothing was saved. Cancel to load the current values, then make your edit again.'));
     }
 
     const name = form.data.name;

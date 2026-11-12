@@ -23,6 +23,7 @@
  * which is exactly the one nobody notices.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { nodeMetaBaseline } from '$lib/node-meta-seed';
 import { jsonFingerprint } from '$lib/properties-source';
 import {
   NODE_BY_ID_QUERY,
@@ -73,8 +74,10 @@ const KINDS = [
  * not matter to any of these handlers — none of them reads it — so one stub
  * serves every door.
  */
+let stubbed: typeof base & { role: string | null; isRunnable: boolean | null } = { ...base, role: null, isRunnable: null };
 function stubNode(signals: { role: string | null; isRunnable: boolean | null }) {
   const node = { ...base, ...signals };
+  stubbed = node;
   mockRequest.mockImplementation(async (query: unknown) => {
     if (query === NODE_BY_ID_QUERY || query === NODE_QUERY || query === NODE_DATA_READ_QUERY) return { node };
     return { updateNode: { id: 'pk' } };
@@ -130,9 +133,8 @@ describe('updateMeta', () => {
     seq: '1',
     tags: 'keep',
     loc: 'classify',
-    // portal#2023: the name and loc the editor opened on (the stub node's).
-    baselineName: 'Classify',
-    baselineLoc: 'classify',
+    // portal#2023: the node state the editor opened on (the stub node's).
+    baseline: nodeMetaBaseline(stubbed),
     ...over,
   });
 
@@ -178,9 +180,8 @@ describe('updateMeta — Node.role (#921)', () => {
     seq: '1',
     tags: 'keep',
     loc: 'classify',
-    // portal#2023: the name and loc the editor opened on (the stub node's).
-    baselineName: 'Classify',
-    baselineLoc: 'classify',
+    // portal#2023: the node state the editor opened on (the stub node's).
+    baseline: nodeMetaBaseline(stubbed),
     ...over,
   });
   const sent = (door: string) => mockRequest.mock.calls.find(([q]) => q === door)![1].input;
@@ -254,7 +255,7 @@ describe('updateMeta — Node.role (#921)', () => {
         response: { errors: [{ message: 'This write would REMOVE the marker that makes this a SPEC node.', extensions: { code: 'ROLE_GOVERNED' } }] },
       });
     });
-    const result = (await run('updateMeta', meta({ role: 'spec.feature', roleSeed: 'spec' }))) as {
+    const result = (await run('updateMeta', meta({ role: 'spec.feature', roleSeed: 'spec', baseline: nodeMetaBaseline({ ...base, role: 'spec', isRunnable: null }) }))) as {
       data?: { form?: { message?: { type: string; text: string } } };
       form?: { message?: { type: string; text: string } };
     };
@@ -288,7 +289,7 @@ describe('updateMeta — the move happens AFTER the door is settled', () => {
       tags: 'keep',
       loc: 'somewhere:else',   // a MOVE, and
       isRunnable: 'on',        // a write with no door (review + task)
-      baselineName: 'Classify', baselineLoc: 'classify',
+      baseline: nodeMetaBaseline(stubbed),
     })) as { status?: number };
 
     expect(result.status).toBe(500);
@@ -302,7 +303,7 @@ describe('updateMeta — the move happens AFTER the door is settled', () => {
     await run('updateMeta', {
       name: 'Classify', nodeType: 'info', description: '', alias: '',
       seq: '1', tags: 'keep', loc: 'somewhere:else',
-      baselineName: 'Classify', baselineLoc: 'classify',
+      baseline: nodeMetaBaseline(stubbed),
     });
     // The update first, selected by id; then the move.
     expect(doorsUsed()).toEqual([UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION]);
@@ -323,7 +324,7 @@ describe('updateMeta — the move happens AFTER the door is settled', () => {
       name: 'Classify', nodeType: 'info', description: '', alias: '',
       seq: '1', tags: 'keep', loc: 'somewhere:else',
       role: 'spec.feature', roleSeed: 'spec',
-      baselineName: 'Classify', baselineLoc: 'classify',
+      baseline: nodeMetaBaseline({ ...base, role: 'spec', isRunnable: null }),
     })) as { status?: number };
     expect(result.status).toBe(500);
     // The refused update was attempted; the move never was.
