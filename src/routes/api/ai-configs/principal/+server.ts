@@ -9,7 +9,7 @@ import type { RequestHandler } from './$types';
 // question, "who does the server think this cookie is?", and returns ONLY
 // {principalType, userId, appId}: no config, no key, no preview. It selects no
 // field of an AiServiceConfig, so it is not a second route to the key, which
-// stays masked everywhere but its one gated decrypt path (cor:dmo:050:10).
+// stays masked everywhere but its one gated decrypt path (hrn:node:hadronmemory.com:specs:cor:dmo:050:10).
 // Reads the existing server identity with THIS request's cookie. No JWT decode
 // fallback, auth mutation, draft payload or new write precondition.
 export const GET: RequestHandler = async ({ locals, request }) => {

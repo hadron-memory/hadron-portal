@@ -69,7 +69,7 @@ describe('#1955/#1986 current-cookie principal read (dedicated route)', () => {
     expect(mockRequest).toHaveBeenCalledTimes(1);
   });
 
-  // cor:dmo:050:10: the key stays masked everywhere but its one gated decrypt
+  // hrn:node:hadronmemory.com:specs:cor:dmo:050:10: the key stays masked everywhere but its one gated decrypt
   // path. The split route returns identity only, whatever the upstream says.
   it('returns only the three identity fields even if the upstream answer carries more', async () => {
     mockRequest.mockResolvedValueOnce({ authContext: { principalType: 'USER', user: { id: 'u1', email: 'x@y.z' }, appId: null, apiKey: 'synthetic-secret', configs: [{ apiKeyPreview: '…test' }] } });
