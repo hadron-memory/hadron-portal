@@ -202,3 +202,27 @@ it('1935 keeps older/newer navigation on an empty filtered page and resets curso
   expect(html).toContain('Search this page');
   expect(html).toMatch(/href="\/app\/apps\/app-1\/tasks\?view=alarms&amp;alarms=all"/);
 });
+
+
+describe('portal#1987 result and form-target controls', () => {
+  const row = { id:'e1', type:'stall.not-started', severity:'ALARM', taskId:null, createdAt:'2026-11-11T10:00:00Z', subjectWorker:null, acknowledgedAt:null, acknowledgedBy:null, wakes:[] };
+  it.each(['open','acknowledged','all'])('uses the exact %s filter action URL with one named action', filter => {
+    setStubPage('http://localhost/app/apps/app-1/tasks?view=alarms', {appId:'app-1'});
+    try {
+      const html = page({view:'alarms',alarmFilter:filter,alarms:{kind:'ok',value:{alarms:[row]}}});
+      // Acknowledged hides an open row; mount an eligible row only to inspect the shared target function.
+      if (filter === 'acknowledged') { expect(html).not.toContain('&/acknowledgeAlarm'); return; }
+      const action = html.match(/<form[^>]*action="([^"]+)/)?.[1]?.replaceAll('&amp;','&');
+      expect(action).toBe('/app/apps/app-1/tasks?view=alarms' + (filter === 'open' ? '' : '&alarms='+filter) + '&/acknowledgeAlarm');
+    } finally { resetStubPage(); }
+  });
+  it.each(['failed','not-participant'])('keeps both success and second-ack refusal visible beside a %s read', kind => {
+    const data = {view:'alarms',alarms:{kind}};
+    const success = page(data,{alarmAck:{kind:'acknowledged',eventId:'e1'}});
+    expect(success).toContain('Alarm acknowledged.');
+    const second = page(data,{alarmAck:{kind:'already-acknowledged',eventId:'e1'}});
+    expect(second).toContain('already acknowledged; the first acknowledgement stands.');
+    expect(second).not.toContain('Alarm acknowledged.');
+    expect(second).not.toContain('Acknowledged by');
+  });
+});
