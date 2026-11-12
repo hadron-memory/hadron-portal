@@ -10,6 +10,7 @@ import {
   type GrantPageSlice,
   type Holder,
 } from "$lib/grants/types";
+import { grantActorRefs } from "$lib/grants/approval";
 import { APP_INSTALLED_AGENTS_QUERY } from "$lib/server/queries";
 import {
   readableInstalledAgents,
@@ -22,6 +23,11 @@ const GRANT_FIELDS = /* GraphQL */ `
     action
     holderKind
     holderId
+    requestedByUserId
+    requestedByWorkerId
+    issuerUserId
+    verifiedBy
+    revokedByUserId
     values
     reason
     startsAt
@@ -188,16 +194,66 @@ export async function grantChoices(client: GraphQLClient, appRef: string) {
     agents: agents.agents,
   };
 }
+type IdentityRead = Record<
+  string,
+  (Holder & { handle?: string | null }) | null
+>;
+type IdentityReads = Map<string, Promise<IdentityRead>>;
+function readIdentity(
+  client: GraphQLClient,
+  kind: Grant["holderKind"],
+  id: string,
+  reads: IdentityReads,
+) {
+  const key = kind + ":" + id;
+  let held = reads.get(key);
+  if (!held) {
+    held = client.request<IdentityRead>(
+      {
+        USER: HOLDER_USER,
+        WORKER: HOLDER_WORKER,
+        AGENT: HOLDER_AGENT,
+        APP: HOLDER_APP,
+      }[kind],
+      { ref: id },
+    );
+    reads.set(key, held);
+  }
+  return held;
+}
+export async function grantActors(
+  client: GraphQLClient,
+  grants: Grant[],
+  reads: IdentityReads = new Map(),
+): Promise<Record<string, Holder>> {
+  const refs = new Map(
+    grants.flatMap(grantActorRefs).map((r) => [r.kind + ":" + r.id, r]),
+  );
+  return Object.fromEntries(
+    await Promise.all(
+      [...refs].map(async ([key, r]) => {
+        try {
+          const raw = await readIdentity(client, r.kind, r.id, reads);
+          const actor = raw[r.kind === "USER" ? "user" : "worker"];
+          return [
+            key,
+            actor
+              ? { ...actor, name: actor.name || actor.handle || r.id }
+              : { id: r.id, name: r.id },
+          ];
+        } catch {
+          return [key, { id: r.id, name: r.id }];
+        }
+      }),
+    ),
+  );
+}
 export async function grantHolders(
   client: GraphQLClient,
   grants: Grant[],
+  reads: IdentityReads = new Map(),
 ): Promise<Record<string, Holder>> {
   const entries = new Map(grants.map((g) => [grantHolderKey(g), g]));
-  type HolderRead = Record<
-    string,
-    (Holder & { handle?: string | null }) | null
-  >;
-  const reads = new Map<string, Promise<HolderRead>>();
   return Object.fromEntries(
     await Promise.all(
       [...entries].map(async ([key, g]) => {
@@ -218,21 +274,7 @@ export async function grantHolders(
                 ? t("grants.holder.agent", "Agent")
                 : t("grants.holder.app", "App");
         try {
-          const identityKey = `${g.holderKind}:${g.holderId}`;
-          let read = reads.get(identityKey);
-          if (!read) {
-            read = client.request<HolderRead>(
-              {
-                USER: HOLDER_USER,
-                WORKER: HOLDER_WORKER,
-                AGENT: HOLDER_AGENT,
-                APP: HOLDER_APP,
-              }[g.holderKind],
-              { ref: g.holderId },
-            );
-            reads.set(identityKey, read);
-          }
-          const r = await read;
+          const r = await readIdentity(client, g.holderKind, g.holderId, reads);
           const holder = r[field];
           return [
             key,
@@ -312,9 +354,19 @@ export async function readGrantPage(
   const { appGrants } = await client.request<{
     appGrants: { items: Grant[]; total: number };
   }>(GRANTS_PAGE, { appRef: appId, limit: 20, offset });
-  const [holders, nodes] = await Promise.all([
-    grantHolders(client, appGrants.items),
+  const reads: IdentityReads = new Map();
+  const [holders, nodes, actors] = await Promise.all([
+    grantHolders(client, appGrants.items, reads),
     grantNodes(client, appGrants.items),
+    grantActors(client, appGrants.items, reads),
   ]);
-  return { grants: appGrants, holders, nodes };
+  return { grants: appGrants, holders, nodes, actors };
 }
+
+export const REQUEST_GRANT_SIGNATURE = /* GraphQL */ `
+  mutation RequestAppGrantSignature($grantRef: ID!) {
+    requestGrantSignature(grantRef: $grantRef) {
+      ceremonyUrl
+    }
+  }
+`;

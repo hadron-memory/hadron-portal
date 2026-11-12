@@ -3,11 +3,13 @@
   import type { SubmitFunction } from "@sveltejs/kit";
   import { onDestroy, tick } from "svelte";
   import { t } from "$lib/i18n/t";
+  import GrantHistory from "./GrantHistory.svelte";
   import Urn from "$lib/components/Urn.svelte";
   import { grantNodeRef, type Grant, type Holder } from "$lib/grants/types";
   let {
     grant,
     holder,
+    actors,
     revokeAction,
     actionGrant,
     node,
@@ -19,6 +21,7 @@
   }: {
     grant: Grant;
     holder?: Holder;
+    actors?: Record<string, Holder>;
     revokeAction?: string;
     actionGrant?: Grant | null;
     node?: Holder | null;
@@ -158,13 +161,15 @@
       class="min-h-11 text-indigo-600 dark:text-indigo-300"
       >{t("grants.details", "Grant details")}</button
     >
-    {#if expanded}<div id={detailId}>
+    {#if expanded}
+      <div id={detailId}>
+        <GrantHistory grant={shown} {actors} {holder} />
         <dl
           class="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-3 gap-y-2 py-2"
         >
           <dt>{t("grants.id", "Grant ID")}</dt>
           <dd class="break-all font-mono">{shown.id}</dd>
-          <dt>{t("grants.reason", "Reason")}</dt>
+          <dt>{t("grants.requester-reason", "Requester’s reason")}</dt>
           <dd class="whitespace-pre-wrap break-words">{shown.reason}</dd>
           <dt>{t("grants.values", "Values")}</dt>
           <dd class="whitespace-pre-wrap break-all font-mono">

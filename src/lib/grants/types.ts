@@ -23,6 +23,11 @@ export type Grant = {
   revokedAt: string | null;
   holderDepartedAt: string | null;
   allows: boolean;
+  requestedByUserId?: string | null;
+  requestedByWorkerId?: string | null;
+  issuerUserId?: string | null;
+  verifiedBy?: string | null;
+  revokedByUserId?: string | null;
 };
 export type Holder = { id: string; name: string; urn?: string | null };
 export function grantError(code: string | null): string {
@@ -98,6 +103,7 @@ export type GrantPageSlice = {
   grants: { items: Grant[]; total: number };
   holders: Record<string, Holder>;
   nodes: Record<string, Holder | null>;
+  actors?: Record<string, Holder>;
 };
 export type GrantListPayload = GrantPageSlice & {
   appId: string;
