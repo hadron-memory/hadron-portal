@@ -86,7 +86,7 @@ export const actions: Actions = {
 
   // portal#1921: switch the org's boot-prompt signing OFF. No preview and no
   // token (off is idempotent on the server). The intent is stated here, never
-  // read from the form (review:explicit-mutation-intent). Outcomes carry fixed
+  // read from the form (hrn:node:hadronmemory.com:hadron-portal:review:explicit-mutation-intent). Outcomes carry fixed
   // words only: FORBIDDEN is `hidden` (the section vanishes, nothing is said
   // about the org's state) and any other failure is `failed`.
   switchOff: async ({ params, locals }) => {

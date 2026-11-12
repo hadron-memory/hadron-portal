@@ -8,7 +8,7 @@ import type { Actions, PageServerLoad } from './$types';
 // owns "what would switching on change" and the switch-on itself (R4: the
 // preview IS the confirmation, no modal).
 //
-// The server is the gate (cor:api:240:01). The org layout already 404s a
+// The server is the gate (hrn:node:hadronmemory.com:specs:cor:api:240:01). The org layout already 404s a
 // non-member; a member below ADMIN (or an impersonated session) gets FORBIDDEN
 // from the read, which is a 404 here too, so the route says nothing about the
 // org's state. An outage is a value (`failed`), never a thrown 500.
@@ -38,7 +38,7 @@ export const actions: Actions = {
     if (r.kind === 'hidden') return fail(403, { outcome: 'hidden' as const });
     if (r.kind === 'stale') {
       // The reloaded preview rides in the action result: invalidateAll() would
-      // drop a failed action's form (findings:invalidateall-drops-failed-action-form).
+      // drop a failed action's form (hrn:node:hadronmemory.com:hadron-portal:findings:invalidateall-drops-failed-action-form).
       const preview = await loadSigningPreview(client, params.id);
       return fail(409, { outcome: 'stale' as const, preview });
     }

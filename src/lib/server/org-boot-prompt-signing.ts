@@ -10,7 +10,7 @@ import {
  * portal#1921 (hadron-server#3894, #2973 PR 2) — the organisation boot-prompt
  * signing switch.
  *
- * The server is the gate (cor:api:240:01): it answers one `FORBIDDEN` to every
+ * The server is the gate (hrn:node:hadronmemory.com:specs:cor:api:240:01): it answers one `FORBIDDEN` to every
  * caller who is not the org's current ADMIN/OWNER (a member below ADMIN, a
  * non-member, a worker session, an App key, a run, impersonation). Here that is
  * `hidden`, which the page renders as the section being absent. Anything else
@@ -121,7 +121,7 @@ async function drainOnce(client: GraphQLClient, org: string): Promise<PreviewRea
 }
 
 /**
- * Read the WHOLE preview (cor:agt:040:09: the org is shown WHICH prompts change,
+ * Read the WHOLE preview (hrn:node:hadronmemory.com:specs:cor:agt:040:09: the org is shown WHICH prompts change,
  * rows and not only a count). A drift during the drain is retried once from the
  * top; a second drift is reported as `drifted` so the page says "look again".
  */
@@ -138,7 +138,7 @@ export async function loadSigningPreview(client: GraphQLClient, org: string): Pr
 /**
  * Switch on needs the preview's token; off needs none and sends no
  * `previewToken` key at all. The caller states `required` explicitly
- * (review:explicit-mutation-intent): it is never read from a form field.
+ * (hrn:node:hadronmemory.com:hadron-portal:review:explicit-mutation-intent): it is never read from a form field.
  */
 export async function setOrgSigning(
   client: GraphQLClient,
