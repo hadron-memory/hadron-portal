@@ -222,7 +222,7 @@ function logLlmFailure(error: unknown, context: () => LlmFailureContext): void {
 // supported choice (platform docs, tool use: "Forcing tool use"). Verified
 // live on claude-sonnet-5-5 (#1979). The ids are exact and verbatim from the
 // Anthropic models overview; Mythos 5.2 / Fable 5.1 / Mythos 5.1 have no
-// documented API id and are NOT listed. Bedrock is not covered (unverified).
+// documented API id and are NOT listed on the Anthropic provider.
 // Haiku 5.5 accepts a forced choice and stays forced.
 const AUTO_TOOL_CHOICE_ANTHROPIC_MODELS: ReadonlySet<string> = new Set([
   'claude-sonnet-5-5',
@@ -230,8 +230,33 @@ const AUTO_TOOL_CHOICE_ANTHROPIC_MODELS: ReadonlySet<string> = new Set([
   'claude-fable-5-2',
 ]);
 
+// #2031: AWS model-card Programmatic Access tables (2026-11-12) document
+// these exact base and geo/global inference-profile IDs. AWS restricts these
+// models to auto/none tool choice. No prefix rewriting, arbitrary profile ARN,
+// snapshot or other geography is inferred from the base ID.
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-5-5.html
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5-5.html
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-fable-5-2.html
+const AUTO_TOOL_CHOICE_BEDROCK_MODELS: ReadonlySet<string> = new Set([
+  'anthropic.claude-sonnet-5-5',
+  'us.anthropic.claude-sonnet-5-5',
+  'eu.anthropic.claude-sonnet-5-5',
+  'au.anthropic.claude-sonnet-5-5',
+  'global.anthropic.claude-sonnet-5-5',
+  'anthropic.claude-opus-5-5',
+  'us.anthropic.claude-opus-5-5',
+  'eu.anthropic.claude-opus-5-5',
+  'au.anthropic.claude-opus-5-5',
+  'jp.anthropic.claude-opus-5-5',
+  'global.anthropic.claude-opus-5-5',
+  'anthropic.claude-fable-5-2',
+  'us.anthropic.claude-fable-5-2',
+  'global.anthropic.claude-fable-5-2',
+]);
+
 export function usesAutoToolChoice(provider: AIProvider, model: string): boolean {
-  return provider === 'anthropic' && AUTO_TOOL_CHOICE_ANTHROPIC_MODELS.has(model);
+  return (provider === 'anthropic' && AUTO_TOOL_CHOICE_ANTHROPIC_MODELS.has(model))
+    || (provider === 'bedrock' && AUTO_TOOL_CHOICE_BEDROCK_MODELS.has(model));
 }
 
 /**

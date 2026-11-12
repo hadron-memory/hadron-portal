@@ -32,7 +32,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     paths.push(decodeURIComponent(new URL(url).pathname)); bodies.push(JSON.parse(String(init?.body))); return response();
   }));
-  vi.spyOn(console, 'error').mockImplementation((...args) => { logs.push(args); });
+  vi.spyOn(console, 'warn').mockImplementation((...args) => { logs.push(args); });
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 const call = (model: string, messages: Array<{ role: 'user' | 'assistant'; content: string }> = [], tools: HadronTool[] | null = TOOLS) => callAgentChatLlm({ provider: 'bedrock', apiKey: KEY, model, systemMessage: 'Stage prompt', tools, messages });
@@ -74,6 +74,8 @@ it.each(['text', 'other', 'empty', '400'])('%s failure closes without text/key e
   const error = await call(LISTED[0]).catch(e => e);
   expect(publicChatError(error).code).toBe('llmFailed');
   expect(bodies).toHaveLength(1);
+  expect(logs).toHaveLength(1);
+  expect(String(error)).not.toMatch(/synthetic-secret-2031|RAW_PROVIDER_TEXT|RAW_MODEL_TEXT/);
   expect(JSON.stringify([error, logs])).not.toMatch(/synthetic-secret-2031|RAW_PROVIDER_TEXT|RAW_MODEL_TEXT/);
 });
 it('two calls and malformed input keep the merged baseline', async () => {
