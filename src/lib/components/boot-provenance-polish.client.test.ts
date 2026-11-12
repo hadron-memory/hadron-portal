@@ -186,3 +186,37 @@ describe('portal#1757 table search literals go through t()', () => {
     expect(src).toMatch(/searchAriaLabel=\{t\(/);
   });
 });
+
+// portal#1991: at 390px the table scrolled sideways (470px table, 272px scroller). Below `sm` the
+// Include settings and Text kept columns hide by CSS, Include settings rides under the source, and the
+// one remaining column fits the scroller. Geometry itself is pinned in the real-Chromium lane
+// (scripts/test-boot-install-layout.mjs); jsdom pins the markup contract.
+describe('portal#1991 phone layout markup', () => {
+  it('fits one column on the phone and hides the other two, leaving desktop widths alone', async () => {
+    const m = await mountProvenance([row({ selection: { rev: 3, approved: false, signed: true } })]);
+    const table = m.target.querySelector('table')!;
+    expect(table.getAttribute('style')).toContain('--phone-table-w: 100%');
+    expect(table.getAttribute('style')).toContain('--table-desktop-w: max(100%, 470px)');
+    const headers = [...m.target.querySelectorAll('thead th')];
+    expect(headers[0].className).toContain('max-sm:w-full');
+    expect(headers[0].className).not.toContain('max-sm:hidden');
+    expect(headers[1].className).toContain('max-sm:hidden');
+    expect(headers[2].className).toContain('max-sm:hidden');
+    const cells = [...m.target.querySelectorAll('tbody tr td')];
+    expect(cells[1].className).toContain('max-sm:hidden');
+    expect(cells[2].className).toContain('max-sm:hidden');
+    // Desktop keeps all three columns, saved widths and the resize handles.
+    expect(headers.map(h => (h as HTMLElement).style.getPropertyValue('--col-w'))).toEqual(['220px', '150px', '100px']);
+    expect(m.target.querySelectorAll('[role="separator"]')).toHaveLength(3);
+  });
+  it('folds Include settings under the source on the phone only', async () => {
+    const m = await mountProvenance([row({ selection: { rev: 3, approved: false, signed: true } })]);
+    const folded = m.target.querySelector('tbody tr td [data-phone-settings]')!;
+    expect(folded.className).toContain('sm:hidden');
+    expect(text(folded)).toBe('Include settings: Revision 3 · Signed only');
+  });
+  it('adds no third "No longer kept" for a pruned row: the detail line already carries it', async () => {
+    const m = await mountProvenance([row({ pruned: true })]);
+    expect(text(m.target).match(/No longer kept/g)).toHaveLength(2);
+  });
+});

@@ -4,6 +4,7 @@ import { mkdir } from 'node:fs/promises';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
 const output = process.env.BOOT_INSTALL_SHOTS;
+const PHONE_MAX = 640; // Tailwind `sm`: below it the phone layout applies
 if (output) await mkdir(output, { recursive: true });
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 } });
 let browser;
@@ -50,10 +51,35 @@ try {
           await outcome.waitFor();
           assert.ok(await outcome.evaluate(el => Boolean(el.compareDocumentPosition(document.querySelector('section[aria-label="Built from"]')) & Node.DOCUMENT_POSITION_FOLLOWING)));
         }
+        // #1991: the provenance table's own scroller must not overflow at 390px (it was 470px in 272px),
+        // while desktop keeps all three columns at their sizes.
+        const table = page.locator('section[aria-label="Built from"] [data-testid="data-table-scroller"]');
+        // The block must not skip vacuously: only the variants that render provenance have the table.
+        assert.equal(await table.count() > 0, variant === 'app' || variant === 'worker', `${variant}/${theme}/${width}: provenance table presence`);
+        if (await table.count()) {
+          const scroller = await table.evaluate(el => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+          assert.ok(scroller.scroll <= scroller.client, `${variant}/${theme}/${width}: provenance scroller overflows (${scroller.scroll}/${scroller.client})`);
+          const shown = await page.locator('section[aria-label="Built from"] thead th').evaluateAll(ths => ths.map(th => getComputedStyle(th).display !== 'none'));
+          assert.deepEqual(shown, width < PHONE_MAX ? [true, false, false] : [true, true, true], `${variant}/${theme}/${width}: visible provenance columns`);
+          await page.locator('[data-phone-settings]').first().waitFor({ state: width < PHONE_MAX ? 'visible' : 'hidden', timeout: 5000 });
+        }
         const measured = await page.evaluate(() => ({ width: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth, html: document.body.innerHTML }));
         assert.equal(measured.scroll, measured.width, `${variant}/${theme}/${width}: horizontal page overflow`);
         assert.ok(!measured.html.includes('private-node-id'), `${variant}/${theme}/${width}: concealed provenance node ID rendered`);
         if (output) await page.screenshot({ path: `${output}/${variant}-${theme}-${width}.png`, fullPage: true });
+        // #1991 local review: a viewer who hides the Source column (Columns toggle, or a restored saved
+        // view) must not get a blank phone table. At phone width the phone-hidden set steps aside.
+        if (variant === 'app' && width === 1280) {
+          const section = page.locator('section[aria-label="Built from"]');
+          await section.getByTestId('table-header-toggle').click();
+          await section.locator('summary', { hasText: 'Columns' }).click();
+          await section.getByRole('checkbox', { name: 'Source' }).uncheck();
+          for (const [w, label] of [[1280, 'desktop'], [390, 'phone']]) {
+            await page.setViewportSize({ width: w, height: 1000 });
+            const display = await section.locator('tbody tr td').evaluateAll(tds => tds.map(td => getComputedStyle(td).display));
+            assert.ok(display.length >= 2 && display.every(d => d !== 'none'), `${variant}/${theme}/${label}: blank table with Source hidden (${display.join(',')})`);
+          }
+        }
         break;
       } catch (e) { if (attempt >= 5 || e?.name === 'AssertionError' || !/Execution context was destroyed|navigation/i.test(String(e))) throw e; }
     }

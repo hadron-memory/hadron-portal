@@ -14,7 +14,10 @@
   let region: HTMLDivElement;
   const identity = $derived(`${nodeId}:${revision}`);
   // Three columns, not five: revision and depth read as detail under the source's name, so a phone
-  // is not asked to scroll sideways for numbers a reader rarely needs (portal#1757).
+  // is not asked to scroll sideways for numbers a reader rarely needs (portal#1757). On a phone it is
+  // one column (portal#1991): Include settings folds under the source, and Text kept is dropped. Its
+  // only affirmative state, "Kept", is not repeated there; absence of the detail line's
+  // " · No longer kept" reads as kept, and a pruned row still says so at every width.
   const columns: PortalColumnDef<ProvenanceRow>[] = [
     { accessorKey: 'name', header: t('boot.provenance.name', 'Source'), size: 220 },
     { id: 'selection', header: t('boot.provenance.settings', 'Include settings'), size: 150 },
@@ -56,11 +59,13 @@
     <section aria-label={t('boot.provenance.title', 'Built from')} class="space-y-2">
       <svelte:element this={`h${headingLevel}`} class="font-semibold">{t("boot.install.a3d5f43902", "Built from")}</svelte:element>
       {#if page.pruned}<p>{t("boot.install.2bb11af10a", "This revision’s text is no longer kept.")}</p>{/if}
-      <DataTable {table} listKey="boot-prompt-provenance" searchPlaceholder={t('boot.provenance.search', 'Search this page…')} searchAriaLabel={t('boot.provenance.search-label', 'Search provenance on this page')} showSearch={false} showFooter={false}>
+      <DataTable {table} fitOnPhone phoneHiddenColumns={['selection', 'pruned']} listKey="boot-prompt-provenance" searchPlaceholder={t('boot.provenance.search', 'Search this page…')} searchAriaLabel={t('boot.provenance.search-label', 'Search provenance on this page')} showSearch={false} showFooter={false}>
         {#snippet cell(cell, item)}
           {#if cell.column.id === 'name'}
             {#if item.urn && item.name}<span>{item.name}</span> <Urn value={item.urn} type="node" linked={linkSources} />{:else}{item.omitted && !uniformUnavailable ? t('boot.provenance.omitted', 'name not loaded') : t('boot.provenance.unavailable', 'Not available to you')}{/if}
             <div class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('boot.provenance.detail', 'Revision {n} · Depth {d}', { n: item.revNo, d: item.depth })}{item.pruned === true ? ` · ${t('boot.provenance.pruned', 'No longer kept')}` : ''} · {t('boot.provenance.occurrence', '{kind}, order {order}', { kind: item.kind, order: item.order })}</div>
+            <!-- Phone only: the Include settings column is hidden below sm (CSS), so the same text rides here. "No longer kept" is already in the detail line above. -->
+            <div class="mt-1 text-xs text-zinc-500 dark:text-zinc-400 sm:hidden" data-phone-settings>{t('boot.provenance.settings', 'Include settings')}: {settingsText(item.selection)}</div>
           {:else if cell.column.id === 'selection'}
             {settingsText(item.selection)}
           {:else if cell.column.id === 'pruned'}
