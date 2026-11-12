@@ -58,7 +58,7 @@
     type ProvenanceResult,
   } from '$lib/node-provenance';
   import NodeRoleInput from '$lib/components/NodeRoleInput.svelte';
-  import { nodeMetaReseed, nodeMetaSeedKey, savedButNotMoved } from '$lib/node-meta-seed';
+  import { metaSavedDespiteFailure, nodeMetaReseed, nodeMetaSeedKey, savedButNotMoved } from '$lib/node-meta-seed';
   import { skillExportMenuHosts } from '$lib/skill-export';
   import NodeAssetCard from '$lib/components/assets/NodeAssetCard.svelte';
   import { canUploadToMemory } from '$lib/assets/can-upload';
@@ -166,7 +166,9 @@
   // holds the refusal and the loc the user typed, because the reload after it
   // drops the action result and reseeds the form from the node (old loc, no
   // error); left to superForm, the refusal vanished and the draft reverted.
-  let moveRefusal = $state<{ text: string; loc: string } | null>(null);
+  // Raw, not deep: the reload's continuation checks it is still THIS refusal by identity, and a deep
+  // $state would hand back a proxy that never equals the object assigned (Gizelle's LOCAL F1 on #2002).
+  let moveRefusal = $state.raw<{ text: string; loc: string } | null>(null);
 
   // Inline editing. #927: each text editor is a draft based on the revision it
   // opened on, and its save is refused when the node changed since. The drafts
@@ -839,13 +841,15 @@
       if (result.type !== 'failure') { isEditing = false; return; }
       // Saved, but the move failed: keep the editor open to fix the location,
       // and reload the node so the page shows what was actually saved. The
+      // reload depends only on the save having committed, not on finding a
+      // refusal to keep (Glen's BLIND P2 on #2002). When there is one, the
       // refusal and the typed loc outlive that reload (#1989); the loc goes
       // back into the draft once, after superForm's reseed, never as a write.
+      if (!metaSavedDespiteFailure(result)) return;
       const refused = savedButNotMoved(result);
-      if (!refused) return;
       moveRefusal = refused;
       void invalidateAll().then(() => {
-        if (moveRefusal !== refused) return;
+        if (!refused || moveRefusal !== refused) return;
         updateMetaFormData.update((current) => ({ ...current, loc: refused.loc }), { taint: true });
       });
     },
