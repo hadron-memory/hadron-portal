@@ -17,11 +17,14 @@ const COPY_LOCALE = 'en';
  * The count in `locale`'s CLDR plural category. Ids are
  * `agent-chat.row.messages-<category>`: `-one` and `-other` carry English
  * defaults; `-zero`, `-two`, `-few` and `-many` exist for locales that need
- * them and fall back to the English `other` text until translated.
+ * them; an untranslated category falls back to the English form for n.
  */
 export function messagesIn(locale: string, n: number): string {
   const category = new Intl.PluralRules(locale).select(n);
-  return t(`agent-chat.row.messages-${category}`, category === 'one' ? '{n} msg' : '{n} msgs', { n: String(n) });
+  // The untranslated fallback is English, so English rules pick its form:
+  // a Russian 21 is `one` there but "21 msgs" here (#2110 BLIND delta).
+  const english = new Intl.PluralRules(COPY_LOCALE).select(n) === 'one' ? '{n} msg' : '{n} msgs';
+  return t(`agent-chat.row.messages-${category}`, english, { n: String(n) });
 }
 
 export const agentChatRowStrings = {

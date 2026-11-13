@@ -42,5 +42,8 @@ describe('agentChatRowStrings: message count and separator (#2104)', () => {
 
   it('falls back to the English other text for a category with no entry', () => {
     expect(messagesIn('ru', 3)).toBe('3 msgs');
+    // Russian puts 21 in `one`; the English fallback still says "msgs".
+    expect(messagesIn('ru', 21)).toBe('21 msgs');
+    expect(messagesIn('ru', 1)).toBe('1 msg');
   });
 });

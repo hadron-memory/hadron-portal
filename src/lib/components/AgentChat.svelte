@@ -166,10 +166,14 @@
 
   // Delete confirm state
   let pendingDeleteChatId = $state<string | null>(null);
-  // The turn error a failed delete raised from the list. On one pane after
-  // Back the chat stays selected, so this is what lets the list show it
-  // (#2110); any later turn error differs and keeps to its own pane.
-  let listRaisedError = $state<string | null>(null);
+  // Whether the current turn error was raised from the list (a failed
+  // delete). On one pane after Back the chat stays selected, so this is what
+  // lets the list show it (#2110). Set with every turn error, never by text.
+  let turnErrorFromList = $state(false);
+  function setTurnError(message: string | null, { fromList = false }: { fromList?: boolean } = {}) {
+    turnError = message;
+    turnErrorFromList = message !== null && fromList;
+  }
 
   // Recent stage-transition toast
   let stageToast = $state<{ from: string; to: string } | null>(null);
@@ -399,7 +403,7 @@
   // ── Starting / resuming chats ────────────────────────────────────────
   async function startNewChat() {
     loadingChat = true;
-    turnError = null;
+    setTurnError(null);
     partialTurnNotice = null;
     progressNotice = null;
     messages = [];
@@ -483,7 +487,7 @@
       await refreshChatList();
       scrollMessagesToBottom();
     } catch (e) {
-      turnError = e instanceof Error ? e.message : 'Failed to start chat';
+      setTurnError(e instanceof Error ? e.message : 'Failed to start chat');
     } finally {
       loadingChat = false;
     }
@@ -502,7 +506,7 @@
     }
     showList = false;
     loadingChat = true;
-    turnError = null;
+    setTurnError(null);
     partialTurnNotice = null;
     progressNotice = null;
     welcomeNotice = null;
@@ -546,7 +550,7 @@
       resetScrollback({ messages, hasOlder: body.hasOlder });
       scrollMessagesToBottom();
     } catch (e) {
-      turnError = e instanceof Error ? e.message : 'Failed to resume chat';
+      setTurnError(e instanceof Error ? e.message : 'Failed to resume chat');
       activeChatId = null;
       syncChatIdToUrl(null);
     } finally {
@@ -587,7 +591,7 @@
     const issuedWindow = windowGeneration;
     input = '';
     sending = true;
-    turnError = null;
+    setTurnError(null);
     partialTurnNotice = null;
     progressNotice = null;
     welcomeNotice = null;
@@ -656,7 +660,7 @@
       // Refresh the list so lastMessageAt + derived title update
       refreshChatList();
     } catch (e) {
-      turnError = e instanceof Error ? e.message : 'Turn failed';
+      setTurnError(e instanceof Error ? e.message : 'Turn failed');
       // Rollback the optimistic user bubble
       messages = messages.slice(0, -1);
       input = text;
@@ -742,7 +746,7 @@
       }
       await refreshChatList();
     } catch (e) {
-      turnError = e instanceof Error ? e.message : 'Rename failed';
+      setTurnError(e instanceof Error ? e.message : 'Rename failed');
     }
   }
   function cancelRename() {
@@ -798,7 +802,7 @@
         : null;
       (next ?? newChatButton)?.focus();
     } catch (e) {
-      turnError = listRaisedError = e instanceof Error ? e.message : 'Delete failed';
+      setTurnError(e instanceof Error ? e.message : 'Delete failed', { fromList: true });
       // The dialog has closed, so a failed delete hands focus back to that
       // row's Delete, under the same ownership rule as a success: not once
       // the person has moved on (portal#2104). If the row went away
@@ -894,7 +898,7 @@
          pane's copy below shows instead; only one is ever displayed. After Back
          the chat stays selected behind the list; an error raised from the list
          (a failed delete, #2110) still shows here, a chat's own error does not. -->
-    {#if turnError && !loadingChat && (!activeChatId || (phonePane === 'list' && turnError === listRaisedError))}
+    {#if turnError && !loadingChat && (!activeChatId || (phonePane === 'list' && turnErrorFromList))}
       <div role="alert" class="m-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 [overflow-wrap:anywhere] @2xl:hidden dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
         {turnError}
       </div>
