@@ -27,7 +27,9 @@ const server = await createServer({
 });
 /**
  * The overlay a dialog's heading sits in (runs in the page, so it must stay
- * self-contained). The nearest position:fixed ancestor.
+ * self-contained). Of the heading's position:fixed ancestors, the one that
+ * covers the layout viewport: a fixed, centred card inside the overlay is
+ * also a fixed ancestor, and the nearest one (portal#2101).
  */
 function findOverlay(h) {
   const doc = document.documentElement;
@@ -36,9 +38,8 @@ function findOverlay(h) {
     const r = el.getBoundingClientRect();
     return [r.left, r.top, r.width, r.height].map(Math.round);
   };
-  let nearest = h.parentElement;
-  while (nearest && getComputedStyle(nearest).position !== 'fixed') nearest = nearest.parentElement;
-  const fixed = nearest ? [nearest] : [];
+  const fixed = [];
+  for (let a = h.parentElement; a; a = a.parentElement) if (getComputedStyle(a).position === 'fixed') fixed.push(a);
   const el = fixed.find((f) => boxOf(f).every((v, i) => v === viewport[i])) ?? null;
   const root = document.getElementById('panel')?.firstElementChild;
   return {
@@ -54,8 +55,8 @@ function findOverlay(h) {
 
 /** The first thing wrong with a findOverlay() result, or null. */
 function overlayFailure(d) {
-  if (!d.root) return '#panel or the size container in it is missing';
   if (!d.found) return 'the delete dialog has no position:fixed overlay';
+  if (!d.root) return '#panel or the size container in it is missing';
   if (d.inContainer) return 'the delete dialog renders inside the size container';
   if (!d.covering) return `no fixed ancestor of the dialog covers the viewport ${JSON.stringify(d.viewport)} (fixed: ${JSON.stringify(d.fixedBoxes)})`;
   return null;

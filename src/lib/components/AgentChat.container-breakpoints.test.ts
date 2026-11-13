@@ -87,9 +87,11 @@ function importedModules(entry: string): string[] {
 }
 
 // A Tailwind viewport variant at a class-token start: `sm:` etc., `max-sm:`,
-// and arbitrary `min-[…]:` / `max-[…]:`; `@2xl:` (a container variant) is
-// excluded by the preceding-character class. Plus a width media query in CSS.
-const VIEWPORT_VARIANT = /(?<![\w@-])(?:(?:max-)?(?:sm|md|lg|xl|2xl)|(?:min|max)-\[[^\]\s]+\]):[\w[]|@media[^{]*width/g;
+// and arbitrary `min-[…]:` / `max-[…]:`, followed by a utility, an arbitrary
+// value or the important modifier (`md:!flex`); `@2xl:` (a container variant)
+// is excluded by the preceding-character class. Plus a width media query in
+// CSS (a `@container` query is not one).
+const VIEWPORT_VARIANT = /(?<![\w@-])(?:(?:max-)?(?:sm|md|lg|xl|2xl)|(?:min|max)-\[[^\]\s]+\]):[!\w[]|@media[^{]*width/g;
 // The `fixed` utility as a token, and `position: fixed` / `.position = 'fixed'`.
 const FIXED = /(?<![\w-])fixed(?![\w-])|position\s*[:=]\s*['"`]?\s*fixed/g;
 const hits = (re: RegExp, s: string) => [...s.matchAll(re)].map((m) => m[0]);
