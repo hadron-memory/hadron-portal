@@ -15,3 +15,13 @@ it('does not turn an outage or incomplete catalogue into an old action fallback'
   await expect(readGrantActions({ request } as never, 'app')).rejects.toThrow('offline');
   await expect(readGrantActions({ request } as never, 'app')).rejects.toThrow('Incomplete');
 });
+
+it.each(['FORBIDDEN', 'UNAUTHENTICATED', 'APP_NOT_FOUND', 'NOT_FOUND'])('keeps a %s refusal indistinguishable from empty', async (code) => {
+  const request = vi.fn().mockRejectedValue({ response: { errors: [{ extensions: { code } }] } });
+  expect(await readGrantActions({ request } as never, 'app')).toEqual([]);
+});
+it('does not swallow BAD_USER_INPUT as an empty catalogue', async () => {
+  const fault = { response: { errors: [{ extensions: { code: 'BAD_USER_INPUT' } }] } };
+  const request = vi.fn().mockRejectedValue(fault);
+  await expect(readGrantActions({ request } as never, 'app')).rejects.toBe(fault);
+});

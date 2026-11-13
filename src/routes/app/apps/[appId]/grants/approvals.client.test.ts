@@ -189,6 +189,8 @@ describe("App manager single-grant approval", () => {
           grants: d.grants,
           holders: d.holders,
           nodes: { "node-example": null },
+          actionDefinitions: d.actionDefinitions,
+          actionDefinitionsFailed: false,
         }),
       ),
     );
@@ -223,6 +225,8 @@ describe("App manager single-grant approval", () => {
           },
           holders: d.holders,
           nodes: { "node-example": null },
+          actionDefinitions: d.actionDefinitions,
+          actionDefinitionsFailed: false,
         }),
       ),
     );

@@ -15,13 +15,21 @@ const definition = {
   ],
 };
 let catalogue: typeof definition[] | null;
+let catalogueError: Error | null;
+let listGrants: typeof fixtureGrant[];
 beforeEach(() => {
   catalogue = [definition];
+  catalogueError = null;
+  listGrants = [];
   request.mockReset();
   request.mockImplementation(async (q: string) => {
     if (q.includes('query AppGrantsApp')) return { app: grantsFixture().app };
-    if (q.includes('query AppGrantActions')) return { grantActions: catalogue && { items: catalogue, total: catalogue.length } };
-    if (q.includes('query AppGrantsPage')) return { appGrants: { items: [], total: 0 } };
+    if (q.includes('query AppGrantActions')) {
+      if (catalogueError) throw catalogueError;
+      return { grantActions: catalogue && { items: catalogue, total: catalogue.length } };
+    }
+    if (q.includes('query AppGrantsPage')) return { appGrants: { items: listGrants, total: listGrants.length } };
+    if (q.includes('query GrantHolderWorker')) return { worker: grantsFixture().choices.workers[0] };
     if (q.includes('query AppGrantWorkers')) return { teamRoster: { workers: [{ worker: { id: 'worker-example', name: 'Builder' } }] } };
     if (q.includes('query AppInstalledAgents')) return { app: { appAgents: [] } };
     if (q.includes('query Memories')) return { memories: { items: [], total: 0 } };
@@ -32,7 +40,7 @@ beforeEach(() => {
 });
 afterEach(resetStubPage);
 function draw(actionDefinitions: unknown) {
-  return render(Page, { props: { data: { ...grantsFixture(), actionDefinitions } } as never }).body;
+  return render(Page, { props: { data: { ...grantsFixture(), actionDefinitions: actionDefinitions ?? [] } } as never }).body;
 }
 function event(body: Record<string, string> = {}) {
   return {
@@ -82,6 +90,27 @@ it('reads the catalogue afresh per form load with the named App', async () => {
   const reads = request.mock.calls.filter(([q]) => q.includes('query AppGrantActions'));
   expect(reads).toHaveLength(2);
   expect(reads[0][1]).toMatchObject({ appRef: 'app-example' });
+});
+it('keeps grants and exact raw values visible during a catalogue outage, but refuses create', async () => {
+  catalogueError = Error('Synthetic catalogue outage');
+  listGrants = [fixtureGrant];
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const { load, actions } = await import('./+page.server');
+    const data = await load(event() as never) as any;
+    expect(data.grants.items).toEqual([fixtureGrant]);
+    expect(data.actionDefinitionsFailed).toBe(true);
+    const html = render(Page, { props: { data } as never }).body;
+    expect(html).toContain('node-example');
+    expect(html).toContain('Actions could not be loaded. Refresh before creating a grant.');
+    expect(html).not.toContain('No actions you can grant here.');
+    expect(html).not.toContain('?/create');
+    const result = await actions.create!(event({ holder: 'WORKER:worker-example', action: definition.name,
+      'parameter:differentNode': 'node-a', 'parameter:secondNode': 'node-b', reason: 'Testing' }) as never) as any;
+    expect(result.status).toBe(400);
+    expect(request.mock.calls.some(([q]) => q.includes('mutation CreateAppGrant'))).toBe(false);
+    expect(warn).toHaveBeenCalledWith('[app-grants] action catalogue unavailable');
+  } finally { warn.mockRestore(); }
 });
 it('submits stored node ids under every server-declared name, without a legacy table', async () => {
   const { actions } = await import('./+page.server');

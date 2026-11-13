@@ -23,6 +23,7 @@ export const fixtureGrant: Grant = {
 };
 export const grantsFixture = (signing = true) => ({
   actionDefinitions: fixtureActions,
+  actionDefinitionsFailed: false,
   routeRef: "app-example",
   viewerId: "person-example",
   app: {
