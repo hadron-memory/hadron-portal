@@ -152,6 +152,21 @@ describe('Urn.svelte — linked chip (#826)', () => {
     });
     expect(body).toContain(`href="/app/u/${WORKER}"`);
   });
+
+  it('keeps a malformed public org URN inside the resolver segment (#1846)', () => {
+    const { body } = render(Urn, {
+      props: { value: 'hrn:org:../../../settings/tokens', type: 'org', linked: true },
+    });
+    expect(body).toContain('href="/app/u/hrn:org:..%2F..%2F..%2Fsettings%2Ftokens"');
+    expect(body).not.toContain('href="/app/u/hrn:org:../../../settings/tokens"');
+  });
+
+  it('keeps a node data deep link as a browser fragment', () => {
+    const value = 'hrn:node:acme.com:kb:findings:flaky-ci#data';
+    const { body } = render(Urn, { props: { value, type: 'node', linked: true } });
+    expect(body).toContain(`href="/app/u/${value}"`);
+    expect(body).not.toContain('%23data');
+  });
 });
 
 // #1360 — an action URN (hrn:action:<root>:<agent-slug>:<code>, server#2610)
@@ -200,8 +215,8 @@ describe('Urn.svelte — safe inside a <form> (portal#945)', () => {
 // #1604 item 2. The tap-to-reveal toggle is decided on the client (the pointer
 // is only known there), so the server render is the fine-pointer chip for
 // every compact URN: no toggle in the SSR'd HTML, and so no hydration flip of
-// a linked chip. A linked compact chip is an anchor and never a toggle; the
-// coarse-pointer behaviour itself is pinned in Urn.client.test.ts.
+// a linked chip. Coarse/narrow unlinked toggles and the #1686 linked sibling
+// toggle are pinned in Urn.client.test.ts and the real-Chromium matrix.
 describe('Urn.svelte — compact chips server-render without a reveal toggle (#1604)', () => {
   it('a linked compact chip renders as a link with no aria-expanded', () => {
     const { body } = render(Urn, {

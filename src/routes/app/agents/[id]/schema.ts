@@ -38,6 +38,13 @@ export const agentRegisterDefaultsSchema = z.object({
   mentionOnly: z.boolean().default(false),
 });
 
+// #1275: whether a worker's host resets its context when its task ends. An
+// unchecked checkbox is absent from the POST, which parses as an explicit false.
+export const agentResetContextSchema = z.object({
+  _kind: z.literal('resetContext').default('resetContext'),
+  resetContextAfterTask: z.boolean().default(false),
+});
+
 // portal#1405 (R211, hrn:node:hadronmemory.com:specs:cor:dmo:050:04): the roles people can have in Apps using
 // this Agent. Posted as repeated `roles` entries; an empty list is refused here
 // and by the server, so an Agent always offers at least one role.
@@ -78,20 +85,12 @@ export const deleteAgentSchema = z.object({
 
 export type AgentSettingsSchema = typeof agentSettingsSchema;
 export type AgentRegisterDefaultsSchema = typeof agentRegisterDefaultsSchema;
+export type AgentResetContextSchema = typeof agentResetContextSchema;
 export type UpdateAgentMemberRolesSchema = typeof updateAgentMemberRolesSchema;
 export type AddAgentMemorySchema = typeof addAgentMemorySchema;
 export type UpdateAgentMemoryRoleSchema = typeof updateAgentMemoryRoleSchema;
 export type RemoveAgentMemorySchema = typeof removeAgentMemorySchema;
 export type DeleteAgentSchema = typeof deleteAgentSchema;
-
-// portal#1377: the pointed-at Agent's `boot:source` node. `expectedRevision` is
-// the revision the manager opened, so a concurrent edit is refused, not overwritten.
-export const bootSourceSchema = z.object({
-  _kind: z.literal('bootSource').default('bootSource'),
-  nodeId: z.string().min(1),
-  content: z.string(),
-  expectedRevision: z.coerce.number().int().min(1),
-});
 
 // portal#1377 S2: compile carries nothing but its kind; approve pins the revision the manager read.
 // portal#1378: "Start a source" carries nothing but its kind; the seed is read server-side.

@@ -48,6 +48,63 @@ describe('portal#1685 saved signature/trailer link advice', () => {
     expect(root.textContent).toContain('{{worker.url}}');
     expect(root.textContent).not.toContain('must contain');
   });
+  it('shows refresh guidance immediately and the approved zero copy after a complete successful saved read', async () => {
+    let release!: (r: unknown) => void;
+    vi.stubGlobal('fetch', vi.fn().mockImplementationOnce(() => new Promise(r => release = r)));
+    const { root } = await open();
+    const clear = 'No worker-link warnings on the saved values.';
+    expect(root.textContent).not.toContain(clear);
+    expect(root.textContent).toContain('Saved-value advice refreshes after a successful save.');
+    release(response(page([]))); await settle();
+    expect(root.querySelector('[data-signature-lint]')?.textContent).toContain(clear);
+    type(root, 'unsaved draft without a link');
+    expect(root.textContent).toContain(clear);
+  });
+  it.each(['null', 'transport', 'failed-http', 'wrong-worker', 'partial', 'partial-count', 'warning', 'masked', 'one-masked', 'trailer-masked'])('never gives an all-clear for %s', async mode => {
+    const fetcher = vi.fn().mockResolvedValue(response(page([])));
+    if (mode === 'null') fetcher.mockResolvedValue(response(null));
+    if (mode === 'transport') fetcher.mockRejectedValue(new Error('offline'));
+    if (mode === 'failed-http') fetcher.mockResolvedValue(response(page([]), false));
+    if (mode === 'wrong-worker') fetcher.mockResolvedValue(response(page([]), true, 'b'));
+    if (mode === 'partial') fetcher.mockResolvedValue(response(page([], 0, 'next')));
+    if (mode === 'partial-count') fetcher.mockResolvedValue(response(page([], 1)));
+    if (mode === 'warning') fetcher.mockResolvedValue(response(page([item('signature')])));
+    vi.stubGlobal('fetch', fetcher);
+    const { root } = await open(mode === 'masked' || mode === 'one-masked' ? null : 'signature', mode === 'masked' || mode === 'trailer-masked' ? null : 'trailer');
+    expect(root.textContent).not.toContain('No worker-link warnings on the saved values.');
+    if (mode === 'null') {
+      const retry = [...root.querySelectorAll('button')].find(b => b.textContent === 'Retry')!;
+      expect(retry.classList.contains('pointer-coarse:min-h-11')).toBe(true);
+      expect(retry.classList.contains('pointer-coarse:min-w-11')).toBe(true);
+    }
+  });
+  it('withdraws an old all-clear while a successful save refresh is unread, then shows the fresh result', async () => {
+    let release!: (r: unknown) => void;
+    const fetcher = vi.fn().mockResolvedValueOnce(response(page([]))).mockImplementationOnce(() => new Promise(r => release = r));
+    vi.stubGlobal('fetch', fetcher);
+    const { root } = await open();
+    const clear = 'No worker-link warnings on the saved values.';
+    expect(root.textContent).toContain(clear);
+    type(root, 'new signature without its worker link'); await save(root);
+    expect(root.textContent).toContain('Saved.');
+    expect(root.querySelector('[data-signature-lint]')?.getAttribute('aria-busy')).toBe('true');
+    expect(root.textContent).not.toContain(clear);
+    release(response(page([item('signature')]))); await settle();
+    expect(advice(root, 'signature')).not.toBeNull(); expect(root.textContent).not.toContain(clear);
+    fetcher.mockImplementationOnce(() => new Promise(r => release = r));
+    type(root, 'now contains {{worker.url}}'); await save(root);
+    expect(root.textContent).not.toContain(clear);
+    release(response(page([]))); await settle();
+    expect(root.textContent).toContain(clear);
+  });
+  it('does not explain a successful-save refresh to a retired worker with no Save', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(page([]))));
+    const { root, props } = await open(); props.retired = true; await settle();
+    expect(root.querySelector('[type=submit]')).toBeNull();
+    expect(root.textContent).not.toContain('Saved-value advice refreshes after a successful save.');
+    props.retired = false; await settle();
+    expect(root.textContent).toContain('Saved-value advice refreshes after a successful save.');
+  });
   it('uses the server zero result even for a literal URL, not a client variable matcher', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(page([]))));
     const { root } = await open('https://example.test/app/u/hrn:worker:example.com:team:a');
@@ -68,6 +125,9 @@ describe('portal#1685 saved signature/trailer link advice', () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(fetcher.mock.calls[1][1]?.method ?? 'GET').toBe('GET');
     expect(root.textContent).not.toContain('Couldn’t check');
+    // #1852: the unavailable state does not merely clear. A successful Retry that
+    // reads zero warnings renders the server-zero copy, not an empty region.
+    expect(root.querySelector('[data-signature-lint]')?.textContent).toContain('No worker-link warnings on the saved values.');
     expect(document.activeElement).toBe(root.querySelector('[data-signature-lint]'));
   });
   it('shows partial count and neutral advice for unknown kinds/fields, never backend prose', async () => {
@@ -130,6 +190,62 @@ describe('portal#1685 saved signature/trailer link advice', () => {
     expect(document.activeElement).toBe(retry);
     expect(root.textContent).toContain('Couldn’t check');
   });
+  it.each(['null', 'transport', 'failed-http'])('announces every failed Retry in the same mounted region: %s (#1918)', async mode => {
+    const fetcher = vi.fn().mockResolvedValue(response(null));
+    if (mode === 'transport') fetcher.mockRejectedValue(new Error('offline'));
+    if (mode === 'failed-http') fetcher.mockResolvedValue(response(null, false));
+    vi.stubGlobal('fetch', fetcher);
+    const { root } = await open();
+    const region = root.querySelector<HTMLElement>('[data-signature-lint]')!;
+    const outcome = region.querySelector('p');
+    const retry = region.querySelector<HTMLButtonElement>('button')!;
+    const zero = 'No worker-link warnings on the saved values.';
+    const initial = region.textContent!.trim();
+    let previous = initial;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      retry.focus(); retry.click(); await settle();
+      expect(root.querySelector('[data-signature-lint]')).toBe(region);
+      expect(root.querySelectorAll('[data-signature-lint]')).toHaveLength(1);
+      expect(region.querySelector('p')).toBe(outcome);
+      expect(region.getAttribute('aria-live')).toBe('polite');
+      expect(region.getAttribute('aria-atomic')).toBe('true');
+      expect(region.getAttribute('aria-busy')).toBe('false');
+      expect(region.textContent!.trim()).not.toBe(previous);
+      expect(outcome?.textContent).toBe(`Couldn’t check the worker link. Retry ${attempt} failed.`);
+      expect(region.textContent).not.toContain(zero);
+      expect(document.activeElement).toBe(retry);
+      previous = region.textContent!.trim();
+    }
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    fetcher.mockResolvedValue(response(page([])));
+    retry.click(); await settle();
+    expect(root.querySelector('[data-signature-lint]')).toBe(region);
+    expect(region.textContent).toContain(zero);
+    expect(document.activeElement).toBe(region);
+    // The successful read starts a new sequence: a later automatic refresh
+    // failure is the initial unavailable state, not an old failed Retry.
+    fetcher.mockResolvedValue(response(null));
+    type(root, 'edited after successful Retry'); await save(root);
+    expect(region.textContent!.trim()).toBe(initial);
+  });
+
+  it('starts a fresh Retry outcome sequence when the worker changes (#1918)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+    const { root, props } = await open();
+    const region = root.querySelector<HTMLElement>('[data-signature-lint]')!;
+    const initial = region.textContent!.trim();
+    const retry = region.querySelector<HTMLButtonElement>('button')!;
+    retry.click(); await settle();
+    const first = region.textContent!.trim();
+    retry.click(); await settle();
+    expect(region.textContent!.trim()).not.toBe(first);
+    props.workerId = 'b'; await settle();
+    expect(root.querySelector('[data-signature-lint]')).toBe(region);
+    expect(region.textContent!.trim()).toBe(initial);
+    region.querySelector<HTMLButtonElement>('button')!.click(); await settle();
+    expect(region.textContent!.trim()).toBe(first);
+  });
+
   it('retains the same live advice nodes through a successful save and identical lint refresh', async () => {
     let finish!: (r: unknown) => void;
     const warnings = page([item('signature'), item('trailer')]);
@@ -176,4 +292,68 @@ describe('portal#1685 saved signature/trailer link advice', () => {
     expect(advice(root, 'signature')).not.toBe(original);
   });
 
+  // #1852 — late in-flight results after a TRUE worker change (the loader hands
+  // this same mounted section a different worker: id, signature and trailer all
+  // change), not only the id-only navigation pinned above.
+  describe('#1852 late in-flight reads', () => {
+    async function openReplaceable(fetcher: ReturnType<typeof vi.fn>) {
+      vi.stubGlobal('fetch', fetcher);
+      const worker = reactiveProps({ value: { id: 'a', signature: 'sig-a', trailer: 'trl-a' } });
+      const initialForm = await superValidate({ signature: 'sig-a', trailer: 'trl-a', signatureBase: 'sig-a', trailerBase: 'trl-a' }, zod4(updateSignatureSchema), { errors: false, id: updateSignatureFormId('a') });
+      const m = mountComponent(Section as never, { get workerId() { return worker.value.id; }, get signature() { return worker.value.signature; }, get trailer() { return worker.value.trailer; }, initialForm, retired: false, actionResult: undefined } as never);
+      mounted.push(m.unmount); await settle();
+      return { root: m.target, worker };
+    }
+    const pendingFetcher = () => { const pending: ((r: unknown) => void)[] = []; return { pending, fetcher: vi.fn().mockImplementation(() => new Promise<unknown>(r => { pending.push(r); })) }; };
+
+    it('drops worker A\'s late result after the loader replaces it with worker B', async () => {
+      const { pending, fetcher } = pendingFetcher();
+      const { root, worker } = await openReplaceable(fetcher);
+      worker.value = { id: 'b', signature: 'sig-b', trailer: 'trl-b' }; await settle();
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      pending[0](response(page([item('signature')]), true, 'a')); await settle();
+      expect(advice(root, 'signature')).toBeNull();
+      expect(root.textContent).not.toContain('No worker-link warnings on the saved values.');
+      pending[1](response(page([item('trailer')]), true, 'b')); await settle();
+      expect(advice(root, 'trailer')).not.toBeNull(); expect(advice(root, 'signature')).toBeNull();
+    });
+    it('drops the first read of A after A -> B -> A, when the worker id matches again', async () => {
+      const { pending, fetcher } = pendingFetcher();
+      const { root, worker } = await openReplaceable(fetcher);
+      worker.value = { id: 'b', signature: 'sig-b', trailer: 'trl-b' }; await settle();
+      worker.value = { id: 'a', signature: 'sig-a', trailer: 'trl-a' }; await settle();
+      expect(fetcher).toHaveBeenCalledTimes(3);
+      pending[2](response(page([]), true, 'a')); await settle();
+      expect(root.querySelector('[data-signature-lint]')?.textContent).toContain('No worker-link warnings on the saved values.');
+      // Same worker id as the live one, so only the read epoch can tell it is stale.
+      pending[0](response(page([item('signature')]), true, 'a')); await settle();
+      expect(advice(root, 'signature')).toBeNull();
+      expect(root.querySelector('[data-signature-lint]')?.textContent).toContain('No worker-link warnings on the saved values.');
+    });
+  });
+
+  // #1852 — which path fired a second fetch. The post-save re-read is the ONLY
+  // trigger for a same-worker refresh; a loader replacement does not re-lint.
+  describe('#1852 second-fetch attribution', () => {
+    it('a loader replacement of the same worker alone does not re-read; a successful save does exactly once', async () => {
+      const fetcher = vi.fn().mockResolvedValue(response(page([item('signature')])));
+      vi.stubGlobal('fetch', fetcher);
+      const worker = reactiveProps({ value: { id: 'a', signature: 'signature', trailer: 'trailer' } });
+      const initialForm = await superValidate({ signature: 'signature', trailer: 'trailer', signatureBase: 'signature', trailerBase: 'trailer' }, zod4(updateSignatureSchema), { errors: false, id: updateSignatureFormId('a') });
+      const m = mountComponent(Section as never, { get workerId() { return worker.value.id; }, get signature() { return worker.value.signature; }, get trailer() { return worker.value.trailer; }, initialForm, retired: false, actionResult: undefined } as never);
+      mounted.push(m.unmount); await settle();
+      const root = m.target;
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      // Loader replacement alone (a non-save invalidation): new object, same id.
+      worker.value = { id: 'a', signature: 'edited elsewhere', trailer: 'trailer' }; await settle();
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      // The save path, without a loader replacement, is the one that re-reads.
+      type(root, 'saved here'); await save(root);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      // A replacement that follows the save adds no third read.
+      worker.value = { id: 'a', signature: 'saved here', trailer: 'trailer' }; await settle();
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(fetcher.mock.calls.every(c => String(c[0]) === '/app/workers/a/signature-lint')).toBe(true);
+    });
+  });
 });

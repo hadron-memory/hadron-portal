@@ -43,10 +43,12 @@ const CARD_FORM = 'action="?/updateMarketplaceListing"';
 async function renderCard(opts: {
   /** The PERSISTED memory — class, visibility, and the listing flag. */
   graphOverrides?: Partial<Memory>;
-  /** The layout's server-resolved effective write access. Default true. */
-  canWriteMemory?: boolean;
+  /** The caller's actual org role; ADMIN is the positive manage fixture. */
+  orgRole?: 'ADMIN' | 'CONTRIBUTOR';
+  /** The layout's server-resolved manage access. Default true. */
+  canManageMemory?: boolean;
   /** Omit the flag entirely — must read as NO grant, never as a grant. */
-  omitCanWriteMemory?: boolean;
+  omitCanManageMemory?: boolean;
 }) {
   const graph = settingsGraph({ visibility: 'PUBLIC', ...opts.graphOverrides });
 
@@ -54,7 +56,7 @@ async function renderCard(opts: {
 
   // The envelope cast follows `retry-embeds-gate.test.ts`: `PageData` is the
   // whole inherited layout chain, none of which this card touches beyond
-  // `canWriteMemory`, which IS set explicitly below.
+  // `canManageMemory`, which IS set explicitly below.
   const html = render(Page, {
     props: {
       data: {
@@ -62,10 +64,11 @@ async function renderCard(opts: {
         user: OWNER,
         ownerUserId: OWNER_ID,
         owner: { id: OWNER_ID, handle: 'holger', name: 'Holger' },
-        org: null,
+        org: { id: 'org-1', members: [{ user: { id: OWNER_ID }, role: opts.orgRole ?? 'ADMIN' }] },
         allOrgs: [],
         transferCanDelete: false,
-        ...(opts.omitCanWriteMemory ? {} : { canWriteMemory: opts.canWriteMemory ?? true }),
+        canWriteMemory: true,
+        ...(opts.omitCanManageMemory ? {} : { canManageMemory: opts.canManageMemory ?? true }),
         form,
         vectorForm,
         marketplaceForm,
@@ -96,8 +99,8 @@ describe('marketplace-listing card placement and gating (#841)', () => {
     expect(html).toContain(CARD_FORM);
   });
 
-  it('withholds the card from a read-only viewer (canWriteMemory false)', async () => {
-    const html = await renderCard({ canWriteMemory: false });
+  it('withholds the card from an org contributor even when canManage is true', async () => {
+    const html = await renderCard({ orgRole: 'CONTRIBUTOR', canManageMemory: true });
     expect(html).not.toContain(CARD_FORM);
   });
 
@@ -146,8 +149,8 @@ describe('marketplace-listing visibility interplay (#841 / hrn:node:hadronmemory
     expect(card).not.toContain('marketplace-visibility-note');
   });
 
-  it('treats an ABSENT canWriteMemory as no grant — the card disappears', async () => {
-    const html = await renderCard({ omitCanWriteMemory: true });
-    expect(html).not.toContain(CARD_FORM);
+  it('keeps the card for a known org ADMIN when the canManage audit is absent', async () => {
+    const html = await renderCard({ omitCanManageMemory: true });
+    expect(html).toContain(CARD_FORM);
   });
 });

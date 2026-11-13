@@ -76,7 +76,7 @@
   <Breadcrumb items={[
     { label: 'Apps', href: appsHref },
     { label: data.app.name, href: basePath },
-    { label: 'Runs', href: `${basePath}/runs` },
+    { label: 'Runs', href: `${basePath}?tab=runs` },
     { label: run.id.slice(0, 8) },
   ]} />
 

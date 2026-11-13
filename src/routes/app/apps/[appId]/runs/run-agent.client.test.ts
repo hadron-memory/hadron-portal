@@ -9,7 +9,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { runAppFlowSchema } from './schema';
-import Page from './+page.svelte';
+import Page from './AppRunsPanel.svelte';
 
 const mounted: Mounted<Record<string, unknown>>[] = [];
 afterEach(() => {
@@ -31,7 +31,7 @@ async function mountRuns(runAgents: unknown) {
   const m = mountComponent(Page as never, {
     data: {
       app: { id: 'app-1', name: 'Digest', organizationId: 'org-1' },
-      runs: [], total: 0, page: 1, pageSize: 25, status: null,
+      runs: [], total: 0, page: 1, pageSize: 20, status: null, statuses: [], sort: 'createdAt', dir: 'desc', failed: false,
       flows: [flow], flowsCapped: false, flowsScanned: 1, runForm, runAgents,
     },
     form: null,
@@ -41,7 +41,7 @@ async function mountRuns(runAgents: unknown) {
 }
 
 const hidden = (t: HTMLElement) =>
-  t.querySelector<HTMLInputElement>('form[action="?/run"] input[name="agentRef"]');
+  t.querySelector<HTMLInputElement>('form[action="?tab=runs&/run"] input[name="agentRef"]');
 
 describe('runs page: Agent picker (#1444)', () => {
   it('choosing an Agent puts it in the Run form; unchosen, the form carries an empty agentRef', async () => {
@@ -63,7 +63,7 @@ describe('runs page: Agent picker (#1444)', () => {
   async function navigateAtoB(runAgentsB: unknown) {
     const base = {
       app: { id: 'app-a', name: 'A', organizationId: 'org-1' },
-      runs: [], total: 0, page: 1, pageSize: 25, status: null,
+      runs: [], total: 0, page: 1, pageSize: 20, status: null, statuses: [], sort: 'createdAt', dir: 'desc', failed: false,
       flows: [flow], flowsCapped: false, flowsScanned: 1,
       runForm: await superValidate(zod4(runAppFlowSchema), { errors: false }),
       runAgents: agents as unknown,

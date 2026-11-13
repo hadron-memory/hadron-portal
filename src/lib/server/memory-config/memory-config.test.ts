@@ -65,3 +65,33 @@ describe('memory node-role configuration boundaries', () => {
     expect(c.request).not.toHaveBeenCalled();
   });
 });
+
+describe('#1764 less-visible task warning boundary', () => {
+  const warning = { code: 'TASK_LESS_VISIBLE', role: 'review', field: 'authorTask', taskUrn: 'hrn:node:acme.com:tasks:t', taskState: 'OK' };
+  const warningSelection = (doc: string) => [...doc.matchAll(/warnings\s*\{([^}]*)\}/g)].map(m => m[1].split(/\s+/).filter(Boolean));
+  it.each(['create', 'update'])('%s selects taskUrn and taskState on its warnings and returns them', async op => {
+    const key = op === 'create' ? 'createNodeRoleRule' : 'updateNodeRoleRule';
+    const c = client(vi.fn().mockResolvedValue({ [key]: { rule, warnings: [warning] } }));
+    const out = await mutateRule(c, { impersonating: false, memoryRef: 'm', op, ref: 'r1', revision: 7, input: { role: 'review' } });
+    const sets = warningSelection(c.request.mock.calls[0][0]);
+    expect(sets.length).toBeGreaterThan(0);
+    for (const fields of sets) expect(fields).toEqual(expect.arrayContaining(['code', 'role', 'field', 'taskUrn', 'taskState']));
+    expect(out).toEqual({ warnings: [warning] });
+  });
+  it('a save answering no warnings returns an empty list; a delete returns no warnings', async () => {
+    const c = client(vi.fn().mockResolvedValueOnce({ createNodeRoleRule: { rule, warnings: [] } }).mockResolvedValueOnce({ deleteNodeRoleRule: true }));
+    expect(await mutateRule(c, { impersonating: false, memoryRef: 'm', op: 'create', input: { role: 'review' } })).toEqual({ warnings: [] });
+    expect(await mutateRule(c, { impersonating: false, memoryRef: 'm', op: 'delete', ref: 'r1', revision: 7, input: {} }) as object).not.toHaveProperty('warnings');
+  });
+  it('single and bulk apply select taskUrn and taskState on every warnings selection', async () => {
+    const single = client(vi.fn().mockResolvedValue({ applyMemoryConfigTemplate: { memoryId: 'm', templateRevision: 9, required: false, dryRun: true, entries: [], warnings: [warning] } }));
+    expect((await previewTemplate(single, 't', 'm', false)).warnings).toEqual([warning]);
+    const bulk = client(vi.fn().mockResolvedValue({ applyMemoryConfigTemplateToMemories: { dryRun: true, results: [], succeeded: 0, failed: 0 } }));
+    await previewBulkTemplate(bulk, 't', ['m'], false);
+    for (const c of [single, bulk]) {
+      const sets = warningSelection(c.request.mock.calls[0][0]);
+      expect(sets.length).toBeGreaterThan(0);
+      for (const fields of sets) expect(fields).toEqual(expect.arrayContaining(['taskUrn', 'taskState']));
+    }
+  });
+});

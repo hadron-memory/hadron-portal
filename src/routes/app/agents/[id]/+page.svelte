@@ -1,4 +1,6 @@
 <script lang="ts">
+  import TabRow from '$lib/components/TabRow.svelte';
+  import BootProvenance from '$lib/components/BootProvenance.svelte';
   import AgentMemberRolesEditor from './AgentMemberRolesEditor.svelte';
   import BootPromptSource from './BootPromptSource.svelte';
   import StartBootSource from './StartBootSource.svelte';
@@ -23,6 +25,7 @@
   import SelectMemory from '$lib/components/SelectMemory.svelte';
   import SelectOrg from '$lib/components/SelectOrg.svelte';
   import { submittedForm } from '$lib/forms/submitted-form';
+  import { memberRolesSeedFor } from './member-roles-form-id';
   import { t } from '$lib/i18n/t';
   import { eligibleCloneTargets, showCloneEntry } from '$lib/agents/clone';
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
@@ -33,6 +36,7 @@
   import {
     addAgentMemorySchema,
     agentRegisterDefaultsSchema,
+    agentResetContextSchema,
     updateAgentMemberRolesSchema,
     agentSettingsSchema,
     deleteAgentSchema,
@@ -42,6 +46,7 @@
 
   type AgentSettingsForm = Infer<typeof agentSettingsSchema, 'zod4'>;
   type AgentRegisterDefaultsForm = Infer<typeof agentRegisterDefaultsSchema, 'zod4'>;
+  type AgentResetContextForm = Infer<typeof agentResetContextSchema, 'zod4'>;
   type AddAgentMemoryForm = Infer<typeof addAgentMemorySchema, 'zod4'>;
   type UpdateAgentMemoryRoleForm = Infer<typeof updateAgentMemoryRoleSchema, 'zod4'>;
   type RemoveAgentMemoryForm = Infer<typeof removeAgentMemorySchema, 'zod4'>;
@@ -50,6 +55,7 @@
   type AgentMemberRolesForm = Infer<typeof updateAgentMemberRolesSchema, 'zod4'>;
   type AgentMemberRolesSuperform = SuperValidated<AgentMemberRolesForm, App.Superforms.Message, AgentMemberRolesForm>;
   type AgentRegisterDefaultsSuperform = SuperValidated<AgentRegisterDefaultsForm, App.Superforms.Message, AgentRegisterDefaultsForm>;
+  type AgentResetContextSuperform = SuperValidated<AgentResetContextForm, App.Superforms.Message, AgentResetContextForm>;
   type AddAgentMemorySuperform = SuperValidated<AddAgentMemoryForm, App.Superforms.Message, AddAgentMemoryForm>;
   type UpdateAgentMemoryRoleSuperform = SuperValidated<UpdateAgentMemoryRoleForm, App.Superforms.Message, UpdateAgentMemoryRoleForm>;
   type RemoveAgentMemorySuperform = SuperValidated<RemoveAgentMemoryForm, App.Superforms.Message, RemoveAgentMemoryForm>;
@@ -307,6 +313,65 @@
   const registerDefaultsError = $derived($registerDefaultsMessage?.type === 'error' ? $registerDefaultsMessage.text : null);
   const registerDefaultsSuccess = $derived($registerDefaultsMessage?.type === 'success' ? $registerDefaultsMessage.text : null);
 
+  // #1275: the context-reset switch, written like the register default above
+  // and for the same reasons (#942/#971): the saved value is kept after a save,
+  // a reused component re-seeds on another agent, a clean form follows the
+  // server and an edited one does not, and a refused no-JS submit keeps the
+  // attempted value beside its error.
+  const resetContextSaved = $derived(data.resetContext.kind === 'ok' ? data.resetContext.value : false);
+  // The form id is agent-specific: Superforms routes a page-store action result
+  // by form id, so a late result for agent A must not match the form once it
+  // shows agent B (same scope check as the boot prompt above).
+  const initialResetContextForm = untrack(() => {
+    const result = submittedForm<AgentResetContextForm>(form, 'resetContext') as AgentResetContextSuperform | null;
+    return result && result.id === data.resetContextForm.id ? result : data.resetContextForm;
+  });
+  const {
+    form: resetContextForm,
+    message: resetContextMessage,
+    submitting: resetContextSubmitting,
+    enhance: resetContextEnhance,
+    isTainted: resetContextIsTainted,
+    reset: resetContextReset,
+  } = superForm<AgentResetContextForm, App.Superforms.Message, AgentResetContextForm>(initialResetContextForm, {
+    validators: zod4Client(agentResetContextSchema),
+    validationMethod: 'oninput',
+    clearOnSubmit: 'none',
+    resetForm: false,
+  });
+  let resetContextAgentId = untrack(() => data.agent.id);
+  let resetContextSeeded = false;
+  $effect(() => {
+    const seeded = resetContextSaved;
+    const agentId = data.agent.id;
+    const formId = data.resetContextForm.id;
+    untrack(() => {
+      if (!resetContextSeeded) {
+        resetContextSeeded = true;
+      } else if (agentId !== resetContextAgentId) {
+        resetContextAgentId = agentId;
+        resetContextReset({ id: formId, data: { resetContextAfterTask: seeded }, newState: { resetContextAfterTask: seeded } });
+      } else if (!resetContextIsTainted()) {
+        resetContextForm.update((current) => ({ ...current, resetContextAfterTask: seeded }), { taint: false });
+      }
+    });
+  });
+  function clearResetContextSaved() {
+    if ($resetContextMessage?.type === 'success') resetContextMessage.set(undefined);
+  }
+  const resetContextError = $derived($resetContextMessage?.type === 'error' ? $resetContextMessage.text : null);
+  const resetContextSuccess = $derived($resetContextMessage?.type === 'success' ? $resetContextMessage.text : null);
+  // Save is offered only for a change, so an unchanged value sends nothing.
+  const resetContextChanged = $derived($resetContextForm.resetContextAfterTask !== resetContextSaved);
+
+  // portal#2068: only THIS Agent's own result may seed its roles editor. A late
+  // result for the Agent just left carries that Agent's form id; the page-wide
+  // action data would otherwise hand it to the editor that remounts for the next.
+  const memberRolesSeed = $derived.by(() => {
+    const submitted = submittedForm<AgentMemberRolesForm>(form, 'updateMemberRoles') as AgentMemberRolesSuperform | null;
+    return memberRolesSeedFor(submitted, data.memberRolesForm);
+  });
+
   const initialAddMemoryForm = untrack(() => submittedForm<AddAgentMemoryForm>(form, 'addMemory') as AddAgentMemorySuperform | null ?? data.addMemoryForm);
   const {
     form: addMemoryForm,
@@ -455,19 +520,15 @@
   // fresh page on Profile; open Settings so its result and the attempted value
   // are visible, as the delete form above does (#971 Codex P2).
   $effect(() => {
-    if (submittedForm<AgentRegisterDefaultsForm>(form, 'registerDefaults') || submittedForm<{ _kind: 'setAgentBase' }>(form, 'setAgentBase') || submittedForm<{ _kind: 'setAgentIndexRefs' }>(form, 'setAgentIndexRefs')) activeTab = 'settings';
+    if (submittedForm<AgentRegisterDefaultsForm>(form, 'registerDefaults') || submittedForm<AgentResetContextForm>(form, 'resetContext') || submittedForm<{ _kind: 'setAgentBase' }>(form, 'setAgentBase') || submittedForm<{ _kind: 'setAgentIndexRefs' }>(form, 'setAgentIndexRefs')) activeTab = 'settings';
   });
   // portal#1142 S8: a no-JS pointer result opens Settings too, where it shows.
   $effect(() => {
     if ((form as { pointer?: PointerResult } | null)?.pointer) activeTab = 'settings';
   });
 
-  // A delayed action from another route instance must not seed this editor
-  // or reopen it. Superforms also uses this route-specific id to isolate stores.
-  const bootSourceSubmission = $derived.by(() => {
-    const result = submittedForm(form, 'bootSource') as typeof data.bootSourceForm | null;
-    return result?.id === data.bootSourceForm?.id ? result : null;
-  });
+  // A delayed action from another route instance must not seed these forms
+  // or reopen the tab. Superforms also uses this route-specific id to isolate stores.
   const bootStartSubmission = $derived.by(() => {
     const result = submittedForm(form, 'bootStart') as typeof data.bootStartForm | null;
     return result?.id === data.bootStartForm?.id ? result : null;
@@ -480,18 +541,8 @@
     const result = submittedForm(form, 'bootApprove') as typeof data.bootApproveForm | null;
     return result?.id === data.bootApproveForm?.id ? result : null;
   });
-  // Which side of the source switch is showing. Held here because a save remounts the
-  // source view on its new revision; it belongs to the Agent, not to the revision.
-  let bootView = $state<'source' | 'resolved'>('source');
-  let bootViewAgentId = untrack(() => data.agent.id);
   $effect(() => {
-    const agentId = data.agent.id;
-    untrack(() => {
-      if (agentId !== bootViewAgentId) { bootViewAgentId = agentId; bootView = 'source'; }
-    });
-  });
-  $effect(() => {
-    if (bootSourceSubmission || bootStartSubmission || bootCompileSubmission || bootApproveSubmission) activeTab = 'boot';
+    if (bootStartSubmission || bootCompileSubmission || bootApproveSubmission) activeTab = 'boot';
   });
 
   function submitMemoryRoleChange(e: Event) {
@@ -524,6 +575,49 @@
   // now enforced server-side, so an incongruent PUBLIC state can't be reached,
   // and the warnings were confusing for the non-PUBLIC cases.
   const visibilityLabel: Record<string, string> = { PERSONAL: 'Personal', ORGANIZATION: 'Organization', PUBLIC: 'Public' };
+
+  // portal#1850 (hrn:node:hadronmemory.com:specs:cor:dmo:050:19): plain words for each offer-readiness reason
+  // code, one line per reason in the server's (clone refusal's) order. The
+  // fallback prints the raw code so a new server code is VISIBLE, never
+  // swallowed. Subjects render as names only — the contract exposes no id or
+  // URN to link (see AgentOfferSubject in $lib/types). "organization" is the
+  // portal's established spelling (the Visibility row says Organization); the
+  // count pluralises the subject-carrying reasons (UX #1859: a sentence about
+  // three memories should not say "a memory").
+  const offerReasonText = (reason: { code: string; count: number }): string => {
+    const one = reason.count === 1;
+    switch (reason.code) {
+      case 'AGENT_NOT_PUBLIC': return t('agent.offer.reason.not-public', 'Not public — another organization can only subscribe to, install or clone a PUBLIC Agent');
+      case 'AGENT_RETIRED': return t('agent.offer.reason.retired', 'This Agent is retired');
+      case 'CLONE_LINKED_MEMORY_ENCRYPTED': return one
+        ? t('agent.offer.reason.memory-encrypted.one', 'A linked memory is encrypted')
+        : t('agent.offer.reason.memory-encrypted.many', '{count} linked memories are encrypted', { count: reason.count });
+      case 'CLONE_LINKED_MEMORY_UNREADABLE': return one
+        ? t('agent.offer.reason.memory-unreadable.one', 'A linked memory is not readable by another organization')
+        : t('agent.offer.reason.memory-unreadable.many', '{count} linked memories are not readable by another organization', { count: reason.count });
+      case 'CLONE_BASE_UNUSABLE': return one
+        ? t('agent.offer.reason.base-unusable.one', 'The base Agent can’t be used by another organization')
+        : t('agent.offer.reason.base-unusable.many', '{count} base Agents can’t be used by another organization', { count: reason.count });
+      case 'CLONE_IMPORT_UNUSABLE': return one
+        ? t('agent.offer.reason.import-unusable.one', 'An imported Agent can’t be used by another organization')
+        : t('agent.offer.reason.import-unusable.many', '{count} imported Agents can’t be used by another organization', { count: reason.count });
+      default: return t('agent.offer.reason.unknown', 'Blocked: {code}', { code: reason.code });
+    }
+  };
+  // The names and counts after a reason sentence, " · "-separated: names the
+  // server chose to show, then the cap overflow, then the subjects even the
+  // manager may not read (counts only — the hidden line carries its own noun,
+  // never a dangling "N you can't view"; UX #1859).
+  const offerReasonDetail = (reason: { subjects: Array<{ name: string }>; omittedByCap: number; hiddenByAccess: number }): string => {
+    const parts: string[] = [];
+    if (reason.subjects.length > 0) parts.push(reason.subjects.map((s) => s.name).join(', '));
+    if (reason.omittedByCap > 0) parts.push(t('agent.offer.more', '+{count} more', { count: reason.omittedByCap }));
+    if (reason.hiddenByAccess > 0) parts.push(reason.hiddenByAccess === 1
+      ? t('agent.offer.hidden.one', '1 more item you can’t view')
+      : t('agent.offer.hidden.many', '{count} more items you can’t view', { count: reason.hiddenByAccess }));
+    return parts.join(' · ');
+  };
+  const offerNotPublic = $derived((agent.offerReadiness?.reasons ?? []).some((r) => r.code === 'AGENT_NOT_PUBLIC'));
 
   let selectMemoryOpen = $state(false);
 
@@ -799,26 +893,8 @@
       <NodeActionsMenu label={t('agent.actions.label', 'Agent actions')} actions={profileActions} />
     {/if}
   </div>
-
-  <!-- Tabs — #747: the third instance of the strip #746 fixed on the App detail
-       page, and the one that gates a MemoryBrowser mount: the Nodes tab lives
-       behind it, so the component being usable at phone widths is moot if the
-       tab reaching it runs off the screen. Up to eight tabs here.
-       `shrink-0 whitespace-nowrap` is what makes it SCROLL rather than squash
-       the labels into unreadable columns. -->
-  <div class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
-    {#each tabs as tab}
-      <button
-        onclick={() => activeTab = tab.id}
-        class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
-          {activeTab === tab.id
-            ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-            : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
-      >
-        {tab.label}
-      </button>
-    {/each}
-  </div>
+  <TabRow items={tabs} active={activeTab} label={t('agent.tabs-label', 'Agent sections')} onselect={(id) => activeTab = id as typeof activeTab} />
+  <div class="space-y-4" role="tabpanel" id="panel-{activeTab}" aria-labelledby="tab-{activeTab}" tabindex="0">
 
   <!-- Action feedback lives at page level so it stays visible no matter which
        tab's form produced it (#352 split the agent / memory / delete forms
@@ -855,9 +931,9 @@
           {#key data.bootStartForm.id}<StartBootSource seeded={false} canManage={data.canManageAgent} initial={data.bootStartForm} submitted={bootStartSubmission} />{/key}
         {/if}
       {:else if data.bootSource.mode === 'source'}
-        <!-- Keyed on the SOURCE only: a compiled-only change (compile, approve, reload) must not reset a dirty source draft. -->
-        {#key `${data.bootSourceForm.id}:${data.bootSource.node.revision}`}
-          <BootPromptSource agentId={agent.id} shown={activeTab === 'boot'} bind:view={bootView} canManage={data.canManageAgent} urn={data.bootSource.node.urn} revision={data.bootSource.node.revision} compiled={data.bootSource.compiled} initial={data.bootSourceForm} compileInitial={data.bootCompileForm} approveInitial={data.bootApproveForm} noPointer={data.bootSource.noPointer} submitted={bootSourceSubmission} compileSubmitted={bootCompileSubmission} approveSubmitted={bootApproveSubmission} />
+        <!-- portal#1485: keyed on the Agent's forms and the SOURCE revision, so a Refresh that brings a new source revision re-reads its lint. -->
+        {#key `${data.bootCompileForm.id}:${data.bootSource.node.id}:${data.bootSource.node.revision}`}
+          <BootPromptSource showProvenance={activeTab === 'boot'} agentId={agent.id} shown={activeTab === 'boot'} canManage={data.canManageAgent} source={data.bootSource.node} compiled={data.bootSource.compiled} compileInitial={data.bootCompileForm} approveInitial={data.bootApproveForm} noPointer={data.bootSource.noPointer} compileSubmitted={bootCompileSubmission} approveSubmitted={bootApproveSubmission} />
         {/key}
       {:else if data.bootSource.mode === 'compiled-only'}
         <section data-boot-compiled-only>
@@ -865,6 +941,7 @@
           <p class="mb-3 text-xs"><Urn value={data.bootSource.compiled.urn} type="node" /> <span class="text-zinc-500 dark:text-zinc-400">{t('agent.boot.source-revision', 'revision {n}', { n: data.bootSource.compiled.revision })}</span></p>
           <!-- svelte-ignore a11y_no_noninteractive_tabindex: a scrollable text region must be reachable by keyboard (WCAG 2.1.1) -->
           <pre tabindex="0" aria-label={t('agent.boot.compiled-text-label', 'Compiled prompt text')} class="max-h-[32rem] overflow-auto whitespace-pre-wrap rounded-md border border-zinc-300 bg-zinc-50 p-3 font-mono text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">{data.bootSource.compiled.content}</pre>
+          {#if activeTab === 'boot'}{#key `${data.bootSource.compiled.id}:${data.bootSource.compiled.revision}`}<BootProvenance nodeId={data.bootSource.compiled.id} revision={data.bootSource.compiled.revision} />{/key}{/if}
         </section>
       {:else if data.bootSource.mode === 'source-missing'}
         {#if data.bootSource.canStart}
@@ -939,6 +1016,50 @@
         </div>
       </section>
 
+      <!-- portal#1850 (hrn:node:hadronmemory.com:specs:cor:dmo:050:19): whether another organisation could
+           subscribe to, install and clone this Agent. Manager-only by contract:
+           offerReadiness is null for every other caller (PUBLIC readers
+           included), and null renders NOTHING — no heading, no state line, no
+           empty section. -->
+      {#if agent.offerReadiness}
+        <section class="max-w-lg">
+          <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">{t('agent.offer.heading', 'Offering')}</h2>
+          <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
+            {#if agent.offerReadiness.ready}
+              <div class="flex items-start gap-2 px-5 py-3">
+                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400"><path d="M20 6 9 17l-5-5"></path></svg>
+                <div>
+                  <p class="text-sm font-medium text-emerald-700 dark:text-emerald-400">{t('agent.offer.ready', 'Ready to be offered')}</p>
+                  <p class="mt-0.5 text-sm text-zinc-500">{t('agent.offer.ready.detail', 'Another organization could subscribe to, install and clone this Agent as it stands.')}</p>
+                </div>
+              </div>
+            {:else}
+              <div class="px-5 py-3">
+                <div class="flex items-start gap-2">
+                  <!-- Amber state icon mirrors the ready check: the words carry the meaning, the shape matches it (UX #1859). -->
+                  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                  <p class="text-sm font-medium text-amber-700 dark:text-amber-400">{t('agent.offer.not-ready', 'Not ready to be offered')}</p>
+                </div>
+                <ul class="mt-2 space-y-1">
+                  <!-- Unkeyed: the server emits one reason per code, but a duplicate code key would be a Svelte runtime error, and nothing here reorders (BLIND #1859). -->
+                  {#each agent.offerReadiness.reasons as reason}
+                    {@const detail = offerReasonDetail(reason)}
+                    <li class="text-sm text-zinc-900 dark:text-white">{offerReasonText(reason)}{#if detail}<span class="text-zinc-500">: {detail}</span>{:else}.{/if}</li>
+                  {/each}
+                </ul>
+                {#if offerNotPublic}
+                  <!-- "Make it PUBLIC" is the most common fix, and visibility
+                       lives on the Settings tab — a link to existing settings,
+                       not a make-ready action (out of scope per #1850). -->
+                  <p class="mt-3 text-sm text-zinc-500">
+                    {t('agent.offer.fix.visibility', 'Visibility can be changed in')} <button type="button" class="text-indigo-600 hover:underline dark:text-indigo-400" onclick={() => (activeTab = 'settings')}>{t('agent.offer.fix.settings', 'Settings')}</button>.
+                  </p>
+                {/if}
+              </div>
+            {/if}
+          </div>
+        </section>
+      {/if}
       <AgentExtendedBy agentId={agent.id} requestedAfter={data.extendedAfter ?? null} result={data.extendedBy ?? { items: [], endCursor: null, hasMore: false, failed: true }} />
 
       <!-- Capabilities — removed per FR-013 (spec 006-asset-upload-redesign).
@@ -976,7 +1097,7 @@
                   <AgentMemberRolesEditor
                     canManage={!!data.canManageAgent}
                     roles={agent.installationPolicy.memberRoles}
-                    initial={submittedForm<AgentMemberRolesForm>(form, 'updateMemberRoles') as AgentMemberRolesSuperform | null ?? data.memberRolesForm}
+                    initial={memberRolesSeed}
                   />
                 {/key}
               </div>
@@ -1361,10 +1482,13 @@
             <div class="mb-3 flex items-center justify-between">
               <h2 class="font-semibold text-zinc-900 dark:text-white">Conversations</h2>
               <div class="flex items-center gap-4">
-                <a href="/app/agents/{agent.id}/test"
-                  class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">
-                  Open Tester →
-                </a>
+                <!-- portal#2083: the Tester is manager-only (startChat refuses everyone else); unknown (null) hides it too. -->
+                {#if data.canManageAgent === true}
+                  <a href="/app/agents/{agent.id}/test"
+                    class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">
+                    Open Tester →
+                  </a>
+                {/if}
                 <a href="/app/agents/{agent.id}/conversations"
                   class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">
                   Open conversation editor →
@@ -1494,20 +1618,20 @@
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <!-- AI PROVIDERS TAB — agent-owned AI service configs (#352)            -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
-  {#if activeTab === 'ai'}
-    <!-- The agent's `default` config is one level of the resolution walk used
-         when the agent runs inside an App. -->
-    <section class="max-w-2xl">
+  <!-- Keep the Section mounted while hidden: switching tabs is not a readback,
+       so pending writes, uncertainty lockout and refreshed rows must survive. -->
+  <section class="max-w-2xl" hidden={activeTab !== 'ai'}>
       <AiServiceConfigSection
         ownerType="AGENT"
         ownerId={agent.id}
+        ownerLabel={agent.name}
+        ownerUrn={agent.urn}
         configs={data.agentConfigs ?? []}
         members={org?.members ?? []}
         currentUserId={data.currentUserId}
         configsError={data.configsError}
       />
     </section>
-  {/if}
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <!-- SETTINGS TAB — the rest (#352)                                      -->
@@ -1710,6 +1834,39 @@
         {/if}
       </section>
 
+      <!-- #1275: whether a worker's host resets its context when its task ends.
+           Saved on its own (only resetContextAfterTask is sent). Not rendered at
+           all while the deployed server has no such field. The server decides who
+           may change it; this page shows its refusal as text. The copy promises
+           nothing about what a reset keeps, and says it is inert on a host that
+           does not support it. -->
+      {#if data.resetContext.kind !== 'absent'}
+        <section class="max-w-lg" aria-labelledby="resetContextHeading">
+          <h2 id="resetContextHeading" class="mb-2 font-semibold text-zinc-900 dark:text-white">{t('agent.reset-context.heading', 'Context reset')}</h2>
+          <p class="mb-3 text-sm text-zinc-500">{t('agent.reset-context.help', 'When one of this agent’s workers finishes or cancels a task it started, and has no other started task, its host resets the worker’s context. The worker keeps its session. This takes effect only on hosts that support context reset; on any other host it does nothing. A reset clears what the worker was holding in mind, so keep anything important in its tasks or memories.')}</p>
+          {#if data.resetContext.kind === 'failed'}
+            <p role="alert" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">{t('agent.reset-context.load-failed', 'The current setting could not be loaded. Reload the page to try again.')}</p>
+          {:else}
+            <form method="POST" action="?/updateResetContext" use:resetContextEnhance novalidate
+              class="space-y-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+              <input type="hidden" name="_kind" value={$resetContextForm._kind} />
+              <label class="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                <input type="checkbox" name="resetContextAfterTask" bind:checked={$resetContextForm.resetContextAfterTask} onchange={clearResetContextSaved} class="mt-0.5" />
+                <span>{t('agent.reset-context.label', 'Reset the worker’s context when its task ends')}</span>
+              </label>
+              {#if resetContextError}
+                <p role="alert" class="text-sm text-red-600 dark:text-red-400">{resetContextError}</p>
+              {:else if resetContextSuccess}
+                <p role="status" class="text-sm text-emerald-600 dark:text-emerald-400">{resetContextSuccess}</p>
+              {/if}
+              <button type="submit" disabled={$resetContextSubmitting || !resetContextChanged} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
+                {$resetContextSubmitting ? t('agent.reset-context.saving', 'Saving…') : t('agent.reset-context.save', 'Save')}
+              </button>
+            </form>
+          {/if}
+        </section>
+      {/if}
+
       <!-- Danger zone -->
       <section class="max-w-lg">
         <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
@@ -1730,4 +1887,6 @@
       </section>
     </div>
   {/if}
+
+  </div>
 </div>

@@ -10,6 +10,8 @@
     loc: string;
     isSetup: boolean;
     isFallback: boolean;
+    startOrder: number | null;
+    startTotal: number | null;
     goalCount: number;
     isSelected: boolean;
   }
@@ -37,6 +39,14 @@
           class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/50 dark:text-amber-300"
         >
           {t('conversation.card.setup', 'setup')}
+        </span>
+      {/if}
+      {#if card.startOrder != null}
+        <span
+          class="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-medium text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300"
+          aria-label={t('conversation.card.startAria', 'Starts {n} of {total}', { n: card.startOrder, total: card.startTotal ?? card.startOrder })}
+        >
+          {t('conversation.card.start', 'Start #{n}', { n: card.startOrder })}
         </span>
       {/if}
       {#if card.isFallback}

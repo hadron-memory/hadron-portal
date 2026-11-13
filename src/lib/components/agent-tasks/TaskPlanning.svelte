@@ -176,9 +176,14 @@
     };
   };
 </script>
-<!-- Body focus can be a platform consequence of disabling/removing the trigger,
-     not a new user target. A real newer control still advances the epoch. -->
-<svelte:window onfocusin={(event) => { if (event.target !== document.body) focusEpoch++; }} />
+<!-- BODY focus alone is ambiguous. Observe pointer intent before bubbling can
+     hide a blank click, but a repeat inside the focused control is still ours. -->
+<svelte:window
+  onfocusin={(event) => { if (event.target !== document.body) focusEpoch++; }}
+  onpointerdowncapture={(event) => {
+    if (document.activeElement === document.body || !(event.target instanceof Node) || !document.activeElement?.contains(event.target)) focusEpoch++;
+  }}
+/>
 <section class="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="task-planning">
   <h2 id="task-planning" class="font-semibold text-zinc-900 dark:text-white">{t('app.tasks.planning', 'Priority and blockers')}</h2>
   {#if canPriority}
@@ -213,7 +218,7 @@
     <div class="flex flex-wrap gap-3">
       {#each directions as key}
         <div class="space-y-1">
-          {#if relationView.value[key].hasMore && pageFailed[key] !== 'shifted'}<button type="button" disabled={pending || pagePending[key]} onclick={(event) => loadMore(key, event)} class="rounded border px-3 py-1 text-sm disabled:opacity-50">{key === 'blockedBy' ? t('app.tasks.dependencies.more-waits', 'Load more Waits for') : t('app.tasks.dependencies.more-holds', 'Load more Holds up')}</button>{/if}
+          {#if relationView.value[key].hasMore && pageFailed[key] !== 'shifted'}<button type="button" disabled={pending} aria-disabled={pending || pagePending[key]} aria-busy={pagePending[key]} onclick={(event) => loadMore(key, event)} class="rounded border px-3 py-1 text-sm disabled:opacity-50 aria-disabled:opacity-50">{key === 'blockedBy' ? t('app.tasks.dependencies.more-waits', 'Load more Waits for') : t('app.tasks.dependencies.more-holds', 'Load more Holds up')}</button>{/if}
           {#if pagePending[key]}<p role="status" class="text-sm">{key === 'blockedBy' ? t('app.tasks.dependencies.loading-waits', 'Loading Waits for…') : t('app.tasks.dependencies.loading-holds', 'Loading Holds up…')}</p>{/if}
           {#if pageFailed[key] === 'shifted'}<p role="alert" class="text-sm">{t('app.tasks.dependencies.shifted', 'Relations changed while loading. Reload this view before loading more.')} {t('app.tasks.dependencies.unchanged', 'Loaded rows are unchanged.')} <a href={$page.url.pathname + $page.url.search} data-sveltekit-reload class="underline">{t('app.tasks.dependencies.reload-link', 'Reload this view')}</a></p>
           {:else if pageFailed[key] === 'failed'}<p role="alert" class="text-sm">{key === 'blockedBy' ? t('app.tasks.dependencies.failed-waits', 'Couldn’t load more Waits for. Try again.') : t('app.tasks.dependencies.failed-holds', 'Couldn’t load more Holds up. Try again.')} {t('app.tasks.dependencies.reload', 'Loaded rows are unchanged. Reload if the list changed.')}</p>{/if}

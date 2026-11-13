@@ -50,6 +50,11 @@ export function customisationRefusalLead(code: string | null): string | null {
         'customisation.not-found',
         'The customisation is not available. Reload before trying again.',
       );
+    case 'AGENT_ORG_GRANT_REQUIRED':
+      return t(
+        'customisation.grant-required',
+        'This App’s organization needs an active grant to customise this Agent. Your draft is kept.',
+      );
     case 'NODE_WRITE_CONFLICT':
     case 'NodeLocConflictError':
       return t(

@@ -4,6 +4,8 @@
   import { t } from '$lib/i18n/t';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { makeGlobalFilterFn } from '$lib/table/global-filter';
+  import { ruleGlobalFilterFn } from '$lib/memory-config/rule-search';
   import type { PortalColumnDef } from '$lib/table/features';
   import Urn from '$lib/components/Urn.svelte';
   import SelectMemory from '$lib/components/SelectMemory.svelte';
@@ -13,7 +15,9 @@
   import { outcomeCopy } from '$lib/memory-config/outcome';
   import { configCall, type ConfigFailure } from '$lib/memory-config/client';
   import type { Rule, Template, OwnerType, ApplyPreview } from '$lib/memory-config/types';
-  let { initial, ownerType, ownerRef, readOnly, canManage, memories, memoriesFailed }: { initial: Template[]; ownerType: OwnerType; ownerRef: string; readOnly: boolean; canManage: boolean; memories: { id: string; name: string; urn: string }[]; memoriesFailed: boolean } = $props();
+  import TaskWarnings from './TaskWarnings.svelte';
+  import { normalizeWarnings } from '$lib/memory-config/warnings';
+  let { initial, ownerType, ownerRef, readOnly, canManage, memories, memoriesFailed, leaveMessage = $bindable(null) }: { leaveMessage?: string | null; initial: Template[]; ownerType: OwnerType; ownerRef: string; readOnly: boolean; canManage: boolean; memories: { id: string; name: string; urn: string }[]; memoriesFailed: boolean } = $props();
   let snapshot = untrack(() => initial);
   let templates = $state(untrack(() => initial)), editing = $state<Template | null | undefined>(undefined);
   let nameInput = $state<HTMLInputElement>();
@@ -28,17 +32,30 @@
   let preview = $state<ApplyPreview | null>(null), previewStale = $state(false);
   let bulk = $state<Template | null>(null), bulkPending = $state(false);
   $effect(() => { if (initial !== snapshot) { snapshot = initial; templates = initial; chosen = null; preview = null; } });
+  // The confirmation text while there is something to lose, else null. A route change asks
+  // through beforeNavigate below, from the bound `leaveMessage`; a host that swaps this manager
+  // out itself (the App page's tabs, #1936) reads it, asks the question, and clears it to say
+  // "already asked".
+  const leaveText = $derived(editing !== undefined || ruleIndex !== null || pending || bulkPending
+    ? (pending || bulkPending ? t('config.leave-pending', 'An operation is still running. Leave this page? Leaving does not cancel it.') : t('config.discard-draft', 'Leave this page and discard your unsaved changes?'))
+    : null);
+  $effect(() => { leaveMessage = leaveText; });
   beforeNavigate(({ cancel }) => {
-    if ((editing !== undefined || ruleIndex !== null || pending || bulkPending) && !window.confirm(pending || bulkPending ? t('config.leave-pending', 'An operation is still running. Leave this page? Leaving does not cancel it.') : t('config.discard-draft', 'Leave this page and discard your unsaved changes?'))) cancel();
+    if (leaveMessage && !window.confirm(leaveMessage)) cancel();
   });
   $effect(() => { if (editing !== undefined && nameInput?.isConnected) nameInput.focus(); });
   const writable = $derived(canManage && !readOnly);
   const columns: PortalColumnDef<Template>[] = [{ accessorKey: 'name', header: t('config.name', 'Name'), size: 220 }, { accessorKey: 'description', header: t('config.description', 'Description'), size: 260 }, { accessorKey: 'required', header: t('config.required', 'Required'), size: 100 }, { id: 'actions', header: t('config.actions', 'Actions'), size: 240 }];
-  const table = createSvelteTable<Template>({ get data() { return templates; }, columns, getRowId: r => r.id });
+  let templateFilter = $state('');
+  // Boolean accessors are not reliably eligible for global filtering, so the
+  // name column also carries the rendered Required text.
+  const table = createSvelteTable<Template>({ get data() { return templates; }, columns, getRowId: r => r.id, state: { get globalFilter() { return templateFilter; } }, onGlobalFilterChange: value => { templateFilter = typeof value === 'function' ? value(templateFilter) : value; }, globalFilterFn: makeGlobalFilterFn<Template>({ required: value => value ? t('config.yes', 'Yes') : t('config.no', 'No') }, { name: row => row.required ? t('config.yes', 'Yes') : t('config.no', 'No') }) });
   const ruleColumns: PortalColumnDef<Rule>[] = [{ accessorKey: 'role', header: t('config.role', 'Role / sub-role'), size: 160 }, { id: 'settings', header: t('config.settings', 'Settings'), size: 220 }, { id: 'references', header: t('config.references', 'References'), size: 300 }, { id: 'actions', header: t('config.actions', 'Actions'), size: 160 }];
-  const ruleTable = createSvelteTable<Rule>({ get data() { return rules; }, columns: ruleColumns, getRowId: r => r.role, initialState: { sorting: [{ id: 'role', desc: false }] } });
+  let draftRuleFilter = $state('');
+  const ruleTable = createSvelteTable<Rule>({ get data() { return rules; }, columns: ruleColumns, getRowId: r => r.role, state: { get globalFilter() { return draftRuleFilter; } }, onGlobalFilterChange: value => { draftRuleFilter = typeof value === 'function' ? value(draftRuleFilter) : value; }, globalFilterFn: ruleGlobalFilterFn, initialState: { sorting: [{ id: 'role', desc: false }] } });
   const previewColumns: PortalColumnDef<ApplyPreview['entries'][number]>[] = [{ accessorKey: 'role', header: t('config.role', 'Role / sub-role'), size: 120 }, { accessorKey: 'outcome', header: t('config.outcome', 'Outcome'), size: 140 }];
-  const previewTable = createSvelteTable<ApplyPreview['entries'][number]>({ get data() { return preview?.entries ?? []; }, columns: previewColumns });
+  let previewFilter = $state('');
+  const previewTable = createSvelteTable<ApplyPreview['entries'][number]>({ get data() { return preview?.entries ?? []; }, columns: previewColumns, state: { get globalFilter() { return previewFilter; } }, onGlobalFilterChange: value => { previewFilter = typeof value === 'function' ? value(previewFilter) : value; }, globalFilterFn: makeGlobalFilterFn<ApplyPreview['entries'][number]>({ outcome: value => outcomeCopy(String(value), !!preview?.dryRun) }) });
   function edit(template: Template | null) {
     editing = template; name = template?.name ?? ''; description = template?.description ?? ''; required = template?.required ?? false;
     rules = (template?.rules ?? []).map(rule => ({ ...rule })); rulesChanged = false; failure = null; notice = ''; chosen = null; preview = null;
@@ -80,7 +97,8 @@
     if (!chosen || !memory || !writable || pending || (!dryRun && (!preview || previewStale))) return;
     pending = true; failure = null; notice = '';
     try {
-      preview = (await configCall<{ value: ApplyPreview }>({ kind: 'apply', op: dryRun ? 'preview' : 'apply', ref: chosen.id, memoryRef: memory.id, ...(!dryRun ? { revision: preview!.templateRevision } : {}) })).value;
+      const value = (await configCall<{ value: ApplyPreview }>({ kind: 'apply', op: dryRun ? 'preview' : 'apply', ref: chosen.id, memoryRef: memory.id, ...(!dryRun ? { revision: preview!.templateRevision } : {}) })).value;
+      preview = { ...value, warnings: normalizeWarnings(value.warnings) };
       previewStale = false;
     } catch (e) { failure = e as ConfigFailure; if (failure.code === 'CONFLICT') { previewStale = true; failure.error = t('config.template-changed', 'This template changed since the preview. Preview again before applying.'); } }
     finally { pending = false; }
@@ -93,7 +111,7 @@
   {#if failure && editing === undefined && !chosen}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}
   {#if writable}<button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => edit(null)} class="min-h-11 rounded bg-indigo-600 px-4 text-white disabled:cursor-not-allowed disabled:opacity-50">{t('config.create-template', 'Create template')}</button>{/if}
   {#if !templates.length}<p class="text-zinc-500 dark:text-zinc-400">{writable ? t('config.no-templates-yet', 'No templates yet. Create a template to get started.') : t('config.no-visible-templates', 'No templates are available to you for this owner.')}</p>{/if}
-  <DataTable {table} listKey={`node-role-templates:${ownerType}`} searchPlaceholder={t('config.search-templates', 'Search templates…')} searchAriaLabel={t('config.search-templates', 'Search templates…')}>
+  <DataTable {table} listKey={`node-role-templates:${ownerType}`} bind:globalFilter={templateFilter} searchPlaceholder={t('config.search-templates', 'Search templates…')} searchAriaLabel={t('config.search-templates', 'Search templates…')}>
     {#snippet cell(cell, row)}
       {#if cell.column.id === 'actions'}
         {#if writable}<div class="flex flex-wrap gap-2"><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => edit(row)} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.edit', 'Edit')}</button><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => remove(row)} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.delete', 'Delete')}</button><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => { chosen = row; memory = null; preview = null; editing = undefined; previewStale = false; failure = null; notice = ''; }} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.apply-to-memory', 'Apply to a memory…')}</button><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => { bulk = row; chosen = null; preview = null; failure = null; notice = ''; }} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.apply-to-several', 'Apply to several memories…')}</button></div>{/if}
@@ -110,7 +128,7 @@
         <label class="flex items-center gap-2"><input type="checkbox" bind:checked={required} />{t('config.required', 'Required')}</label></form>
         {#if required}<p class="rounded bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">{t('config.required-warning', 'Applied rules arrive locked: ordinary edits and deletion are refused. On an org memory only an org admin can unlock them.')}</p>{/if}
         <button type="button" onclick={() => ruleIndex = rules.length} class="min-h-11 rounded border px-3">{t('config.add-rule', 'Add rule')}</button>
-        <DataTable table={ruleTable} listKey="template-draft-rules" searchPlaceholder={t('config.search-rules', 'Search rules…')} searchAriaLabel={t('config.search-rules', 'Search rules…')}>
+        <DataTable table={ruleTable} listKey="template-draft-rules" bind:globalFilter={draftRuleFilter} searchPlaceholder={t('config.search-rules', 'Search rules…')} searchAriaLabel={t('config.search-rules', 'Search rules…')}>
           {#snippet cell(cell, row)}
             {#if cell.column.id === 'role'}{row.role}
             {:else if cell.column.id === 'settings'}<p>{row.enabled ? t('config.enabled', 'Enabled') : t('config.disabled', 'Disabled')}</p><p>{t('config.writers-label', 'Writers: {value}', { value: row.writers })}{#if row.writers === 'OWNER'} — {t('config.owner-note', 'not supported yet; refuses every write when enabled')}{/if}</p><p>{t('config.strict-label', 'Strict sub-roles: {value}', { value: row.strictSubRoles ? t('config.yes', 'Yes') : t('config.no', 'No') })}</p><p>{t('config.validate-label', 'Validate by: {value}', { value: row.validateBy ?? t('config.none', 'None') })}</p>
@@ -150,12 +168,12 @@
       {#if preview}
         <h3 class="font-semibold">{previewStale ? t('config.preview-stale', 'Preview out of date — preview again before applying') : preview.dryRun ? t('config.preview-heading', 'Preview: nothing has been changed') : t('config.applied-heading', 'Template applied')}</h3>
         {#if preview.required}<p class="rounded bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">{t('config.required-warning', 'Applied rules arrive locked: ordinary edits and deletion are refused. On an org memory only an org admin can unlock them.')}</p>{/if}
-        <DataTable table={previewTable} listKey="node-role-template-preview" searchPlaceholder={t('config.search-preview', 'Search preview…')} searchAriaLabel={t('config.search-preview', 'Search preview…')}>
+        <DataTable table={previewTable} listKey="node-role-template-preview" bind:globalFilter={previewFilter} searchPlaceholder={t('config.search-preview', 'Search preview…')} searchAriaLabel={t('config.search-preview', 'Search preview…')}>
           {#snippet cell(cell, row)}<span class="block whitespace-normal break-words">{cell.column.id === 'outcome' ? outcomeCopy(row.outcome, !!preview?.dryRun) : row.role}</span>{/snippet}
         </DataTable>
         {#if preview.dryRun}<button type="button" disabled={pending || previewStale} onclick={() => apply(false)} class="min-h-11 rounded bg-indigo-600 px-4 text-white disabled:cursor-not-allowed disabled:opacity-50">{preview.required ? t('config.apply-lock', 'Apply and lock rules') : t('config.apply', 'Apply')}</button>{/if}
-        {#each preview.warnings as warning}<p>{warning.role}: {warning.field ?? ''} — {warning.code}</p>{/each}
       {/if}
+      <div role="status" data-apply-feedback><TaskWarnings warnings={preview?.warnings ?? []} /></div>
     </section>
   {/if}
 </section>

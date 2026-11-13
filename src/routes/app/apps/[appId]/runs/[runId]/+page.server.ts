@@ -78,7 +78,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(CANCEL_APP_RUN_MUTATION, { id: params.runId });
       return message(form, { type: 'success' as const, text: 'Run cancellation requested.' });
     } catch (e: unknown) {
-      return message(form, { type: 'error' as const, text: extractGqlError(e, 'Failed to cancel run') }, { status: 500 });
+      return message(form, { type: 'error' as const, text: extractGqlError(e, 'Failed to cancel run', [], { transport: 'fallback' }) }, { status: 500 });
     }
   },
 };

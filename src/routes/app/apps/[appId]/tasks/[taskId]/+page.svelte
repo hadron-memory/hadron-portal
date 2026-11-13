@@ -313,7 +313,7 @@
     {#if data.tree.kind === 'ok' && data.tree.value}
       {#if data.tree.value.capped}
         <p role="status" class="mb-2 text-xs text-amber-700 dark:text-amber-300">
-          {t('app.tasks.tree.capped', 'Showing the first 1000 tasks in this tree; deeper or later subtasks aren’t shown.')}
+          {t('app.tasks.tree.capped', 'Showing the first 1000 tasks in this tree; deeper or later subtasks may not be shown.')}
         </p>
       {/if}
       <SubtaskTree rows={data.tree.value.rows} rootId={task.id} {basePath} />

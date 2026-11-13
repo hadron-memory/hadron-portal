@@ -4,6 +4,7 @@ import { resolveSegment } from '$lib/agent-tasks/handle';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
 import {
   AGENT_ALARMS_QUERY,
+  AGENT_ALARMS_IN_EFFECT_QUERY,
   AGENT_TASK_ANCESTOR_QUERY,
   AGENT_TASKS_APP_QUERY,
   AGENT_TASK_EVENTS_QUERY,
@@ -331,29 +332,42 @@ export async function hydrateTaskRefs(
   return out;
 }
 
-/** The Alarms list reads this many alarms at most; past it the view says so. */
-export const ALARMS_LIMIT = 2000;
+/** Each newest-first read serves one table page plus a look-ahead row. */
+export const ALARMS_PAGE_SIZE = 20;
 
-/**
- * Every alarm in the App, oldest first, walked forward by `after` (design §7).
- * The server reads alarms only oldest-first today, so reaching the newest
- * means walking the stream; the view sorts newest first. Past the bound it
- * says newer alarms may be missing.
+/** #1935 / server#3933: one bounded newest-end read, continued by before.
+ * No history walk or total cap. The look-ahead is not served, so the next
+ * cursor is the oldest row actually shown, not the row beyond the page.
+ *
+ * portal#2000 A: `inEffect` asks the server for alarms in effect only
+ * (#3934's alarmsInEffect — unacknowledged and no recorded escalation end,
+ * hrn:node:hadronmemory.com:specs:cor:agt:050:20). The server applies it App-wide before cutting the page
+ * through the unchanged gate and order, so an empty page there means none
+ * in effect anywhere the viewer may read — not "none on this page". The
+ * reads are separate documents (see queries.ts): the in-effect one names the
+ * new argument, and every other filter's read stays byte-identical to its
+ * pre-#2000 wire shape.
  */
 export async function loadAlarms(
   client: GraphQLClient,
   appRef: string,
-): Promise<TaskRead<{ alarms: AgentAlarm[]; capped: boolean }>> {
-  const alarms: AgentAlarm[] = [];
-  let after: string | undefined;
+  before?: string,
+  after?: string,
+  inEffect = false,
+): Promise<TaskRead<{ alarms: AgentAlarm[]; nextBefore: string | null; previousAfter: string | null }>> {
   try {
-    while (alarms.length < ALARMS_LIMIT) {
-      const r = await client.request<{ agentTeamEvents: AgentAlarm[] }>(AGENT_ALARMS_QUERY, { appRef, after, limit: EVENTS_PAGE });
-      alarms.push(...r.agentTeamEvents);
-      if (r.agentTeamEvents.length < EVENTS_PAGE) return { kind: 'ok', value: { alarms, capped: false } };
-      after = r.agentTeamEvents[r.agentTeamEvents.length - 1].id;
-    }
-    return { kind: 'ok', value: { alarms: alarms.slice(0, ALARMS_LIMIT), capped: true } };
+    const r = await client.request<{ agentTeamEvents: AgentAlarm[] }>(
+      inEffect ? AGENT_ALARMS_IN_EFFECT_QUERY : AGENT_ALARMS_QUERY,
+      { appRef, before, after, newestFirst: !after, limit: ALARMS_PAGE_SIZE + 1 });
+    const more = r.agentTeamEvents.length > ALARMS_PAGE_SIZE;
+    const alarms = r.agentTeamEvents.slice(0, ALARMS_PAGE_SIZE);
+    // The legacy ascending read starts immediately above after; reverse only
+    // the served rows (not the look-ahead) to retrace the preceding page.
+    if (after) alarms.reverse();
+    return { kind: 'ok', value: { alarms,
+      nextBefore: alarms.length && (after || more) ? alarms[alarms.length - 1].id : null,
+      previousAfter: alarms.length && (after ? more : before) ? alarms[0].id : null } };
+
   } catch (e) {
     return classify(e, `alarms read for ${appRef}`);
   }

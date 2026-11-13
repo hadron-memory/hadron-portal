@@ -1,4 +1,5 @@
 import { installMarksOf, type AppAgentInstall } from '$lib/app-install-marks';
+import { memberRolesFormId, UNSCOPED_MEMBER_ROLES_FORM_ID } from './member-roles-form-id';
 import { loadAgentExtensions, loadSystemMemoryIdentity } from '$lib/server/agent-profile';
 import { agentBaseSchema, agentIndexRefsSchema } from './inheritance-schema';
 import { loadInheritanceManagement, loadBaseCandidates, baseVariables, indexVariables, SET_AGENT_BASE_MUTATION, SET_AGENT_INDEX_REFS_MUTATION } from '$lib/server/agent-inheritance-write';
@@ -17,7 +18,6 @@ import type { Infer } from 'sveltekit-superforms';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { nodeUpdateDocument } from '$lib/server/nodeKindDoor';
 import { compileRefusalStatus, compileRefusalText } from '$lib/boot-compile';
 import { approvalRefusalStatus, approveRefusalText } from '$lib/node-approval';
 import { BOOT_SOURCE_LOC, readBootSource, readCompiled, readServedRevision } from '$lib/server/boot-source';
@@ -37,7 +37,6 @@ import {
   AGENT_APPS_QUERY,
   AGENT_OWNED_APPS_QUERY,
   UPDATE_AGENT_MUTATION,
-  NODE_DATA_READ_QUERY,
   COMPILE_AGENT_BOOT_PROMPT_MUTATION,
   APPROVE_NODE_MUTATION,
   DELETE_AGENT_MUTATION,
@@ -46,6 +45,8 @@ import {
   REMOVE_MEMORY_FROM_AGENT_MUTATION,
   AI_SERVICE_CONFIGS_QUERY,
   AGENT_REGISTER_DEFAULTS_QUERY,
+  AGENT_RESET_CONTEXT_QUERY,
+  UPDATE_AGENT_RESET_CONTEXT_MUTATION,
   AGENT_BOOT_POINTER_QUERY,
   AGENT_BOOT_START_QUERY,
   CREATE_NODE_MUTATION,
@@ -58,12 +59,12 @@ import {
 import type { Agent, Organization, Memory, MemoryNode, AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import {
-  bootSourceSchema,
   bootStartSchema,
   bootCompileSchema,
   bootApproveSchema,
   addAgentMemorySchema,
   agentRegisterDefaultsSchema,
+  agentResetContextSchema,
   agentSettingsSchema,
   deleteAgentSchema,
   removeAgentMemorySchema,
@@ -84,6 +85,7 @@ const AGENT_ORG_QUERY = /* GraphQL */ `
 
 const agentSettingsFormAdapter = zod4(agentSettingsSchema);
 const agentRegisterDefaultsFormAdapter = zod4(agentRegisterDefaultsSchema);
+const agentResetContextFormAdapter = zod4(agentResetContextSchema);
 const updateAgentMemberRolesFormAdapter = zod4(updateAgentMemberRolesSchema);
 const addAgentMemoryFormAdapter = zod4(addAgentMemorySchema);
 const updateAgentMemoryRoleFormAdapter = zod4(updateAgentMemoryRoleSchema);
@@ -92,6 +94,10 @@ const deleteAgentFormAdapter = zod4(deleteAgentSchema);
 
 type AddAgentMemoryForm = Infer<typeof addAgentMemorySchema, 'zod4'>;
 type DeleteAgentForm = Infer<typeof deleteAgentSchema, 'zod4'>;
+
+// #1275: ok = the server's value; absent = this server has no such field;
+// failed = the read failed for another reason.
+type ResetContextState = { kind: 'ok'; value: boolean } | { kind: 'absent' } | { kind: 'failed' };
 
 function urnSlug(urn: string): string {
   const idx = urn.lastIndexOf(':');
@@ -168,7 +174,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     return [] as AgentAppLite[];
   };
 
-  const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult, registerDefaultsResult, inheritance, inheritanceManagement, baseCandidates, bootPointer, canManageAgent] = await Promise.all([
+  const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult, registerDefaultsResult, resetContext, inheritance, inheritanceManagement, baseCandidates, bootPointer, canManageAgent] = await Promise.all([
     allMemoryIds.length > 0
       ? drainFindNodes<{ node: MemoryNode }>(
           client, GRAPH_NODES_QUERY, { memoryIds: allMemoryIds },
@@ -215,6 +221,17 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       )
       .then((r) => r.agent?.registerDefaults ?? null)
       .catch(() => null),
+    // #1275: its own read. A server that has not deployed the field refuses the
+    // document at validation, which is "absent" (the control is not rendered,
+    // and nothing is said); any other failure is "failed", stated, never read
+    // as the setting being off.
+    client
+      .request<{ agent: { resetContextAfterTask: boolean } | null }>(
+        AGENT_RESET_CONTEXT_QUERY, { ref: agent.id },
+      )
+      .then((r): ResetContextState => r.agent ? { kind: 'ok', value: r.agent.resetContextAfterTask } : { kind: 'failed' })
+      .catch((e: unknown): ResetContextState =>
+        extractGqlErrorCode(e) === 'GRAPHQL_VALIDATION_FAILED' ? { kind: 'absent' } : { kind: 'failed' }),
     loadAgentInheritance(client, agent.id),
     loadInheritanceManagement(client, agent.id, agent.urn, locals.user?.id ?? null, !!locals.impersonation),
     // #1108/#1278: parent-agent candidates include readable active org grants.
@@ -340,7 +357,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       .map((n) => ({ ...n, memory: memoryMap.get(n.memoryId) ?? null }));
   }
   orgSystemMemories = sysMemResult;
-  const [form, registerDefaultsForm, memberRolesForm, addMemoryForm, updateMemoryRoleForm, removeMemoryForm, deleteForm] = await Promise.all([
+  const [form, registerDefaultsForm, resetContextForm, memberRolesForm, addMemoryForm, updateMemoryRoleForm, removeMemoryForm, deleteForm] = await Promise.all([
     superValidate({
       name: agent.name ?? '',
       urnSlug: urnSlug(agent.urn),
@@ -356,9 +373,14 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       { errors: false },
     ),
     superValidate(
+      { resetContextAfterTask: resetContext.kind === 'ok' ? resetContext.value : false },
+      agentResetContextFormAdapter,
+      { id: `resetContext:${params.id}`, errors: false },
+    ),
+    superValidate(
       { roles: agent.installationPolicy?.memberRoles ?? [] },
       updateAgentMemberRolesFormAdapter,
-      { errors: false, id: 'updateMemberRoles' },
+      { errors: false, id: memberRolesFormId(agent.id) },
     ),
     superValidate<AddAgentMemoryForm>(
       { memoryId: '', role: 'read' },
@@ -427,12 +449,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       { nodeId: bootSource.mode === 'source' && bootSource.compiled ? bootSource.compiled.id : '', revision: bootSource.mode === 'source' && bootSource.compiled ? bootSource.compiled.revision : 1 },
       zod4(bootApproveSchema), { id: `bootApprove:${params.id}`, errors: false },
     ),
-    bootSourceForm: await superValidate(
-      { nodeId: bootSource.mode === 'source' ? bootSource.node.id : '', content: bootSource.mode === 'source' ? bootSource.node.content : '', expectedRevision: bootSource.mode === 'source' ? bootSource.node.revision : 1 },
-      zod4(bootSourceSchema), { id: `bootSource:${params.id}`, errors: false },
-    ),
     registerDefaults: registerDefaultsResult,
     registerDefaultsForm,
+    resetContext,
+    resetContextForm,
     memberRolesForm,
     bootPointer,
     canManageAgent,
@@ -517,36 +537,6 @@ export const actions: Actions = {
       return message(form, { type: 'error', text: extractGqlError(e, t('agent.inheritance.indexes-save-failed', 'Could not update index references.')) }, { status: 500 });
     }
   },
-  // portal#1377 S1: with a boot-prompt pointer set, the tab edits the Agent's
-  // `boot:source` node, not compiled prompt text. Refusals map by code to fixed
-  // copy: a ClientError's message carries the request variables (the prompt).
-  saveBootSource: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), zod4(bootSourceSchema), { id: `bootSource:${params.id}`, strict: true });
-    if (!form.valid) return fail(400, { form });
-    const input = { id: form.data.nodeId, content: form.data.content.replace(/\r\n/g, '\n'), expectedRevision: form.data.expectedRevision };
-    try {
-      const client = gqlClient(locals.token);
-      // A fresh read of the governance signals picks the write door (server #1201).
-      const prior = (await client.request<{ node: { role?: string | null; isRunnable?: boolean | null } | null }>(NODE_DATA_READ_QUERY, { ref: input.id })).node;
-      await client.request(nodeUpdateDocument(prior, input), { input });
-      // The shared node fragment carries no revision; the page shows the new one after the reload.
-      return message(form, { type: 'success', text: t('agent.boot.source-saved', 'Source saved. Workers get nothing new until it is compiled and approved.') });
-    } catch (e) {
-      const code = extractGqlErrorCode(e);
-      const text = code === 'NODE_WRITE_CONFLICT'
-        ? t('agent.boot.source-conflict', 'Someone changed the source since you opened it. Your draft is kept here: copy it before you reload, because a reload shows their version.')
-        : code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED'
-          ? t('agent.boot.source-worker-refused', 'Boot prompts are edited by their manager signed in as themselves, not through a worker session.')
-          : code === 'INCLUDE_TARGET_UNAVAILABLE'
-            // Fixed copy: the server's message and tag name the target, which this reader may not be allowed to know.
-            ? t('agent.boot.source-include-unavailable', 'An include in the source points at something that doesn’t exist or that you can’t read. Your draft is kept.')
-          : code === 'FORBIDDEN'
-            ? t('agent.boot.source-forbidden', 'Only whoever manages this Agent can change its boot prompt.')
-            : t('agent.boot.failed', 'Could not save the boot prompt. Your draft is kept; try again.');
-      return message(form, { type: 'error', text }, { status: code === 'NODE_WRITE_CONFLICT' ? 409 : code === 'INCLUDE_TARGET_UNAVAILABLE' ? 422 : code === 'FORBIDDEN' || code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED' ? 403 : 500 });
-    }
-  },
-
   // portal#1378: "Start a source" for an Agent whose pointer is set but whose
   // `boot:source` is gone (case 1) or that has no pointer at all (case 2). The seed is
   // the current compiled text, read HERE from the pointer: never a page field, and never
@@ -589,14 +579,14 @@ export const actions: Actions = {
       }
       // createNode is create-only: a live node at the loc is refused, never overwritten.
       if (code === 'NodeLocConflictError') {
-        return failed(t('boot.start.exists', 'This Agent already has a source. Reload the page to edit it.'), 409);
+        return failed(t('boot.start.exists', 'This Agent already has a source. Reload the page to see it.'), 409);
       }
       if (attempted) return failed(t('boot.start.uncertain', 'Could not confirm the source was started. Reload the page to check before trying again.'), 500);
       return failed(t('boot.start.failed', 'Could not start a source. Nothing changed; try again.'), 500);
     }
   },
 
-  // portal#1377 S2: "Update the prompt workers get". The compile never approves;
+  // portal#1377 S2, step 3 of the tab's workflow (portal#1485). The compile never approves;
   // the server writes a new unapproved compiled revision and the manager approves it.
   compileBootPrompt: async ({ request, params, locals }) => {
     const form = await superValidate(await request.formData(), zod4(bootCompileSchema), { id: `bootCompile:${params.id}`, strict: true });
@@ -617,7 +607,7 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
     try {
       await gqlClient(locals.token).request(APPROVE_NODE_MUTATION, { nodeRef: form.data.nodeId, revision: form.data.revision });
-      return message(form, { type: 'success', text: t('boot.approve.done', 'Revision {n} approved. Workers bound from now on get it.', { n: form.data.revision }) });
+      return message(form, { type: 'success', text: t('boot.approve.done', 'Revision {n} approved. It is ready to serve.', { n: form.data.revision }) });
     } catch (e) {
       const code = extractGqlErrorCode(e);
       const text = code === 'REVISION_MISMATCH'
@@ -755,12 +745,42 @@ export const actions: Actions = {
     }
   },
 
+  // #1275: only resetContextAfterTask is sent, always as an explicit boolean
+  // (omitted would mean "unchanged" on the server, so a clear must say false).
+  // The server's updateAgent gate decides who may; the page derives no
+  // permission, it renders the refusal as text.
+  updateResetContext: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), agentResetContextFormAdapter, { id: `resetContext:${params.id}` });
+    if (!form.valid) return fail(400, { form });
+
+    try {
+      await gqlClient(locals.token).request(UPDATE_AGENT_RESET_CONTEXT_MUTATION, {
+        ref: params.id,
+        resetContextAfterTask: form.data.resetContextAfterTask,
+      });
+      return message(form, { type: 'success', text: t('agent.reset-context.saved', 'Saved.') });
+    } catch (e: unknown) {
+      // updateAgent's owner gate refuses with an UNTYPED Error('Forbidden'), so
+      // a refusal can't be told from a crash by code: the fallback states what
+      // saving needs, not why it failed (as for registerDefaults, #942).
+      switch (extractGqlErrorCode(e)) {
+        case 'FORBIDDEN':
+          return message(form, { type: 'error', text: t('agent.reset-context.error.forbidden', 'Only the agent’s owner or an organization admin can change this.') }, { status: 403 });
+        case 'AGENT_NOT_FOUND':
+          return message(form, { type: 'error', text: t('agent.reset-context.error.not-found', 'This agent is not available to you.') }, { status: 404 });
+        default:
+          return message(form, { type: 'error', text: t('agent.reset-context.error.failed', 'Not saved. Changing this needs the agent’s owner or an organization admin.') }, { status: 500 });
+      }
+    }
+  },
+
   // portal#1405 (R211): only memberRoles is sent. The server's updateAgent gate
   // (requireAgentAccess(ADMIN)) decides; the page shows the editor to managers.
   // A malformed role is BAD_USER_INPUT with a message meant for the person, so
   // it lands at the field; any other refusal is a form-level message.
   updateMemberRoles: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), updateAgentMemberRolesFormAdapter, { id: 'updateMemberRoles' });
+    // The form's posted `__superform_id` (per Agent, portal#2068) wins over this fallback, so the result finds only that Agent's editor.
+    const form = await superValidate(await request.formData(), updateAgentMemberRolesFormAdapter, { id: UNSCOPED_MEMBER_ROLES_FORM_ID });
     if (!form.valid) return fail(400, { form });
 
     try {

@@ -7,8 +7,10 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
-  import { BULK_CAP, bulkCall, retryPositions, rowErrorCopy, sharedRevision, wholeCallCopy, type BulkEntry, type BulkResult, type BulkTarget } from '$lib/memory-config/bulk';
+  import { BULK_CAP, bulkCall, changeSplit, retryPositions, rowErrorCopy, sharedRevision, wholeCallCopy, type BulkEntry, type BulkResult, type BulkTarget } from '$lib/memory-config/bulk';
   import { outcomeCopy } from '$lib/memory-config/outcome';
+  import { warningSearchText } from '$lib/memory-config/warnings';
+  import TaskWarnings from './TaskWarnings.svelte';
   import type { Template } from '$lib/memory-config/types';
   let { template, memories, memoriesFailed, pending = $bindable(false), onclose }: { template: Template; memories: BulkTarget[]; memoriesFailed: boolean; pending?: boolean; onclose: () => void } = $props();
   type Row = { memory: BulkTarget; entry: BulkEntry | null; earlier: boolean };
@@ -28,16 +30,18 @@
   const rows = $derived<Row[]>([...selection.map((memory, index) => ({ memory, entry: report?.results[index] ?? null, earlier: false })), ...settled]);
   // Everything the cell renders, so a search finds what the reader sees.
   function rowText(row: Row): string {
-    if (unknown && !row.earlier) return t('config.bulk.row-unknown', 'Not known');
+    if (unknown && !row.earlier) return `${t('config.bulk.row-unknown', 'Not known')} ${t('config.bulk.current-rules', 'Current rules')}`;
     if (!row.entry) return '';
     const earlier = row.earlier ? t('config.bulk.earlier', 'From the earlier apply, not sent again') : '';
-    if (row.entry.error) return `${rowErrorCopy(row.entry.error)} ${earlier}`;
+    if (row.entry.error) return [earlier, rowErrorCopy(row.entry.error)].filter(Boolean).join(' ');
     const result = row.entry.result;
-    const entries = (result?.entries ?? []).map(e => `${e.role} ${outcomeCopy(e.outcome, !!result?.dryRun)}`);
-    const warnings = (result?.warnings ?? []).map(w => `${w.role} ${w.field ?? ''} ${w.code}`);
-    return [earlier, ...entries, ...warnings].join(' ');
+    const entries = result?.entries ?? [];
+    const entryText = entries.map(e => `${e.role}: ${outcomeCopy(e.outcome, !!result?.dryRun)}`);
+    const warnings = (result?.warnings ?? []).map(warningSearchText);
+    const noRules = result && !entries.length ? t('config.bulk.no-rules', 'This template has no rules.') : '';
+    return [earlier, noRules, ...entryText, ...warnings].filter(Boolean).join(' ');
   }
-  const columns: PortalColumnDef<Row>[] = [{ id: 'memory', accessorFn: row => row.memory.name, header: t('config.bulk.memory-outcome', 'Memory and outcome'), size: 280, enableHiding: false }];
+  const columns: PortalColumnDef<Row>[] = [{ id: 'memory', accessorFn: row => row.memory.name, header: t('config.bulk.memory-outcome', 'Memory and outcome'), size: 200, enableHiding: false }];
   let search = $state('');
   const table = createSvelteTable<Row>({ get data() { return rows; }, columns, getRowId: row => row.memory.id, state: { get globalFilter() { return search; } }, onGlobalFilterChange: value => { search = typeof value === 'function' ? value(search) : value; }, globalFilterFn: makeGlobalFilterFn<Row>({}, { memory: row => `${row.memory.urn} ${rowText(row)}` }), initialState: { pagination: { pageIndex: 0, pageSize: BULK_CAP } } });
   function changed() { report = null; mustPreview = false; refusal = ''; previewFailed = false; }
@@ -81,14 +85,16 @@
     <p class="font-medium">{t('config.bulk.row-unknown', 'Not known')}</p>
     <a href={`/app/memories/${encodeURIComponent(row.memory.id)}/settings/node-roles`} target="_blank" rel="noopener noreferrer" aria-label={t('config.bulk.current-rules-named', 'Current rules of {name}', { name: row.memory.name })} class="text-indigo-700 underline dark:text-indigo-300">{t('config.bulk.current-rules', 'Current rules')}</a>
   {:else if row.entry?.error}
-    <p class="break-words text-red-700 select-text dark:text-red-300">{rowErrorCopy(row.entry.error)}</p>
+    {#if row.earlier}<p class="text-zinc-600 dark:text-zinc-400">{t('config.bulk.earlier', 'From the earlier apply, not sent again')}</p>{/if}
   {:else if row.entry?.result}
     {#if row.earlier}<p class="text-zinc-600 dark:text-zinc-400">{t('config.bulk.earlier', 'From the earlier apply, not sent again')}</p>{/if}
     {#if !row.entry.result.entries.length}<p>{t('config.bulk.no-rules', 'This template has no rules.')}</p>{/if}
     <ul>{#each row.entry.result.entries as entry}<li class="break-words">{entry.role}: {outcomeCopy(entry.outcome, row.entry.result.dryRun)}</li>{/each}</ul>
-    {#each row.entry.result.warnings as warning}<p class="break-words">{warning.role}: {warning.field ?? ''} — {warning.code}</p>{/each}
   {/if}
-  {#if row.earlier && row.entry?.error}<p class="text-zinc-600 dark:text-zinc-400">{t('config.bulk.earlier', 'From the earlier apply, not sent again')}</p>{/if}
+  <div role="status" data-bulk-row-status>
+    {#if row.entry?.error}<p class="break-words text-red-700 select-text dark:text-red-300">{rowErrorCopy(row.entry.error)}</p>{/if}
+    {#if row.entry?.result && (!unknown || row.earlier)}<TaskWarnings warnings={row.entry.result.warnings} />{/if}
+  </div>
 {/snippet}
 <section aria-label={t('config.bulk.panel', 'Apply to several memories')} class="min-w-0 space-y-4 rounded-xl border p-5 dark:border-zinc-700">
   <h2 bind:this={panelHeading} tabindex="-1" class="text-xl font-semibold">{t('config.apply-name', 'Apply “{name}”', { name: template.name })}</h2>
@@ -121,17 +127,19 @@
       {#if report}
         <h3 class="font-semibold">{report.dryRun ? t('config.preview-heading', 'Preview: nothing has been changed') : t('config.bulk.applied-heading', 'Apply finished')}</h3>
         {#if report.dryRun}
-          <p>{t('config.bulk.preview-summary', '{succeeded} can take the template, {failed} can’t', { succeeded: report.succeeded, failed: report.failed })}</p>
+          {@const split = changeSplit(report.results)}
+          <p>{t('config.bulk.preview-summary', '{change} will change, {skipped} will change nothing, {failed} can’t be applied', { change: split.change, skipped: split.skipped, failed: report.failed })}</p>
           {#if settled.length}<p>{t('config.bulk.retry-preview', 'These memories have not been retried yet. Check the preview, then apply.')}</p>{/if}
           {#if revision === null}<p>{!report.results.some(entry => entry.ok) ? t('config.bulk.no-ok', 'No memory in this preview can take the template. Change the list and preview again.') : t('config.bulk.revisions-disagree', 'This preview saw different versions of the template. Preview again before applying.')}</p>{/if}
         {:else}
-          <p>{t('config.bulk.summary', '{succeeded} succeeded, {failed} failed', { succeeded: report.succeeded, failed: report.failed })}</p>
+          {@const split = changeSplit(report.results)}
+          <p>{t('config.bulk.summary', '{change} changed, {skipped} changed nothing, {failed} failed', { change: split.change, skipped: split.skipped, failed: report.failed })}</p>
         {/if}
       {/if}
     </div>
   </div>
   {#if rows.length}
-    <DataTable {table} listKey="node-role-template-bulk-apply" bind:globalFilter={search} maxHeight="max(240px, calc(100vh - 16rem))" searchPlaceholder={t('config.bulk.search', 'Search memories…')} searchAriaLabel={t('config.bulk.search', 'Search memories…')}>
+    <DataTable {table} listKey="node-role-template-bulk-apply" bind:globalFilter={search} maxHeight="max(240px, calc(100vh - 16rem))" fitOnPhone searchPlaceholder={t('config.bulk.search', 'Search memories…')} searchAriaLabel={t('config.bulk.search', 'Search memories…')}>
       {#snippet cell(_cell, row)}
         <div class="flex min-w-0 flex-col gap-2 whitespace-normal sm:flex-row sm:justify-between sm:gap-4">
           <div class="min-w-0 sm:w-1/2">
@@ -139,7 +147,7 @@
             <div class="mt-1"><Urn value={row.memory.urn} linked /></div>
             {#if !locked}<button type="button" disabled={pending} onclick={() => remove(row.memory)} aria-label={t('config.bulk.remove-named', 'Remove {name}', { name: row.memory.name })} class="mt-1 min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.remove', 'Remove')}</button>{/if}
           </div>
-          <div class="min-w-0 sm:w-1/2">{@render outcome(row)}</div>
+          <div class="bulk-apply-outcome min-w-0 sm:w-1/2">{@render outcome(row)}</div>
         </div>
       {/snippet}
     </DataTable>
@@ -147,7 +155,7 @@
   {#if report?.dryRun}
     {#if required}<p class="rounded bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">{t('config.required-warning', 'Applied rules arrive locked: ordinary edits and deletion are refused. On an org memory only an org admin can unlock them.')}</p>{/if}
     <p>{t('config.bulk.preview-may-differ', 'This preview may differ from the apply if memories change in between.')}</p>
-    {#if revision !== null && report.failed > 0}<p>{t('config.bulk.apply-sends-all', 'Apply sends every memory in this list, including any that can’t take the template in this preview.')}</p>{/if}
+    {#if revision !== null && report.failed > 0}<p>{t('config.bulk.apply-sends-all', 'Apply sends every memory in this list, including any that can’t be applied in this preview.')}</p>{/if}
   {/if}
   {#if unknown}
     {#if required}<p class="rounded bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">{t('config.bulk.reapply-warning', 'This template is required: applying it again replaces each chosen memory’s rule again and discards edits made since.')}</p>{/if}

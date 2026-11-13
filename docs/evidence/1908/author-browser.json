@@ -1,0 +1,46 @@
+{
+  "server": "f9c72211982f32c2fb4cb5288fa126993e4378c7",
+  "privateStack": "juliet1908",
+  "results": [
+    {
+      "width": 390,
+      "theme": "light",
+      "projected": true,
+      "lowUse": true,
+      "stale": true,
+      "add": true,
+      "move": true,
+      "overflow": 0
+    },
+    {
+      "width": 390,
+      "theme": "dark",
+      "projected": true,
+      "lowUse": true,
+      "stale": true,
+      "add": true,
+      "move": true,
+      "overflow": 0
+    },
+    {
+      "width": 1280,
+      "theme": "light",
+      "projected": true,
+      "lowUse": true,
+      "stale": true,
+      "add": true,
+      "move": true,
+      "overflow": 0
+    },
+    {
+      "width": 1280,
+      "theme": "dark",
+      "projected": true,
+      "lowUse": true,
+      "stale": true,
+      "add": true,
+      "move": true,
+      "overflow": 0
+    }
+  ]
+}

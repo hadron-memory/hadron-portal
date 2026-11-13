@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { buildSchema, isEnumType } from 'graphql';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { bulkCall, retryPositions, rowErrorCopy, sharedRevision, type BulkEntry } from './bulk';
+import { APPLY_OUTCOMES, bulkCall, changeSplit, retryPositions, rowErrorCopy, sharedRevision, type BulkEntry } from './bulk';
 
 const ok = (index: number, templateRevision: number): BulkEntry => ({ index, memoryRef: `m${index}`, ok: true, error: null, result: { memoryId: `m${index}`, templateRevision, required: false, dryRun: true, entries: [], warnings: [] } });
 const failed = (index: number, code: string): BulkEntry => ({ index, memoryRef: `m${index}`, ok: false, result: null, error: { code, message: 'server text', currentRevision: null, requestId: null } });
@@ -13,6 +15,45 @@ describe('sharedRevision', () => {
 describe('retryPositions', () => {
   it('excludes succeeded and DUPLICATE_TARGET rows, keeping every other failure', () => {
     expect(retryPositions([ok(0, 1), failed(1, 'CONFLICT'), failed(2, 'DUPLICATE_TARGET'), failed(3, 'MEMORY_NOT_FOUND')])).toEqual([1, 3]);
+  });
+});
+describe('changeSplit', () => {
+  const applied = (index: number, outcomes: Array<'APPLIED' | 'REPLACED' | 'SKIPPED_LOCKED' | 'SKIPPED_CONFLICT'>): BulkEntry => {
+    const base = ok(index, 4);
+    return { ...base, result: { ...base.result!, entries: outcomes.map(outcome => ({ role: 'review', outcome })) } };
+  };
+  it('counts an all-skipped ok row as one that changes nothing (#1763)', () => {
+    expect(changeSplit([applied(0, ['SKIPPED_LOCKED']), applied(1, ['SKIPPED_LOCKED', 'SKIPPED_CONFLICT'])])).toEqual({ change: 0, skipped: 2 });
+  });
+  it('counts a row with any applied or replaced entry as changing, even alongside skips', () => {
+    expect(changeSplit([applied(0, ['SKIPPED_LOCKED', 'APPLIED']), applied(1, ['REPLACED'])])).toEqual({ change: 2, skipped: 0 });
+  });
+  it('counts an ok row with no entries (a template with no rules) as changing nothing', () => {
+    expect(changeSplit([ok(0, 4)])).toEqual({ change: 0, skipped: 1 });
+  });
+  it('leaves failed rows to the report’s failed count', () => {
+    expect(changeSplit([applied(0, ['APPLIED']), failed(1, 'CONFLICT')])).toEqual({ change: 1, skipped: 0 });
+  });
+  it('counts an outcome the contract adds later as changing, never as skipped (#1807)', () => {
+    const base = ok(0, 4);
+    const future = { ...base, result: { ...base.result!, entries: [{ role: 'review', outcome: 'FUTURE_OUTCOME' }] } } as unknown as BulkEntry;
+    expect(changeSplit([future])).toEqual({ change: 1, skipped: 0 });
+  });
+});
+describe('APPLY_OUTCOMES', () => {
+  const contractOutcomes = (sdl: string) => {
+    const type = buildSchema(sdl).getType('MemoryConfigApplyOutcome');
+    if (!isEnumType(type)) throw new Error('MemoryConfigApplyOutcome is not an enum in this SDL');
+    return type.getValues().map(value => value.name).sort();
+  };
+  const snapshot = readFileSync('schema/schema.graphql', 'utf8');
+  it('names exactly the contract’s MemoryConfigApplyOutcome values, so a new value fails here (#1807)', () => {
+    expect([...APPLY_OUTCOMES].sort()).toEqual(contractOutcomes(snapshot));
+  });
+  it('would fail if the snapshot gained a value', () => {
+    const grown = snapshot.replace(/(enum MemoryConfigApplyOutcome \{[^}]*?)\n\}/, '$1\n  FUTURE_OUTCOME\n}');
+    expect(contractOutcomes(grown)).toContain('FUTURE_OUTCOME');
+    expect([...APPLY_OUTCOMES].sort()).not.toEqual(contractOutcomes(grown));
   });
 });
 describe('rowErrorCopy', () => {
@@ -80,6 +121,8 @@ describe('bulkCall', () => {
     ['a warning with no code', nested({ warnings: [{ role: 'review', field: null }] })],
     ['a warning with no role', nested({ warnings: [{ code: 'X', field: null }] })],
     ['a warning field that is not text', nested({ warnings: [{ code: 'X', role: 'review', field: 7 }] })],
+    ['a warning task URN that is not text or null', nested({ warnings: [{ code: 'X', role: 'review', field: null, taskUrn: 7 }] })],
+    ['a warning task state that is not text or null', nested({ warnings: [{ code: 'X', role: 'review', field: null, taskState: 7 }] })],
     ['a string revision', nested({ templateRevision: '7' })],
     ['a fractional revision', nested({ templateRevision: 1.5 })],
     ['a required flag that is not boolean', nested({ required: 'yes' })],

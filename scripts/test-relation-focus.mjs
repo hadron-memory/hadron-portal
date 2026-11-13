@@ -44,30 +44,59 @@ try {
   await server.listen(); const origin = server.resolvedUrls.local[0];
   const css = await (await fetch(new URL('src/app.css?direct', origin))).text();
   browser = await chromium.launch({ headless: true });
-  for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
-    for (const direction of ['Waits for', 'Holds up']) for (const key of ['Enter', 'Space']) for (const focusMovedElsewhere of [false, true]) {
-      const label = `${width}-${theme}-${direction.replaceAll(' ', '-')}-${key}-${focusMovedElsewhere ? 'newer' : 'handoff'}`;
+  for (const hasMore of [true, false]) for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
+    for (const direction of ['Waits for', 'Holds up']) for (const key of ['Enter', 'Space', 'Mouse']) for (const interaction of ['stay', 'newer', 'blank', ...(hasMore ? ['failed'] : [])]) {
+      const focusMovedElsewhere = interaction === 'newer';
+      const label = `${hasMore ? 'intermediate' : 'final'}-${width}-${theme}-${direction.replaceAll(' ', '-')}-${key}-${interaction}`;
       const page = await browser.newPage({ viewport: { width, height: 900 } });
       let release; let requested;
       const held = new Promise(r => release = r); const requestStarted = new Promise(r => requested = r);
       await page.route('**/relations?*', async route => {
         requested(route.request().url()); await held;
-        await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ kind: 'ok', value: {
-          items: [{ id: 'appended', appId: 'app', title: 'Task appended', handle: 'AT1.appended', status: 'PENDING' }], hasMore: false,
+        await route.fulfill({ status: interaction === 'failed' ? 500 : 200, contentType: 'application/json', body: JSON.stringify({ kind: 'ok', value: {
+          items: [{ id: 'appended', appId: 'app', title: 'Task appended', handle: 'AT1.appended', status: 'PENDING' }], hasMore,
         } }) });
       });
       await page.route('**/__relation_focus', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Relation focus</title>' }));
       const pageSize = await mountFixture(page, origin, css, theme);
       const trigger = page.getByRole('button', { name: `Load more ${direction}`, exact: true });
-      await trigger.focus(); await page.keyboard.press(key);
+      // #1775: a real mouse click focuses the button natively, then activates it.
+      if (key === 'Mouse') await trigger.click(); else { await trigger.focus(); await page.keyboard.press(key); }
       const requestedUrl = await withDeadline(requestStarted, label);
       if (focusMovedElsewhere) await page.locator('#newer').focus();
+      if (interaction === 'blank') await page.locator('h2').click();
+      await page.waitForFunction(el => el.getAttribute('aria-busy') === 'true', await trigger.elementHandle());
+      assert.equal(await trigger.evaluate(el => el.disabled), false, `${label}: paging keeps the control focusable`);
+      assert.equal(await trigger.getAttribute('aria-disabled'), 'true', label);
       release(); // Release the route before assertions so a failed assertion cannot strand it.
       assert.equal(new URL(requestedUrl).searchParams.get('offset'), String(pageSize), label);
-      await trigger.waitFor({ state: 'detached' });
+      if (hasMore) {
+        await page.waitForFunction(el => el.getAttribute('aria-busy') === 'false', await trigger.elementHandle());
+      } else await trigger.waitFor({ state: 'detached' });
       const filter = page.getByRole('textbox', { name: 'Filter loaded relations…', exact: true });
       if (focusMovedElsewhere) {
         await page.waitForFunction(() => document.activeElement?.id === 'newer'); assert.equal(await page.locator('#newer').evaluate(el => el === document.activeElement), true, label);
+      } else if (interaction === 'blank') {
+        assert.equal(await page.evaluate(() => document.activeElement === document.body), true, `${label}: newer blank-space intent preserved`);
+      } else if (hasMore) {
+        await page.waitForFunction(el => el === document.activeElement, await trigger.elementHandle());
+        assert.equal(await trigger.evaluate(el => el === document.activeElement), true, `${label}: surviving Load more owns focus`);
+        // #1775: the page really was appended. The filter header stays hidden after a
+        // non-final page, so the unconditional witness is the caveat the component
+        // shows only once rows were merged (`loadedMore`), plus a retrying visibility wait.
+        const caveat = page.getByText('Relations can change while you load pages.');
+        if (interaction === 'failed') assert.equal(await caveat.count(), 0, `${label}: a failed page appends nothing`);
+        else {
+          await caveat.waitFor({ state: 'visible', timeout: 5000 });
+          // Reach the appended row through the table's own filter: the header is collapsed
+          // after a non-final page, so open it with its toggle, then require the row.
+          const searchBox = page.getByRole('textbox', { name: 'Filter loaded relations…', exact: true });
+          if (!(await searchBox.isVisible())) await page.locator('[data-testid="table-header-toggle"]').click();
+          await searchBox.waitFor({ state: 'visible', timeout: 5000 });
+          await searchBox.fill('Task appended');
+          await page.getByRole('link', { name: 'Task appended', exact: true }).waitFor({ state: 'visible', timeout: 5000 });
+          await searchBox.fill('');
+        }
       } else {
         await filter.waitFor({ state: 'visible' });
         await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Filter loaded relations…');
@@ -85,8 +114,9 @@ try {
         }
         await filter.focus();
       }
+      if (interaction === 'failed') assert.match(await page.getByRole('alert').textContent(), /Couldn’t load more/);
       if (output) await page.screenshot({ path: `${output}/${label}.png`, fullPage: true });
-      console.log(`ok ${label}: final page appended, exhausted; ${focusMovedElsewhere ? 'newer focus preserved' : 'filter focused; old/new rows keyboard reachable'}`);
+      console.log(`ok ${label}: ${hasMore ? (interaction === 'failed' ? 'failed page retains control' : 'intermediate page appended') : 'final page appended, exhausted'}; ${focusMovedElsewhere ? 'newer focus preserved' : interaction === 'blank' ? 'newer blank-space intent preserved' : (hasMore ? 'surviving Load more focused' : 'filter focused; old/new rows keyboard reachable')}`);
       await page.close();
     }
   }

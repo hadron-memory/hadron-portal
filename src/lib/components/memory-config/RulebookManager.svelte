@@ -1,27 +1,37 @@
 <script lang="ts">
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
   import { beforeNavigate } from '$app/navigation';
   import { t } from '$lib/i18n/t';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { ruleGlobalFilterFn } from '$lib/memory-config/rule-search';
   import type { PortalColumnDef } from '$lib/table/features';
   import RuleReference from './RuleReference.svelte';
   import RuleEditor from './RuleEditor.svelte';
   import { configCall, type ConfigFailure } from '$lib/memory-config/client';
-  import type { Rule, Rulebook } from '$lib/memory-config/types';
+  import type { MemoryConfigWarning, Rule, Rulebook } from '$lib/memory-config/types';
+  import { normalizeWarnings, warningSearchText } from '$lib/memory-config/warnings';
+  import TaskWarnings from './TaskWarnings.svelte';
   let { initial, memoryRef, readOnly, memories, memoriesFailed = false }: { initial: Rulebook | null; memoryRef: string; readOnly: boolean; memories: { id: string; name: string; urn: string }[]; memoriesFailed?: boolean } = $props();
   let snapshot = untrack(() => initial);
   let book = $state(untrack(() => initial)), editing = $state<Rule | null | undefined>(undefined);
   let editorVersion = $state(0);
-  let heading = $state<HTMLHeadingElement>();
-  let notice = $state(''), failure = $state<ConfigFailure | null>(null), busy = $state(false);
+  let heading = $state<HTMLHeadingElement>(), feedbackFocus = $state<HTMLElement>();
+  let notice = $state(''), warnings = $state<MemoryConfigWarning[]>([]), failure = $state<ConfigFailure | null>(null), busy = $state(false);
   // Plain counters are ownership tokens, never deep-proxied response state.
-  let alive = true, viewEpoch = 0, readSequence = 0, feedbackSequence = 0;
+  // feedbackSequence and warningGeneration bump TOGETHER at every operation
+  // start and at the view reset; they diverge only at completions, which bump
+  // feedbackSequence alone. beginOperation() makes the start half structural;
+  // the view-reset effect keeps the pairing by bumping both.
+  let alive = true, viewEpoch = 0, readSequence = 0, feedbackSequence = 0, warningGeneration = 0;
   let busyOwner: object | null = null;
+  const currentFailure = (): ConfigFailure | null => failure;
+  const announcement = $derived([failure?.error ?? '', notice, ...warnings.map(warningSearchText)].filter(Boolean).join(' '));
+  const liveAnnouncement = $derived(editing === undefined ? announcement : '');
   $effect(() => {
     if (initial !== snapshot) {
-      viewEpoch++;
-      snapshot = initial; book = initial;
+      viewEpoch++; warningGeneration++; feedbackSequence++;
+      snapshot = initial; book = initial; warnings = []; notice = ''; failure = null;
       busyOwner = null; busy = false;
     }
   });
@@ -32,6 +42,14 @@
     return { current: () => alive && view === viewEpoch && basedOn === initial && (editor === undefined || editor === editorVersion) };
   }
   function edit(next: Rule | null | undefined) { editorVersion++; editing = next; }
+  // Every operation starts here: both counters advance together and the
+  // feedback slate is cleared. Completions bump feedbackSequence alone, so a
+  // completion can retire a notice but never a persisted write's advisory.
+  function beginOperation(): number {
+    feedbackSequence++; warningGeneration++;
+    failure = null; notice = ''; warnings = [];
+    return warningGeneration;
+  }
   type ReadResult = { kind: 'stale' } | { kind: 'applied'; current: () => boolean } | { kind: 'error'; error: ConfigFailure; current: () => boolean };
   beforeNavigate(({ cancel }) => {
     if (editing !== undefined && !window.confirm(t('config.discard-draft', 'Leave this page and discard your unsaved changes?'))) cancel();
@@ -44,7 +62,8 @@
     { id: 'references', header: t('config.references', 'References'), size: 340 },
     { id: 'actions', header: t('config.actions', 'Actions'), size: 220 },
   ];
-  const table = createSvelteTable<Rule>({ get data() { return book?.rules ?? []; }, columns, getRowId: r => r.id ?? r.role, initialState: { sorting: [{ id: 'role', desc: false }] } });
+  let ruleFilter = $state('');
+  const table = createSvelteTable<Rule>({ get data() { return book?.rules ?? []; }, columns, getRowId: r => r.id ?? r.role, state: { get globalFilter() { return ruleFilter; } }, onGlobalFilterChange: value => { ruleFilter = typeof value === 'function' ? value(ruleFilter) : value; }, globalFilterFn: ruleGlobalFilterFn, initialState: { sorting: [{ id: 'role', desc: false }] } });
   async function reload(owner: Owner): Promise<ReadResult> {
     if (!owner.current()) return { kind: 'stale' };
     // Only an issued read supersedes an earlier read. A refused mutation has
@@ -63,20 +82,65 @@
   }
   async function save(input: Record<string, unknown>): Promise<ConfigFailure | null> {
     if (readOnly) return { error: t('config.impersonation', 'This page is read-only while impersonating.') };
-    const owner = ownView(editorVersion);
-    feedbackSequence++;
-    failure = null; notice = '';
+    // Two separate ownership questions, deliberately not conflated: the
+    // view/session owner below governs the write→reload→publication chain, and
+    // startEditor — captured before any await — answers only who may close the
+    // modal at the end. An editor-epoch change during the chain (a cancel, or a
+    // newer editor taking the surface) therefore retires nothing. The modal
+    // discipline makes that unreachable in a real browser today (Cancel and
+    // Escape are pending-guarded, the open dialog inert); publication no longer
+    // depends on that staying true.
+    const startEditor = editorVersion;
+    const owner = ownView();
+    // The advisory's own ownership token, captured before any await: operation
+    // starts and view resets advance it, another operation's completion never
+    // does. A newer operation that STARTS during this save's write retires the
+    // advisory even if its completion precedes this save's publication —
+    // retirement is ordered by starts, publication by completions.
+    const warningEpoch = beginOperation();
+    let answer: { warnings?: unknown };
     try {
-      await configCall({ kind: 'rules', op: editing ? 'update' : 'create', memoryRef, ref: editing?.id, revision: editing?.revision, input });
+      answer = await configCall({ kind: 'rules', op: editing ? 'update' : 'create', memoryRef, ref: editing?.id, revision: editing?.revision, input });
     } catch (e) { return owner.current() ? e as ConfigFailure : null; }
     if (!owner.current()) return null;
-    feedbackSequence++; notice = t('config.saved', 'Saved.');
+    // Close the native modal before changing the external live region; while it
+    // is open, content outside the dialog is inert and will not be announced.
+    const normalizedWarnings = normalizeWarnings(answer?.warnings);
     const result = await reload(owner);
     // Read ordering owns the book; this confirmed write still owns its editor.
     // A newer read cannot strand that editor, while a newer view/session can.
     if (!owner.current()) return null;
-    if (result.kind === 'error' && result.current()) failure = { error: t('config.reload-failed', 'Saved, but the rules could not be reloaded. Reload before another change.') };
-    edit(undefined);
+    const saveReadFailure = result.kind === 'error' && result.current()
+      ? { error: t('config.reload-failed', 'Saved, but the rules could not be reloaded. Reload before another change.') }
+      : null;
+    const feedback = feedbackSequence;
+    // Close the modal only if this save still owns the editor surface: a newer
+    // editor — or a cancel — took it, and edit(undefined) would close THEIR
+    // modal. The publication itself is unaffected; it defers behind a newer
+    // editor or lands outright after a cancel.
+    if (startEditor === editorVersion) edit(undefined);
+    const completedView = ownView();
+    await tick();
+    if (!completedView.current()) return null;
+    // Never move focus out of an open editor's modal dialog; with an editor
+    // open the focus step is skipped, not deferred — nothing re-runs it later.
+    if (book === null && editing === undefined) feedbackFocus?.focus();
+    const existingFailure = currentFailure();
+    if (saveReadFailure) failure = existingFailure
+      ? { error: `${existingFailure.error} ${saveReadFailure.error}` }
+      : saveReadFailure;
+    // Split ownership (#1815): the notice keeps the full outcome guard — a newer
+    // row outcome must own it — while the advisory describes a write that already
+    // persisted, so another operation's completion must not drop it. Only a newer
+    // operation's start or a view reset, which clear the warning slate, retires
+    // it — at any point in this chain, never an editor-epoch change. A newer
+    // editor merely OPENING retires nothing: the publication lands in state
+    // behind the modal and the derived live region announces it when the editor
+    // closes (liveAnnouncement is '' only while editing is set), so a persisted
+    // write's advisory — and a reload-failure instruction — is deferred, not
+    // lost; after a cancel, with no editor open, it lands outright.
+    if (feedback === feedbackSequence) { feedbackSequence++; notice = t('config.saved', 'Saved.'); }
+    if (warningEpoch === warningGeneration) warnings = normalizedWarnings;
     return null;
   }
   async function rowAction(rule: Rule, op: 'delete' | 'unlock') {
@@ -84,8 +148,8 @@
     const prompt = op === 'delete' ? t('config.delete-confirm', 'Delete the rule “{role}”?', { role: rule.role }) : t('config.unlock-confirm', 'Unlock “{role}” so it can be edited or deleted? On an org memory only an org admin can unlock it; the server may refuse this action.', { role: rule.role });
     if (!window.confirm(prompt)) return;
     const owner = ownView(), token = {};
-    feedbackSequence++;
-    busyOwner = token; busy = true; failure = null; notice = '';
+    beginOperation();
+    busyOwner = token; busy = true;
     try {
       await configCall({ kind: 'rules', op, memoryRef, ref: rule.id, revision: rule.revision });
       if (!owner.current()) return;
@@ -104,19 +168,34 @@
   async function reloadEditor() {
     const owner = ownView(editorVersion), id = editing?.id;
     const result = await reload(owner);
-    if (result.kind === 'stale' || !result.current()) return;
-    if (result.kind === 'applied') edit(book?.rules.find(r => r.id === id));
-    else { feedbackSequence++; failure = { error: t('config.reload-kept', 'Could not reload. Your input is kept.') }; }
+    if (result.kind === 'stale' || !result.current()) return undefined;
+    if (result.kind === 'applied') {
+      edit(book?.rules.find(r => r.id === id));
+      if (book === null) { const completedView = ownView(); await tick(); if (completedView.current()) feedbackFocus?.focus(); }
+      return null;
+    }
+    feedbackSequence++;
+    return { error: t('config.reload-kept', 'Could not reload. Your input is kept.') };
   }
 </script>
+{#snippet feedback()}
+  {#if failure}<p class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}
+  {#if notice}<p class="text-green-700 dark:text-green-300">{notice}</p>{/if}
+  {#if warnings.length}<div class="space-y-2"><TaskWarnings {warnings} /></div>{/if}
+{/snippet}
+<!-- Announce text only: interactive copy controls stay in the shared visual snippet. -->
+<div class="sr-only" role="status" data-rule-feedback>{#if !failure}{liveAnnouncement}{/if}</div>
+<div class="sr-only" aria-live="assertive" aria-atomic="true" data-rule-failure>{#if failure}{liveAnnouncement}{/if}</div>
+<div bind:this={feedbackFocus} data-rule-feedback-visual tabindex="-1" class="space-y-4">
+  {@render feedback()}
+  {#if failure}<button type="button" onclick={reloadFailure} class="min-h-11 rounded border px-3">{t('config.reload', 'Reload')}</button>{/if}
+</div>
 {#if book !== null}
   <section class="space-y-4" aria-label={t('config.node-roles', 'Node roles')}>
     <h1 bind:this={heading} tabindex="-1" class="text-2xl font-semibold text-zinc-900 dark:text-white">{t('config.node-roles', 'Node roles')}</h1>
     {#if readOnly}<p>{t('config.impersonation', 'This page is read-only while impersonating.')}</p>
     {:else}<button type="button" onclick={() => edit(null)} class="min-h-11 rounded bg-indigo-600 px-4 text-white">{t('config.create-rule', 'Create rule')}</button>{/if}
-    {#if notice}<p role="status" class="text-green-700 dark:text-green-300">{notice}</p>{/if}
-    {#if failure}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p><button type="button" onclick={reloadFailure} class="min-h-11 rounded border px-3">{t('config.reload', 'Reload')}</button>{/if}
-    <DataTable {table} listKey="memory-node-role-rules" searchPlaceholder={t('config.search-rules', 'Search rules…')} searchAriaLabel={t('config.search-rules', 'Search rules…')}>
+    <DataTable {table} listKey="memory-node-role-rules" bind:globalFilter={ruleFilter} searchPlaceholder={t('config.search-rules', 'Search rules…')} searchAriaLabel={t('config.search-rules', 'Search rules…')}>
       {#snippet cell(cell, r)}
         {#if cell.column.id === 'role'}<span class="font-mono">{r.role}</span>
         {:else if cell.column.id === 'settings'}

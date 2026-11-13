@@ -73,7 +73,7 @@ describe('Tickers list', () => {
     const html = list();
     expect(html).toContain('No tickers yet.');
     expect(html).toContain('A mention already makes a worker due at once, unless its mentions are off or it is paused.');
-    expect(html).toContain('A router delivers the wake-ups. This page only decides who is due and when.');
+    expect(html).toContain('A router delivers the wakes. This page only decides who is due and when.');
     expect(html).not.toContain('hadron_ticker_create');
     expect(html).not.toMatch(/tickers (already )?wake/i);
     expectReadOnly(html);
@@ -139,7 +139,7 @@ describe('Tickers list', () => {
     const html = list();
     expect(html).toContain('Fastest ticker: every 2 min');
     expect(html).toContain('Up to 20 tickers');
-    expect(html).toContain('480 wake-ups a day');
+    expect(html).toContain('480 ticker wakes a day');
     expect(html).toContain('(set automatically from the team’s size)');
     expect(html).toContain('Only whoever manages the App can change these settings.');
   });
@@ -254,7 +254,7 @@ describe('Wake-ups panel', () => {
     expect(html.indexOf('data-testid="wake-status"')).toBeLessThan(html.indexOf('data-testid="wake-settings"'));
     expect(html).toContain('Woken at once when mentioned. No ticker wakes it for other unread messages.');
     expect(html).toContain('No worker is woken more often than every 2 min in this App.');
-    expect(html).toContain('This page shows when the worker is due, not whether a wake-up was delivered.');
+    expect(html).toContain('This page shows when the worker is due, not whether a wake was delivered.');
     expect(html).toContain('Not subscribed to any ticker.');
     expectReadOnly(html);
   });
@@ -301,12 +301,12 @@ describe('Wake-ups panel', () => {
 
   it('a non-participant sees the inline state, not the worker’s settings', () => {
     const html = panel({ wake: { kind: 'not-participant' } });
-    expect(html).toContain('You don’t take part in this worker’s App, so its wake-ups aren’t shown.');
+    expect(html).toContain('You don’t take part in this worker’s App, so its tickers aren’t shown.');
     expect(html).not.toContain('data-testid="wake-settings"');
   });
 
   it('a failed read is an alert', () => {
-    expect(panel({ wake: { kind: 'failed' } })).toContain('Couldn’t load this worker’s wake-ups.');
+    expect(panel({ wake: { kind: 'failed' } })).toContain('Couldn’t load this worker’s tickers.');
   });
 
   it('lists subscriptions with their tickers linked', () => {
@@ -430,7 +430,10 @@ describe('Ticker page: the Task entry (portal#1384)', () => {
     expect(count(e, 'tasks:on-base-tick')).toBe(1);
     expect(count(e, 'tick.engineering')).toBe(1);
     expect(e).toMatch(/<(code|span)[^>]*font-mono[^>]*>[^<]*tasks:on-base-tick/);
-    expect(e).toContain('Each worker runs the task at this location in its own role, or the shared one.');
+    expect(e).toContain('Each woken worker looks up the nearest readable runnable task in its Agent chain.');
+    expect(e).not.toContain('Each worker runs the task at this location');
+    expect(e).toContain('Ticker code:');
+    expect(e).toMatch(/Ticker code:\s*<code[^>]*>tick\.engineering<\/code>/);
     expect(e).not.toContain('No task you can see');
   });
 
@@ -484,10 +487,10 @@ describe('Ticker page: the Task entry (portal#1384)', () => {
     }
   });
 
-  it('an empty code (a stale snapshot) omits the code line and raises no error', () => {
+  it('an empty code (malformed-response robustness: tickCode is String!, so an older server rejects the query) omits the code line and raises no error', () => {
     const e = entry(detail({ ticker: ticker({ tickCode: '' }) }));
     expect(e).toContain('tasks:on-base-tick');
-    expect(e).not.toMatch(/Code/);
+    expect(e).not.toMatch(/code:/i);
   });
 
   it('escapes markup in a loc and a code', () => {

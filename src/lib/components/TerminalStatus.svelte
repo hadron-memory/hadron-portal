@@ -25,7 +25,7 @@
 
 {#if badge}
   {#if compact}
-    <span class="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+    <span class="inline-flex max-w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
       <!-- portal#1495 (Uma, UX): the longest "State: Reason" pill used to wrap into a
            two-line capsule in the 220px column; one line, ellipsis, full text on hover. -->
       <span class="max-w-full truncate rounded-full px-2 py-0.5 text-xs font-medium {tone}" title={terminalSummary(badge)}>{terminalSummary(badge)}</span>

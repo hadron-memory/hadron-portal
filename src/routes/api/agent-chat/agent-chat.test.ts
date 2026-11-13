@@ -148,6 +148,10 @@ describe('POST /api/agent-chat/start', () => {
       stageName: 'intro',
       welcomeMessage: 'Welcome! What are we researching today?',
       welcomeError: null,
+      welcomePartial: false,
+      conversationCompleted: null,
+      detourReturned: false,
+      rejectedNextStage: null,
       stageTransitioned: false,
       // Spec 017 — scope echoed back to the client. Default = private.
       scope: 'private',

@@ -1,0 +1,30 @@
+
+ RUN  v4.1.4 /home/orca/orca/workspaces/hadron-portal/juliet
+
+ ❯ |client| src/lib/components/table/DataTable.minSize.client.test.ts (1 test | 1 failed) 86ms
+   × declared column minimum controls restored sizing, keyboard resize and ARIA; legacy keyboard floor stays40 86ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |client| src/lib/components/table/DataTable.minSize.client.test.ts > declared column minimum controls restored sizing, keyboard resize and ARIA; legacy keyboard floor stays40
+AssertionError: expected '40' to be '120' // Object.is equality
+
+Expected: "120"
+Received: "40"
+
+ ❯ src/lib/components/table/DataTable.minSize.client.test.ts:12:47
+     10|  const [action, legacy] = [...m.target.querySelectorAll('[role="separa…
+     11|  expect(action.getAttribute('aria-valuenow')).toBe('120');
+     12|  expect(action.getAttribute('aria-valuemin')).toBe('120');
+       |                                               ^
+     13|  action.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft',…
+     14|  expect(action.getAttribute('aria-valuenow')).toBe('120');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  09:18:44
+   Duration  1.81s (transform 812ms, setup 0ms, import 994ms, tests 86ms, environment 627ms)
+

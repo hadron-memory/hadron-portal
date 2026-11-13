@@ -10,8 +10,9 @@
  * `graphNodes` instead of issuing a memory-blind GraphQL lookup.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { nodeMetaBaseline } from '$lib/node-meta-seed';
 import { jsonFingerprint } from '$lib/properties-source';
-import { MOVE_NODE_MUTATION, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import { MOVE_NODE_MUTATION, NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY, UPDATE_NODE_MUTATION } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -460,6 +461,10 @@ function actionEvent(opts: {
   } as unknown as Parameters<Actions[keyof Actions]>[0];
 }
 
+/** The baseline token a Save from an editor opened on this node carries (portal#2023). */
+const baselineOf = (over: Record<string, unknown>) =>
+  nodeMetaBaseline({ name: '', loc: '', nodeType: 'info', alias: null, description: null, seq: null, tags: [], isRunnable: false, role: null, ...over } as never);
+
 function superFormFrom(result: unknown) {
   return (result as {
     data?: { form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean } };
@@ -773,7 +778,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
       gid: 'mem-A',
       nodeId: 'pk-r',
       // Loc unchanged → no MOVE_NODE_MUTATION, so the update is call index 1.
-      form: { name: 'r', loc: 'r', isRunnable: 'true' },
+      form: { name: 'r', loc: 'r', isRunnable: 'true', baseline: baselineOf({ name: 'r', loc: 'r', nodeType: 'task', isRunnable: null }) },
     }));
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { isRunnable?: unknown } }];
@@ -799,7 +804,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     await actions.updateMeta(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk-r2',
-      form: { name: 'r2', loc: 'r2' },
+      form: { name: 'r2', loc: 'r2', baseline: baselineOf({ name: 'r2', loc: 'r2', nodeType: 'task', isRunnable: true }) },
     }));
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { isRunnable?: unknown } }];
@@ -830,6 +835,78 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     expect(result.status).toBe(400);
     expect(superFormFrom(result)?.errors?._kind?.[0]).toBeTruthy();
     expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  describe('updateMeta: a draft older than the node is refused before any write (portal#2023)', () => {
+    const stored = (over: Record<string, unknown> = {}) => ({
+      node: {
+        id: 'pk-c', memoryId: 'mem-A', loc: 'moved:by:other', name: 'Other editor name',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: false, createdAt: '', updatedAt: '',
+        memory: { urn: 'hrn:mem:hadronmemory.com:portal-test' },
+        outgoingEdges: [], incomingEdges: [],
+        ...over,
+      },
+    });
+    const sent = () => mockRequest.mock.calls.map(([q]) => q);
+
+    it('refuses with 409 and writes nothing when another editor moved the node, so saving the draft cannot move it back', async () => {
+      mockRequest.mockResolvedValueOnce(stored());
+      const actions = await importActions();
+      const result = (await actions.updateMeta(actionEvent({
+        gid: 'mem-A', nodeId: 'pk-c',
+        // The draft was opened on the OLD name and loc and still carries the old loc.
+        form: { name: 'My draft', loc: 'old:loc', baseline: baselineOf({ name: 'Old name', loc: 'old:loc' }) },
+      }))) as { status: number };
+      expect(result.status).toBe(409);
+      expect((superFormFrom(result)?.message as { text?: string } | undefined)?.text).toMatch(/changed.*nothing was saved/i);
+      // Only the read happened: no update, and above all no moveNode.
+      expect(sent()).toEqual([NODE_BY_ID_QUERY]);
+    });
+
+    it('refuses when only the name changed under the draft', async () => {
+      mockRequest.mockResolvedValueOnce(stored({ loc: 'same' }));
+      const actions = await importActions();
+      const result = (await actions.updateMeta(actionEvent({
+        gid: 'mem-A', nodeId: 'pk-c',
+        form: { name: 'My draft', loc: 'same', baseline: baselineOf({ name: 'Old name', loc: 'same' }) },
+      }))) as { status: number };
+      expect(result.status).toBe(409);
+      expect(sent()).toEqual([NODE_BY_ID_QUERY]);
+    });
+
+    it('refuses when ANOTHER field changed under the draft (description), not only name and loc (Glen on #2027)', async () => {
+      mockRequest.mockResolvedValueOnce(stored({ loc: 'same', name: 'Same', description: 'changed by the other editor' }));
+      const actions = await importActions();
+      const result = (await actions.updateMeta(actionEvent({
+        gid: 'mem-A', nodeId: 'pk-c',
+        form: { name: 'Same', loc: 'same', description: 'my stale draft', baseline: baselineOf({ name: 'Same', loc: 'same' }) },
+      }))) as { status: number };
+      expect(result.status).toBe(409);
+      expect(sent()).toEqual([NODE_BY_ID_QUERY]);
+    });
+
+    it('refuses a save that carries no baseline rather than treating it as no conflict', async () => {
+      mockRequest.mockResolvedValueOnce(stored());
+      const actions = await importActions();
+      const result = (await actions.updateMeta(actionEvent({
+        gid: 'mem-A', nodeId: 'pk-c', form: { name: 'My draft', loc: 'moved:by:other' },
+      }))) as { status: number };
+      expect(result.status).toBe(400);
+      expect(sent()).toEqual([NODE_BY_ID_QUERY]);
+    });
+
+    it('control: a save whose baseline matches the node still writes', async () => {
+      mockRequest.mockResolvedValueOnce(stored());
+      mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk-c' } });
+      const actions = await importActions();
+      await actions.updateMeta(actionEvent({
+        gid: 'mem-A', nodeId: 'pk-c',
+        form: { name: 'Renamed', loc: 'moved:by:other', baseline: baselineOf({ name: 'Other editor name', loc: 'moved:by:other' }) },
+      }));
+      expect(sent()).toEqual([NODE_BY_ID_QUERY, UPDATE_NODE_MUTATION]);
+    });
   });
 
   it('updateMeta: surfaces a loc move conflict as a field error', async () => {
@@ -866,12 +943,15 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     const result = (await actions.updateMeta(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk-r5',
-      form: { name: 'source', loc: 'target' },
+      form: { name: 'source', loc: 'target', baseline: baselineOf({ name: 'source', loc: 'source' }) },
     }))) as { status: number };
 
     expect(result.status).toBe(409);
-    // The other edits are already saved by then, and the error says so.
-    expect(superFormFrom(result)?.errors?.loc?.[0]).toBe('Saved, but the node was not moved: Target loc is already occupied');
+    // The other edits are already saved by then, and the error says so, and
+    // where the node still is (#1989).
+    expect(superFormFrom(result)?.errors?.loc?.[0]).toBe(
+      'Saved, but the node was not moved: Target loc is already occupied. It is still at hrn:node:hadronmemory.com:portal-test:source.',
+    );
     expect(mockRequest).toHaveBeenCalledTimes(3);
     // …and it flags the partial save, so the page reloads the node (@codex on #929).
     expect((result as unknown as { data: { metaSaved?: boolean } }).data.metaSaved).toBe(true);

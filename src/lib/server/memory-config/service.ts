@@ -29,6 +29,8 @@ mutation CreateRoleRule($memoryRef: ID!, $input: CreateNodeRoleRuleInput!) {
       code
       role
       field
+      taskUrn
+      taskState
     }
   }
 }
@@ -68,6 +70,8 @@ mutation UpdateRoleRule($ref: ID!, $input: UpdateNodeRoleRuleInput!, $expectedRe
       code
       role
       field
+      taskUrn
+      taskState
     }
   }
 }
@@ -202,7 +206,8 @@ query MemoryRoleConfigAvailable($ref: ID!) {
   }
 }
 `;
-import type { ApplyPreview, Rulebook } from '$lib/memory-config/types';
+import type { ApplyPreview, MemoryConfigWarning, Rulebook } from '$lib/memory-config/types';
+import { normalizeWarnings } from '$lib/memory-config/warnings';
 import type { BulkResult } from '$lib/memory-config/bulk';
 // Request-scoped clients only. No config/template cache, including under impersonation.
 type Client = { request: (query: string, variables: Record<string, unknown>) => Promise<unknown> };
@@ -247,14 +252,19 @@ export async function loadRulebook(client: Client, ref: string): Promise<Ruleboo
 function writable(impersonating: boolean) {
   if (impersonating) throw new Error('Impersonation is read-only.');
 }
+/** The advisories a rule save answered. They ride along with a success; they are never an error. */
+function savedWarnings(result: unknown, key: string): { warnings: MemoryConfigWarning[] } {
+  const payload = (result as Record<string, { warnings?: unknown } | null | undefined> | null)?.[key];
+  return { warnings: normalizeWarnings(payload?.warnings) };
+}
 export async function mutateRule(client: Client, args: { impersonating: boolean; memoryRef: string; op: string; ref?: string; revision?: number; input: Record<string, unknown> }) {
   writable(args.impersonating);
   const { role, ...patch } = args.input;
   switch (args.op) {
-    case 'create': return client.request(CREATE_ROLE_RULE_DOCUMENT, { memoryRef: args.memoryRef, input: args.input });
+    case 'create': return savedWarnings(await client.request(CREATE_ROLE_RULE_DOCUMENT, { memoryRef: args.memoryRef, input: args.input }), 'createNodeRoleRule');
     case 'update':
       if (!Number.isSafeInteger(args.revision) || args.revision! < 1) throw new Error('Reload the rule before saving.');
-      return client.request(UPDATE_ROLE_RULE_DOCUMENT, { ref: args.ref, input: patch, expectedRevision: args.revision });
+      return savedWarnings(await client.request(UPDATE_ROLE_RULE_DOCUMENT, { ref: args.ref, input: patch, expectedRevision: args.revision }), 'updateNodeRoleRule');
     case 'delete':
       if (!Number.isSafeInteger(args.revision) || args.revision! < 1) throw new Error('Reload the rule before deleting.');
       return client.request(DELETE_ROLE_RULE_DOCUMENT, { ref: args.ref, expectedRevision: args.revision });
@@ -282,6 +292,8 @@ mutation ApplyRoleTemplate($templateRef: ID!, $memoryRef: ID!, $dryRun: Boolean!
       code
       role
       field
+      taskUrn
+      taskState
     }
   }
 }
@@ -324,6 +336,8 @@ mutation BulkApplyRoleTemplate($templateRef: ID!, $memoryRefs: [ID!]!, $dryRun: 
           code
           role
           field
+          taskUrn
+          taskState
         }
       }
       error {

@@ -10,7 +10,21 @@
 import { t } from './t';
 
 export const aiConfigStrings = {
-  heading: (): string => t('ai-config.heading', 'AI providers'),
+  // #1986 (Uma F3): say what changed in the reader's own terms and what to do
+  // next. `owner` is the already-authorized name of the organization or App
+  // the reader themselves had selected for this draft, never anything the
+  // session cannot read; without one the copy stays generic.
+  principalChanged: (owner?: string | null): string => owner
+    ? t('ai-config.principal-changed.named', 'Your sign-in or the selected organization or app changed, so your draft for {owner} was discarded. Open the form again to start over.', { owner })
+    : t('ai-config.principal-changed', 'Your sign-in or the selected organization or app changed, so your draft was discarded. Open the form again to start over.'),
+  principalUnavailable: (): string => t('ai-config.principal-unavailable', 'Unable to verify your sign-in. Try again.'),
+  principalChecking: (): string => t('ai-config.principal-checking', 'Checking your sign-in…'),
+  draftChanged: (): string => t('ai-config.draft-changed', 'Your draft changed while checking your sign-in. Try again.'),
+  signinDraft: (): string => t('ai-config.signin-draft', 'Sign in again to save your draft.'),
+  signinNewTab: (): string => t('ai-config.signin-new-tab', 'Sign in (opens in a new tab)'),
+  signinReturn: (): string => t('ai-config.signin-return', 'After signing in, return to this tab and try again. Reloading or closing this page discards your draft.'),
+  heading: (): string => t('ai-config.heading', 'AI provider configurations'),
+  ownerCaption: (name: string): string => t('ai-config.owner-caption', 'Owned by {name}', { name }),
   subheading: (): string =>
     t(
       'ai-config.subheading',
@@ -37,6 +51,8 @@ export const aiConfigStrings = {
   testButton: (): string => t('ai-config.test', 'Test'),
   saveButton: (): string => t('ai-config.save', 'Save'),
   savingButton: (): string => t('ai-config.saving', 'Saving…'),
+  recoveryPending: (): string =>
+    t('ai-config.recovery-pending', 'Checking configurations before you can make another change…'),
   cancelButton: (): string => t('ai-config.cancel', 'Cancel'),
 
   noKey: (): string => t('ai-config.no-key', 'No key'),
@@ -94,6 +110,8 @@ export const aiConfigStrings = {
   modelRequired: (): string => t('ai-config.model-required', 'Provider and model are required.'),
   testNeedsKey: (): string =>
     t('ai-config.test-needs-key', 'Enter a key to test this configuration.'),
+  testTimedOut: (): string =>
+    t('ai-config.test-timed-out', 'The test timed out. Try again.'),
 
   /**
    * Hint shown on the AGENT surface (#924). The agent page has no Chat tab any
@@ -117,13 +135,22 @@ export const aiConfigStrings = {
       `Renaming “${name}” will stop consumers that reference it by name from resolving it.`,
     ),
 
+  /** #1020 review: the inline confirm keeps the irreversibility visible —
+   * the menu item's title is invisible to keyboard and touch users. */
   confirmDelete: (name: string): string =>
     t('ai-config.confirm-delete', `Delete the “${name}” configuration? This cannot be undone.`),
 
   /** #1020: the row's ⋯ trigger names the config it acts on. */
   actionsLabel: (name: string): string => t('ai-config.actions.label', 'Actions for {name}', { name }),
 
-  /** #1020 review: the inline confirm keeps the irreversibility visible —
-   * the menu item's title is invisible to keyboard and touch users. */
-  confirmQuestion: (): string => t('ai-config.confirm-question', 'Delete? This cannot be undone.'),
+  editorTitle: (name: string): string => t('ai-config.editor-title', '“{name}”', { name }),
+  saveSuccess: (name: string): string => t('ai-config.save-success', 'Saved “{name}”.', { name }),
+  deleteSuccess: (name: string): string => t('ai-config.delete-success', 'Deleted “{name}”.', { name }),
+  saveRefreshFailed: (name: string): string =>
+    t('ai-config.save-refresh-failed', 'Saved “{name}”, but the configurations couldn’t be refreshed.', { name }),
+  deleteRefreshFailed: (name: string): string =>
+    t('ai-config.delete-refresh-failed', 'Deleted “{name}”, but the configurations couldn’t be refreshed.', { name }),
+  reloadPage: (): string => t('ai-config.reload-page', 'Reload page'),
+  mutationUnconfirmed: (): string =>
+    t('ai-config.mutation-unconfirmed', 'We couldn’t confirm the change went through. Reload to check before trying again.'),
 };

@@ -24,12 +24,13 @@ beforeEach(() => {
   mockRequest.mockReset();
 });
 
-function event(impersonating = false) {
+function event(impersonating = false, localsOverride: Partial<App.Locals> = {}) {
   const deleted: string[] = [];
   const locals = {
     token: 'tok',
     user: { id: 'u1', roles: ['user'] },
     impersonation: impersonating ? { adminId: 'admin-1' } : null,
+    ...localsOverride,
   };
   return { locals, deleted, cookies: { delete: (name: string) => deleted.push(name) } };
 }
@@ -135,4 +136,98 @@ describe('#1120: transient Me failures preserve credentials and answer 503', () 
       expect(ev.locals).toEqual(before);
     });
   }
+});
+
+/**
+ * #1091 (re-gate 2026-11-09): an ended sign-in leaves `me` answering null with
+ * no error, so before this the portal kept the dead cookie and the user stayed
+ * half-signed-in. hrn:node:hadronmemory.com:specs:cor:aut:010:05 gives the request a
+ * definitive answer about its own credential: `authenticationStatus`. Only REFUSED ends the session;
+ * every other answer, and every fault while asking, keeps today's null-`me`
+ * path (drop nothing), so a server without the field changes nothing.
+ */
+describe('#1091: a null `me` asks authenticationStatus, and only REFUSED drops the cookie', () => {
+  // Found by its text, not its position: a shifted call order must fail loudly
+  // rather than read as ''.
+  const queries = () => mockRequest.mock.calls.map((call) => String(call[0] ?? ''));
+  const statusQuery = () => queries().find((q) => /\bauthenticationStatus\b/.test(q)) ?? '';
+  const askedStatusAfterMe = () => {
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+    expect(queries()[0]).toMatch(/\bquery Me\b/);
+    expect(statusQuery()).not.toBe('');
+  };
+
+  for (const impersonating of [false, true]) {
+    it('REFUSED drops only the active cookie and says so (impersonating=' + impersonating + ')', async () => {
+      const ev = event(impersonating);
+      const before = structuredClone(ev.locals);
+      mockRequest.mockResolvedValueOnce({ me: null }).mockResolvedValueOnce({ authenticationStatus: 'REFUSED' });
+      expect(await rootLoad(ev)).toEqual({ user: null, sessionCleared: true });
+      expect(ev.deleted).toEqual([impersonating ? 'hadron_impersonation' : 'hadron_token']);
+      expect(ev.locals).toEqual(before);
+      askedStatusAfterMe();
+      expect(statusQuery()).not.toMatch(/\bme\b/);
+    });
+  }
+
+  it.each([
+    ['AUTHENTICATED', { authenticationStatus: 'AUTHENTICATED' }],
+    ['ANONYMOUS', { authenticationStatus: 'ANONYMOUS' }],
+    ['a null answer', { authenticationStatus: null }],
+    ['an unknown value', { authenticationStatus: 'refused' }],
+    ['no field at all', {}],
+  ])('%s drops nothing and keeps the null-`me` result', async (_label, answer) => {
+    const ev = event();
+    mockRequest.mockResolvedValueOnce({ me: null }).mockResolvedValueOnce(answer);
+    expect(await rootLoad(ev)).toEqual({ user: null });
+    expect(ev.deleted).toEqual([]);
+    askedStatusAfterMe();
+  });
+
+  const failure = (status: number, code?: string) => new ClientError(
+    { status, headers: new Headers(), body: '', ...(code ? { errors: [new GraphQLError('upstream detail', { extensions: { code } })] } : {}) },
+    { query: 'query AuthenticationStatus' },
+  );
+  it.each([
+    ['an internal error on the field (S5)', () => failure(200, 'INTERNAL_SERVER_ERROR')],
+    ['an older server that does not know the field', () => failure(400, 'GRAPHQL_VALIDATION_FAILED')],
+    ['HTTP 500', () => failure(500)],
+    ['HTTP 401', () => failure(401)],
+    ['a typed UNAUTHENTICATED on the status request', () => failure(200, 'UNAUTHENTICATED')],
+    ['a network failure', () => new TypeError('fetch failed')],
+  ])('%s is never read as refused: drops nothing, no 503', async (_label, err) => {
+    const ev = event();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockRequest.mockResolvedValueOnce({ me: null }).mockRejectedValueOnce(err());
+    expect(await rootLoad(ev)).toEqual({ user: null });
+    expect(ev.deleted).toEqual([]);
+    askedStatusAfterMe();
+    // The ClientError carries the request headers (the bearer token): never log it.
+    for (const call of warn.mock.calls) expect(call.some((arg) => arg instanceof Error)).toBe(false);
+    warn.mockRestore();
+  });
+
+  it('a signed-in `me` does not ask: one request, as before', async () => {
+    const user = { id: 'u1' };
+    mockRequest.mockResolvedValueOnce({ me: user });
+    expect(await rootLoad(event())).toEqual({ user });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('an ended admin under impersonation signs out in two hops, never a loop', async () => {
+    // Hop 1: the impersonation credential is refused; only its cookie goes.
+    const first = event(true);
+    mockRequest.mockResolvedValueOnce({ me: null }).mockResolvedValueOnce({ authenticationStatus: 'REFUSED' });
+    expect(await rootLoad(first)).toEqual({ user: null, sessionCleared: true });
+    expect(first.deleted).toEqual(['hadron_impersonation']);
+    // Hop 2: the next request carries the admin's own token, also ended.
+    const second = event(false);
+    mockRequest.mockResolvedValueOnce({ me: null }).mockResolvedValueOnce({ authenticationStatus: 'REFUSED' });
+    expect(await rootLoad(second)).toEqual({ user: null, sessionCleared: true });
+    expect(second.deleted).toEqual(['hadron_token']);
+    // Hop 3 has no cookie: the root asks nothing and clears nothing.
+    mockRequest.mockClear();
+    expect(await rootLoad(event(false, { token: null, user: null, impersonation: null }))).toEqual({ user: null });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
 });

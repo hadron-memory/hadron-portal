@@ -8,7 +8,7 @@
   import type { ConfigFailure } from '$lib/memory-config/client';
   let { rule = null, templateDraft = false, memories, memoriesFailed = false, oncancel, onsave, onreload, fallbackFocus }: {
     rule?: Rule | null; templateDraft?: boolean; memories: { id: string; name: string; urn: string }[]; memoriesFailed?: boolean;
-    oncancel: () => void; onsave: (input: Record<string, unknown>) => Promise<ConfigFailure | null>; onreload?: () => Promise<void>; fallbackFocus?: HTMLElement;
+    oncancel: () => void; onsave: (input: Record<string, unknown>) => Promise<ConfigFailure | null>; onreload?: () => Promise<ConfigFailure | null | undefined>; fallbackFocus?: HTMLElement;
   } = $props();
   const uid = $props.id();
   const seed = untrack(() => rule);
@@ -17,7 +17,19 @@
   const fields = ['authorTask', 'validationTask', 'descriptionNode'] as const;
   type Field = typeof fields[number];
   const labels = { authorTask: t('config.author', 'Author task'), validationTask: t('config.validator', 'Validation task'), descriptionNode: t('config.description-node', 'Description node') };
-  let refs = $state<Partial<Record<Field, string | null>>>({});
+  // `refs` is the sparse override map: a key is present only once the user has
+  // picked or cleared that field, and absence means "keep the seed / omit from
+  // the payload", which is different from an explicit null (Clear). It is a
+  // `$state.raw` value that is REPLACED, never mutated in place. With a deeply
+  // reactive object, the template's `Object.hasOwn(refs, field)` on a key that
+  // is not there yet subscribes to nothing in this Svelte version, so adding the
+  // key later does not re-render: Save sent the new value while the row still
+  // showed the old one. Evidence: portal#1804, and the finding
+  // hrn:node:hadronmemory.com:hadron-portal:findings:sparse-rule-reference-overrides-not-observed
+  let refs = $state.raw<Partial<Record<Field, string | null>>>({});
+  function setReference(field: Field, value: string | null) {
+    refs = { ...refs, [field]: value };
+  }
   let choosing = $state<Field | null>(null), pickerOpen = $state(false);
   let pending = $state(false), failure = $state<ConfigFailure | null>(null);
   // A pending save still owns Escape: declining it lets Chromium close the native dialog.
@@ -66,7 +78,7 @@
         {:else}<RuleReference state="NONE" urn={null} />{/if}
         <div class="flex flex-wrap gap-2">
           <button type="button" onclick={() => { choosing = field; pickerOpen = true; }} class="min-h-11 rounded border px-3">{t('config.change', 'Change…')}</button>
-          <button type="button" onclick={() => refs[field] = null} class="min-h-11 rounded border px-3">{t('config.clear', 'Clear')}</button>
+          <button type="button" onclick={() => setReference(field, null)} class="min-h-11 rounded border px-3">{t('config.clear', 'Clear')}</button>
         </div>
         {#if failure?.field === field || failure?.field === `${field}Ref`}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}
       </div>
@@ -76,12 +88,12 @@
       <p role="note" class="rounded border border-amber-400 bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">{templateDraft ? t('config.template-write-warning', 'When applied as an enabled rule, OWNER refuses every write touching the role; strict sub-roles refuse undeclared sub-roles. Saving this template draft does not change a memory.') : writers === 'OWNER' ? t('config.owner-warning', 'Saving this enabled OWNER rule will refuse every write touching this role, including writes that work now.') : t('config.strict-warning', 'Saving strict sub-roles will refuse writes to undeclared sub-roles that work now.')}</p>
     {/if}
     {#if failure && failure.field !== 'role'}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}
-    {#if failure?.code === 'CONFLICT' && onreload}<button type="button" disabled={pending} onclick={async () => { if (pending) return; pending = true; try { await onreload?.(); } finally { pending = false; } }} class="min-h-11 rounded border px-3">{t('config.reload-rule', 'Reload the rule (discards your changes)')}</button>{/if}
+    {#if failure?.code === 'CONFLICT' && onreload}<button type="button" disabled={pending} onclick={async () => { if (pending) return; pending = true; try { const result = await onreload?.(); if (result !== undefined) failure = result; } finally { pending = false; } }} class="min-h-11 rounded border px-3">{t('config.reload-rule', 'Reload the rule (discards your changes)')}</button>{/if}
     <div class="flex flex-wrap gap-3">
       <button type="submit" aria-disabled={pending} class="min-h-11 rounded bg-indigo-600 px-4 text-white">{pending ? t('config.saving', 'Saving…') : t('config.save', 'Save')}</button>
       <button type="button" disabled={pending} onclick={oncancel} class="min-h-11 rounded border px-4">{t('config.cancel', 'Cancel')}</button>
     </div>
     </fieldset>
   </form>
-  {#if pickerOpen}<SelectNode {memories} {memoriesFailed} bind:open={pickerOpen} onselect={(node) => { if (choosing) refs[choosing] = node.urn; pickerOpen = false; }} />{/if}
+  {#if pickerOpen}<SelectNode {memories} {memoriesFailed} bind:open={pickerOpen} onselect={(node) => { if (choosing) setReference(choosing, node.urn); pickerOpen = false; }} />{/if}
 </dialog>

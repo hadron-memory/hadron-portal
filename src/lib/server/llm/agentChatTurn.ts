@@ -7,6 +7,7 @@ import {
 import { callAgentChatLlm, type HadronTool } from './agentChatLlm.js';
 import { publicChatError } from './chatError.js';
 import { llmModelVariable, resolveChatAi, type ChatAiResolution } from './chatAi.js';
+import { aiConfigChoiceVariable } from './aiConfigChoice.js';
 
 export { fetchAgentAIConfig } from './chatAi.js';
 
@@ -19,6 +20,14 @@ export interface ChatTurnResult {
   chatEnded: boolean;
   onTrack: boolean;
   offTrackReason: string | null;
+  /** portal#2065: the conversation this turn completed (explicit goal_reached), or null. */
+  conversationCompleted: string | null;
+  /** portal#2065: this turn returned from a detour. */
+  detourReturned: boolean;
+  /** portal#2065: the stage name the model asked for that is not one of the conversation's stages; the chat did not move. */
+  rejectedNextStage: string | null;
+  /** portal#2065: the server dropped this turn's routing edits because a concurrent turn moved the chat. */
+  routingSkipped: boolean;
   usage?: { inputTokens?: number; outputTokens?: number };
 }
 
@@ -40,8 +49,12 @@ export async function runChatTurn(args: {
   /** App context for config resolution (App chat tab). Optional — the
    *  agent-builder chat omits it and resolves in agent-context. */
   appId?: string | null;
-  /** Named config to run with (App chat picker). Defaults to `default`. */
+  /** Named config to run with, honoured only without an App (the Tester). Defaults to `default`. In an App the
+   *  config resolves from `aiConfigChoice`, else the chat (portal#1963). */
   configName?: string | null;
+  /** portal#1963: the AI config choice the user made, sent with sendChatMessage so the server stores it.
+   *  Omitted when no choice was made. The welcome turn never sends it (startChat already did). */
+  aiConfigChoice?: string;
   /** Pre-fetched startChat response for the welcome turn. Omitted for
    *  regular turns — in that case we call sendChatMessage first. */
   startPayload?: {
@@ -59,7 +72,7 @@ export async function runChatTurn(args: {
 
   // 1. The agent's decrypted AI config (resolved once per request when the
   //    caller already did so).
-  const resolution = args.ai ?? await resolveChatAi(token, agentId, { appId, configName });
+  const resolution = args.ai ?? await resolveChatAi(token, agentId, { appId, configName, chatId, aiConfigChoice: args.aiConfigChoice });
   if (!resolution.ok) throw resolution.error;
   const ai = resolution.ai;
 
@@ -86,7 +99,7 @@ export async function runChatTurn(args: {
         messageHistory: Array<{ role: 'user' | 'assistant'; content: string }>;
         summarizationNeeded: { messageCount: number; prompt: string } | null;
       };
-    }>(SEND_CHAT_MESSAGE_MUTATION, { chatId, userMessage, ...llmModelVariable(resolution) });
+    }>(SEND_CHAT_MESSAGE_MUTATION, { chatId, userMessage, ...llmModelVariable(resolution), ...aiConfigChoiceVariable(args.aiConfigChoice) });
     systemMessage = sendResult.sendChatMessage.systemMessage;
     tools = sendResult.sendChatMessage.tools;
     messageHistory = sendResult.sendChatMessage.messageHistory ?? [];
@@ -114,11 +127,20 @@ export async function runChatTurn(args: {
       chatEnded: boolean;
       onTrack: boolean;
       offTrackReason: string | null;
+      conversationCompleted: string | null;
+      detourReturned: boolean;
+      rejectedNextStage: string | null;
+      routingSkipped: boolean;
     };
   }>(PROCESS_CHAT_RESPONSE_MUTATION, {
     chatId,
     toolResponse: llmResult.respond,
   });
+
+  // portal#2065 B5: routingSkipped is for the log only, never for the reader. Chat id and the flag, no content.
+  if (processed.processChatResponse.routingSkipped === true) {
+    console.info('[agent-chat] routingSkipped', JSON.stringify({ chatId, routingSkipped: true }));
+  }
 
   // 5. Fire-and-forget summarization if the chat has grown past the
   //    trigger count. We run a separate LLM call with the summarization
@@ -154,6 +176,10 @@ export async function runChatTurn(args: {
     chatEnded: processed.processChatResponse.chatEnded,
     onTrack: processed.processChatResponse.onTrack,
     offTrackReason: processed.processChatResponse.offTrackReason,
+    conversationCompleted: processed.processChatResponse.conversationCompleted ?? null,
+    detourReturned: processed.processChatResponse.detourReturned === true,
+    rejectedNextStage: processed.processChatResponse.rejectedNextStage ?? null,
+    routingSkipped: processed.processChatResponse.routingSkipped === true,
     usage: llmResult.usage,
   };
 }

@@ -111,7 +111,7 @@ describe('signup action', () => {
     expect(superFormFrom(result)?.valid).toBe(true);
     expect(superFormFrom(result)?.message).toEqual({
       type: 'success',
-      text: 'Check your email for a sign-in link. You can close this page.',
+      text: 'Check your email for a sign-in link and open it in this browser. Depending on how this server is set up, you may then be asked to confirm with a passkey. You can close this page.',
     });
     expect(mockStartBoundMagicLink).toHaveBeenCalledWith(expect.anything(), 'ada@example.test', '/app/dashboard', undefined);
   });

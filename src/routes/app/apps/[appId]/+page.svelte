@@ -1,14 +1,18 @@
 <script lang="ts">
+  import TabRow from '$lib/components/TabRow.svelte';
+  import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
+  import AppRunsPanel from './runs/AppRunsPanel.svelte';
+  import ChatbotAiConfigSetting from './ChatbotAiConfigSetting.svelte';
   import TaskIntegrations from './TaskIntegrations.svelte';
   import { taskHref } from '$lib/agent-tasks/handle';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
   import WorkerDeleteDialog from './WorkerDeleteDialog.svelte';
   import StopBanner from '$lib/components/stops/StopBanner.svelte';
   import { rosterOf } from '$lib/withheld';
-  import { env } from '$env/dynamic/public';
-  import { tick, untrack } from 'svelte';
+  import { publicServerBaseUrl } from '$lib/public-server-base-url';
+  import { tick, untrack, onDestroy } from 'svelte';
   import { applyAction } from '$app/forms';
-  import { beforeNavigate, goto, afterNavigate, invalidateAll, replaceState } from '$app/navigation';
+  import { beforeNavigate, goto, afterNavigate, invalidateAll, preloadData, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import JSZip from 'jszip';
@@ -21,6 +25,7 @@
   import AccessibleMemories from './AccessibleMemories.svelte';
   import { appMemoryTargets } from '$lib/app-memory-scope';
   import AgentChat from '$lib/components/AgentChat.svelte';
+  import { liveChatAiChoices } from '$lib/chat-ai-choice';
   import TeamChatThread from '$lib/components/TeamChatThread.svelte';
   import TeamChatSearch from '$lib/components/TeamChatSearch.svelte';
   import { teamChatSearchStrings } from '$lib/i18n/team-chat-search-strings';
@@ -118,9 +123,10 @@
   };
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
+  import { readResolvedAiConfigs } from '$lib/components/ai-config-readback';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import TerminalStatus from '$lib/components/TerminalStatus.svelte';
-  import { terminalBadge, terminalCheckedAge, terminalSummary } from '$lib/workers/terminal';
+  import { terminalBadge, terminalCheckedAge, terminalSummary, TERMINAL_STALE_AFTER_MS } from '$lib/workers/terminal';
   import { createDisplayClock } from '$lib/workers/display-clock.svelte';
   import { workerInternalsVisible } from '$lib/worker-profile';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
@@ -130,9 +136,10 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
-  import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker } from '$lib/types';
+  import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker, AiServiceConfig } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import type { AppTabId } from './tab-intent';
+  import AppNodeRoleTemplates from './AppNodeRoleTemplates.svelte';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
   import { reportsToOf, reportsToSortKey, teamPlacementOf } from '$lib/worker-reports-to';
@@ -278,7 +285,7 @@
   const installedAgents = $derived(app.agents ?? []);
   const castableAgents = $derived(castableAgentOptions(installedAgents));
   // #1684: how the App installs each agent, as the server states it (see app-install-marks.ts).
-  const installMarks = $derived<InstallMarks>((data as { installMarks?: InstallMarks }).installMarks ?? {});
+  const installMarks = $derived<InstallMarks>(data.installMarks ?? {});
   const castAgentGroups = $derived(castGroups(castableAgents, installMarks));
   // R222: role is a fact, never a cast-time input. Preserve a restored
   // selection's identity even if that Agent no longer has a castable role.
@@ -296,6 +303,11 @@
   // that began in an earlier visit to the same App (A -> B -> A) is as stale as one from B.
   let castGeneration = 0;
   let castAttemptGeneration = -1;
+  // castAttemptGeneration is overwritten by the next submit, so on its own it would pass a pending
+  // answer from A once B has submitted. Superforms gives a hook no request identity, but it does
+  // give onResult the form element, the composer gets a new one for each opening and that element
+  // sends one request at a time (multipleSubmits: 'prevent'), so the element stands for the request.
+  const castRequestGeneration = new WeakMap<HTMLFormElement, number>();
   let castRefreshFailed = $state(false);
 
   // #719 — App Keys as the shared TanStack grid, replacing a hand-rolled
@@ -477,8 +489,20 @@
   // is "not answered"; only a returned null is "Not reported".
   function terminalBadgeOf(worker: Worker) {
     const entry = rosterEntry(worker.id);
-    return entry ? terminalBadge(entry.terminal, workerInternalsVisible(worker)) : null;
+    return entry ? terminalBadge(entry.terminal, workerInternalsVisible(worker), terminalNow) : null;
   }
+  // Only reported badges this reader can see count; null/undefined and
+  // internals-hidden rows cannot imply either freshness or staleness.
+  const allTerminalReportsStale = $derived.by(() => {
+    let reported = 0;
+    for (const worker of sortedStaff) {
+      const badge = terminalBadgeOf(worker);
+      if (!badge || badge.state === 'not-reported') continue;
+      reported++;
+      if (badge.state !== 'stale') return false;
+    }
+    return reported > 0;
+  });
   // portal#1495 BLIND P2 (#1618, George) — the searchable age must reach the
   // filter as DATA, not as a live clock read inside the filter callback.
   // TanStack memoizes the filtered row model on data + filter state; values
@@ -659,6 +683,14 @@
     globalFilterFn: makeGlobalFilterFn<Worker>(
       {},
       {
+        hold: (worker) => {
+          // Search only identity displayed for a known hold, never a masked or
+          // stale projection whose row does not disclose a holder.
+          const hold = workerHold(worker, data.user?.id);
+          if (hold.kind !== 'self' && hold.kind !== 'other') return '';
+          const holder = rosterEntry(worker.id)?.heldBy;
+          return holder ? `${holder.name ?? holder.handle ?? ''} ${holder.urn ?? ''}` : '';
+        },
         terminal: (row: Worker) => (row as (typeof staffRows)[number]).terminalAgeSearch,
       },
     ),
@@ -749,11 +781,15 @@
   // the pointer panel below the table (omitted when this viewer cannot manage
   // the App, the pre-menu button's gate); Unlink submits the hidden form
   // below the table for the picked row.
+  let compilePanel = $state<{ reveal: () => void }>();
+  let compileChoice = $state<{ app: string; agent: string } | null>(null);
+  const compileAgent = $derived(compileChoice?.app === data.app.id ? installedAgents.find(a => a.id === compileChoice?.agent) : undefined);
   function agentRowActions(agent: InstalledAgent): NodeMenuAction[] {
     // #1684: a derived agent has no row, so Unlink has nothing to remove. Its
     // own way off the roster is removing the import; Install writes the row.
     const derived = installMarks[agent.id]?.kind === 'derived';
     return [
+      ...(data.canManageApp === true && !impersonating ? [{ id: 'compile-prompt', label: t('app.agents.compile', 'Update the prompt…') }] : []),
       { id: 'customisation', label: t('app.agents.customisation', 'Customisation…') },
       ...(data.canManageApp !== false
         ? [{
@@ -770,7 +806,13 @@
     ];
   }
   function onAgentAction(id: string, agent: InstalledAgent) {
-    if (id === 'customisation') {
+    if (id === 'compile-prompt') {
+      const appId = data.app.id;
+      compileChoice = { app: appId, agent: agent.id };
+      void tick().then(() => {
+        if (appId === data.app.id && compileAgent?.id === agent.id) compilePanel?.reveal();
+      });
+    } else if (id === 'customisation') {
       customisationChoice = { appRef: data.bootPointerAppKey, agentId: agent.id };
       const appKey = data.bootPointerAppKey;
       void tick().then(() => {
@@ -833,25 +875,67 @@
   // linked, and an empty state otherwise.
   // 036-ai-service-config: configs resolvable for this app's chat context
   // (App→Agent→Org→Host, masked). Powers the picker + LLM-readiness gate.
-  const usableChatConfigs = $derived((data.chatConfigs ?? []).filter((c) => c.hasApiKey));
+  // AI-tab writes re-read this slice through the same section endpoint as the
+  // owner list. The raw working copy preserves the loader OBJECT identity token;
+  // any later full loader result supersedes it, including null → null results.
+  let chatConfigReread = $state.raw<{
+    against: PageData;
+    appRef: string;
+    agentRef: string;
+    configs: AiServiceConfig[] | null;
+  } | null>(null);
+  let chatConfigReads = 0;
+  const chatConfigRereadActive = $derived(
+    chatConfigReread !== null &&
+    chatConfigReread.against === data &&
+    chatConfigReread.appRef === app.id &&
+    chatConfigReread.agentRef === app.agentId,
+  );
+  const chatConfigs = $derived(chatConfigRereadActive ? chatConfigReread!.configs : data.chatConfigs);
+  async function refreshChatConfigs(signal?: AbortSignal): Promise<boolean> {
+    const agentRef = app.agentId;
+    if (!agentRef) return true;
+    const appRef = app.id;
+    const against = data;
+    const mine = ++chatConfigReads;
+    const read = await readResolvedAiConfigs(appRef, agentRef, signal);
+    if (read.status !== 'fresh') {
+      if (mine === chatConfigReads && appRef === app.id && agentRef === app.agentId && against === data) {
+        // Do not keep offering a deleted/disabled selection when the confirmed
+        // mutation's resolved read cannot be refreshed. Null retains the existing
+        // unknown-readiness behavior but removes the stale picker value.
+        chatConfigReread = { against, appRef, agentRef, configs: null };
+      }
+      // An org admin without App membership cannot read the Chat picker by
+      // contract. That withheld slice needs no recovery lock; transport and
+      // server failures still do.
+      return read.status === 'withheld';
+    }
+    const fresh = read.configs;
+    if (
+      mine !== chatConfigReads ||
+      appRef !== app.id ||
+      agentRef !== app.agentId ||
+      against !== data
+    ) return false;
+    chatConfigReread = { against, appRef, agentRef, configs: fresh };
+    return true;
+  }
+  // portal#1963: the dropdown's options follow the live config read, so an AI-tab delete or disable drops
+  // its entry without a reload (liveChatAiChoices).
+  const liveAiChoices = $derived(
+    liveChatAiChoices(
+      data.aiChoices ?? null,
+      chatConfigs,
+      chatConfigRereadActive && chatConfigs === null,
+    ),
+  );
+  const usableChatConfigs = $derived((chatConfigs ?? []).filter((c) => c.hasApiKey));
   // null chatConfigs = couldn't list (e.g. viewer isn't an App member) →
   // unknown → don't block the chat.
-  const llmReady = $derived(data.chatConfigs === null ? null : usableChatConfigs.length > 0);
+  const llmReady = $derived(chatConfigs === null ? null : usableChatConfigs.length > 0);
   const appChatRender = $derived(
     chooseAppChatTabRender({ surfaces: app.surfaces, agentId: app.agentId, agents: app.agents, llmReady }),
-  );
-  // Picker selection overlaid on the default (`default`, else first usable).
-  let selectedConfigName = $state<string | null>(null);
-  // Validate the pick against the (possibly refreshed) usable set: if the
-  // selected config was deleted/disabled — e.g. edited on the AI Service
-  // Configs tab, then back to Chat where invalidateAll refetched chatConfigs — fall back to
-  // default → first rather than sending a name that no longer resolves.
-  const effectiveConfigName = $derived(
-    selectedConfigName && usableChatConfigs.some((c) => c.name === selectedConfigName)
-      ? selectedConfigName
-      : (usableChatConfigs.find((c) => c.name === 'default')?.name
-          ?? usableChatConfigs[0]?.name
-          ?? null),
   );
   // #733: the tab is addressable as `?tab=<id>`. This is not a nicety — the
   // worklog's whole job is answering "which worker sessions produced this PR?",
@@ -891,6 +975,7 @@
     ) {
       return 'members';
     }
+    if (submittedForm(result, 'runFlow')) return 'runs';
     if (submittedForm(result, 'createAppMemory')) return 'memory';
     if (submittedForm<DeleteAppForm>(result, 'deleteApp')) {
       return 'settings';
@@ -904,6 +989,34 @@
       const initial = (data.initialTab as TabId | null) ?? null;
       return tabForActionResult(form, initial) ?? initial ?? 'chats';
     }),
+  );
+  // #1795: an action's invalidateAll can use Kit's pre-navigation URL and
+  // answer AFTER a ?tab=runs navigation supplied this section. Retain that
+  // fresh payload through an old-URL refresh which has no Runs section at all.
+  // A real Runs response always replaces it; the App and principal keys prevent
+  // one App's panel from leaking into another App or account when this page
+  // component is reused. This is not a retry or a poll — it covers every action
+  // refresh, in either request order.
+  let retainedRuns = $state<{
+    appId: string;
+    principalId: string | null;
+    panel: NonNullable<PageData['runsPanel']>;
+  } | null>(null);
+  $effect(() => {
+    const principalId = data.currentUserId;
+    const panel = data.runsPanel;
+    const appId = app.id;
+    untrack(() => {
+      if (retainedRuns && retainedRuns.principalId !== principalId) retainedRuns = null;
+      if (panel) retainedRuns = { appId, principalId, panel };
+    });
+  });
+  const currentRunsPanel = $derived(
+    data.runsPanel ?? (
+      retainedRuns !== null && retainedRuns.appId === app.id && retainedRuns.principalId === data.currentUserId
+        ? retainedRuns.panel
+        : null
+    ),
   );
   const tabs = $derived<{ id: TabId; label: string }[]>([
     // #744: ONE "Chats" tab over every conversation the App has — the team
@@ -940,6 +1053,7 @@
     // is the problem this tab exists to fix, and an empty worklog is
     // information too.
     { id: 'worklog', label: t('app.tabs.worklog', 'Worklog') },
+    { id: 'runs', label: t('app.tabs.runs', 'Runs') },
     { id: 'memory', label: 'Memory' },
     // #1007/#1008: App Keys and AI Service Configs were sections at the foot of
     // Settings, below the App form, its agents and its memories. Each is a list
@@ -948,6 +1062,9 @@
     { id: 'keys', label: t('app.tabs.keys', 'App Keys') },
     { id: 'ai-configs', label: t('app.tabs.ai-configs', 'AI Service Configs') },
     { id: 'settings', label: 'Settings' },
+    // #1936: the former /node-role-templates page, in place. Shown to everyone who
+    // saw the old link (the page itself); writes stay gated on `canManage`.
+    { id: 'node-role-templates', label: t('config.templates', 'Node-role templates') },
     ...(!hasChatSurface ? [{ id: 'client' as TabId, label: 'Client' }] : []),
   ]);
   $effect(() => {
@@ -1034,26 +1151,88 @@
   // `tabindex="-1"` button is still POINTER-focusable, so pressing on an
   // unselected tab and dragging away before release diverges focus from
   // selection, and arrows would then move relative to a tab the user is not on.
+  let tabNavigation = 0, tabNavigationPending = false, tabAlive = true;
+  let tabNavigationHref: string | null = null;
+  let tabNavigationCancelled = false;
+  onDestroy(() => { tabAlive = false; tabNavigation++; });
+  beforeNavigate((navigation) => {
+    // Any real navigation supersedes a pending tab choice, including chat
+    // selection and A → B → A (the final App id alone cannot fence those).
+    // The exact goto owned by focusTab is the one navigation not to reject.
+    // Loader invalidation does not pass through beforeNavigate.
+    if (navigation.to?.url.href === tabNavigationHref) {
+      // #1833: the busy guard above cancels this owned navigation while a post
+      // is in flight, and Kit then resolves goto() without committing. Record
+      // that so focusTab does not select a tab the router never reached.
+      if (channelPostBusy) tabNavigationCancelled = true;
+      return;
+    }
+    tabNavigation++;
+    // #1831: the superseded focusTab can no longer release its own latch
+    // (its `finally` only clears when it still owns the epoch), so the
+    // supersession releases it. A newer focusTab starts after this and
+    // re-latches; its own goto returned above.
+    tabNavigationPending = false;
+  });
+  // #1936: the templates manager guards its draft against ROUTE changes (beforeNavigate), but a
+  // declined route change only cancels the router: this function would still select the tab and
+  // unmount the draft (LOCAL P2 D1). So the page asks first, for every way out of the tab, and
+  // clears the manager's copy of the question so its own route guard does not ask a second time.
+  // If we then do not land on the chosen tab, the question is put back with the draft.
+  let templatesLeaveMessage = $state<string | null>(null);
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
-    activeTab = id;
-    await tick();
-    document.getElementById(`tab-${id}`)?.focus();
+    let asked: string | null = null;
+    if (activeTab === 'node-role-templates' && id !== activeTab && templatesLeaveMessage) {
+      if (!window.confirm(templatesLeaveMessage)) return;
+      asked = templatesLeaveMessage;
+      templatesLeaveMessage = null;
+    }
+    let landed = false;
+    const mine = ++tabNavigation, appId = app.id, principalId = data.currentUserId;
+    let ownNavigationHref: string | null = null;
+    try {
+      // A second choice supersedes an in-flight Runs navigation, including
+      // a choice of a normally local tab. Its loader URL must agree as well.
+      if (id === 'runs' || id === 'node-role-templates' || tabNavigationPending) {
+        tabNavigationPending = true;
+        const href = `/app/apps/${encodeURIComponent(appId)}?tab=${id}`;
+        if (id === 'runs') {
+          try {
+            // #1795 QA: invalidateAll discards the pending navigation's load
+            // cache, so its fresh payload may never reach page.data at all.
+            // preloadData still resolves with that result; retain it before
+            // the real navigation, which reuses the preload when it can.
+            const result = await preloadData(href);
+            if (tabAlive && mine === tabNavigation && app.id === appId && data.currentUserId === principalId && result.type === 'loaded') {
+              const panel = result.data.runsPanel as PageData['runsPanel'];
+              if (panel) retainedRuns = { appId, principalId, panel };
+            }
+          } catch { /* The real navigation below owns and reports its own failure. */ }
+        }
+        // preloadData cannot be cancelled by a newer choice or teardown. Do
+        // not let its completion navigate back to a stale tab or App.
+        if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
+        ownNavigationHref = new URL(href, window.location.href).href;
+        tabNavigationHref = ownNavigationHref;
+        tabNavigationCancelled = false;
+        await goto(href, { keepFocus: true, noScroll: true });
+        // A cancelled navigation resolves without a commit: keep the current tab.
+        if (tabNavigationCancelled) return;
+      }
+      if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
+      landed = true;
+      activeTab = id;
+      await tick();
+      if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id}`)?.focus();
+    } catch { /* A failed navigation keeps the current tab; the router owns its error. */ }
+    finally {
+      if (ownNavigationHref && tabNavigationHref === ownNavigationHref) tabNavigationHref = null;
+      if (mine === tabNavigation) tabNavigationPending = false;
+      if (asked && !landed && tabAlive && activeTab === 'node-role-templates') templatesLeaveMessage = asked;
+    }
   }
-  function onTabKeydown(e: KeyboardEvent) {
-    const order = tabs.map((tt) => tt.id);
-    const focusedId = (e.currentTarget as HTMLElement | null)?.id?.replace(/^tab-/, '');
-    const from = focusedId && order.includes(focusedId as TabId) ? (focusedId as TabId) : activeTab;
-    const i = order.indexOf(from);
-    // Left/Right ONLY: this tablist is HORIZONTAL (no aria-orientation),
-    // so Up/Down must keep their normal page-scrolling behaviour rather
-    // than changing section under a keyboard user who is just scrolling
-    // (@codex on #769).
-    if (e.key === 'ArrowRight') { e.preventDefault(); focusTab(order[(i + 1) % order.length]); }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); focusTab(order[(i - 1 + order.length) % order.length]); }
-    else if (e.key === 'Home') { e.preventDefault(); focusTab(order[0]); }
-    else if (e.key === 'End') { e.preventDefault(); focusTab(order[order.length - 1]); }
-  }
+
 
   // URN slug helpers — slug is the part after the org URN's prefix.
   function slugOfUrn(urn: string): string {
@@ -1088,19 +1267,40 @@
     },
   });
 
+  // #1776: reuse the cast/Install per-element fence. A shared latest-attempt
+  // variable would accept A's pending answer once B submits. Each App visit
+  // gets new form elements and ids; the generation also distinguishes A -> B -> A.
+  let agentLinkGeneration = 0;
+  const linkRequestGeneration = new WeakMap<HTMLFormElement, number>();
+  const unlinkRequestGeneration = new WeakMap<HTMLFormElement, number>();
+  const newLinkFormId = () => `linkAgent:${Math.random().toString(36).slice(2, 10)}`;
+  const newUnlinkFormId = () => `unlinkAgent:${Math.random().toString(36).slice(2, 10)}`;
   const initialAddAgentForm = untrack(() => submittedForm<AddAgentForm>(form, 'addAgent') as AddAgentSuperform | null ?? data.addAgentForm);
   const {
     form: addAgentForm,
+    formId: addAgentFormId,
     errors: addAgentErrors,
     message: addAgentMessage,
     submitting: addAgentSubmitting,
     enhance: addAgentEnhance,
   } = superForm<AddAgentForm, App.Superforms.Message, AddAgentForm>(initialAddAgentForm, {
+    id: newLinkFormId(),
     validators: zod4Client(addAgentSchema),
     validationMethod: 'oninput',
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    onSubmit: ({ formElement }) => {
+      linkRequestGeneration.set(formElement, agentLinkGeneration);
+    },
+    // The form consumes success/refusal itself, so Kit cannot apply an old
+    // page.form or reset B's focus after this hook. Only a current redirect
+    // needs Kit; rotating the id also fences an App change during a reload.
+    applyAction: false,
+    onResult: async ({ result, formElement, cancel }) => {
+      if (linkRequestGeneration.get(formElement) !== agentLinkGeneration) cancel();
+      else if (result.type === 'redirect') await applyAction(result);
+    },
   });
 
   // #1684: Install on a derived agent's row. It posts addAgent like the picker
@@ -1109,6 +1309,9 @@
   // form is: the Page is reused across Apps, so the id alone can't place a result.
   let installGeneration = 0;
   let installAttemptGeneration = -1;
+  // Per request, as castRequestGeneration is. This form has no composer to reopen, so the
+  // {#key app.id} around it is what gives each App its own element.
+  const installRequestGeneration = new WeakMap<HTMLFormElement, number>();
   let installRefreshFailed = $state(false);
   const installFormId = `installAgent:${Math.random().toString(36).slice(2, 10)}`;
   const {
@@ -1120,8 +1323,9 @@
     id: installFormId,
     validators: zod4Client(addAgentSchema),
     clearOnSubmit: 'none',
-    onSubmit: () => {
+    onSubmit: ({ formElement }) => {
       installAttemptGeneration = installGeneration;
+      installRequestGeneration.set(formElement, installGeneration);
       installRefreshFailed = false;
     },
     // Superforms awaits between its hooks, and the App can change during any of those
@@ -1129,8 +1333,8 @@
     // no hook left to stop it. Off, the form takes the result itself, onUpdated below
     // drops one that went stale, and only a redirect still needs Kit.
     applyAction: false,
-    onResult: async ({ result, cancel }) => {
-      if (installAttemptGeneration !== installGeneration) cancel();
+    onResult: async ({ result, formElement, cancel }) => {
+      if (installRequestGeneration.get(formElement) !== installGeneration) cancel();
       else if (result.type === 'redirect') await applyAction(result);
     },
     // Superforms' default rethrows, leaving the row's Actions disabled. The request
@@ -1193,16 +1397,45 @@
   const initialRemoveAgentForm = untrack(() => submittedForm<RemoveAppAgentForm>(form, 'removeAgent') as RemoveAppAgentSuperform | null ?? data.removeAgentForm);
   const {
     form: removeAgentForm,
+    formId: removeAgentFormId,
     errors: removeAgentErrors,
     message: removeAgentMessage,
     submitting: removeAgentSubmitting,
     enhance: removeAgentEnhance,
   } = superForm<RemoveAppAgentForm, App.Superforms.Message, RemoveAppAgentForm>(initialRemoveAgentForm, {
+    id: newUnlinkFormId(),
     validators: zod4Client(removeAppAgentSchema),
     validationMethod: 'oninput',
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    onSubmit: ({ formElement }) => {
+      unlinkRequestGeneration.set(formElement, agentLinkGeneration);
+    },
+    applyAction: false,
+    onResult: async ({ result, formElement, cancel }) => {
+      if (unlinkRequestGeneration.get(formElement) !== agentLinkGeneration) cancel();
+      else if (result.type === 'redirect') await applyAction(result);
+    },
+  });
+
+  let agentLinkContextApp = untrack(() => data.app.id);
+  $effect(() => {
+    if (app.id === agentLinkContextApp) return;
+    agentLinkContextApp = app.id;
+    agentLinkGeneration += 1;
+    // Discard the departed App's selected targets, validation and outcomes
+    // together. Keep this reset list aligned if either form gains fields.
+    untrack(() => {
+      addAgentFormId.set(newLinkFormId());
+      removeAgentFormId.set(newUnlinkFormId());
+      addAgentForm.update(current => ({ ...current, agentId: '' }), { taint: false });
+      removeAgentForm.update(current => ({ ...current, agentId: '' }), { taint: false });
+      addAgentErrors.set({});
+      removeAgentErrors.set({});
+      addAgentMessage.set(undefined);
+      removeAgentMessage.set(undefined);
+    });
   });
 
   const initialUpdateAgentToolsForm = untrack(() => submittedForm<UpdateAppAgentToolsForm>(form, 'updateAgentTools') as UpdateAppAgentToolsSuperform | null ?? data.updateAgentToolsForm);
@@ -1250,13 +1483,26 @@
   });
 
   // ── Casting (#974) ───────────────────────────────────────────────────
-  const castFormId = `castWorker:${Math.random().toString(36).slice(2, 10)}`;
+  let castAnswerAlert: HTMLDivElement | undefined = $state();
+  // The persistent alert is above the tabs; reveal a current refusal without
+  // moving keyboard focus. Re-check ownership after the DOM update.
+  async function revealCastRefusal(generation: number) {
+    await tick();
+    if (generation !== castGeneration || !castAnswerAlert?.isConnected || !castWorkerActionError) return;
+    const rect = castAnswerAlert.getBoundingClientRect();
+    if (rect.top >= 0 && rect.bottom <= window.innerHeight) return;
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    castAnswerAlert.scrollIntoView({ block: 'nearest', behavior: reduced ? 'instant' : 'smooth' });
+  }
+  const newCastFormId = () => `castWorker:${Math.random().toString(36).slice(2, 10)}`;
+  const castFormId = newCastFormId();
   const initialCastWorkerForm = untrack(() => submittedForm<CastWorkerForm>(form, 'castWorker') as CastWorkerSuperform | null ?? data.castWorkerForm);
   const {
     form: castWorkerForm,
     errors: castWorkerErrors,
     message: castWorkerMessage,
     submitting: castWorkerSubmitting,
+    formId: castWorkerFormId,
     enhance: castWorkerEnhance,
   } = superForm<CastWorkerForm, App.Superforms.Message, CastWorkerForm>(initialCastWorkerForm, {
     // Instance-bound id: Superforms applies an action result only to the live form whose id
@@ -1273,18 +1519,48 @@
     // must not close B's composer, empty B's draft or print "Worker cast." on B.
     // The cast itself is already committed server-side; only its application to
     // the screen is dropped (never replayed).
-    onSubmit: () => {
+    onSubmit: ({ formElement }) => {
       castAttemptGeneration = castGeneration;
+      castRequestGeneration.set(formElement, castGeneration);
       castRefreshFailed = false;
     },
-    onResult: ({ cancel }) => {
-      if (castAttemptGeneration !== castGeneration) cancel();
+    // portal#1715: as on Install, and for the same reason. Superforms awaits between
+    // its hooks, so with applyAction on A's answer could cross onResult and then be
+    // applied by Kit on B, with no hook left to stop it: B's draft emptied or
+    // overwritten, its focus reset and A's receipt printed there. Off, the form takes
+    // the result itself and only a redirect still needs Kit. Kit also fed the `form`
+    // prop effects, so onUpdated below does their two jobs for an enhanced result.
+    // Past onResult no hook runs before the write into the form store, which B owns
+    // by then, so the App change below also gives the form a new id: Superforms drops
+    // a result whose id isn't the live one, right at that write.
+    applyAction: false,
+    onResult: async ({ result, formElement, cancel }) => {
+      if (castRequestGeneration.get(formElement) !== castGeneration) cancel();
+      else if (result.type === 'redirect') await applyAction(result);
+    },
+    // Superforms' default rethrows, leaving the form on "Casting…". The request failed,
+    // so whether the cast landed isn't known and this claims neither. Never retried.
+    // A stale answer stops at onResult above, which also skips this hook; the check
+    // here is for an App change during the hooks of an answer that passed it.
+    onError: async () => {
+      if (castAttemptGeneration !== castGeneration) return;
+      activeTab = 'staff';
+      castWorkerMessage.set({
+        type: 'error',
+        text: t('app.staff.cast.unconfirmed', 'The cast could not be confirmed. Reload the page to check before casting again.'),
+      });
+      await revealCastRefusal(castAttemptGeneration);
     },
     // The refresh is ours (not Superforms'), so a rejection after a CONFIRMED
     // cast is caught here and told truthfully instead of stranding the form.
     invalidateAll: false,
     onUpdated: async ({ form: f }) => {
       if (castAttemptGeneration !== castGeneration) return;
+      activeTab = 'staff';
+      if (!f.valid || f.message?.type === 'error') {
+        castOpen = true;
+        await revealCastRefusal(castAttemptGeneration);
+      }
       // Clear the composer only on a clean cast, so a WORKER_NAME_TAKEN
       // refusal leaves the rejected name in the box to edit.
       if (f.valid && f.message?.type === 'success') {
@@ -1311,6 +1587,7 @@
     if (id === castContextApp) return;
     castContextApp = id;
     castGeneration += 1;
+    castWorkerFormId.set(newCastFormId());
     untrack(() => {
       castWorkerForm.update(
         (current) => ({ ...current, agentId: '', name: '', reporting: '', reportsTo: '' }),
@@ -1628,14 +1905,19 @@
   let removeAgentFormEl = $state<HTMLFormElement | null>(null);
   let installAgentFormEl = $state<HTMLFormElement | null>(null);
   let revokeKeyFormEl = $state<HTMLFormElement | null>(null);
+  // portal#1715: Link, row Install and row Unlink are three forms, and
+  // `multipleSubmits: 'prevent'` holds per form, so this is what keeps them to one
+  // write at a time. Client UX only: the server's write policy is unchanged. The
+  // guards below need it too, because requestSubmit() ignores a disabled control.
+  const agentWriteBusy = $derived($addAgentSubmitting || $installAgentSubmitting || $removeAgentSubmitting);
   async function unlinkAgent(agent: { id: string; name: string }) {
-    if ($removeAgentSubmitting) return;
+    if (agentWriteBusy) return;
     setRemoveAgent(agent.id);
     await tick();
     removeAgentFormEl?.requestSubmit();
   }
   async function installDerivedAgent(agent: { id: string }) {
-    if ($installAgentSubmitting) return;
+    if (agentWriteBusy) return;
     installAgentForm.update((current) => ({ ...current, agentId: agent.id }), { taint: false });
     await tick();
     installAgentFormEl?.requestSubmit();
@@ -1652,7 +1934,7 @@
   // #990: hadron-client is retired, so setup always talks to the server
   // directly; the old "With Client App" mode (localhost:3200, client hooks)
   // is gone.
-  const serverUrl = env.PUBLIC_SERVER_URL ?? 'http://localhost:4000';
+  const serverUrl = publicServerBaseUrl();
   const mcpUrl = $derived(serverUrl.includes('localhost') ? serverUrl + '/mcp' : serverUrl.replace(/\/$/, '') + '/mcp');
 
   function claudeCodeMcpConfig(url: string, apiKey: string) {
@@ -1846,7 +2128,6 @@
     } finally { downloading = false; }
   }
 </script>
-<a data-sveltekit-preload-data="off" href={`/app/apps/${encodeURIComponent(data.app.id)}/node-role-templates`} class="inline-flex min-h-11 items-center text-indigo-700 underline dark:text-indigo-300">{t('config.templates', 'Node-role templates')}</a>
 
 
 <svelte:head><title>{app.name} · Apps · {org ? `${org.name} · ` : ''}Hadron</title></svelte:head>
@@ -1872,20 +2153,44 @@
   </div>
 
   {#if installAgentActionError || removeAgentActionError || updateAgentToolsActionError || revokeKeyActionError || deleteAppActionError}
-    <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
+    <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
       {installAgentActionError ?? removeAgentActionError ?? updateAgentToolsActionError ?? revokeKeyActionError ?? deleteAppActionError}
     </div>
   {/if}
-  {#if settingsActionSuccess || addAgentActionSuccess || installAgentActionSuccess || removeAgentActionSuccess || updateAgentToolsActionSuccess || revokeKeyActionSuccess}
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
-      {settingsActionSuccess ?? addAgentActionSuccess ?? installAgentActionSuccess ?? removeAgentActionSuccess ?? updateAgentToolsActionSuccess ?? revokeKeyActionSuccess}
-    </div>
-  {/if}
-  {#if installRefreshFailed}
-    <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-      {t('app.agents.install.refresh-failed', 'The agent was installed, but the roster could not be refreshed. Reload the page to see it.')}
-    </div>
-  {/if}
+  <!-- #1777: keep the region mounted; only its content changes. -->
+  <div role="status" data-testid="app-success-status" class="mb-0">
+    {#if settingsActionSuccess || addAgentActionSuccess || installAgentActionSuccess || removeAgentActionSuccess || updateAgentToolsActionSuccess || revokeKeyActionSuccess}
+      <div class="mb-4 rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
+        {settingsActionSuccess ?? addAgentActionSuccess ?? installAgentActionSuccess ?? removeAgentActionSuccess ?? updateAgentToolsActionSuccess ?? revokeKeyActionSuccess}
+      </div>
+    {/if}
+  </div>
+  <!-- portal#1715: the region stays mounted (empty) so a notice arriving later is announced; a live
+       region mounted already populated is not reliably read. The parent's space-y gap sits on the
+       notice, not the region, so the empty region adds no gap. -->
+  <div role="status" data-testid="install-refresh-status" class="mb-0">
+    {#if installRefreshFailed}
+      <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+        {t('app.agents.install.refresh-failed', 'The agent was installed, but the roster could not be refreshed. Reload the page to see it.')}
+      </div>
+    {/if}
+  </div>
+
+  <!-- #1777: cast outcomes survive a later tab choice, without changing focusTab's policy. -->
+  <div role="alert" data-testid="cast-answer-alert" bind:this={castAnswerAlert} class="mb-0">
+    {#if castWorkerActionError}
+      <div class="mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+        {castWorkerActionError}
+      </div>
+    {/if}
+  </div>
+  <div role="status" data-testid="cast-answer-status" class="mb-0">
+    {#if castWorkerActionSuccess}
+      <div class="mb-4 rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
+        {castWorkerActionSuccess}
+      </div>
+    {/if}
+  </div>
 
   {#if newRawKey}
     <div class="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 dark:border-amber-500 dark:bg-amber-950/30">
@@ -1905,102 +2210,20 @@
       </p>
     </div>
   {/if}
-
-  <!-- Tabs — #740: the strip scrolls horizontally instead of overflowing the
-       page. A team App showed seven of these when this was written (~570px
-       of tabs), and up to ten since Channels and #1007/#1008's App Keys and
-       AI Service Configs; at 375px they ran straight off the right edge and
-       took the panel bodies with them. `shrink-0` + `whitespace-nowrap` on each tab is what makes it
-       SCROLL rather than compress — without them flex squeezes every label
-       into an unreadable column instead. -->
   <!-- portal#1139: the stops in effect, prominent above the sections. -->
   <StopBanner live={data.liveStops} workers={(data.staff ?? []).map((w) => ({ id: w.id, name: w.name, urn: w.urn ?? null }))} href="/app/apps/{app.id}/stops" />
 
-  <div class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
-    <!-- #768 — the ARIA tab pattern. These controls swap mutually exclusive
-         panels IN PLACE, which is what role="tab" describes; the previous
-         `aria-current="page"` announced NAVIGATION and left the panels
-         programmatically unrelated to the strip.
-
-         The tablist is an inner flex box rather than this container, because
-         the "Runs" entry below is a real LINK to a subroute and must not sit
-         inside a tablist. -->
-    <div role="tablist" aria-label={t('app.tabs-label', 'App sections')} class="flex shrink-0">
-      {#each tabs as tab (tab.id)}
-        <button
-          type="button"
-          role="tab"
-          id="tab-{tab.id}"
-          aria-selected={activeTab === tab.id}
-          aria-controls="panel-{tab.id}"
-          tabindex={activeTab === tab.id ? 0 : -1}
-          onclick={() => { if (!channelPostBusy) activeTab = tab.id; }}
-          onkeydown={onTabKeydown}
-          class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
-            {activeTab === tab.id
-              ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-              : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
-        >
-          {tab.label}
-        </button>
-      {/each}
-    </div>
-    <!-- Runs is a real subroute (deep-linkable from "Test flow" and run
-         records), so it's a link styled as a tab, not an activeTab state. -->
-    <a
-      href="/app/apps/{app.id}/runs"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.runs', 'Runs')}
-    </a>
-    <!-- #942: Channels is a subroute too (its own forms and table), linked like Runs. -->
-    <a
-      href="/app/apps/{app.id}/channels"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.channels', 'Channels')}
-    </a>
-    <!-- #1052: Tasks is a subroute too: its reads refuse a non-participant
-         (APP_NOT_FOUND), and that must never reach this page's loader. -->
-    <a
-      href="/app/apps/{app.id}/tasks"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.tasks', 'Tasks')}
-    </a>
-    <!-- #1099: Tickers is a subroute for the same reason: a ticker read
-         answers a non-participant APP_NOT_FOUND. -->
-    <a
-      href="/app/apps/{app.id}/tickers"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.tickers', 'Tickers')}
-    </a>
-    <!-- #1139: Stops is a subroute: its reads answer a non-participant APP_NOT_FOUND,
-         and that must never reach this page's loader. -->
-    <a
-      href="/app/apps/{app.id}/stops"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.stops', 'Stops')}
-    </a>
-    <!-- #1649: the action register is a subroute: its read answers a non-participant
-         APP_NOT_FOUND, and that must never reach this page's loader. -->
-    <a
-      href="/app/apps/{app.id}/register"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.register', 'Action register')}
-    </a>
-    <!-- #1299: Automations is a subroute: its reads answer a reader who may not adopt
-         with nothing, and that must never reach this page's loader. -->
-    <a
-      href="/app/apps/{app.id}/automations"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.automations', 'Automations')}
-    </a>
-  </div>
+  <TabRow items={[
+    ...tabs,
+    { id: 'channels', label: t('app.tabs.channels', 'Channels'), href: `/app/apps/${app.id}/channels` },
+    { id: 'tasks', label: t('app.tabs.tasks', 'Tasks'), href: `/app/apps/${app.id}/tasks` },
+    { id: 'tickers', label: t('app.tabs.tickers', 'Tickers'), href: `/app/apps/${app.id}/tickers` },
+    { id: 'stops', label: t('app.tabs.stops', 'Stops'), href: `/app/apps/${app.id}/stops` },
+    { id: 'usage', label: t('app.tabs.token-use', 'Token use'), href: `/app/apps/${app.id}/usage` },
+    { id: 'register', label: t('app.tabs.register', 'Action register'), href: `/app/apps/${app.id}/register` },
+    ...(data.viewerManages?.kind === 'known' && data.viewerManages.manages ? [{ id: 'grants', label: t('app.tabs.grants', 'Grants'), href: `/app/apps/${app.id}/grants` }] : []),
+    { id: 'automations', label: t('app.tabs.automations', 'Automations'), href: `/app/apps/${app.id}/automations` }
+  ]} active={activeTab} label={t('app.tabs-label', 'App sections')} onselect={(id) => { void focusTab(id as TabId); }} />
 
   <!-- ───────────── CHATS TAB (#744) ─────────────
        Every conversation the App has, behind one selector: the agent chat, the
@@ -2074,42 +2297,12 @@
           <AgentChat
             agentId={app.agentId}
             appId={app.id}
-            configName={effectiveConfigName ?? undefined}
+            aiChoices={liveAiChoices}
             uploadMemoryId={writableMemoryIds[0]}
           />
         </div>
-        {#if usableChatConfigs.length > 0}
-          <!-- Config picker sits below the chat, next to where the composer
-               lives — matching where model pickers appear in most chat apps. -->
-          <div class="mt-2 flex items-center gap-2 text-sm">
-            <label for="chat-config" class="text-zinc-500">{t('app-chat.config.label', 'AI config')}</label>
-            <!-- #740: `min-w-0` is the load-bearing half. A <select> sizes to
-                 its LONGEST OPTION, and these read
-                 "default (bedrock · us.anthropic.claude-sonnet-4-6)" — 370px,
-                 which pushed 94px past the right edge of a 390px viewport and
-                 was the last thing making the whole page scroll sideways after
-                 the shell and the tab strip were fixed. A flex item's default
-                 `min-width: auto` refuses to shrink below that intrinsic
-                 width, so `truncate` alone would not have helped.
-
-                 `min-w-0` WITHOUT `flex-1`, on purpose: the default
-                 `flex: 0 1 auto` already permits shrinking, so the control
-                 keeps its natural width wherever there is room — desktop is
-                 pixel-identical — and gives way only where there isn't.
-                 `flex-1` (which I tried first) makes it GROW to fill the row,
-                 changing a desktop surface to fix a phone one. -->
-            <select
-              id="chat-config"
-              value={effectiveConfigName ?? ''}
-              onchange={(e) => (selectedConfigName = e.currentTarget.value)}
-              class="min-w-0 truncate rounded-lg border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
-            >
-              {#each usableChatConfigs as c (c.id)}
-                <option value={c.name}>{c.name} ({c.provider} · {c.model})</option>
-              {/each}
-            </select>
-          </div>
-        {/if}
+        <!-- portal#1963: the AI config dropdown now lives in AgentChat, over the server's list of the App's
+             own configs (hadron-server#3957); the chat stores what the user picks. -->
       {:else if appChatRender === 'no-llm-config'}
         <div class="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="min-height: 300px;">
           <div class="max-w-md text-center">
@@ -2380,6 +2573,18 @@
        it. Read through `teamWorkItems`, not appNodes.
 
        Append-only: no delete, no edit, no rename. -->
+  {#if activeTab === 'runs'}
+    <div role="tabpanel" id="panel-runs" aria-labelledby="tab-runs" tabindex="0" class="min-w-0 focus-visible:outline-2 focus-visible:outline-indigo-500">
+      {#if currentRunsPanel}<AppRunsPanel data={currentRunsPanel} {form} />{:else}<p role="status">{t('runs.loading', 'Loading runs…')}</p>{/if}
+    </div>
+  {/if}
+
+  {#if activeTab === 'node-role-templates'}
+    <div id="panel-node-role-templates" role="tabpanel" aria-labelledby="tab-node-role-templates" tabindex="0" class="min-w-0 focus-visible:outline-2 focus-visible:outline-indigo-500">
+      {#if data.templatesPanel}<AppNodeRoleTemplates data={data.templatesPanel} bind:leaveMessage={templatesLeaveMessage} />{:else}<p role="status">{t('config.templates-loading', 'Loading templates…')}</p>{/if}
+    </div>
+  {/if}
+
   {#if activeTab === 'worklog'}
     <div id="panel-worklog" role="tabpanel" aria-labelledby="tab-worklog" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-4">
@@ -2395,6 +2600,7 @@
         </p>
       </div>
       <WorklogTable
+        serverPage={data.worklogPage}
         items={data.worklog ?? []}
         total={data.worklogTotal ?? 0}
         loadError={data.worklogError ?? false}
@@ -2437,21 +2643,14 @@
         </div>
       </div>
 
-      {#if castWorkerActionError}
-        <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-          {castWorkerActionError}
-        </div>
-      {/if}
-      {#if castWorkerActionSuccess}
-        <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
-          {castWorkerActionSuccess}
-        </div>
-      {/if}
-      {#if castRefreshFailed}
-        <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-          {t('app.staff.cast.refresh-failed', 'The worker was cast, but the roster could not be refreshed. Reload the page to see it. Do not cast again.')}
-        </div>
-      {/if}
+      <!-- portal#1715: mounted empty, as the install notice above; the gap sits on the notice. -->
+      <div role="status" data-testid="cast-refresh-status" class="mb-0">
+        {#if castRefreshFailed}
+          <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+            {t('app.staff.cast.refresh-failed', 'The worker was cast, but the roster could not be refreshed. Reload the page to see it. Do not cast again.')}
+          </div>
+        {/if}
+      </div>
       {#if retireWorkerActionError}
         <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
           {retireWorkerActionError}
@@ -2523,7 +2722,7 @@
           class="max-w-lg space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
         >
           <input type="hidden" name="_kind" value={$castWorkerForm._kind} />
-          <input type="hidden" name="__superform_id" value={castFormId} />
+          <input type="hidden" name="__superform_id" value={$castWorkerFormId} />
           <div>
             <label for="castAgentId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               {t('app.staff.field.agent', 'Agent')}
@@ -2537,18 +2736,20 @@
               aria-describedby={castWorkerAgentError ? 'castAgentIdError' : 'castAgentIdHelp'}
               class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
             >
-              <option value="">{t('app.staff.field.agent.placeholder', '— Select an installed agent —')}</option>
+              <option value="">{t('app.staff.field.agent.placeholder', '— Select an agent —')}</option>
               {#snippet castOption(candidate: (typeof castableAgents)[number])}
                 <option value={candidate.id}>
                   {candidate.name}{candidate.personaRole ? ` (${candidate.personaRole})` : ''}
                 </option>
               {/snippet}
               {#if castAgentGroups.derived.length > 0}
-                <optgroup label={t('app.staff.field.agent.installed', 'Installed')}>
-                  {#each castAgentGroups.installed as candidate (candidate.id)}
-                    {@render castOption(candidate)}
-                  {/each}
-                </optgroup>
+                {#if castAgentGroups.installed.length > 0}
+                  <optgroup label={t('app.staff.field.agent.installed', 'Installed')}>
+                    {#each castAgentGroups.installed as candidate (candidate.id)}
+                      {@render castOption(candidate)}
+                    {/each}
+                  </optgroup>
+                {/if}
                 <optgroup label={t('app.staff.field.agent.derived', 'Derived')}>
                   {#each castAgentGroups.derived as { agent: candidate, importer } (candidate.id)}
                     <option value={candidate.id}>
@@ -2765,6 +2966,9 @@
         {:else if teamRoster?.kind === 'hidden'}
           <p role="status" class="text-xs text-zinc-500">{t('app.staff.roster.hidden', 'Task and pause state are not shown to you.')}</p>
         {/if}
+        {#if allTerminalReportsStale}
+          <p data-testid="terminal-stale-note" class="text-xs text-zinc-600 dark:text-zinc-400">{t('app.staff.terminal-stale-note', 'All terminal reports in this list are older than {minutes} minutes.', { minutes: TERMINAL_STALE_AFTER_MS / 60_000 })}</p>
+        {/if}
         <!-- #756 — TanStack grid, replacing a bespoke <ul>. Same chrome as every
              other portal list (search, column toggle, sortable/resizable
              headers, pagination) via the shared DataTable.
@@ -2870,22 +3074,37 @@
                    staffing we did not read. Absence of a claim beats a confident
                    wrong one. -->
               {@const hold = workerHold(worker, data.user?.id)}
+              <!-- portal#1168 / hadron-server#2223 — the roster read names the
+                   holder. Null is nobody, a deleted holder, or a masked read,
+                   which the server does not tell apart: a hold we know exists
+                   (`hold.kind`) with no holder falls back to the unnamed line,
+                   never a guess. `name` is null both withheld and unset, so the
+                   handle stands in. -->
+              {@const holder = rosterEntry(worker.id)?.heldBy ?? null}
               {#if hold.kind === 'self'}
                 <span class="text-xs font-medium text-indigo-600 dark:text-indigo-400">
-                  {t('app.staff.held.you', 'Your name — held by you')}
+                  {holder?.name ?? holder?.handle ?? t('app.staff.held.you', 'Your name — held by you')}
                   {#if hold.since}
                     <span class="font-normal text-zinc-500">· {t('app.staff.held.since', 'since')} {formatDate(hold.since)}</span>
                   {/if}
                 </span>
+                {#if holder?.urn}
+                  <div><Urn value={holder.urn} type="user" compact /></div>
+                {/if}
               {:else if hold.kind === 'other'}
                 <span class="text-xs text-zinc-500">
-                  <!-- Unnamed until the server resolves the holder (#748) —
-                       resolving it here would be one query per roster row. -->
-                  {t('app.staff.held.other', 'Held by another member')}
+                  {#if holder}
+                    {holder.name ?? holder.handle ?? t('app.staff.held.other', 'Held by another member')}
+                  {:else}
+                    {t('app.staff.held.other', 'Held by another member')}
+                  {/if}
                   {#if hold.since}
                     · {t('app.staff.held.since', 'since')} {formatDate(hold.since)}
                   {/if}
                 </span>
+                {#if holder?.urn}
+                  <div><Urn value={holder.urn} type="user" compact /></div>
+                {/if}
               {:else}
                 <span class="text-xs text-zinc-400">—</span>
               {/if}
@@ -3039,7 +3258,7 @@
                 actions={agentRowActions(agent)}
                 onselect={(id) => onAgentAction(id, agent)}
                 label={t('app.agents.actions.label', 'Actions for {name}', { name: agent.name })}
-                disabled={$removeAgentSubmitting || $installAgentSubmitting}
+                disabled={agentWriteBusy}
                 fixed
                 compact
               />
@@ -3048,6 +3267,16 @@
             {/if}
           {/snippet}
         </DataTable>
+        {#if compileAgent}
+          {#key `${data.bootPointerAppKey}:${compileAgent.id}`}
+            <BootInstallCompile bind:this={compilePanel} title={t('app.agents.compile-title', 'Boot prompt for {name} in this App', { name: compileAgent.name })} owner={{ level: 'app', app: data.app.id, agent: compileAgent.id }} canManage={data.canManageApp} {impersonating} onClose={async () => {
+              const label = t('app.agents.actions.label', 'Actions for {name}', { name: compileAgent.name });
+              compileChoice = null;
+              await tick();
+              document.querySelector<HTMLButtonElement>(`button[aria-label="${CSS.escape(label)}"]`)?.focus();
+            }} />
+          {/key}
+        {/if}
         {#if customisationAgent}
           {#key `${data.bootPointerAppKey}\u0000${customisationAgent.id}`}
             <InstallCustomisation bind:this={customisationPanel} appRef={data.bootPointerAppKey} agent={customisationAgent} canManage={data.canManageApp ?? null} onClose={async () => {
@@ -3083,10 +3312,13 @@
       {/if}
 
       <!-- #1020: Unlink's submit target — one hidden form for every row. -->
-      <form bind:this={removeAgentFormEl} method="POST" action="?/removeAgent" use:removeAgentEnhance class="hidden">
-        <input type="hidden" name="_kind" value="removeAgent" />
-        <input type="hidden" name="agentId" value={$removeAgentForm.agentId} />
-      </form>
+      {#key app.id}
+        <form bind:this={removeAgentFormEl} method="POST" action="?/removeAgent" use:removeAgentEnhance class="hidden">
+          <input type="hidden" name="__superform_id" value={$removeAgentFormId} />
+          <input type="hidden" name="_kind" value="removeAgent" />
+          <input type="hidden" name="agentId" value={$removeAgentForm.agentId} />
+        </form>
+      {/key}
 
       <!-- Add an agent: the install picker that used to appear only while the
            App had no agent. -->
@@ -3109,7 +3341,9 @@
             {t('app.agents.add.unavailable', 'The list of agents you can add could not be loaded. Reload to try again.')}
           </p>
         {:else if addableAgents.length > 0}
+          {#key app.id}
           <form method="POST" action="?/addAgent" use:addAgentEnhance class="flex flex-wrap items-start gap-3" novalidate>
+            <input type="hidden" name="__superform_id" value={$addAgentFormId} />
             <input type="hidden" name="_kind" value={$addAgentForm._kind} />
             <div class="flex-1 min-w-[200px]">
               <label for="agentId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.agents.add.label', 'Agent')}</label>
@@ -3133,25 +3367,29 @@
                 <p role="alert" class="mt-2 text-xs text-red-600 dark:text-red-400">{addAgentActionError}</p>
               {/if}
             </div>
-            <button type="submit" disabled={!$addAgentForm.agentId || $addAgentSubmitting}
+            <button type="submit" disabled={!$addAgentForm.agentId || agentWriteBusy}
               class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
               style="background: #219ebc;">
               {$addAgentSubmitting ? 'Linking...' : 'Link'}
             </button>
           </form>
+          {/key}
         {:else}
           <p class="text-sm text-zinc-500">{t('app.agents.add.none', 'There is no other agent to add.')}</p>
         {/if}
       </section>
       <!-- #1684: Install's submit target, one hidden form for every derived row. A
            withheld roster offers no add, this one included. It stays mounted across
-           the install: the reload that follows drops the row that asked. -->
+           the install: the reload that follows drops the row that asked. Keyed by App
+           so a late answer can be told from B's own (installRequestGeneration). -->
       {#if !agentsWithheld}
-        <form bind:this={installAgentFormEl} method="POST" action="?/addAgent" use:installAgentEnhance class="hidden">
-          <input type="hidden" name="_kind" value="addAgent" />
-          <input type="hidden" name="__superform_id" value={installFormId} />
-          <input type="hidden" name="agentId" value={$installAgentForm.agentId} />
-        </form>
+        {#key app.id}
+          <form bind:this={installAgentFormEl} method="POST" action="?/addAgent" use:installAgentEnhance class="hidden">
+            <input type="hidden" name="_kind" value="addAgent" />
+            <input type="hidden" name="__superform_id" value={installFormId} />
+            <input type="hidden" name="agentId" value={$installAgentForm.agentId} />
+          </form>
+        {/key}
       {/if}
     </div>
     </div>
@@ -3282,24 +3520,28 @@
     </div>
   {/if}
 
-  <!-- ───────────── AI SERVICE CONFIGS TAB (#1008) ───────────── -->
-  {#if activeTab === 'ai-configs'}
-    <div id="panel-ai-configs" role="tabpanel" aria-labelledby="tab-ai-configs" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+  <!-- ───────────── AI SERVICE CONFIGS TAB (#1008) ─────────────
+       Keep the Section mounted while hidden: tab switches are not a full-page
+       readback, so pending writes, safety warnings and fresh rows must survive. -->
+  <div id="panel-ai-configs" role="tabpanel" aria-labelledby="tab-ai-configs" tabindex="0" hidden={activeTab !== 'ai-configs'} class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-8">
       <!-- AI providers (registry; consumers resolve a config by name) -->
       <section class="max-w-2xl">
         <AiServiceConfigSection
           ownerType="APP"
           ownerId={app.id}
+          ownerLabel={app.name}
+          ownerUrn={app.urn}
+          pagination={data.configsPage}
           configs={data.appConfigs ?? []}
           members={org?.members ?? []}
           currentUserId={data.currentUserId}
           configsError={data.configsError}
+          onRefreshed={refreshChatConfigs}
         />
       </section>
     </div>
-    </div>
-  {/if}
+  </div>
 
   <!-- ───────────── SETTINGS TAB ───────────── -->
   {#if activeTab === 'settings'}
@@ -3321,7 +3563,7 @@
           <form method="POST" action="?/update" use:appSettingsEnhance class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
             <input type="hidden" name="_kind" value={$appSettingsForm._kind} />
             {#if settingsActionError}
-              <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{settingsActionError}</div>
+              <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{settingsActionError}</div>
             {/if}
             <div>
               <label for="name" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
@@ -3493,6 +3735,17 @@
           </div>
         {/if}
       </section>
+
+      <!-- portal#1963: the App's chatbot AI config. Keyed on the App, so a pick never follows the person to another App. -->
+      {#if app.agentId}
+        {#key app.id}
+          <ChatbotAiConfigSetting
+            choices={data.aiChoices ?? null}
+            current={data.chatbotAiConfig ?? { ok: false }}
+            manages={data.viewerManages?.kind === 'known' ? data.viewerManages.manages : null}
+          />
+        {/key}
+      {/if}
 
       <!-- portal#1607: the App's task integrations. Keyed on propertiesRevision (null = no section)
            and viewerManages (edit controls); unknown viewerManages keeps the controls, as the key controls do. -->

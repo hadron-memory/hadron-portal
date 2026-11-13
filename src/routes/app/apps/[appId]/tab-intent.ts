@@ -21,6 +21,7 @@ import { lookupOwn } from '$lib/lookup';
 export const APP_TAB_IDS = [
   'chats',
   'worklog',
+  'runs',
   'staff',
   'members',
   'agents',
@@ -28,6 +29,7 @@ export const APP_TAB_IDS = [
   'keys',
   'ai-configs',
   'settings',
+  'node-role-templates',
   'client',
 ] as const;
 

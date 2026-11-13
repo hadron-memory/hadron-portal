@@ -1,0 +1,7 @@
+# UX F1 status delta — author component proof
+
+Seven synthetic states rendered from the actual GrantStatus.svelte component in a temporary Vite/Chromium fixture: pending, pending before start, expired pending, approved, approved before start, revoked and holder departed. Clock fixed to 2026-11-13T01:00:00Z. Light/dark at 390/1280; no horizontal overflow. Fixture headings identify cases and are not product UI. This is component layout evidence only, not a native server/ceremony or independent QA rerun; the fixture harness and Vite process were removed after capture. Mounted page tests separately pin the component wiring into collapsed GrantRecord rows.
+
+The status repeats recorded facts without inferring why allows is false. Pending is still the three-null-stamp predicate; expiry is advisory; pre-start remains signable. Existing Allows now stays visible. The existing page timer drives expiry/start display, and signing-off hides approval hints as before. The expired-pending line moved out of GrantApproval into the collapsed record to avoid duplicate messages. No request, identity-read, server-refusal, ceremony, CSP, history-detail or pagination logic changed.
+
+Red check: seven status assertions fail on 4ca587d22, signing-off control passes. Separate mutants removing record status rendering or page opt-in both fail the waiting-for-approval assertions; source bytes restored. Independent UX and QA holders must state current-head delta applicability; these author screenshots carry no peer approval.

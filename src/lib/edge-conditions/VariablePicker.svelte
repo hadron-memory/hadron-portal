@@ -6,16 +6,21 @@
     value = $bindable(''),
     placeholder = '',
     extraVariables = [],
+    allowedScopes,
   }: {
     value?: string;
     placeholder?: string;
     /** Context-specific paths (e.g. flow envelope fields) listed before the curated catalog. */
     extraVariables?: ReadonlyArray<KnownVariable>;
+    /** Offer only variables under these scopes (a path without a dot, like now(), is a builtin and stays). Omit for all. */
+    allowedScopes?: ReadonlyArray<string>;
   } = $props();
 
+  const inScope = (v: KnownVariable) =>
+    !allowedScopes || !v.path.includes('.') || allowedScopes.includes(v.path.split('.')[0]);
   const options = $derived([
-    ...extraVariables,
-    ...KNOWN_VARIABLES.filter((v) => !extraVariables.some((e) => e.path === v.path)),
+    ...extraVariables.filter(inScope),
+    ...KNOWN_VARIABLES.filter((v) => inScope(v) && !extraVariables.some((e) => e.path === v.path)),
   ]);
 
   const friendlyLabel = $derived(

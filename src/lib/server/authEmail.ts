@@ -3,6 +3,7 @@ import type { Infer } from 'sveltekit-superforms/adapters';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { authEmailSchema } from '$lib/forms/authEmail';
+import { emailSignInStrings } from '$lib/i18n/email-sign-in-strings';
 import { isLocalPath } from '$lib/safeRedirect';
 import { TURNSTILE_FIELD, turnstileToken } from '$lib/turnstile';
 import { emailLoginErrorStatus, startBoundMagicLink } from './emailLogin';
@@ -37,6 +38,6 @@ export async function sendAuthEmailLink({ request, cookies, url }: AuthEmailActi
 
   return message(form, {
     type: 'success',
-    text: 'Check your email for a sign-in link. You can close this page.',
+    text: emailSignInStrings.linkSent(),
   });
 }

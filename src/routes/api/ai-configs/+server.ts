@@ -7,9 +7,13 @@ import {
   DELETE_AI_SERVICE_CONFIG_MUTATION,
   TEST_AI_SERVICE_CONFIG_MUTATION,
   AI_PROVIDER_ENDPOINTS_QUERY,
+  AI_SERVICE_CONFIGS_QUERY,
+  RESOLVE_AI_SERVICE_CONFIGS_QUERY,
 } from '$lib/server/queries';
+import { fetchAllItems } from '$lib/server/paginate';
 import { inlineTestable } from '$lib/components/ai-config-manager';
 import { callAgentChatLlm } from '$lib/server/llm/agentChatLlm.js';
+import { RESPOND_TEST_TOOLS } from '$lib/server/llm/respondTestTool';
 import { publicChatError } from '$lib/server/llm/chatError.js';
 import { t } from '$lib/i18n/t';
 import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
@@ -76,8 +80,100 @@ function endpointArgs(src: { endpoint?: string | null; apiStyle?: string | null 
   };
 }
 
+// Only definitive auth codes are safe to retry as draft-local refusals.
+// Never echo GraphQL text: it can contain provider credentials.
+function authRefusal(error: unknown): Response | null {
+  const code = extractGqlErrorCode(error);
+  if (code === 'FORBIDDEN') return json({ error: t('ai-config.error.forbidden', 'Forbidden') }, { status: 403 });
+  if (code === 'UNAUTHENTICATED') return json({ error: t('ai-config.error.unauthorized', 'Unauthorized') }, { status: 401 });
+  return null;
+}
+
 const TEST_SYSTEM =
-  'You are a test assistant. Reply with exactly one short sentence confirming you are reachable.';
+  'You are a test assistant. Call respond exactly once with one short sentence confirming you are reachable, onTrack true, empty data and next_stage null.';
+
+const READBACK_TIMEOUT_MS = 10_000;
+
+function readbackClient(token: string, parent: AbortSignal) {
+  const controller = new AbortController();
+  const abort = () => controller.abort(parent.reason);
+  if (parent.aborted) abort();
+  else parent.addEventListener('abort', abort, { once: true });
+  const timer = setTimeout(() => controller.abort(new Error('AI configuration readback timed out')), READBACK_TIMEOUT_MS);
+  return {
+    client: gqlClient(token, controller.signal),
+    done: () => {
+      clearTimeout(timer);
+      parent.removeEventListener('abort', abort);
+    },
+  };
+}
+
+// A committed write re-reads only this section, never invalidateAll(): Kit
+// renders a failed __data.json over the whole page before a component catch
+// can report the committed outcome. The query, owner arguments and token are
+// the same masked, paginated read the page loaders use. A refused upstream
+// read is an in-page `{failed:true}` result, not an HTTP 5xx. Browser aborts
+// and a server deadline cancel the upstream GraphQL fetch as well.
+export const GET: RequestHandler = async ({ locals, url, request }) => {
+  const headers = { 'cache-control': 'no-store' };
+  if (!locals.token) return json({ error: 'Unauthorized' }, { status: 401, headers });
+
+  const readback = readbackClient(locals.token, request.signal);
+  try {
+    const ownerType = url.searchParams.get('ownerType');
+    const ownerId = url.searchParams.get('ownerId');
+    const appRef = url.searchParams.get('appRef');
+    const agentRef = url.searchParams.get('agentRef');
+
+    // App chat consumes the resolution walk, not just the App-owned rows. This
+    // mode refreshes that existing loader slice after an AI-config write without
+    // invalidating the rest of the App page. It uses the same App-membership gate.
+    if (appRef !== null || agentRef !== null) {
+      if (!appRef || !agentRef || ownerType !== null || ownerId !== null) {
+        return json({ error: 'appRef and agentRef are required together, without owner arguments' }, { status: 400, headers });
+      }
+      try {
+        const data = await readback.client.request<{ resolveAiServiceConfigs: AiServiceConfig[] }>(
+          RESOLVE_AI_SERVICE_CONFIGS_QUERY,
+          { appRef, agentRef },
+        );
+        return json({ configs: data.resolveAiServiceConfigs }, { headers });
+      } catch (e) {
+        // An org admin may manage the App's configs without being an App member.
+        // Their Chat picker is legitimately withheld, not a failed refresh that
+        // should lock further writes. Every other refusal remains a real failure.
+        if (extractGqlErrorCode(e) === 'FORBIDDEN') {
+          return json({ withheld: true }, { headers });
+        }
+        console.error('[api/ai-configs] resolved section readback failed:', e);
+        return json({ failed: true }, { headers });
+      }
+    }
+
+    if (
+      !ownerId ||
+      (ownerType !== 'HADRON_SERVER' && ownerType !== 'ORGANIZATION' && ownerType !== 'APP' && ownerType !== 'AGENT')
+    ) {
+      return json({ error: 'Valid ownerType and ownerId are required' }, { status: 400, headers });
+    }
+
+    try {
+      const configs = await fetchAllItems<AiServiceConfig>(
+        readback.client,
+        AI_SERVICE_CONFIGS_QUERY,
+        'aiServiceConfigs',
+        { ownerType, ownerId },
+      );
+      return json({ configs }, { headers });
+    } catch (e) {
+      console.error('[api/ai-configs] section readback failed:', e);
+      return json({ failed: true }, { headers });
+    }
+  } finally {
+    readback.done();
+  }
+};
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) {
@@ -122,6 +218,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         );
         return json({ ok: true, config: data.createAiServiceConfig });
       } catch (e) {
+        const refusal = authRefusal(e);
+        if (refusal) return refusal;
         const code = extractGqlErrorCode(e);
         if (code === 'DuplicateAiServiceConfigNameError') {
           return json({ error: t('ai-config.error.duplicate-name', 'An AI configuration with this name already exists for this owner.') }, { status: 409 });
@@ -164,6 +262,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         );
         return json({ ok: true, config: data.updateAiServiceConfig });
       } catch (e) {
+        const refusal = authRefusal(e);
+        if (refusal) return refusal;
         const code = extractGqlErrorCode(e);
         if (code === 'DuplicateAiServiceConfigNameError') {
           return json({ error: t('ai-config.error.duplicate-name', 'An AI configuration with this name already exists for this owner.') }, { status: 409 });
@@ -182,7 +282,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       try {
         await client.request(DELETE_AI_SERVICE_CONFIG_MUTATION, { id: body.id });
         return json({ ok: true });
-      } catch {
+      } catch (e) {
+        const refusal = authRefusal(e);
+        if (refusal) return refusal;
         return json({ error: t('ai-config.error.delete-failed', 'Failed to delete AI configuration.') }, { status: 500 });
       }
     }
@@ -269,14 +371,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           apiKey,
           model,
           systemMessage: TEST_SYSTEM,
-          tools: null,
+          tools: RESPOND_TEST_TOOLS,
+          respondTest: true,
           messages: [{ role: 'user', content: 'Are you there?' }],
         });
         return json({
           ok: true,
           provider,
           model,
-          reply: llmResult.respond.message ?? llmResult.rawText,
+          reply: llmResult.respond.message,
           usage: llmResult.usage,
         });
       } catch (e) {

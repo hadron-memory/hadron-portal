@@ -5,8 +5,9 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphQLClient } from 'graphql-request';
-import { AGENT_TASK_DETAIL_QUERY, APP_PEOPLE_QUERY, AGENT_ALARMS_QUERY, AGENT_TASK_ANCESTOR_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_REF_QUERY, AGENT_TASKS_BOARD_QUERY, PULL_REQUEST_READINESS_QUERY, TASK_REVIEW_EVENTS_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
-import { loadWriteCandidates, ALARMS_LIMIT, BOARD_LIMIT, HISTORY_LIMIT, loadAlarms, loadAncestors, loadBoard, loadHistory, loadReview, loadRoster, loadTree, hydrateTaskRefs, canonicalTaskId, HYDRATE_CONCURRENCY } from './agent-tasks';
+import { AGENT_TASK_DETAIL_QUERY, APP_PEOPLE_QUERY, AGENT_ALARMS_QUERY, AGENT_ALARMS_IN_EFFECT_QUERY, AGENT_TASK_ANCESTOR_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_REF_QUERY, AGENT_TASKS_BOARD_QUERY, PULL_REQUEST_READINESS_QUERY, TASK_REVIEW_EVENTS_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
+import { loadWriteCandidates, ALARMS_PAGE_SIZE, BOARD_LIMIT, HISTORY_LIMIT, loadAlarms, loadAncestors, loadBoard, loadHistory, loadReview, loadRoster, loadTree, hydrateTaskRefs, canonicalTaskId, HYDRATE_CONCURRENCY } from './agent-tasks';
+import { selectsFieldPath } from '$lib/test/graphql-selection';
 
 const request = vi.fn();
 const client = { request } as unknown as GraphQLClient;
@@ -188,21 +189,35 @@ describe('slice 2: roster, titles and alarms', () => {
   });
 
 
-  it('alarms walk forward by the last id, alarmsOnly, up to the bound', async () => {
-    const page = (n: number, from: number) => Array.from({ length: n }, (_, i) => ({ id: `a${from + i}` }));
-    request.mockResolvedValueOnce({ agentTeamEvents: page(200, 0) }).mockResolvedValueOnce({ agentTeamEvents: page(1, 200) });
-    const r = await loadAlarms(client, 'app-1');
-    expect(r).toMatchObject({ kind: 'ok', value: { capped: false } });
-    expect(request.mock.calls[0]).toEqual([AGENT_ALARMS_QUERY, { appRef: 'app-1', after: undefined, limit: 200 }]);
-    expect(request.mock.calls[1][1]).toMatchObject({ after: 'a199' });
+  it('alarms read one newest-first page, with a look-ahead and an older cursor', async () => {
+    const page = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `a${i}` }));
+    request.mockResolvedValueOnce({ agentTeamEvents: page(21) });
+    const r = await loadAlarms(client, 'app-1', 'prior');
+    expect(r).toMatchObject({ kind: 'ok', value: { nextBefore: 'a19' } });
+    expect(r.kind === 'ok' && r.value.alarms).toHaveLength(ALARMS_PAGE_SIZE);
+    expect(request.mock.calls[0]).toEqual([AGENT_ALARMS_QUERY, { appRef: 'app-1', before: 'prior', after: undefined, newestFirst: true, limit: 21 }]);
     expect(AGENT_ALARMS_QUERY).toContain('alarmsOnly: true');
+    expect(AGENT_ALARMS_QUERY).toContain('newestFirst: $newestFirst');
+    request.mockResolvedValueOnce({ agentTeamEvents: page(20) });
+    expect(await loadAlarms(client, 'app-1')).toMatchObject({ kind: 'ok', value: { nextBefore: null } });
+  });
 
-    request.mockReset();
-    let n = 0;
-    request.mockImplementation(async () => ({ agentTeamEvents: page(200, (n++) * 200) }));
-    const capped = await loadAlarms(client, 'app-1');
-    expect(capped).toMatchObject({ kind: 'ok', value: { capped: true } });
-    expect(capped.kind === 'ok' && capped.value.alarms).toHaveLength(ALARMS_LIMIT);
+  // portal#2000 A: the In effect read asks the server to filter (#3934's
+  // alarmsInEffect: unacknowledged and no recorded escalation end, App-wide
+  // before the page is cut), through its OWN document. The pre-existing
+  // document must not name the argument at all: GraphQL validates the
+  // document, not the values, so a shared document would break every alarms
+  // read against a server older than the argument — the page-local filters
+  // keep their exact pre-#2000 wire shape instead.
+  it('the in-effect alarms read is its own document; the pre-existing read names no new argument', async () => {
+    request.mockResolvedValueOnce({ agentTeamEvents: [{ id: 'a0' }] });
+    await loadAlarms(client, 'app-1', undefined, undefined, true);
+    expect(request.mock.calls[0]).toEqual([AGENT_ALARMS_IN_EFFECT_QUERY, { appRef: 'app-1', before: undefined, after: undefined, newestFirst: true, limit: 21 }]);
+    expect(AGENT_ALARMS_IN_EFFECT_QUERY).toContain('alarmsInEffect: true');
+    request.mockResolvedValueOnce({ agentTeamEvents: [{ id: 'a0' }] });
+    await loadAlarms(client, 'app-1');
+    expect(request.mock.calls[1]).toEqual([AGENT_ALARMS_QUERY, { appRef: 'app-1', before: undefined, after: undefined, newestFirst: true, limit: 21 }]);
+    expect(AGENT_ALARMS_QUERY).not.toContain('alarmsInEffect');
   });
 });
 
@@ -324,7 +339,7 @@ describe('canonicalTaskId (the identity a write uses)', () => {
 
 describe('the task detail read (portal#1523)', () => {
   it('selects the requirements’ minimum model tier', () => {
-    expect(AGENT_TASK_DETAIL_QUERY).toMatch(/requirements\s*\{[^}]*\bminTier\b/);
+    expect(selectsFieldPath(AGENT_TASK_DETAIL_QUERY, 'AgentTaskDetail', ['agentTask', 'requirements', 'minTier'])).toBe(true);
   });
 });
 

@@ -16,6 +16,7 @@
  * `applyAction` records that result as the page's action data, as kit does.
  * What the form then does is superforms' own code, not this stub's.
  */
+import { isActionFailure } from '@sveltejs/kit';
 import { page } from './app-stores';
 
 /**
@@ -39,16 +40,20 @@ export function enhance(form: HTMLFormElement, submit?: unknown): { destroy: () 
 
 /**
  * Run superforms' submit callback for `form` as kit would on submit, and
- * report whether it cancelled. No request is made: the callback's returned
- * result handler is never invoked.
+ * report whether it cancelled. Pass `true` to also receive the FormData after
+ * superforms has processed it (including any JSON transport rewrite). No request
+ * is made: the callback's returned result handler is never invoked.
  */
-export async function submitEnhanced(form: HTMLFormElement): Promise<{ cancelled: boolean }> {
+export async function submitEnhanced(form: HTMLFormElement): Promise<{ cancelled: boolean }>;
+export async function submitEnhanced(form: HTMLFormElement, includeFormData: true): Promise<{ cancelled: boolean; formData: FormData }>;
+export async function submitEnhanced(form: HTMLFormElement, includeFormData = false): Promise<{ cancelled: boolean; formData?: FormData }> {
   const submit = enhanced.get(form);
   if (!submit) throw new Error('submitEnhanced: this form was never enhanced');
   let cancelled = false;
+  const formData = new FormData(form);
   await submit({
     action: new URL(form.action || 'http://localhost/'),
-    formData: new FormData(form),
+    formData,
     formElement: form,
     controller: new AbortController(),
     submitter: form.querySelector('[type="submit"]'),
@@ -56,7 +61,7 @@ export async function submitEnhanced(form: HTMLFormElement): Promise<{ cancelled
       cancelled = true;
     },
   });
-  return { cancelled };
+  return includeFormData ? { cancelled, formData } : { cancelled };
 }
 
 /**
@@ -124,6 +129,30 @@ export async function submitEnhancedWithResult(
 }
 
 /**
+ * Map a REAL route action's return value (from invoking `actions.x` directly)
+ * to the ActionResult kit derives for it, so a test hands superforms what the
+ * browser would. Kit's own class is the discriminator (`isActionFailure`,
+ * `@sveltejs/kit` src/exports/index.js: `fail()` returns an `ActionFailure`
+ * carrying `status` and `data`): superforms' `message()` with a status ≥ 400
+ * answers `fail(status, { form })` — an ActionFailure the browser receives as
+ * an ActionResult of type 'failure' whose data is the fail() payload — while
+ * without a status (or below 400) it returns the plain `{ form }` object,
+ * which kit types 'success' and which has NO `status` field at all on the
+ * direct return. A numeric-status sniff cannot stand in for the class: the
+ * WIRE shape of a success also carries a status
+ * (`{ type: 'success', status: 200, data }`), and under the old
+ * `typeof r.status === 'number'` check that shape read as a failure
+ * (portal#2016).
+ */
+export function actionResultOf(
+  r: Record<string, unknown>,
+): { type: 'success' | 'failure'; status: number; data: Record<string, unknown> } {
+  return isActionFailure(r)
+    ? { type: 'failure', status: r.status, data: (r.data as Record<string, unknown> | undefined) ?? {} }
+    : { type: 'success', status: 200, data: r };
+}
+
+/**
  * portal#1528 — like `submitEnhancedWithResult`, but hands the result handler
  * EXACTLY what kit's `enhance` would, including the shapes that are not an
  * ActionResult: `{ type: 'error', error }` for a rejected fetch or a body that
@@ -188,8 +217,12 @@ export async function submitEnhancedDeferred(
  * downstream of a submit ever runs (#957). A no-op for other result types, and
  * never reached unless a test drives a result through `submitEnhancedWithResult`.
  */
-/** Every result handed to `applyAction`, in order. A test empties it itself. */
+/** Every result handed to `applyAction`, in order. A suite resets it in `afterEach`. */
 export const kitAppliedResults: unknown[] = [];
+
+export function resetKitAppliedResults(): void {
+  kitAppliedResults.length = 0;
+}
 
 export function applyAction(result?: { type?: string; status?: number; data?: unknown }): Promise<void> {
   kitAppliedResults.push(result);

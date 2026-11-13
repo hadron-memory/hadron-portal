@@ -1,7 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import { ClientError } from 'graphql-request';
 import { gqlClient } from '$lib/server/api';
-import { RESOLVE_URN_QUERY } from '$lib/server/queries';
+import { PUBLIC_ORGANIZATION_ROUTE_QUERY, RESOLVE_URN_QUERY } from '$lib/server/queries';
 import { loadTicker } from '$lib/server/tickers';
 import { withQuery } from '$lib/safeRedirect';
 import { normalizeUrn } from '$lib/urn/parse-urn';
@@ -56,6 +56,20 @@ const KNOWN_KINDS = new Set<UrnResolution['kind']>([
   // landed on this route's "No canonical portal page" 404.
   'action',
 ]);
+
+/**
+ * #1846 slice B — membership still wins through resolveUrn. Only when that
+ * member-only resolution is absent/denied may an org-shaped URN use the
+ * server's closed public projection. Other kinds never get this fallback.
+ * Select just the id: this route redirects and must not invoke profile lists.
+ */
+async function publicOrganizationPath(urn: string, token: string | null | undefined): Promise<string | null> {
+  if (!/^(?:hrn|urn):org:/i.test(urn)) return null;
+  const { publicOrganization } = await gqlClient(token).request<{
+    publicOrganization: { id: string } | null;
+  }>(PUBLIC_ORGANIZATION_ROUTE_QUERY, { ref: urn });
+  return publicOrganization ? `/app/org/${publicOrganization.id}` : null;
+}
 
 export const load: PageServerLoad = async ({ params, locals, url }) => {
   const urn = normalizeUrn(params.urn);
@@ -112,6 +126,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         code === 'FORBIDDEN' ||
         code === 'PERMISSION_DENIED'
       ) {
+        const publicTarget = await publicOrganizationPath(urn, locals.token);
+        if (publicTarget) redirect(307, withQuery(publicTarget, url.search));
         throw error(404, notFoundMessage(urn));
       }
     }
@@ -119,6 +135,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   }
 
   if (!resolveUrn) {
+    const publicTarget = await publicOrganizationPath(urn, locals.token);
+    if (publicTarget) redirect(307, withQuery(publicTarget, url.search));
     throw error(404, notFoundMessage(urn));
   }
 

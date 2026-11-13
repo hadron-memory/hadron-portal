@@ -16,7 +16,7 @@ async function renderSuccess() {
   await tick(2);
   return m.target;
 }
-function pairs(element: Element | null, tokens: string[], darkOnly: string[]) {
+function pairs(element: Element | null | undefined, tokens: string[], darkOnly: string[]) {
   expect(element).not.toBeNull();
   const classes = [...element!.classList];
   for (const token of tokens) expect(classes).toContain(token);
@@ -38,11 +38,26 @@ describe('invite success feedback (#1545)', () => {
   });
   it('pairs exact light/dark tokens on all four success elements', async () => {
     const root = await renderSuccess();
-    const code = root.querySelector('textarea');
-    const box = code?.parentElement?.parentElement ?? null;
+    const link = root.querySelector('textarea');
+    const box = link?.parentElement?.parentElement ?? null;
     pairs(box, ['border-green-300', 'bg-green-50', 'text-green-700', 'dark:border-green-800', 'dark:bg-green-950', 'dark:text-green-300'], ['border-green-800', 'bg-green-950', 'text-green-300']);
-    pairs(code, ['bg-zinc-100', 'text-green-800', 'dark:bg-zinc-800', 'dark:text-green-200'], ['bg-zinc-800', 'text-green-200']);
-    pairs(box?.querySelector('button') ?? null, ['border-green-300', 'text-green-700', 'hover:bg-green-100', 'dark:border-green-700', 'dark:text-green-300', 'dark:hover:bg-green-900'], ['border-green-700', 'text-green-300', 'hover:bg-green-900']);
-    pairs(box?.querySelector('p.mt-2') ?? null, ['text-green-700', 'dark:text-green-400'], ['text-green-400']);
+    pairs(link, ['bg-zinc-100', 'text-green-800', 'dark:bg-zinc-800', 'dark:text-green-200'], ['bg-zinc-800', 'text-green-200']);
+    pairs(box?.querySelector('button') ?? null, ['border-green-300', 'text-green-800', 'not-aria-disabled:hover:bg-green-100', 'aria-disabled:opacity-50', 'aria-disabled:cursor-wait', 'dark:border-green-700', 'dark:text-green-300', 'dark:not-aria-disabled:hover:bg-green-900'], ['border-green-700', 'text-green-700', 'text-green-300', 'hover:bg-green-100', 'hover:bg-green-900', 'dark:hover:bg-green-900', 'enabled:hover:bg-green-100']);
+    // The limits paragraph is the only mt-2 paragraph while Copy is idle
+    // (#1742): the feedback paragraph is omitted, not rendered empty.
+    const limits = [...(box?.querySelectorAll('p.mt-2') ?? [])].find((p) => /can be used/.test(p.textContent ?? ''));
+    pairs(limits, ['text-green-700', 'dark:text-green-400'], ['text-green-400']);
+  });
+  it('omits the feedback paragraph while Copy is idle instead of rendering it empty (#1742)', async () => {
+    const root = await renderSuccess();
+    const paragraphs = [...root.querySelectorAll('[role="status"] p')];
+    expect(paragraphs.length).toBeGreaterThan(0);
+    for (const p of paragraphs) expect(p.textContent?.trim() ?? '').not.toBe('');
+  });
+  it('names the Copy button for what it copies, keeping the short visible label (#1742)', async () => {
+    const root = await renderSuccess();
+    const copy = root.querySelector<HTMLButtonElement>('button[type="button"]');
+    expect(copy?.textContent?.trim()).toBe('Copy');
+    expect(copy?.getAttribute('aria-label')).toBe('Copy invitation link');
   });
 });

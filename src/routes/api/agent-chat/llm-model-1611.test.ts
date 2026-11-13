@@ -25,11 +25,12 @@ import {
   START_CHAT_MUTATION,
 } from '$lib/server/queries';
 import { __resetRateLimit } from '$lib/server/rate-limit';
+import { asTesterManager } from '$lib/test/tester-manage';
 
 const mockRequest = vi.fn();
 const mockLlm = vi.fn();
 
-vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
+vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: (q: string, v?: unknown) => asTesterManager(mockRequest, { visibleAgentIds: ['agent-1'] })(q, v) }) }));
 vi.mock('$lib/server/llm/agentChatLlm.js', async () => {
   const actual = await vi.importActual<typeof import('$lib/server/llm/agentChatLlm.js')>('$lib/server/llm/agentChatLlm.js');
   return { ...actual, callAgentChatLlm: (...a: unknown[]) => mockLlm(...a) };
@@ -65,7 +66,7 @@ function setup(o: { resolve?: Array<unknown | Error>; start?: Error; send?: Erro
       return { sendChatMessage: { systemMessage: 'sys', tools: null, messageHistory: [{ role: 'user', content: 'hi' }], summarizationNeeded: null } };
     }
     if (doc === PROCESS_CHAT_RESPONSE_MUTATION) {
-      return { processChatResponse: { displayMessage: 'hello', stageTransitioned: false, newStageName: null, conversationHandoff: null, chatEnded: false, onTrack: true, offTrackReason: null } };
+      return { processChatResponse: { displayMessage: 'hello', stageTransitioned: false, newStageName: null, conversationHandoff: null, chatEnded: false, onTrack: true, offTrackReason: null, conversationCompleted: null, detourReturned: false, rejectedNextStage: null, routingSkipped: false } };
     }
     throw new Error(`unexpected operation: ${String(doc).slice(0, 50)}`);
   });
@@ -189,12 +190,14 @@ describe('portal#1611 /turn reports the model it will call, every turn', () => {
   });
 
   it('A7: the decrypted key is never in any start or send variables, and resolution keeps its arguments', async () => {
+    // Without an App (the Tester's path) the named config is resolved as asked. In an App the portal resolves
+    // from the choice or the chat instead (portal#1963; ai-config-choice-1963.test.ts).
     setup({ resolve: [config('model-X')] });
-    await start({ agentId: 'agent-1', appId: 'app-1', configName: 'fast' });
-    await turn({ agentId: 'agent-1', chatId: 'chat-1', userMessage: 'hi', appId: 'app-1', configName: 'fast' });
+    await start({ agentId: 'agent-1', configName: 'fast' });
+    await turn({ agentId: 'agent-1', chatId: 'chat-1', userMessage: 'hi', configName: 'fast' });
     const wire = JSON.stringify([...callsOf(START_CHAT_MUTATION), ...callsOf(SEND_CHAT_MESSAGE_MUTATION)]);
     expect(wire).not.toContain(KEY);
-    expect(callsOf(RESOLVE_AI_CONFIG_QUERY)[0]).toEqual({ name: 'fast', appRef: 'app-1', agentRef: 'agent-1' });
+    expect(callsOf(RESOLVE_AI_CONFIG_QUERY)[0]).toEqual({ name: 'fast', agentRef: 'agent-1' });
   });
 });
 
@@ -233,4 +236,33 @@ describe('portal#1611 the tester endpoints are chats too (A5)', () => {
     expect(callsOf(SEND_CHAT_MESSAGE_MUTATION)).toHaveLength(1);
     expect(callsOf(START_CHAT_MUTATION)).toHaveLength(1);
   });
+});
+
+describe('runtime compatibility across shared request entrypoints', () => {
+  for (const [provider, effectiveEndpoint] of [
+    ['anthropic', 'https://api.anthropic.com/v1'],
+    ['openai', 'https://api.openai.com/v1'],
+    ['glm', 'https://api.z.ai/api/paas/v4'],
+    ['bedrock', null],
+  ] as const) {
+    it.each([['start', start], ['continuation', turn], ['test-run', testRun], ['test-persona', persona]] as const)(
+      `${provider} %s refuses identity-only resolution before provider use`, async (_name, request) => {
+        setup({ resolve: [config('model-X', { provider, effectiveEndpoint, apiKey: null, params: { secret: KEY } })] });
+        const response = await request();
+        const body = await response.text();
+        expect(body).not.toContain(KEY);
+        if (_name === 'start') {
+          expect(response.status).toBe(200); // Existing chat creation + soft welcome refusal.
+          expect(JSON.parse(body).welcomeError).toMatch(/credential.*not available/i);
+          expect(callsOf(START_CHAT_MUTATION)[0]).not.toHaveProperty('llmModel');
+        } else {
+          expect(response.status).toBeGreaterThanOrEqual(400);
+          expect(body).toContain('credentialUnavailable');
+        }
+        expect(mockLlm).not.toHaveBeenCalled();
+        expect(callsOf(PROCESS_CHAT_RESPONSE_MUTATION)).toEqual([]);
+        expect(callsOf(RESOLVE_AI_CONFIG_QUERY)).toHaveLength(1);
+      },
+    );
+  }
 });

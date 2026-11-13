@@ -1,7 +1,7 @@
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
-import { generateText, tool, jsonSchema } from 'ai';
+import { APICallError, RetryError, generateText, tool, jsonSchema } from 'ai';
 import type { AIProvider } from '$lib/types';
 import { ChatError } from './chatError.js';
 
@@ -14,6 +14,8 @@ export interface RespondCall {
   message: string;
   data?: Record<string, unknown>;
   next_stage?: string | null;
+  /** S8 (#2065): the model's explicit "this conversation's goal is reached" flag; absent means false. The tool schema stays server-owned. */
+  goal_reached?: boolean;
 }
 
 /**
@@ -33,112 +35,13 @@ export interface AgentChatLlmResult {
   usage?: { inputTokens?: number; outputTokens?: number };
 }
 
-// ── Which configs this runtime may run (stopgap, Holger 2026-09-27) ─────────
-//
-// This runtime calls providers from the PORTAL with the config's decrypted key,
-// at the hosts below, and knows nothing of a config's endpoint. A config whose
-// endpoint was set elsewhere (the CLI, the API) would otherwise be run against
-// one of these hosts with a key issued for a different one. So it runs only
-// configs whose server-resolved effective endpoint IS a host it calls, and
-// refuses the rest loudly.
-//
-// The direction (Holger): custom endpoints are called only by the server, which
-// has the egress guard for them, and portal chat turns move there. Until then
-// this is the containment, not the fix.
-
-/** The GLM host this runtime has always called (Z.ai Coding Plan). */
-const GLM_PORTAL_HOST = 'https://api.z.ai/api/coding/paas/v4';
-
-/**
- * Per provider, the effective endpoints this runtime may run. `null`: the
- * provider has no endpoint (the SDK derives it), so a config must have none.
- *
- * GLM also admits the server's default (general) host although this runtime
- * calls the Coding Plan host. That mismatch predates the stopgap and needs its
- * own decision (some users rely on Coding Plan keys), so it is kept as it was.
- */
-const PORTAL_RUNTIME_HOSTS: Readonly<Record<string, readonly string[] | null>> = {
-  anthropic: ['https://api.anthropic.com/v1'],
-  openai: ['https://api.openai.com/v1'],
-  glm: [GLM_PORTAL_HOST, 'https://api.z.ai/api/paas/v4'],
-  bedrock: null,
-};
-
-/**
- * Whether two endpoints name the same place. Scheme and host are compared
- * case-insensitively (URL normalizes them, and a default port); the PATH is
- * case-sensitive, so `/V1` is not `/v1` (Codex on #958). Only a single trailing
- * slash is ignored, and any query or fragment makes it a different endpoint.
- */
-function sameEndpoint(a: string, b: string): boolean {
-  const parse = (u: string) => {
-    try {
-      return new URL(u.trim());
-    } catch {
-      return null;
-    }
-  };
-  const pa = parse(a);
-  const pb = parse(b);
-  if (!pa || !pb) return false;
-  // At most ONE trailing slash is ignored: `/v1//` is not `/v1` (Codex on #958).
-  const path = (u: URL) => u.pathname.replace(/\/$/, '');
-  return pa.origin === pb.origin && path(pa) === path(pb) && pa.search === pb.search && pa.hash === pb.hash;
-}
-
-/**
- * The endpoint's host, for a message, or null when it doesn't parse as a URL.
- * Only a parsed host is ever shown: a string that isn't a URL could carry
- * anything (a token in a would-be query string, say), so it is never echoed
- * into a chat or judge message (Dara and Charles on #958).
- */
-function hostOf(url: string): string | null {
-  try {
-    return new URL(url.trim()).host || null;
-  } catch {
-    return null;
-  }
-}
-
-/** A resolve that failed because the server predates `effectiveEndpoint` (#1373). */
-export function isMissingEffectiveEndpoint(message: string): boolean {
-  return /Cannot query field\W+effectiveEndpoint/.test(message);
-}
-
-export const EFFECTIVE_ENDPOINT_UNSUPPORTED =
-  "The Hadron server didn't recognize effectiveEndpoint, which portal chats need to check where an AI configuration sends requests, so the chat won't run. The server may be older than this portal.";
-
-const INVALID_ENDPOINT = "This AI configuration's endpoint isn't a valid URL, so portal chats won't run it. Check the configuration's endpoint, or use another configuration.";
-
-/**
- * Why this runtime must not run a resolved config, or null when it may.
- * `effectiveEndpoint` is the server's (ResolvedAiConfig): where a request for
- * the config is meant to go. What can't be checked is refused, not assumed.
- */
-export function portalRuntimeRefusal(config: { provider: string; effectiveEndpoint?: string | null }): string | null {
-  const { provider } = config;
-  const endpoint = config.effectiveEndpoint ?? null;
-  if (!Object.hasOwn(PORTAL_RUNTIME_HOSTS, provider)) {
-    return `This AI configuration uses the "${provider}" provider, which portal chats can't run yet: only the Hadron server calls it. Until portal chats run on the server, use a configuration with a built-in provider.`;
-  }
-  const hosts = PORTAL_RUNTIME_HOSTS[provider];
-  if (hosts === null) {
-    if (endpoint === null) return null;
-    const host = hostOf(endpoint);
-    return host
-      ? `This AI configuration has an endpoint (${host}), which portal chats can't use for ${provider}. Remove the endpoint, or use another configuration.`
-      : INVALID_ENDPOINT;
-  }
-  if (endpoint === null) {
-    return `Portal chats couldn't confirm where this AI configuration sends requests, so they won't run it. Check the configuration's endpoint, or use another configuration.`;
-  }
-  if (!hosts.some((h) => sameEndpoint(h, endpoint))) {
-    const host = hostOf(endpoint);
-    if (!host) return INVALID_ENDPOINT;
-    return `This AI configuration sends requests to a custom endpoint (${host}), which portal chats can't use yet: custom endpoints are called only by the Hadron server. Until portal chats run on the server, use a configuration on the provider's default endpoint.`;
-  }
-  return null;
-}
+// ── Which configs this runtime may run: see $lib/llm/portalRuntime (portal#1963 moved it there, client-safe). ──
+import { GLM_PORTAL_HOST } from '$lib/llm/portalRuntime';
+export {
+  portalRuntimeRefusal,
+  isMissingEffectiveEndpoint,
+  EFFECTIVE_ENDPOINT_UNSUPPORTED,
+} from '$lib/llm/portalRuntime';
 
 /**
  * Build a Vercel AI SDK language model instance for a given Hadron agent
@@ -192,15 +95,205 @@ export async function callAgentChatLlm(args: {
   systemMessage: string;
   tools: HadronTool[] | null;
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  /** Inline config probe only: one bounded request and exactly one string-message respond call. */
+  respondTest?: true;
 }): Promise<AgentChatLlmResult> {
+  const trace: LlmTrace = { stage: 'config' };
   try {
-    return await callAgentChatLlmUnsafe(args);
-  } catch {
+    return await callAgentChatLlmUnsafe(args, trace);
+  } catch (e) {
     // SDK errors can contain the request Authorization header. Do not attach
-    // the original error as a cause or log it here.
+    // the original error as a cause, and never hand it (or anything read off
+    // it) to a logger: #1979 logs one closed line built from this module's own
+    // vocabulary and integers, and nothing else.
+    logLlmFailure(e, () => ({
+      stage: trace.stage,
+      branch: trace.branch ?? (args.tools?.some((t) => t.name === 'respond') ? 'respond' : 'plain'),
+      turn: args.messages.length === 0 ? 'welcome' : 'turn',
+      provider: args.provider,
+      tools: args.tools?.length ?? 0,
+    }));
     throw new ChatError('llmFailed');
   }
 }
+
+// ── #1979: the closed diagnostic line for a failed AI turn ──────────────────
+//
+// The public error stays the fixed llmFailed. The server log gets ONE line made
+// only of: this module's finite vocabulary below, and integers. A provider
+// message, response body, error name/class, request id, model, prompt, config or
+// App name are all attacker- or user-controlled and may echo a credential, so
+// none is read into the line; the provider's own `error.type` appears only when
+// it equals an entry of a code allowlist (the allowlist's constant is logged,
+// never the input). Status alone does not say WHY a request failed; the line
+// keeps that uncertainty by saying only what class of boundary it came from.
+
+/** Where in one turn the failure happened, set by the call itself, not read from the error. */
+type LlmStage = 'config' | 'request' | 'tool-output';
+type LlmBranch = 'plain' | 'respond';
+interface LlmTrace { stage: LlmStage; branch?: LlmBranch }
+interface LlmFailureContext { stage: LlmStage; branch: LlmBranch; turn: 'welcome' | 'turn'; provider: AIProvider; tools: number }
+
+/** Every field of the line comes out of one of these lists (or an integer), never from the input. */
+export const LOGGABLE_PROVIDERS = ['anthropic', 'openai', 'glm', 'bedrock'] as const satisfies readonly AIProvider[];
+const LOGGABLE_STAGES = ['config', 'request', 'tool-output'] as const satisfies readonly LlmStage[];
+const LOGGABLE_BRANCHES = ['plain', 'respond'] as const satisfies readonly LlmBranch[];
+const LOGGABLE_TURNS = ['welcome', 'turn'] as const;
+const LOGGABLE_ANTHROPIC_TYPES: readonly string[] = [
+  'invalid_request_error', 'authentication_error', 'permission_error', 'not_found_error',
+  'rate_limit_error', 'api_error', 'overloaded_error',
+];
+
+/**
+ * The SDK's own provider-call error, or null. A retryable failure (429, 5xx,
+ * transport) reaches us wrapped in the SDK's RetryError after its retries; the
+ * wrapper's last attempt is the one unwrap. Only the SDK's own marker types are
+ * accepted, so an impostor with the right field names is not read.
+ */
+function providerCallError(error: unknown): APICallError | null {
+  try {
+    const inner: unknown = RetryError.isInstance(error) ? error.lastError : error;
+    return APICallError.isInstance(inner) ? inner : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The finite HTTP status of a provider rejection, or null. */
+function statusOf(error: unknown): number | null {
+  try {
+    const call = providerCallError(error);
+    if (!call) return null;
+    const status: unknown = call.statusCode;
+    return typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599 ? status : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The provider's own error type if (and only if) it is on the allowlist, as OUR constant. */
+function anthropicTypeOf(error: unknown): string | null {
+  try {
+    const call = providerCallError(error);
+    if (!call) return null;
+    const data = call.data as { error?: { type?: unknown } } | undefined;
+    const raw: unknown = data?.error?.type;
+    if (typeof raw !== 'string') return null;
+    const i = LOGGABLE_ANTHROPIC_TYPES.indexOf(raw);
+    return i >= 0 ? LOGGABLE_ANTHROPIC_TYPES[i] : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The allowlist's own constant when `value` is on it, else the fallback. The input is never echoed. */
+function pick<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  const i = typeof value === 'string' ? allowed.indexOf(value as T) : -1;
+  return i >= 0 ? allowed[i] : fallback;
+}
+
+/** One closed log line. Exported for the tests; builds a fresh string, never keeps `error`. */
+export function describeLlmFailure(error: unknown, ctx: LlmFailureContext): string {
+  // Every context field is checked at run time, not only typed: a cast or a bug upstream must still
+  // not put an arbitrary string on the line.
+  const stage = pick(ctx.stage, LOGGABLE_STAGES, 'request');
+  const branch = pick(ctx.branch, LOGGABLE_BRANCHES, 'respond');
+  const turn = pick(ctx.turn, LOGGABLE_TURNS, 'turn');
+  const provider = pick<AIProvider | 'unknown'>(ctx.provider, [...LOGGABLE_PROVIDERS, 'unknown'], 'unknown');
+  const tools = Number.isInteger(ctx.tools) && ctx.tools >= 0 ? ctx.tools : 0;
+  const status = stage === 'request' ? statusOf(error) : null;
+  // The error.type vocabulary is Anthropic's; another provider's body may reuse a string by accident.
+  const type = status !== null && provider === 'anthropic' ? anthropicTypeOf(error) : null;
+  const klass = stage === 'config' ? 'config'
+    : stage === 'tool-output' ? 'unexpected-tool-output'
+    : status === null ? 'request-failed' : 'provider-status';
+  return `[agent-chat] llm turn failed class=${klass} stage=${stage} branch=${branch} turn=${turn} provider=${provider} status=${status ?? 'none'} type=${type ?? 'none'} tools=${tools}`;
+}
+
+/** Logging must never replace or escape the public error: the context is built inside the guard too. */
+function logLlmFailure(error: unknown, context: () => LlmFailureContext): void {
+  try {
+    console.warn(describeLlmFailure(error, context()));
+  } catch {
+    // The diagnostic is best-effort.
+  }
+}
+
+// ── #1979: models that reject a forced tool_choice ──────────────────────────
+//
+// A maintained list of exact ids (#2037). Matching is exact and
+// case-sensitive, and the configured id is always sent verbatim: this set only
+// picks `auto` versus the forced choice. An id not listed here keeps the
+// forced choice and fails closed as before (provider 400 -> `llmFailed`).
+//
+// Evidence, read 2026-11-12. Each id needs BOTH sources before it is listed:
+// 1. Tool use, "Forcing tool use" restriction table
+//    https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools
+//    Row "Claude Fable 5.2, Claude Mythos 5.2, Claude Opus 5.5, Claude Sonnet
+//    5.5, Claude Fable 5.1, and Claude Mythos 5.1": "`any` and `tool` return a
+//    400 error". Haiku 5.5 is not named there and stays forced. Verified live
+//    on claude-sonnet-5-5 (#1979).
+// 2. Models overview table and "Model IDs and versioning"
+//    https://platform.claude.com/docs/en/models/overview
+//    https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions
+//    API ID = API alias = `claude-fable-5-2`, `claude-opus-5-5`,
+//    `claude-sonnet-5-5`. "For the 4.6 generation and later, the dateless ID is
+//    the canonical model ID for that release. It maps to a single, fixed model
+//    snapshot." So no dated snapshot, alias or suffixed form of these models is
+//    documented, and none is admitted: a pattern would only admit guesses.
+// Mythos 5.2 / Fable 5.1 / Mythos 5.1 are named in the restriction row, but
+// the models table gives them no API id, so they are NOT listed.
+//
+// Review trigger: the portal-engineer role owns this list. Re-read both pages
+// when Anthropic announces a model or changes either table, and at least every
+// 30 days; update the read date above, and add an id only with both citations.
+// The docs snapshot in agentChatLlm.toolChoiceEvidence.test.ts is the test
+// oracle and changes with this list.
+//
+// One home (hadron-server#4005 ruling): this set is the only copy of the
+// predicate. It moves to the server with #4005's portal slice; never add a
+// second list.
+export const AUTO_TOOL_CHOICE_ANTHROPIC_MODELS: ReadonlySet<string> = new Set([
+  'claude-sonnet-5-5',
+  'claude-opus-5-5',
+  'claude-fable-5-2',
+]);
+
+// #2031: AWS model-card Programmatic Access tables (2026-11-12) document
+// these exact base and geo/global inference-profile IDs. AWS restricts these
+// models to auto/none tool choice. No prefix rewriting, arbitrary profile ARN,
+// snapshot or other geography is inferred from the base ID.
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-5-5.html
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5-5.html
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-fable-5-2.html
+const AUTO_TOOL_CHOICE_BEDROCK_MODELS: ReadonlySet<string> = new Set([
+  'anthropic.claude-sonnet-5-5',
+  'us.anthropic.claude-sonnet-5-5',
+  'eu.anthropic.claude-sonnet-5-5',
+  'au.anthropic.claude-sonnet-5-5',
+  'global.anthropic.claude-sonnet-5-5',
+  'anthropic.claude-opus-5-5',
+  'us.anthropic.claude-opus-5-5',
+  'eu.anthropic.claude-opus-5-5',
+  'au.anthropic.claude-opus-5-5',
+  'jp.anthropic.claude-opus-5-5',
+  'global.anthropic.claude-opus-5-5',
+  'anthropic.claude-fable-5-2',
+  'us.anthropic.claude-fable-5-2',
+  'global.anthropic.claude-fable-5-2',
+]);
+
+export function usesAutoToolChoice(provider: AIProvider, model: string): boolean {
+  return (provider === 'anthropic' && AUTO_TOOL_CHOICE_ANTHROPIC_MODELS.has(model))
+    || (provider === 'bedrock' && AUTO_TOOL_CHOICE_BEDROCK_MODELS.has(model));
+}
+
+/**
+ * Appended to the system text per turn, for the listed models only, because
+ * `auto` (unlike a forced choice) lets the model answer in text. Never stored.
+ */
+export const RESPOND_ONCE_INSTRUCTION =
+  'Respond by calling the respond tool exactly once. Do not answer in free text.';
 
 async function callAgentChatLlmUnsafe(args: {
   provider: AIProvider;
@@ -209,7 +302,9 @@ async function callAgentChatLlmUnsafe(args: {
   systemMessage: string;
   tools: HadronTool[] | null;
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
-}): Promise<AgentChatLlmResult> {
+  /** Inline config probe only: one bounded request and exactly one string-message respond call. */
+  respondTest?: true;
+}, trace: LlmTrace): Promise<AgentChatLlmResult> {
   const { provider, apiKey, model, systemMessage, messages } = args;
   const languageModel = createLanguageModel(provider, apiKey, model);
   if (!languageModel) {
@@ -234,11 +329,18 @@ async function callAgentChatLlmUnsafe(args: {
   //     path can produce strings like `"<agent prompt>\n\n"` when a stage
   //     prompt is empty (see startChat resolver).
   const trimmedSystem = systemMessage.trim();
-  const systemForSdk = trimmedSystem.length > 0 ? trimmedSystem : undefined;
+  const baseSystem = trimmedSystem.length > 0 ? trimmedSystem : undefined;
 
   // Find the respond tool. Hadron always ships a single tool per stage but
   // the array shape leaves room for more later.
   const respondTool = (args.tools ?? []).find((t) => t.name === 'respond');
+  trace.stage = 'request';
+  trace.branch = respondTool ? 'respond' : 'plain';
+  const autoToolChoice = respondTool !== undefined && usesAutoToolChoice(provider, model);
+  const systemForSdk = autoToolChoice
+    ? (baseSystem === undefined ? RESPOND_ONCE_INSTRUCTION : `${baseSystem}\n\n${RESPOND_ONCE_INSTRUCTION}`)
+    : baseSystem;
+  if (!respondTool && args.respondTest) throw new Error('Respond probe requires a tool');
   if (!respondTool) {
     // No extraction spec on this stage — fall back to plain text and wrap
     // it as a synthetic respond() call so the downstream processChatResponse
@@ -276,9 +378,14 @@ async function callAgentChatLlmUnsafe(args: {
     system: systemForSdk,
     messages: effectiveMessages.map((m) => ({ role: m.role, content: m.content })),
     tools: { respond: respondVercelTool },
+    // #2032's inline probe is one bounded request, with no SDK retry spend.
+    ...(args.respondTest ? { maxRetries: 0, abortSignal: AbortSignal.timeout(20_000) } : {}),
     // Force the LLM to call the respond tool on every turn. This is the
     // contract of the Chat API: one tool call per turn, no free-form text.
-    toolChoice: { type: 'tool', toolName: 'respond' },
+    // Models that reject a forced choice (#1979, usesAutoToolChoice) get
+    // `auto` plus the appended instruction; a reply with no respond call then
+    // takes the same closed failure below as any other missing call.
+    toolChoice: autoToolChoice ? 'auto' : { type: 'tool', toolName: 'respond' },
     // A single "step" is one tool call — the SDK would otherwise run the
     // tool and loop for a follow-up text generation, which we don't want.
     stopWhen: ({ steps }) => steps.length >= 1,
@@ -292,12 +399,19 @@ async function callAgentChatLlmUnsafe(args: {
   const firstCall = toolCalls[0] as { toolName?: string; input?: unknown } | undefined;
 
   if (!firstCall || firstCall.toolName !== 'respond') {
+    trace.stage = 'tool-output';
     throw new Error(
       `LLM did not produce a respond() tool call. Got text: ${result.text?.slice(0, 200) ?? '(empty)'}`,
     );
   }
 
   const respondInput = firstCall.input as RespondCall;
+  // Config testing has a stricter success criterion than existing chat parsing.
+  // Keep normal turns' unvalidated first-call-wins behavior unchanged.
+  if (args.respondTest && (toolCalls.length !== 1 || typeof respondInput?.message !== 'string')) {
+    trace.stage = 'tool-output';
+    throw new Error('Invalid respond probe output');
+  }
   return {
     respond: respondInput,
     rawText: result.text ?? '',

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import TabRow from '$lib/components/TabRow.svelte';
+  import RefreshNodeLoc from './RefreshNodeLoc.svelte';
   import { locOfSameMemoryTarget } from '$lib/urn/move-destination';
   import { Expand } from 'lucide-svelte';
   import MoveLocationInput from '$lib/components/MoveLocationInput.svelte';
@@ -6,9 +8,10 @@
   import { formatPortalDate, formatPortalDateTime } from '$lib/format-portal-date';
   import { deleteNodeStrings } from '$lib/i18n/delete-node-strings';
   import { invalidateAll, goto } from '$app/navigation';
+  import { get } from 'svelte/store';
   import { canonicalJson, parseDataSource, parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
   import { displayJson, JsonDraft, SIGNED_OUT, submitJsonDraft, syncDraftWith } from '$lib/json-draft.svelte';
-  import { deserialize } from '$app/forms';
+  import { deserialize, enhance } from '$app/forms';
   import { signinRedirectLocation } from '$lib/forms/signin-redirect';
   import { submitTextDraft, syncTextDraftWith, TextDraft } from '$lib/text-draft.svelte';
   import { abstractPlaceholder, abstractSearchHint } from '$lib/abstract-search-hint';
@@ -56,7 +59,8 @@
     type ProvenanceResult,
   } from '$lib/node-provenance';
   import NodeRoleInput from '$lib/components/NodeRoleInput.svelte';
-  import { metaSavedDespiteFailure, nodeMetaReseed, nodeMetaSeedKey } from '$lib/node-meta-seed';
+  import { metaSavedDespiteFailure, nodeMetaBaseline, nodeMetaReseed, nodeMetaSeed, nodeMetaSeedKey, savedButNotMoved } from '$lib/node-meta-seed';
+  import { bestEffortInvalidateAll } from '$lib/best-effort-invalidate-all';
   import { skillExportMenuHosts } from '$lib/skill-export';
   import NodeAssetCard from '$lib/components/assets/NodeAssetCard.svelte';
   import { canUploadToMemory } from '$lib/assets/can-upload';
@@ -78,10 +82,11 @@
     type ExtractionRow,
   } from '$lib/flow/extraction';
   import { fillViewport } from '$lib/fill-viewport';
-  import { scrollHint } from '$lib/scroll-hint';
   import type { MemoryNode, NodeEdge, NodeEdgeRemoval, NodeRevision } from '$lib/types';
   import type { PageData, ActionData } from './$types';
   import NodeStorageForm from './NodeStorageForm.svelte';
+  import CompiledPromptSources from '$lib/components/CompiledPromptSources.svelte';
+  import { compiledPromptOwner } from '$lib/compiled-prompt-owner';
   import { readMoreChildren } from './children-page';
   import {
     isFullyQualifiedNodeUrnInput,
@@ -154,8 +159,34 @@
   let showSource = $state(false);
   let confirmDelete = $state(false);
   let copied = $state(false);
+  // portal#1899: a compiled boot prompt is written only by a compile (hrn:node:hadronmemory.com:specs:cor:agt:040:11, :12);
+  // a save is always refused, so its text and abstract are shown read-only with a pointer to the source.
+  const isCompiledPrompt = $derived(node.nodeType === 'compiled-boot-prompt');
   const readOnly = $derived(data.canWriteMemory === false);
+  // portal#1901: a compiled node has no write door at all on this page (content, abstract, name/meta, data,
+  // properties, storage, flow, edges, move, restore, node delete). Approve, verify, signatures, duplicate and the
+  // reads stay, and so do delete-revision and clear-history: deleting history is not writing compiled text
+  // (hrn:node:hadronmemory.com:specs:cor:dmo:150:07), so those keep `readOnly`. The predicate is the node type, never the shared `boot-prompt` role.
+  const writeLocked = $derived(readOnly || isCompiledPrompt);
   let isEditing = $state(false);
+  // #1989: a Save whose edits committed but whose move was refused. The page
+  // holds the refusal and the loc the user typed, because the reload after it
+  // drops the action result and reseeds the form from the node (old loc, no
+  // error); left to superForm, the refusal vanished and the draft reverted.
+  // #1989: Save's move refusal, held by the page because the reload after a committed Save drops the
+  // action `form` the alert would otherwise read.
+  /** portal#2020: the last updateMeta result was a confirmed, complete success. */
+  let savedCompletely = false;
+  let moveRefusal = $state<{ text: string; loc: string } | null>(null);
+  // portal#2014: a Save whose request died (an `error` result) was not confirmed.
+  // The page holds its own text: a custom superforms onError sets no message.
+  let metaUnconfirmed = $state(false);
+  // #2048: custom onError already owns this request's feedback. Superforms
+  // also applies the error to page.form; retain its identity after Cancel so
+  // that duplicate raw banner cannot outlive the form's helpful notice.
+  // Compare the error instance, never its text: other actions still own theirs.
+  let handledMetaError = $state.raw<unknown>(null);
+  const pageActionError = $derived(form?.error === handledMetaError ? null : form?.error);
 
   // Inline editing. #927: each text editor is a draft based on the revision it
   // opened on, and its save is refused when the node changed since. The drafts
@@ -208,6 +239,10 @@
               'Your edit was not saved: the server reported a conflicting change{detail}. This text is unchanged and your edit is still here, so you can save again.',
               { detail: detail ? ` (${detail})` : '' },
             );
+      case 'compiled-prompt':
+        return t('node.text.save.compiled-prompt', 'A compiled boot prompt is never edited directly. Edit the boot source and compile again. Nothing was saved.');
+      case 'boot-prompt-governed':
+        return t('node.text.save.boot-prompt-governed', 'A worker session cannot edit a boot prompt; its manager does that. Nothing was saved.');
       case 'no-baseline':
         return t('node.text.save.no-baseline', 'This editor lost track of the version it opened. Copy your edit and reload the page.');
       case 'not-found':
@@ -819,23 +854,117 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
-    onResult: ({ result }) => {
-      if (result.type !== 'failure') isEditing = false;
+    // portal#2023: opt this form out of Superforms' unconditional page-data
+    // rebind, which reset an unsaved draft whenever an unrelated loader
+    // refresh carried a changed node. 'never', NOT false: own ActionResults
+    // still apply ('never' is truthy), and false leaves the data-path rebind
+    // live. The reseeds are explicit: reseedFromSavedNode, the node-change
+    // effect, Cancel. See
+    // hrn:node:hadronmemory.com:hadron-portal:findings:stable-form-id-opts-into-invalidate-rebind
+    applyAction: 'never',
+    onSubmit: () => { moveRefusal = null; savedCompletely = false; metaUnconfirmed = false; },
+    // portal#2014: superforms' default onError RETHROWS before it clears
+    // `submitting`, which left Save disabled on "Saving..." for good, so the
+    // retry the open editor exists for was impossible. Not rethrowing lets
+    // superforms finish the submit and re-enable Save (the portal#1528
+    // submitFailure pattern); the page shows its own text instead. See
+    // hrn:node:hadronmemory.com:hadron-portal:findings:superforms-default-onerror-leaves-submitting-stuck.
+    onError: ({ result }) => { metaUnconfirmed = true; handledMetaError = result.error; },
+    // portal#2020: superforms awaits the reload, THEN resets the form to its
+    // initial (pre-save) values, so the reseed must come after that reset: here.
+    onUpdated: () => {
+      if (!savedCompletely) return;
+      savedCompletely = false;
+      reseedFromSavedNode();
+    },
+    onResult: async ({ result }) => {
+      // Only a CONFIRMED success closes the editor (portal#2014). A failure keeps
+      // it open to fix the location; an `error` result (no action response
+      // arrived, so the save wasn't confirmed) keeps it open too, or a dropped
+      // request hides the typed edits on exactly the retry that matters. A
+      // redirect navigates away and unmounts the page, so it needs no close.
+      if (result.type === 'success') {
+        isEditing = false;
+        // portal#2020: only a confirmed complete success arms the reseed in onUpdated.
+        savedCompletely = true;
+        return;
+      }
+      savedCompletely = false;
       // Saved, but the move failed: keep the editor open to fix the location,
-      // and reload the node so the page shows what was actually saved.
-      else if (metaSavedDespiteFailure(result)) void invalidateAll();
+      // and reload the node so the page shows what was actually saved. The
+      // reload depends only on the save having committed, not on finding a
+      // refusal to keep (Glen's BLIND P2 on #2002).
+      if (!metaSavedDespiteFailure(result)) return;
+      // #1989: the refusal outlives that reload. The reload drops the action
+      // `form` the alert reads, so the page holds the refusal text itself.
+      moveRefusal = savedButNotMoved(result);
+      // portal#1882: AWAIT the reload. Superforms awaits onResult before it
+      // applies the result, so the failure (its message, the typed location)
+      // lands after the reload. Unawaited, the reload finished later and
+      // superforms rebound to the loader's fresh form, which erased both.
+      // That is also what keeps the typed loc in the draft (#1989).
+      // portal#1980: the reload is BEST-EFFORT — a rejecting invalidateAll()
+      // must not trade this known partial-save failure for a generic error
+      // (see bestEffortInvalidateAll for the rejection class and the
+      // error-boundary limit). The page keeps the action failure.
+      await bestEffortInvalidateAll('node-detail');
+      // portal#2023: the edits ARE saved (only the move failed), so the next attempt is typed
+      // against the node as it now is. Taken from the reloaded node, not from what was posted: the
+      // server normalizes what it stores. Only a committed save reaches here (the return above).
+      metaBaseline = nodeMetaBaseline(node);
     },
   });
+
+  /** Drop every trace of a failed Save: the page-held refusal and the failure superforms applied after the
+   *  awaited reload (portal#1882). Clearing only the first let Cancel then Edit show the old refusal again
+   *  (Clark's browser QA F1 on #2002). */
+  function clearMetaRefusal() {
+    moveRefusal = null;
+    metaUnconfirmed = false;
+    updateMetaMessage.set(undefined);
+    updateMetaErrors.set({});
+  }
 
   // Reseed on a different node (everything) or a changed stored role on the
   // same node (role and its seed only): `nodeMetaReseed` decides, and the
   // field list is the loader's own (@codex on #929).
+  // portal#2023: the node state the editor was typed against (every field Save writes). Sent with
+  // every Save so the server can refuse a draft that is older than the node (see `updateMeta`).
+  // A full-page refusal restores the kept draft from the action's form (initialUpdateMetaForm), so it
+  // restores the baseline the draft was typed against too, which the action echoes as `metaBaseline`.
+  let metaBaseline = $state(untrack(() => {
+    const echoed = form && submittedForm<NodeUpdateMetaForm>(form, 'updateMeta')
+      ? (form as { metaBaseline?: unknown }).metaBaseline : undefined;
+    return typeof echoed === 'string' ? echoed : nodeMetaBaseline(node);
+  }));
   let updateMetaSeededFrom = $state(untrack(() => ({ id: node.id, role: node.role ?? null })));
   $effect(() => {
     if (nodeMetaSeedKey(updateMetaSeededFrom) === nodeMetaSeedKey(node)) return;
     const patch = nodeMetaReseed(updateMetaSeededFrom, node);
     updateMetaSeededFrom = { id: node.id, role: node.role ?? null };
     if (patch) updateMetaFormData.update((current) => ({ ...current, ...patch }), { taint: false });
+    if (patch && 'name' in patch) metaBaseline = nodeMetaBaseline(node);
+  });
+
+  // portal#2020: after a CONFIRMED, COMPLETE save the editor reopens from the
+  // node the server returned (`hrn:node:hadronmemory.com:specs:cor:dmo:060:02`: the server normalizes what it
+  // stores, so never the typed values). The effect above keys on id + role
+  // alone, so a same-node name/loc/description save left the pre-save seed and
+  // the next Save wrote the old values back. This one fires only while the
+  // editor is CLOSED: a partial success (#929), a refusal (#1989) and an unsaved
+  // draft all keep the editor open, so none of them is reseeded. The role pair
+  // stays with `nodeMetaReseed` (#921).
+  let updateMetaSavedSeed = $state(untrack(() => JSON.stringify(nodeMetaSeed(node))));
+  function reseedFromSavedNode() {
+    const seed = nodeMetaSeed(node);
+    updateMetaSavedSeed = JSON.stringify(seed);
+    metaBaseline = nodeMetaBaseline(node);
+    updateMetaFormData.set({ ...get(updateMetaFormData), ...seed }, { taint: false });
+  }
+  $effect(() => {
+    if (JSON.stringify(nodeMetaSeed(node)) === untrack(() => updateMetaSavedSeed)) return;
+    if (untrack(() => isEditing)) return;
+    untrack(reseedFromSavedNode);
   });
 
   const initialDuplicateForm = untrack(() => submittedForm<NodeDuplicateForm>(form, 'duplicateNode') as NodeDuplicateSuperform | null ?? data.duplicateForm);
@@ -1133,7 +1262,9 @@
     ...(!node.isRunnable ? [{ id: 'convert-to-task', label: t('node-actions.convert-to-task', 'Convert to task') }] : []),
     ...(canTestFlow ? [{ id: 'run', label: t('node-actions.run', 'Run') }] : []),
     { id: 'delete', label: t('node-actions.delete', 'Delete'), danger: true },
-  ].filter((action) => !readOnly || ['open-chat', 'download', 'print', 'export-skill'].includes(action.id)));
+  ].filter((action) => !readOnly || ['open-chat', 'download', 'print', 'export-skill'].includes(action.id))
+    .filter((action) => !isCompiledPrompt || !COMPILED_HIDDEN_ACTIONS.has(action.id)));
+  const COMPILED_HIDDEN_ACTIONS = new Set(['edit', 'move', 'delete', 'convert-to-task']);
 
   // portal#1175: a comment is feedback, so the actions that treat it as a node to
   // grow, relocate, copy or promote are not offered; Edit only to its author.
@@ -1979,6 +2110,33 @@
     });
   });
   const signatureState = $derived(signaturesView(signatureResult));
+  // portal#1022 links half: whether to offer the Sign affordance at all. Same
+  // streamed-and-guarded shape, fed by the loader's capability answer — the
+  // very promise that gates the signature query, so the button and the
+  // status read can never disagree about whether signing is offered.
+  let signingOn = $state<boolean | null>(null);
+  $effect(() => {
+    const p = data.signingOffered;
+    signingOn = null;
+    p.then((on) => {
+      if (data.signingOffered === p) signingOn = on;
+    });
+  });
+  // One click, one request: the default enhance leaves the button live for
+  // the round trip, and a second click would mint a second signing request.
+  // update() in try/finally — the delete-form pattern — so a redirecting or
+  // throwing result still re-enables (or navigates away entirely).
+  let requestingSignature = $state(false);
+  function requestSignatureEnhance() {
+    requestingSignature = true;
+    return async ({ update }: { update: (opts?: { reset?: boolean }) => Promise<void> }) => {
+      try {
+        await update({ reset: false });
+      } finally {
+        requestingSignature = false;
+      }
+    };
+  }
   // portal#1014: the node's discussion and its open-feedback summary, streamed
   // and checked the same way. The tab's own writes update the summary too.
   let discussion = $state<Discussion | null | undefined>(undefined);
@@ -2253,7 +2411,8 @@
   let morePendingFor = $state.raw<unknown>(null);
   let moreFailedFor = $state.raw<unknown>(null);
   const extraChildren = $derived(morePages && morePages.against === data.children ? morePages : null);
-  const children = $derived([...((data.children ?? []) as unknown as MemoryNode[]), ...(extraChildren?.rows ?? [])]);
+  const children = $derived([...((data.children ?? []) as unknown as MemoryNode[]),
+        ...(extraChildren?.rows ?? [])]);
   // A full page never passes for the whole list: the count says "20+".
   const childrenHasMore = $derived(extraChildren ? extraChildren.hasMore : !!data.childrenHasMore);
   const moreChildrenLoading = $derived(morePendingFor !== null && morePendingFor === data.children);
@@ -2311,7 +2470,8 @@
     isComment
       // portal#1175: a comment is feedback, not a node to author. It keeps its
       // text (and any children), and its facts move to a read-only Info tab.
-      ? ['info', 'content', ...(hasChildren ? (['children'] as NodeTab[]) : [])]
+      ? ['info', 'content',
+        ...(hasChildren ? (['children'] as NodeTab[]) : [])]
       : [
           ...(isChat ? (['chat'] as NodeTab[]) : []),
           'content',
@@ -2384,6 +2544,7 @@
       discussionOpened = activeTab === 'discussion';
       editingEdges = false;
       isEditing = false;
+      clearMetaRefusal();
       reorderMode = false;
       downloadOpen = false;
       dlError = null;
@@ -2542,6 +2703,41 @@
       </div>
       <!-- portal#1022: passkey signatures (hadron-server#1864); renders nothing with nothing to report. -->
       <NodeSignatures view={signatureState} />
+      {#if signingOn}
+        <!-- portal#1022 links half (hrn:node:hadronmemory.com:specs:cor:dmo:130:08):
+             the portal's whole leg is to create the signing request and hand
+             over the server-hosted ceremony page's link — the ceremony itself
+             never runs here. The hidden revision input, like the approval
+             forms above, pins the request to the text on screen.
+
+             No readOnly gate, deliberately:
+             hrn:node:hadronmemory.com:specs:cor:dmo:130:03 gives ANY reader
+             the right to request ("anyone who may read the node"), and the
+             requester need not be the signer — so the affordance is not
+             hidden from view-only readers the way writer actions are. The
+             copy says what the click does (a request, then the server's
+             page), never "Sign", which a reader the ceremony would refuse
+             could not finish. -->
+        <form method="POST" action="?/requestSignature" use:enhance={requestSignatureEnhance} class="mt-1" data-testid="request-signature-form">
+          <input type="hidden" name="revision" value={node.revision} />
+          <button
+            type="submit"
+            data-testid="request-signature"
+            disabled={requestingSignature}
+            title={t('node.signatures.request.hint', 'Creates a signing request and opens the server-hosted signing page for this revision.')}
+            class="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            {t('node.signatures.request.action', 'Request a signature…')}
+          </button>
+        </form>
+      {/if}
+      <!-- Live region stays mounted; only its content changes — a region that
+           mounts populated announces nothing
+           (hrn:node:hadronmemory.com:hadron-portal:review:live-region-persistent-not-conditionally-mounted).
+           empty:hidden keeps the always-present region from taking a line. -->
+      <p role="alert" data-testid="signature-request-error" class="mt-1 empty:hidden text-xs text-red-700 dark:text-red-300">
+        {#if typeof form?.requestSignatureError === 'string'}{form.requestSignatureError}{/if}
+      </p>
       {/if}
       {#if approveActionError || verifyActionError}
         <p role="alert" data-testid="approval-error" class="mt-1 text-xs text-red-700 dark:text-red-300">{approveActionError ?? verifyActionError}</p>
@@ -2918,7 +3114,7 @@
               <div class="flex items-center gap-2">
                 <button
                   type="submit"
-                  disabled={readOnly || !$moveFormData.target.trim() || $moveFormData.target.trim() === fullUrn || $moveSubmitting}
+                  disabled={writeLocked || !$moveFormData.target.trim() || $moveFormData.target.trim() === fullUrn || $moveSubmitting}
                   class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >{$moveSubmitting ? t('node-actions.move.moving', 'Moving...') : 'Move node'}</button>
                 <button type="button" onclick={() => (moveOpen = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
@@ -2979,7 +3175,7 @@
               <div class="flex items-center gap-2">
                 <button
                   type="submit"
-                  disabled={readOnly || $deleteSubmitting}
+                  disabled={writeLocked || $deleteSubmitting}
                   class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {$deleteSubmitting
@@ -2995,8 +3191,8 @@
     </div>
   </div>
 
-  {#if form?.error}
-    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  {#if pageActionError}
+    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{pageActionError}</div>
   {/if}
 
   <!-- portal#696: a reference node's file, downloadable from the node itself.
@@ -3011,128 +3207,56 @@
     {/key}
   {/if}
 
-  <!-- Tabs: Content | Abstract | Children (when present) | Edges | Settings -->
+  <!-- Shared sections retain node-kind membership and read-availability cues. -->
   <div class="border-t border-zinc-200 pt-4 dark:border-zinc-800">
-    <!-- #858: keep tabs in their own horizontal scroller at phone widths.
-         #1086: `scrollHint` fades the edge with more tabs past it and keeps the
-         active tab (a `?tab=` deep link included) scrolled into view. -->
-    <div class="scroll-hint mb-3 flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800" use:scrollHint={activeTab}>
-      <!-- Chat nodes only: the thread as bubbles, same view as /chat. -->
-      {#if isChat}
-        <button
-          data-active={activeTab === 'chat' || undefined}
-          class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'chat' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-          onclick={() => activeTab = 'chat'}
-        >Chat
+    <div class="mb-3">
+      <TabRow items={[
+        ...(isChat ? [{ id: 'chat', label: t('node.tabs.chat', 'Chat') }] : []),
+        ...(isComment ? [{ id: 'info', label: t('node.tabs.info', 'Info') }] : []),
+        { id: 'content', label: t('node.tabs.content', 'Content') },
+        ...(commentable ? [{ id: 'discussion', label: t('node.tabs.discussion', 'Discussion') }] : []),
+        ...(!isComment ? [{ id: 'abstract', label: t('node.tabs.abstract', 'Abstract') }] : []),
+        ...(!isComment ? [{ id: 'data', label: t('node.tabs.data', 'Data') }] : []),
+        ...(!isComment ? [{ id: 'properties', label: t('node.tabs.properties', 'Properties') }] : []),
+        ...(!isComment ? [{ id: 'flow', label: t('node.tabs.flow', 'Flow') }] : []),
+        ...(hasChildren ? [{ id: 'children', label: t('node.tabs.children', 'Children') }] : []),
+        ...(!isComment ? [{ id: 'references', label: t('node.tabs.references', 'Edges') }] : []),
+        ...(!isComment ? [{ id: 'history', label: t('node.tabs.history', 'Revisions') }] : []),
+        ...(!isComment ? [{ id: 'settings', label: t('node.tabs.settings', 'Settings') }] : [])
+      ]} active={activeTab} label={t('node.tabs-label', 'Node sections')} onselect={(id) => activeTab = id as typeof activeTab}>
+        {#snippet itemLabel(tab)}
+          {#if tab.id === 'chat'}{t('node.tabs.chat', 'Chat')}
           {#if chatMessages.length}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{chatMessages.length}</span>{/if}
-        </button>
-      {/if}
-      <!-- portal#1175: a comment's facts, read-only (the Settings content). -->
-      {#if isComment}
-        <button
-          data-active={activeTab === 'info' || undefined}
-          class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'info' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-          onclick={() => activeTab = 'info'}
-        >{t('node.info.tab', 'Info')}</button>
-      {/if}
-      <!-- Always shown (#256) — an empty node still needs an authoring
-           surface, or there's no portal path to add content. Mirrors the
-           Abstract tab's always-on treatment below. -->
-      <button
-        data-active={activeTab === 'content' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'content' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'content'}
-      >Content
+        {:else if tab.id === 'info'}{t('node.info.tab', 'Info')}
+          {:else if tab.id === 'content'}{t('node.tabs.content', 'Content')}
         {#if !hasContent}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
-      </button>
-      {#if commentable}
-        <button
-          data-active={activeTab === 'discussion' || undefined}
-          class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'discussion' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-          onclick={() => activeTab = 'discussion'}
-        >{t('comments.tab', 'Discussion')}
+      {:else if tab.id === 'discussion'}{t('comments.tab', 'Discussion')}
           <!-- Uma (#6998): the badge counts every discussion; amber while any is open. -->
           {#if discussionCount(commentSummary) > 0}
             <span class="ml-1 rounded-full px-1.5 text-xs {(commentSummary?.openThreads ?? 0) > 0
               ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
               : 'bg-zinc-200 dark:bg-zinc-800'}">{discussionCount(commentSummary)}</span>
           {/if}
-        </button>
-      {/if}
-      {#if !isComment}
-      <!-- Always shown — an empty abstract still needs an authoring surface
-           (a vector-index source where the memory says so, #936), same rationale as Content (#256). -->
-      <button
-        data-active={activeTab === 'abstract' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'abstract' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'abstract'}
-      >Abstract
+        {:else if tab.id === 'abstract'}{t('node.tabs.abstract', 'Abstract')}
         {#if !hasAbstract}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
-      </button>
-      <!-- Always shown — Node.data is free-form JSON; an empty node still
-           needs an authoring surface, same rationale as Content/Abstract. -->
-      <button
-        data-active={activeTab === 'data' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'data' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'data'}
-      >Data
+      {:else if tab.id === 'data'}{t('node.tabs.data', 'Data')}
         {#if !hasData}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
-      </button>
-      <!-- #518: Node.properties — structured key-value metadata, often
-           server-set provenance. Always shown for discoverability, and since
-           #1031 its editor lives on the tab itself. -->
-      <button
-        data-active={activeTab === 'properties' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'properties' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'properties'}
-      >{t('node.properties.tab', 'Properties')}
+      {:else if tab.id === 'properties'}{t('node.properties.tab', 'Properties')}
         {#if !hasProperties}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
-      </button>
-      <!-- Always shown (#478) — turning a plain node into a flow node (extract
-           fields, write output) needs an authoring surface. -->
-      <button
-        data-active={activeTab === 'flow' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'flow' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'flow'}
-      >Flow
+      {:else if tab.id === 'flow'}{t('node.tabs.flow', 'Flow')}
         {#if !hasFlowConfig}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
-      </button>
-      {/if}
-      {#if hasChildren}
-        <button
-          data-active={activeTab === 'children' || undefined}
-          class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'children' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-          onclick={() => activeTab = 'children'}
-        >Children <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{children.length}{childrenHasMore ? '+' : ''}</span></button>
-      {:else if data.childrenUnavailable}
-        <!-- portal#1524/#1656: not "no children": the read failed, so the
-             section says it is withheld. -->
-        <span data-testid="children-unavailable" title={t('node-detail.children-unavailable-reason', 'The children could not be read')} class="shrink-0 whitespace-nowrap px-3 py-1.5 text-sm italic text-zinc-500">{t('node-detail.children-unavailable', 'Children unavailable')}</span>
-      {/if}
-      {#if !isComment}
-      <button
-        data-active={activeTab === 'references' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'references' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'references'}
-      >Edges
+      {:else if tab.id === 'children'}{t('node.tabs.children', 'Children')} <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{children.length}{childrenHasMore ? '+' : ''}</span>{:else if tab.id === 'references'}{t('node.tabs.references', 'Edges')}
         {#if hasReferences}
           <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{node.outgoingEdges.length + node.incomingEdges.length}</span>
         {/if}
-      </button>
-      <!-- Comments keep no revision history (server#1727). -->
-      <button
-        data-active={activeTab === 'history' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'history' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'history'}
-      >{t('node.history.tab', 'Revisions')}</button>
-      <button
-        data-active={activeTab === 'settings' || undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'settings' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-        onclick={() => activeTab = 'settings'}
-      >Settings</button>
-      {/if}
+      {:else if tab.id === 'history'}{t('node.history.tab', 'Revisions')}
+          {:else if tab.id === 'settings'}{t('node.tabs.settings', 'Settings')}{/if}
+        {/snippet}
+      </TabRow>
+      {#if !hasChildren && data.childrenUnavailable}<span data-testid="children-unavailable" title={t('node-detail.children-unavailable-reason', 'The children could not be read')} class="text-sm italic text-zinc-500">{t('node-detail.children-unavailable', 'Children unavailable')}</span>{/if}
     </div>
 
+    <div role="tabpanel" id="panel-{activeTab}" aria-labelledby="tab-{activeTab}" tabindex="0">
     <!-- ═══ CHAT TAB ═══ -->
     {#if activeTab === 'chat'}
       <div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
@@ -3181,6 +3305,9 @@
 
     <!-- ═══ CONTENT TAB ═══ -->
     {#if activeTab === 'content'}
+      {#if isCompiledPrompt}
+        <CompiledPromptSources nodeId={node.id} revision={node.revision} owner={compiledPromptOwner(data.graph)} />
+      {/if}
       <div class="flex items-center justify-between">
         <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
           <button
@@ -3217,7 +3344,7 @@
             use:fillViewport={contentSaveRow}
             class="block w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
             placeholder={createNodeStrings.contentSourcePlaceholder()}
-            readonly={readOnly}
+            readonly={writeLocked}
             bind:value={contentDraft.text}
           ></textarea>
           <div bind:this={contentSaveRow} class="mt-2 flex flex-wrap items-center justify-end gap-2">
@@ -3237,7 +3364,7 @@
             <button
               bind:this={contentSaveButton}
               onclick={saveContent}
-              disabled={readOnly || saving || !contentDraft.dirty}
+              disabled={writeLocked || saving || !contentDraft.dirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
             >{saving ? t('node.text.saving', 'Saving…') : contentSaveError ? t('node.save.retry', 'Retry') : t('node.text.save', 'Save')}</button>
           </div>
@@ -3271,6 +3398,9 @@
 
     <!-- ═══ ABSTRACT TAB ═══ -->
     {#if activeTab === 'abstract'}
+      {#if isCompiledPrompt}
+        <p class="mb-2 text-sm text-zinc-500 dark:text-zinc-400" data-testid="compiled-prompt-hint">{t('node.compiled-prompt.hint', 'This compiled boot prompt is read-only. Edit the boot source and compile again.')}</p>
+      {/if}
       <div class="flex items-center justify-between">
         <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
           <button
@@ -3303,7 +3433,7 @@
             maxlength={ABSTRACT_MAX}
             placeholder={abstractPlaceholder()}
             aria-describedby={abstractHint ? 'node-abstract-search-hint' : undefined}
-            readonly={readOnly}
+            readonly={writeLocked}
             bind:value={abstractDraft.text}
           ></textarea>
           <div bind:this={abstractSaveRow} class="mt-2 flex flex-wrap items-center justify-between gap-2">
@@ -3324,7 +3454,7 @@
               <button
                 bind:this={abstractSaveButton}
                 onclick={saveAbstract}
-                disabled={readOnly || savingAbstract || !abstractDraft.dirty}
+                disabled={writeLocked || savingAbstract || !abstractDraft.dirty}
                 class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
               >{savingAbstract ? t('node.text.saving', 'Saving…') : abstractSaveError ? t('node.save.retry', 'Retry') : t('node.text.save', 'Save')}</button>
             </div>
@@ -3413,7 +3543,7 @@
             class="w-full min-h-[160px] max-h-[calc(100vh-16rem)] resize-none overflow-y-auto rounded-lg border bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none {dataParse.ok || dataEmpty ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 focus:border-red-500 dark:border-red-700'}"
             placeholder={'{\n  "key": "value"\n}'}
             spellcheck="false"
-            readonly={readOnly || savingData}
+            readonly={writeLocked || savingData}
             aria-busy={savingData}
             bind:value={dataDraft.text}
           ></textarea>
@@ -3431,7 +3561,7 @@
             <button
               type="button"
               onclick={saveData}
-              disabled={readOnly || savingData || !dataParse.ok || !dataDirty}
+              disabled={writeLocked || savingData || !dataParse.ok || !dataDirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
             >{savingData ? t('node.data.source.saving', 'Saving…') : dataSaveError ? t('node.save.retry', 'Retry') : t('node.data.source.save', 'Save')}</button>
           </div>
@@ -3521,7 +3651,7 @@
             aria-describedby="properties-source-status"
             class="w-full min-h-[160px] max-h-[calc(100vh-16rem)] resize-none overflow-y-auto rounded-lg border bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none {propertiesParse.ok ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 focus:border-red-500 dark:border-red-700'}"
             spellcheck="false"
-            readonly={readOnly || savingProperties}
+            readonly={writeLocked || savingProperties}
             aria-busy={savingProperties}
             bind:value={propertiesDraft.text}
           ></textarea>
@@ -3539,7 +3669,7 @@
             <button
               type="button"
               onclick={saveProperties}
-              disabled={readOnly || savingProperties || !propertiesParse.ok || !propertiesDirty}
+              disabled={writeLocked || savingProperties || !propertiesParse.ok || !propertiesDirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
             >{savingProperties ? t('node.properties.source.saving', 'Saving…') : propertiesSaveError ? t('node.save.retry', 'Retry') : t('node.properties.source.save', 'Save')}</button>
           </div>
@@ -3616,7 +3746,7 @@
          The action carries `tab=properties` so a submit that navigates fully
          (no JS yet) reopens this tab rather than the node's default one. -->
     <div class="mt-6" hidden={activeTab !== 'properties' || showPropertiesSource}>
-      <fieldset disabled={readOnly}>
+      <fieldset disabled={writeLocked}>
       <NodeStorageForm
         {node}
         memorySchema={data.graph.schema}
@@ -3625,7 +3755,7 @@
         action="?tab=properties&/updateStorage"
         skillCheck={data.skillCheck}
         runnableBlockedBy={data.runnableBlockedBy}
-        noWriteDoor={readOnly ? t('memory-detail.read-only', 'Read only — editing is unavailable for this memory.') : data.noWriteDoor}
+        noWriteDoor={readOnly ? t('memory-detail.read-only', 'Read only — editing is unavailable for this memory.') : isCompiledPrompt ? t('node.compiled-prompt.read-only', 'A compiled boot prompt is generated from its sources and can’t be edited here.') : data.noWriteDoor}
       />
       </fieldset>
     </div>
@@ -3656,7 +3786,7 @@
           </div>
         {/if}
 
-        <fieldset disabled={readOnly}>
+        <fieldset disabled={writeLocked}>
         <form method="POST" action="?/updateFlow" use:flowEnhance novalidate class="space-y-6">
           <!-- Extraction -->
           <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
@@ -3907,7 +4037,7 @@
       <div class="mb-4 flex items-center justify-between">
         <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Edges</h3>
         {#if !editingEdges}
-          <button type="button" onclick={startEditEdges} disabled={readOnly || hasUnreadableOutgoing}
+          <button type="button" onclick={startEditEdges} disabled={writeLocked || hasUnreadableOutgoing}
             title={hasUnreadableOutgoing ? t('node-edges.edit-blocked', 'This node has an edge into a memory you can’t access. Editing would remove it, so edge editing is disabled here.') : undefined}
             class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
             Edit edges
@@ -4030,7 +4160,7 @@
           </div>
 
           <div class="mt-4 flex items-center gap-2">
-            <button type="submit" disabled={readOnly || $edgesSubmitting} class="rounded-lg px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40" style="background: #fb8500;">
+            <button type="submit" disabled={writeLocked || $edgesSubmitting} class="rounded-lg px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40" style="background: #fb8500;">
               {$edgesSubmitting ? t('node.edges.saving', 'Saving...') : t('node.edges.save', 'Save edges')}
             </button>
             <button type="button" onclick={cancelEditEdges}
@@ -4199,7 +4329,7 @@
       <button type="button" class="fixed inset-0 z-40 cursor-default" aria-label={t('node.history.close-menu', 'Close menu')} onclick={() => (historyMenuFor = null)}></button>
       <div role="menu" class="fixed z-50 w-44 -translate-x-full rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900" style="left: {historyMenuX}px; top: {historyMenuY}px;">
         <button type="button" role="menuitem" onclick={() => onHistoryMenuSelect('display')} class="block w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('node.history.action.display', 'Display')}</button>
-        <button type="button" role="menuitem" disabled={readOnly} onclick={() => onHistoryMenuSelect('restore')} class="block w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('node.history.action.restore', 'Restore')}</button>
+        <button type="button" role="menuitem" disabled={writeLocked} onclick={() => onHistoryMenuSelect('restore')} class="block w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('node.history.action.restore', 'Restore')}</button>
         <div class="my-1 border-t border-zinc-200 dark:border-zinc-800"></div>
         <button type="button" role="menuitem" disabled={readOnly} onclick={() => onHistoryMenuSelect('delete')} class="block w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-800">{t('node.history.action.delete', 'Delete')}</button>
       </div>
@@ -4215,7 +4345,7 @@
           {#if historyError}<p role="alert" class="mt-2 text-xs text-red-500" data-testid="restore-error">{historyError}</p>{/if}
           <div class="mt-4 flex items-center justify-end gap-2">
             <button type="button" onclick={() => (restoreTarget = null)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">{t('node.history.restore.cancel', 'Cancel')}</button>
-            <button type="button" onclick={confirmRestore} disabled={readOnly || historyBusy} class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">{historyBusy ? t('node.history.restore.working', 'Restoring…') : t('node.history.restore.confirm', 'Restore')}</button>
+            <button type="button" onclick={confirmRestore} disabled={writeLocked || historyBusy} class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">{historyBusy ? t('node.history.restore.working', 'Restoring…') : t('node.history.restore.confirm', 'Restore')}</button>
           </div>
         </div>
       </div>
@@ -4238,7 +4368,7 @@
 
     <!-- ═══ SETTINGS TAB ═══ -->
     {#if activeTab === 'settings' || activeTab === 'info'}
-      {@const readOnly = activeTab === 'info' || data.canWriteMemory === false}
+      {@const readOnly = activeTab === 'info' || data.canWriteMemory === false || isCompiledPrompt}
       <div class="max-w-3xl space-y-8">
         <section>
           <div class="mb-4 flex items-center justify-between">
@@ -4258,8 +4388,9 @@
             <form method="POST" action="?/updateMeta" use:updateMetaEnhance novalidate
               class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
               <input type="hidden" name="_kind" bind:value={$updateMetaFormData._kind} />
-              {#if updateMetaActionError}
-                <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{updateMetaActionError}</div>
+              <input type="hidden" name="baseline" value={metaBaseline} />
+              {#if moveRefusal || metaUnconfirmed || updateMetaActionError}
+                <div role="alert" data-testid="node-meta-error" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{moveRefusal?.text ?? (metaUnconfirmed ? t('node.meta.unconfirmed', "The save wasn't confirmed. Check your connection, then Save again.") : updateMetaActionError)}</div>
               {/if}
               <div>
                 <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
@@ -4279,12 +4410,20 @@
               <!-- #921: Node.role, an open string, distinct from the Type above. -->
               <NodeRoleInput bind:value={$updateMetaFormData.role} seed={$updateMetaFormData.roleSeed} {inputClass} />
               <div>
-                <label for="editLoc" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN <span class="text-zinc-500">(changing this moves the node)</span></label>
+                <div class="mb-1 flex flex-wrap items-start justify-between gap-2">
+                  <label for="editLoc" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN <span class="text-zinc-500">(changing this moves the node)</span></label>
+                  <RefreshNodeLoc memoryId={node.memoryId} nodeId={node.id} savedName={node.name} savedLoc={node.loc}
+                    name={$updateMetaFormData.name ?? ''} loc={$updateMetaFormData.loc ?? ''} disabled={$updateMetaSubmitting}
+                    onrefresh={(loc) => { $updateMetaFormData.loc = loc; }} />
+                </div>
                 <div class="flex items-stretch">
                   <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{data.graph.urn}:</span>
                   <input id="editLoc" name="loc" type="text" bind:value={$updateMetaFormData.loc}
                     class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
                 </div>
+                {#if ($updateMetaFormData.loc ?? '') !== node.loc}
+                  <p data-testid="node-loc-move-warning" class="mt-2 text-xs text-zinc-600 dark:text-zinc-400">{t('node.meta.loc-move-warning', 'Saving moves this node and its children to the new URN. Links written as the old URN are not updated. Old URNs of minted nodes keep working; others may stop working.')}</p>
+                {/if}
               </div>
               <div>
                 <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
@@ -4313,7 +4452,7 @@
                 <button type="submit" disabled={readOnly || $updateMetaSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-40">
                   {$updateMetaSubmitting ? t('node.meta.saving', 'Saving...') : $updateMetaMessage?.type === 'error' ? t('node.save.retry', 'Retry') : t('node.meta.save', 'Save')}
                 </button>
-                <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+                <button type="button" onclick={() => { isEditing = false; clearMetaRefusal(); reseedFromSavedNode(); }} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
               </div>
             </form>
           {:else}
@@ -4393,20 +4532,20 @@
         <!-- Data now has its own top-level tab (Rendered/Source + editing);
              the former read-only block here would just duplicate it. -->
 
-        <!-- Danger zone -->
+        <!-- Delete. #1834: no "Danger zone" caption for a single node; the confirm
+             reads top to bottom, with the warning, the subtree choice, then the buttons. -->
         {#if !readOnly}
         <section class="border-t border-zinc-200 pt-6 dark:border-zinc-800">
-          <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
           {#if !confirmDelete}
             <button disabled={readOnly} onclick={() => { $deleteFormData.hard = false; $deleteFormData.recursive = false; confirmDelete = true; }} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
               Delete node
             </button>
           {:else}
-            <form method="POST" action="?/delete" use:deleteEnhance class="flex items-center gap-2" novalidate>
+            <form method="POST" action="?/delete" use:deleteEnhance class="space-y-3" novalidate>
               <input type="hidden" name="_kind" value={$deleteFormData._kind} />
-              <span class="text-sm text-red-500">{deleteNodeStrings.confirmPrompt(node.name)}</span>
+              <p class="text-sm text-red-500">{deleteNodeStrings.confirmPrompt(node.name)}</p>
               {#if deleteRefusedDescendants > 0}
-                <label class="flex items-center gap-1.5 text-sm text-zinc-700 dark:text-zinc-300">
+                <label class="flex flex-wrap items-center gap-1.5 text-sm text-zinc-700 dark:text-zinc-300">
                   <input type="checkbox" name="recursive" value="true" bind:checked={$deleteFormData.recursive}
                     class="rounded border-zinc-300 text-red-600 focus:ring-red-500 dark:border-zinc-600 dark:bg-zinc-800" />
                   {t('node-actions.delete.also-descendants', 'Also delete its descendants')}
@@ -4417,12 +4556,14 @@
                   </span>
                 </label>
               {/if}
-              <button
-                type="submit"
-                disabled={readOnly || $deleteSubmitting}
-                class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >{$deleteSubmitting ? t('node-actions.delete.deleting', 'Deleting...') : 'Yes, delete'}</button>
-              <button type="button" onclick={() => confirmDelete = false} class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+              <div class="flex items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={readOnly || $deleteSubmitting}
+                  class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >{$deleteSubmitting ? t('node-actions.delete.deleting', 'Deleting...') : 'Yes, delete'}</button>
+                <button type="button" onclick={() => confirmDelete = false} class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+              </div>
             </form>
             {#if deleteActionError}
               <p role="alert" class="mt-2 text-xs text-red-500">{deleteActionError}</p>
@@ -4432,7 +4573,8 @@
         {/if}
       </div>
     {/if}
-  </div>
+      </div>
+</div>
 </div>
 
 <!-- portal#696: attach a file to this node. Outside the page wrapper because it

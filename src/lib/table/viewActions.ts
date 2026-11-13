@@ -4,7 +4,7 @@
 // Svelte plugin, so `*.svelte.ts` runes modules can't be instantiated in tests).
 import type { PortalTable } from '$lib/table/features';
 import type { RowData } from '@tanstack/table-core';
-import { extractView, applyView } from './savedView';
+import { extractTableView, applyView, normalizeView } from './savedView';
 import type { ViewStore, SavedViewRecord } from './viewStore';
 
 /** Create a view from the table's current arrangement; first view becomes default. */
@@ -15,7 +15,7 @@ export async function createViewFrom<T extends RowData>(
   name: string,
   isFirst: boolean,
 ): Promise<SavedViewRecord> {
-  const record = await store.create(listKey, name, extractView(table.store.get()));
+  const record = await store.create(listKey, name, extractTableView(table));
   if (isFirst) await store.setDefault(listKey, record.id);
   await store.setActiveId(listKey, record.id);
   return record;
@@ -28,7 +28,7 @@ export async function overwriteView<T extends RowData>(
   listKey: string,
   id: string,
 ): Promise<void> {
-  await store.update(listKey, id, { view: extractView(table.store.get()) });
+  await store.update(listKey, id, { view: extractTableView(table) });
 }
 
 /** Apply a view to the table and mark it active. */
@@ -65,7 +65,8 @@ export async function removeAndResolve<T extends RowData>(
     await store.setActiveId(listKey, def.id);
     return { views, activeId: def.id };
   }
-  table.reset(); // restore the built-in arrangement (spec US4)
+  if ((table.options?.meta as { applyServerView?: unknown } | undefined)?.applyServerView) applyView(table, normalizeView(table.initialState));
+  else table.reset(); // restore the built-in arrangement (spec US4)
   await store.setActiveId(listKey, null);
   return { views, activeId: null };
 }
