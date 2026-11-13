@@ -39,7 +39,8 @@
     "test:ai-config-row-menu": "node scripts/test-ai-config-row-menu.mjs",
     "test:ai-config-signin-recovery": "node scripts/test-ai-config-signin-recovery.mjs",
     "test:terminal-status-layout": "node scripts/test-terminal-status-layout.mjs",
-    "test:table-cell-overflow-layout": "node scripts/test-table-cell-overflow-layout.mjs"
+    "test:table-cell-overflow-layout": "node scripts/test-table-cell-overflow-layout.mjs",
+    "test:agent-chat-phone-layout": "node scripts/test-agent-chat-phone-layout.mjs"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.5.4",
