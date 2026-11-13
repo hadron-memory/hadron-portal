@@ -130,6 +130,9 @@ try {
       await page.getByText('Which weeks work best').waitFor();
       p = await panes(page);
       const textarea = await page.locator('textarea').evaluate((el) => el.getBoundingClientRect().width);
+      // Every leg, one pane or two. On two panes `@2xl:min-w-0` drops the
+      // phone's CSS floor, so the narrowest two-pane chat (948) has to clear
+      // 200px on its own: a wider Send at @2xl fails here with 184px.
       assert(textarea >= 200, `${leg}: textarea is ${textarea}px wide, below 200px`);
       assert.equal(p.pageOverflow, false, `${leg}: page scrolls sideways (conversation)`);
       if (phone) {
@@ -138,6 +141,16 @@ try {
       } else {
         assert(near(p.aside, 256, 1) && p.main > 0, `${leg}: desktop keeps both panes, got ${JSON.stringify(p)}`);
       }
+      // The root is a size container, which makes it the containing block
+      // for position:fixed descendants (Gabriel's #2090 blind delta P2): a
+      // fixed overlay inside it would anchor to and clip at the panel. None
+      // may exist; the delete dialog renders as the root's sibling.
+      const fixedInside = await page.evaluate(() =>
+        [...document.querySelectorAll('#panel [class~="@container"] *')]
+          .filter((el) => getComputedStyle(el).position === 'fixed')
+          .map((el) => el.tagName + '.' + String(el.className).split(' ').slice(0, 3).join('.')),
+      );
+      assert.deepEqual(fixedInside, [], `${leg}: position:fixed inside the size container`);
       const contained = await page.evaluate(() => {
         const main = document.querySelector('#panel main');
         const m = main.getBoundingClientRect();
