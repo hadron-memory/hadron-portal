@@ -96,22 +96,27 @@
   // so it can never show in, or reload, another chat.
   let partialTurnNotice = $state<{ chatId: string; text: string; refreshFailed: boolean } | null>(null);
 
-  // ── portal#2088: one pane at a time below `sm` (640px) ────────────────
-  // Which pane a phone shows is CSS (`hidden sm:flex`), never matchMedia, so
-  // the server-rendered first paint is already right (#747's pattern). From
-  // `sm` up both panes always show and none of this changes anything.
+  // ── portal#2088: one pane at a time while the PANEL is narrow ──────────
+  // The breakpoint is the chat panel's own width (`@container`, `@2xl` =
+  // 42rem), not the viewport's: on the App page the app nav shows from `sm`,
+  // so a 640-900px window leaves a phone-sized panel (#2090 QA: a 26px
+  // composer at 640). Which pane shows is CSS (`hidden @2xl:flex`), never
+  // script, so the server-rendered first paint is already right (#747's
+  // pattern). From `@2xl` up both panes always show and none of this changes
+  // anything.
   // `showList` is only the phone's view choice: Back sets it and leaves the
   // selected chat, its transcript and its draft exactly as they were.
   let showList = $state(false);
   const phonePane = $derived(activeChatId !== null && !showList ? 'chat' : 'list');
   let rootEl = $state<HTMLDivElement | null>(null);
+  let listEl = $state<HTMLElement | null>(null);
   let headingEl = $state<HTMLHeadingElement | null>(null);
   let newChatButton = $state<HTMLButtonElement | null>(null);
   // Focus follows the view only where the view changed; on a desktop the list
   // row the person clicked keeps focus, as before. Read at event time, not to
   // decide what renders.
-  const phoneLayout = () =>
-    typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 639.98px)').matches;
+  // One pane showing means the list is display:none once a chat is open.
+  const phoneLayout = () => !!listEl && getComputedStyle(listEl).display === 'none';
   async function focusConversation() {
     await tick();
     // The heading, not the textarea: focusing the textarea raises the phone
@@ -716,13 +721,14 @@
 
 <!-- Full-height layout: left chat list + right active chat.
      The parent container gives us all available vertical space. -->
-<div bind:this={rootEl} class="flex h-full min-h-0 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+<div bind:this={rootEl} class="@container flex h-full min-h-0 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
   <!-- ── Chat list sidebar ───────────────────────────────────────────── -->
-  <!-- portal#2088: below `sm` the list is the whole panel while it is the
+  <!-- portal#2088: below `@2xl` (panel width) the list is the whole panel while it is the
        phone's pane, and display:none (out of the tab order too) otherwise. -->
   <aside
-    class="w-full min-w-0 flex-col border-zinc-200 sm:w-64 sm:shrink-0 sm:border-r dark:border-zinc-800
-      {phonePane === 'list' ? 'flex' : 'hidden sm:flex'}"
+    bind:this={listEl}
+    class="w-full min-w-0 flex-col border-zinc-200 @2xl:w-64 @2xl:shrink-0 @2xl:border-r dark:border-zinc-800
+      {phonePane === 'list' ? 'flex' : 'hidden @2xl:flex'}"
   >
     <div class="border-b border-zinc-200 p-3 dark:border-zinc-800">
       <!-- Spec 017 — segmented scope picker. The user's choice here
@@ -774,10 +780,10 @@
       </button>
     </div>
     <!-- portal#2088: on a phone a refused or failed start leaves the person on
-         the list, so its message shows here. From `sm` up the conversation
+         the list, so its message shows here. From `@2xl` (panel width) up the conversation
          pane's copy below shows instead; only one is ever displayed. -->
     {#if turnError && !activeChatId && !loadingChat}
-      <div role="alert" class="m-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 [overflow-wrap:anywhere] sm:hidden dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+      <div role="alert" class="m-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 [overflow-wrap:anywhere] @2xl:hidden dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
         {turnError}
       </div>
     {/if}
@@ -863,7 +869,7 @@
   </aside>
 
   <!-- ── Active chat ─────────────────────────────────────────────────── -->
-  <main class="min-h-0 min-w-0 flex-1 flex-col {phonePane === 'chat' ? 'flex' : 'hidden sm:flex'}">
+  <main class="min-h-0 min-w-0 flex-1 flex-col {phonePane === 'chat' ? 'flex' : 'hidden @2xl:flex'}">
     {#if !activeChatId && !loadingChat}
       <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-8 text-center text-sm text-zinc-500">
         <p>Select a chat from the list or click <span class="mx-1 font-semibold text-zinc-700 dark:text-zinc-300">+ New chat</span> to start a new one.</p>
@@ -877,14 +883,14 @@
       </div>
     {:else}
       <!-- Header -->
-      <header class="flex items-center gap-2 border-b border-zinc-200 px-4 py-3 sm:gap-3 dark:border-zinc-800">
+      <header class="flex items-center gap-2 border-b border-zinc-200 px-4 py-3 @2xl:gap-3 dark:border-zinc-800">
         <!-- portal#2088: phone-only view navigation back to the list. Neutral
              chrome (never the warm accent); it changes no chat. -->
         <button
           type="button"
           onclick={backToChats}
           aria-label={t('agent-chat.back.aria', 'Back to chats')}
-          class="-my-2 -ml-2 inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-lg px-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 sm:hidden dark:text-zinc-200 dark:hover:bg-zinc-800"
+          class="-my-2 -ml-2 inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-lg px-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 @2xl:hidden dark:text-zinc-200 dark:hover:bg-zinc-800"
         >
           <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4">
             <path fill-rule="evenodd" d="M12.79 5.23a.75.75 0 0 1-.02 1.06L8.832 10l3.938 3.71a.75.75 0 1 1-1.04 1.08l-4.5-4.25a.75.75 0 0 1 0-1.08l4.5-4.25a.75.75 0 0 1 1.06.02Z" clip-rule="evenodd" />
@@ -1039,10 +1045,10 @@
             {/each}
           </div>
         {/if}
-        <!-- portal#2088: below `sm` the textarea keeps at least 200px and Send
+        <!-- portal#2088: below `@2xl` (panel width) the textarea keeps at least 200px and Send
              wraps under it when the row is too narrow (DOM and Tab order
-             unchanged); from `sm` up, one row as before. -->
-        <div class="flex flex-wrap items-end gap-2 sm:flex-nowrap">
+             unchanged); from `@2xl` up, one row as before. -->
+        <div class="flex flex-wrap items-end gap-2 @2xl:flex-nowrap">
           {#if uploadMemoryId}
             <AssetUploadButton
               memoryId={uploadMemoryId}
@@ -1056,13 +1062,13 @@
             placeholder={activeChatId ? 'Type your message… (Enter to send, Shift+Enter for a new line)' : 'Start a chat first'}
             rows="2"
             disabled={!activeChatId || sending}
-            class="min-h-[42px] w-full min-w-[12.5rem] flex-1 resize-none rounded-lg sm:min-w-0 border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
+            class="min-h-[42px] w-full min-w-[12.5rem] flex-1 resize-none rounded-lg @2xl:min-w-0 border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
           ></textarea>
           <button
             type="button"
             onclick={sendMessage}
             disabled={!activeChatId || sending || input.trim().length === 0}
-            class="ml-auto rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 sm:ml-0"
+            class="ml-auto rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 @2xl:ml-0"
             style="background: #fb8500;"
           >
             Send

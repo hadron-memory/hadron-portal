@@ -135,7 +135,7 @@ describe('AgentChat: a refused start or send is shown once and never replayed (#
     await tick();
     // portal#2088: a refused start is rendered in both panes, the list's copy
     // for a phone (where only the list shows) and the conversation pane's from
-    // `sm` up; CSS displays exactly one at any width. jsdom applies no CSS, so
+    // `@2xl` (panel width) up; CSS displays exactly one at any width. jsdom applies no CSS, so
     // "once" here is once per pane; scripts/test-agent-chat-phone-layout.mjs
     // asserts the single visible alert in real Chromium at 320-1440px.
     const inPane = (sel: string) => (document.querySelector(sel)?.textContent ?? '').split(FIXED).length - 1;
