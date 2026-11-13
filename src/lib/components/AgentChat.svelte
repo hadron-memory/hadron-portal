@@ -795,6 +795,17 @@
       (next ?? newChatButton)?.focus();
     } catch (e) {
       turnError = e instanceof Error ? e.message : 'Delete failed';
+      // The dialog has closed, so a failed delete hands focus back to that
+      // row's Delete, under the same ownership rule as a success: not once
+      // the person has moved on (portal#2104). If the row went away
+      // meanwhile, the neighbour rule above applies.
+      await tick();
+      if (destroyed || movedOn) return;
+      const find = (attribute: string, loc: string) =>
+        chats.some((c) => c.loc === loc)
+          ? rootEl?.querySelector<HTMLElement>(`[${attribute}="${CSS.escape(loc)}"]`)
+          : null;
+      (find('data-chat-delete', chatId) ?? (neighbour && find('data-chat-row', neighbour.loc)) ?? newChatButton)?.focus();
     } finally {
       document.removeEventListener('focusin', moveOn, true);
       document.removeEventListener('pointerdown', moveOn, true);
@@ -960,9 +971,9 @@
                      can share it without covering the tap target. It hugs the
                      title; the 44px targets' extra height falls below it. -->
                 <div class="col-start-1 row-start-2 flex items-center gap-2 self-start px-3 pt-0.5 text-[10px] text-zinc-400">
-                  <span>{chat.messageCount} msg{chat.messageCount === 1 ? '' : 's'}</span>
+                  <span>{agentChatRowStrings.messages(chat.messageCount)}</span>
                   {#if chat.lastMessageAt}
-                    <span>·</span>
+                    <span>{agentChatRowStrings.separator()}</span>
                     <span>{formatRelativeTime(chat.lastMessageAt)}</span>
                   {/if}
                 </div>
