@@ -85,12 +85,21 @@ try {
     const ring = async (sel) => {
       await page.keyboard.press('Shift'); // keyboard modality, so focus() is focus-visible
       await page.focus(sel);
-      return page.evaluate((s) => { const el = document.querySelector(s); const cs = getComputedStyle(el); return { fv: el.matches(':focus-visible'), active: document.activeElement === el, style: cs.outlineStyle, width: parseFloat(cs.outlineWidth), color: cs.outlineColor }; }, sel);
+      return page.evaluate((s) => { const el = document.querySelector(s); const cs = getComputedStyle(el); // The ring colour as sRGB + alpha (a 1px canvas resolves oklch), and the nearest
+        // opaque ancestor background it is drawn against (#2082 LOCAL delta F1).
+        const ctx = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true });
+        const px = (c) => { ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = '#000'; ctx.fillStyle = c; ctx.fillRect(0, 0, 1, 1); return [...ctx.getImageData(0, 0, 1, 1).data]; };
+        let bgEl = el.parentElement; let bg = [255, 255, 255, 255];
+        for (; bgEl; bgEl = bgEl.parentElement) { const c = px(getComputedStyle(bgEl).backgroundColor); if (c[3] === 255) { bg = c; break; } }
+        const ringPx = px(cs.outlineColor);
+        return { fv: el.matches(':focus-visible'), active: document.activeElement === el, style: cs.outlineStyle, width: parseFloat(cs.outlineWidth), color: `rgb(${ringPx.slice(0, 3).join(',')})`, alpha: ringPx[3] / 255, bg: `rgb(${bg.slice(0, 3).join(',')})` }; }, sel);
     };
     for (const k of ['save', 'clear', 'goals']) {
       const r = await ring(SEL[k]);
       assert.ok(r.active && r.fv, `${label}: ${k} did not take keyboard focus (${JSON.stringify(r)})`);
       assert.ok(r.style !== 'none' && r.width >= 2, `${label}: ${k} focus ring is not visible (${JSON.stringify(r)})`);
+      assert.ok(r.alpha === 1, `${label}: ${k} focus ring is not opaque (${JSON.stringify(r)})`);
+      assert.ok(ratio(r.color, r.bg) >= 3, `${label}: ${k} focus ring contrast ${ratio(r.color, r.bg).toFixed(2)} < 3 against its background (${JSON.stringify(r)})`);
     }
     // Hover keeps size, contrast and (for Clear) neutrality.
     for (const k of ['save', 'clear', 'goals']) {
@@ -126,6 +135,10 @@ try {
       const nf = await mp.addStyleTag({ content: 'button[value="save"], button[value="clear"], form[action="?/updateGoals"] button[type="submit"] { outline: 0 !important; }' });
       const nr = await mp.evaluate(() => { document.querySelector('button[value="save"]').focus(); return parseFloat(getComputedStyle(document.activeElement).outlineWidth); });
       assert.ok(nr < 2, 'no-focus-ring mutant must go red');
+      const tm = await mp.addStyleTag({ content: 'button[value="save"] { outline: 2px solid transparent !important; }' });
+      const ta = await mp.evaluate(() => { document.querySelector('button[value="save"]').focus(); const c = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true }); c.fillStyle = getComputedStyle(document.activeElement).outlineColor; c.fillRect(0, 0, 1, 1); return c.getImageData(0, 0, 1, 1).data[3]; });
+      assert.ok(ta < 255, 'transparent-outline mutant must go red');
+      await tm.evaluate((el) => el.remove());
       await nf.evaluate((el) => el.remove());
       // Mutants: each check must be able to fail.
       const h = await mp.addStyleTag({ content: 'button[value="save"], button[value="clear"] { min-height: 0 !important; height: 28px !important; }' });
