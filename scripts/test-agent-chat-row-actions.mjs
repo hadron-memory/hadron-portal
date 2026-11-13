@@ -138,6 +138,7 @@ try {
           opacity,
           color: rgba(s.color).slice(0, 3),
           contrast: contrast(el),
+          label: (() => { const range = document.createRange(); range.selectNodeContents(el); return box(range); })(),
           focusRing: s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) > 0,
         };
       };
@@ -146,6 +147,8 @@ try {
         row: box(button),
         title: box(titleEl),
         badge: box(badge),
+        // The count and time: the first text of the line after the row button.
+        meta: box(button.nextElementSibling.querySelector('span')),
         rename: part(action('Rename')),
         del: part(action('Delete')),
         coarse: matchMedia('(pointer: coarse)').matches,
@@ -198,16 +201,20 @@ try {
       if (alwaysShown) {
         for (const a of [r.rename, r.del]) assert(a.contrast >= 4.5, `${leg}: ${a.name} contrast ${a.contrast.toFixed(2)} at rest`);
       }
-      if (touch) {
-        assert(!isRed(r.del.color), `${leg}: Delete is red at rest on touch ${JSON.stringify(r.del.color)}`);
-        // The meta line, below the title; the title keeps the row's width.
-        assert(r.rename.box.top >= r.title.bottom - 0.5, `${leg}: touch actions must sit below the title line`);
-        assert(r.title.right <= r.badge.left + 0.5 && r.badge.right >= r.li.right - 120, `${leg}: the title line lost its width to the actions`);
-      } else {
-        // Fine pointer: in flow at the row's right edge, on the title row.
-        assert(r.del.box.right >= r.li.right - 8, `${leg}: actions should sit at the row's right edge`);
-        assert(r.rename.box.top < r.title.bottom, `${leg}: fine-pointer actions should share the title row`);
-      }
+      if (alwaysShown) assert(!isRed(r.del.color), `${leg}: Delete is red at rest ${JSON.stringify(r.del.color)}`);
+      // One layout at every width and pointer (UX on #2102): the actions sit
+      // on the meta line at the row's right edge, below the title, so the
+      // title keeps the row's width.
+      assert(r.rename.box.top >= r.title.bottom - 0.5, `${leg}: actions must sit below the title line`);
+      assert(r.del.box.right >= r.li.right - 8, `${leg}: actions should sit at the row's right edge`);
+      assert(r.title.right <= r.badge.left + 0.5 && r.badge.right >= r.li.right - 120, `${leg}: the title line lost its width to the actions`);
+      // With a mouse the count and time hug the title rather than floating in
+      // the 44px line. On touch the row button itself is a 44px target, so
+      // the gap below the title is that target's (acceptance 3: the actions
+      // never overlap the row's tap target).
+      // The action labels read as part of the meta line, not below it.
+      assert(Math.abs(r.rename.label.top - r.meta.top) <= 3, `${leg}: Rename's label is ${(r.rename.label.top - r.meta.top).toFixed(1)}px off the meta line`);
+      if (!touch) assert(r.meta.top - r.title.bottom <= 8, `${leg}: meta line is ${(r.meta.top - r.title.bottom).toFixed(1)}px below the title`);
 
       // ── Hover reveals (wide, mouse) ───────────────────────────────────
       if (!touch) {
@@ -303,7 +310,7 @@ try {
         await shot.page.screenshot({ path: `${shots}/${leg.replace(/[ /]/g, '-')}-list.png` });
         await shot.context.close();
       }
-      console.log(`${leg}: ok (chat ${panelWidth}px, ${alwaysShown ? 'actions shown' : 'actions quiet'}, ${touch ? 'meta line' : 'title row'})`);
+      console.log(`${leg}: ok (chat ${panelWidth}px, ${alwaysShown ? 'actions shown' : 'actions quiet'}, meta line)`);
     }
   }
 } finally {
