@@ -49,7 +49,18 @@ export type AgentChatFixture = {
   navigationCalls: typeof navigationCalls;
   /** Hold the next delete answers until the returned function is called. */
   holdDelete: () => () => void;
+  /**
+   * Make the next delete fail (portal#2104), once: `network` rejects as a
+   * dropped connection does, `json` answers 500 with `{error}`, `text` answers
+   * 500 with a body that isn't JSON. The chat stays listed.
+   */
+  failDelete: (kind: DeleteFailure) => void;
+  /** Make the next turn reject as a dropped connection does, once (#2110). */
+  failTurn: () => void;
 };
+
+export type DeleteFailure = 'network' | 'json' | 'text';
+export const DELETE_REFUSAL = 'Delete refused';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -82,6 +93,14 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
       release();
     };
   };
+  let deleteFailure: DeleteFailure | null = null;
+  const failDelete = (kind: DeleteFailure) => {
+    deleteFailure = kind;
+  };
+  let turnFailure = false;
+  const failTurn = () => {
+    turnFailure = true;
+  };
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.includes('/api/agent-chat/list')) {
@@ -111,11 +130,22 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
     if (options.rowActions && url.includes('/api/agent-chat/delete')) {
       calls.delete++;
       if (deleteGate) await deleteGate;
+      const failure = deleteFailure;
+      deleteFailure = null;
+      if (failure === 'network') throw new TypeError('Failed to fetch');
+      if (failure === 'json') return json({ error: DELETE_REFUSAL }, 500);
+      if (failure === 'text') return new Response('Internal Server Error', { status: 500, headers: { 'Content-Type': 'text/plain' } });
       const { chatId } = JSON.parse(String(init?.body ?? '{}'));
       const at = chats.findIndex((c) => c.loc === chatId);
       if (at < 0) return json({ error: 'Chat not found' }, 404);
       chats.splice(at, 1);
       return json({ ok: true });
+    }
+    // Turns are not modelled; only a failed one is (#2110).
+    if (turnFailure && url.includes('/api/agent-chat/turn')) {
+      turnFailure = false;
+      calls.writes++;
+      throw new TypeError('Failed to fetch');
     }
     // The served-prompt strip reads its records for the open chat: none here.
     if (url.includes('/api/served-prompts')) return json({ items: [], total: 0, offset: 0 });
@@ -123,6 +153,9 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
     // (rename, delete, turn) should never happen here: Back is view
     // navigation and must send nothing, so every non-GET is counted.
     if ((init?.method ?? 'GET').toUpperCase() !== 'GET') calls.writes++;
+    // Say so (portal#2104): the answer never reaches the network, so without
+    // this a call the fixture doesn't model passes every oracle unnoticed.
+    console.error(`agent-chat fixture: unmodelled ${init?.method ?? 'GET'} ${url}`);
     return json({ error: 'not in fixture' }, 404);
   };
   const component = mount(AgentChat, {
@@ -136,5 +169,5 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
       ] as never,
     },
   });
-  return { stop: () => unmount(component), calls, navigationCalls, holdDelete };
+  return { stop: () => unmount(component), calls, navigationCalls, holdDelete, failDelete, failTurn };
 }

@@ -166,6 +166,14 @@
 
   // Delete confirm state
   let pendingDeleteChatId = $state<string | null>(null);
+  // Whether the current turn error was raised from the list (a failed
+  // delete). On one pane after Back the chat stays selected, so this is what
+  // lets the list show it (#2110). Set with every turn error, never by text.
+  let turnErrorFromList = $state(false);
+  function setTurnError(message: string | null, { fromList = false }: { fromList?: boolean } = {}) {
+    turnError = message;
+    turnErrorFromList = message !== null && fromList;
+  }
 
   // Recent stage-transition toast
   let stageToast = $state<{ from: string; to: string } | null>(null);
@@ -395,7 +403,7 @@
   // ── Starting / resuming chats ────────────────────────────────────────
   async function startNewChat() {
     loadingChat = true;
-    turnError = null;
+    setTurnError(null);
     partialTurnNotice = null;
     progressNotice = null;
     messages = [];
@@ -479,7 +487,7 @@
       await refreshChatList();
       scrollMessagesToBottom();
     } catch (e) {
-      turnError = e instanceof Error ? e.message : 'Failed to start chat';
+      setTurnError(e instanceof Error ? e.message : 'Failed to start chat');
     } finally {
       loadingChat = false;
     }
@@ -498,7 +506,7 @@
     }
     showList = false;
     loadingChat = true;
-    turnError = null;
+    setTurnError(null);
     partialTurnNotice = null;
     progressNotice = null;
     welcomeNotice = null;
@@ -542,7 +550,7 @@
       resetScrollback({ messages, hasOlder: body.hasOlder });
       scrollMessagesToBottom();
     } catch (e) {
-      turnError = e instanceof Error ? e.message : 'Failed to resume chat';
+      setTurnError(e instanceof Error ? e.message : 'Failed to resume chat');
       activeChatId = null;
       syncChatIdToUrl(null);
     } finally {
@@ -583,7 +591,7 @@
     const issuedWindow = windowGeneration;
     input = '';
     sending = true;
-    turnError = null;
+    setTurnError(null);
     partialTurnNotice = null;
     progressNotice = null;
     welcomeNotice = null;
@@ -652,7 +660,7 @@
       // Refresh the list so lastMessageAt + derived title update
       refreshChatList();
     } catch (e) {
-      turnError = e instanceof Error ? e.message : 'Turn failed';
+      setTurnError(e instanceof Error ? e.message : 'Turn failed');
       // Rollback the optimistic user bubble
       messages = messages.slice(0, -1);
       input = text;
@@ -738,7 +746,7 @@
       }
       await refreshChatList();
     } catch (e) {
-      turnError = e instanceof Error ? e.message : 'Rename failed';
+      setTurnError(e instanceof Error ? e.message : 'Rename failed');
     }
   }
   function cancelRename() {
@@ -794,7 +802,18 @@
         : null;
       (next ?? newChatButton)?.focus();
     } catch (e) {
-      turnError = e instanceof Error ? e.message : 'Delete failed';
+      setTurnError(e instanceof Error ? e.message : 'Delete failed', { fromList: true });
+      // The dialog has closed, so a failed delete hands focus back to that
+      // row's Delete, under the same ownership rule as a success: not once
+      // the person has moved on (portal#2104). If the row went away
+      // meanwhile, the neighbour rule above applies.
+      await tick();
+      if (destroyed || movedOn) return;
+      const find = (attribute: string, loc: string) =>
+        chats.some((c) => c.loc === loc)
+          ? rootEl?.querySelector<HTMLElement>(`[${attribute}="${CSS.escape(loc)}"]`)
+          : null;
+      (find('data-chat-delete', chatId) ?? (neighbour && find('data-chat-row', neighbour.loc)) ?? newChatButton)?.focus();
     } finally {
       document.removeEventListener('focusin', moveOn, true);
       document.removeEventListener('pointerdown', moveOn, true);
@@ -876,8 +895,10 @@
     </div>
     <!-- portal#2088: on a phone a refused or failed start leaves the person on
          the list, so its message shows here. From `@2xl` (panel width) up the conversation
-         pane's copy below shows instead; only one is ever displayed. -->
-    {#if turnError && !activeChatId && !loadingChat}
+         pane's copy below shows instead; only one is ever displayed. After Back
+         the chat stays selected behind the list; an error raised from the list
+         (a failed delete, #2110) still shows here, a chat's own error does not. -->
+    {#if turnError && !loadingChat && (!activeChatId || (phonePane === 'list' && turnErrorFromList))}
       <div role="alert" class="m-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 [overflow-wrap:anywhere] @2xl:hidden dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
         {turnError}
       </div>
@@ -960,9 +981,9 @@
                      can share it without covering the tap target. It hugs the
                      title; the 44px targets' extra height falls below it. -->
                 <div class="col-start-1 row-start-2 flex items-center gap-2 self-start px-3 pt-0.5 text-[10px] text-zinc-400">
-                  <span>{chat.messageCount} msg{chat.messageCount === 1 ? '' : 's'}</span>
+                  <span>{agentChatRowStrings.messages(chat.messageCount)}</span>
                   {#if chat.lastMessageAt}
-                    <span>·</span>
+                    <span>{agentChatRowStrings.separator()}</span>
                     <span>{formatRelativeTime(chat.lastMessageAt)}</span>
                   {/if}
                 </div>
