@@ -2459,6 +2459,8 @@ export const MY_CHATS_QUERY = /* GraphQL */ `
       createdBy
       # portal#1963 (hadron-server#3957): the AI config choice stored with the chat, or null.
       aiConfigChoice
+      # portal#2065 (hadron-server S3): names of the conversations this chat has completed, in order; [] when none.
+      completedConversations
     }
   }
 `;
@@ -2530,6 +2532,11 @@ export const PROCESS_CHAT_RESPONSE_MUTATION = /* GraphQL */ `
       chatEnded
       onTrack
       offTrackReason
+      # portal#2065 (hadron-server S2/S3/S4): additive result fields, hrn:node:hadronmemory.com:specs:cor:cht:030:02.
+      conversationCompleted
+      detourReturned
+      rejectedNextStage
+      routingSkipped
     }
   }
 `;

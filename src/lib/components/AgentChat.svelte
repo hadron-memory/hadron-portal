@@ -81,7 +81,12 @@
     stageName: string | null;
     /** Spec 017 — chosen at creation, immutable per FR-002. */
     scope: 'private' | 'shared';
+    /** portal#2065: conversations this chat has completed, first completion first. */
+    completed: string[];
   } | null>(null);
+  // portal#2065: one quiet line about the last turn's routing (completed / returned / stage refused). The region below is
+  // mounted empty and its text replaced, so the change is announced. Scoped to its chat.
+  let progressNotice = $state<{ chatId: string; text: string } | null>(null);
 
   // Spec 017 — composer-header scope picker. The user's pending choice
   // for the NEXT chat they start. Defaults to 'private' per FR-003.
@@ -332,6 +337,7 @@
     loadingChat = true;
     turnError = null;
     partialTurnNotice = null;
+    progressNotice = null;
     messages = [];
     // A chat that does not exist yet has no history behind it.
     resetScrollback();
@@ -370,6 +376,7 @@
         // Spec 017 — record the scope used at creation; immutable from
         // here on.
         scope: body.scope === 'shared' ? 'shared' : 'private',
+        completed: [],
       };
       // Spec 017 D3 (safety > collaboration): reset the picker to
       // 'private' after a successful chat creation so the user makes a
@@ -415,6 +422,7 @@
     loadingChat = true;
     turnError = null;
     partialTurnNotice = null;
+    progressNotice = null;
     welcomeNotice = null;
     messages = [];
     // Cleared BEFORE the fetch, not only on success: an in-flight scroll-up
@@ -443,6 +451,7 @@
         // Spec 017 — scope is part of the chat metadata; pulled through
         // from MY_CHATS_QUERY which now selects it.
         scope: body.chat.scope === 'shared' ? 'shared' : 'private',
+        completed: Array.isArray(body.chat.completedConversations) ? body.chat.completedConversations.filter((n: unknown): n is string => typeof n === 'string') : [],
       };
       // Chat switch stays tolerant, as before #916: a missing list opens an empty
       // transcript. The strict check lives in the partial-turn reload only, where
@@ -474,6 +483,7 @@
     sending = true;
     turnError = null;
     partialTurnNotice = null;
+    progressNotice = null;
     welcomeNotice = null;
 
     // Optimistic user bubble
@@ -533,6 +543,21 @@
             stageToast = null;
           }
         }, 4000);
+      }
+
+      // portal#2065: completion, detour return, refused stage. Strings are ours (t()), never server text; the names are
+      // the author's own conversation/stage names, shown as the header already shows them. routingSkipped shows nothing (B5).
+      if (activeChatMeta && activeChatId === chatId) {
+        const done: string | null = typeof body.conversationCompleted === 'string' && body.conversationCompleted ? body.conversationCompleted : null;
+        if (done && !activeChatMeta.completed.includes(done)) {
+          activeChatMeta = { ...activeChatMeta, completed: [...activeChatMeta.completed, done] };
+        }
+        const where = body.conversationHandoff && body.newStageName ? `${body.conversationHandoff} / ${body.newStageName}` : (body.newStageName ?? body.conversationHandoff ?? '');
+        const lines: string[] = [];
+        if (done) lines.push(t('agent-chat.progress.completed', 'Conversation complete: {name}', { name: done }));
+        if (body.detourReturned === true) lines.push(where ? t('agent-chat.progress.detour-returned', 'Returned from the detour to {where}', { where }) : t('agent-chat.progress.detour-returned-plain', 'Returned from the detour'));
+        if (typeof body.rejectedNextStage === 'string' && body.rejectedNextStage) lines.push(t('agent-chat.progress.stage-refused', 'Stayed in this stage: "{name}" is not a stage here', { name: body.rejectedNextStage }));
+        progressNotice = lines.length ? { chatId, text: lines.join(' · ') } : null;
       }
 
       // Refresh the list so lastMessageAt + derived title update
@@ -849,6 +874,16 @@
               <span>Stage: <span class="font-semibold text-zinc-600 dark:text-zinc-300">{activeChatMeta.stageName}</span></span>
             {/if}
           </div>
+          {#if activeChatMeta && activeChatMeta.completed.length > 0}
+            <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-zinc-400" data-testid="completed-conversations-row">
+              <span>{t('agent-chat.progress.done-label', 'Done')}:</span>
+              <ul class="flex flex-wrap gap-1.5" data-testid="completed-conversations">
+                {#each activeChatMeta.completed as name (name)}
+                  <li class="rounded bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{name}</li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
         </div>
       </header>
 
@@ -857,6 +892,8 @@
           Stage transitioned: <strong>{stageToast.from || '(start)'}</strong> → <strong>{stageToast.to}</strong>
         </div>
       {/if}
+
+      <div role="status" data-testid="chat-progress-notice" class={progressNotice && progressNotice.chatId === activeChatId ? 'mx-4 mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200' : 'sr-only'}>{progressNotice && progressNotice.chatId === activeChatId ? progressNotice.text : ''}</div>
 
       {#if welcomeNotice}
         <div class="mx-4 mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">

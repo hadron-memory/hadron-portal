@@ -31,6 +31,16 @@ export const CHAT_ERROR = {
   // recognised structured partialTurn marker (see partialTurnRefusal); never names a task, revision, rule or config.
   partialTurnAttestationMissing: t('agent-chat.error.partial-turn-attestation-missing', "Your message was sent and the reply was saved, but the chat couldn't save the information it collected: this memory accepts that data only from a task-assigned author, and a chat turn doesn't name one. Ask whoever manages the memory. You don't need to send it again."),
   partialTurnAuthorTaskBroken: t('agent-chat.error.partial-turn-author-task-broken', "Your message was sent and the reply was saved, but the information it collected wasn't: the task this memory requires for that data is unavailable. It stays that way until whoever manages the memory repairs it. You don't need to send it again."),
+  // portal#2065 B3: routing was refused (EDGE_CONDITION_FAILED) after the reply was saved. One fixed copy; never the
+  // condition, rule or fact text. UX owns the wording at the design step.
+  partialTurnEdgeConditionFailed: t('agent-chat.error.partial-turn-edge-condition-failed', "Your message was sent and the reply was saved, but the chat couldn't move on to the next step. You don't need to send it again."),
+  // portal#2065 B4 (hadron-server#4039 B3): startChat refused with ENTRY_CONDITION_FAILED. One fixed message per messageId;
+  // nothing from `detail` is shown, and an unknown id gets the generic one.
+  startMemoryEncryptedNoKey: t('agent-chat.error.start-memory-encrypted-no-key', "This chat can't start because the memory it reads is encrypted and this session has no key for it."),
+  startMemoryUnreadable: t('agent-chat.error.start-memory-unreadable', "This chat can't start because the memory it reads can't be read right now."),
+  startInvalidCondition: t('agent-chat.error.start-invalid-condition', "This chat can't start because its first conversation has a start condition that can't be checked."),
+  startTypeMismatch: t('agent-chat.error.start-type-mismatch', "This chat can't start because the information its start condition checks isn't in the form it expects."),
+  startUnavailable: t('agent-chat.error.start-unavailable', "This chat can't start right now."),
   failed: t('agent-chat.error.failed', 'Chat request failed. Please try again.'),
 } as const;
 
@@ -64,7 +74,22 @@ export function configChoiceRefusalCode(error: unknown): ChatErrorCode | null {
   return extractGqlErrorCode(error) === 'AiServiceConfigNotFoundError' ? 'configChoiceUnavailable' : null;
 }
 
-/** "Fix the setup first" cases answer 409; anything else is a generic 500. */
+/** Server `messageId` -> portal code for ENTRY_CONDITION_FAILED at start (hadron-server#4039 B3). Closed set. */
+const ENTRY_CONDITION_MESSAGES: Readonly<Record<string, ChatErrorCode>> = {
+  'chat-start.error.memory_encrypted_no_key': 'startMemoryEncryptedNoKey',
+  'chat-start.error.memory_unreadable': 'startMemoryUnreadable',
+  'chat-start.error.invalid_condition': 'startInvalidCondition',
+  'chat-start.error.type_mismatch': 'startTypeMismatch',
+};
+
+/** portal#2065 B4: the portal code for ENTRY_CONDITION_FAILED, keyed on the code and then the messageId; null for any other error. */
+export function entryConditionRefusalCode(error: unknown): ChatErrorCode | null {
+  if (extractGqlErrorCode(error) !== 'ENTRY_CONDITION_FAILED') return null;
+  const id = extractGqlErrorExtensions(error)?.messageId;
+  return typeof id === 'string' && Object.hasOwn(ENTRY_CONDITION_MESSAGES, id) ? ENTRY_CONDITION_MESSAGES[id] : 'startUnavailable';
+}
+
+/** "Fix the setup first cases answer 409; anything else is a generic 500. */
 const CONFLICT_CODES: ReadonlySet<ChatErrorCode> = new Set<ChatErrorCode>([
   'noConfig',
   'configChoiceUnavailable',
@@ -74,10 +99,15 @@ const CONFLICT_CODES: ReadonlySet<ChatErrorCode> = new Set<ChatErrorCode>([
   'bootPromptNotSigned',
   'bootPromptRecordedRevisionDeleted',
   'bootPromptInstallLicenseInactive',
+  'startMemoryEncryptedNoKey',
+  'startMemoryUnreadable',
+  'startInvalidCondition',
+  'startTypeMismatch',
+  'startUnavailable',
 ]);
 
 export function publicChatError(error: unknown): { code: ChatErrorCode; message: string; status: number } {
-  const code = error instanceof ChatError ? error.code : (bootPromptRefusalCode(error) ?? configChoiceRefusalCode(error) ?? 'failed');
+  const code = error instanceof ChatError ? error.code : (bootPromptRefusalCode(error) ?? configChoiceRefusalCode(error) ?? entryConditionRefusalCode(error) ?? 'failed');
   return { code, message: CHAT_ERROR[code], status: CONFLICT_CODES.has(code) ? 409 : 500 };
 }
 
@@ -103,6 +133,7 @@ const isStringArrayWith = (value: unknown, member: string) => Array.isArray(valu
 export function partialTurnRefusal(error: unknown): { code: ChatErrorCode; message: string; status: 409 } | null {
   const ext = extractGqlErrorExtensions(error);
   const serverCode = extractGqlErrorCode(error);
+  if (serverCode === 'EDGE_CONDITION_FAILED') return edgeConditionPartialTurn(ext);
   if (!ext || !serverCode || !Object.hasOwn(PARTIAL_TURN_REFUSALS, serverCode)) return null;
   const report = ext.partialTurn;
   if (!report || typeof report !== 'object') return null;
@@ -113,4 +144,22 @@ export function partialTurnRefusal(error: unknown): { code: ChatErrorCode; messa
   if (!isStringArrayWith(persisted, 'ASSISTANT_MESSAGE') || !extractionRefused || !isStringArrayWith(notRun, 'STAGE_PROGRESSION')) return null;
   const code = PARTIAL_TURN_REFUSALS[serverCode];
   return { code, message: CHAT_ERROR[code], status: 409 };
+}
+
+/**
+ * portal#2065 B3 (hadron-server S3, option (a)): routing ran and was refused AFTER the reply was saved. Recognised by
+ * `refused` containing {STAGE_PROGRESSION, EDGE_CONDITION_FAILED} and `persisted` including ASSISTANT_MESSAGE, and by
+ * nothing else: EXTRACTION in `persisted` is conditional (listed only when extraction wrote data), so it is never
+ * required. Structured fields only; no condition, rule or fact text crosses. Relies on the still-Proposed partial-turn
+ * rule in hrn:node:hadronmemory.com:specs:cor:cht:020:01.
+ */
+function edgeConditionPartialTurn(ext: Record<string, unknown> | null | undefined): { code: ChatErrorCode; message: string; status: 409 } | null {
+  const report = ext?.partialTurn;
+  if (!report || typeof report !== 'object') return null;
+  const { persisted, refused } = report as { persisted?: unknown; refused?: unknown };
+  const edgeRefused =
+    Array.isArray(refused) &&
+    refused.some((r) => !!r && typeof r === 'object' && (r as { component?: unknown }).component === 'STAGE_PROGRESSION' && (r as { code?: unknown }).code === 'EDGE_CONDITION_FAILED');
+  if (!isStringArrayWith(persisted, 'ASSISTANT_MESSAGE') || !edgeRefused) return null;
+  return { code: 'partialTurnEdgeConditionFailed', message: CHAT_ERROR.partialTurnEdgeConditionFailed, status: 409 };
 }

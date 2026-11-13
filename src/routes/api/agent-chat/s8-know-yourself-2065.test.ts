@@ -95,7 +95,7 @@ describe('portal#2065 4b: the turn selects and returns the new result fields', (
     const logged = JSON.stringify(info.mock.calls);
     expect(info).toHaveBeenCalledTimes(1);
     expect(logged).toContain('routingSkipped');
-    expect(logged).toContain('"c"');
+    expect(info.mock.calls[0][1]).toBe(JSON.stringify({ chatId: 'c', routingSkipped: true }));
     expect(logged).not.toContain('secret reply text');
     info.mockClear();
     PROCESSED_NOW = { ...PROCESSED };

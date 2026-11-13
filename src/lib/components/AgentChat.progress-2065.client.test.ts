@@ -45,6 +45,9 @@ describe('AgentChat: completion, detour return and rejected stage (#2065)', () =
     stub({});
     const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
     await wait(20);
+    [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('New chat'))!.click();
+    await wait(30);
+    await tick();
     expect(notice()).not.toBeNull();
     expect(notice()!.textContent?.trim()).toBe('');
     m.unmount();
@@ -85,9 +88,16 @@ describe('AgentChat: completion, detour return and rejected stage (#2065)', () =
     m.unmount();
   });
 
-  it('a completion already on the done list is not added twice', async () => {
-    stub({ conversationCompleted: 'intro' }, {}, { completedConversations: ['intro'] });
+  it('a repeated completion is not added to the done list twice', async () => {
+    stub({ conversationCompleted: 'intro' });
     const m = await startAndSend();
+    await tick();
+    box().value = 'again';
+    box().dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+    [...document.querySelectorAll('button')].find((b) => /send/i.test(b.textContent ?? ''))!.click();
+    await wait(40);
+    await tick();
     const items = document.querySelectorAll('[data-testid="completed-conversations"] li');
     expect(items).toHaveLength(1);
     m.unmount();

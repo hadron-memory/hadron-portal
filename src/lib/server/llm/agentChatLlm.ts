@@ -14,6 +14,8 @@ export interface RespondCall {
   message: string;
   data?: Record<string, unknown>;
   next_stage?: string | null;
+  /** S8 (#2065): the model's explicit "this conversation's goal is reached" flag; absent means false. The tool schema stays server-owned. */
+  goal_reached?: boolean;
 }
 
 /**
