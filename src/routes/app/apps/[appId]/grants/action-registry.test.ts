@@ -47,7 +47,7 @@ it('offers exactly the served names and one picker for each declared parameter',
   expect(html).not.toContain('value="schedule.create"');
   expect(html).toContain('differentNode');
   expect(html).toContain('secondNode');
-  expect(html.match(/Choose a node…/g)).toHaveLength(2);
+  expect(html.match(/name="parameter:/g)).toHaveLength(2);
 });
 it.each([[], null])('empty and refused/null definitions have the same no-actions state (%j)', (defs) => {
   const html = draw(defs);
@@ -59,6 +59,22 @@ it('does not guess a field or submit for an unknown parameter type', () => {
   expect(html).toContain('cannot be granted here');
   expect(html).not.toContain('name="parameter:futureValue"');
   expect(html).not.toContain('>Create</button>');
+});
+it.each([[], null])('does not fall back when the server action read is empty/null (%j)', async (defs) => {
+  catalogue = defs;
+  const { load, actions } = await import('./+page.server');
+  expect((await load(event() as never) as any).actionDefinitions).toEqual([]);
+  const result = await actions.create!(event({ holder: 'WORKER:worker-example', action: 'schedule.create',
+    'parameter:entryNode': 'node-a', reason: 'Testing' }) as never) as any;
+  expect(result.status).toBe(400);
+  expect(request.mock.calls.some(([q]) => q.includes('mutation CreateAppGrant'))).toBe(false);
+});
+it('rejects an unsupported definition on POST too', async () => {
+  catalogue = [{ ...definition, parameters: [{ name: 'unknown', type: 'new-type', refusesWildcard: false }] }];
+  const { actions } = await import('./+page.server');
+  expect((await actions.create!(event({ holder: 'WORKER:worker-example', action: definition.name,
+    'parameter:unknown': 'guessed', reason: 'Testing' }) as never) as any).status).toBe(400);
+  expect(request.mock.calls.some(([q]) => q.includes('mutation CreateAppGrant'))).toBe(false);
 });
 it('reads the catalogue afresh per form load with the named App', async () => {
   const { load } = await import('./+page.server');

@@ -6,7 +6,7 @@
   import GrantHistory from "./GrantHistory.svelte";
   import GrantStatus from "./GrantStatus.svelte";
   import Urn from "$lib/components/Urn.svelte";
-  import { grantNodeRef, type Grant, type Holder } from "$lib/grants/types";
+  import type { Grant, Holder } from "$lib/grants/types";
   let {
     grant,
     holder,
@@ -134,7 +134,7 @@
       <Urn value={holder.urn} linked />
     </div>{/if}
   <div class="font-mono break-all">{shown.action}</div>
-  {#if grantNodeRef(shown)}
+  {#if node !== undefined}
     <div class="min-w-0">
       <div>
         {node?.name ?? t("grants.node.unavailable", "Node unavailable")}

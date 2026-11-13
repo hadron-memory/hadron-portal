@@ -1,3 +1,4 @@
+import { isActionDefinition, type GrantActionDefinition } from "$lib/grants/actions";
 import { grantActorRefs } from "$lib/grants/approval";
 import {
   grantHolderKey,
@@ -53,6 +54,8 @@ export function parseGrantList(
     (raw.grants.total as number) < 0
   )
     return null;
+  const actionDefinitions = raw.actionDefinitions ?? [];
+  if (!Array.isArray(actionDefinitions) || !actionDefinitions.every(isActionDefinition)) return null;
   const items: Grant[] = [];
   const holders: Record<string, Holder> = Object.create(null);
   const nodes: Record<string, Holder | null> = Object.create(null);
@@ -87,7 +90,7 @@ export function parseGrantList(
     const h = holder(raw.holders[key]);
     if (!h) return null;
     holders[key] = h;
-    const ref = grantNodeRef(grant);
+    const ref = grantNodeRef(grant, actionDefinitions as GrantActionDefinition[]);
     if (ref) {
       if (!Object.hasOwn(raw.nodes, ref)) return null;
       const n = raw.nodes[ref] === null ? null : holder(raw.nodes[ref]);
@@ -129,6 +132,7 @@ export function parseGrantList(
   }
   return {
     actors,
+    actionDefinitions: actionDefinitions as GrantActionDefinition[],
     appId: scope.appId,
     viewerId: scope.viewerId,
     offset: scope.offset,

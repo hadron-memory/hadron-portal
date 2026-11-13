@@ -17,6 +17,7 @@ const body = () => {
     appId: scope.appId,
     viewerId: scope.viewerId,
     offset: 0,
+    actionDefinitions: d.actionDefinitions,
     grants: d.grants,
     holders: d.holders,
     nodes: { "node-example": null },
