@@ -77,6 +77,10 @@ jobs:
       - name: Check team chat chip target sizes
         run: pnpm test:team-chat-chips-layout
 
+      # portal#2088: App agent chat panes at 320-1440px, Back control and focus.
+      - name: Check App agent chat phone layout
+        run: pnpm test:agent-chat-phone-layout
+
       - name: Check node phone layout
         run: pnpm test:node-phone-layout
 
