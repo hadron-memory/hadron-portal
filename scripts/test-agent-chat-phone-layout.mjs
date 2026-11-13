@@ -177,7 +177,7 @@ try {
       await heading.waitFor({ state: 'detached', timeout: 5000 });
 
       // ── Open a chat: the conversation ──────────────────────────────
-      await page.getByRole('button', { name: new RegExp(ROW) }).click();
+      await page.locator('[data-chat-row="chats:a"]').click();
       await page.getByText('Which weeks work best').waitFor();
       p = await panes(page);
       const textarea = await page.locator('textarea').evaluate((el) => el.getBoundingClientRect().width);
@@ -259,7 +259,7 @@ try {
         assert.equal(await page.getByText('Which weeks work best').count(), 1, `${leg}: Back should keep exactly one copy of the transcript`);
 
         // ── Reselect the same retained chat ──────────────────────────
-        await page.getByRole('button', { name: new RegExp(ROW) }).click();
+        await page.locator('[data-chat-row="chats:a"]').click();
         p = await panes(page);
         assert(p.aside === 0 && near(p.main, p.panel), `${leg}: reselecting the same chat must reopen it, got ${JSON.stringify(p)}`);
         assert(await page.getByText('Which weeks work best').isVisible(), `${leg}: reopened chat lost its messages`);
@@ -325,7 +325,7 @@ try {
       // still show its alert where the user is, not in the hidden pane.
       if (phone) {
         const again = await open(width, dark, { refuseStart: true });
-        await again.page.getByRole('button', { name: new RegExp(ROW) }).click();
+        await again.page.locator('[data-chat-row="chats:a"]').click();
         await again.page.getByText('Which weeks work best').waitFor();
         await again.page.getByRole('button', { name: 'Back to chats' }).click();
         await again.page.getByRole('button', { name: '+ New chat' }).click();

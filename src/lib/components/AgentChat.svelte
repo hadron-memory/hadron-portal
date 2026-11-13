@@ -13,6 +13,7 @@
   import { scrollTopAfterPrepend } from '$lib/team-chat-refresh';
   import { t } from '$lib/i18n/t.js';
   import { chatScopeStrings } from '$lib/i18n/chat-scope-strings.js';
+  import { agentChatRowStrings } from '$lib/i18n/agent-chat-row-strings.js';
   import {
     chatAiChoiceLabel,
     initialChatAiChoice,
@@ -143,6 +144,21 @@
   // Inline rename state
   let renamingChatId = $state<string | null>(null);
   let renameValue = $state('');
+  // Enter or Escape in the rename field hands focus back to the row's Rename
+  // (portal#2098); a blur by clicking elsewhere leaves focus where it went.
+  let renameReturnsFocus = false;
+
+  /** Focus one of a row's controls after the next render, if it is still there. */
+  async function focusRowControl(attribute: 'data-chat-row' | 'data-chat-rename' | 'data-chat-delete', chatId: string) {
+    await tick();
+    if (destroyed) return;
+    rootEl?.querySelector<HTMLElement>(`[${attribute}="${CSS.escape(chatId)}"]`)?.focus();
+  }
+
+  // The row actions' shared look: 44px targets, neutral text that reaches
+  // 4.5:1 on selected and unselected rows, and a visible focus ring.
+  const rowActionClass =
+    'inline-flex min-h-11 min-w-11 items-center justify-center rounded px-1.5 text-[11px] font-medium text-zinc-600 hover:text-zinc-900 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-indigo-500 dark:text-zinc-300 dark:hover:text-white';
 
   // Delete confirm state
   let pendingDeleteChatId = $state<string | null>(null);
@@ -698,6 +714,10 @@
   async function commitRename(chatId: string) {
     const title = renameValue.trim();
     renamingChatId = null;
+    if (renameReturnsFocus) {
+      renameReturnsFocus = false;
+      void focusRowControl('data-chat-rename', chatId);
+    }
     if (!title) return;
     try {
       const res = await fetch('/api/agent-chat/title', {
@@ -718,12 +738,23 @@
     }
   }
   function cancelRename() {
+    const chatId = renamingChatId;
     renamingChatId = null;
     renameValue = '';
+    if (chatId) void focusRowControl('data-chat-rename', chatId);
+  }
+  function cancelDelete() {
+    const chatId = pendingDeleteChatId;
+    pendingDeleteChatId = null;
+    if (chatId) void focusRowControl('data-chat-delete', chatId);
   }
 
   async function confirmDelete(chatId: string) {
     pendingDeleteChatId = null;
+    // Where focus goes once the row is gone: the next row, else the previous
+    // one, else "+ New chat" (portal#2098).
+    const at = chats.findIndex((c) => c.loc === chatId);
+    const neighbour = chats[at + 1] ?? chats[at - 1] ?? null;
     try {
       const res = await fetch('/api/agent-chat/delete', {
         method: 'POST',
@@ -744,6 +775,12 @@
         partialTurnNotice = null;
       }
       await refreshChatList();
+      await tick();
+      if (destroyed) return;
+      const next = neighbour && chats.some((c) => c.loc === neighbour.loc)
+        ? rootEl?.querySelector<HTMLElement>(`[data-chat-row="${CSS.escape(neighbour.loc)}"]`)
+        : null;
+      (next ?? newChatButton)?.focus();
     } catch (e) {
       turnError = e instanceof Error ? e.message : 'Delete failed';
     }
@@ -760,6 +797,16 @@
     return d.toLocaleDateString();
   }
 </script>
+
+<!-- A chat row's message count and last activity: inside the row button with
+     a mouse, on the actions' line on touch (portal#2098). -->
+{#snippet chatMeta(chat: Chat)}
+  <span>{chat.messageCount} msg{chat.messageCount === 1 ? '' : 's'}</span>
+  {#if chat.lastMessageAt}
+    <span>·</span>
+    <span>{formatRelativeTime(chat.lastMessageAt)}</span>
+  {/if}
+{/snippet}
 
 <!-- Full-height layout: left chat list + right active chat.
      The parent container gives us all available vertical space. -->
@@ -839,29 +886,51 @@
       {:else}
         <ul class="divide-y divide-zinc-100 dark:divide-zinc-800">
           {#each chats as chat (chat.loc)}
-            <li class="group relative">
+            <!-- portal#2098: Rename and Delete are always in the DOM and the
+                 tab order, revealed by opacity, never display:none. Mouse on
+                 a wide panel: quiet at rest, shown on hover, focus and the
+                 selected row, in flow at the row's right edge. Narrow panel
+                 (below @2xl) or touch: always shown; on touch they sit on the
+                 meta line so the title keeps its width. In flow, so they never
+                 cover the title or scope badge (#2095). -->
+            <li
+              class="group grid grid-cols-[minmax(0,1fr)_auto] items-center transition
+                {activeChatId === chat.loc
+                  ? 'bg-indigo-50 dark:bg-indigo-950/40'
+                  : 'hover:bg-zinc-50 dark:hover:bg-zinc-800'}"
+            >
               {#if renamingChatId === chat.loc}
                 <!-- svelte-ignore a11y_autofocus -->
                 <input
                   type="text"
                   bind:value={renameValue}
+                  aria-label={agentChatRowStrings.renameInput(chat.title)}
                   onblur={() => commitRename(chat.loc)}
                   onkeydown={(e) => {
-                    if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur();
-                    if (e.key === 'Escape') cancelRename();
+                    // preventDefault: focus returns to Rename before this key's
+                    // keypress, which would otherwise press Rename again.
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      renameReturnsFocus = true;
+                      (e.currentTarget as HTMLInputElement).blur();
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      cancelRename();
+                    }
                   }}
                   autofocus
-                  class="w-full border-0 bg-white px-3 py-2 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-zinc-900 dark:text-white"
+                  class="col-span-2 w-full border-0 bg-white px-3 py-2 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-zinc-900 dark:text-white"
                 />
               {:else}
                 <button
                   type="button"
                   data-chat-row={chat.loc}
                   onclick={() => resumeChat(chat.loc)}
-                  class="block w-full px-3 py-2 text-left text-sm transition
+                  class="col-start-1 row-start-1 block min-w-0 px-3 py-2 text-left text-sm pointer-coarse:col-span-2 pointer-coarse:min-h-11
                     {activeChatId === chat.loc
-                      ? 'bg-indigo-50 text-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200'
-                      : 'text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
+                      ? 'text-indigo-900 dark:text-indigo-200'
+                      : 'text-zinc-700 dark:text-zinc-300'}"
                 >
                   <div class="flex items-center gap-1.5">
                     <span class="truncate font-medium">{chat.title}</span>
@@ -880,27 +949,37 @@
                         : chatScopeStrings.badgePrivate()}
                     </span>
                   </div>
-                  <div class="mt-0.5 flex items-center gap-2 text-[10px] text-zinc-400">
-                    <span>{chat.messageCount} msg{chat.messageCount === 1 ? '' : 's'}</span>
-                    {#if chat.lastMessageAt}
-                      <span>·</span>
-                      <span>{formatRelativeTime(chat.lastMessageAt)}</span>
-                    {/if}
+                  <div class="mt-0.5 flex items-center gap-2 text-[10px] text-zinc-400 pointer-coarse:hidden">
+                    {@render chatMeta(chat)}
                   </div>
                 </button>
-                <div class="absolute right-1 top-1 hidden gap-0.5 group-hover:flex">
+                <!-- Touch: the meta line moves out of the row button so the
+                     actions can share it without covering the tap target. -->
+                <div class="col-start-1 row-start-2 hidden items-center gap-2 px-3 pb-1 text-[10px] text-zinc-400 pointer-coarse:flex">
+                  {@render chatMeta(chat)}
+                </div>
+                <div
+                  class="col-start-2 row-start-1 flex gap-0.5 pr-1 pointer-coarse:row-start-2 pointer-coarse:pb-1
+                    {activeChatId === chat.loc
+                      ? 'opacity-100'
+                      : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 @max-2xl:opacity-100 pointer-coarse:opacity-100'}"
+                >
                   <button
                     type="button"
-                    title="Rename"
+                    data-chat-rename={chat.loc}
+                    aria-label={agentChatRowStrings.rename(chat.title)}
+                    title={agentChatRowStrings.rename(chat.title)}
                     onclick={(e) => { e.stopPropagation(); startRename(chat); }}
-                    class="rounded bg-white/90 px-1.5 text-[10px] text-zinc-500 hover:text-zinc-900 dark:bg-zinc-900/90 dark:hover:text-white"
-                  >rename</button>
+                    class={rowActionClass}
+                  >{agentChatRowStrings.renameShort()}</button>
                   <button
                     type="button"
-                    title="Delete"
+                    data-chat-delete={chat.loc}
+                    aria-label={agentChatRowStrings.delete(chat.title)}
+                    title={agentChatRowStrings.delete(chat.title)}
                     onclick={(e) => { e.stopPropagation(); pendingDeleteChatId = chat.loc; }}
-                    class="rounded bg-white/90 px-1.5 text-[10px] text-red-500 hover:text-red-700 dark:bg-zinc-900/90"
-                  >delete</button>
+                    class="{rowActionClass} hover:text-red-700 focus-visible:text-red-700 active:text-red-700 dark:hover:text-red-400 dark:focus-visible:text-red-400 dark:active:text-red-400"
+                  >{agentChatRowStrings.deleteShort()}</button>
                 </div>
               {/if}
             </li>
@@ -1174,7 +1253,7 @@
       <div class="flex justify-end gap-2">
         <button
           type="button"
-          onclick={() => (pendingDeleteChatId = null)}
+          onclick={cancelDelete}
           class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
         >Cancel</button>
         <button
