@@ -23,20 +23,22 @@ describe('loadBoard', () => {
     request.mockResolvedValueOnce({ agentTasks: [] });
     await loadBoard(client, 'app-1', 'backlog');
     expect(request).toHaveBeenCalledWith(AGENT_TASKS_BOARD_QUERY, { appRef: 'app-1', status: ['BACKLOG'], limit: BOARD_LIMIT });
-    expect(AGENT_TASKS_BOARD_QUERY).toContain('rootsOnly: true');
+    // portal#1643: roots only stays the default (a variable defaulting to true), so no filter sends it.
+    expect(AGENT_TASKS_BOARD_QUERY).toContain('$rootsOnly: Boolean = true');
+    expect(AGENT_TASKS_BOARD_QUERY).toContain('rootsOnly: $rootsOnly');
   });
 
   // portal#1427: each filter sends only its own argument, and none when unset.
   it('sends no overdue or tag argument when nothing is narrowed', async () => {
     request.mockResolvedValueOnce({ agentTasks: [] });
-    await loadBoard(client, 'app-1', 'all', '', { overdue: false, tags: [] });
+    await loadBoard(client, 'app-1', 'all', '', { overdue: false, tags: [], unresolved: false });
     const vars = request.mock.calls[0][1];
     expect(Object.keys(vars).sort()).toEqual(['appRef', 'limit']);
   });
 
   it('sends overdue: true and tagsAll, ANDed with the bucket and the text', async () => {
     request.mockResolvedValueOnce({ agentTasks: [] });
-    await loadBoard(client, 'app-1', 'queued', ' hello ', { overdue: true, tags: ['ops', 'infra'] });
+    await loadBoard(client, 'app-1', 'queued', ' hello ', { overdue: true, tags: ['ops', 'infra'], unresolved: false });
     expect(request).toHaveBeenCalledWith(AGENT_TASKS_BOARD_QUERY, {
       appRef: 'app-1', queued: true, text: 'hello', overdue: true, tagsAll: ['ops', 'infra'], limit: BOARD_LIMIT,
     });
@@ -44,8 +46,16 @@ describe('loadBoard', () => {
 
   it('never sends overdue: false', async () => {
     request.mockResolvedValueOnce({ agentTasks: [] });
-    await loadBoard(client, 'app-1', 'active', '', { overdue: false, tags: ['a'] });
+    await loadBoard(client, 'app-1', 'active', '', { overdue: false, tags: ['a'], unresolved: false });
     expect(request.mock.calls[0][1]).not.toHaveProperty('overdue');
+  });
+
+  it('unresolved findings asks the server for unresolvedFindings across the tree, ANDed with the bucket', async () => {
+    request.mockResolvedValueOnce({ agentTasks: [] });
+    await loadBoard(client, 'app-1', 'ended', '', { overdue: false, tags: [], unresolved: true });
+    expect(request).toHaveBeenCalledWith(AGENT_TASKS_BOARD_QUERY, { appRef: 'app-1', status: ['FINISHED', 'CANCELLED'], unresolvedFindings: true, rootsOnly: false, limit: BOARD_LIMIT });
+    expect(AGENT_TASKS_BOARD_QUERY).toContain('$unresolvedFindings: Boolean');
+    expect(AGENT_TASKS_BOARD_QUERY).toMatch(/unresolvedFindings: \$unresolvedFindings/);
   });
 
   it('declares the new arguments in the query', () => {
@@ -57,7 +67,7 @@ describe('loadBoard', () => {
 
   it('a failed narrowed read stays a failure, not an empty board', async () => {
     request.mockRejectedValueOnce(gqlError('FORBIDDEN'));
-    expect(await loadBoard(client, 'app-1', 'active', '', { overdue: true, tags: [] })).toEqual({ kind: 'failed' });
+    expect(await loadBoard(client, 'app-1', 'active', '', { overdue: true, tags: [], unresolved: false })).toEqual({ kind: 'failed' });
   });
 
   it('a full page is reported as capped, a short one is not', async () => {

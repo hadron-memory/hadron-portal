@@ -89,7 +89,7 @@ function provider(opts: { rows?: ReturnType<typeof rowsOf>; task?: 'null' | 'oth
     expect(doc).toBe(AGENT_TASK_FINDING_DISPOSITIONS_QUERY);
     if (opts.task === 'null') return { agentTask: null };
     const out = await graphql({ schema, source: doc, variableValues: vars, rootValue: { agentTask: () => ({
-      id: 'canonical', appId: opts.task === 'other-app' ? 'other' : app.id,
+      id: vars.id, appId: opts.task === 'other-app' ? 'other' : app.id,
       findingDispositions: ({ limit, offset }: { limit: number; offset: number }) => {
         const items = rows.slice(offset, offset + limit);
         return { items, total: rows.length, hasMore: offset + items.length < rows.length };
