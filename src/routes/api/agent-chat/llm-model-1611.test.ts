@@ -65,7 +65,7 @@ function setup(o: { resolve?: Array<unknown | Error>; start?: Error; send?: Erro
       return { sendChatMessage: { systemMessage: 'sys', tools: null, messageHistory: [{ role: 'user', content: 'hi' }], summarizationNeeded: null } };
     }
     if (doc === PROCESS_CHAT_RESPONSE_MUTATION) {
-      return { processChatResponse: { displayMessage: 'hello', stageTransitioned: false, newStageName: null, conversationHandoff: null, chatEnded: false, onTrack: true, offTrackReason: null } };
+      return { processChatResponse: { displayMessage: 'hello', stageTransitioned: false, newStageName: null, conversationHandoff: null, chatEnded: false, onTrack: true, offTrackReason: null, conversationCompleted: null, detourReturned: false, rejectedNextStage: null, routingSkipped: false } };
     }
     throw new Error(`unexpected operation: ${String(doc).slice(0, 50)}`);
   });

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, untrack } from "svelte";
+  import { onDestroy, onMount, untrack } from "svelte";
   import { enhance } from "$app/forms";
   import { beforeNavigate } from "$app/navigation";
   import type { SubmitFunction } from "@sveltejs/kit";
@@ -24,6 +24,12 @@
   import type { NodeChoice } from "$lib/node-choices";
   import { t } from "$lib/i18n/t";
   import { readGrantList } from "./grant-list";
+  import {
+    grantMatches,
+    grantActorRefs,
+    type GrantPageFilter,
+  } from "$lib/grants/approval";
+  import GrantApproval from "./GrantApproval.svelte";
   import GrantRecord from "./GrantRecord.svelte";
   import type { PageData, ActionData } from "./$types";
   let { data, form }: { data: PageData; form?: ActionData } = $props();
@@ -54,6 +60,32 @@
   const grants = $derived(view?.grants ?? data.grants);
   const holders = $derived(view?.holders ?? data.holders);
   const nodes = $derived(view?.nodes ?? data.nodes);
+  const actors = $derived(view?.actors ?? data.actors ?? {});
+  let pageFilter = $state<GrantPageFilter>("all");
+  let now = $state(Date.now());
+  let awaitingCeremony = $state<{ id: string; scope: string } | null>(null);
+  let refreshPurpose = $state<"create" | "approval">("create");
+  onMount(() => {
+    const timer = setInterval(() => {
+      now = Date.now();
+    }, 1000);
+    return () => clearInterval(timer);
+  });
+  function startCeremony(id: string) {
+    awaitingCeremony = { id, scope: readScope };
+  }
+  function refreshAfterCeremony() {
+    if (
+      awaitingCeremony &&
+      awaitingCeremony.scope === readScope &&
+      current &&
+      !reading &&
+      !creating &&
+      !rowWrites
+    )
+      void refreshGrants("approval");
+  }
+
   function cancelRefresh() {
     reads++;
     readAbort?.abort();
@@ -62,6 +94,7 @@
   }
   beforeNavigate(() => {
     ownershipEpoch++;
+    awaitingCeremony = null;
     cancelRefresh();
   });
   onDestroy(() => {
@@ -78,7 +111,8 @@
       if (rowTokens.delete(token)) rowWrites = rowTokens.size;
     };
   }
-  async function refreshGrants() {
+  async function refreshGrants(purpose: "create" | "approval" = "create") {
+    refreshPurpose = purpose;
     cancelRefresh();
     if (!data.viewerId) {
       refreshFailed = true;
@@ -111,8 +145,14 @@
       return;
     reading = false;
     readAbort = null;
-    if (fresh) reread = { against, scope, value: fresh };
-    else refreshFailed = true;
+    if (fresh) {
+      reread = { against, scope, value: fresh };
+      if (awaitingCeremony) {
+        const g = fresh.grants.items.find((g) => g.id === awaitingCeremony!.id);
+        if (g && (g.activatedAt || g.revokedAt || g.holderDepartedAt))
+          awaitingCeremony = null;
+      }
+    } else refreshFailed = true;
   }
   let localFailure = $state<string | null>(null);
   const submitCreate: SubmitFunction = ({ cancel }) => {
@@ -176,6 +216,8 @@
       holderChoice = "";
       reason = "";
       picker = false;
+      awaitingCeremony = null;
+      pageFilter = "all";
       creating = false;
       refreshFailed = false;
       localFailure = null;
@@ -202,14 +244,25 @@
     });
   });
   const current = $derived(page.params.appId === data.routeRef);
-  const rows = $derived(current ? grants.items : []);
+  const rows = $derived(
+    current
+      ? grants.items.filter((g) => grantMatches(g, pageFilter, data.viewerId))
+      : [],
+  );
   let globalFilter = $state("");
   const columns: PortalColumnDef<Grant>[] = [
     {
       id: "grant",
       header: t("grants.column", "Grant"),
       accessorFn: (g) =>
-        `${holders[grantHolderKey(g)]?.name ?? ""} ${g.action} ${g.reason} ${g.id} ${g.createdAt} ${nodes?.[grantNodeRef(g) ?? ""]?.name ?? ""} ${nodes?.[grantNodeRef(g) ?? ""]?.urn ?? ""} ${JSON.stringify(g.values)}`,
+        `${holders[grantHolderKey(g)]?.name ?? ""} ${g.action} ${g.reason} ${g.id} ${g.createdAt} ${nodes?.[grantNodeRef(g) ?? ""]?.name ?? ""} ${nodes?.[grantNodeRef(g) ?? ""]?.urn ?? ""} ${JSON.stringify(g.values)} ${grantActorRefs(
+          g,
+        )
+          .map(
+            (a) =>
+              `${a.labels.join(" ")} ${a.id} ${actors[a.kind + ":" + a.id]?.name ?? ""} ${actors[a.kind + ":" + a.id]?.urn ?? ""}`,
+          )
+          .join(" ")}`,
       enableHiding: false,
       enableSorting: false,
       size: 600,
@@ -233,13 +286,18 @@
     globalFilterFn: makeGlobalFilterFn<Grant>({}),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
-  const returned = $derived(
+  const created = $derived(
     form &&
       "grant" in form &&
       form.appId === data.app.id &&
       form.operation === "create"
       ? form.grant
       : null,
+  );
+  // Keep the acknowledgement, but prefer the same current-page server row
+  // after a ceremony read. An off-page receipt remains its original snapshot.
+  const returned = $derived(
+    created ? (grants.items.find((g) => g.id === created.id) ?? created) : null,
   );
   const feedback = $derived(form && "error" in form ? form.error : null);
   const field =
@@ -248,6 +306,13 @@
     return `?offset=${offset}`;
   }
 </script>
+
+<svelte:window onfocus={refreshAfterCeremony} />
+<svelte:document
+  onvisibilitychange={() => {
+    if (document.visibilityState === "visible") refreshAfterCeremony();
+  }}
+/>
 
 <svelte:head
   ><title>{t("grants.head", "Grants")} · {data.app.name} · Hadron</title
@@ -281,18 +346,36 @@
         class="rounded-xl border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-800 dark:bg-indigo-950"
       >
         <p role="status" class="mb-3">
-          {t(
-            "grants.created-note",
-            "Grant created. It needs a signature to take effect.",
-          )}
+          {t("grants.created-confirmation", "Grant created.")}
         </p>
         <GrantRecord
+          approvalStatus={data.signing}
+          {now}
           grant={returned}
+          {actors}
           node={nodes?.[grantNodeRef(returned) ?? ""]}
           holder={holders[grantHolderKey(returned)]}
         />
       </section>
     {/if}
+    <label class="block space-y-1 text-sm">
+      <span>{t("grants.filter.scope", "Show grants on this page")}</span>
+      <select
+        aria-label={t("grants.filter.scope", "Show grants on this page")}
+        bind:value={pageFilter}
+        class="min-h-11 max-w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+      >
+        <option value="all"
+          >{t("grants.filter.all", "All grants on this page")}</option
+        >
+        <option value="pending"
+          >{t("grants.filter.pending", "Pending on this page")}</option
+        >
+        <option value="mine"
+          >{t("grants.filter.mine", "Approved by me on this page")}</option
+        >
+      </select>
+    </label>
     <DataTable
       {table}
       bind:globalFilter
@@ -303,8 +386,11 @@
       fitOnPhone
     >
       {#snippet cell(c)}<GrantRecord
+          approvalStatus={data.signing}
+          {now}
           grant={c.row.original}
           holder={holders[grantHolderKey(c.row.original)]}
+          {actors}
           node={nodes?.[grantNodeRef(c.row.original) ?? ""]}
           actionAlreadyRevoked={rowUpdates[c.row.original.id]?.alreadyRevoked ??
             (!!form &&
@@ -330,9 +416,24 @@
           {ownershipEpoch}
           onbegin={beginRowWrite}
           revokeAction={`?/revoke&offset=${data.offset}`}
-        />{/snippet}
+        />
+        <GrantApproval
+          grant={c.row.original}
+          enabled={data.signing}
+          {now}
+          offset={data.offset}
+          locked={creating || reading || rowWrites > 0}
+          onbegin={startCeremony}
+        />
+      {/snippet}
     </DataTable>
-    {#if !rows.length}<p>{t("grants.empty", "No grants on this page.")}</p>{/if}
+    {#if !rows.length}<p>
+        {pageFilter === "pending"
+          ? t("grants.empty.pending", "No pending grants on this page.")
+          : pageFilter === "mine"
+            ? t("grants.empty.mine", "No grants approved by you on this page.")
+            : t("grants.empty", "No grants on this page.")}
+      </p>{/if}
     {#if rows.length && table.getRowModel().rows.length === 0}<p>
         {t("grants.no-matches", "No grants match this page’s search.")}
       </p>{/if}
@@ -355,11 +456,18 @@
           href={href(Math.max(0, data.offset - 20))}
           >{t("grants.previous", "Previous")}</a
         >{/if}
-      {#if rows.length && data.offset + rows.length < grants.total}<a
+      {#if grants.items.length && data.offset + grants.items.length < grants.total}<a
           class="min-h-11 inline-flex items-center text-indigo-600 dark:text-indigo-300"
-          href={href(data.offset + rows.length)}>{t("grants.next", "Next")}</a
+          href={href(data.offset + grants.items.length)}
+          >{t("grants.next", "Next")}</a
         >{/if}
     </nav>
+    {#if refreshFailed && refreshPurpose === "approval"}<p role="alert">
+        {t(
+          "grants.approval-refresh-failed",
+          "The grants could not refresh. Use Refresh to load the server’s result.",
+        )}
+      </p>{/if}
     {#if data.signing}
       {#key data.app.id}
         <section
@@ -501,7 +609,7 @@
               {#if rowWrites}<p role="status">
                   {t("grants.wait-revoke", "Finishing the revoke request…")}
                 </p>{/if}
-              {#if refreshFailed}<p role="alert">
+              {#if refreshFailed && refreshPurpose === "create"}<p role="alert">
                   {t(
                     "grants.refresh-failed",
                     "Grant created, but the list could not refresh. Use Refresh to load the latest grants.",

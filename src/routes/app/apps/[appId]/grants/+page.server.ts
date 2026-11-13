@@ -1,4 +1,5 @@
-import { error, fail, isHttpError } from "@sveltejs/kit";
+import { error, fail, isHttpError, isRedirect, redirect } from "@sveltejs/kit";
+import { ClientError } from "graphql-request";
 import { gqlClient } from "$lib/server/api";
 import { extractGqlErrorCode } from "$lib/server/gqlError";
 import { deploymentOffersSigning } from "$lib/server/signing-capability";
@@ -6,6 +7,7 @@ import { loadNodeMemories } from "$lib/server/node-memories";
 import {
   CREATE_GRANT,
   REVOKE_GRANT,
+  REQUEST_GRANT_SIGNATURE,
   GRANTS_PAGE,
   grantChoices,
   grantOffset,
@@ -72,6 +74,77 @@ function refused(e: unknown) {
   });
 }
 export const actions: Actions = {
+  approve: async (event) => {
+    if (!event.locals.token || !event.locals.user?.id) redirect(303, "/signin");
+    let appId = event.params.appId;
+    const refused = (status: number, message: string) =>
+      fail(status, { error: message, operation: "approve" as const, appId });
+    try {
+      const app = await manage(event);
+      appId = app.id;
+      if (!(await deploymentOffersSigning(event.locals.token)))
+        return refused(
+          403,
+          t(
+            "grants.approve.unavailable",
+            "Approval is unavailable on this deployment.",
+          ),
+        );
+      const ref = String((await event.request.formData()).get("ref") ?? "");
+      if (!ref) return refused(400, grantError("GRANT_NOT_FOUND"));
+      const client = gqlClient(event.locals.token);
+      const page = await client.request<{
+        appGrants: { items: Grant[]; total: number };
+      }>(GRANTS_PAGE, {
+        appRef: app.id,
+        limit: 20,
+        offset: grantOffset(event.url),
+      });
+      if (!page.appGrants.items.some((g) => g.id === ref && g.appId === app.id))
+        return refused(
+          409,
+          t(
+            "grants.row-moved",
+            "This grant is not on the current page. Refresh before trying again.",
+          ),
+        );
+      // Only the server judges pending/expiry and whether terms are representable.
+      const result = await client.request<{
+        requestGrantSignature: { ceremonyUrl: string };
+      }>(REQUEST_GRANT_SIGNATURE, { grantRef: ref });
+      if (
+        typeof result.requestGrantSignature?.ceremonyUrl !== "string" ||
+        !result.requestGrantSignature.ceremonyUrl
+      )
+        return refused(503, grantError(null));
+      redirect(303, result.requestGrantSignature.ceremonyUrl);
+    } catch (e) {
+      // Kit redirects are control flow, not failures to redact.
+      if (isRedirect(e)) throw e;
+      const code = extractGqlErrorCode(e);
+      if (
+        e instanceof ClientError &&
+        [
+          "GRANT_NOT_PENDING",
+          "GRANT_EXPIRED",
+          "GRANT_TERMS_UNREPRESENTABLE",
+          "FORBIDDEN",
+        ].includes(code ?? "")
+      ) {
+        const entry = e.response.errors?.find(
+          (r) => r.extensions?.code === code,
+        );
+        if (typeof entry?.message === "string")
+          return refused(400, entry.message);
+      }
+      return refused(
+        isHttpError(e) ? e.status : 503,
+        grantError(
+          isHttpError(e) && e.status === 403 ? "GRANT_NOT_MANAGER" : null,
+        ),
+      );
+    }
+  },
   revoke: async (event) => {
     try {
       const app = await manage(event);
