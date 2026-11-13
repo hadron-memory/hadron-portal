@@ -8,17 +8,23 @@ import {
   portalRuntimeRefusal,
 } from '$lib/server/llm/agentChatLlm';
 import { decodeFixture, summarize, type FixtureSummary } from '$lib/server/agent-tester/fixture-codec';
-import { resolveTesterAgent } from '$lib/server/agent-tester/resolve-agent';
+import { requireTesterAgent } from '$lib/server/agent-tester/resolve-agent';
 import type { PageServerLoad } from './$types';
 import { CREDENTIAL_UNAVAILABLE, hasRuntimeCredential } from '$lib/server/llm/chatAi';
 import { drainFindNodes } from '$lib/server/paginate';
+import { t } from '$lib/i18n/t';
 
 // Spec 019 — Agent Chat Tester. Organization agents come from the caller's
 // organizations; user-owned agents come from the server's ownedByMe scope.
 // Neither list includes an unrelated private agent, so misses share one 404.
 export const load: PageServerLoad = async ({ params, locals }) => {
   const client = gqlClient(locals.token);
-  const resolved = await resolveTesterAgent(client, params.id, locals.user?.id);
+  // portal#2099: a failed lookup (org list, ownedByMe, manage read) is one fixed
+  // Tester 500 that never carries server text. A miss stays the 404 and the
+  // server's own `startChat` refusal stays authoritative.
+  const resolved = await requireTesterAgent(client, locals.user?.id, params.id).catch(() => {
+    throw error(500, t('agent-tester.load-failed', 'The Agent Tester could not be loaded. Please try again.'));
+  });
   if (!resolved) throw error(404, 'Agent not found or no longer available');
   const { agent, org } = resolved;
 

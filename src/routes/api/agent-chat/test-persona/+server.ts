@@ -1,5 +1,5 @@
 import { gqlClient } from '$lib/server/api';
-import { resolveTesterAgent } from '$lib/server/agent-tester/resolve-agent';
+import { requireTesterAgent } from '$lib/server/agent-tester/resolve-agent';
 import {
   START_CHAT_MUTATION,
   SEND_CHAT_MESSAGE_MUTATION,
@@ -103,7 +103,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     // Tester consumer too (PersonaScript), so it asks the same question BEFORE
     // any AI resolution or startChat. A miss is the existing not-found; a
     // failed read lands in the catch below, never as a 404 or an admission.
-    if (!(await resolveTesterAgent(client, body.agentId, locals.user?.id))) {
+    if (!(await requireTesterAgent(client, locals.user?.id, body.agentId))) {
       return new Response(JSON.stringify({ error: 'Agent not found or no longer available' }), {
         status: 404,
         headers: { 'Content-Type': 'application/json' },

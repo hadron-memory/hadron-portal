@@ -398,14 +398,14 @@ describe('/app/agents/[id]/test loader', () => {
     expect(status === undefined || status >= 500).toBe(true);
   });
 
-  it('lets owned-agent lookup errors propagate instead of presenting a false 404', async () => {
+  it('answers an owned-agent lookup error with the fixed Tester 500, never a false 404 (portal#2099)', async () => {
     mockRequest.mockImplementation(async (query: string) => {
       if (query === ORGANIZATIONS_QUERY) return { organizations: { items: [], total: 0 } };
       if (query === MY_AGENTS_QUERY) throw new Error('owned scope unavailable');
       throw new Error('unexpected query');
     });
     const load = await importLoad();
-    await expect(load(ev({ agentId: personalAgent.id, isConsumerMode: true }))).rejects.toThrow('owned scope unavailable');
+    await expect(load(ev({ agentId: personalAgent.id, isConsumerMode: true }))).rejects.toMatchObject({ status: 500, body: { message: 'The Agent Tester could not be loaded. Please try again.' } });
   });
 });
 
