@@ -49,7 +49,10 @@ try {
     })) {
       if (!el) { out[key] = null; continue; }
       const cs = getComputedStyle(el);
-      out[key] = { h: el.getBoundingClientRect().height, color: cs.color, bg: cs.backgroundColor, right: el.getBoundingClientRect().right };
+      // Computed colours can be oklch(); a 1px canvas resolves any of them to sRGB.
+      const ctx = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true });
+      const rgb = (c) => { ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = '#000'; ctx.fillStyle = c; ctx.fillRect(0, 0, 1, 1); return `rgb(${[...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3).join(',')})`; };
+      out[key] = { h: el.getBoundingClientRect().height, color: rgb(cs.color), bg: rgb(cs.backgroundColor), right: el.getBoundingClientRect().right };
     }
     out.col = document.getElementById('col').getBoundingClientRect().right;
     out.scrollWidth = document.documentElement.scrollWidth;
@@ -68,7 +71,7 @@ try {
     assert.ok(m.scrollWidth <= width, `${label}: page overflows`);
     for (const k of ['save', 'goals']) {
       const r = ratio(m[k].color, m[k].bg);
-      assert.ok(r >= 4.5, `${label}: ${k} contrast ${r.toFixed(2)} < 4.5`);
+      assert.ok(r >= 4.5, `${label}: ${k} contrast ${r.toFixed(2)} < 4.5 (${m[k].color} on ${m[k].bg})`);
     }
     // Clear stays a neutral link look: not the red it had.
     const [cr, cg, cb] = parse(m.clear.color);
@@ -92,6 +95,10 @@ try {
       const mm = await controls(page);
       assert.ok(ratio(mm.save.color, mm.save.bg) < 4.5, 'white-on-orange mutant must go red');
       await c.evaluate((el) => el.remove());
+      const r = await page.addStyleTag({ content: 'button[value="clear"] { color: #ef4444 !important; }' });
+      const [mr, mg, mb] = parse((await controls(page)).clear.color);
+      assert.ok(mr > mg + 40 && mr > mb + 40, 'red-Clear mutant must go red');
+      await r.evaluate((el) => el.remove());
     }
     console.log(JSON.stringify({ label, save: m.save.h, clear: m.clear.h, goals: m.goals.h, contrast: ratio(m.save.color, m.save.bg).toFixed(2) }));
     await page.close();

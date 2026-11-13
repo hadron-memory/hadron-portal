@@ -87,6 +87,10 @@ jobs:
       - name: Check Org Integrations add-row phone layout
         run: pnpm test:org-integrations-row-layout
 
+      # portal#2082: the conversation panel's Save, Clear and Save goals controls.
+      - name: Check conversation panel button layout
+        run: pnpm test:conversation-panel-buttons-layout
+
       # portal#1099: the Tickers views at 390px and 1280px.
       - name: Check Tickers phone layout
         run: pnpm test:tickers-layout

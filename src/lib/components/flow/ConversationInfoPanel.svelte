@@ -339,7 +339,7 @@
             name="intent"
             value="save"
             disabled={$startSubmitting}
-            class="rounded-lg px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+            class="min-h-11 rounded-lg px-3 text-xs font-semibold text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900 dark:focus-visible:outline-white disabled:cursor-not-allowed disabled:opacity-50"
             style="background: #fb8500;"
           >
             {$startSubmitting ? t('conversation.infoPanel.start.saving', 'Saving...') : t('conversation.infoPanel.start.save', 'Save')}
@@ -350,7 +350,7 @@
               name="intent"
               value="clear"
               disabled={$startSubmitting}
-              class="text-xs text-red-500 hover:underline disabled:opacity-50"
+              class="min-h-11 rounded-lg px-2 text-xs text-zinc-600 hover:underline dark:text-zinc-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900 dark:focus-visible:outline-white disabled:opacity-50"
             >
               {t('conversation.infoPanel.start.clear', 'Clear')}
             </button>
@@ -441,7 +441,7 @@
       <button
         type="submit"
         disabled={$goalsSubmitting}
-        class="rounded-lg px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+        class="min-h-11 rounded-lg px-3 text-xs font-semibold text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900 dark:focus-visible:outline-white disabled:cursor-not-allowed disabled:opacity-50"
         style="background: #fb8500;"
       >
         {$goalsSubmitting
