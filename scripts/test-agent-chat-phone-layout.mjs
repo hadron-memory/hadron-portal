@@ -70,7 +70,9 @@ try {
         if (attempt >= 5 || !/Execution context was destroyed|navigation/i.test(String(e))) throw e;
       }
     }
-    await page.getByRole('button', { name: new RegExp(ROW) }).waitFor();
+    // Attached, not visible: a deep link opens on the conversation, and below
+    // `sm` the list is then display:none.
+    await page.locator('[data-chat-row]').first().waitFor({ state: 'attached' });
     return { page, errors };
   }
 
@@ -163,7 +165,6 @@ try {
           const inAside = await page.evaluate(() => !!document.activeElement?.closest('aside'));
           assert.equal(inAside, false, `${leg}: Tab reached the hidden list`);
         }
-        if (shots) await page.screenshot({ path: `${shots}/${leg.replace('/', '-')}-conversation.png` });
 
         // ── Back: the list again, chat kept, ?chat cleared ───────────
         const resumes = await page.evaluate(() => window.__chat.calls.resume);
@@ -191,6 +192,11 @@ try {
         assert.match(reopened.url, /chat=chats%3Aa/, `${leg}: reopening must restore ?chat`);
         assert.equal(reopened.resumes, resumes, `${leg}: reopening the retained chat should not refetch it`);
         assert(reopened.heading, `${leg}: reopening should focus the conversation heading`);
+        assert.deepEqual(
+          await page.evaluate(() => ({ start: window.__chat.calls.start, writes: window.__chat.calls.writes })),
+          { start: 0, writes: 0 },
+          `${leg}: Back and reopen must send no chat write`,
+        );
         await back.click();
         if (shots) await page.screenshot({ path: `${shots}/${leg.replace('/', '-')}-list.png` });
       } else {
@@ -206,6 +212,9 @@ try {
       p = await panes(deep.page);
       if (phone) assert(p.aside === 0 && near(p.main, p.panel), `${leg}: deep link should open the conversation, got ${JSON.stringify(p)}`);
       else assert(p.aside > 0 && p.main > 0, `${leg}: desktop deep link keeps both panes`);
+      // Captured last on its page: no interaction may follow a screenshot
+      // (hrn:node:hadronmemory.com:hadron-portal:findings:playwright-screenshots-after-layout-assertions).
+      if (shots && phone) await deep.page.screenshot({ path: `${shots}/${leg.replace('/', '-')}-conversation.png` });
       await deep.page.close();
 
       // ── Refused start: the alert is readable where the user is ────

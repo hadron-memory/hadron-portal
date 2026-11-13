@@ -54,7 +54,16 @@ const json = (body: unknown, status = 200) =>
 
 export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boolean } = {}): AgentChatFixture {
   navigationCalls.length = 0;
-  const calls: Record<string, number> = { list: 0, resume: 0, start: 0 };
+  // The recorder only records. SvelteKit's replaceState also changes the
+  // address, and AgentChat reads `window.location` live before each sync, so
+  // apply recorded replaceState calls to the real history as Kit would.
+  const record = navigationCalls.push.bind(navigationCalls);
+  navigationCalls.push = (...entries) => {
+    for (const entry of entries)
+      if (entry.fn === 'replaceState') history.replaceState(history.state, '', String(entry.args[0]));
+    return record(...entries);
+  };
+  const calls: Record<string, number> = { list: 0, resume: 0, start: 0, writes: 0 };
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.includes('/api/agent-chat/list')) {
@@ -73,7 +82,13 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
       if (options.refuseStart) return json({ error: START_REFUSAL }, 400);
       return json({ chatId: 'chats:a', conversationName: CHATS[0].conversationName, stageName: CHATS[0].stageName, scope: 'private', welcomeMessage: 'Welcome back.' });
     }
-    return json({ error: 'unexpected request in fixture' }, 500);
+    // The served-prompt strip reads its records for the open chat: none here.
+    if (url.includes('/api/served-prompts')) return json({ items: [], total: 0, offset: 0 });
+    // Reads the fixture does not model answer 404. Writes
+    // (rename, delete, turn) should never happen here: Back is view
+    // navigation and must send nothing, so every non-GET is counted.
+    if ((init?.method ?? 'GET').toUpperCase() !== 'GET') calls.writes++;
+    return json({ error: 'not in fixture' }, 404);
   };
   const component = mount(AgentChat, {
     target,
