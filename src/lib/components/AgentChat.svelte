@@ -166,6 +166,10 @@
 
   // Delete confirm state
   let pendingDeleteChatId = $state<string | null>(null);
+  // The turn error a failed delete raised from the list. On one pane after
+  // Back the chat stays selected, so this is what lets the list show it
+  // (#2110); any later turn error differs and keeps to its own pane.
+  let listRaisedError = $state<string | null>(null);
 
   // Recent stage-transition toast
   let stageToast = $state<{ from: string; to: string } | null>(null);
@@ -794,7 +798,7 @@
         : null;
       (next ?? newChatButton)?.focus();
     } catch (e) {
-      turnError = e instanceof Error ? e.message : 'Delete failed';
+      turnError = listRaisedError = e instanceof Error ? e.message : 'Delete failed';
       // The dialog has closed, so a failed delete hands focus back to that
       // row's Delete, under the same ownership rule as a success: not once
       // the person has moved on (portal#2104). If the row went away
@@ -887,8 +891,10 @@
     </div>
     <!-- portal#2088: on a phone a refused or failed start leaves the person on
          the list, so its message shows here. From `@2xl` (panel width) up the conversation
-         pane's copy below shows instead; only one is ever displayed. -->
-    {#if turnError && !activeChatId && !loadingChat}
+         pane's copy below shows instead; only one is ever displayed. After Back
+         the chat stays selected behind the list; an error raised from the list
+         (a failed delete, #2110) still shows here, a chat's own error does not. -->
+    {#if turnError && !loadingChat && (!activeChatId || (phonePane === 'list' && turnError === listRaisedError))}
       <div role="alert" class="m-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 [overflow-wrap:anywhere] @2xl:hidden dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
         {turnError}
       </div>
