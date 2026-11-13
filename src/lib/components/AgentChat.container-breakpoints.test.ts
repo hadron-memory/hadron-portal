@@ -18,6 +18,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'svelte/compiler';
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url));
@@ -27,29 +28,51 @@ const AGENT_CHAT = resolve(LIB, 'components/AgentChat.svelte');
 const SOURCE = /\.(svelte|ts|js)$/;
 
 const read = (file: string) => readFileSync(file, 'utf8');
+const under = (dir: string, file: string) => file.startsWith(dir + '/'); // POSIX paths: CI is Linux
 
-/** Every module specifier: static `from`, side-effect `import '…'`, dynamic `import('…')`, either quote. */
-const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(['"])([^'"\n]+)\1/g;
+/**
+ * Every module specifier in a file's code, from TypeScript's own pre-processor:
+ * static, re-export, side-effect, type-only and literal dynamic imports, in
+ * either quote, never from comments or string contents. A .svelte file
+ * contributes its <script> blocks.
+ */
+function specifiersOf(file: string): string[] {
+  const source = read(file);
+  const code = file.endsWith('.svelte') ? [...source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join('\n') : source;
+  return ts.preProcessFile(code, true, true).importedFiles.map((f) => f.fileName);
+}
 
-/** A specifier resolved to a file under src/, or null for packages and `$app/*`. */
+// Specifiers that name no file in this repo: SvelteKit's virtual modules,
+// node built-ins, and generated `./$types` (types only).
+const VIRTUAL = /^(?:\$app\/|\$env\/|\$service-worker$|node:)|\/\$types$/;
+
+/**
+ * A specifier resolved to a file under src/, or null for a virtual module or
+ * an installed package. Anything else throws, never drops out of a walk: an
+ * unknown alias, a bare name that isn't installed, a path that leaves src/,
+ * or one that resolves to nothing (e.g. a non-literal `import('./' + x)`).
+ */
 function resolveSpecifier(from: string, raw: string): string | null {
   const spec = raw.replace(/\?.*$/, ''); // `?raw`, `?url`: the file is the path
-  const base = spec.startsWith('$lib/')
+  if (VIRTUAL.test(spec)) return null;
+  const local = spec.startsWith('$lib/')
     ? resolve(LIB, spec.slice(5))
     : spec.startsWith('./') || spec.startsWith('../')
       ? resolve(dirname(from), spec)
       : null;
-  // SvelteKit generates `./$types` at build time; it is types only.
-  if (!base || /\/\$types$/.test(spec)) return null;
-  const candidates = [base, `${base}.ts`, `${base}.js`, base.replace(/\.js$/, '.ts'), join(base, 'index.ts'), join(base, 'index.js')];
+  if (!local) {
+    const pkg = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0];
+    if (!spec.startsWith('$') && existsSync(join(ROOT, 'node_modules', pkg))) return null;
+    throw new Error(`${relative(ROOT, from)}: '${spec}' is neither $lib/, relative, virtual nor an installed package`);
+  }
+  if (!under(SRC, local)) throw new Error(`${relative(ROOT, from)}: '${spec}' leaves src/`);
+  const candidates = [local, `${local}.ts`, `${local}.js`, `${local}.svelte`, local.replace(/\.js$/, '.ts'), ...['index.ts', 'index.js', 'index.svelte'].map((i) => join(local, i))];
   const hit = candidates.find((c) => existsSync(c) && statSync(c).isFile());
-  // A specifier into src/ that resolves to nothing would end the walk silently.
-  if (!hit) throw new Error(`${relative(ROOT, from)}: cannot resolve '${spec}'`);
+  if (!hit) throw new Error(`${relative(ROOT, from)}: cannot resolve '${spec}' (a non-literal dynamic import?)`);
   return hit;
 }
 
-const importsOf = (file: string) =>
-  [...read(file).matchAll(SPECIFIER)].map((m) => resolveSpecifier(file, m[2])).filter((f): f is string => f !== null);
+const importsOf = (file: string) => specifiersOf(file).map((spec) => resolveSpecifier(file, spec)).filter((f): f is string => f !== null);
 
 /** AgentChat plus every src/lib module it imports, transitively (components, helpers, barrels). */
 function importedModules(entry: string): string[] {
@@ -57,15 +80,16 @@ function importedModules(entry: string): string[] {
   const walk = (file: string) => {
     if (seen.has(file)) return;
     seen.add(file);
-    for (const dep of importsOf(file)) if (dep.startsWith(LIB + '/')) walk(dep);
+    for (const dep of importsOf(file)) if (under(LIB, dep)) walk(dep);
   };
   walk(entry);
   return [...seen];
 }
 
-// A Tailwind viewport variant: `sm:` etc. at a class-token start. `@2xl:` (a
-// container variant) is excluded by the preceding-character class.
-const VIEWPORT_VARIANT = /(?<![\w@-])(?:max-)?(?:sm|md|lg|xl|2xl):[\w[]/g;
+// A Tailwind viewport variant at a class-token start: `sm:` etc., `max-sm:`,
+// and arbitrary `min-[…]:` / `max-[…]:`; `@2xl:` (a container variant) is
+// excluded by the preceding-character class. Plus a width media query in CSS.
+const VIEWPORT_VARIANT = /(?<![\w@-])(?:(?:max-)?(?:sm|md|lg|xl|2xl)|(?:min|max)-\[[^\]\s]+\]):[\w[]|@media[^{]*width/g;
 // The `fixed` utility as a token, and `position: fixed` / `.position = 'fixed'`.
 const FIXED = /(?<![\w-])fixed(?![\w-])|position\s*[:=]\s*['"`]?\s*fixed/g;
 const hits = (re: RegExp, s: string) => [...s.matchAll(re)].map((m) => m[0]);
@@ -95,11 +119,22 @@ describe('AgentChat breakpoints are the container’s, not the viewport’s (por
   const modules = importedModules(AGENT_CHAT);
   const rel = (f: string) => relative(LIB, f);
 
-  it('walks every import form', () => {
-    const specs = (s: string) => [...s.matchAll(SPECIFIER)].map((m) => m[2]);
+  it('walks every import form, and refuses what it cannot place', () => {
+    const specs = (code: string) => ts.preProcessFile(code, true, true).importedFiles.map((f) => f.fileName);
     expect(
-      specs(`import A from '$lib/a.svelte';\nimport B from "./b.svelte";\nexport { C } from '../c';\nconst D = import("$lib/d.ts");\nimport './e.css';\nimport type { F } from '$lib/f';`),
+      specs(
+        `// ported from '../old'\nimport A from '$lib/a.svelte';\nimport B from "./b.svelte";\nexport { C } from '../c';\nconst D = import("$lib/d.ts");\nimport './e.css';\nimport type { F } from '$lib/f';\nconst s = "from '../nope'";`,
+      ),
     ).toEqual(['$lib/a.svelte', './b.svelte', '../c', '$lib/d.ts', './e.css', '$lib/f']);
+    const from = AGENT_CHAT;
+    expect(resolveSpecifier(from, '$app/navigation')).toBeNull();
+    expect(resolveSpecifier(from, 'svelte/compiler')).toBeNull();
+    expect(resolveSpecifier(from, '@tanstack/table-core')).toBeNull();
+    expect(resolveSpecifier(from, './ServedPrompt.svelte')).toBe(resolve(LIB, 'components/ServedPrompt.svelte'));
+    expect(() => resolveSpecifier(from, '$components/Urn.svelte')).toThrow(/neither/);
+    expect(() => resolveSpecifier(from, 'not-installed-pkg')).toThrow(/neither/);
+    expect(() => resolveSpecifier(from, '../../../scripts/test-agent-chat-phone-layout.mjs')).toThrow(/leaves src/);
+    expect(() => resolveSpecifier(from, './')).toThrow(/non-literal/);
     expect(modules.map(rel)).toEqual(
       expect.arrayContaining(['components/AgentChat.svelte', 'components/ServedPrompt.svelte', 'components/Urn.svelte', 'components/agent-chat-helpers.ts']),
     );
@@ -112,6 +147,11 @@ describe('AgentChat breakpoints are the container’s, not the viewport’s (por
       'max-sm:p',
       'lg:[',
       'xl:b',
+    ]);
+    expect(hits(VIEWPORT_VARIANT, 'class="min-[640px]:flex max-[40rem]:hidden" @media (min-width: 640px) {')).toEqual([
+      'min-[640px]:f',
+      'max-[40rem]:h',
+      '@media (min-width',
     ]);
     expect(hits(VIEWPORT_VARIANT, 'class="@container hidden @2xl:flex @sm:p-1 focus:outline-none dark:bg-zinc-900"')).toEqual([]);
     expect(hits(FIXED, `class="fixed inset-0" el.style.position = 'fixed'; style="position: fixed"`)).toHaveLength(3);
@@ -126,7 +166,7 @@ describe('AgentChat breakpoints are the container’s, not the viewport’s (por
 
   it('the root is the size container and nothing inside it is position:fixed', () => {
     const source = read(AGENT_CHAT);
-    const ast = parse(source, { modern: true }) as unknown as { fragment: { nodes: Node[] }; instance?: Node };
+    const ast = parse(source, { modern: true }) as unknown as { fragment: { nodes: Node[] }; instance?: Node; module?: Node };
     const top = ast.fragment.nodes.filter((n) => n.type === 'RegularElement');
     const roots = top.filter((n) => /(?<![\w-])@container(?![\w-])/.test(staticClass(n, source)));
     expect(roots, 'AgentChat root lost @container').toHaveLength(1);
@@ -134,7 +174,9 @@ describe('AgentChat breakpoints are the container’s, not the viewport’s (por
     // The parser's own subtree bounds, whatever the formatting.
     expect(hits(FIXED, source.slice(root.start, root.end))).toEqual([]);
     // The script can build classes or set styles on elements inside the root.
-    if (ast.instance) expect(hits(FIXED, uncommented(source.slice(ast.instance.start, ast.instance.end)))).toEqual([]);
+    for (const script of [ast.instance, ast.module]) {
+      if (script) expect(hits(FIXED, uncommented(source.slice(script.start, script.end)))).toEqual([]);
+    }
     // The delete dialog is still there, outside the root.
     expect(hits(FIXED, source.slice(root.end)).length).toBeGreaterThan(0);
     for (const file of modules.filter((f) => f !== AGENT_CHAT)) {
@@ -146,7 +188,7 @@ describe('AgentChat breakpoints are the container’s, not the viewport’s (por
     // Source files that reach AgentChat through any import form, transitively,
     // so a src/lib wrapper or barrel counts by where IT is mounted. Tests and
     // the test harness mount it on purpose.
-    const sources = filesUnder(SRC).filter((f) => SOURCE.test(f) && !/\.test\.ts$/.test(f) && !f.startsWith(resolve(LIB, 'test') + '/'));
+    const sources = filesUnder(SRC).filter((f) => SOURCE.test(f) && !/\.(test|spec)\.[jt]s$/.test(f) && !under(resolve(LIB, 'test'), f));
     const deps = new Map(sources.map((f) => [f, importsOf(f)]));
     const reaching = new Set([AGENT_CHAT]);
     for (let grew = true; grew; ) {
@@ -158,9 +200,8 @@ describe('AgentChat breakpoints are the container’s, not the viewport’s (por
         }
       }
     }
-    const routes = [...reaching].filter((f) => f.startsWith(resolve(SRC, 'routes') + '/')).map((f) => relative(ROOT, f));
+    const routes = [...reaching].filter((f) => under(resolve(SRC, 'routes'), f)).map((f) => relative(ROOT, f));
     expect(routes.length).toBeGreaterThan(0);
     expect(routes.filter((f) => !f.startsWith('src/routes/app/'))).toEqual([]);
-    expect([...reaching].filter((f) => !f.startsWith(SRC + '/')).map((f) => relative(ROOT, f))).toEqual([]);
   });
 });

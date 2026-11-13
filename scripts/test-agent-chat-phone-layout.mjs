@@ -147,23 +147,34 @@ try {
       // dialog inside the size container would be sized to the panel.
       await page.locator('[data-chat-row]').first().hover();
       await page.getByTitle('Delete').first().click();
-      const dialog = await page.getByText('Delete this chat?').evaluate((h) => {
-        const el = h.closest('.fixed');
-        const r = el?.getBoundingClientRect();
-        return el && {
-          position: getComputedStyle(el).position,
-          inContainer: document.getElementById('panel').firstElementChild.contains(el),
+      const heading = page.getByRole('heading', { name: 'Delete this chat?' });
+      await heading.waitFor();
+      const dialog = await heading.evaluate((h) => {
+        // The overlay is the heading's nearest ancestor that computes to
+        // fixed, whatever class or inline style makes it so.
+        let el = h.parentElement;
+        while (el && getComputedStyle(el).position !== 'fixed') el = el.parentElement;
+        const root = document.getElementById('panel')?.firstElementChild;
+        if (!el || !root) return { found: !!el, root: !!root };
+        const r = el.getBoundingClientRect();
+        const doc = document.documentElement;
+        return {
+          found: true,
+          root: true,
+          inContainer: root.contains(el),
           box: [r.left, r.top, r.width, r.height].map(Math.round),
-          window: [0, 0, innerWidth, innerHeight],
+          // The layout viewport, which an inset-0 overlay spans (excludes a classic scrollbar).
+          viewport: [0, 0, doc.clientWidth, doc.clientHeight],
         };
       });
-      assert(dialog, `${leg}: the delete dialog's overlay is missing`);
-      assert.equal(dialog.position, 'fixed', `${leg}: the delete dialog is not position:fixed`);
+      assert(dialog.root, `${leg}: #panel or the size container in it is missing`);
+      assert(dialog.found, `${leg}: the delete dialog has no position:fixed overlay`);
       assert.equal(dialog.inContainer, false, `${leg}: the delete dialog renders inside the size container`);
-      assert.deepEqual(dialog.box, dialog.window, `${leg}: the delete dialog should cover the window`);
+      assert.deepEqual(dialog.box, dialog.viewport, `${leg}: the delete dialog should cover the viewport`);
       assert.deepEqual(await fixedInContainer(page), [], `${leg}: position:fixed inside the size container (dialog open)`);
       await page.getByRole('button', { name: 'Cancel' }).click();
-      assert.equal(await page.getByText('Delete this chat?').count(), 0, `${leg}: Cancel should close the delete dialog`);
+      // Waits (and fails on timeout) rather than sampling once.
+      await heading.waitFor({ state: 'detached', timeout: 5000 });
 
       // ── Open a chat: the conversation ──────────────────────────────
       await page.getByRole('button', { name: new RegExp(ROW) }).click();
