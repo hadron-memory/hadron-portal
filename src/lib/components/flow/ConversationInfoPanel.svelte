@@ -165,7 +165,10 @@
         moved = result.type === 'success';
         // superforms only invalidates on success, so a partly-saved move
         // (failure 500, or a thrown action) must reload the stored order itself (B4).
-        if (result.type === 'failure' || result.type === 'error') await invalidateAll();
+        if (result.type === 'failure' || result.type === 'error') {
+          // A rejected reload must not take the failure message with it.
+          try { await invalidateAll(); } catch { /* the failure message must still apply */ }
+        }
       },
     },
   );

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, wait, type Mounted } from '$lib/test/mountComponent';
-import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { kitAppliedResults, resetKitAppliedResults, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import ConversationInfoPanel from './ConversationInfoPanel.svelte';
 import { conversationEntryConditionDefaults, conversationEntryConditionSchema } from '$lib/flow/conversation-entry-condition-form';
@@ -202,5 +202,25 @@ describe('results the server answers with', () => {
     const data = { id: 'conversationMove', valid: true, errors: {}, posted: true, data: {}, message: { type: 'error', text: 'partly saved' } };
     await submitEnhancedWithResult(form, { type: 'failure', status: 500, data: { form: data } });
     expect(reloaded).toBe(true);
+  });
+
+  // The alert itself is the page's `form` (moveError is derived from it), which
+  // superforms hands to Kit through applyAction: the failure must reach that call
+  // even when the reload rejects or is slow.
+  it.each([
+    ['rejects', async () => { throw new Error('navigation interrupted'); }],
+    ['is held', async () => { await wait(20); }],
+  ])('still applies the failure result when the reload %s', async (_label, hook) => {
+    resetNavigationCalls();
+    const t = await open();
+    const form = t.querySelector<HTMLFormElement>('form[action="?/moveConversation"]')!;
+    navigationHooks.onInvalidateAll = hook;
+    resetKitAppliedResults();
+    const data = { id: 'conversationMove', valid: true, errors: {}, posted: true, data: {}, message: { type: 'error', text: 'partly saved' } };
+    await submitEnhancedWithResult(form, { type: 'failure', status: 500, data: { form: data } });
+    await tick(5);
+    expect(kitAppliedResults).toHaveLength(1);
+    resetKitAppliedResults();
+    resetNavigationCalls();
   });
 });
