@@ -156,9 +156,11 @@
   }
 
   // The row actions' shared look: 44px targets, neutral text that reaches
-  // 4.5:1 on selected and unselected rows, and a visible focus ring.
+  // 4.5:1 on selected and unselected rows, and a visible focus ring. The label
+  // sits at the top of its target, on the meta line's text; the rest of the
+  // 44px falls below it.
   const rowActionClass =
-    'inline-flex min-h-11 min-w-11 items-center justify-center rounded px-1.5 text-[11px] font-medium text-zinc-600 hover:text-zinc-900 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-indigo-500 dark:text-zinc-300 dark:hover:text-white';
+    'inline-flex min-h-11 min-w-11 items-start justify-center pt-0.5 rounded px-1.5 text-[11px] font-medium text-zinc-600 hover:text-zinc-900 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-indigo-500 dark:text-zinc-300 dark:hover:text-white';
 
   // Delete confirm state
   let pendingDeleteChatId = $state<string | null>(null);
@@ -798,16 +800,6 @@
   }
 </script>
 
-<!-- A chat row's message count and last activity: inside the row button with
-     a mouse, on the actions' line on touch (portal#2098). -->
-{#snippet chatMeta(chat: Chat)}
-  <span>{chat.messageCount} msg{chat.messageCount === 1 ? '' : 's'}</span>
-  {#if chat.lastMessageAt}
-    <span>·</span>
-    <span>{formatRelativeTime(chat.lastMessageAt)}</span>
-  {/if}
-{/snippet}
-
 <!-- Full-height layout: left chat list + right active chat.
      The parent container gives us all available vertical space. -->
 <div bind:this={rootEl} class="@container flex h-full min-h-0 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -889,9 +881,9 @@
             <!-- portal#2098: Rename and Delete are always in the DOM and the
                  tab order, revealed by opacity, never display:none. Mouse on
                  a wide panel: quiet at rest, shown on hover, focus and the
-                 selected row, in flow at the row's right edge. Narrow panel
-                 (below @2xl) or touch: always shown; on touch they sit on the
-                 meta line so the title keeps its width. In flow, so they never
+                 selected row. Narrow panel (below @2xl) or touch: always
+                 shown. At every width and pointer they sit on the meta line,
+                 in flow, so the title keeps the row's width and they never
                  cover the title or scope badge (#2095). -->
             <li
               class="group grid grid-cols-[minmax(0,1fr)_auto] items-center transition
@@ -927,7 +919,7 @@
                   type="button"
                   data-chat-row={chat.loc}
                   onclick={() => resumeChat(chat.loc)}
-                  class="col-start-1 row-start-1 block min-w-0 px-3 py-2 text-left text-sm pointer-coarse:col-span-2 pointer-coarse:min-h-11
+                  class="col-span-2 row-start-1 block min-w-0 px-3 pb-0.5 pt-2 text-left text-sm pointer-coarse:min-h-11
                     {activeChatId === chat.loc
                       ? 'text-indigo-900 dark:text-indigo-200'
                       : 'text-zinc-700 dark:text-zinc-300'}"
@@ -949,17 +941,19 @@
                         : chatScopeStrings.badgePrivate()}
                     </span>
                   </div>
-                  <div class="mt-0.5 flex items-center gap-2 text-[10px] text-zinc-400 pointer-coarse:hidden">
-                    {@render chatMeta(chat)}
-                  </div>
                 </button>
-                <!-- Touch: the meta line moves out of the row button so the
-                     actions can share it without covering the tap target. -->
-                <div class="col-start-1 row-start-2 hidden items-center gap-2 px-3 pb-1 text-[10px] text-zinc-400 pointer-coarse:flex">
-                  {@render chatMeta(chat)}
+                <!-- The meta line sits outside the row button so the actions
+                     can share it without covering the tap target. It hugs the
+                     title; the 44px targets' extra height falls below it. -->
+                <div class="col-start-1 row-start-2 flex items-center gap-2 self-start px-3 pt-0.5 text-[10px] text-zinc-400">
+                  <span>{chat.messageCount} msg{chat.messageCount === 1 ? '' : 's'}</span>
+                  {#if chat.lastMessageAt}
+                    <span>·</span>
+                    <span>{formatRelativeTime(chat.lastMessageAt)}</span>
+                  {/if}
                 </div>
                 <div
-                  class="col-start-2 row-start-1 flex gap-0.5 pr-1 pointer-coarse:row-start-2 pointer-coarse:pb-1
+                  class="col-start-2 row-start-2 flex gap-0.5 pb-1 pr-1
                     {activeChatId === chat.loc
                       ? 'opacity-100'
                       : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 @max-2xl:opacity-100 pointer-coarse:opacity-100'}"
