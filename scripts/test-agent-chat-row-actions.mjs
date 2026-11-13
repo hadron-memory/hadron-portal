@@ -418,6 +418,29 @@ try {
         assert.deepEqual(f.errors, [], `${leg}: page errors (failed delete, chat open)`);
         await f.context.close();
       }
+      // One pane: open a chat, go Back to the list, then a delete fails.
+      // The chat stays selected behind the list, and the error must show in
+      // the list, the pane on screen (Chip's QA on #2110).
+      if (narrow) {
+        const f = await open(width, dark, touch);
+        const p = f.page;
+        await p.locator('[data-chat-row="chats:b"]').click();
+        await p.getByRole('button', { name: 'Back to chats' }).click();
+        const del = p.getByRole('button', { name: `Delete chat ${A}`, exact: true });
+        await del.waitFor();
+        await p.evaluate(() => window.__chat.failDelete('network'));
+        if (touch) await del.tap();
+        else await del.click();
+        await p.getByRole('heading', { name: 'Delete this chat?' }).waitFor();
+        await p.getByRole('button', { name: 'Delete', exact: true }).click();
+        await p.waitForFunction((name) => document.activeElement?.getAttribute('aria-label') === name, `Delete chat ${A}`, { timeout: 2000 })
+          .catch(async () => assert.fail(`${leg} after Back: focus is on ${JSON.stringify(await focused(p))} after a failed delete`));
+        await p.getByRole('alert').filter({ hasText: MESSAGE.network }).waitFor({ timeout: 2000 })
+          .catch(() => assert.fail(`${leg} after Back: the failed delete's error is not shown in the list`));
+        assert.equal(await p.getByRole('alert').count(), 1, `${leg} after Back: one error copy should show`);
+        assert.deepEqual(f.errors, [], `${leg}: page errors (failed delete after Back)`);
+        await f.context.close();
+      }
       // A slow failure must not take focus the person has since moved, the
       // same as a slow success (#2102's ownership rule).
       if (!narrow && !touch) {
