@@ -1,4 +1,4 @@
-# Exported from hadron-server de585a6b28dc26a8fd3622f10f9cb82bea98cad2 (de585a6b28dc26a8fd3622f10f9cb82bea98cad2, 2026-11-12T20:37:18-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 74d870fceb5e96515a440d861dfd68f4c2d6d56a (origin/main, 2026-11-13T09:02:07-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -3490,6 +3490,10 @@ type BootPromptSigningPreviewRow {
   """
   agentUrn: String
   appId: ID!
+
+  """
+  Canonical v2 URN of this row's App (#4061), like agentUrn and workerUrn; a stored form that cannot be emitted is served as stored. hrn:node:hadronmemory.com:specs:cor:urn:010:01
+  """
   appUrn: String!
   changesToRevSeq: Int
   compiledNodeId: ID!
@@ -4578,6 +4582,10 @@ input CreateAgentTaskInput {
   format character and no user name or password (else BAD_USER_INPUT). Set only here: no edit takes it. A second
   task with the same value in this App, whatever the first task's state, is refused TASK_EXTERNAL_ID_TAKEN, which
   names no task (find it with agentTasks(externalId:)). Another App's tasks never conflict.
+  #4113 (hrn:node:hadronmemory.com:specs:cor:agt:050:02): naming it with YOURSELF as the assignee is the claim, and a
+  claim is created STARTED in this one call (startedAt set; task.created, task.assigned, task.started; never queued,
+  matched or alarmed as not started). A claim naming another assignee, no assignee, or an open blocker stays PENDING
+  (hrn:node:hadronmemory.com:specs:cor:agt:050:08 governs the first); a backlog task still takes no assignee.
   """
   externalId: String
 
