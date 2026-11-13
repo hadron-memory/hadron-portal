@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { deserialize } from '$app/forms';
   import { signinRedirectLocation } from '$lib/forms/signin-redirect';
   import { goto } from '$app/navigation';
@@ -20,7 +20,9 @@
   } from '$lib/flow/conversation-canvas';
   import { addStageSchema } from '$lib/flow/conversation-add-stage-form';
   import { conversationEdgePanelSchema } from '$lib/flow/conversation-edge-panel-form';
+  import { conversationEntryConditionSchema } from '$lib/flow/conversation-entry-condition-form';
   import { conversationGoalsSchema } from '$lib/flow/conversation-goals-form';
+  import { conversationMoveSchema } from '$lib/flow/conversation-move-form';
   import { conversationPromptSchema } from '$lib/flow/conversation-prompt-form';
   import { conversationStageExtractionSchema } from '$lib/flow/conversation-stage-extraction-form';
   import { t } from '$lib/i18n/t';
@@ -33,6 +35,8 @@
   type AddStageForm = Infer<typeof addStageSchema, 'zod4'>;
   type ConversationEdgePanelForm = Infer<typeof conversationEdgePanelSchema, 'zod4'>;
   type ConversationGoalsForm = Infer<typeof conversationGoalsSchema, 'zod4'>;
+  type ConversationEntryConditionForm = Infer<typeof conversationEntryConditionSchema, 'zod4'>;
+  type ConversationMoveForm = Infer<typeof conversationMoveSchema, 'zod4'>;
   type ConversationPromptForm = Infer<typeof conversationPromptSchema, 'zod4'>;
   type ConversationStageExtractionForm = Infer<typeof conversationStageExtractionSchema, 'zod4'>;
   type AddEdgeSuperform = SuperValidated<AddEdgeForm, App.Superforms.Message, AddEdgeForm>;
@@ -54,6 +58,12 @@
   type UpdateGoalsActionResult = {
     form?: SuperValidated<ConversationGoalsForm, App.Superforms.Message, ConversationGoalsForm>;
   } | null;
+  type UpdateEntryConditionActionResult = {
+    form?: SuperValidated<ConversationEntryConditionForm, App.Superforms.Message, ConversationEntryConditionForm>;
+  } | null;
+  type MoveConversationActionResult = {
+    form?: SuperValidated<ConversationMoveForm, App.Superforms.Message, ConversationMoveForm>;
+  } | null;
   type UpdatePromptActionResult = {
     form?: SuperValidated<ConversationPromptForm, App.Superforms.Message, ConversationPromptForm>;
   } | null;
@@ -69,6 +79,9 @@
   type Revision = { loc: string; label: string; description: string | null; published: boolean; revision: number; createdAt: string | null };
   let revisions = $state<Revision[]>([]);
   let revisionsLoading = $state(false);
+  // Whether the list has loaded at least once; the Start section's publish note
+  // needs to know, and an unloaded list must not read as "nothing published".
+  let revisionsLoaded = $state(false);
   let revisionsBusy = $state(false);
   let revisionError = $state<string | null>(null);
   let showRevisions = $state(false);
@@ -84,6 +97,7 @@
       });
       const body = await res.json();
       revisions = body.revisions ?? [];
+      revisionsLoaded = Array.isArray(body.revisions);
     } catch { /* ignore */ }
     revisionsLoading = false;
   }
@@ -144,6 +158,12 @@
     }
     revisionsBusy = false;
   }
+
+  // The Start section's publish note depends on it, so read it up front.
+  onMount(() => { loadRevisions(); });
+  const publishState = $derived<'yes' | 'no' | 'unknown'>(
+    !revisionsLoaded ? 'unknown' : revisions.some((r) => r.published) ? 'yes' : 'no',
+  );
 
   // ── Editor Lock ──
   let lockOwned = $state(false);
@@ -239,12 +259,16 @@
       stageOrder,
       data.systemNodes.filter((s) => isStageLoc(s.loc) && s.loc.startsWith(`${n.loc}:`)),
     );
+    const canvasNode = canvasModel.nodes.find((c) => c.id === n.id);
     return {
       id: n.id,
       loc: n.loc,
       label: n.description || n.name || n.loc,
       isSetup: d.isSetup === true,
       isFallback: d.isFallback === true,
+      startOrder: canvasNode?.startOrder ?? null,
+      startTotal: canvasNode?.startTotal ?? null,
+      entryCondition: d.entryCondition ?? null,
       goalDescriptions: Array.isArray(d.goalDescriptions)
         ? (d.goalDescriptions as unknown[]).filter((g): g is string => typeof g === 'string')
         : [],
@@ -437,6 +461,39 @@
       ? goalsForm
       : data.conversationGoalForms[selectedConversation.id];
   });
+  // S7 Start section. Results are matched by _kind AND the conversation's loc, so
+  // another conversation's late result never banners or seeds this one.
+  const startConditionActionForm = $derived.by(() => {
+    const actionForm = (form as UpdateEntryConditionActionResult)?.form ?? null;
+    return actionForm?.data._kind === 'updateEntryCondition' ? actionForm : null;
+  });
+  const moveActionForm = $derived.by(() => {
+    const actionForm = (form as MoveConversationActionResult)?.form ?? null;
+    return actionForm?.data._kind === 'moveConversation' ? actionForm : null;
+  });
+  const startConditionSaved = $derived.by(() => {
+    if (!formIsLive || !startConditionActionForm) return null;
+    return startConditionActionForm.message?.type === 'success' && startConditionActionForm.data?.convLoc === selectedConversation?.loc
+      ? startConditionActionForm.message.text
+      : null;
+  });
+  const startConditionError = $derived.by(() => {
+    if (!formIsLive || !startConditionActionForm) return null;
+    return startConditionActionForm.message?.type === 'error' && startConditionActionForm.data?.convLoc === selectedConversation?.loc
+      ? startConditionActionForm.message.text
+      : null;
+  });
+  const moveError = $derived.by(() => {
+    if (!formIsLive || !moveActionForm) return null;
+    return moveActionForm.message?.type === 'error' && moveActionForm.data?.convLoc === selectedConversation?.loc
+      ? moveActionForm.message.text
+      : null;
+  });
+  // Seeds stay the load-time forms: a result echoes the posted values, and the
+  // panel keeps its own state after a save.
+  const selectedConversationStartForms = $derived(
+    selectedConversation ? data.conversationStartForms[selectedConversation.id] ?? null : null,
+  );
   const conversationAddStageSaved = $derived.by(() => {
     if (!formIsLive || !addStageForm) return null;
     return addStageForm.message?.type === 'success' && addStageForm.data?.conversationLoc === selectedConversation?.loc
@@ -725,7 +782,7 @@
           onSelectEdge={select}
         />
       {/key}
-    {:else if selectedConversation && selectedConversationGoalsForm && selectedConversationAddStageForm}
+    {:else if selectedConversation && selectedConversationGoalsForm && selectedConversationAddStageForm && selectedConversationStartForms}
       {#key selectedConversation.id}
         <ConversationInfoPanel
           conversation={selectedConversation}
@@ -735,6 +792,12 @@
           addStageForm={selectedConversationAddStageForm}
           addStageSaved={conversationAddStageSaved}
           addStageError={conversationAddStageError}
+          startConditionForm={selectedConversationStartForms.condition}
+          {startConditionSaved}
+          {startConditionError}
+          moveForm={selectedConversationStartForms.move}
+          {moveError}
+          {publishState}
           onClose={() => select(null)}
           onSelectNode={select}
         />
