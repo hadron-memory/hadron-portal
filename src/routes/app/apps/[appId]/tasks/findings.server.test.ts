@@ -96,6 +96,17 @@ describe('GET /tasks/[taskId]/findings', () => {
     expect(seen.filter((d) => d === AGENT_TASK_FINDINGS_QUERY)).toHaveLength(1);
     expect(seen.every((d) => [AGENT_TASKS_APP_QUERY, AGENT_TASK_REF_QUERY, AGENT_TASK_FINDINGS_QUERY].includes(d))).toBe(true);
   });
+  // portal#2111 — the URL's App segment may be a URN or slug; the task's appId check must use the RESOLVED App id, as the loader does.
+  it('resolves the App from the URL once and checks the task against its canonical id, whatever form the URL used', async () => {
+    const byUrn = { ...event('0'), params: { appId: app.urn, taskId: 'AT1' } } as never;
+    expect(await (await GET(byUrn)).json()).toEqual({ kind: 'page', page: { taskId: 'canonical', offset: 0, items: stored.slice(0, 20), total: 57, hasMore: true } });
+    expect(seen.filter((d) => d === AGENT_TASKS_APP_QUERY)).toHaveLength(1);
+  });
+  it('a task row from another App is still refused when the URL named the App by URN', async () => {
+    request.mockImplementation(provider({ appId: 'foreign' }));
+    const byUrn = { ...event('0'), params: { appId: app.urn, taskId: 'AT1' } } as never;
+    expect(await (await GET(byUrn)).json()).toEqual({ kind: 'failed' });
+  });
   it('defaults the offset to 0', async () => { expect((await (await GET(event())).json()).page.offset).toBe(0); });
   it.each(['-1', '1.5', 'x', '2147483648', '9007199254740992', ''])('rejects offset %j with 400 before any provider call', async (offset) => {
     await expect(GET(event(offset))).rejects.toMatchObject({ status: 400 });

@@ -184,7 +184,9 @@ describe('failures are never empty, and Retry is the section\'s own', () => {
     expect(m.target.querySelector('[data-testid="findings-failed"]')).not.toBeNull();
     expect(m.target.textContent).not.toContain('private fault');
     expect(range(m.target)).toBe('Showing findings 1 to 20 of 25');
-    expect(status(m.target).textContent).toContain('Couldn’t load findings');
+    // portal#2111 — the live region announces what the reader sees: the retained-page message, not the initial-failure one.
+    expect(status(m.target).textContent).toBe(m.target.querySelector('[data-testid="findings-failed"]')!.firstChild!.textContent!.trim());
+    expect(status(m.target).textContent).toContain('These are the findings you were already reading');
     button(m.target, 'Retry').click(); await tick(8);
     expect(urls(f)).toEqual(['/app/apps/app/tasks/task/findings?offset=20', '/app/apps/app/tasks/task/findings?offset=20']);
     expect(range(m.target)).toBe('Showing findings 21 to 25 of 25');
@@ -274,6 +276,22 @@ describe('identity and request-generation fences', () => {
     late(page('A', 0, [row('A1', 'A text')], 1, false)); await tick(8);
     expect(texts(m.target)).toEqual(['B text']);
   });
+  // portal#2111 (design §24) — the window between an identity change and the response that was in flight for the old one.
+  // Traced under Svelte 5.56: the prop change runs the effect (begin -> generation bump) synchronously, ahead of a fetch
+  // continuation that was already queued, so the generation half drops this answer and the identity half
+  // (issuedApp/issuedTask) is defense in depth with no reachable window of its own. Removing EITHER half passes;
+  // removing BOTH fails here: begin() resets every other piece of state, so the trace a stale accept leaves is the focus it moves.
+  it('a response in flight when the App changes is dropped by the fence, and moves no focus', async () => {
+    let m!: Awaited<ReturnType<typeof setup>>;
+    const body = page('task', 20, rows(21, 20), 40, false);
+    // A thenable body: resolving it first queues the fetch continuation, THEN the App change queues Svelte's flush behind it.
+    const json = () => ({ then(resolve: (v: unknown) => void) { resolve(body); m.props.appId = 'other-app'; } });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json } as unknown as Response));
+    m = await setup(page('task', 0, rows(1, 20), 40, true));
+    const next = button(m.target, 'Next'); next.focus(); next.click(); await tick(10);
+    expect(document.activeElement).not.toBe(m.target.querySelector('#findings-heading'));
+    expect(texts(m.target)).toHaveLength(20); expect(range(m.target)).toBe('Showing findings 1 to 20 of 40');
+  });
   it('unmounting while a fetch is pending aborts it and leaves no unhandled rejection', async () => {
     const hold = deferred(); let signal: AbortSignal | undefined;
     vi.stubGlobal('fetch', vi.fn().mockImplementation((_u: string, init: RequestInit) => { signal = init.signal as AbortSignal; return hold.promise; }));
@@ -331,6 +349,14 @@ describe('text is literal', () => {
     const m = await setup(page('task', 0, [row('F1', 't', 'P1'), row('F2', 't', 'note')], 2, false));
     expect(m.target.textContent).toContain('P1'); expect(m.target.textContent).toContain('note');
     expect(m.target.textContent).not.toMatch(/blocking|must fix|ready/i);
+  });
+  // portal#2111 — id and severity come from the same provider as text, so they get the same treatment.
+  it('id and severity reveal controls and are bidi-isolated like text', async () => {
+    const m = await setup(page('task', 0, [row('F\u202E1', 't', 'P\u20661\u2069')], 1, false));
+    const id = m.target.querySelector<HTMLElement>('[data-testid="finding-id"]')!;
+    const sev = m.target.querySelector<HTMLElement>('[data-testid="finding-severity"]')!;
+    expect(id.textContent).toBe('F[U+202E]1'); expect(sev.textContent).toBe('P[U+2066]1[U+2069]');
+    for (const el of [id, sev]) { expect(el.getAttribute('dir')).toBe('auto'); expect(el.className).toContain('[unicode-bidi:isolate]'); }
   });
   it('keeps long multi-line text and every code point', async () => {
     const long = `line one\nline two ${'𝔘'.repeat(2000)}`;
