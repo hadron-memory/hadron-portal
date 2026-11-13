@@ -89,6 +89,13 @@ async function status(run: () => Promise<Response>): Promise<number | 'threw'> {
   }
 }
 
+/** The exact concealed-miss body. Fixtures run's ADMITTED outcome is also a 404 ('No fixtures to run'), so a bare status cannot tell denial from admission (§10 P2, #2103). */
+async function expectConcealedMiss(call: () => Promise<Response>) {
+  const res = await call();
+  expect(res.status).toBe(404);
+  expect(await res.json()).toEqual({ error: 'Agent not found or no longer available' });
+}
+
 const locals = (user: { id: string } | null = { id: USER_ID }) => ({ token: 'tok', user });
 
 function jsonReq(url: string, method: string, body?: unknown) {
@@ -182,7 +189,7 @@ beforeEach(() => {
 describe.each(surfaces)('$name', ({ call, admitted, failure }) => {
   it('conceals the Tester from a non-manager (READER/CONTRIBUTOR) and never starts a chat', async () => {
     route('non-manager');
-    expect(await status(() => call(locals()))).toBe(404);
+    await expectConcealedMiss(() => call(locals()));
     expect(mockResolveChatAi).not.toHaveBeenCalled();
     expect(mockRunChatTurn).not.toHaveBeenCalled();
     expect(startChatCalls()).toBe(0);
@@ -190,21 +197,21 @@ describe.each(surfaces)('$name', ({ call, admitted, failure }) => {
 
   it('fails closed on a null effectiveAccess answer: concealed, never admitted', async () => {
     route('null-answer');
-    expect(await status(() => call(locals()))).toBe(404);
+    await expectConcealedMiss(() => call(locals()));
     expect(mockResolveChatAi).not.toHaveBeenCalled();
     expect(startChatCalls()).toBe(0);
   });
 
   it('conceals it from a non-manager on a user-owned Agent path too', async () => {
     route('non-manager', 'personal');
-    expect(await status(() => call(locals()))).toBe(404);
+    await expectConcealedMiss(() => call(locals()));
     expect(mockResolveChatAi).not.toHaveBeenCalled();
     expect(startChatCalls()).toBe(0);
   });
 
   it('treats a missing user as not-found, not as admission', async () => {
     route('manager');
-    expect(await status(() => call(locals(null)))).toBe(404);
+    await expectConcealedMiss(() => call(locals(null)));
     expect(mockResolveChatAi).not.toHaveBeenCalled();
   });
 
