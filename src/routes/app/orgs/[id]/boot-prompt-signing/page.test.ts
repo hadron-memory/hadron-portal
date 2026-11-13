@@ -192,6 +192,9 @@ describe('portal#2067: Agent and Worker URN chips under the names', () => {
 });
 
 describe('portal#2074: the worker chip follows workerUrn, and positions are checked per cell', () => {
+  // Coupling, on purpose: these tests read the SSR markup. They assume each value sits in its own <td>, that a
+  // name line is `<div class="truncate">`, and that the name renders before its URN chip. If the cell markup
+  // changes, update `cells` and the truncate regex below rather than loosening the assertions.
   const cells = (body: string) => [...body.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/g)].map((m) => m[1]);
   const cellWith = (body: string, needle: string) => cells(body).filter((c) => c.includes(needle));
   const wrow = { agentName: 'Atlas', agentUrn: 'hrn:agent:acme.com:zz-unrelated', workerId: 'w', workerName: 'Wren', workerUrn: 'hrn:worker:acme.com:app-1:wren-slug' };
