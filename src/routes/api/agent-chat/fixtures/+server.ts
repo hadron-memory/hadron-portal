@@ -36,11 +36,11 @@ import { drainFindNodes } from '$lib/server/paginate';
  * caller's organization scope or owned personal-agent scope.
  */
 
-async function resolveAgent(token: string, agentId: string): Promise<{
+async function resolveAgent(token: string, userId: string | null | undefined, agentId: string): Promise<{
   agentId: string;
   systemMemoryId: string;
 } | null> {
-  const systemMemoryId = await resolveTesterSystemMemory(gqlClient(token), agentId);
+  const systemMemoryId = await resolveTesterSystemMemory(gqlClient(token), agentId, userId);
   return systemMemoryId ? { agentId, systemMemoryId } : null;
 }
 
@@ -51,7 +51,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   const agentId = url.searchParams.get('agentId');
   if (!agentId) return json({ error: 'agentId is required' }, 400);
 
-  const resolved = await resolveAgent(locals.token, agentId);
+  const resolved = await resolveAgent(locals.token, locals.user?.id, agentId);
   if (!resolved) return json({ error: 'Agent not found or no longer available' }, 404);
 
   const client = gqlClient(locals.token);
@@ -115,7 +115,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }, 400);
   }
 
-  const resolved = await resolveAgent(locals.token, body.agentId);
+  const resolved = await resolveAgent(locals.token, locals.user?.id, body.agentId);
   if (!resolved) return json({ error: 'Agent not found or no longer available' }, 404);
 
   let record;
@@ -202,7 +202,7 @@ export const DELETE: RequestHandler = async ({ url, locals }) => {
     return json({ error: 'fixtureLoc must start with "fixtures:"' }, 400);
   }
 
-  const resolved = await resolveAgent(locals.token, agentId);
+  const resolved = await resolveAgent(locals.token, locals.user?.id, agentId);
   if (!resolved) return json({ error: 'Agent not found or no longer available' }, 404);
 
   const client = gqlClient(locals.token);

@@ -25,11 +25,12 @@ import {
   START_CHAT_MUTATION,
 } from '$lib/server/queries';
 import { __resetRateLimit } from '$lib/server/rate-limit';
+import { asTesterManager } from '$lib/test/tester-manage';
 
 const mockRequest = vi.fn();
 const mockLlm = vi.fn();
 
-vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
+vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: (q: string, v?: unknown) => asTesterManager(mockRequest, ['agent-1'])(q, v) }) }));
 vi.mock('$lib/server/llm/agentChatLlm.js', async () => {
   const actual = await vi.importActual<typeof import('$lib/server/llm/agentChatLlm.js')>('$lib/server/llm/agentChatLlm.js');
   return { ...actual, callAgentChatLlm: (...a: unknown[]) => mockLlm(...a) };

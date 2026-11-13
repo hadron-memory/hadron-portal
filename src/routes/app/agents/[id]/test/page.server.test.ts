@@ -10,10 +10,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
 import { FIXTURE_NODES_QUERY, AI_CONFIG_READINESS_QUERY, MY_AGENTS_QUERY, ORGANIZATIONS_QUERY, RESOLVE_AI_CONFIG_QUERY } from '$lib/server/queries';
+import { asTesterManager } from '$lib/test/tester-manage';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
-  gqlClient: () => ({ request: mockRequest }),
+  gqlClient: () => ({ request: (q: string, v?: unknown) => asTesterManager(mockRequest)(q, v) }),
 }));
 
 beforeEach(() => {
@@ -28,7 +29,7 @@ async function importLoad() {
 function ev(opts: { agentId?: string; token?: string | null; isConsumerMode?: boolean } = {}) {
   return {
     params: { id: opts.agentId ?? 'agent-id-123' },
-    locals: { token: opts.token === undefined ? 'test-token' : opts.token },
+    locals: { token: opts.token === undefined ? 'test-token' : opts.token, user: { id: 'u1' } },
     parent: async () => ({ isConsumerMode: opts.isConsumerMode ?? false }),
     url: new URL('http://test/app/agents/' + (opts.agentId ?? 'agent-id-123') + '/test'),
   } as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
