@@ -132,6 +132,7 @@ try {
       const probe = await open(width, dark);
       const panelWidth = (await panes(probe.page)).container;
       const phone = panelWidth < ONE_PANE_BELOW;
+      assert.deepEqual(probe.errors, [], `${leg}: page errors (probe)`);
       await probe.page.close();
 
       // ── No link: the list ───────────────────────────────────────────
@@ -295,6 +296,7 @@ try {
       p = await panes(deep.page);
       if (phone) assert(p.aside === 0 && near(p.main, p.panel), `${leg}: deep link should open the conversation, got ${JSON.stringify(p)}`);
       else assert(p.aside > 0 && p.main > 0, `${leg}: desktop deep link keeps both panes`);
+      assert.deepEqual(deep.errors, [], `${leg}: page errors (deep link)`);
       // Captured last on its page: no interaction may follow a screenshot
       // (hrn:node:hadronmemory.com:hadron-portal:findings:playwright-screenshots-after-layout-assertions).
       if (shots && phone) await deep.page.screenshot({ path: `${shots}/${leg.replace('/', '-')}-conversation.png` });
@@ -320,6 +322,7 @@ try {
         p = await panes(refused.page);
         assert(near(p.aside, p.panel) && p.main === 0, `${leg}: a refused start stays on the list, got ${JSON.stringify(p)}`);
       }
+      assert.deepEqual(refused.errors, [], `${leg}: page errors (refused start)`);
       if (shots) await refused.page.screenshot({ path: `${shots}/${leg.replace('/', '-')}-refusal.png` });
       await refused.page.close();
 

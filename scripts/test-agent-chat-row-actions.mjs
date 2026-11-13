@@ -446,6 +446,7 @@ try {
         const shot = await open(width, dark, touch);
         await shot.page.mouse.move(1, 1);
         await shot.page.screenshot({ path: `${shots}/${leg.replace(/[ /]/g, '-')}-list.png` });
+        assert.deepEqual(shot.errors, [], `${leg}: page errors (screenshot)`);
         await shot.context.close();
       }
       console.log(`${leg}: ok (chat ${panelWidth}px, ${alwaysShown ? 'actions shown' : 'actions quiet'}, meta line)`);
