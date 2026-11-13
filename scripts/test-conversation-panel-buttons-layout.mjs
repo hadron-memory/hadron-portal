@@ -22,30 +22,33 @@ try {
   const css = await (await fetch(new URL('src/app.css?direct', origin))).text();
   browser = await chromium.launch({ headless: true });
 
-  const open = async (width, dark) => {
+  const open = async (width, dark, withCondition = true) => {
     const page = await browser.newPage({ viewport: { width, height: 1000 } });
     await page.goto(new URL('/@vite/client', origin).href);
-    await page.evaluate(([css, dark]) => {
+    await page.evaluate((css) => {
       document.head.innerHTML = '';
-      document.documentElement.classList.toggle('dark', dark);
       document.body.innerHTML = `<style>${css}</style><main id="col"></main>`;
-    }, [css, dark]);
+    }, css);
     await page.addStyleTag({ content: `#col { width: ${width === 390 ? 308 : 360}px; margin: 0 auto; }` });
-    await page.evaluate(async () => {
+    await page.evaluate(async (withCondition) => {
       const { mountPanel } = await import('/src/lib/test/fixtures/conversation-info-panel-harness.ts');
-      await mountPanel(document.getElementById('col'), true);
-    });
+      await mountPanel(document.getElementById('col'), withCondition);
+    }, withCondition);
     await page.waitForSelector('#convStartHeading');
+    // Importing the app's modules can toggle <html class="dark"> on its own, so the
+    // theme is applied after the mount and the real root state asserted (#2082 F2).
+    await page.evaluate((dark) => document.documentElement.classList.toggle('dark', dark), dark);
+    assert.equal(await page.evaluate(() => document.documentElement.classList.contains('dark')), dark, `${width}px ${dark ? 'dark' : 'light'}: root theme not applied`);
     return page;
   };
 
   const controls = (page) => page.evaluate(() => {
-    const pick = (sel, text) => [...document.querySelectorAll(sel)].find((b) => b.textContent.trim() === text);
+    const q = (sel) => document.querySelector(sel);
     const out = {};
     for (const [key, el] of Object.entries({
-      save: pick('button[value="save"]', 'Save'),
-      clear: pick('button[value="clear"]', 'Clear'),
-      goals: pick('form button[type="submit"]', 'Save goals'),
+      save: q('button[value="save"]'),
+      clear: q('button[value="clear"]'),
+      goals: q('form[action="?/updateGoals"] button[type="submit"]'),
     })) {
       if (!el) { out[key] = null; continue; }
       const cs = getComputedStyle(el);
@@ -76,29 +79,67 @@ try {
     // Clear stays a neutral link look: not the red it had.
     const [cr, cg, cb] = parse(m.clear.color);
     assert.ok(!(cr > cg + 40 && cr > cb + 40), `${label}: Clear is red (${m.clear.color})`);
-    // Keyboard focus keeps a visible indicator on all three.
-    for (const sel of ['button[value="save"]', 'button[value="clear"]']) {
-      await page.focus(sel); await page.keyboard.press('Shift+Tab'); await page.keyboard.press('Tab');
-      const ring = await page.evaluate((s) => { const cs = getComputedStyle(document.querySelector(s)); return { style: cs.outlineStyle, shadow: cs.boxShadow }; }, sel);
-      assert.ok(ring.style !== 'none' || ring.shadow !== 'none', `${label}: ${sel} has no focus indicator`);
+    // Keyboard focus: a real :focus-visible match and a positive-width visible outline
+    // on all three controls (#2082 F1).
+    const SEL = { save: 'button[value="save"]', clear: 'button[value="clear"]', goals: 'form[action="?/updateGoals"] button[type="submit"]' };
+    const ring = async (sel) => {
+      await page.keyboard.press('Shift'); // keyboard modality, so focus() is focus-visible
+      await page.focus(sel);
+      return page.evaluate((s) => { const el = document.querySelector(s); const cs = getComputedStyle(el); return { fv: el.matches(':focus-visible'), active: document.activeElement === el, style: cs.outlineStyle, width: parseFloat(cs.outlineWidth), color: cs.outlineColor }; }, sel);
+    };
+    for (const k of ['save', 'clear', 'goals']) {
+      const r = await ring(SEL[k]);
+      assert.ok(r.active && r.fv, `${label}: ${k} did not take keyboard focus (${JSON.stringify(r)})`);
+      assert.ok(r.style !== 'none' && r.width >= 2, `${label}: ${k} focus ring is not visible (${JSON.stringify(r)})`);
     }
-    // States: disabled keeps its height.
-    await page.evaluate(() => document.querySelector('button[value="save"]').setAttribute('disabled', ''));
-    assert.ok((await controls(page)).save.h >= 44, `${label}: disabled Save shrinks below 44px`);
-
+    // Hover keeps size, contrast and (for Clear) neutrality.
+    for (const k of ['save', 'clear', 'goals']) {
+      await page.hover(SEL[k]);
+      const hm = await controls(page);
+      assert.ok(hm[k].h >= 44, `${label}: hovered ${k} is ${hm[k].h}px`);
+      if (k !== 'clear') assert.ok(ratio(hm[k].color, hm[k].bg) >= 4.5, `${label}: hovered ${k} contrast`);
+    }
+    await page.mouse.move(0, 0);
+    // Real "Saving..." state: hold the POST so the enhance handler stays submitting,
+    // then measure the disabled controls (disabled keeps its 44px target).
+    for (const [k, action, text] of [['save', 'updateEntryCondition', 'Saving...'], ['goals', 'updateGoals', 'Saving...']]) {
+      let release;
+      const held = new Promise((r) => (release = r));
+      await page.route(`**/*?/${action}*`, async (route) => { await held; await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ type: 'failure', status: 400, data: '[]' }) }).catch(() => {}); });
+      await page.click(SEL[k]);
+      await page.waitForFunction(([s, t]) => document.querySelector(s)?.textContent.trim() === t, [SEL[k], text]);
+      const sm = await controls(page);
+      assert.ok(await page.evaluate((s) => document.querySelector(s).disabled, SEL[k]), `${label}: ${k} is not disabled while saving`);
+      assert.ok(sm[k].h >= 44, `${label}: saving ${k} is ${sm[k].h}px`);
+      if (k === 'save') assert.ok(sm.clear.h >= 44, `${label}: disabled Clear is ${sm.clear.h}px`);
+      release();
+      await page.unroute(`**/*?/${action}*`);
+    }
+    // Clear is absent without a stored condition; Save keeps its size.
+    const bare = await open(width, dark, false);
+    const bm = await controls(bare);
+    assert.equal(bm.clear, null, `${label}: Clear shown without a stored condition`);
+    assert.ok(bm.save.h >= 44 && bm.goals.h >= 44, `${label}: Save/Save goals too short without Clear`);
+    await bare.close();
     if (width === 390 && !dark) {
+      const mp = await open(width, dark);
+      const nf = await mp.addStyleTag({ content: 'button[value="save"], button[value="clear"], form[action="?/updateGoals"] button[type="submit"] { outline: 0 !important; }' });
+      const nr = await mp.evaluate(() => { document.querySelector('button[value="save"]').focus(); return parseFloat(getComputedStyle(document.activeElement).outlineWidth); });
+      assert.ok(nr < 2, 'no-focus-ring mutant must go red');
+      await nf.evaluate((el) => el.remove());
       // Mutants: each check must be able to fail.
-      const h = await page.addStyleTag({ content: 'button[value="save"], button[value="clear"] { min-height: 0 !important; height: 28px !important; }' });
-      assert.ok((await controls(page)).save.h < 44, 'height mutant must go red');
+      const h = await mp.addStyleTag({ content: 'button[value="save"], button[value="clear"] { min-height: 0 !important; height: 28px !important; }' });
+      assert.ok((await controls(mp)).save.h < 44, 'height mutant must go red');
       await h.evaluate((el) => el.remove());
-      const c = await page.addStyleTag({ content: 'button[value="save"] { color: #fff !important; background: #fb8500 !important; }' });
-      const mm = await controls(page);
+      const c = await mp.addStyleTag({ content: 'button[value="save"] { color: #fff !important; background: #fb8500 !important; }' });
+      const mm = await controls(mp);
       assert.ok(ratio(mm.save.color, mm.save.bg) < 4.5, 'white-on-orange mutant must go red');
       await c.evaluate((el) => el.remove());
-      const r = await page.addStyleTag({ content: 'button[value="clear"] { color: #ef4444 !important; }' });
-      const [mr, mg, mb] = parse((await controls(page)).clear.color);
+      const r = await mp.addStyleTag({ content: 'button[value="clear"] { color: #ef4444 !important; }' });
+      const [mr, mg, mb] = parse((await controls(mp)).clear.color);
       assert.ok(mr > mg + 40 && mr > mb + 40, 'red-Clear mutant must go red');
       await r.evaluate((el) => el.remove());
+      await mp.close();
     }
     console.log(JSON.stringify({ label, save: m.save.h, clear: m.clear.h, goals: m.goals.h, contrast: ratio(m.save.color, m.save.bg).toFixed(2) }));
     await page.close();
