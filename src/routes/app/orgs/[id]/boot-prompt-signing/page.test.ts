@@ -229,6 +229,16 @@ describe('portal#2074: the worker chip follows workerUrn, and positions are chec
     expect(/<div class="truncate">([^<]*)<\/div>/.exec(cell[0])?.[1]).toBe('Unnamed worker');
   });
 
+  it("an empty workerName is a name, not a missing one: the name line stays empty, the chip stays, no fallback label", () => {
+    // Guards `workerName != null` in workerWords against a truthiness rewrite, which would swap in 'Unnamed worker'.
+    const body = preview({ preview: ok([row(1, { ...wrow, workerName: '' })]) });
+    const cell = cellWith(body, 'wren-slug');
+    expect(cell).toHaveLength(1);
+    expect(/<div class="truncate">([^<]*)<\/div>/.exec(cell[0])?.[1]).toBe('');
+    expect(cell[0]).not.toContain('Unnamed worker');
+    expect(cell[0]).not.toContain('All chats and uncustomised workers');
+  });
+
   it('a worker name with no URN is name-only, and an install row keeps its label with no chip', () => {
     const named = cellWith(preview({ preview: ok([row(1, { ...wrow, workerUrn: null })]) }), 'Wren');
     expect(named).toHaveLength(1);

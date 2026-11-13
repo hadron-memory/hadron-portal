@@ -42,7 +42,7 @@
   // A worker URN with no name (the SDL allows it) is still a worker row: label it, never derive a name from the URN.
   // Strings here are single-use, so they stay inline as t() defaults (no catalog file), like the rest of this page.
   const workerWords = (r: PreviewRow): string => {
-    if (r.workerName != null) return r.workerName; // same test as the old `??`: an empty name stays empty
+    if (r.workerName != null) return r.workerName; // deliberately != null, not truthiness: an empty name stays empty (pinned in page.test.ts)
     if (r.workerUrn) return t('org.signing.row.unnamed-worker', 'Unnamed worker');
     return t('org.signing.row.all-workers', 'All chats and uncustomised workers');
   };
