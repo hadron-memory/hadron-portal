@@ -156,11 +156,13 @@
   }
 
   // The row actions' shared look: 44px targets, neutral text that reaches
-  // 4.5:1 on selected and unselected rows, and a visible focus ring. The label
+  // 4.5:1 on selected and unselected rows, and a visible focus ring. Hover
+  // colours are per action: in one class string with Delete's red, the neutral
+  // hover utilities sort later in the stylesheet and win. The label
   // sits at the top of its target, on the meta line's text; the rest of the
   // 44px falls below it.
   const rowActionClass =
-    'inline-flex min-h-11 min-w-11 items-start justify-center pt-0.5 rounded px-1.5 text-[11px] font-medium text-zinc-600 hover:text-zinc-900 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-indigo-500 dark:text-zinc-300 dark:hover:text-white';
+    'inline-flex min-h-11 min-w-11 items-start justify-center pt-0.5 rounded px-1.5 text-[11px] font-medium text-zinc-600 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-indigo-500 dark:text-zinc-300';
 
   // Delete confirm state
   let pendingDeleteChatId = $state<string | null>(null);
@@ -964,7 +966,7 @@
                     aria-label={agentChatRowStrings.rename(chat.title)}
                     title={agentChatRowStrings.rename(chat.title)}
                     onclick={(e) => { e.stopPropagation(); startRename(chat); }}
-                    class={rowActionClass}
+                    class="{rowActionClass} hover:text-zinc-900 dark:hover:text-white"
                   >{agentChatRowStrings.renameShort()}</button>
                   <button
                     type="button"
