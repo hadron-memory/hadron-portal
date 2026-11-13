@@ -33,13 +33,13 @@ export const CHAT_ERROR = {
   partialTurnAuthorTaskBroken: t('agent-chat.error.partial-turn-author-task-broken', "Your message was sent and the reply was saved, but the information it collected wasn't: the task this memory requires for that data is unavailable. It stays that way until whoever manages the memory repairs it. You don't need to send it again."),
   // portal#2065 B3: routing was refused (EDGE_CONDITION_FAILED) after the reply was saved. One fixed copy; never the
   // condition, rule or fact text. UX owns the wording at the design step.
-  partialTurnEdgeConditionFailed: t('agent-chat.error.partial-turn-edge-condition-failed', "Your message was sent and the reply was saved, but the chat couldn't move on to the next step. You don't need to send it again."),
+  partialTurnEdgeConditionFailed: t('agent-chat.error.partial-turn-edge-condition-failed', "Your message was sent and the reply was saved, but the chat couldn't move on to the next step. You can keep chatting; there is no need to send it again."),
   // portal#2065 B4 (hadron-server#4039 B3): startChat refused with ENTRY_CONDITION_FAILED. One fixed message per messageId;
   // nothing from `detail` is shown, and an unknown id gets the generic one.
-  startMemoryEncryptedNoKey: t('agent-chat.error.start-memory-encrypted-no-key', "This chat can't start because the memory it reads is encrypted and this session has no key for it."),
-  startMemoryUnreadable: t('agent-chat.error.start-memory-unreadable', "This chat can't start because the memory it reads can't be read right now."),
-  startInvalidCondition: t('agent-chat.error.start-invalid-condition', "This chat can't start because its first conversation has a start condition that can't be checked."),
-  startTypeMismatch: t('agent-chat.error.start-type-mismatch', "This chat can't start because the information its start condition checks isn't in the form it expects."),
+  startMemoryEncryptedNoKey: t('agent-chat.error.start-memory-encrypted-no-key', "This chat can't start because the memory it reads is encrypted and this session has no key for it. Ask whoever set up this agent to fix it."),
+  startMemoryUnreadable: t('agent-chat.error.start-memory-unreadable', "This chat can't start because the memory it reads can't be read right now. Ask whoever set up this agent to fix it."),
+  startInvalidCondition: t('agent-chat.error.start-invalid-condition', "This chat can't start because its first conversation's start condition can't be checked. Ask whoever set up this agent to fix it."),
+  startTypeMismatch: t('agent-chat.error.start-type-mismatch', "This chat can't start because the information its start condition checks isn't in the form it expects. Ask whoever set up this agent to fix it."),
   startUnavailable: t('agent-chat.error.start-unavailable', "This chat can't start right now."),
   failed: t('agent-chat.error.failed', 'Chat request failed. Please try again.'),
 } as const;
@@ -89,7 +89,7 @@ export function entryConditionRefusalCode(error: unknown): ChatErrorCode | null 
   return typeof id === 'string' && Object.hasOwn(ENTRY_CONDITION_MESSAGES, id) ? ENTRY_CONDITION_MESSAGES[id] : 'startUnavailable';
 }
 
-/** "Fix the setup first cases answer 409; anything else is a generic 500. */
+/** "Fix the setup first" cases answer 409; anything else is a generic 500. */
 const CONFLICT_CODES: ReadonlySet<ChatErrorCode> = new Set<ChatErrorCode>([
   'noConfig',
   'configChoiceUnavailable',

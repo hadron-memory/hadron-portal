@@ -11,7 +11,7 @@
  * Real runChatTurn and the real routes; only the GraphQL transport and the provider call are replaced.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PROCESS_CHAT_RESPONSE_MUTATION, MY_CHATS_QUERY, SEND_CHAT_MESSAGE_MUTATION, START_CHAT_MUTATION, RESOLVE_AI_CONFIG_QUERY } from '$lib/server/queries';
+import { CHAT_AI_CONFIG_CHOICES_QUERY, PROCESS_CHAT_RESPONSE_MUTATION, MY_CHATS_QUERY, SEND_CHAT_MESSAGE_MUTATION, START_CHAT_MUTATION, RESOLVE_AI_CONFIG_QUERY } from '$lib/server/queries';
 import { __resetRateLimit } from '$lib/server/rate-limit';
 
 const mockRequest = vi.fn();
@@ -210,5 +210,43 @@ describe('portal#2065 B4: ENTRY_CONDITION_FAILED at start', () => {
     const { res, text } = await start(err);
     expect(res.status).toBe(500);
     expect(JSON.parse(text).code ?? 'failed').not.toBe('startMemoryUnreadable');
+  });
+});
+
+describe('portal#2065 LOCAL F1/F2: the welcome turn on /start', () => {
+  const welcome = async (processed: Record<string, unknown> | { throws: unknown }) => {
+    mockRequest.mockImplementation(async (doc: string) => {
+      if (doc === RESOLVE_AI_CONFIG_QUERY) return { resolveAIConfig: { provider: 'anthropic', apiKey: 'k', model: 'm', params: null, effectiveEndpoint: 'https://api.anthropic.com/v1' } };
+      if (doc === START_CHAT_MUTATION) return { startChat: { chatId: 'chat-1', systemMessage: 'sys', tools: null, conversationName: 'intro', stageName: 's' } };
+      if (doc === CHAT_AI_CONFIG_CHOICES_QUERY) return { chatAiConfigChoices: [{ value: 'default', name: 'default', provider: 'anthropic', model: null, isDefault: true, isAppChatbotConfig: false }] };
+      if (doc === SEND_CHAT_MESSAGE_MUTATION) return { sendChatMessage: { systemMessage: 'sys', tools: null, messageHistory: [], summarizationNeeded: null } };
+      if (doc === PROCESS_CHAT_RESPONSE_MUTATION) {
+        if ('throws' in processed) throw processed.throws;
+        return { processChatResponse: { ...PROCESSED, ...processed } };
+      }
+      throw new Error('unexpected');
+    });
+    mockLlm.mockResolvedValue({ respond: { message: 'hi', goal_reached: true }, rawText: '', usage: {} });
+    const res = await (await import('./start/+server')).POST(ev({ agentId: 'agent-1', appId: 'app-1', configName: 'default' }));
+    return res.json();
+  };
+  it('carries the welcome turn routing outcome and a fallback conversation move', async () => {
+    const body = await welcome({ conversationCompleted: 'intro', conversationHandoff: 'fallback', stageTransitioned: true, newStageName: 'f1' });
+    expect(body).toMatchObject({ conversationCompleted: 'intro', conversationName: 'fallback', stageName: 'f1', detourReturned: false, rejectedNextStage: null, welcomePartial: false });
+  });
+  it('carries a refused stage', async () => {
+    expect(await welcome({ rejectedNextStage: 'nope' })).toMatchObject({ rejectedNextStage: 'nope' });
+  });
+  it('an EDGE_CONDITION_FAILED partial on the welcome turn is flagged with the fixed saved-reply copy, chat kept', async () => {
+    const body = await welcome({ throws: { response: { errors: [{ message: 'x sentinel', extensions: { code: 'EDGE_CONDITION_FAILED', partialTurn: { persisted: ['ASSISTANT_MESSAGE', 'MESSAGE_COUNTER'], refused: [{ component: 'STAGE_PROGRESSION', code: 'EDGE_CONDITION_FAILED' }], notRun: [] } } }] } } });
+    expect(body.chatId).toBe('chat-1');
+    expect(body.welcomePartial).toBe(true);
+    expect(body.welcomeError).toMatch(/reply was saved/i);
+    expect(JSON.stringify(body)).not.toContain('sentinel');
+  });
+  it('control: any other welcome failure stays the generic, unflagged error', async () => {
+    const body = await welcome({ throws: new Error('boom') });
+    expect(body.welcomePartial).toBe(false);
+    expect(body.welcomeError).toBe('Chat request failed. Please try again.');
   });
 });

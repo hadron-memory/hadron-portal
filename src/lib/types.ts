@@ -205,7 +205,7 @@ export interface Chat {
   createdBy: string | null;
   /** portal#1963 (hadron-server#3957): `default`, a config id, or null when the chat stored no choice. */
   aiConfigChoice?: string | null;
-  /** portal#2065 (hadron-server S3): conversations this chat has completed, in first-completion order. Absent on an older server. */
+  /** portal#2065 (hadron-server S3): conversations this chat has completed, in first-completion order. Always selected: the portal needs a server with the field (lockstep release); optional only so hand-built Chat values need not carry it. */
   completedConversations?: string[];
 }
 

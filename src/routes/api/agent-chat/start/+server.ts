@@ -4,7 +4,7 @@ import { START_CHAT_MUTATION } from '$lib/server/queries';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
 import { llmModelVariable, resolveChatAi } from '$lib/server/llm/chatAi.js';
 import { aiConfigChoiceVariable, readAiConfigChoice } from '$lib/server/llm/aiConfigChoice.js';
-import { bootPromptRefusalCode, configChoiceRefusalCode, entryConditionRefusalCode, publicChatError } from '$lib/server/llm/chatError.js';
+import { bootPromptRefusalCode, configChoiceRefusalCode, entryConditionRefusalCode, partialTurnRefusal, publicChatError } from '$lib/server/llm/chatError.js';
 import { t } from '$lib/i18n/t';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
 import type { RequestHandler } from './$types';
@@ -188,6 +188,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   let welcomeError: string | null = null;
   let finalStageName = stageName;
   let stageTransitioned = false;
+  // portal#2065 (LOCAL F1/F2): the welcome turn runs the real processChatResponse, so its routing outcome counts too.
+  let welcomePartial = false;
+  let conversationCompleted: string | null = null;
+  let detourReturned = false;
+  let rejectedNextStage: string | null = null;
+  let finalConversationName = conversationName;
   try {
     const turn = await runChatTurn({
       token: locals.token,
@@ -202,8 +208,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     welcomeMessage = turn.assistantMessage;
     finalStageName = turn.newStageName ?? stageName;
     stageTransitioned = turn.stageTransitioned;
+    conversationCompleted = turn.conversationCompleted ?? null;
+    detourReturned = turn.detourReturned === true;
+    rejectedNextStage = turn.rejectedNextStage ?? null;
+    finalConversationName = turn.conversationHandoff ?? conversationName;
   } catch (e) {
-    const safe = publicChatError(e);
+    // portal#2065 B3 on the welcome turn: a routing refusal after the reply was saved. The chat page reloads the saved
+    // reply and shows the fixed notice; the chat itself stays created and usable.
+    const partial = partialTurnRefusal(e);
+    const safe = partial ?? publicChatError(e);
+    welcomePartial = partial !== null;
     welcomeError = safe.message;
     console.warn('[agent-chat/start] welcome turn failed (chat is created and usable):', safe.code);
   }
@@ -211,10 +225,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   return new Response(
     JSON.stringify({
       chatId,
-      conversationName,
+      conversationName: finalConversationName,
       stageName: finalStageName,
       welcomeMessage,
       welcomeError,
+      welcomePartial,
+      conversationCompleted,
+      detourReturned,
+      rejectedNextStage,
       stageTransitioned,
       scope,
     }),

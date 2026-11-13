@@ -86,7 +86,8 @@
   } | null>(null);
   // portal#2065: one quiet line about the last turn's routing (completed / returned / stage refused). The region below is
   // mounted empty and its text replaced, so the change is announced. Scoped to its chat.
-  let progressNotice = $state<{ chatId: string; text: string } | null>(null);
+  type ProgressNote = { tone: 'good' | 'neutral'; text: string };
+  let progressNotice = $state<{ chatId: string; notes: ProgressNote[] } | null>(null);
 
   // Spec 017 — composer-header scope picker. The user's pending choice
   // for the NEXT chat they start. Defaults to 'private' per FR-003.
@@ -401,13 +402,19 @@
       // translators see complete prose. Our t() doesn't interpolate,
       // so we substitute the {error} placeholder after lookup. This
       // is the only call site for this key.
-      welcomeNotice = body.welcomeError
+      welcomeNotice = body.welcomeError && body.welcomePartial !== true
         ? t(
             'agent-chat.welcome-error-hint',
             "Couldn't generate a welcome message — type below to start the chat. (Underlying error: {error})",
             { error: body.welcomeError },
           )
         : null;
+      applyRouting(body.chatId, body);
+      if (body.welcomePartial === true && typeof body.welcomeError === 'string') {
+        // portal#2065 B3 on the welcome turn: the reply was saved, so show it and say so (no "couldn't generate" hint).
+        welcomeNotice = null;
+        await handlePartialTurn(body.chatId, windowGeneration, body.welcomeError);
+      }
       await refreshChatList();
       scrollMessagesToBottom();
     } catch (e) {
@@ -451,7 +458,7 @@
         // Spec 017 — scope is part of the chat metadata; pulled through
         // from MY_CHATS_QUERY which now selects it.
         scope: body.chat.scope === 'shared' ? 'shared' : 'private',
-        completed: Array.isArray(body.chat.completedConversations) ? body.chat.completedConversations.filter((n: unknown): n is string => typeof n === 'string') : [],
+        completed: [...new Set<string>(body.chat.completedConversations ?? [])],
       };
       // Chat switch stays tolerant, as before #916: a missing list opens an empty
       // transcript. The strict check lives in the partial-turn reload only, where
@@ -472,6 +479,29 @@
   }
 
   // ── Sending a message ────────────────────────────────────────────────
+  /**
+   * portal#2065: completion, detour return, refused stage, from a turn or the welcome turn. Strings are ours (t()), never
+   * server text; names are the author's own, shown as the header already shows them. routingSkipped shows nothing (B5).
+   * The done list never holds a name twice.
+   */
+  function applyRouting(chatId: string, body: Record<string, unknown>) {
+    if (!activeChatMeta || activeChatId !== chatId) return;
+    const done = typeof body.conversationCompleted === 'string' && body.conversationCompleted ? body.conversationCompleted : null;
+    if (done && !activeChatMeta.completed.includes(done)) {
+      activeChatMeta = { ...activeChatMeta, completed: [...activeChatMeta.completed, done] };
+    }
+    const notes: ProgressNote[] = [];
+    if (done) notes.push({ tone: 'good', text: t('agent-chat.progress.completed', 'Done: {name}', { name: done }) });
+    if (body.detourReturned === true) {
+      const stage = typeof body.newStageName === 'string' && body.newStageName ? body.newStageName : '';
+      notes.push({ tone: 'good', text: stage ? t('agent-chat.progress.detour-returned', 'Back to {where}', { where: stage }) : t('agent-chat.progress.detour-returned-plain', 'Back to where we were') });
+    }
+    if (typeof body.rejectedNextStage === 'string' && body.rejectedNextStage) {
+      notes.push({ tone: 'neutral', text: t('agent-chat.progress.stage-refused', 'Couldn\'t move to "{name}", so we\'re staying on this step.', { name: body.rejectedNextStage }) });
+    }
+    progressNotice = notes.length ? { chatId, notes } : null;
+  }
+
   async function sendMessage() {
     const text = input.trim();
     if (!text || !activeChatId || sending) return;
@@ -545,20 +575,7 @@
         }, 4000);
       }
 
-      // portal#2065: completion, detour return, refused stage. Strings are ours (t()), never server text; the names are
-      // the author's own conversation/stage names, shown as the header already shows them. routingSkipped shows nothing (B5).
-      if (activeChatMeta && activeChatId === chatId) {
-        const done: string | null = typeof body.conversationCompleted === 'string' && body.conversationCompleted ? body.conversationCompleted : null;
-        if (done && !activeChatMeta.completed.includes(done)) {
-          activeChatMeta = { ...activeChatMeta, completed: [...activeChatMeta.completed, done] };
-        }
-        const where = body.conversationHandoff && body.newStageName ? `${body.conversationHandoff} / ${body.newStageName}` : (body.newStageName ?? body.conversationHandoff ?? '');
-        const lines: string[] = [];
-        if (done) lines.push(t('agent-chat.progress.completed', 'Conversation complete: {name}', { name: done }));
-        if (body.detourReturned === true) lines.push(where ? t('agent-chat.progress.detour-returned', 'Returned from the detour to {where}', { where }) : t('agent-chat.progress.detour-returned-plain', 'Returned from the detour'));
-        if (typeof body.rejectedNextStage === 'string' && body.rejectedNextStage) lines.push(t('agent-chat.progress.stage-refused', 'Stayed in this stage: "{name}" is not a stage here', { name: body.rejectedNextStage }));
-        progressNotice = lines.length ? { chatId, text: lines.join(' · ') } : null;
-      }
+      applyRouting(chatId, body);
 
       // Refresh the list so lastMessageAt + derived title update
       refreshChatList();
@@ -875,7 +892,7 @@
             {/if}
           </div>
           {#if activeChatMeta && activeChatMeta.completed.length > 0}
-            <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-zinc-400" data-testid="completed-conversations-row">
+            <div class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400" data-testid="completed-conversations-row">
               <span>{t('agent-chat.progress.done-label', 'Done')}:</span>
               <ul class="flex flex-wrap gap-1.5" data-testid="completed-conversations">
                 {#each activeChatMeta.completed as name (name)}
@@ -893,7 +910,13 @@
         </div>
       {/if}
 
-      <div role="status" data-testid="chat-progress-notice" class={progressNotice && progressNotice.chatId === activeChatId ? 'mx-4 mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200' : 'sr-only'}>{progressNotice && progressNotice.chatId === activeChatId ? progressNotice.text : ''}</div>
+      <div role="status" data-testid="chat-progress-notice" class={progressNotice && progressNotice.chatId === activeChatId ? 'mx-4 mt-2 space-y-1' : 'sr-only'}>
+        {#if progressNotice && progressNotice.chatId === activeChatId}
+          {#each progressNotice.notes as note}
+            <p class="rounded-md border px-3 py-2 text-xs {note.tone === 'good' ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200' : 'border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300'}">{note.text}</p>
+          {/each}
+        {/if}
+      </div>
 
       {#if welcomeNotice}
         <div class="mx-4 mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">

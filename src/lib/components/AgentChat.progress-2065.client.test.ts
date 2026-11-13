@@ -38,7 +38,7 @@ async function startAndSend() {
   await tick();
   return m;
 }
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => { vi.unstubAllGlobals(); document.body.innerHTML = ''; });
 
 describe('AgentChat: completion, detour return and rejected stage (#2065)', () => {
   it('the status region is mounted before any cue exists, so a later cue is announced', async () => {
@@ -57,7 +57,7 @@ describe('AgentChat: completion, detour return and rejected stage (#2065)', () =
     stub({ conversationCompleted: 'intro' });
     const m = await startAndSend();
     expect(notice()!.textContent).toContain('intro');
-    expect(notice()!.textContent).toMatch(/complete/i);
+    expect(notice()!.textContent).toBe('Done: intro');
     expect(document.querySelector('[data-testid="completed-conversations"]')?.textContent).toContain('intro');
     m.unmount();
   });
@@ -65,16 +65,17 @@ describe('AgentChat: completion, detour return and rejected stage (#2065)', () =
   it('a detour return names where the chat came back to', async () => {
     stub({ detourReturned: true, stageTransitioned: true, conversationHandoff: 'main', newStageName: 'back-here' });
     const m = await startAndSend();
-    expect(notice()!.textContent).toMatch(/returned/i);
-    expect(notice()!.textContent).toContain('main');
-    expect(notice()!.textContent).toContain('back-here');
+    // the stage name alone: a conversation/stage path is a setup term (UX)
+    expect(notice()!.textContent).toBe('Back to back-here');
     m.unmount();
   });
 
   it('a rejected stage is a quiet note naming it, and the chat stays where it was', async () => {
     stub({ rejectedNextStage: 'nowhere' });
     const m = await startAndSend();
-    expect(notice()!.textContent).toContain('nowhere');
+    expect(notice()!.textContent).toContain('"nowhere"');
+    // a refused stage must not wear the success tone (UX P2)
+    expect(notice()!.querySelector('p')!.className).not.toContain('emerald');
     expect(text()).toContain('stage-one');
     expect(text()).not.toContain('Stage transitioned');
     m.unmount();
@@ -100,6 +101,43 @@ describe('AgentChat: completion, detour return and rejected stage (#2065)', () =
     await tick();
     const items = document.querySelectorAll('[data-testid="completed-conversations"] li');
     expect(items).toHaveLength(1);
+    m.unmount();
+  });
+});
+
+describe('AgentChat: the welcome turn is part of start (#2065, LOCAL F1/F2)', () => {
+  const SAVED = [{ role: 'assistant', content: 'the saved welcome', seq: 1, createdAt: '2026-01-01T00:00:01Z' }];
+  async function startOnly(start: Record<string, unknown>) {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/agent-chat/list')) return json({ chats: [{ ...CHAT }] });
+      if (url.includes('/api/agent-chat/start')) return json({ chatId: 'chats:c1', conversationName: 'intro', stageName: 'stage-one', welcomeMessage: null, welcomeError: null, scope: 'private', ...start });
+      if (url.includes('/api/agent-chat/resume')) return json({ chat: { ...CHAT }, messages: SAVED, hasOlder: false });
+      return json({});
+    }));
+    const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
+    await wait(20);
+    [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('New chat'))!.click();
+    await wait(60);
+    await tick();
+    return m;
+  }
+  it('a completion on the welcome turn fills the Done list and the notice', async () => {
+    const m = await startOnly({ welcomeMessage: 'hi', conversationCompleted: 'intro' });
+    expect(document.querySelector('[data-testid="completed-conversations"]')?.textContent).toContain('intro');
+    expect(notice()!.textContent).toBe('Done: intro');
+    m.unmount();
+  });
+  it('a refused stage on the welcome turn shows its quiet note', async () => {
+    const m = await startOnly({ welcomeMessage: 'hi', rejectedNextStage: 'nowhere' });
+    expect(notice()!.textContent).toContain('"nowhere"');
+    m.unmount();
+  });
+  it('an EDGE partial on the welcome turn reloads the saved reply and says so, never the generic hint', async () => {
+    const m = await startOnly({ welcomePartial: true, welcomeError: 'Saved reply copy.' });
+    expect(text()).toContain('the saved welcome');
+    expect(text()).toContain('Saved reply copy.');
+    expect(text()).not.toContain("Couldn't generate a welcome message");
     m.unmount();
   });
 });
