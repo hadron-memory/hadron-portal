@@ -32,7 +32,7 @@
   let failure = $state.raw<Request | null>(null);
   let heading: HTMLHeadingElement | undefined = $state();
 
-  /** Finding id → the offset it was served at, for this identity's read. Findings are immutable, so an id can only ever sit at one offset. */
+  /** Finding id → its ABSOLUTE position (page offset + index) in this identity's read. Findings are immutable, so an id sits at exactly one position, however the provider cuts its pages. */
   let served = new Map<string, number>();
   let generation = 0;
   let controller: AbortController | null = null;
@@ -64,9 +64,9 @@
     const page = read.page;
     const valid = page && typeof page === 'object' && page.taskId === taskId && page.offset === req.offset ? parseFindingsPage(page) : null;
     if (!valid) return { kind: 'failed' };
-    // A row already served at another offset means the provider is not advancing (adjacent or not): never "done", never a loop.
-    // Re-reading the SAME offset (Retry, First, Previous) is legitimate and passes.
-    if (valid.items.some((row) => served.has(row.id) && served.get(row.id) !== req.offset)) return { kind: 'failed' };
+    // A row already served at another absolute position means the provider is not advancing (adjacent or not): never "done", never a loop.
+    // Re-reading the same rows at the same positions (Retry, First, Previous) is legitimate and passes.
+    if (valid.items.some((row, i) => served.has(row.id) && served.get(row.id) !== req.offset + i)) return { kind: 'failed' };
     return { kind: 'page', page: { taskId, offset: req.offset, ...valid } };
   }
 
@@ -74,7 +74,7 @@
     const read = checked(raw, req);
     if (read.kind === 'page') {
       view = { kind: 'page', page: read.page }; history = req.history; failure = null;
-      for (const row of read.page.items) served.set(row.id, req.offset);
+      read.page.items.forEach((row, i) => served.set(row.id, req.offset + i));
     } else if (read.kind === 'failed') {
       // Keep a page that was already read only as retained data beside the failure; an initial failure has none.
       if (view.kind !== 'page') view = { kind: 'failed' };

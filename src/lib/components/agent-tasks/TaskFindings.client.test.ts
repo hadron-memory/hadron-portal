@@ -151,6 +151,30 @@ describe('a repeated page is refused wherever it recurs, not only next to itself
   });
 });
 
+describe('short provider pages: the repeated-row guard keys on absolute position', () => {
+  it('0:20 rows, 20:7 rows, 27:13 rows, then Previous to 20 returns 20 ordered rows and is accepted', async () => {
+    const f = vi.fn()
+      .mockResolvedValueOnce(reply(page('task', 20, rows(21, 7), 60, true)))
+      .mockResolvedValueOnce(reply(page('task', 27, rows(28, 13), 60, true)))
+      .mockResolvedValueOnce(reply(page('task', 20, rows(21, 20), 60, true)));
+    vi.stubGlobal('fetch', f);
+    const m = await setup(page('task', 0, rows(1, 20), 60, true));
+    button(m.target, 'Next').click(); await tick(8);
+    button(m.target, 'Next').click(); await tick(8);
+    expect(range(m.target)).toBe('Showing findings 28 to 40 of 60');
+    button(m.target, 'Previous').click(); await tick(8);
+    expect(m.target.querySelector('[data-testid="findings-failed"]')).toBeNull();
+    expect(range(m.target)).toBe('Showing findings 21 to 40 of 60');
+  });
+  it('a known id at a different absolute position is still refused', async () => {
+    const f = vi.fn().mockResolvedValueOnce(reply(page('task', 20, [row('F5'), ...rows(22, 6)], 60, true)));
+    vi.stubGlobal('fetch', f);
+    const m = await setup(page('task', 0, rows(1, 20), 60, true));
+    button(m.target, 'Next').click(); await tick(8);
+    expect(m.target.querySelector('[data-testid="findings-failed"]')).not.toBeNull();
+  });
+});
+
 describe('failures are never empty, and Retry is the section\'s own', () => {
   it('a failed Next keeps the page only as retained data, never advances, and Retry repeats the same offset', async () => {
     const f = vi.fn().mockRejectedValueOnce(new Error('private fault')).mockResolvedValueOnce(reply(page('task', 20, rows(21, 5), 25, false)));
