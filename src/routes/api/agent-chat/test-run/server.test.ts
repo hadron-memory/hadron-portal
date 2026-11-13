@@ -28,7 +28,7 @@ const mockJudgeAgentReply = vi.fn();
 const mockTestRegexSafely = vi.fn();
 
 vi.mock('$lib/server/api', () => ({
-  gqlClient: () => ({ request: (q: string, v?: unknown) => asTesterManager(mockRequest, ['a'])(q, v) }),
+  gqlClient: () => ({ request: (q: string, v?: unknown) => asTesterManager(mockRequest, { visibleAgentIds: ['a'] })(q, v) }),
 }));
 
 vi.mock('$lib/server/llm/agentChatTurn.js', () => ({

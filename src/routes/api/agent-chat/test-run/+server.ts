@@ -1,5 +1,5 @@
 import { gqlClient } from '$lib/server/api';
-import { resolveTesterAgent } from '$lib/server/agent-tester/resolve-agent';
+import { requireTesterAgent } from '$lib/server/agent-tester/resolve-agent';
 import { START_CHAT_MUTATION } from '$lib/server/queries';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
 import { llmModelVariable, resolveChatAi } from '$lib/server/llm/chatAi.js';
@@ -81,7 +81,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     // portal#2083: the Tester is manager-only. Same resolve as every other
     // Tester surface, BEFORE any AI resolution or startChat; a miss is the
     // existing not-found, a failed read lands in the catch below.
-    if (!(await resolveTesterAgent(client, body.agentId, locals.user?.id))) {
+    if (!(await requireTesterAgent(client, locals.user?.id, body.agentId))) {
       return json({ error: 'Agent not found or no longer available' }, 404);
     }
 

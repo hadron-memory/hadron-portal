@@ -17,7 +17,7 @@ async function canManageStrict(client: ReturnType<typeof gqlClient>, userId: str
 }
 
 /**
- * Resolve an agent the caller may use in the Tester (portal#2083: only one the
+ * The ONE gate every Tester surface goes through (portal#2099). Resolve an agent the caller may use (portal#2083: only one the
  * caller can MANAGE, since after hadron-server#4095 `startChat` refuses a
  * non-manager the Tester has no licensed App chat home to admit). The organization list
  * preserves its original member/admin scope; ownedByMe adds only the caller's
@@ -27,10 +27,10 @@ async function canManageStrict(client: ReturnType<typeof gqlClient>, userId: str
  * lookup and manage-read failures propagate so a temporary outage never becomes
  * a 404 or an admission. The server stays authoritative on every start.
  */
-export async function resolveTesterAgent(
+export async function requireTesterAgent(
   client: ReturnType<typeof gqlClient>,
-  agentId: string,
   userId: string | null | undefined,
+  agentId: string,
 ): Promise<{ agent: TesterAgent; org: Organization | null } | null> {
   // No user is a miss, decided before any lookup: nothing to ask the server about.
   if (!userId) return null;
@@ -52,14 +52,4 @@ async function findVisibleAgent(
   const owned = await fetchAllItems<TesterAgent>(client, MY_AGENTS_QUERY, 'agents');
   const agent = owned.find((a) => a.id === agentId);
   return agent ? { agent, org: null } : null;
-}
-
-/** A fixture requires an addressable system memory in addition to access. */
-export async function resolveTesterSystemMemory(
-  client: ReturnType<typeof gqlClient>,
-  agentId: string,
-  userId: string | null | undefined,
-): Promise<string | null> {
-  const resolved = await resolveTesterAgent(client, agentId, userId);
-  return resolved?.agent.systemMemoryId ?? null;
 }

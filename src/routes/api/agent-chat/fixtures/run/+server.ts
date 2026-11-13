@@ -5,7 +5,7 @@ import {
   UPDATE_NODE_MUTATION,
   NODE_BY_ID_QUERY,
 } from '$lib/server/queries';
-import { resolveTesterSystemMemory } from '$lib/server/agent-tester/resolve-agent';
+import { requireTesterAgent } from '$lib/server/agent-tester/resolve-agent';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
 import { llmModelVariable, resolveChatAi } from '$lib/server/llm/chatAi.js';
 import { ChatError, publicChatError } from '$lib/server/llm/chatError.js';
@@ -61,14 +61,6 @@ const EST_USD_PER_AGENT_TURN = 0.01;
 const EST_AGENT_TURNS_PER_FIXTURE = 2;
 const EST_USD_PER_JUDGE_CALL = 0.005;
 
-async function resolveAgent(token: string, userId: string | null | undefined, agentId: string): Promise<{
-  agentId: string;
-  systemMemoryId: string;
-} | null> {
-  const systemMemoryId = await resolveTesterSystemMemory(gqlClient(token), agentId, userId);
-  return systemMemoryId ? { agentId, systemMemoryId } : null;
-}
-
 interface RunBody {
   agentId?: string;
   fixtureLoc?: string | null;
@@ -88,11 +80,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   catch { return json({ error: 'Invalid JSON body' }, 400); }
   if (!body.agentId) return json({ error: 'agentId is required' }, 400);
 
-  const resolved = await resolveAgent(locals.token, locals.user?.id, body.agentId);
-  if (!resolved) return json({ error: 'Agent not found or no longer available' }, 404);
+  const systemMemoryId = (await requireTesterAgent(gqlClient(locals.token), locals.user?.id, body.agentId))?.agent.systemMemoryId;
+  if (!systemMemoryId) return json({ error: 'Agent not found or no longer available' }, 404);
 
   // Collect target fixtures.
-  const target = await loadFixtures(locals.token, resolved.systemMemoryId, body.fixtureLoc ?? null);
+  const target = await loadFixtures(locals.token, systemMemoryId, body.fixtureLoc ?? null);
   if (target.length === 0) {
     return json({ error: body.fixtureLoc ? 'Fixture not found' : 'No fixtures to run' }, 404);
   }
@@ -160,7 +152,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         r.baselineRefused = 'the assertion did not run, so there is no verdict to accept as a baseline';
       } else {
         try {
-          await persistNewBaseline(locals.token, resolved.systemMemoryId, t.loc, t.record, {
+          await persistNewBaseline(locals.token, systemMemoryId, t.loc, t.record, {
             reply: r.newReply, route: r.newRoute, verdict: r.newVerdict,
           });
         } catch {
