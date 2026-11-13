@@ -44,8 +44,15 @@ try {
   async function open(width, dark, touch) {
     const context = await browser.newContext({ viewport: { width, height: 800 }, hasTouch: touch, isMobile: touch });
     const page = await context.newPage();
+    // Everything that goes wrong in the page fails the leg (portal#2104): an
+    // uncaught error, a console error (the fixture logs any call it doesn't
+    // model) and a request that failed on the network. The delete failures
+    // the failure legs inject are answered inside the page's fetch stub, so
+    // they reach none of these and no allowance is needed.
     const errors = [];
-    page.on('pageerror', (e) => errors.push(e.message));
+    page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(`console.error: ${m.text()}`); });
+    page.on('requestfailed', (r) => errors.push(`requestfailed: ${r.method()} ${r.url()} ${r.failure()?.errorText ?? ''}`));
     await page.route('**/__chat_fixture*', (r) =>
       r.fulfill({ contentType: 'text/html', body: '<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agent chat fixture</title>' }),
     );
@@ -107,16 +114,22 @@ try {
       const lum = (c) =>
         0.2126 * ch(c[0]) + 0.7152 * ch(c[1]) + 0.0722 * ch(c[2]);
       const ch = (v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
-      const contrast = (el) => {
-        const s = getComputedStyle(el);
-        // Effective text colour: its own alpha and every ancestor's opacity.
-        let alpha = rgba(s.color)[3];
-        for (let n = el; n; n = n.parentElement) alpha *= Number(getComputedStyle(n).opacity);
-        const bg = background(el);
-        const fg = over([...rgba(s.color).slice(0, 3), alpha], bg);
+      const ratio = (fg, bg) => {
         const [hi, lo] = [lum(fg), lum(bg)].sort((x, y) => y - x);
         return (hi + 0.05) / (lo + 0.05);
       };
+      // Effective colour of `c` drawn on `el`: its own alpha and every
+      // ancestor's opacity, composited over the background under it.
+      const shown = (el, c) => {
+        let alpha = rgba(c)[3];
+        for (let n = el; n; n = n.parentElement) alpha *= Number(getComputedStyle(n).opacity);
+        const bg = background(el);
+        return [over([...rgba(c).slice(0, 3), alpha], bg), bg];
+      };
+      const contrast = (el) => ratio(...shown(el, getComputedStyle(el).color));
+      // The focus ring is drawn inside the button (negative offset), so it
+      // sits on the button's own composited background (portal#2104).
+      const ringContrast = (el) => ratio(...shown(el, getComputedStyle(el).outlineColor));
       const box = (el) => {
         const r = el.getBoundingClientRect();
         return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height };
@@ -140,6 +153,7 @@ try {
           contrast: contrast(el),
           label: (() => { const range = document.createRange(); range.selectNodeContents(el); return box(range); })(),
           focusRing: s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) > 0,
+          ringContrast: ringContrast(el),
         };
       };
       return {
@@ -149,6 +163,7 @@ try {
         badge: box(badge),
         // The count and time: the first text of the line after the row button.
         meta: box(button.nextElementSibling.querySelector('span')),
+        metaText: button.nextElementSibling.textContent.replace(/\s+/g, ' ').trim(),
         rename: part(action('Rename')),
         del: part(action('Delete')),
         coarse: matchMedia('(pointer: coarse)').matches,
@@ -157,7 +172,7 @@ try {
 
   const overlaps = (a, b) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
   const isRed = ([r, g, b]) => r > g + 60 && r > b + 60;
-  const focused = (page) => page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.textContent?.trim() ?? '');
+  const focused = (page) => page.evaluate(() => document.activeElement === document.body ? '<body>' : document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.textContent?.trim() ?? '');
 
   // 390 touch: phone, one pane. 640/768 fine: the App nav leaves the panel
   // below @2xl. 1024 fine: wide panel, quiet actions. 1024 touch: a touch
@@ -215,6 +230,11 @@ try {
       // The action labels read as part of the meta line, not below it.
       assert(Math.abs(r.rename.label.top - r.meta.top) <= 3, `${leg}: Rename's label is ${(r.rename.label.top - r.meta.top).toFixed(1)}px off the meta line`);
       if (!touch) assert(r.meta.top - r.title.bottom <= 8, `${leg}: meta line is ${(r.meta.top - r.title.bottom).toFixed(1)}px below the title`);
+      // The count's plural, and the separator only when there is a time to
+      // separate (portal#2104): A has 3 messages and a time, B 1 and none.
+      assert.match(r.metaText, /^3 msgs · \S/, `${leg}: A's meta line reads "${r.metaText}"`);
+      const rb = await row(page, B);
+      assert.equal(rb.metaText, '1 msg', `${leg}: B's meta line reads "${rb.metaText}"`);
 
       // ── Hover reveals (wide, mouse) ───────────────────────────────────
       if (!touch) {
@@ -244,6 +264,7 @@ try {
         const a = verb === 'Rename' ? r.rename : r.del;
         assert.equal(a.opacity, 1, `${leg}: ${verb} is focused while invisible`);
         assert(a.focusRing, `${leg}: ${verb} has no visible focus ring`);
+        assert(a.ringContrast >= 3, `${leg}: ${verb} focus ring contrast ${a.ringContrast.toFixed(2)} against the row`);
         assert(a.contrast >= 4.5, `${leg}: ${verb} contrast ${a.contrast.toFixed(2)} when focused`);
       }
       await page.keyboard.press('Tab');
@@ -308,6 +329,15 @@ try {
           assert.equal(a.opacity, 1, `${leg}: ${a.name} hidden on the selected row`);
           assert(a.contrast >= 4.5, `${leg}: ${a.name} contrast ${a.contrast.toFixed(2)} on the selected row`);
         }
+        // The focus ring on the selected row's background (portal#2104).
+        await sel.page.locator('[data-chat-row]').first().focus();
+        for (const verb of ['Rename', 'Delete']) {
+          await sel.page.keyboard.press('Tab');
+          assert.equal(await focused(sel.page), `${verb} chat ${A}`, `${leg}: Tab should reach ${verb} on the selected row`);
+          const a = (await row(sel.page, A))[verb === 'Rename' ? 'rename' : 'del'];
+          assert(a.focusRing, `${leg}: ${verb} has no visible focus ring on the selected row`);
+          assert(a.ringContrast >= 3, `${leg}: ${verb} focus ring contrast ${a.ringContrast.toFixed(2)} on the selected row`);
+        }
         if (shots) await sel.page.screenshot({ path: `${shots}/${leg.replace(/[ /]/g, '-')}-selected.png` });
         assert.deepEqual(sel.errors, [], `${leg}: page errors (selected)`);
         await sel.context.close();
@@ -336,6 +366,80 @@ try {
         assert.equal(await composer.inputValue(), 'keep typing after response', `${leg}: keystrokes lost after a slow delete`);
         assert.equal(await p.evaluate(() => window.__chat.calls.delete), 1, `${leg}: slow delete should call once`);
         assert.deepEqual(slow.errors, [], `${leg}: page errors (slow delete)`);
+        await slow.context.close();
+      }
+      // ── A failed delete hands focus back to that row's Delete ─────────
+      // (portal#2104). The dialog closes, the chat stays, the error shows in
+      // the existing turn-error copy. A network failure at every leg; the
+      // three failure shapes at 1024 light.
+      const kinds = width === 1024 && !touch && !dark ? ['network', 'json', 'text'] : ['network'];
+      const MESSAGE = { network: 'Failed to fetch', json: 'Delete refused', text: 'Failed' };
+      for (const kind of kinds) {
+        const f = await open(width, dark, touch);
+        const p = f.page;
+        const before = await p.evaluate(() => location.href);
+        await p.evaluate((k) => window.__chat.failDelete(k), kind);
+        const del = p.getByRole('button', { name: `Delete chat ${A}`, exact: true });
+        if (touch) await del.tap();
+        else await del.click();
+        await p.getByRole('heading', { name: 'Delete this chat?' }).waitFor();
+        await p.getByRole('button', { name: 'Delete', exact: true }).click();
+        await p.getByRole('heading', { name: 'Delete this chat?' }).waitFor({ state: 'detached' });
+        await p.getByRole('alert').filter({ hasText: MESSAGE[kind] }).waitFor();
+        await p.waitForFunction((name) => document.activeElement?.getAttribute('aria-label') === name, `Delete chat ${A}`, { timeout: 2000 })
+          .catch(async () => assert.fail(`${leg} ${kind}: focus is on ${JSON.stringify(await focused(p))} after a failed delete, not Delete chat ${A}`));
+        assert.equal(await p.getByRole('alert').count(), 1, `${leg} ${kind}: one error copy should show`);
+        assert.equal((await p.getByRole('alert').textContent()).trim(), MESSAGE[kind], `${leg} ${kind}: error text`);
+        assert.equal(await p.evaluate(() => window.__chat.calls.delete), 1, `${leg} ${kind}: one delete call`);
+        assert.equal(await p.getByRole('button', { name: `Rename chat ${A}`, exact: true }).count(), 1, `${leg} ${kind}: the chat should still be listed`);
+        assert.equal(await p.evaluate(() => location.href), before, `${leg} ${kind}: the URL changed`);
+        assert.equal(await p.evaluate(() => window.__chat.calls.resume), 0, `${leg} ${kind}: no chat should open`);
+        assert.deepEqual(f.errors, [], `${leg} ${kind}: page errors (failed delete)`);
+        await f.context.close();
+      }
+      // With a chat open, the error shows in the conversation pane and the
+      // open chat stays as it was.
+      if (!narrow) {
+        const f = await open(width, dark, touch);
+        const p = f.page;
+        await p.getByRole('button', { name: /^Second chat/ }).first().click();
+        await p.getByPlaceholder(/Type your message/).waitFor();
+        const before = await p.evaluate(() => location.href);
+        await p.evaluate(() => window.__chat.failDelete('json'));
+        await p.getByRole('button', { name: `Delete chat ${A}`, exact: true }).click();
+        await p.getByRole('heading', { name: 'Delete this chat?' }).waitFor();
+        await p.getByRole('button', { name: 'Delete', exact: true }).click();
+        await p.locator('main').getByText(MESSAGE.json, { exact: true }).waitFor();
+        await p.waitForFunction((name) => document.activeElement?.getAttribute('aria-label') === name, `Delete chat ${A}`, { timeout: 2000 })
+          .catch(async () => assert.fail(`${leg} open chat: focus is on ${JSON.stringify(await focused(p))} after a failed delete, not Delete chat ${A}`));
+        assert.equal(await p.evaluate(() => location.href), before, `${leg} open chat: the URL changed`);
+        assert.equal(await p.getByRole('heading', { name: B }).count(), 1, `${leg} open chat: the open chat changed`);
+        assert.equal(await p.getByRole('button', { name: `Rename chat ${A}`, exact: true }).count(), 1, `${leg} open chat: the chat should still be listed`);
+        assert.deepEqual(f.errors, [], `${leg}: page errors (failed delete, chat open)`);
+        await f.context.close();
+      }
+      // A slow failure must not take focus the person has since moved, the
+      // same as a slow success (#2102's ownership rule).
+      if (!narrow && !touch) {
+        const slow = await open(width, dark, touch);
+        const p = slow.page;
+        await p.getByRole('button', { name: /^Second chat/ }).first().click();
+        const composer = p.getByPlaceholder(/Type your message/);
+        await composer.waitFor();
+        await p.evaluate(() => { window.__chat.failDelete('network'); window.__release = window.__chat.holdDelete(); });
+        await p.getByRole('button', { name: `Delete chat ${A}`, exact: true }).click();
+        await p.getByRole('heading', { name: 'Delete this chat?' }).waitFor();
+        await p.getByRole('button', { name: 'Delete', exact: true }).click();
+        await composer.click();
+        await p.keyboard.type('keep typing');
+        await p.evaluate(() => window.__release());
+        await p.locator('main').getByText(MESSAGE.network, { exact: true }).waitFor();
+        await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+        await p.keyboard.type(' after failure');
+        assert.equal(await p.evaluate(() => document.activeElement?.tagName), 'TEXTAREA', `${leg}: a slow failed delete moved focus out of the composer`);
+        assert.equal(await composer.inputValue(), 'keep typing after failure', `${leg}: keystrokes lost after a slow failed delete`);
+        assert.equal(await p.evaluate(() => window.__chat.calls.delete), 1, `${leg}: slow failed delete should call once`);
+        assert.deepEqual(slow.errors, [], `${leg}: page errors (slow failed delete)`);
         await slow.context.close();
       }
       if (shots) {

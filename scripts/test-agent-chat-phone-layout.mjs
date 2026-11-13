@@ -41,7 +41,11 @@ try {
   async function open(width, dark, { query = '', refuseStart = false } = {}) {
     const page = await browser.newPage({ viewport: { width, height: 800 } });
     const errors = [];
-    page.on('pageerror', (e) => errors.push(e.message));
+    // Console errors and failed requests fail the leg too (portal#2104); the
+    // fixture logs any chat call it doesn't model as a console error.
+    page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(`console.error: ${m.text()}`); });
+    page.on('requestfailed', (r) => errors.push(`requestfailed: ${r.method()} ${r.url()} ${r.failure()?.errorText ?? ''}`));
     await page.route('**/__chat_fixture*', (r) =>
       r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Agent chat fixture</title>' }),
     );
