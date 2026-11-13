@@ -264,13 +264,26 @@ describe('Tester page load', () => {
     expect(data.agent).toMatchObject({ id: AGENT_ID, systemMemoryId: 'sys-mem-a' });
   });
 
-  // BASELINE (portal#2099, green on main): the failure reaches handleError unchanged.
-  // The next describe flips this to the fixed Tester copy.
-  it('baseline: a failed manage read propagates the thrown error as a non-404', async () => {
-    route('manage-read-fails');
-    const err = await load(locals()).then(() => null, (e: unknown) => e);
+  // portal#2099 item 4 (a RESPONSE CHANGE): every lookup failure on the page load is
+  // one fixed, localized Tester 500. It never carries server text, is never a 404,
+  // and never admits. Flips the baseline commit's propagation pin.
+  it.each([
+    ['organization list', ORGANIZATIONS_QUERY],
+    ['ownedByMe list', MY_AGENTS_QUERY],
+    ['manage read', SELF_CAN_MANAGE_QUERY],
+  ])('a failed %s answers the fixed Tester 500, with no upstream text', async (_name, failing) => {
+    route('manager', 'personal');
+    const routed = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation(async (q: string, v?: Record<string, unknown>) => {
+      if (q === failing) throw new Error('upstream 503');
+      return routed(q, v);
+    });
+    const err = (await load(locals()).then(() => null, (e: unknown) => e)) as { status?: number; body?: { message?: string } } | null;
     expect(err).not.toBeNull();
-    expect((err as { status?: number }).status).not.toBe(404);
-    expect((err as Error).message).toBe('upstream 503');
+    expect(err!.status).toBe(500);
+    expect(err!.body?.message).toBe('The Agent Tester could not be loaded. Please try again.');
+    expect(JSON.stringify(err)).not.toContain('upstream 503');
+    expect(mockResolveChatAi).not.toHaveBeenCalled();
+    expect(startChatCalls()).toBe(0);
   });
 });
