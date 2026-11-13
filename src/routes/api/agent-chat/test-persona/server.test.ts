@@ -18,7 +18,7 @@ const mockRequest = vi.fn();
 const mockRunChatTurn = vi.fn();
 
 vi.mock('$lib/server/api', () => ({
-  gqlClient: () => ({ request: (q: string, v?: unknown) => asTesterManager(mockRequest, ['agent-1'])(q, v) }),
+  gqlClient: () => ({ request: (q: string, v?: unknown) => asTesterManager(mockRequest, { visibleAgentIds: ['agent-1'] })(q, v) }),
 }));
 
 vi.mock('$lib/server/llm/agentChatTurn.js', () => ({

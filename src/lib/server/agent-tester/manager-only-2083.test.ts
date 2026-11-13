@@ -27,6 +27,7 @@ import {
   START_CHAT_MUTATION,
 } from '$lib/server/queries';
 import { __resetRateLimit } from '$lib/server/rate-limit';
+import { CHAT_ERROR } from '$lib/server/llm/chatError';
 
 const mockRequest = vi.fn();
 const mockResolveChatAi = vi.fn();
@@ -99,9 +100,18 @@ function jsonReq(url: string, method: string, body?: unknown) {
 }
 
 /** What "admitted" looks like past the gate, per surface, so a post-read crash cannot pass for admission. */
-const surfaces: Array<{ name: string; call: (l: ReturnType<typeof locals>) => Promise<Response>; admitted: (res: Response) => Promise<void> }> = [
+/**
+ * portal#2099: how a failed lookup or manage read leaves each handler TODAY.
+ * 'propagates' = the injected error escapes unchanged; 'mapped' = publicChatError
+ * catches it and the wire is status 500 with `{ error: CHAT_ERROR.failed, code: 'failed' }`
+ * (the wire field is `error`, not `message`).
+ */
+type FailureShape = 'propagates' | 'mapped';
+
+const surfaces: Array<{ name: string; failure: FailureShape; call: (l: ReturnType<typeof locals>) => Promise<Response>; admitted: (res: Response) => Promise<void> }> = [
   {
     name: 'fixtures GET',
+    failure: 'propagates',
     call: async (l) => {
       const { GET } = await import('../../../routes/api/agent-chat/fixtures/+server');
       const url = new URL(`http://test/api/agent-chat/fixtures?agentId=${AGENT_ID}`);
@@ -111,6 +121,7 @@ const surfaces: Array<{ name: string; call: (l: ReturnType<typeof locals>) => Pr
   },
   {
     name: 'fixtures POST',
+    failure: 'propagates',
     call: async (l) => {
       const { POST } = await import('../../../routes/api/agent-chat/fixtures/+server');
       const url = new URL('http://test/api/agent-chat/fixtures');
@@ -120,6 +131,7 @@ const surfaces: Array<{ name: string; call: (l: ReturnType<typeof locals>) => Pr
   },
   {
     name: 'fixtures DELETE',
+    failure: 'propagates',
     call: async (l) => {
       const { DELETE } = await import('../../../routes/api/agent-chat/fixtures/+server');
       const url = new URL(`http://test/api/agent-chat/fixtures?agentId=${AGENT_ID}&fixtureLoc=fixtures:abc`);
@@ -129,6 +141,7 @@ const surfaces: Array<{ name: string; call: (l: ReturnType<typeof locals>) => Pr
   },
   {
     name: 'fixtures run',
+    failure: 'propagates',
     call: async (l) => {
       const { POST } = await import('../../../routes/api/agent-chat/fixtures/run/+server');
       const url = new URL('http://test/api/agent-chat/fixtures/run');
@@ -138,6 +151,7 @@ const surfaces: Array<{ name: string; call: (l: ReturnType<typeof locals>) => Pr
   },
   {
     name: 'direct test-run',
+    failure: 'mapped',
     call: async (l) => {
       const { POST } = await import('../../../routes/api/agent-chat/test-run/+server');
       const url = new URL('http://test/api/agent-chat/test-run');
@@ -147,6 +161,7 @@ const surfaces: Array<{ name: string; call: (l: ReturnType<typeof locals>) => Pr
   },
   {
     name: 'scripted persona run (test-persona)',
+    failure: 'mapped',
     call: async (l) => {
       const { POST } = await import('../../../routes/api/agent-chat/test-persona/+server');
       const url = new URL('http://test/api/agent-chat/test-persona');
@@ -164,7 +179,7 @@ beforeEach(() => {
   __resetRateLimit();
 });
 
-describe.each(surfaces)('$name', ({ call, admitted }) => {
+describe.each(surfaces)('$name', ({ call, admitted, failure }) => {
   it('conceals the Tester from a non-manager (READER/CONTRIBUTOR) and never starts a chat', async () => {
     route('non-manager');
     expect(await status(() => call(locals()))).toBe(404);
@@ -200,6 +215,17 @@ describe.each(surfaces)('$name', ({ call, admitted }) => {
     expect(s === 'threw' || s >= 500).toBe(true);
     expect(mockResolveChatAi).not.toHaveBeenCalled();
     expect(startChatCalls()).toBe(0);
+  });
+
+  it('leaves a failed manage read exactly as today: the injected error, or the mapped 500', async () => {
+    route('manage-read-fails');
+    if (failure === 'propagates') {
+      await expect(call(locals())).rejects.toThrow('upstream 503');
+    } else {
+      const res = await call(locals());
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({ error: CHAT_ERROR.failed, code: 'failed' });
+    }
   });
 
   it.each([['org' as const], ['personal' as const]])('admits a manager (%s placement): not concealed', async (placement) => {
@@ -238,10 +264,13 @@ describe('Tester page load', () => {
     expect(data.agent).toMatchObject({ id: AGENT_ID, systemMemoryId: 'sys-mem-a' });
   });
 
-  it('propagates a failed manage read as a non-404 error', async () => {
+  // BASELINE (portal#2099, green on main): the failure reaches handleError unchanged.
+  // The next describe flips this to the fixed Tester copy.
+  it('baseline: a failed manage read propagates the thrown error as a non-404', async () => {
     route('manage-read-fails');
     const err = await load(locals()).then(() => null, (e: unknown) => e);
     expect(err).not.toBeNull();
     expect((err as { status?: number }).status).not.toBe(404);
+    expect((err as Error).message).toBe('upstream 503');
   });
 });
