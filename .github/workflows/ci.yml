@@ -81,6 +81,10 @@ jobs:
       - name: Check App agent chat phone layout
         run: pnpm test:agent-chat-phone-layout
 
+      # portal#2098: the chat list's Rename/Delete by keyboard, mouse and touch.
+      - name: Check App agent chat row actions
+        run: pnpm test:agent-chat-row-actions
+
       - name: Check node phone layout
         run: pnpm test:node-phone-layout
 
