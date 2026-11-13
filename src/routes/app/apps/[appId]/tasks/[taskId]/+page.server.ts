@@ -49,7 +49,7 @@ type PickMemory = { id: string; name: string; urn: string; visibility: string | 
  * the page doesn't invent one. The tree and history are separate reads that
  * fail independently; the facts still render when either fails.
  */
-export const load: PageServerLoad = async ({ params, locals, url }) => {
+export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   const client = gqlClient(locals.token);
 
   // The App first and alone: a viewer it refuses gets the App page's 404
@@ -67,7 +67,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
   // A task resolves by id alone; one reached under another App's URL moves to
   // its own (the runs/[runId] pattern).
-  if (task.appId !== app.id) redirect(303, `/app/apps/${task.appId}/tasks/${encodeURIComponent(task.id)}`);
+  if (task.appId !== app.id) {
+    // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
+    await parent();
+    redirect(303, `/app/apps/${task.appId}/tasks/${encodeURIComponent(task.id)}`);
+  }
 
   // portal#1090: an impersonation session writes nothing, so it gets no bar
   // and no picker read. Everyone else gets the bar; the server decides.
