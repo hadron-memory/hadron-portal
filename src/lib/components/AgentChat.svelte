@@ -759,6 +759,14 @@
     // one, else "+ New chat" (portal#2098).
     const at = chats.findIndex((c) => c.loc === chatId);
     const neighbour = chats[at + 1] ?? chats[at - 1] ?? null;
+    // The delete and the list refresh are network round trips. If the person
+    // moves on meanwhile (focuses or presses anything, anywhere), the focus is
+    // theirs: don't pull it back to the list when the answer lands.
+    let movedOn = false;
+    const moveOn = () => (movedOn = true);
+    document.addEventListener('focusin', moveOn, true);
+    document.addEventListener('pointerdown', moveOn, true);
+    document.addEventListener('keydown', moveOn, true);
     try {
       const res = await fetch('/api/agent-chat/delete', {
         method: 'POST',
@@ -780,13 +788,17 @@
       }
       await refreshChatList();
       await tick();
-      if (destroyed) return;
+      if (destroyed || movedOn) return;
       const next = neighbour && chats.some((c) => c.loc === neighbour.loc)
         ? rootEl?.querySelector<HTMLElement>(`[data-chat-row="${CSS.escape(neighbour.loc)}"]`)
         : null;
       (next ?? newChatButton)?.focus();
     } catch (e) {
       turnError = e instanceof Error ? e.message : 'Delete failed';
+    } finally {
+      document.removeEventListener('focusin', moveOn, true);
+      document.removeEventListener('pointerdown', moveOn, true);
+      document.removeEventListener('keydown', moveOn, true);
     }
   }
 
