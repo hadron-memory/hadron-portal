@@ -61,11 +61,11 @@ const EST_USD_PER_AGENT_TURN = 0.01;
 const EST_AGENT_TURNS_PER_FIXTURE = 2;
 const EST_USD_PER_JUDGE_CALL = 0.005;
 
-async function resolveAgent(token: string, agentId: string): Promise<{
+async function resolveAgent(token: string, userId: string | null | undefined, agentId: string): Promise<{
   agentId: string;
   systemMemoryId: string;
 } | null> {
-  const systemMemoryId = await resolveTesterSystemMemory(gqlClient(token), agentId);
+  const systemMemoryId = await resolveTesterSystemMemory(gqlClient(token), agentId, userId);
   return systemMemoryId ? { agentId, systemMemoryId } : null;
 }
 
@@ -88,7 +88,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   catch { return json({ error: 'Invalid JSON body' }, 400); }
   if (!body.agentId) return json({ error: 'agentId is required' }, 400);
 
-  const resolved = await resolveAgent(locals.token, body.agentId);
+  const resolved = await resolveAgent(locals.token, locals.user?.id, body.agentId);
   if (!resolved) return json({ error: 'Agent not found or no longer available' }, 404);
 
   // Collect target fixtures.

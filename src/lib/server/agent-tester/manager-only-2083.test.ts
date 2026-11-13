@@ -178,8 +178,10 @@ describe.each(surfaces)('$name', ({ call }) => {
   it.each([['org' as const], ['personal' as const]])('admits a manager (%s placement): not concealed', async (placement) => {
     route('manager', placement);
     mockResolveChatAi.mockRejectedValue(new Error('stop after admission'));
-    const s = await status(() => call(locals()));
-    expect(s).not.toBe(404);
+    const res = await call(locals()).then((r) => r, () => null);
+    // Past the gate: whatever else answers, it is not the concealing not-found.
+    const body = res ? await res.clone().json().catch(() => null) : null;
+    expect(body?.error).not.toBe('Agent not found or no longer available');
     // Admission means the manage check ran and said yes, not that it was skipped.
     expect(mockRequest.mock.calls.some(([q]) => q === SELF_CAN_MANAGE_QUERY)).toBe(true);
   });

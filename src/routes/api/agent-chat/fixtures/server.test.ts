@@ -11,10 +11,11 @@ import {
   FIXTURE_NODES_QUERY,
   NODE_QUERY,
 } from '$lib/server/queries';
+import { asTesterManager } from '$lib/test/tester-manage';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
-  gqlClient: () => ({ request: mockRequest }),
+  gqlClient: () => ({ request: (q: string, v?: unknown) => asTesterManager(mockRequest)(q, v) }),
 }));
 
 beforeEach(() => {
@@ -35,7 +36,7 @@ function ev(opts: { url?: string; method?: string; body?: unknown; token?: strin
   return {
     url,
     request: new Request(url, init),
-    locals: { token: opts.token === undefined ? 'test-token' : opts.token },
+    locals: { token: opts.token === undefined ? 'test-token' : opts.token, user: { id: 'u1' } },
   } as unknown as Parameters<Awaited<ReturnType<typeof importHandlers>>['GET']>[0];
 }
 

@@ -1482,10 +1482,13 @@
             <div class="mb-3 flex items-center justify-between">
               <h2 class="font-semibold text-zinc-900 dark:text-white">Conversations</h2>
               <div class="flex items-center gap-4">
-                <a href="/app/agents/{agent.id}/test"
-                  class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">
-                  Open Tester →
-                </a>
+                <!-- portal#2083: the Tester is manager-only (startChat refuses everyone else); unknown (null) hides it too. -->
+                {#if data.canManageAgent === true}
+                  <a href="/app/agents/{agent.id}/test"
+                    class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">
+                    Open Tester →
+                  </a>
+                {/if}
                 <a href="/app/agents/{agent.id}/conversations"
                   class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">
                   Open conversation editor →

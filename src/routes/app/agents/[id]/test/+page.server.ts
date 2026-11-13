@@ -18,7 +18,7 @@ import { drainFindNodes } from '$lib/server/paginate';
 // Neither list includes an unrelated private agent, so misses share one 404.
 export const load: PageServerLoad = async ({ params, locals }) => {
   const client = gqlClient(locals.token);
-  const resolved = await resolveTesterAgent(client, params.id);
+  const resolved = await resolveTesterAgent(client, params.id, locals.user?.id);
   if (!resolved) throw error(404, 'Agent not found or no longer available');
   const { agent, org } = resolved;
 
