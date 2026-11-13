@@ -31,6 +31,18 @@ export function entryConditionScopeViolation(condition: unknown): string | null 
       if (typeof path === 'string' && !ENTRY_CONDITION_SCOPES.includes(path.split('.')[0])) return path;
       continue;
     }
+    // missing / missing_some carry literal field paths too (server S6 checks them).
+    if (key === 'missing' || key === 'missing_some') {
+      const fields = key === 'missing' ? value : Array.isArray(value) ? value[1] : null;
+      if (Array.isArray(fields)) {
+        for (const f of fields) {
+          if (typeof f === 'string' && !ENTRY_CONDITION_SCOPES.includes(f.split('.')[0])) return f;
+        }
+      } else if (typeof fields === 'string' && !ENTRY_CONDITION_SCOPES.includes(fields.split('.')[0])) {
+        return fields;
+      }
+      continue;
+    }
     const hit = entryConditionScopeViolation(value);
     if (hit) return hit;
   }

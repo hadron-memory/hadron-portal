@@ -17,6 +17,13 @@ describe('entryConditionScopeViolation (Q15)', () => {
     expect(entryConditionScopeViolation({ or: [{ '==': [1, 1] }, { '==': [{ var: 'message.data.x' }, 1] }] })).toBe('message.data.x');
   });
 
+  it('names a chat.* or message.data.* field in missing / missing_some', () => {
+    expect(entryConditionScopeViolation({ missing: ['chat.stage'] })).toBe('chat.stage');
+    expect(entryConditionScopeViolation({ missing_some: [1, ['memory.a', 'message.data.x']] })).toBe('message.data.x');
+    expect(entryConditionScopeViolation({ missing: ['memory.a'] })).toBeNull();
+    expect(entryConditionScopeViolation({ missing_some: [1, ['agent.x']] })).toBeNull();
+  });
+
   it('keeps the allowed scope list in one exported place', () => {
     expect(ENTRY_CONDITION_SCOPES).toEqual(['memory', 'agent']);
   });

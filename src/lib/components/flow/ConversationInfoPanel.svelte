@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { invalidateAll } from '$app/navigation';
   import type { Infer, SuperValidated } from 'sveltekit-superforms';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -95,7 +96,7 @@
   // represent is shown read-only and written back unchanged.
   const seededStart = untrack(() => seedConditionState(conversation.entryCondition));
   let startCondition = $state<UiCondition>(seededStart.ui);
-  const startConditionUnrepresentable = seededStart.error;
+  let startConditionUnrepresentable = $state<string | null>(seededStart.error);
   const initialStartForm = untrack(() => startConditionForm);
   const {
     form: startData,
@@ -111,6 +112,23 @@
       scrollToError: 'smooth',
       autoFocusOnError: 'detect',
       clearOnSubmit: 'none',
+      onResult({ result }) {
+        // A confirmed Clear drops the armed condition from the builder too, so
+        // a following Save cannot write back what the user just cleared.
+        const posted = (result as { data?: { form?: { data?: { intent?: string } } } }).data?.form?.data?.intent;
+        if (result.type === 'success' && posted === 'clear') {
+          startCondition = seedConditionState(null).ui;
+          startConditionUnrepresentable = null;
+        }
+      },
+      // The server echoes the posted condition back into the form after the
+      // result; put the builder's value over it so the hidden field never
+      // re-arms a cleared condition.
+      onUpdated() {
+        startData.update((current) => (
+          current.condition === startConditionJson ? current : { ...current, condition: startConditionJson }
+        ), { taint: false });
+      },
     },
   );
   const startConditionJson = $derived(
@@ -141,7 +159,12 @@
       invalidateAll: 'force',
       clearOnSubmit: 'none',
       onSubmit() { moved = false; },
-      onResult({ result }) { moved = result.type === 'success'; },
+      onResult({ result }) {
+        moved = result.type === 'success';
+        // superforms only invalidates on success, so a partly-saved move
+        // (failure 500) must reload the stored order itself (B4).
+        if (result.type === 'failure') void invalidateAll();
+      },
     },
   );
   // aria-disabled, not disabled: a disabled button drops focus after the last

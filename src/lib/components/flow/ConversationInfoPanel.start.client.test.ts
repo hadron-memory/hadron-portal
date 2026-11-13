@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import ConversationInfoPanel from './ConversationInfoPanel.svelte';
 import { conversationEntryConditionDefaults, conversationEntryConditionSchema } from '$lib/flow/conversation-entry-condition-form';
 import { conversationMoveDefaults, conversationMoveSchema } from '$lib/flow/conversation-move-form';
@@ -155,5 +157,39 @@ describe('publish note (B5)', () => {
     const t = await open({ publishState: 'yes' });
     const orderForm = t.querySelector('form[action="?/moveConversation"]')!;
     expect(orderForm.textContent).not.toMatch(/publish/i);
+  });
+});
+
+describe('results the server answers with', () => {
+  const stored = { '==': [{ var: 'memory.a' }, 1] };
+
+  it('a confirmed Clear empties the builder so the next Save cannot restore the old condition', async () => {
+    const t = await open({ entryCondition: stored });
+    const form = t.querySelector<HTMLFormElement>('form[action="?/updateEntryCondition"]')!;
+    const input = () => t.querySelector<HTMLInputElement>('input[name="condition"]')!;
+    expect(JSON.parse(input().value)).toEqual(stored);
+    const posted = { id: 'conversationEntryCondition', valid: true, errors: {}, posted: true, data: { systemMemoryId: 'mem-1', convLoc: 'conversations:demo', condition: JSON.stringify(stored), intent: 'clear' }, message: { type: 'success', text: 'Cleared.' } };
+    await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { form: posted } });
+    await tick(5);
+    expect(JSON.parse(input().value)).toBeNull();
+  });
+
+  it('a Save result leaves the edited condition in place', async () => {
+    const t = await open({ entryCondition: stored });
+    const form = t.querySelector<HTMLFormElement>('form[action="?/updateEntryCondition"]')!;
+    const posted = { id: 'conversationEntryCondition', valid: true, errors: {}, posted: true, data: { systemMemoryId: 'mem-1', convLoc: 'conversations:demo', condition: JSON.stringify(stored), intent: 'save' }, message: { type: 'success', text: 'Saved.' } };
+    await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { form: posted } });
+    await tick(5);
+    expect(JSON.parse(t.querySelector<HTMLInputElement>('input[name="condition"]')!.value)).toEqual(stored);
+  });
+
+  it('a failed reorder reloads the stored order itself, a success leaves that to superforms', async () => {
+    resetNavigationCalls();
+    const t = await open();
+    const form = t.querySelector<HTMLFormElement>('form[action="?/moveConversation"]')!;
+    const data = { id: 'conversationMove', valid: true, errors: {}, posted: true, data: {}, message: { type: 'error', text: 'partly saved' } };
+    await submitEnhancedWithResult(form, { type: 'failure', status: 500, data: { form: data } });
+    await tick(5);
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
   });
 });
