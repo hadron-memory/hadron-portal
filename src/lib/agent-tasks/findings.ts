@@ -87,12 +87,22 @@ export function nextFindingsOffset(page: FindingsPage): number {
 /**
  * Characters that would reorder, hide or inject into what a reader sees, shown
  * as a visible `[U+XXXX]` instead of obeyed: C0 controls other than LF and TAB
- * (ESC, CR…), DEL and C1, the bidi marks/embeddings/overrides/isolates, and the
- * characters that render blank. Emoji joiners (U+200D), variation selectors
- * and combining marks are deliberately NOT here: they are part of valid text.
+ * (ESC, CR…), DEL and C1, the bidi marks/embeddings/overrides/isolates, the
+ * characters that render blank (Hangul fillers, the Braille blank), and since
+ * portal#2111 the zero-width and format characters that hide text (ZWSP, WORD
+ * JOINER, BOM, SOFT HYPHEN, MONGOLIAN VOWEL SEPARATOR) and the whole tag block
+ * U+E0000–E007F, which can smuggle invisible ASCII.
+ *
+ * Deliberately NOT here, because they are part of valid text: the emoji and
+ * script joiners (U+200D ZWJ, U+200C ZWNJ), variation selectors, combining
+ * marks, and a well-formed emoji tag sequence (a subdivision flag such as
+ * England's: U+1F3F4, 1–6 tag letters or digits, CANCEL TAG), which the
+ * first, captured alternative matches whole so its tags are never split out.
+ *
+ * Written with escapes only, so the set is auditable and survives copy-paste.
  * Display only; the stored text is never touched.
  */
-const REVEALED = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F؜‎‏‪-‮⁦-⁩ᅟᅠㅤﾠ⠀]/g;
+const REVEALED = /(\u{1F3F4}[\u{E0030}-\u{E0039}\u{E0061}-\u{E007A}]{1,6}\u{E007F})|[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u00AD\u061C\u115F\u1160\u180E\u200B\u200E\u200F\u202A-\u202E\u2060\u2066-\u2069\u2800\u3164\uFEFF\uFFA0\u{E0000}-\u{E007F}]/gu;
 
 export interface TextPart {
   text: string;
@@ -104,6 +114,7 @@ export function findingTextParts(text: string): TextPart[] {
   const parts: TextPart[] = [];
   let last = 0;
   for (const m of text.matchAll(REVEALED)) {
+    if (m[1] !== undefined) continue; // a kept emoji tag sequence stays inside the surrounding text
     if (m.index! > last) parts.push({ text: text.slice(last, m.index), marker: false });
     parts.push({ text: `[U+${m[0].codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}]`, marker: true });
     last = m.index! + m[0].length;
