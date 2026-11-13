@@ -199,7 +199,7 @@
         {#if c.column.id === 'text'}
           {@render literal(row.text, 'finding-text', 'select-text whitespace-pre-wrap break-words text-zinc-800 dark:text-zinc-200')}
         {:else if c.column.id === 'severity'}
-          {@render literal(row.severity, 'finding-severity', 'font-mono')}
+          {@render literal(row.severity, 'finding-severity', '[overflow-wrap:anywhere] font-mono')}
         {:else}
           {@render literal(row.id, 'finding-id', 'break-all font-mono')}
         {/if}
