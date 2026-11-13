@@ -349,6 +349,8 @@
           {t("grants.created-confirmation", "Grant created.")}
         </p>
         <GrantRecord
+          approvalStatus={data.signing}
+          {now}
           grant={returned}
           {actors}
           node={nodes?.[grantNodeRef(returned) ?? ""]}
@@ -384,6 +386,8 @@
       fitOnPhone
     >
       {#snippet cell(c)}<GrantRecord
+          approvalStatus={data.signing}
+          {now}
           grant={c.row.original}
           holder={holders[grantHolderKey(c.row.original)]}
           {actors}

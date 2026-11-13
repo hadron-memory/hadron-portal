@@ -1,10 +1,6 @@
 <script lang="ts">
   import type { Grant } from "$lib/grants/types";
-  import {
-    grantPending,
-    grantExpired,
-    grantSignable,
-  } from "$lib/grants/approval";
+  import { grantSignable } from "$lib/grants/approval";
   import { t } from "$lib/i18n/t";
   let {
     grant,
@@ -56,12 +52,4 @@
       )}
     </p>
   </form>
-{:else if enabled && grantPending(grant) && grantExpired(grant, now)}
-  <p class="mt-2 text-sm">
-    {t("grants.expired-on", "Expired on")}
-    <time datetime={grant.expiresAt!}>{grant.expiresAt}</time>; {t(
-      "grants.cannot-approve",
-      "cannot be approved",
-    )}.
-  </p>
 {/if}

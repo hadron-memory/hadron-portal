@@ -4,12 +4,15 @@
   import { onDestroy, tick } from "svelte";
   import { t } from "$lib/i18n/t";
   import GrantHistory from "./GrantHistory.svelte";
+  import GrantStatus from "./GrantStatus.svelte";
   import Urn from "$lib/components/Urn.svelte";
   import { grantNodeRef, type Grant, type Holder } from "$lib/grants/types";
   let {
     grant,
     holder,
     actors,
+    approvalStatus = false,
+    now = Date.now(),
     revokeAction,
     actionGrant,
     node,
@@ -22,6 +25,8 @@
     grant: Grant;
     holder?: Holder;
     actors?: Record<string, Holder>;
+    approvalStatus?: boolean;
+    now?: number;
     revokeAction?: string;
     actionGrant?: Grant | null;
     node?: Holder | null;
@@ -147,6 +152,7 @@
     {t("grants.created", "Created")}:
     <time datetime={shown.createdAt}>{shown.createdAt}</time>
   </p>
+  {#if approvalStatus}<GrantStatus grant={shown} {now} />{/if}
   <p>
     {t("grants.allows", "Allows now: {answer}", {
       answer: shown.allows ? t("common.yes", "Yes") : t("common.no", "No"),

@@ -38,6 +38,12 @@ afterEach(() => {
   resetStubPage();
 });
 describe("App manager single-grant approval", () => {
+  it("names pending status in collapsed page rows", () => {
+    const root = setup();
+    const row = root.querySelector("tbody tr")!;
+    expect(row.textContent).toContain("Waiting for approval");
+    expect(row.textContent).not.toContain("Grant ID");
+  });
   it("offers native exact-row Approve with new-tab disclosure and the current page offset", () => {
     const root = setup({ offset: 20 });
     const f = root.querySelector<HTMLFormElement>('form[action*="/approve"]');
