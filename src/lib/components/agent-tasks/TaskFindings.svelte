@@ -12,7 +12,7 @@
   import type { TaskReference } from '$lib/agent-tasks/references';
   import type { MemoriesRead } from '$lib/node-choices';
   import { DISPOSITION_CODES, dispositionLabel, dispositionsById, parseDispositionPage, type DispositionsRead } from '$lib/agent-tasks/dispositions';
-  import { findingTextParts, nextFindingsOffset, parseFindingsPage, type Finding, type FindingsPage, type FindingsRead } from '$lib/agent-tasks/findings';
+  import { FINDINGS_PROVIDER_MAX, findingTextParts, nextFindingsOffset, parseFindingsPage, type Finding, type FindingsPage, type FindingsRead } from '$lib/agent-tasks/findings';
 
   /**
    * portal#1637 — a finished task's immutable findings, read-only, after Result.
@@ -59,7 +59,11 @@
   let failure = $state.raw<Request | null>(null);
   let heading: HTMLHeadingElement | undefined = $state();
 
-  /** Finding id → its ABSOLUTE position (page offset + index) in this identity's read. Findings are immutable, so an id sits at exactly one position, however the provider cuts its pages. */
+  /**
+   * Finding id → its ABSOLUTE position (page offset + index) in this identity's read. The list is
+   * append-only and its order is stable (findings are immutable and never reordered), so an id sits at
+   * exactly one position however the provider cuts its pages; row immutability alone would not give that.
+   */
   let served = new Map<string, number>();
   let generation = 0;
   let controller: AbortController | null = null;
@@ -182,6 +186,8 @@
       else read = (await response.json()) as FindingsRead;
     } catch { read = { kind: 'failed' }; }
     // Identity and generation fence: a superseded answer is dropped before any state is written.
+    // The generation half carries every reachable case: a prop change runs begin() (and its bump) synchronously
+    // in the same flush, ahead of any queued continuation. The identity half is defense in depth (portal#2111).
     if (mine !== generation || issuedApp !== appId || issuedTask !== taskId) return;
     pending = false;
     await accept(read, req, trigger, ownedFocus);
@@ -253,15 +259,18 @@
     // The server pages; the grid shows exactly the rows it was served, in the order it served them.
     manualPagination: true,
     manualFiltering: true,
-    initialState: { pagination: { pageIndex: 0, pageSize: 200 } },
+    initialState: { pagination: { pageIndex: 0, pageSize: FINDINGS_PROVIDER_MAX } },
   });
+
+  const failedPage = t('app.tasks.findings.failed-page', 'Couldn’t load the page you asked for. These are the findings you were already reading.');
 
   /** Persistent live text: the range, the load, or the failure; never the findings' own text. */
   const status = $derived.by(() => {
     if (saved) return t('app.tasks.disposition.saved', 'Disposition saved.');
     if (saving) return t('app.tasks.disposition.saving', 'Saving…');
     if (pending) return t('app.tasks.findings.loading', 'Loading findings…');
-    if (failure) return t('app.tasks.findings.failed', 'Couldn’t load findings. Try again.');
+    // The same words the reader sees: a retained page has its own message (portal#2111).
+    if (failure) return view.kind === 'page' ? failedPage : t('app.tasks.findings.failed', 'Couldn’t load findings. Try again.');
     if (view.kind === 'no-result') return t('app.tasks.findings.no-result', 'This task has no result, so it has no findings.');
     if (view.kind === 'unavailable') return t('app.tasks.findings.unavailable', 'These findings aren’t available.');
     if (view.kind === 'page') {
@@ -279,6 +288,11 @@
   <!-- Always mounted, so a screen reader that registered it hears every change. -->
   <div role="status" aria-live="polite" class="sr-only" data-testid="findings-status">{status}</div>
 
+  <!-- Every provider-served value (id, severity, text) is shown literally, controls revealed, bidi isolated (portal#2111). -->
+  {#snippet literal(value: string, testid: string, extra: string)}
+    <div dir="auto" class="{extra} [unicode-bidi:isolate]" data-testid={testid}>{#each findingTextParts(value) as part, i (i)}{#if part.marker}<span class="mx-0.5 rounded bg-amber-100 px-1 font-mono text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">{part.text}</span>{:else}{part.text}{/if}{/each}</div>
+  {/snippet}
+
   {#if view.kind === 'loading'}
     <p class="text-sm text-zinc-500 dark:text-zinc-400" data-testid="findings-loading">{t('app.tasks.findings.loading', 'Loading findings…')}</p>
   {:else if view.kind === 'no-result'}
@@ -291,7 +305,7 @@
   {:else}
     {#if failure}
       <p class="mb-2 text-sm text-red-800 dark:text-red-300" data-testid="findings-failed">
-        {t('app.tasks.findings.failed-page', 'Couldn’t load the page you asked for. These are the findings you were already reading.')}
+        {failedPage}
         <button type="button" class="ml-2 {btn}" aria-disabled={pending} onclick={(e) => { if (!pending) retry(e); }}>{t('app.tasks.findings.retry', 'Retry')}</button>
       </p>
     {/if}
@@ -309,7 +323,7 @@
     <DataTable {table} listKey="tasks:immutable-findings" showSearch={false} showFooter={false} searchPlaceholder={t('app.tasks.findings', 'Findings')} searchAriaLabel={t('app.tasks.findings', 'Findings')} maxHeight="32rem">
       {#snippet cell(c, row)}
         {#if c.column.id === 'text'}
-          <div dir="auto" class="select-text whitespace-pre-wrap break-words text-zinc-800 [unicode-bidi:isolate] dark:text-zinc-200" data-testid="finding-text">{#each findingTextParts(row.text) as part, i (i)}{#if part.marker}<span class="mx-0.5 rounded bg-amber-100 px-1 font-mono text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">{part.text}</span>{:else}{part.text}{/if}{/each}</div>
+          {@render literal(row.text, 'finding-text', 'select-text whitespace-pre-wrap break-words text-zinc-800 dark:text-zinc-200')}
         {:else if c.column.id === 'disposition'}
           {@const d = byId?.get(row.id)}
           <div data-testid="finding-disposition" class="min-w-0">
@@ -329,9 +343,9 @@
             aria-label={byId?.get(row.id) ? t('app.tasks.disposition.change-label', 'Change the disposition of finding {id}', { id: row.id }) : t('app.tasks.disposition.record-label', 'Record a disposition for finding {id}', { id: row.id })}
             onclick={(e) => openForm(row.id, e.currentTarget as HTMLButtonElement)}>{byId?.get(row.id) ? t('app.tasks.disposition.change', 'Change') : t('app.tasks.disposition.record', 'Record')}</button>
         {:else if c.column.id === 'severity'}
-          <span class="font-mono">{row.severity}</span>
+          {@render literal(row.severity, 'finding-severity', 'font-mono')}
         {:else}
-          <span class="break-all font-mono">{row.id}</span>
+          {@render literal(row.id, 'finding-id', 'break-all font-mono')}
         {/if}
       {/snippet}
     </DataTable>

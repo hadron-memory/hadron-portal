@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { FINDINGS_PAGE_SIZE, findingTextParts, nextFindingsOffset, parseFindingsOffset, parseFindingsPage } from './findings';
+import { readFileSync } from 'node:fs';
+import { FINDINGS_PAGE_SIZE, FINDINGS_PROVIDER_MAX, findingTextParts, nextFindingsOffset, parseFindingsOffset, parseFindingsPage } from './findings';
 
 const f = (id: string, text = 't', severity = 'P2') => ({ id, severity, text });
 
@@ -31,7 +32,7 @@ describe('parseFindingsPage validates the runtime shape, not a cast', () => {
     ['hasMore not boolean', { ...ok, hasMore: 'no' }], ['hasMore missing', { items: ok.items, total: 2 }],
     ['empty page claiming more (non-advancing)', { items: [], total: 40, hasMore: true }],
     ['duplicate ids in one page', { items: [f('F1'), f('F1')], total: 2, hasMore: false }],
-    ['more rows than the provider maximum', { items: Array.from({ length: 201 }, (_, i) => f(`F${i}`)), total: 201, hasMore: false }],
+    ['more rows than the provider maximum', { items: Array.from({ length: FINDINGS_PROVIDER_MAX + 1 }, (_, i) => f(`F${i}`)), total: FINDINGS_PROVIDER_MAX + 1, hasMore: false }],
   ])('refuses %s', (_n, value) => { expect(parseFindingsPage(value)).toBeNull(); });
 });
 
@@ -70,3 +71,36 @@ describe('findingTextParts: literal text, controls made visible, nothing else to
     expect(Array.from(join(long)).length).toBe(2000);
   });
 });
+
+// portal#2111 — the characters outside design §15's set that still render blank or smuggle text.
+describe('findingTextParts: blank and tag characters are revealed too (portal#2111)', () => {
+  const join = (s: string) => findingTextParts(s).map((p) => p.text).join('');
+  it.each([
+    ['ZERO WIDTH SPACE', '​', '200B'], ['WORD JOINER', '⁠', '2060'], ['BOM / ZWNBSP', '﻿', 'FEFF'],
+    ['SOFT HYPHEN', '­', '00AD'], ['MONGOLIAN VOWEL SEPARATOR', '᠎', '180E'],
+    ['LANGUAGE TAG', '\u{E0001}', 'E0001'], ['TAG LATIN SMALL A', '\u{E0061}', 'E0061'], ['CANCEL TAG', '\u{E007F}', 'E007F'], ['TAG block start', '\u{E0000}', 'E0000'],
+  ])('reveals %s', (_n, ch, hex) => {
+    expect(join(`a${ch}b`)).toBe(`a[U+${hex}]b`);
+  });
+  it('reveals a smuggled ASCII-in-tags payload one code point at a time', () => {
+    const smuggled = 'ok' + Array.from('hi', (c) => String.fromCodePoint(0xE0000 + c.charCodeAt(0))).join('');
+    expect(join(smuggled)).toBe('ok[U+E0068][U+E0069]');
+  });
+  it('keeps a well-formed emoji tag sequence (a subdivision flag) intact', () => {
+    const england = '\u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}';
+    expect(join(`go ${england}!`)).toBe(`go ${england}!`);
+    expect(findingTextParts(england).some((p) => p.marker)).toBe(false);
+  });
+  it('still keeps the zero-width joiner and non-joiner that real scripts need', () => {
+    expect(join('a‍b‌c')).toBe('a‍b‌c');
+  });
+});
+
+describe('the neutralizer source is auditable (portal#2111)', () => {
+  it('REVEALED is written with escapes only, never literal invisible characters', () => {
+    const line = readFileSync('src/lib/agent-tasks/findings.ts', 'utf8').split('\n').find((l) => l.includes('const REVEALED'));
+    expect(line).toBeDefined();
+    expect(line!).toMatch(/^[\x20-\x7E]*$/);
+  });
+});
+
