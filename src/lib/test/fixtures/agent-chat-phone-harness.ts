@@ -52,7 +52,13 @@ export type AgentChatFixture = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boolean } = {}): AgentChatFixture {
+/**
+ * `rowActions` (portal#2098) answers rename and delete from a per-mount copy
+ * of the chats, so the row actions can be driven end to end; their calls are
+ * counted as `title` and `delete`, never as `writes`.
+ */
+export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boolean; rowActions?: boolean } = {}): AgentChatFixture {
+  const chats = CHATS.map((c) => ({ ...c }));
   navigationCalls.length = 0;
   // The recorder only records. SvelteKit's replaceState also changes the
   // address, and AgentChat reads `window.location` live before each sync, so
@@ -63,17 +69,17 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
       if (entry.fn === 'replaceState') history.replaceState(history.state, '', String(entry.args[0]));
     return record(...entries);
   };
-  const calls: Record<string, number> = { list: 0, resume: 0, start: 0, writes: 0 };
+  const calls: Record<string, number> = { list: 0, resume: 0, start: 0, writes: 0, title: 0, delete: 0 };
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.includes('/api/agent-chat/list')) {
       calls.list++;
-      return json({ chats: CHATS });
+      return json({ chats });
     }
     if (url.includes('/api/agent-chat/resume')) {
       calls.resume++;
       const { chatId } = JSON.parse(String(init?.body ?? '{}'));
-      const chat = CHATS.find((c) => c.loc === chatId);
+      const chat = chats.find((c) => c.loc === chatId);
       if (!chat) return json({ error: 'Chat not found' }, 404);
       return json({ chat, messages: MESSAGES, hasOlder: false });
     }
@@ -81,6 +87,22 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
       calls.start++;
       if (options.refuseStart) return json({ error: START_REFUSAL }, 400);
       return json({ chatId: 'chats:a', conversationName: CHATS[0].conversationName, stageName: CHATS[0].stageName, scope: 'private', welcomeMessage: 'Welcome back.' });
+    }
+    if (options.rowActions && url.includes('/api/agent-chat/title')) {
+      calls.title++;
+      const { chatId, title } = JSON.parse(String(init?.body ?? '{}'));
+      const chat = chats.find((c) => c.loc === chatId);
+      if (!chat) return json({ error: 'Chat not found' }, 404);
+      chat.title = title;
+      return json({ ok: true });
+    }
+    if (options.rowActions && url.includes('/api/agent-chat/delete')) {
+      calls.delete++;
+      const { chatId } = JSON.parse(String(init?.body ?? '{}'));
+      const at = chats.findIndex((c) => c.loc === chatId);
+      if (at < 0) return json({ error: 'Chat not found' }, 404);
+      chats.splice(at, 1);
+      return json({ ok: true });
     }
     // The served-prompt strip reads its records for the open chat: none here.
     if (url.includes('/api/served-prompts')) return json({ items: [], total: 0, offset: 0 });
