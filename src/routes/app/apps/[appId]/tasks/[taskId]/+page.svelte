@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TaskFindings from '$lib/components/agent-tasks/TaskFindings.svelte';
   import TaskHandBack from '$lib/components/agent-tasks/TaskHandBack.svelte';
   import TaskProperties from '$lib/components/agent-tasks/TaskProperties.svelte';
   import TaskReview from '$lib/components/agent-tasks/TaskReview.svelte';
@@ -287,6 +288,11 @@
       </div>
     {/if}
   </section>
+
+  <!-- portal#1637: a finished task's immutable findings, right after the Result they belong to. No result, no section. -->
+  {#if task.result}
+    <TaskFindings appId={data.app.id} taskId={task.id} initial={data.findings} />
+  {/if}
 
   <TaskHandBack handBack={task.handBack} />
 

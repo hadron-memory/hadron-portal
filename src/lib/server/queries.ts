@@ -5775,6 +5775,17 @@ export const TASK_BLOCKED_BY_PAGE_QUERY = /* GraphQL */ `
     agentTask(id: $id) { id appId blockedBy(limit: 200, offset: $offset) { items { id appId title handle status } hasMore } }
   }
 `;
+/**
+ * portal#1637: one page of a finished task's immutable findings (hadron-server#2662). A narrow read of its own,
+ * not a fragment of the shared task detail: the Findings section pages it, the rest of the page never does.
+ * appId rides along so the answer can be refused if it is not this App's task.
+ */
+export const AGENT_TASK_FINDINGS_QUERY = /* GraphQL */ `
+  query AgentTaskFindings($id: ID!, $limit: Int!, $offset: Int!) {
+    agentTask(id: $id) { id appId result { findings(limit: $limit, offset: $offset) { items { id severity text } total hasMore } } }
+  }
+`;
+
 export const TASK_BLOCKS_PAGE_QUERY = /* GraphQL */ `
   query TaskBlocksPage($id: ID!, $offset: Int!) {
     agentTask(id: $id) { id appId blocks(limit: 200, offset: $offset) { items { id appId title handle status } hasMore } }
