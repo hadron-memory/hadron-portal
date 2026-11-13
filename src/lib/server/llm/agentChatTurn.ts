@@ -20,6 +20,14 @@ export interface ChatTurnResult {
   chatEnded: boolean;
   onTrack: boolean;
   offTrackReason: string | null;
+  /** portal#2065: the conversation this turn completed (explicit goal_reached), or null. */
+  conversationCompleted: string | null;
+  /** portal#2065: this turn returned from a detour. */
+  detourReturned: boolean;
+  /** portal#2065: the stage name the model asked for that is not one of the conversation's stages; the chat did not move. */
+  rejectedNextStage: string | null;
+  /** portal#2065: the server dropped this turn's routing edits because a concurrent turn moved the chat. */
+  routingSkipped: boolean;
   usage?: { inputTokens?: number; outputTokens?: number };
 }
 
@@ -119,11 +127,20 @@ export async function runChatTurn(args: {
       chatEnded: boolean;
       onTrack: boolean;
       offTrackReason: string | null;
+      conversationCompleted: string | null;
+      detourReturned: boolean;
+      rejectedNextStage: string | null;
+      routingSkipped: boolean;
     };
   }>(PROCESS_CHAT_RESPONSE_MUTATION, {
     chatId,
     toolResponse: llmResult.respond,
   });
+
+  // portal#2065 B5: routingSkipped is for the log only, never for the reader. Chat id and the flag, no content.
+  if (processed.processChatResponse.routingSkipped === true) {
+    console.info('[agent-chat] routingSkipped', JSON.stringify({ chatId, routingSkipped: true }));
+  }
 
   // 5. Fire-and-forget summarization if the chat has grown past the
   //    trigger count. We run a separate LLM call with the summarization
@@ -159,6 +176,10 @@ export async function runChatTurn(args: {
     chatEnded: processed.processChatResponse.chatEnded,
     onTrack: processed.processChatResponse.onTrack,
     offTrackReason: processed.processChatResponse.offTrackReason,
+    conversationCompleted: processed.processChatResponse.conversationCompleted ?? null,
+    detourReturned: processed.processChatResponse.detourReturned === true,
+    rejectedNextStage: processed.processChatResponse.rejectedNextStage ?? null,
+    routingSkipped: processed.processChatResponse.routingSkipped === true,
     usage: llmResult.usage,
   };
 }
