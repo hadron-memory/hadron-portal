@@ -272,6 +272,15 @@ export async function loadComposition(client: GraphQLClient, appRef: string): Pr
  * a mutation identity.
  */
 export async function canonicalTaskId(client: GraphQLClient, appId: string, segment: string): Promise<string> {
+  return (await canonicalTaskRef(client, appId, segment)).taskId;
+}
+
+/**
+ * {@link canonicalTaskId}, also returning the canonical id of the App the URL
+ * named (by id, slug or URN), so a caller that checks a later read's `appId`
+ * compares it against the resolved App rather than the URL's form (portal#2111).
+ */
+export async function canonicalTaskRef(client: GraphQLClient, appId: string, segment: string): Promise<{ appId: string; taskId: string }> {
   const app = await loadTasksApp(client, appId);
   if (!app) throw error(404, 'App not found');
   const seg = resolveSegment(segment, app.urn);
@@ -285,7 +294,7 @@ export async function canonicalTaskId(client: GraphQLClient, appId: string, segm
     throw e;
   }
   if (!r.agentTask || r.agentTask.appId !== app.id) throw error(404, 'Task not found, or you can’t see it');
-  return r.agentTask.id;
+  return { appId: app.id, taskId: r.agentTask.id };
 }
 
 /** The resolution read's answers that mean "not one you can see": never told apart (portal#1349). */

@@ -32,7 +32,7 @@ function provider(opts: { result?: 'finished' | 'null'; rows?: ReturnType<typeof
     return out.data;
   };
 }
-const event = (offset?: string) => ({ locals: { token: 'viewer' }, params: { appId: 'app', taskId: 'AT1' }, url: new URL(`http://localhost/findings${offset === undefined ? '' : `?offset=${offset}`}`) }) as never;
+const event = (offset?: string, appId = 'app') => ({ locals: { token: 'viewer' }, params: { appId, taskId: 'AT1' }, url: new URL(`http://localhost/findings${offset === undefined ? '' : `?offset=${offset}`}`) }) as never;
 beforeEach(() => { seen.length = 0; request.mockReset().mockImplementation(provider()); });
 afterEach(() => { vi.useRealTimers(); });
 
@@ -98,13 +98,13 @@ describe('GET /tasks/[taskId]/findings', () => {
   });
   // portal#2111 — the URL's App segment may be a URN or slug; the task's appId check must use the RESOLVED App id, as the loader does.
   it('resolves the App from the URL once and checks the task against its canonical id, whatever form the URL used', async () => {
-    const byUrn = { ...event('0'), params: { appId: app.urn, taskId: 'AT1' } } as never;
+    const byUrn = event('0', app.urn);
     expect(await (await GET(byUrn)).json()).toEqual({ kind: 'page', page: { taskId: 'canonical', offset: 0, items: stored.slice(0, 20), total: 57, hasMore: true } });
     expect(seen.filter((d) => d === AGENT_TASKS_APP_QUERY)).toHaveLength(1);
   });
   it('a task row from another App is still refused when the URL named the App by URN', async () => {
     request.mockImplementation(provider({ appId: 'foreign' }));
-    const byUrn = { ...event('0'), params: { appId: app.urn, taskId: 'AT1' } } as never;
+    const byUrn = event('0', app.urn);
     expect(await (await GET(byUrn)).json()).toEqual({ kind: 'failed' });
   });
   it('defaults the offset to 0', async () => { expect((await (await GET(event())).json()).page.offset).toBe(0); });
