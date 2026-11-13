@@ -11,7 +11,7 @@
   import type { WriteRefusal } from '$lib/agent-tasks/actions';
   import type { TaskReference } from '$lib/agent-tasks/references';
   import type { MemoriesRead } from '$lib/node-choices';
-  import { DISPOSITION_CODES, dispositionLabel, dispositionsById, parseDispositionPage, type DispositionsRead } from '$lib/agent-tasks/dispositions';
+  import { DISPOSITION_CODES, DISPOSITIONS_MAX_PAGES, DISPOSITIONS_PROVIDER_MAX, dispositionLabel, dispositionsById, parseDispositionPage, type DispositionsRead } from '$lib/agent-tasks/dispositions';
   import { FINDINGS_PROVIDER_MAX, findingTextParts, nextFindingsOffset, parseFindingsPage, type Finding, type FindingsPage, type FindingsRead } from '$lib/agent-tasks/findings';
 
   /**
@@ -100,7 +100,7 @@
       else {
         const body = (await response.json()) as DispositionsRead;
         if (body?.kind === 'ok') {
-          const parsed = parseDispositionPage({ items: body.items, total: body.total, hasMore: false });
+          const parsed = parseDispositionPage({ items: body.items, total: body.total, hasMore: false }, DISPOSITIONS_MAX_PAGES * DISPOSITIONS_PROVIDER_MAX);
           read = parsed && parsed.items.length === parsed.total ? { kind: 'ok', items: parsed.items, total: parsed.total } : { kind: 'failed' };
         } else read = body?.kind === 'unavailable' ? { kind: 'unavailable' } : { kind: 'failed' };
       }

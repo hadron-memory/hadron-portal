@@ -51,10 +51,10 @@ export function dispositionLabel(code: string): string {
  * means "treat as failed": a malformed page must never read as "nothing disposed".
  * A finding id appears once (the server keeps the latest), so a repeat is malformed.
  */
-export function parseDispositionPage(value: unknown): { items: FindingDisposition[]; total: number; hasMore: boolean } | null {
+export function parseDispositionPage(value: unknown, maxItems: number = DISPOSITIONS_PROVIDER_MAX): { items: FindingDisposition[]; total: number; hasMore: boolean } | null {
   if (typeof value !== 'object' || value === null) return null;
   const { items, total, hasMore } = value as Record<string, unknown>;
-  if (!Array.isArray(items) || items.length > DISPOSITIONS_PROVIDER_MAX) return null;
+  if (!Array.isArray(items) || items.length > maxItems) return null;
   if (typeof total !== 'number' || !Number.isSafeInteger(total) || total < 0) return null;
   if (typeof hasMore !== 'boolean') return null;
   if (hasMore && items.length === 0) return null;

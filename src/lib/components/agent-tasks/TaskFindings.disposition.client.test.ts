@@ -87,6 +87,13 @@ describe('the disposition column', () => {
     await deliver({ type: 'success', status: 200, data: { action: 'disposeFinding', ok: true } }); await tick(8);
     expect(calls.length).toBe(before);
   });
+  it('an aggregate larger than one provider page (201 to 2000 rows) is shown, not Unknown', async () => {
+    const rows = Array.from({ length: 450 }, (_, i) => disp(`G${i}`, 'fixed'));
+    stub(() => reply({ kind: 'ok', items: rows, total: 450 }));
+    const m = await setup();
+    expect(new Set(cells(m.target))).toEqual(new Set(['Not yet']));
+    expect(m.target.querySelector('[data-testid="dispositions-failed"]')).toBeNull();
+  });
   it('reads once per identity: paging the findings neither re-reads nor aborts it', async () => {
     const calls = stub((url) => (url.endsWith('/dispositions') ? reply(okSet()) : reply({ kind: 'page', page: { taskId: 'task', offset: 5, items: [row('F6')], total: 6, hasMore: false } })));
     const m = await setup({ initial: { kind: 'page', page: { taskId: 'task', offset: 0, items: [row('F1'), row('F2'), row('F3'), row('F4'), row('F5')], total: 6, hasMore: true } } });
