@@ -72,6 +72,21 @@ describe('the disposition column', () => {
     const m = await setup();
     expect(new Set(cells(m.target))).toEqual(new Set(['Unknown']));
   });
+  it('a set with fewer rows than its declared total is Unknown, never “Not yet” for the missing ones', async () => {
+    stub(() => reply({ kind: 'ok', items: [disp('F1', 'fixed')], total: 2 }));
+    const m = await setup();
+    expect(new Set(cells(m.target))).toEqual(new Set(['Unknown']));
+  });
+  it('a Save delivered after unmount starts no new read', async () => {
+    const calls = stub(() => reply(okSet()));
+    const m = await setup();
+    buttons(m.target)[0]!.click(); await tick(8);
+    const deliver = await beginEnhanced(formOf(m.target));
+    const before = calls.length;
+    m.unmount(); mounted.pop();
+    await deliver({ type: 'success', status: 200, data: { action: 'disposeFinding', ok: true } }); await tick(8);
+    expect(calls.length).toBe(before);
+  });
   it('reads once per identity: paging the findings neither re-reads nor aborts it', async () => {
     const calls = stub((url) => (url.endsWith('/dispositions') ? reply(okSet()) : reply({ kind: 'page', page: { taskId: 'task', offset: 5, items: [row('F6')], total: 6, hasMore: false } })));
     const m = await setup({ initial: { kind: 'page', page: { taskId: 'task', offset: 0, items: [row('F1'), row('F2'), row('F3'), row('F4'), row('F5')], total: 6, hasMore: true } } });

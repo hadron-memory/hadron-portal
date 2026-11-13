@@ -130,6 +130,13 @@ describe('taskDispositions', () => {
   });
 });
 
+describe('taskDispositions completeness', () => {
+  it('a final page that holds fewer rows than the declared total is failed, never a partial ok', async () => {
+    const short = vi.fn().mockResolvedValue({ agentTask: { id: 'canonical', appId: 'app-1', findingDispositions: { items: [{ findingId: 'F1', disposition: 'fixed', reference: null }], total: 2, hasMore: false } } });
+    expect(await taskDispositions({ request: short } as never, 'app-1', 'canonical')).toEqual({ kind: 'failed' });
+  });
+});
+
 describe('dispositions endpoint', () => {
   const ev = () => ({ locals: { token: 'viewer' }, params: { appId: 'app-1', taskId: 'AT1' } }) as never;
   it('answers no-store; a readable task is the set, an unreadable one the same neutral 404', async () => {

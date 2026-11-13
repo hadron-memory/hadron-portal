@@ -12,7 +12,7 @@ type Response = { agentTask: { id: string; appId: string; findingDispositions?: 
  * The answer is typed so a failed read can never pass for "nothing disposed":
  *  - a null task is the neutral `unavailable` (missing and unreadable are not told apart);
  *  - an empty set is a valid `ok` with no rows;
- *  - a fault, a malformed page, a row repeated across pages, a task of another App, or a walk
+ *  - a fault, a malformed page, a row repeated across pages, a task of another App, a final page whose rows fall short of (or exceed) the declared total, or a walk
  *    that does not finish inside {@link DISPOSITIONS_MAX_PAGES} pages is `failed`: a partial set
  *    would show a finding as undisposed when it is not.
  * Never throws; never logs a provider message or a finding's text.
@@ -40,7 +40,7 @@ export async function taskDispositions(client: GraphQLClient, appId: string, tas
       items.push(row);
     }
     total = parsed.total;
-    if (!parsed.hasMore) return { kind: 'ok', items, total };
+    if (!parsed.hasMore) return items.length === total ? { kind: 'ok', items, total } : { kind: 'failed' };
   }
   return { kind: 'failed' };
 }

@@ -77,7 +77,7 @@
   let dispGeneration = 0;
   let dispController: AbortController | null = null;
   const cancelDispositions = () => { dispGeneration++; dispController?.abort(); dispController = null; };
-  onDestroy(() => { cancel(); cancelDispositions(); });
+  onDestroy(() => { cancel(); cancelDispositions(); editGeneration++; });
 
   // A new identity, or a new loader read for the same identity, supersedes whatever this section holds.
   $effect(() => {
@@ -101,7 +101,7 @@
         const body = (await response.json()) as DispositionsRead;
         if (body?.kind === 'ok') {
           const parsed = parseDispositionPage({ items: body.items, total: body.total, hasMore: false });
-          read = parsed ? { kind: 'ok', items: parsed.items, total: parsed.total } : { kind: 'failed' };
+          read = parsed && parsed.items.length === parsed.total ? { kind: 'ok', items: parsed.items, total: parsed.total } : { kind: 'failed' };
         } else read = body?.kind === 'unavailable' ? { kind: 'unavailable' } : { kind: 'failed' };
       }
     } catch { read = { kind: 'failed' }; }
