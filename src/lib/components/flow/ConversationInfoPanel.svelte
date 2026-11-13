@@ -159,11 +159,13 @@
       invalidateAll: 'force',
       clearOnSubmit: 'none',
       onSubmit() { moved = false; },
-      onResult({ result }) {
+      // Awaited: superforms waits for onResult before it applies the failure
+      // message, so a late reload cannot erase the 'partly saved' alert.
+      async onResult({ result }) {
         moved = result.type === 'success';
         // superforms only invalidates on success, so a partly-saved move
-        // (failure 500) must reload the stored order itself (B4).
-        if (result.type === 'failure') void invalidateAll();
+        // (failure 500, or a thrown action) must reload the stored order itself (B4).
+        if (result.type === 'failure' || result.type === 'error') await invalidateAll();
       },
     },
   );

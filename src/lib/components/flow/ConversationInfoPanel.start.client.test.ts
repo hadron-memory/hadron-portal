@@ -5,9 +5,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
-import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { mountComponent, tick, wait, type Mounted } from '$lib/test/mountComponent';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
-import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import ConversationInfoPanel from './ConversationInfoPanel.svelte';
 import { conversationEntryConditionDefaults, conversationEntryConditionSchema } from '$lib/flow/conversation-entry-condition-form';
 import { conversationMoveDefaults, conversationMoveSchema } from '$lib/flow/conversation-move-form';
@@ -191,5 +191,16 @@ describe('results the server answers with', () => {
     await submitEnhancedWithResult(form, { type: 'failure', status: 500, data: { form: data } });
     await tick(5);
     expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
+  });
+
+  it('applies a failed reorder\'s message only after the reload has finished', async () => {
+    resetNavigationCalls();
+    const t = await open();
+    const form = t.querySelector<HTMLFormElement>('form[action="?/moveConversation"]')!;
+    let reloaded = false;
+    navigationHooks.onInvalidateAll = async () => { await wait(20); reloaded = true; };
+    const data = { id: 'conversationMove', valid: true, errors: {}, posted: true, data: {}, message: { type: 'error', text: 'partly saved' } };
+    await submitEnhancedWithResult(form, { type: 'failure', status: 500, data: { form: data } });
+    expect(reloaded).toBe(true);
   });
 });

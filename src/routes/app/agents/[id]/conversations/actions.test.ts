@@ -869,6 +869,14 @@ describe('updateEntryCondition', () => {
     });
   });
 
+  it('echoes the posted intent in the returned form, which the panel reads to reset after Clear', async () => {
+    routeConversationTraffic([{ id: 'c1', loc: 'conversations:demo', seq: 1, data: { ...stored, entryCondition: cond } }]);
+    const result = (await runAction('updateEntryCondition', {
+      systemMemoryId: 'mem-1', convLoc: 'conversations:demo', condition: 'null', intent: 'clear',
+    })) as { form: { data: { intent: string } } };
+    expect(result.form.data.intent).toBe('clear');
+  });
+
   it('Clear removes only entryCondition', async () => {
     const writes = routeConversationTraffic([
       { id: 'c1', loc: 'conversations:demo', seq: 1, data: { ...stored, entryCondition: cond } },
