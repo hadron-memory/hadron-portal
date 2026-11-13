@@ -1,3 +1,4 @@
+import { grantActorRefs } from "$lib/grants/approval";
 import {
   grantHolderKey,
   grantNodeRef,
@@ -97,7 +98,37 @@ export function parseGrantList(
   }
   // Count and rows are separate server reads: a concurrent change may make the
   // reported total lag the rows. Do not turn that legal payload into absence.
+  const actors: Record<string, Holder> = Object.create(null);
+  if (raw.actors !== undefined) {
+    if (!object(raw.actors) || Object.keys(raw.actors).length > 100)
+      return null;
+    const expectedActors = new Set(
+      items.flatMap(grantActorRefs).map((a) => a.kind + ":" + a.id),
+    );
+    for (const [key, value] of Object.entries(raw.actors)) {
+      const actor = holder(value);
+      if (
+        !actor ||
+        !expectedActors.has(key) ||
+        !["USER:", "WORKER:"].some((prefix) => key === prefix + actor.id)
+      )
+        return null;
+      actors[key] = actor;
+    }
+  }
+  for (const g of items) {
+    for (const field of [
+      "requestedByUserId",
+      "requestedByWorkerId",
+      "issuerUserId",
+      "verifiedBy",
+      "revokedByUserId",
+    ] as const) {
+      if (g[field] !== undefined && !nullableText(g[field])) return null;
+    }
+  }
   return {
+    actors,
     appId: scope.appId,
     viewerId: scope.viewerId,
     offset: scope.offset,

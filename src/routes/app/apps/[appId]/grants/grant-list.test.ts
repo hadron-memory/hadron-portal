@@ -127,4 +127,19 @@ describe("owned Grants read", () => {
     expect(await read).toBeNull();
     resolve({ ok: true, json: async () => body() });
   });
+  it("accepts only typed actor references belonging to the served grants", () => {
+    const b: any = body();
+    b.grants.items = [{ ...b.grants.items[0], issuerUserId: "signer" }];
+    b.actors = {
+      "USER:signer": { id: "signer", name: "Signer", urn: "hrn:user:signer" },
+    };
+    expect(parseGrantList(b, scope)?.actors?.["USER:signer"].name).toBe(
+      "Signer",
+    );
+    b.actors["USER:other"] = { id: "other", name: "Foreign actor" };
+    expect(parseGrantList(b, scope)).toBeNull();
+    delete b.actors["USER:other"];
+    b.grants.items[0].verifiedBy = 42;
+    expect(parseGrantList(b, scope)).toBeNull();
+  });
 });
