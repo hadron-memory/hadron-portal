@@ -47,6 +47,8 @@ export type AgentChatFixture = {
   stop: () => void;
   calls: Record<string, number>;
   navigationCalls: typeof navigationCalls;
+  /** Hold the next delete answers until the returned function is called. */
+  holdDelete: () => () => void;
 };
 
 const json = (body: unknown, status = 200) =>
@@ -70,6 +72,16 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
     return record(...entries);
   };
   const calls: Record<string, number> = { list: 0, resume: 0, start: 0, writes: 0, title: 0, delete: 0 };
+  // A held delete answers only once released, so a test can act in between.
+  let deleteGate: Promise<void> | null = null;
+  const holdDelete = () => {
+    let release = () => {};
+    deleteGate = new Promise<void>((resolve) => (release = resolve));
+    return () => {
+      deleteGate = null;
+      release();
+    };
+  };
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.includes('/api/agent-chat/list')) {
@@ -98,6 +110,7 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
     }
     if (options.rowActions && url.includes('/api/agent-chat/delete')) {
       calls.delete++;
+      if (deleteGate) await deleteGate;
       const { chatId } = JSON.parse(String(init?.body ?? '{}'));
       const at = chats.findIndex((c) => c.loc === chatId);
       if (at < 0) return json({ error: 'Chat not found' }, 404);
@@ -123,5 +136,5 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
       ] as never,
     },
   });
-  return { stop: () => unmount(component), calls, navigationCalls };
+  return { stop: () => unmount(component), calls, navigationCalls, holdDelete };
 }

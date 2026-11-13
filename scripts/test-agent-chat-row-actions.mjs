@@ -312,6 +312,32 @@ try {
         assert.deepEqual(sel.errors, [], `${leg}: page errors (selected)`);
         await sel.context.close();
       }
+      // ── A slow delete must not take focus the person has since moved ──
+      // (LOCAL on #2102): with B open, confirm deleting A while its answer is
+      // held, click into B's composer and type, then release the answer.
+      // Focus stays in the composer and no keystroke is lost.
+      if (!narrow && !touch) {
+        const slow = await open(width, dark, touch);
+        const p = slow.page;
+        await p.getByRole('button', { name: /^Second chat/ }).first().click();
+        const composer = p.getByPlaceholder(/Type your message/);
+        await composer.waitFor();
+        await p.evaluate(() => { window.__release = window.__chat.holdDelete(); });
+        await p.getByRole('button', { name: `Delete chat ${A}`, exact: true }).click();
+        await p.getByRole('heading', { name: 'Delete this chat?' }).waitFor();
+        await p.getByRole('button', { name: 'Delete', exact: true }).click();
+        await composer.click();
+        await p.keyboard.type('keep typing');
+        await p.evaluate(() => window.__release());
+        await p.getByRole('button', { name: `Rename chat ${A}`, exact: true }).waitFor({ state: 'detached' });
+        await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+        await p.keyboard.type(' after response');
+        assert.equal(await p.evaluate(() => document.activeElement?.tagName), 'TEXTAREA', `${leg}: a slow delete moved focus out of the composer`);
+        assert.equal(await composer.inputValue(), 'keep typing after response', `${leg}: keystrokes lost after a slow delete`);
+        assert.equal(await p.evaluate(() => window.__chat.calls.delete), 1, `${leg}: slow delete should call once`);
+        assert.deepEqual(slow.errors, [], `${leg}: page errors (slow delete)`);
+        await slow.context.close();
+      }
       if (shots) {
         const shot = await open(width, dark, touch);
         await shot.page.mouse.move(1, 1);
