@@ -57,7 +57,8 @@ try {
             // the w-48 nav that shows from `sm`), around the same wrapper as
             // src/routes/app/apps/[appId]/+page.svelte's Agent chat panel.
             // Without the nav the panel is ~200px wider than on the real page
-            // at 640-900, which hid #2090's 26px composer (Celine's QA P2).
+            // at 640-900, which hid a 26px composer
+            // (https://github.com/hadron-memory/hadron-portal/pull/2090#issuecomment-6843123916).
             document.body.innerHTML = `<div class="flex gap-4 px-4 py-8 sm:gap-8 sm:px-6">
               <aside class="w-48 shrink-0 flex-col hidden sm:flex"><nav>Nav</nav></aside>
               <div class="min-w-0 flex-1">
@@ -99,6 +100,22 @@ try {
     });
   const near = (a, b, tolerance = 2) => Math.abs(a - b) <= tolerance;
 
+  /**
+   * Elements inside AgentChat's size container that compute to
+   * position:fixed. Throws if the container itself is missing, so a drifted
+   * id or class can't turn the check into a vacuous pass.
+   */
+  const fixedInContainer = (page) =>
+    page.evaluate(() => {
+      // getAttribute, not className: an SVG's className is an object.
+      const label = (el) => el.tagName + '.' + (el.getAttribute('class') ?? '').split(/\s+/).slice(0, 3).join('.');
+      const root = document.getElementById('panel')?.firstElementChild;
+      if (!root || getComputedStyle(root).containerType !== 'inline-size') {
+        throw new Error(`size container not found (got ${root ? label(root) : 'nothing'})`);
+      }
+      return [...root.querySelectorAll('*')].filter((el) => getComputedStyle(el).position === 'fixed').map(label);
+    });
+
   // One pane while the chat's own width is below 42rem (672px), whatever
   // the viewport: on the App page the nav takes ~220px from `sm` up, so a
   // 640-900px window still has a phone-sized panel. 947/948 sit either side
@@ -125,6 +142,29 @@ try {
         assert(p.main > 0, `${leg}: desktop conversation pane must stay visible`);
       }
 
+      // ── An overlay: the delete dialog covers the window, not the panel ──
+      // Overlays only exist after an interaction, so drive one: a fixed
+      // dialog inside the size container would be sized to the panel.
+      await page.locator('[data-chat-row]').first().hover();
+      await page.getByTitle('Delete').first().click();
+      const dialog = await page.getByText('Delete this chat?').evaluate((h) => {
+        const el = h.closest('.fixed');
+        const r = el?.getBoundingClientRect();
+        return el && {
+          position: getComputedStyle(el).position,
+          inContainer: document.getElementById('panel').firstElementChild.contains(el),
+          box: [r.left, r.top, r.width, r.height].map(Math.round),
+          window: [0, 0, innerWidth, innerHeight],
+        };
+      });
+      assert(dialog, `${leg}: the delete dialog's overlay is missing`);
+      assert.equal(dialog.position, 'fixed', `${leg}: the delete dialog is not position:fixed`);
+      assert.equal(dialog.inContainer, false, `${leg}: the delete dialog renders inside the size container`);
+      assert.deepEqual(dialog.box, dialog.window, `${leg}: the delete dialog should cover the window`);
+      assert.deepEqual(await fixedInContainer(page), [], `${leg}: position:fixed inside the size container (dialog open)`);
+      await page.getByRole('button', { name: 'Cancel' }).click();
+      assert.equal(await page.getByText('Delete this chat?').count(), 0, `${leg}: Cancel should close the delete dialog`);
+
       // ── Open a chat: the conversation ──────────────────────────────
       await page.getByRole('button', { name: new RegExp(ROW) }).click();
       await page.getByText('Which weeks work best').waitFor();
@@ -142,21 +182,19 @@ try {
         assert(near(p.aside, 256, 1) && p.main > 0, `${leg}: desktop keeps both panes, got ${JSON.stringify(p)}`);
       }
       // The root is a size container, which makes it the containing block
-      // for position:fixed descendants (Gabriel's #2090 blind delta P2): a
-      // fixed overlay inside it would anchor to and clip at the panel. None
-      // may exist; the delete dialog renders as the root's sibling.
-      const fixedInside = await page.evaluate(() =>
-        [...document.querySelectorAll('#panel [class~="@container"] *')]
-          .filter((el) => getComputedStyle(el).position === 'fixed')
-          .map((el) => el.tagName + '.' + String(el.className).split(' ').slice(0, 3).join('.')),
-      );
+      // for position:fixed descendants
+      // (https://github.com/hadron-memory/hadron-portal/pull/2090#issuecomment-6844862382):
+      // a fixed overlay inside it would anchor to and clip at the panel. None
+      // may exist; the delete dialog renders as the root's sibling (and is
+      // opened on the list, above).
+      const fixedInside = await fixedInContainer(page);
       assert.deepEqual(fixedInside, [], `${leg}: position:fixed inside the size container`);
       const contained = await page.evaluate(() => {
         const main = document.querySelector('#panel main');
         const m = main.getBoundingClientRect();
         const outside = [...main.querySelectorAll('header, [role="alert"], .rounded-2xl, textarea, button, select')]
           .filter((el) => el.checkVisibility())
-          .map((el) => ({ el: el.tagName + '.' + el.className.split(' ').slice(0, 3).join('.'), r: el.getBoundingClientRect() }))
+          .map((el) => ({ el: el.tagName + '.' + (el.getAttribute('class') ?? '').split(' ').slice(0, 3).join('.'), r: el.getBoundingClientRect() }))
           .filter(({ r }) => r.left < m.left - 0.5 || r.right > m.right + 0.5)
           .map(({ el, r }) => `${el} [${Math.round(r.left)}..${Math.round(r.right)}]`);
         const header = main.querySelector('header');
@@ -270,7 +308,8 @@ try {
       if (shots) await refused.page.screenshot({ path: `${shots}/${leg.replace('/', '-')}-refusal.png` });
       await refused.page.close();
 
-      // ── Refused start after Back (Gabriel's #2090 blind P2) ─────────
+      // ── Refused start after Back ────────────────────────────────────
+      // https://github.com/hadron-memory/hadron-portal/pull/2090#issuecomment-6843290025
       // Back keeps the selected chat; a refused "+ New chat" from there must
       // still show its alert where the user is, not in the hidden pane.
       if (phone) {
