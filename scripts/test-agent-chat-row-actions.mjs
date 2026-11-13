@@ -224,6 +224,14 @@ try {
           assert.equal(a.opacity, 1, `${leg}: ${a.name} hidden on hover`);
           assert(a.contrast >= 4.5, `${leg}: ${a.name} contrast ${a.contrast.toFixed(2)} on hover`);
         }
+        // Hovering Delete itself turns it red; Rename stays neutral.
+        await page.getByRole('button', { name: `Delete chat ${A}`, exact: true }).hover();
+        r = await row(page, A);
+        assert(isRed(r.del.color), `${leg}: Delete is not red on hover ${JSON.stringify(r.del.color)}`);
+        assert(r.del.contrast >= 4.5, `${leg}: Delete contrast ${r.del.contrast.toFixed(2)} on hover`);
+        await page.getByRole('button', { name: `Rename chat ${A}`, exact: true }).hover();
+        r = await row(page, A);
+        assert(!isRed(r.rename.color), `${leg}: Rename is red on hover ${JSON.stringify(r.rename.color)}`);
         await page.mouse.move(1, 1);
       }
 
