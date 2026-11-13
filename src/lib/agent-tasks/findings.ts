@@ -91,7 +91,9 @@ export function nextFindingsOffset(page: FindingsPage): number {
  * characters that render blank (Hangul fillers, the Braille blank), and since
  * portal#2111 the zero-width and format characters that hide text (ZWSP, WORD
  * JOINER, BOM, SOFT HYPHEN, MONGOLIAN VOWEL SEPARATOR) and the whole tag block
- * U+E0000–E007F, which can smuggle invisible ASCII.
+ * U+E0000–E007F, which can smuggle invisible ASCII; and since portal#2113 the
+ * invisible math operators U+2061–2064 and the LINE and PARAGRAPH SEPARATORS
+ * U+2028/2029, which render blank or break a line unseen.
  *
  * Deliberately NOT here, because they are part of valid text: the emoji and
  * script joiners (U+200D ZWJ, U+200C ZWNJ), variation selectors, combining
@@ -102,7 +104,7 @@ export function nextFindingsOffset(page: FindingsPage): number {
  * Written with escapes only, so the set is auditable and survives copy-paste.
  * Display only; the stored text is never touched.
  */
-const REVEALED = /(\u{1F3F4}[\u{E0030}-\u{E0039}\u{E0061}-\u{E007A}]{1,6}\u{E007F})|[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u00AD\u061C\u115F\u1160\u180E\u200B\u200E\u200F\u202A-\u202E\u2060\u2066-\u2069\u2800\u3164\uFEFF\uFFA0\u{E0000}-\u{E007F}]/gu;
+const REVEALED = /(\u{1F3F4}[\u{E0030}-\u{E0039}\u{E0061}-\u{E007A}]{1,6}\u{E007F})|[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u00AD\u061C\u115F\u1160\u180E\u200B\u200E\u200F\u2028\u2029\u202A-\u202E\u2060-\u2064\u2066-\u2069\u2800\u3164\uFEFF\uFFA0\u{E0000}-\u{E007F}]/gu;
 
 export interface TextPart {
   text: string;

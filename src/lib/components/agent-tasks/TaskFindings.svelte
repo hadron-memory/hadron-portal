@@ -171,8 +171,8 @@
   <div role="status" aria-live="polite" class="sr-only" data-testid="findings-status">{status}</div>
 
   <!-- Every provider-served value (id, severity, text) is shown literally, controls revealed, bidi isolated (portal#2111). -->
-  {#snippet literal(value: string, testid: string, extra: string)}
-    <div dir="auto" class="{extra} [unicode-bidi:isolate]" data-testid={testid}>{#each findingTextParts(value) as part, i (i)}{#if part.marker}<span class="mx-0.5 rounded bg-amber-100 px-1 font-mono text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">{part.text}</span>{:else}{part.text}{/if}{/each}</div>
+  {#snippet literal(value: string, testid: string, classes: string)}
+    <div dir="auto" class="{classes} [unicode-bidi:isolate]" data-testid={testid}>{#each findingTextParts(value) as part, i (i)}{#if part.marker}<span class="mx-0.5 rounded bg-amber-100 px-1 font-mono text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">{part.text}</span>{:else}{part.text}{/if}{/each}</div>
   {/snippet}
 
   {#if view.kind === 'loading'}
