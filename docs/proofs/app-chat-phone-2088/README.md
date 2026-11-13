@@ -4,6 +4,8 @@ Synthetic fixture only: the real `AgentChat` and the compiled `app.css` in headl
 
 Regenerate: `AGENT_CHAT_SHOTS=<dir> pnpm test:agent-chat-phone-layout` (the conversation shots on phones come from the deep-link page, captured last on that page).
 
+A subset of what the regenerate command writes:
+
 | File | What it shows |
 |---|---|
 | `baseline-main-390-{light,dark}.png` | main `9b6bedbb9`, before the fix: textarea 26px, conversation pane 98px of a 356px panel |

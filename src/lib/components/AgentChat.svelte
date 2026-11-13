@@ -116,12 +116,12 @@
   // row the person clicked keeps focus, as before. Read at event time, not to
   // decide what renders.
   // One pane showing means the list is display:none once a chat is open.
-  const phoneLayout = () => !!listEl && getComputedStyle(listEl).display === 'none';
+  const onePaneShowing = () => !!listEl && getComputedStyle(listEl).display === 'none';
   async function focusConversation() {
     await tick();
     // The heading, not the textarea: focusing the textarea raises the phone
     // keyboard over a chat the person has not read yet.
-    if (!destroyed && phoneLayout()) headingEl?.focus();
+    if (!destroyed && onePaneShowing()) headingEl?.focus();
   }
   async function backToChats() {
     showList = true;

@@ -54,7 +54,7 @@ try {
             document.documentElement.classList.toggle('dark', dark);
             document.body.className = 'bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
             // The app shell of src/routes/app/+layout.svelte (gutters, gap and
-            // the w-48 nav that shows from \`sm\`), around the same wrapper as
+            // the w-48 nav that shows from `sm`), around the same wrapper as
             // src/routes/app/apps/[appId]/+page.svelte's Agent chat panel.
             // Without the nav the panel is ~200px wider than on the real page
             // at 640-900, which hid #2090's 26px composer (Celine's QA P2).
@@ -90,6 +90,8 @@ try {
       const main = panel.querySelector('main');
       return {
         panel: panel.clientWidth,
+        // The size container: AgentChat's root, inside the panel's border.
+        container: panel.firstElementChild.clientWidth,
         aside: aside.checkVisibility() ? box(aside).width : 0,
         main: main.checkVisibility() ? box(main).width : 0,
         pageOverflow: document.documentElement.scrollWidth > innerWidth,
@@ -97,15 +99,18 @@ try {
     });
   const near = (a, b, tolerance = 2) => Math.abs(a - b) <= tolerance;
 
-  // One pane while the chat PANEL is narrower than 42rem (672px), whatever
-  // the viewport: on the App page the nav takes ~220px from \`sm\` up, so a
-  // 640-900px window still has a phone-sized panel.
+  // One pane while the chat's own width is below 42rem (672px), whatever
+  // the viewport: on the App page the nav takes ~220px from `sm` up, so a
+  // 640-900px window still has a phone-sized panel. 947/948 sit either side
+  // of the switch (container 671/672px): the two-pane side's textarea there
+  // is the narrowest any width gets, and must still clear 200px.
   const ONE_PANE_BELOW = 672;
-  for (const width of [320, 390, 640, 700, 768, 900, 1024, 1440]) {
+  for (const width of [320, 390, 640, 700, 768, 900, 947, 948, 1024, 1440]) {
     for (const dark of [false, true]) {
       const leg = `${width}/${dark ? 'dark' : 'light'}`;
       const probe = await open(width, dark);
-      const phone = (await panes(probe.page)).panel < ONE_PANE_BELOW;
+      const panelWidth = (await panes(probe.page)).container;
+      const phone = panelWidth < ONE_PANE_BELOW;
       await probe.page.close();
 
       // ── No link: the list ───────────────────────────────────────────
@@ -146,7 +151,7 @@ try {
       });
       assert.deepEqual(contained.outside, [], `${leg}: content escapes the conversation pane`);
       assert.equal(contained.headerOverflow, false, `${leg}: stage header overflows`);
-      for (const name of ['Send']) assert(await page.getByRole('button', { name }).isVisible(), `${leg}: ${name} hidden`);
+      assert(await page.getByRole('button', { name: 'Send' }).isVisible(), `${leg}: Send hidden`);
       assert(await page.getByLabel('AI config').isVisible(), `${leg}: AI config row hidden`);
 
       const back = page.getByRole('button', { name: 'Back to chats' });
@@ -189,7 +194,7 @@ try {
         }));
         assert.match(afterBack.focus, new RegExp(ROW), `${leg}: Back should focus the selected row`);
         assert(afterBack.url && !afterBack.url.includes('chat='), `${leg}: Back must clear ?chat, last sync ${afterBack.url}`);
-        assert.equal(await page.getByText('Which weeks work best').count(), 1, `${leg}: Back dropped the transcript`);
+        assert.equal(await page.getByText('Which weeks work best').count(), 1, `${leg}: Back should keep exactly one copy of the transcript`);
 
         // ── Reselect the same retained chat ──────────────────────────
         await page.getByRole('button', { name: new RegExp(ROW) }).click();
@@ -242,7 +247,8 @@ try {
       });
       const { START_REFUSAL } = await refused.page.evaluate(() => import('/src/lib/test/fixtures/agent-chat-phone-harness.ts').then((m) => ({ START_REFUSAL: m.START_REFUSAL })));
       assert.equal(a.text, START_REFUSAL, `${leg}: refusal wording changed`);
-      assert(a.inside && !a.clipped, `${leg}: refusal is clipped ${JSON.stringify(a)}`);
+      assert(a.inside, `${leg}: refusal escapes the panel ${JSON.stringify(a)}`);
+      assert(!a.clipped, `${leg}: refusal is clipped ${JSON.stringify(a)}`);
       if (phone) {
         assert(a.inList, `${leg}: on a phone the refusal must show in the list view`);
         p = await panes(refused.page);
@@ -250,7 +256,24 @@ try {
       }
       if (shots) await refused.page.screenshot({ path: `${shots}/${leg.replace('/', '-')}-refusal.png` });
       await refused.page.close();
-      console.log(`${leg}: ok (textarea ${Math.round(textarea)}px)`);
+
+      // ── Refused start after Back (Gabriel's #2090 blind P2) ─────────
+      // Back keeps the selected chat; a refused "+ New chat" from there must
+      // still show its alert where the user is, not in the hidden pane.
+      if (phone) {
+        const again = await open(width, dark, { refuseStart: true });
+        await again.page.getByRole('button', { name: new RegExp(ROW) }).click();
+        await again.page.getByText('Which weeks work best').waitFor();
+        await again.page.getByRole('button', { name: 'Back to chats' }).click();
+        await again.page.getByRole('button', { name: '+ New chat' }).click();
+        const shown = again.page.getByRole('alert').filter({ visible: true });
+        await shown.waitFor();
+        assert.equal(await shown.count(), 1, `${leg}: a refused start after Back needs exactly one visible alert`);
+        assert(await shown.evaluate((el) => !!el.closest('aside')), `${leg}: after Back the refusal belongs in the list view`);
+        assert.deepEqual(again.errors, [], `${leg}: page errors (refusal after Back)`);
+        await again.page.close();
+      }
+      console.log(`${leg}: ok (chat ${panelWidth}px, ${phone ? "one pane" : "two panes"}, textarea ${Math.round(textarea)}px)`);
     }
   }
 } finally {
