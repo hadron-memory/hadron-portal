@@ -22,7 +22,7 @@ export async function readGrantActions(client: GraphQLClient, appRef: string): P
       page = (await client.request<{ grantActions: typeof page }>(GRANT_ACTIONS,
         { appRef, limit: 100, offset })).grantActions;
     } catch (e) {
-      if (['FORBIDDEN', 'UNAUTHENTICATED', 'APP_NOT_FOUND', 'NOT_FOUND', 'BAD_USER_INPUT'].includes(extractGqlErrorCode(e) ?? '')) return [];
+      if (['FORBIDDEN', 'UNAUTHENTICATED', 'APP_NOT_FOUND', 'NOT_FOUND'].includes(extractGqlErrorCode(e) ?? '')) return [];
       throw e;
     }
     // Refused and empty are deliberately indistinguishable. No old-table fallback.

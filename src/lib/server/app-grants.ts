@@ -314,7 +314,7 @@ const GRANT_SUBJECT_NODE = /* GraphQL */ `
 export async function grantNodes(
   client: GraphQLClient,
   grants: Grant[],
-  actionDefinitions: GrantActionDefinition[] = [],
+  actionDefinitions: GrantActionDefinition[],
 ): Promise<Record<string, Holder | null>> {
   const refs = [
     ...new Set(
@@ -357,14 +357,24 @@ export async function readGrantPage(
   const { appGrants } = await client.request<{
     appGrants: { items: Grant[]; total: number };
   }>(GRANTS_PAGE, { appRef: appId, limit: 20, offset });
-  const actionDefinitions = await readGrantActions(client, appId);
+  // The registry drives Create and optional node labels, not access to the
+  // existing grant records. Preserve exact raw scopes if that read is down.
+  let actionDefinitions: GrantActionDefinition[] = [];
+  let actionDefinitionsFailed = false;
+  try {
+    actionDefinitions = await readGrantActions(client, appId);
+  } catch {
+    actionDefinitionsFailed = true;
+    // Do not log backend prose, credentials, caller identity or App details.
+    console.warn("[app-grants] action catalogue unavailable");
+  }
   const reads: IdentityReads = new Map();
   const [holders, nodes, actors] = await Promise.all([
     grantHolders(client, appGrants.items, reads),
     grantNodes(client, appGrants.items, actionDefinitions),
     grantActors(client, appGrants.items, reads),
   ]);
-  return { grants: appGrants, holders, nodes, actors, actionDefinitions };
+  return { grants: appGrants, holders, nodes, actors, actionDefinitions, actionDefinitionsFailed };
 }
 
 export const REQUEST_GRANT_SIGNATURE = /* GraphQL */ `

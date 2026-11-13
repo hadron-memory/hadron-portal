@@ -205,7 +205,8 @@
       ? data.choices.workers.find((w) => `WORKER:${w.id}` === holderChoice)
       : data.choices.agents.find((a) => `AGENT:${a.id}` === holderChoice),
   );
-  const actionDefinitions = $derived(data.actionDefinitions ?? []);
+  const actionDefinitions = $derived(view?.actionDefinitions ?? data.actionDefinitions);
+  const actionDefinitionsFailed = $derived(view?.actionDefinitionsFailed ?? data.actionDefinitionsFailed);
   let actionName = $state("");
   const chosenAction = $derived(actionDefinitions.find((a) => a.name === actionName) ?? actionDefinitions.find(grantableAction));
   let parameterNodes = $state<Record<string, NodeChoice>>({});
@@ -259,7 +260,7 @@
       id: "grant",
       header: t("grants.column", "Grant"),
       accessorFn: (g) =>
-        `${holders[grantHolderKey(g)]?.name ?? ""} ${g.action} ${g.reason} ${g.id} ${g.createdAt} ${nodes?.[grantNodeRef(g, data.actionDefinitions ?? []) ?? ""]?.name ?? ""} ${nodes?.[grantNodeRef(g, data.actionDefinitions ?? []) ?? ""]?.urn ?? ""} ${JSON.stringify(g.values)} ${grantActorRefs(
+        `${holders[grantHolderKey(g)]?.name ?? ""} ${g.action} ${g.reason} ${g.id} ${g.createdAt} ${nodes?.[grantNodeRef(g, actionDefinitions) ?? ""]?.name ?? ""} ${nodes?.[grantNodeRef(g, actionDefinitions) ?? ""]?.urn ?? ""} ${JSON.stringify(g.values)} ${grantActorRefs(
           g,
         )
           .map(
@@ -357,7 +358,7 @@
           {now}
           grant={returned}
           {actors}
-          node={nodes?.[grantNodeRef(returned, data.actionDefinitions ?? []) ?? ""]}
+          node={nodes?.[grantNodeRef(returned, actionDefinitions) ?? ""]}
           holder={holders[grantHolderKey(returned)]}
         />
       </section>
@@ -395,7 +396,7 @@
           grant={c.row.original}
           holder={holders[grantHolderKey(c.row.original)]}
           {actors}
-          node={nodes?.[grantNodeRef(c.row.original, data.actionDefinitions ?? []) ?? ""]}
+          node={nodes?.[grantNodeRef(c.row.original, actionDefinitions) ?? ""]}
           actionAlreadyRevoked={rowUpdates[c.row.original.id]?.alreadyRevoked ??
             (!!form &&
               "alreadyRevoked" in form &&
@@ -481,7 +482,8 @@
             {t("grants.create-title", "Create a grant")}
           </h2>
 
-          {#if !actionDefinitions.length}<p class="mt-3 text-sm">{t("grants.actions.empty", "No actions you can grant here.")}</p>
+          {#if actionDefinitionsFailed}<p role="alert" class="mt-3 text-sm">{t("grants.actions.failed", "Actions could not be loaded. Refresh before creating a grant.")}</p>
+          {:else if !actionDefinitions.length}<p class="mt-3 text-sm">{t("grants.actions.empty", "No actions you can grant here.")}</p>
           {:else if data.choices.failed}<p role="alert" class="mt-3 text-sm">
               {t(
                 "grants.choices.failed",

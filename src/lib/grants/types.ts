@@ -59,7 +59,7 @@ export function grantError(code: string | null): string {
 // Opaque, wildcard and multi-value grants keep their exact values instead.
 export function grantNodeRef(
   grant: Grant,
-  definitions: GrantActionDefinition[] = [],
+  definitions: GrantActionDefinition[],
 ): string | null {
   if (
     !grant.values ||
@@ -97,7 +97,8 @@ export function grantHolderKey(grant: Grant): string {
 }
 
 export type GrantPageSlice = {
-  actionDefinitions?: GrantActionDefinition[];
+  actionDefinitions: GrantActionDefinition[];
+  actionDefinitionsFailed: boolean;
   grants: { items: Grant[]; total: number };
   holders: Record<string, Holder>;
   nodes: Record<string, Holder | null>;
