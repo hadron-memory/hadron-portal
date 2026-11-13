@@ -87,9 +87,11 @@ function importedModules(entry: string): string[] {
 }
 
 // A Tailwind viewport variant at a class-token start: `sm:` etc., `max-sm:`,
-// and arbitrary `min-[…]:` / `max-[…]:`; `@2xl:` (a container variant) is
-// excluded by the preceding-character class. Plus a width media query in CSS.
-const VIEWPORT_VARIANT = /(?<![\w@-])(?:(?:max-)?(?:sm|md|lg|xl|2xl)|(?:min|max)-\[[^\]\s]+\]):[\w[]|@media[^{]*width/g;
+// and arbitrary `min-[…]:` / `max-[…]:`, followed by a utility, an arbitrary
+// value or the important modifier (`md:!flex`); `@2xl:` (a container variant)
+// is excluded by the preceding-character class. Plus a width media query in
+// CSS (a `@container` query is not one).
+const VIEWPORT_VARIANT = /(?<![\w@-])(?:(?:max-)?(?:sm|md|lg|xl|2xl)|(?:min|max)-\[[^\]\s]+\]):[!\w[]|@media[^{]*width/g;
 // The `fixed` utility as a token, and `position: fixed` / `.position = 'fixed'`.
 const FIXED = /(?<![\w-])fixed(?![\w-])|position\s*[:=]\s*['"`]?\s*fixed/g;
 const hits = (re: RegExp, s: string) => [...s.matchAll(re)].map((m) => m[0]);
@@ -129,12 +131,20 @@ describe('AgentChat breakpoints are the container’s, not the viewport’s (por
     const from = AGENT_CHAT;
     expect(resolveSpecifier(from, '$app/navigation')).toBeNull();
     expect(resolveSpecifier(from, 'svelte/compiler')).toBeNull();
-    expect(resolveSpecifier(from, '@tanstack/table-core')).toBeNull();
+    // An installed package resolves to null. Taken from package.json's own
+    // dependencies, so the control doesn't hang on what happens to be hoisted.
+    const declared = Object.keys(JSON.parse(read(join(ROOT, 'package.json'))).dependencies ?? {});
+    const installed = declared.find((name) => existsSync(join(ROOT, 'node_modules', name)));
+    expect(installed, 'no declared dependency is installed').toBeDefined();
+    expect(resolveSpecifier(from, installed!)).toBeNull();
     expect(resolveSpecifier(from, './ServedPrompt.svelte')).toBe(resolve(LIB, 'components/ServedPrompt.svelte'));
     expect(() => resolveSpecifier(from, '$components/Urn.svelte')).toThrow(/neither/);
     expect(() => resolveSpecifier(from, 'not-installed-pkg')).toThrow(/neither/);
     expect(() => resolveSpecifier(from, '../../../scripts/test-agent-chat-phone-layout.mjs')).toThrow(/leaves src/);
-    expect(() => resolveSpecifier(from, './')).toThrow(/non-literal/);
+    // A literal path to nothing: refused as unresolvable (not as an alias,
+    // a package or an escape from src/), whatever barrels exist.
+    expect(existsSync(resolve(LIB, 'components/NoSuchComponent.svelte'))).toBe(false);
+    expect(() => resolveSpecifier(from, './NoSuchComponent.svelte')).toThrow(/cannot resolve/);
     expect(modules.map(rel)).toEqual(
       expect.arrayContaining(['components/AgentChat.svelte', 'components/ServedPrompt.svelte', 'components/Urn.svelte', 'components/agent-chat-helpers.ts']),
     );
@@ -153,7 +163,11 @@ describe('AgentChat breakpoints are the container’s, not the viewport’s (por
       'max-[40rem]:h',
       '@media (min-width',
     ]);
-    expect(hits(VIEWPORT_VARIANT, 'class="@container hidden @2xl:flex @sm:p-1 focus:outline-none dark:bg-zinc-900"')).toEqual([]);
+    // Tailwind's important modifier after the variant, and the v4 suffix form.
+    expect(hits(VIEWPORT_VARIANT, 'class="md:!flex max-sm:!hidden lg:flex!"')).toEqual(['md:!', 'max-sm:!', 'lg:f']);
+    expect(hits(VIEWPORT_VARIANT, 'class="@container hidden @2xl:flex @sm:p-1 @2xl:!flex focus:outline-none dark:bg-zinc-900"')).toEqual([]);
+    // A container query in CSS is the container's breakpoint: not flagged.
+    expect(hits(VIEWPORT_VARIANT, '@container (min-width: 640px) { .a { display: flex } } @container chat (width >= 42rem) {')).toEqual([]);
     expect(hits(FIXED, `class="fixed inset-0" el.style.position = 'fixed'; style="position: fixed"`)).toHaveLength(3);
     expect(hits(FIXED, 'class="fixed-width prefixed affixed"')).toEqual([]);
     expect(hits(FIXED, uncommented(`/** the route's fixed message */\n  // a fixed note\n  const c = 'fixed'; // fixed`))).toEqual(['fixed', 'fixed']);

@@ -25,6 +25,49 @@ const server = await createServer({
     },
   ],
 });
+/**
+ * The overlay a dialog's heading sits in (runs in the page, so it must stay
+ * self-contained). Of the heading's position:fixed ancestors, the one that
+ * covers the layout viewport: a fixed, centred card inside the overlay is
+ * also a fixed ancestor, and the nearest one (portal#2101).
+ */
+function findOverlay(h) {
+  const doc = document.documentElement;
+  const viewport = [0, 0, doc.clientWidth, doc.clientHeight];
+  const boxOf = (el) => {
+    const r = el.getBoundingClientRect();
+    return [r.left, r.top, r.width, r.height].map(Math.round);
+  };
+  const fixed = [];
+  for (let a = h.parentElement; a; a = a.parentElement) if (getComputedStyle(a).position === 'fixed') fixed.push(a);
+  const el = fixed.find((f) => boxOf(f).every((v, i) => v === viewport[i])) ?? null;
+  const root = document.getElementById('panel')?.firstElementChild;
+  return {
+    found: fixed.length > 0,
+    covering: !!el,
+    root: !!root,
+    inContainer: !!(root && fixed.some((f) => root.contains(f))),
+    // The layout viewport, which an inset-0 overlay spans (excludes a classic scrollbar).
+    viewport,
+    fixedBoxes: fixed.map(boxOf),
+  };
+}
+
+/** The first thing wrong with a findOverlay() result, or null. */
+function overlayFailure(d) {
+  if (!d.found) return 'the delete dialog has no position:fixed overlay';
+  if (!d.root) return '#panel or the size container in it is missing';
+  if (d.inContainer) return 'the delete dialog renders inside the size container';
+  if (!d.covering) return `no fixed ancestor of the dialog covers the viewport ${JSON.stringify(d.viewport)} (fixed: ${JSON.stringify(d.fixedBoxes)})`;
+  return null;
+}
+
+// The diagnostic names the first missing thing in the order the overlay is
+// looked for: no overlay at all is reported as such, not blamed on #panel.
+assert.match(overlayFailure({ found: false, covering: false, root: false, inContainer: false }), /no position:fixed overlay/);
+assert.match(overlayFailure({ found: true, covering: false, root: true, inContainer: false, viewport: [0, 0, 9, 9], fixedBoxes: [] }), /covers the viewport/);
+assert.equal(overlayFailure({ found: true, covering: true, root: true, inContainer: false }), null);
+
 const WARM = 'rgb(251, 133, 0)';
 const ROW = 'Planning the spring onboarding';
 const shots = process.env.AGENT_CHAT_SHOTS;
@@ -154,28 +197,21 @@ try {
       await page.getByTitle('Delete').first().click();
       const heading = page.getByRole('heading', { name: 'Delete this chat?' });
       await heading.waitFor();
-      const dialog = await heading.evaluate((h) => {
-        // The overlay is the heading's nearest ancestor that computes to
-        // fixed, whatever class or inline style makes it so.
-        let el = h.parentElement;
-        while (el && getComputedStyle(el).position !== 'fixed') el = el.parentElement;
-        const root = document.getElementById('panel')?.firstElementChild;
-        if (!el || !root) return { found: !!el, root: !!root };
-        const r = el.getBoundingClientRect();
-        const doc = document.documentElement;
-        return {
-          found: true,
-          root: true,
-          inContainer: root.contains(el),
-          box: [r.left, r.top, r.width, r.height].map(Math.round),
-          // The layout viewport, which an inset-0 overlay spans (excludes a classic scrollbar).
-          viewport: [0, 0, doc.clientWidth, doc.clientHeight],
-        };
-      });
-      assert(dialog.root, `${leg}: #panel or the size container in it is missing`);
-      assert(dialog.found, `${leg}: the delete dialog has no position:fixed overlay`);
-      assert.equal(dialog.inContainer, false, `${leg}: the delete dialog renders inside the size container`);
-      assert.deepEqual(dialog.box, dialog.viewport, `${leg}: the delete dialog should cover the viewport`);
+      // The overlay is found by computed position, whatever class or inline
+      // style makes it fixed.
+      assert.equal(overlayFailure(await heading.evaluate(findOverlay)), null, `${leg}: delete dialog overlay`);
+      // Controls (portal#2101): a fixed, centred dialog card inside the
+      // overlay must not be taken for the overlay; and with no ancestor
+      // covering the viewport, the check must fail and say so.
+      const card = await heading.evaluateHandle((h) => h.parentElement);
+      await card.evaluate((c) => Object.assign(c.style, { position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }));
+      assert.equal(overlayFailure(await heading.evaluate(findOverlay)), null, `${leg}: a fixed dialog card hid the covering overlay`);
+      await card.evaluate((c) => { c.style.cssText = ''; });
+      // The overlay (the card's fixed ancestor; neither has an inline style).
+      const overlay = await card.evaluateHandle((c) => c.parentElement);
+      await overlay.evaluate((o) => { o.style.cssText = 'inset:auto;width:10px;height:10px'; });
+      assert.match(overlayFailure(await heading.evaluate(findOverlay)) ?? '', /covers the viewport/, `${leg}: an overlay that covers nothing passed`);
+      await overlay.evaluate((o) => { o.style.cssText = ''; });
       assert.deepEqual(await fixedInContainer(page), [], `${leg}: position:fixed inside the size container (dialog open)`);
       await page.getByRole('button', { name: 'Cancel' }).click();
       // Waits (and fails on timeout) rather than sampling once.
