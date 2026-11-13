@@ -129,3 +129,23 @@ describe('GET /tasks/[taskId]/findings', () => {
     expect(await (await pending).json()).toEqual({ kind: 'failed' });
   });
 });
+
+describe('what the endpoint and the reader never leak (§10 pins)', () => {
+  it('a non-refusal fault while resolving the task answers 200 {kind:failed}, no-store, and never echoes the fault', async () => {
+    request.mockReset().mockRejectedValue(new Error('SECRET-MARKER-9f3'));
+    const res = await GET(event('0'));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    const body = await res.text();
+    expect(JSON.parse(body)).toEqual({ kind: 'failed' });
+    expect(body).not.toContain('SECRET-MARKER-9f3');
+  });
+  it('a failed provider read logs exactly one fixed line, never the error object or message', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    warn.mockClear();
+    const c = { request: vi.fn().mockRejectedValue(new Error('SECRET-MARKER-9f3 finding text')) };
+    expect(await taskFindingsPage(c as never, 'app', 'canonical', 0)).toEqual({ kind: 'failed' });
+    expect(warn.mock.calls).toEqual([['[task-findings] read failed']]);
+    warn.mockRestore();
+  });
+});

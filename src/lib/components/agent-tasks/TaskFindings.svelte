@@ -32,6 +32,8 @@
   let failure = $state.raw<Request | null>(null);
   let heading: HTMLHeadingElement | undefined = $state();
 
+  /** Finding id → the offset it was served at, for this identity's read. Findings are immutable, so an id can only ever sit at one offset. */
+  let served = new Map<string, number>();
   let generation = 0;
   let controller: AbortController | null = null;
   const cancel = () => { generation++; controller?.abort(); controller = null; };
@@ -47,7 +49,7 @@
   function begin(key: string, source: Promise<FindingsRead> | FindingsRead) {
     cancel();
     const mine = generation;
-    view = { kind: 'loading' }; history = []; pending = false; failure = null;
+    view = { kind: 'loading' }; history = []; pending = false; failure = null; served = new Map();
     Promise.resolve(source).then(
       (read) => { if (mine === generation && key === `${appId}:${taskId}`) accept(read, { offset: 0, history: [] }, null); },
       () => { if (mine === generation) accept({ kind: 'failed' }, { offset: 0, history: [] }, null); },
@@ -62,8 +64,9 @@
     const page = read.page;
     const valid = page && typeof page === 'object' && page.taskId === taskId && page.offset === req.offset ? parseFindingsPage(page) : null;
     if (!valid) return { kind: 'failed' };
-    // Moving forward onto rows already shown means the provider is not advancing: never "done", never a loop.
-    if (view.kind === 'page' && req.offset > view.page.offset && valid.items.some((row) => view.kind === 'page' && view.page.items.some((shown) => shown.id === row.id))) return { kind: 'failed' };
+    // A row already served at another offset means the provider is not advancing (adjacent or not): never "done", never a loop.
+    // Re-reading the SAME offset (Retry, First, Previous) is legitimate and passes.
+    if (valid.items.some((row) => served.has(row.id) && served.get(row.id) !== req.offset)) return { kind: 'failed' };
     return { kind: 'page', page: { taskId, offset: req.offset, ...valid } };
   }
 
@@ -71,13 +74,14 @@
     const read = checked(raw, req);
     if (read.kind === 'page') {
       view = { kind: 'page', page: read.page }; history = req.history; failure = null;
+      for (const row of read.page.items) served.set(row.id, req.offset);
     } else if (read.kind === 'failed') {
       // Keep a page that was already read only as retained data beside the failure; an initial failure has none.
       if (view.kind !== 'page') view = { kind: 'failed' };
       failure = req;
     } else {
       // no-result / unavailable clear the rows: nothing stale may stay readable.
-      view = { kind: read.kind }; history = []; failure = null;
+      view = { kind: read.kind }; history = []; failure = null; served = new Map();
     }
     if (ownedFocus && trigger) {
       await tick();

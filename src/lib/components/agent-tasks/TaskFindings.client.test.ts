@@ -116,6 +116,41 @@ describe('paging by the served page', () => {
   });
 });
 
+describe('a repeated page is refused wherever it recurs, not only next to itself', () => {
+  it('F1-20@0, F21-40@20, then F1-20@40 fails (a nonadjacent cycle) and keeps page two as retained data', async () => {
+    const f = vi.fn()
+      .mockResolvedValueOnce(reply(page('task', 20, rows(21, 20), 80, true)))
+      .mockResolvedValueOnce(reply(page('task', 40, rows(1, 20), 80, true)));
+    vi.stubGlobal('fetch', f);
+    const m = await setup(page('task', 0, rows(1, 20), 80, true));
+    button(m.target, 'Next').click(); await tick(8);
+    expect(range(m.target)).toBe('Showing findings 21 to 40 of 80');
+    expect(m.target.querySelector('[data-testid="findings-failed"]')).toBeNull();
+    button(m.target, 'Next').click(); await tick(8);
+    expect(m.target.querySelector('[data-testid="findings-failed"]')).not.toBeNull();
+    expect(range(m.target)).toBe('Showing findings 21 to 40 of 80');
+  });
+  it('positive control: Previous and First re-reading the SAME offsets are still accepted', async () => {
+    const f = vi.fn()
+      .mockResolvedValueOnce(reply(page('task', 20, rows(21, 20), 80, true)))
+      .mockResolvedValueOnce(reply(page('task', 0, rows(1, 20), 80, true)))
+      .mockResolvedValueOnce(reply(page('task', 20, rows(21, 20), 80, true)))
+      .mockResolvedValueOnce(reply(page('task', 40, rows(41, 20), 80, true)))
+      .mockResolvedValueOnce(reply(page('task', 0, rows(1, 20), 80, true)));
+    vi.stubGlobal('fetch', f);
+    const m = await setup(page('task', 0, rows(1, 20), 80, true));
+    button(m.target, 'Next').click(); await tick(8);
+    button(m.target, 'Previous').click(); await tick(8);
+    expect(range(m.target)).toBe('Showing findings 1 to 20 of 80');
+    button(m.target, 'Next').click(); await tick(8);
+    button(m.target, 'Next').click(); await tick(8);
+    expect(range(m.target)).toBe('Showing findings 41 to 60 of 80');
+    button(m.target, 'First').click(); await tick(8);
+    expect(range(m.target)).toBe('Showing findings 1 to 20 of 80');
+    expect(m.target.querySelector('[data-testid="findings-failed"]')).toBeNull();
+  });
+});
+
 describe('failures are never empty, and Retry is the section\'s own', () => {
   it('a failed Next keeps the page only as retained data, never advances, and Retry repeats the same offset', async () => {
     const f = vi.fn().mockRejectedValueOnce(new Error('private fault')).mockResolvedValueOnce(reply(page('task', 20, rows(21, 5), 25, false)));
