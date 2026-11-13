@@ -55,6 +55,8 @@ export type AgentChatFixture = {
    * 500 with a body that isn't JSON. The chat stays listed.
    */
   failDelete: (kind: DeleteFailure) => void;
+  /** Make the next turn reject as a dropped connection does, once (#2110). */
+  failTurn: () => void;
 };
 
 export type DeleteFailure = 'network' | 'json' | 'text';
@@ -94,6 +96,10 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
   let deleteFailure: DeleteFailure | null = null;
   const failDelete = (kind: DeleteFailure) => {
     deleteFailure = kind;
+  };
+  let turnFailure = false;
+  const failTurn = () => {
+    turnFailure = true;
   };
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -135,6 +141,12 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
       chats.splice(at, 1);
       return json({ ok: true });
     }
+    // Turns are not modelled; only a failed one is (#2110).
+    if (turnFailure && url.includes('/api/agent-chat/turn')) {
+      turnFailure = false;
+      calls.writes++;
+      throw new TypeError('Failed to fetch');
+    }
     // The served-prompt strip reads its records for the open chat: none here.
     if (url.includes('/api/served-prompts')) return json({ items: [], total: 0, offset: 0 });
     // Reads the fixture does not model answer 404. Writes
@@ -157,5 +169,5 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
       ] as never,
     },
   });
-  return { stop: () => unmount(component), calls, navigationCalls, holdDelete, failDelete };
+  return { stop: () => unmount(component), calls, navigationCalls, holdDelete, failDelete, failTurn };
 }

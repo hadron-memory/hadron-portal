@@ -438,6 +438,20 @@ try {
         await p.getByRole('alert').filter({ hasText: MESSAGE.network }).waitFor({ timeout: 2000 })
           .catch(() => assert.fail(`${leg} after Back: the failed delete's error is not shown in the list`));
         assert.equal(await p.getByRole('alert').count(), 1, `${leg} after Back: one error copy should show`);
+        assert(await p.getByRole('alert').evaluate((el) => !!el.closest('aside')), `${leg} after Back: the error should show in the list`);
+        // A chat's own error keeps to its pane, even with the same text as the
+        // list's earlier one (Gene's and Gloria's deltas on #2110): open B, a
+        // send fails with "Failed to fetch", Back shows the list with no alert.
+        await p.locator('[data-chat-row="chats:b"]').click();
+        const composer = p.getByPlaceholder(/Type your message/);
+        await composer.waitFor();
+        await p.evaluate(() => window.__chat.failTurn());
+        await composer.fill('hello');
+        await composer.press('Enter');
+        await p.locator('main').getByText(MESSAGE.network, { exact: true }).waitFor();
+        await p.getByRole('button', { name: 'Back to chats' }).click();
+        await p.getByRole('button', { name: `Delete chat ${A}`, exact: true }).waitFor();
+        assert.equal(await p.getByRole('alert').count(), 0, `${leg} after Back: a chat's own error showed in the list`);
         assert.deepEqual(f.errors, [], `${leg}: page errors (failed delete after Back)`);
         await f.context.close();
       }
