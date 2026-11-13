@@ -53,11 +53,17 @@ try {
             document.head.innerHTML += `<style>${css}</style>`;
             document.documentElement.classList.toggle('dark', dark);
             document.body.className = 'bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
-            // Same wrapper as src/routes/app/apps/[appId]/+page.svelte's Agent chat panel.
-            document.body.innerHTML = `<main class="mx-auto min-w-0 max-w-7xl p-4">
-              <div class="flex flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
-                <div id="panel" class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden"></div>
-              </div></main>`;
+            // The app shell of src/routes/app/+layout.svelte (gutters, gap and
+            // the w-48 nav that shows from \`sm\`), around the same wrapper as
+            // src/routes/app/apps/[appId]/+page.svelte's Agent chat panel.
+            // Without the nav the panel is ~200px wider than on the real page
+            // at 640-900, which hid #2090's 26px composer (Celine's QA P2).
+            document.body.innerHTML = `<div class="flex gap-4 px-4 py-8 sm:gap-8 sm:px-6">
+              <aside class="w-48 shrink-0 flex-col hidden sm:flex"><nav>Nav</nav></aside>
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
+                  <div id="panel" class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden"></div>
+                </div></div></div>`;
           },
           { css, dark },
         );
@@ -91,10 +97,16 @@ try {
     });
   const near = (a, b, tolerance = 2) => Math.abs(a - b) <= tolerance;
 
-  for (const width of [320, 390, 640, 1024, 1440]) {
+  // One pane while the chat PANEL is narrower than 42rem (672px), whatever
+  // the viewport: on the App page the nav takes ~220px from \`sm\` up, so a
+  // 640-900px window still has a phone-sized panel.
+  const ONE_PANE_BELOW = 672;
+  for (const width of [320, 390, 640, 700, 768, 900, 1024, 1440]) {
     for (const dark of [false, true]) {
       const leg = `${width}/${dark ? 'dark' : 'light'}`;
-      const phone = width < 640;
+      const probe = await open(width, dark);
+      const phone = (await panes(probe.page)).panel < ONE_PANE_BELOW;
+      await probe.page.close();
 
       // ── No link: the list ───────────────────────────────────────────
       const { page, errors } = await open(width, dark);
@@ -200,7 +212,7 @@ try {
         await back.click();
         if (shots) await page.screenshot({ path: `${shots}/${leg.replace('/', '-')}-list.png` });
       } else {
-        assert.equal(await back.isVisible(), false, `${leg}: Back must not show at sm and up`);
+        assert.equal(await back.isVisible(), false, `${leg}: Back must not show beside both panes`);
         if (shots) await page.screenshot({ path: `${shots}/${leg.replace('/', '-')}-conversation.png` });
       }
       assert.deepEqual(errors, [], `${leg}: page errors`);
