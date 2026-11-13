@@ -1,0 +1,26 @@
+{
+  "portalHead": "f968ba9380bd1def91eedcd9de50dce05c145fae",
+  "actualExecutorServerHead": "ffd2dd255c841d8064b121d9fc47848c6033df06",
+  "leadAssignedServerHead": "05c8bdb06d76c22fef8783e9aabbec4f0e163807",
+  "executor": "Charles, Claude Sonnet5.5 / Anthropic; AT0.7013.4",
+  "sourceReceipt": "hrn:node:hadronmemory.com:hadron-dev-team-shared:sprints:sprint-3:qa:hadron-portal-2087:charles-f968ba93 revision2",
+  "publisherReviewer": "Coco, gpt-6.1-sol / OpenAI; QA lead AT0.7013.3",
+  "scope": "Synthetic private-stack real HTTP/GraphQL fixture-model captures. Coco inspected all selected original PNGs for secrets/real data before publication. Original bytes and filenames retained.",
+  "limits": [
+    "Both L3-wide-light and L3-wide-dark render dark surfaces. Filename light labels are NOT accepted theme coverage; executor clarification requested.",
+    "Actual backend contains S4 and differs from lead-pinned S3. No automatic head carry.",
+    "Narrow chat pane unusable, pre-existing issue2088 per Charles baseline test.",
+    "Coco own Luna stack stopped at setup; no second browser campaign."
+  ],
+  "sha256": {
+    "L3-wide-light.png": "95d40441eae6475ec1a75507d73508296a7ba7924e0b0590d176ceeb06150a9e",
+    "L3-wide-dark.png": "f100ddbb03e69f15003a88ce40ab50145060620c6898ea4744600c473191ce5c",
+    "L3-narrow-light.png": "cc27a20fa935e59d7e10df65c9942fa37d48cbac80924c268ad96fd5d4de499d",
+    "L7-wide-light.png": "704d928f4e8350f044e82b124e0d881126ee1e4a5045c30d340bc811dd32e0b3",
+    "L8-wide-light.png": "ff393915a6bc4e6e8084c260b2519b9c5dccac6d499313895da7ad97b1cd3080",
+    "L2-wide-light.png": "499fb461b48391adef2498f2c7c197d35811fc0661cf366854311d90052b2131",
+    "L6-resume-wide-light.png": "ec2da4855a01a9c967b4c0229191e92cf9e9c02d99f457c5c6fc6ddb3cbf53ed",
+    "L4-wide-light.png": "d9670f8f4321956b0862a6db776d25f7b9917e2eaeacb47d2b1874a1b5580d27",
+    "matrix.out": "cb1a313bc322ab52782c0025324535f6ea17d9242049446776d06f792ea3862e"
+  }
+}

@@ -1,0 +1,12 @@
+PASS L1 forward plain turn :: status=200 stage line has "Stage: one"=true body keys=assistantMessage,stageTransitioned,newStageName,conversationHandoff,chatEnded,onTrack,offTrackReason,conversationCompleted,detourReturned,rejectedNextStage,routingSkipped,usage
+PASS L3 refused stage shows notice, stays in stage :: rejectedNextStage=nope stageTransitioned=false
+   refused-notice classes: mx-4 mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200
+PASS L2 goal_reached forwarded; completion notice; fallback handoff :: conversationCompleted=main handoff=home newStage=welcome stageTransitioned=true chatEnded=false stageLine home=true
+PASS L6 resume: Done list shows completed conversation :: done label present=true text-snippet="Done: main"
+PASS L4 detour then return notice :: stageTwo=true detourHandoff=anger detourReturned=true completed=anger handoff=main newStage=two notice="Returned from the detour to main / two Served prompt Fixture rep" completeNotice=true
+   narrow-light: horizontal page overflow=false
+   narrow-dark: horizontal page overflow=false
+   wide-dark: horizontal page overflow=false
+PASS L7 EDGE_CONDITION_FAILED partial turn: bubble kept, fixed copy, no refill :: status=409 code=partialTurnEdgeConditionFailed bubbleKept=true savedCopy=true inputAfter="" genericErrorShown=false snippet="Your message was sent and the reply was saved, but the chat couldn't move on to the next step."
+PASS L8 ENTRY_CONDITION_FAILED at start: fixed copy, no server text :: status=409 body={"error":"This chat can't start because its first conversation has a start condition that can't be checked.","code":"startInvalidCondition"} pageText="Select a chat from the list or click + New chat to start a new one. This chat can't start because its first conversation has a start condition that can't be checked. AI config Default"
+{"total":7,"pass":7}
