@@ -32,8 +32,10 @@ export async function resolveTesterAgent(
   agentId: string,
   userId: string | null | undefined,
 ): Promise<{ agent: TesterAgent; org: Organization | null } | null> {
+  // No user is a miss, decided before any lookup: nothing to ask the server about.
+  if (!userId) return null;
   const found = await findVisibleAgent(client, agentId);
-  if (!found || !userId) return null;
+  if (!found) return null;
   return (await canManageStrict(client, userId, found.agent.urn)) ? found : null;
 }
 

@@ -8,15 +8,17 @@
  * server's own `effectiveAccess.canManage` names, and the server stays
  * authoritative on every start.
  *
- * Five entry points reach the Tester: the Agent page's "Open Tester" link
+ * Six entry points reach the Tester: the Agent page's "Open Tester" link
  * (pinned in the page's own test), the Tester page load, the fixtures
- * GET/POST/DELETE, the fixtures run, and the direct test-run. Each is pinned
+ * GET/POST/DELETE, the fixtures run, the direct test-run and the scripted
+ * persona run (test-persona, found by Glen's LOCAL review of this PR). Each is pinned
  * here for the same matrix: a non-manager is concealed as not-found with no AI
  * resolution and no startChat; a manager is admitted; a failed manage read is
  * an error, never a 404 and never admission.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  CREATE_NODE_MUTATION,
   FIXTURE_NODES_QUERY,
   MY_AGENTS_QUERY,
   NODE_QUERY,
@@ -45,7 +47,7 @@ const AGENT_ID = 'agent-aaa';
 const AGENT_URN = 'hrn:agent:hadronmemory.com:aaa';
 const USER_ID = 'user-1';
 
-type Who = 'manager' | 'non-manager' | 'manage-read-fails';
+type Who = 'manager' | 'non-manager' | 'null-answer' | 'manage-read-fails';
 type Placement = 'org' | 'personal';
 
 /** One agent the caller can see, plus the server's answer to "may they manage it?". */
@@ -61,10 +63,13 @@ function route(who: Who, placement: Placement = 'org') {
     if (query === SELF_CAN_MANAGE_QUERY) {
       expect(vars).toMatchObject({ user: USER_ID, resource: AGENT_URN });
       if (who === 'manage-read-fails') throw new Error('upstream 503');
+      // A null answer is neither yes nor no: the resolver fails closed.
+      if (who === 'null-answer') return { effectiveAccess: null };
       return { effectiveAccess: { canManage: who === 'manager' } };
     }
     if (query === FIXTURE_NODES_QUERY) return { findNodes: { hits: [] } };
     if (query === NODE_QUERY) return { node: null };
+    if (query === CREATE_NODE_MUTATION) return { createNode: { id: 'n1', loc: 'fixtures:n1' } };
     if (query === START_CHAT_MUTATION) throw new Error('startChat must not be reached');
     throw new Error(`Unexpected query: ${query.slice(0, 50)}`);
   });
@@ -93,7 +98,8 @@ function jsonReq(url: string, method: string, body?: unknown) {
   });
 }
 
-const surfaces: Array<{ name: string; call: (l: ReturnType<typeof locals>) => Promise<Response> }> = [
+/** What "admitted" looks like past the gate, per surface, so a post-read crash cannot pass for admission. */
+const surfaces: Array<{ name: string; call: (l: ReturnType<typeof locals>) => Promise<Response>; admitted: (res: Response) => Promise<void> }> = [
   {
     name: 'fixtures GET',
     call: async (l) => {
@@ -101,6 +107,7 @@ const surfaces: Array<{ name: string; call: (l: ReturnType<typeof locals>) => Pr
       const url = new URL(`http://test/api/agent-chat/fixtures?agentId=${AGENT_ID}`);
       return GET({ url, request: new Request(url), locals: l } as never);
     },
+    admitted: async (res) => { expect(res.status).toBe(200) },
   },
   {
     name: 'fixtures POST',
@@ -109,6 +116,7 @@ const surfaces: Array<{ name: string; call: (l: ReturnType<typeof locals>) => Pr
       const url = new URL('http://test/api/agent-chat/fixtures');
       return POST({ url, request: jsonReq(url.href, 'POST', { agentId: AGENT_ID, label: 'x', turn: { user: 'hi', persona: null, assertion: null } }), locals: l } as never);
     },
+    admitted: async (res) => { expect(res.status).toBeLessThan(300); expect((await res.json()).fixtureId).toBe('n1') },
   },
   {
     name: 'fixtures DELETE',
@@ -117,6 +125,7 @@ const surfaces: Array<{ name: string; call: (l: ReturnType<typeof locals>) => Pr
       const url = new URL(`http://test/api/agent-chat/fixtures?agentId=${AGENT_ID}&fixtureLoc=fixtures:abc`);
       return DELETE({ url, request: jsonReq(url.href, 'DELETE', { agentId: AGENT_ID, fixtureLoc: 'fixtures:abc' }), locals: l } as never);
     },
+    admitted: async (res) => { expect(res.status).toBe(204) },
   },
   {
     name: 'fixtures run',
@@ -125,6 +134,7 @@ const surfaces: Array<{ name: string; call: (l: ReturnType<typeof locals>) => Pr
       const url = new URL('http://test/api/agent-chat/fixtures/run');
       return POST({ url, request: jsonReq(url.href, 'POST', { agentId: AGENT_ID }), locals: l } as never);
     },
+    admitted: async (res) => { expect(res.status).toBe(404); expect((await res.json()).error).toBe('No fixtures to run') },
   },
   {
     name: 'direct test-run',
@@ -133,6 +143,16 @@ const surfaces: Array<{ name: string; call: (l: ReturnType<typeof locals>) => Pr
       const url = new URL('http://test/api/agent-chat/test-run');
       return POST({ url, request: jsonReq(url.href, 'POST', { agentId: AGENT_ID, message: 'hello' }), locals: l } as never);
     },
+    admitted: async () => { expect(mockResolveChatAi).toHaveBeenCalledTimes(1) },
+  },
+  {
+    name: 'scripted persona run (test-persona)',
+    call: async (l) => {
+      const { POST } = await import('../../../routes/api/agent-chat/test-persona/+server');
+      const url = new URL('http://test/api/agent-chat/test-persona');
+      return POST({ url, request: jsonReq(url.href, 'POST', { agentId: AGENT_ID, personaName: 'P', openingMessage: 'hi', followUpMessages: [] }), locals: l } as never);
+    },
+    admitted: async () => { expect(mockResolveChatAi).toHaveBeenCalledTimes(1); },
   },
 ];
 
@@ -144,12 +164,19 @@ beforeEach(() => {
   __resetRateLimit();
 });
 
-describe.each(surfaces)('$name', ({ call }) => {
+describe.each(surfaces)('$name', ({ call, admitted }) => {
   it('conceals the Tester from a non-manager (READER/CONTRIBUTOR) and never starts a chat', async () => {
     route('non-manager');
     expect(await status(() => call(locals()))).toBe(404);
     expect(mockResolveChatAi).not.toHaveBeenCalled();
     expect(mockRunChatTurn).not.toHaveBeenCalled();
+    expect(startChatCalls()).toBe(0);
+  });
+
+  it('fails closed on a null effectiveAccess answer: concealed, never admitted', async () => {
+    route('null-answer');
+    expect(await status(() => call(locals()))).toBe(404);
+    expect(mockResolveChatAi).not.toHaveBeenCalled();
     expect(startChatCalls()).toBe(0);
   });
 
@@ -178,10 +205,7 @@ describe.each(surfaces)('$name', ({ call }) => {
   it.each([['org' as const], ['personal' as const]])('admits a manager (%s placement): not concealed', async (placement) => {
     route('manager', placement);
     mockResolveChatAi.mockRejectedValue(new Error('stop after admission'));
-    const res = await call(locals()).then((r) => r, () => null);
-    // Past the gate: whatever else answers, it is not the concealing not-found.
-    const body = res ? await res.clone().json().catch(() => null) : null;
-    expect(body?.error).not.toBe('Agent not found or no longer available');
+    await admitted(await call(locals()));
     // Admission means the manage check ran and said yes, not that it was skipped.
     expect(mockRequest.mock.calls.some(([q]) => q === SELF_CAN_MANAGE_QUERY)).toBe(true);
   });
@@ -198,9 +222,20 @@ describe('Tester page load', () => {
     await expect(load(locals())).rejects.toMatchObject({ status: 404 });
   });
 
+  it('answers a null effectiveAccess with the existing 404', async () => {
+    route('null-answer');
+    await expect(load(locals())).rejects.toMatchObject({ status: 404 });
+  });
+
   it('answers a missing user with the existing 404', async () => {
     route('manager');
     await expect(load(locals(null))).rejects.toMatchObject({ status: 404 });
+  });
+
+  it.each([['org' as const], ['personal' as const]])('admits a manager (%s placement) with the agent in the result', async (placement) => {
+    route('manager', placement);
+    const data = (await load(locals())) as unknown as { agent: Record<string, unknown> };
+    expect(data.agent).toMatchObject({ id: AGENT_ID, systemMemoryId: 'sys-mem-a' });
   });
 
   it('propagates a failed manage read as a non-404 error', async () => {
