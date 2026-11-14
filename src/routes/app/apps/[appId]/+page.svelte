@@ -138,7 +138,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker, AiServiceConfig } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
-  import type { AppTabId } from './tab-intent';
+  import { resolveTabIntent, type AppTabId } from './tab-intent';
   import AppNodeRoleTemplates from './AppNodeRoleTemplates.svelte';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
@@ -1086,7 +1086,11 @@
   // below), and the action URL has no `?tab=` for the loader to agree with.
   afterNavigate((nav) => {
     if (!(nav.type === 'enter' && form)) {
-      activeTab = (data.initialTab as TabId | null) ?? 'chats';
+      // #1943: local tabs now rewrite `?tab=` by shallow replaceState, which leaves the entry's loader
+      // data (`data.initialTab`) on the tab that was LOADED. Back lands on such an entry, so the address
+      // bar is the truthful source; the loader's tab applies when the URL names none.
+      const urlTab = resolveTabIntent(new URL(window.location.href).searchParams).initialTab;
+      activeTab = ((urlTab ?? data.initialTab) as TabId | null) ?? 'chats';
     }
     chatMaximized = data.initialChatFullView;
   });
@@ -1180,6 +1184,12 @@
   // clears the manager's copy of the question so its own route guard does not ask a second time.
   // If we then do not land on the chosen tab, the question is put back with the draft.
   let templatesLeaveMessage = $state<string | null>(null);
+  function syncTabParam(id: TabId) {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('tab') === id) return;
+    url.searchParams.set('tab', id);
+    replaceState(url, {});
+  }
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
     let asked: string | null = null;
@@ -1223,6 +1233,10 @@
       if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
       landed = true;
       activeTab = id;
+      // #1943: Runs and Templates already navigated to `?tab=<id>`; every other tab was local state,
+      // so the address bar kept the last navigated tab. Name the shown tab by a shallow replaceState
+      // (no history entry, no loader re-run), the way `?chat=` and `?view=` are synced.
+      if (!ownNavigationHref) syncTabParam(id);
       await tick();
       if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id}`)?.focus();
     } catch { /* A failed navigation keeps the current tab; the router owns its error. */ }

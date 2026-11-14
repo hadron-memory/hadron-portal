@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { chromium } from 'playwright';
+// @ts-expect-error plain .mjs helper shared with the layout script
+import { NEEDLES } from './lib/cell-harness-messages.mjs';
 
 // portal#2129 rows 1, 6, 7, 8: the layout script's own failure paths, run for real in Chromium.
 // Without a browser (CI images that skip the browser legs) vitest reports these tests as skipped; LOCAL runs it natively.
@@ -30,17 +32,17 @@ describe.skipIf(!haveChromium)('layout script failure paths (native)', { timeout
     const { code, out } = run({ CELL_INJECT_POINTER_FAILURE: '1' });
     expect(code).not.toBe(0);
     expect(queued(out, INJECTED)).toBe(2);
-    expect(queued(out, 'pointer baseline regression')).toBe(0);
+    expect(queued(out, NEEDLES.pointerRegression)).toBe(0);
     expect(count(out, SUCCESS)).toBe(0);
     expect(count(out, 'INJECTION ACTIVE: CELL_INJECT_POINTER_FAILURE=1')).toBe(1);
   });
   it('CELL_INJECT_MISSING_TRIGGER=1: one failure per leg, no cascade, exit non-zero', () => {
     const { code, out } = run({ CELL_INJECT_MISSING_TRIGGER: '1' });
     expect(code).not.toBe(0);
-    expect(queued(out, 'expected 2 severity fields, found 1')).toBe(2);
+    expect(queued(out, `${NEEDLES.severityFields} 1`)).toBe(2);
     expect(count(out, 'FAILED, 1 check(s) queued')).toBe(2);
-    expect(queued(out, 'to escape with the severity wrap stripped')).toBe(0);
-    expect(queued(out, 'vertical')).toBe(0);
+    expect(queued(out, NEEDLES.wrapControlMissed)).toBe(0);
+    expect(queued(out, NEEDLES.vertical)).toBe(0);
     expect(count(out, SUCCESS)).toBe(0);
   });
   it('a knob set to 0 is silent and the run passes', () => {

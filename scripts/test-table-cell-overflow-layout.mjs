@@ -5,6 +5,7 @@ import { createServer } from 'vite';
 import { chromium } from 'playwright';
 import { parseHarnessEnv, injectionEcho } from './lib/cell-harness-env.mjs';
 import { sameMembers, pointerVerdict } from './lib/cell-harness-checks.mjs';
+import { messages } from './lib/cell-harness-messages.mjs';
 // portal#2129: every env knob is validated, and any active injection announced, before the dev server or a browser starts.
 const env = parseHarnessEnv(process.env);
 for (const line of injectionEcho(env)) console.log(line);
@@ -267,14 +268,14 @@ try {
    const clean = await escapes();
    const severityCount = clean.filter(x => x.field === 'finding-severity').length;
    // One cause, one failure: with a trigger missing, the controls below have nothing to measure, so they are skipped.
-   if (severityCount !== 2) failures.push(`${leg}: expected 2 severity fields, found ${severityCount}`);
+   if (severityCount !== 2) failures.push(messages.severityFields(leg, severityCount));
    else {
     const out = clean.filter(x => x.px > ESCAPE_PX);
     if (out.length) failures.push(`${leg}: findings field escapes its cell ${JSON.stringify(out)}`);
     const control = await page.addStyleTag({ content: '[data-testid="finding-severity"] { overflow-wrap: normal !important; word-break: normal !important; }' });
     await settlePage(page);
     const dirty = (await escapes()).filter(x => x.field === 'finding-severity' && x.px > ESCAPE_PX).map(x => x.row);
-    if (!sameMembers(dirty, ['markers', 'plain'])) failures.push(`${leg}: expected rows [markers, plain] to escape with the severity wrap stripped, got [${dirty.join(', ')}]`);
+    if (!sameMembers(dirty, ['markers', 'plain'])) failures.push(messages.wrapControlMissed(leg, dirty));
     await control.evaluate(el => el.remove());
     // Second control, for the vertical terms of escapes(): text pushed below its cell must be seen to escape
     // vertically, or "both axes" is a claim the harness cannot fail (portal#2126 BLIND P2).
@@ -283,16 +284,16 @@ try {
     const tall = await page.addStyleTag({ content: 'tbody td { height: 700px; }' });
     await settlePage(page);
     const tallest = await page.locator('tbody td').evaluateAll(tds => Math.max(...tds.map(td => td.getBoundingClientRect().height)));
-    if (!(tallest > 400)) failures.push(`${leg}: vertical control precondition: tallest cell ${Math.round(tallest)}px, need > 400`);
+    if (!(tallest > 400)) failures.push(messages.verticalPrecondition(leg, tallest));
     else {
      const vertical = await page.addStyleTag({ content: `[data-testid="finding-text"] { position: relative; top: ${Math.ceil(tallest) + 200}px; }` });
      await settlePage(page);
-     if ((await escapes()).filter(x => x.px > ESCAPE_PX).length === 0) failures.push(`${leg}: vertical negative control (text displaced) was not detected`);
+     if ((await escapes()).filter(x => x.px > ESCAPE_PX).length === 0) failures.push(messages.verticalNotDetected(leg));
      await vertical.evaluate(el => el.remove());
     }
     await tall.evaluate(el => el.remove());
     await settlePage(page);
-    if ((await escapes()).some(x => x.px > ESCAPE_PX)) failures.push(`${leg}: vertical control left an escape behind`);
+    if ((await escapes()).some(x => x.px > ESCAPE_PX)) failures.push(messages.verticalLeftEscape(leg));
    }
    // Independent of the severity triggers, so it still runs when one is missing.
    if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);

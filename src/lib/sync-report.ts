@@ -52,7 +52,10 @@ export function isSyncInstant(value: unknown): value is string {
   return parsed.toISOString() === normalized;
 }
 const safeSourceText = (value: string) => !/(?:[a-z][a-z0-9+.-]*:\/\/|gh[oprsu]_|github_pat_|hdr_(?:app|usr)_|Bearer\s)/i.test(value);
-const boundedLoc = (value: string) => value.length <= 240 ? value : `${value.slice(0, 239)}…`;
+const boundedLoc = (value: string) => {
+  const points = Array.from(value);
+  return points.length <= 240 ? value : `${points.slice(0, 239).join('')}…`;
+};
 
 export function parseSyncReport(raw: unknown, status?: string | null, completedAt?: string | null): SyncReportView {
   const unavailable: SyncReportView = { state: 'unavailable', entries: [] };
@@ -94,9 +97,15 @@ export function syncReportSummary(view: SyncReportView): string {
     default: return t('sync-report.unavailable', 'Report unavailable.');
   }
 }
-/** Both action paths share this classification; existing error redaction stays separate. */
-export function syncOutcomeMessage(memory: SyncOutcomeFields | null | undefined): { type: 'success' | 'error'; text: string } {
+/** Both action paths share one parse and classification; error redaction stays separate. */
+export function classifySyncOutcome(memory: SyncOutcomeFields | null | undefined): { view: SyncReportView; message: { type: 'success' | 'error'; text: string } } {
   const view = parseSyncReport(memory?.lastSyncReport, memory?.syncStatus, memory?.lastSyncedAt);
+  return { view, message: messageForSyncOutcome(memory, view) };
+}
+export function syncOutcomeMessage(memory: SyncOutcomeFields | null | undefined): { type: 'success' | 'error'; text: string } {
+  return classifySyncOutcome(memory).message;
+}
+function messageForSyncOutcome(memory: SyncOutcomeFields | null | undefined, view: SyncReportView): { type: 'success' | 'error'; text: string } {
   if (memory?.syncStatus === 'ERROR' || view.state === 'failed') {
     return { type: 'error', text: gitFailureMessage(memory?.syncError, 'sync') };
   }
@@ -104,7 +113,7 @@ export function syncOutcomeMessage(memory: SyncOutcomeFields | null | undefined)
   if (view.state === 'partial') return { type: 'success', text: t('sync-report.action-partial', 'Synced with notes: {count} recorded outcomes need attention.', { count: view.entries.length }) };
   if (view.state === 'unknown' || view.state === 'unavailable') return { type: 'success', text: syncReportSummary(view) };
   if (view.state === 'clean') return { type: 'success', text: t('integrations.synced', 'Memory synced.') };
-  return { type: 'success', text: t('integrations.sync-not-finished', 'The sync didn’t finish (status: {status}). Check the status again shortly.', { status: safeSyncStatus(memory?.syncStatus) }) };
+  return { type: 'success', text: syncReportSummary(view) };
 }
 export function safeSyncStatus(status: unknown): string {
   return typeof status === 'string' && ['PENDING', 'SYNCING', 'OK', 'ERROR'].includes(status) ? status : '—';

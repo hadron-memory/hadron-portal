@@ -375,3 +375,13 @@ it.each(['failed', 'bad-completion', 'never-synced'])('does not turn %s into cle
   expect(msg.type).toBe(kind === 'failed' ? 'error' : 'success');
   expect(msg.text).not.toBe('Memory synced.'); expect(msg.text).not.toContain('ghs_SECRET');
 });
+
+
+it('#1308 a returned per-memory failed report uses HTTP 500 even when syncStatus says OK', async () => {
+  mockRequest.mockResolvedValueOnce({ syncMemory: { syncStatus: 'OK', lastSyncReport: JSON.stringify({ version: 1, outcome: 'failed', recordedAt: '2026-10-26T01:02:03.000Z', code: 'SYNC_FAILED', entries: [] }), syncError: 'https://synthetic:ghs_SYNTHETIC@example.test' } });
+  const { actions } = await importMod();
+  const result = await actions.sync(commandEvent());
+  expect(result).toMatchObject({ status: 500 });
+  expect(superFormFrom(result)?.message).toMatchObject({ type: 'error' });
+  expect(JSON.stringify(superFormFrom(result)?.message)).not.toContain('SYNTHETIC');
+});

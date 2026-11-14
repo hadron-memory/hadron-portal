@@ -58,7 +58,6 @@ export const MEMORY_FIELDS = /* GraphQL */ `
     syncError
     pendingEdgeCount
     lastSyncedAt
-    lastSyncReport
     organization { id name }
     createdAt
     updatedAt
@@ -271,6 +270,7 @@ export const MEMORY_BY_ID_QUERY = /* GraphQL */ `
   query MemoryById($ref: ID!) {
     memory(ref: $ref) {
       ...MemoryFields
+      lastSyncReport
       organization { urn }
       subscriptions {
         id
@@ -1443,6 +1443,7 @@ export const GLOBAL_SEARCH_QUERY = /* GraphQL */ `
         id
         urn
         name
+        handle
         description
         matchedField
         score
@@ -1891,7 +1892,7 @@ export const CLEAR_NODE_HISTORY_MUTATION = /* GraphQL */ `
 export const SYNC_MEMORY_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
   mutation SyncMemory($id: ID!) {
-    syncMemory(id: $id) { ...MemoryFields }
+    syncMemory(id: $id) { ...MemoryFields lastSyncReport }
   }
 `;
 
