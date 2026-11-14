@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import MemoryBrowser from './MemoryBrowser.svelte';
+import type { ListPageNavigation } from '$lib/list-page';
 
 // #1929 BLIND P2: the memory-only case is routed through the REAL search
 // handler, so a client that sends a request the handler treats as "nothing
@@ -254,7 +255,7 @@ describe('server search on the Memory tab after a scope read (#1043)', () => {
 });
 
 describe('tree reorder on a server-paged browser (#1881)', () => {
-  async function mountTree(total: number, page: Partial<typeof serverPage> = {}) {
+  async function mountTree(total: number, page: Partial<ListPageNavigation> = {}) {
     window.localStorage.setItem('hadron:memoryBrowser:nodesPane', 'tree');
     fetchMock.mockImplementation(async (url: string) => {
       if (url === '/api/nodes/reorder') return new Response('{}', { status: 200 });
