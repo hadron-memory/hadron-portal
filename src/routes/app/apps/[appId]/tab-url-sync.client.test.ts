@@ -10,7 +10,7 @@ import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { navigationCalls, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
+import { navigationCalls, navigationGuards, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
 import Page from './+page.svelte';
 import { pageData } from './app-page.fixture';
 import { addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema } from './schema';
@@ -103,5 +103,26 @@ describe('portal#1943: ?tab= follows the shown tab', () => {
     await tick(4);
     expect(navigationCalls.filter((c) => c.fn === 'goto').map((c) => String(c.args[0]))).toEqual(['/app/apps/a1?tab=node-role-templates']);
     expect(navigationCalls.filter((c) => c.fn === 'replaceState')).toHaveLength(0);
+  });
+
+  // QA on #2146: runs -> AI Team (replaceState, so SvelteKit keeps the Runs load URL) -> Templates -> Back.
+  // The entry Back returns to has `?tab=staff` in the address bar but loader data that still says `runs`.
+  it('after Back, the shown tab is the one the address bar names, not the loader\'s stale initialTab', async () => {
+    const target = await mountAt('runs');
+    window.history.replaceState({}, '', '/app/apps/a1?tab=staff');
+    const after = navigationGuards.find((g) => g.fn === 'afterNavigate')?.callback as (nav: { type: string }) => void;
+    after({ type: 'popstate' });
+    await tick(3);
+    expect(target.querySelector('#tab-staff')?.getAttribute('aria-selected')).toBe('true');
+    expect(target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('false');
+  });
+
+  it('after a navigation to a URL with no known ?tab=, the loader\'s tab still applies', async () => {
+    const target = await mountAt('settings');
+    window.history.replaceState({}, '', '/app/apps/a1');
+    const after = navigationGuards.find((g) => g.fn === 'afterNavigate')?.callback as (nav: { type: string }) => void;
+    after({ type: 'link' });
+    await tick(3);
+    expect(target.querySelector('#tab-settings')?.getAttribute('aria-selected')).toBe('true');
   });
 });

@@ -138,7 +138,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker, AiServiceConfig } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
-  import type { AppTabId } from './tab-intent';
+  import { resolveTabIntent, type AppTabId } from './tab-intent';
   import AppNodeRoleTemplates from './AppNodeRoleTemplates.svelte';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
@@ -1086,7 +1086,11 @@
   // below), and the action URL has no `?tab=` for the loader to agree with.
   afterNavigate((nav) => {
     if (!(nav.type === 'enter' && form)) {
-      activeTab = (data.initialTab as TabId | null) ?? 'chats';
+      // #1943: local tabs now rewrite `?tab=` by shallow replaceState, which leaves the entry's loader
+      // data (`data.initialTab`) on the tab that was LOADED. Back lands on such an entry, so the address
+      // bar is the truthful source; the loader's tab applies when the URL names none.
+      const urlTab = resolveTabIntent(new URL(window.location.href).searchParams).initialTab;
+      activeTab = ((urlTab ?? data.initialTab) as TabId | null) ?? 'chats';
     }
     chatMaximized = data.initialChatFullView;
   });
