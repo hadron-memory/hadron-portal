@@ -326,9 +326,11 @@
   onMount(async () => {
     const issuedAppId = appId;
     const issuedAgentId = agentId;
+    const issuedSelector = new URL(window.location.href).searchParams.get('chat');
+    const issuedLegacyProof = allowLegacyAppChat;
     await refreshChatList();
     const url = new URL(window.location.href);
-    const legacyAllowed = allowLegacyAppChat && issuedAppId === appId && issuedAgentId === agentId;
+    const legacyAllowed = issuedLegacyProof && allowLegacyAppChat && url.searchParams.get('chat') === issuedSelector && issuedAppId === appId && issuedAgentId === agentId;
     const legacy = !!appId && legacyAllowed && url.searchParams.get('chat') !== AGENT_CHAT_KEY && !url.searchParams.has('agentChat');
     const target = resolveActiveChatFromUrl(url, chats, { appChat: !!appId, allowLegacyAppChat: legacyAllowed });
     if (target) {

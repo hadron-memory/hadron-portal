@@ -141,7 +141,7 @@ describe('portal#2107: App AgentChat URL round trip', () => {
     expect(errors).toEqual([]);
   });
 
-  it.each(['app', 'agent'])('does not recover from an outgoing filtered list when its %s changes', async (changed) => {
+  it.each(['app', 'agent', 'selector'])('does not recover from an outgoing filtered list when its %s changes', async (changed) => {
     resetNavigationCalls();
     let release!: () => void; const held = new Promise<void>(r => { release = r; });
     let decoded!: () => void; const read = new Promise<void>(r => { decoded = r; });
@@ -149,7 +149,7 @@ describe('portal#2107: App AgentChat URL round trip', () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       if (String(input).includes('/list')) {
         requested = true; await held;
-        return { ok: true, json: async () => { decoded(); return { chats: [persisted] }; } } as Response;
+        return { ok: true, json: async () => { decoded(); return { chats: [persisted, { ...persisted, loc: 'chats:next' }] }; } } as Response;
       }
       resumed = true; throw new Error(`Unexpected outgoing-list resume ${input}`);
     }));
@@ -158,7 +158,9 @@ describe('portal#2107: App AgentChat URL round trip', () => {
     const m = mountComponent(AgentChat, props);
     try {
       await vi.waitFor(() => expect(requested).toBe(true));
-      if (changed === 'app') props.appId = 'next-app'; else props.agentId = 'next-agent';
+      if (changed === 'app') props.appId = 'next-app';
+      else if (changed === 'agent') props.agentId = 'next-agent';
+      else window.history.replaceState({}, '', '/app/apps/app?chat=chats%3Anext');
       release(); await read; await tick(6);
       expect(resumed).toBe(false);
       expect(navigationCalls.filter(c => c.fn === 'replaceState')).toEqual([]);
