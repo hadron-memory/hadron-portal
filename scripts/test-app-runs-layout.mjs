@@ -42,7 +42,7 @@ try {
    assert.equal(await page.locator('th').filter({ hasText: /^Duration/ }).getByRole('button').count(), 0);
    assert.equal(await page.getByLabel('Sort runs by').inputValue(), 'createdAt');
    assert.equal(await page.getByText('Showing the first', { exact: false }).count(), 0);
-   assert.equal(await page.getByText('Pagination covers all App nodes, not just runnable flows.', { exact: true }).count(), 1);
+   assert.equal(await page.getByText('Pages step through this App’s runnable nodes; only Flow entry nodes are listed.', { exact: true }).count(), 1);
    assert.equal(await page.locator('table').getByText('Showing the first', { exact: false }).count(), 0);
    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${width}/${dark}: page overflow`);
    assert.equal(await page.getByRole('textbox', { name: /Search/ }).count(), 0);

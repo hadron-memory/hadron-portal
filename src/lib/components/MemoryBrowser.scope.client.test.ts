@@ -353,14 +353,13 @@ describe('server-paged memory browser (#1881, #1929 findings)', () => {
     const b = mountComponent(MemoryBrowser as never, props() as never) as Mounted<Record<string, unknown>>;
     try {
       await tick(3);
-      const names = (root: HTMLElement) => {
+      for (const root of [a.target, b.target]) {
         [...root.querySelectorAll('button')].find(btn => btn.textContent?.trim().startsWith('Tags'))!.click();
-        return [...root.querySelectorAll<HTMLInputElement>('input[type="radio"]')].map(r => r.name);
-      };
-      await tick();
+      }
+      await tick(2);
+      const names = (root: HTMLElement) => [...root.querySelectorAll<HTMLInputElement>('input[type="radio"]')].map(r => r.name);
       const an = names(a.target);
       const bn = names(b.target);
-      await tick();
       expect(an.length).toBeGreaterThan(0);
       expect(new Set(an).size).toBe(1);
       expect(an[0]).not.toBe('');

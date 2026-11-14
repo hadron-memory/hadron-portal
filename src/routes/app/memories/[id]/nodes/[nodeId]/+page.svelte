@@ -22,6 +22,8 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import DataTable from '$lib/components/table/DataTable.svelte';
+  import ListPageNav from '$lib/components/ListPageNav.svelte';
+  import type { ListPageNavigation } from '$lib/list-page';
   import Urn from '$lib/components/Urn.svelte';
   import NodeEmbeddingBadges from '$lib/components/NodeEmbeddingBadges.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
@@ -2022,20 +2024,25 @@
   let revisionRows = $state<NodeRevision[]>([]);
   let revisionsLoaded = $state(false);
   let revisionsFailed = $state(false);
-  // The cap flag is pinned to the node whose read set it: `revisionsCappedFor`
-  // holds that node's id, and the cue shows only while it is the node on screen.
-  let revisionsCappedFor = $state<string | null>(null);
-  const revisionsCapped = $derived(revisionsCappedFor !== null && revisionsCappedFor === node.id);
+  // Server pagination is pinned to the node whose read produced it, just like
+  // the rows: a navigation or late answer must not lend another node's pages.
+  let revisionsPageState = $state<ListPageNavigation | null>(null);
+  let revisionsPageFor = $state<string | null>(null);
+  const revisionsPage = $derived(revisionsPageFor !== null && revisionsPageFor === node.id ? revisionsPageState : null);
   $effect(() => {
     const p = data.revisions; // track the current navigation's promise
+    revisionRows = [];
+    revisionsFailed = false;
     revisionsLoaded = false;
-    revisionsCappedFor = null;
+    revisionsPageState = null;
+    revisionsPageFor = null;
     p.then((res) => {
       // A late answer for the node the reader navigated away from must not land
-      // on this one (rows, cap flag or loaded state).
+      // on this one (rows, page state or loaded state).
       if (data.revisions !== p) return;
       revisionRows = res.items;
-      revisionsCappedFor = res.capped === true ? (res.nodeId ?? null) : null;
+      revisionsPageState = res.page ?? null;
+      revisionsPageFor = res.nodeId ?? null;
       revisionsFailed = !res.ok; // distinguish "no revisions" from "couldn't load"
       revisionsLoaded = true;
     });
@@ -2261,6 +2268,12 @@
       return historyRows;
     },
     columns: revisionColumns,
+    manualPagination: true,
+    // nodeRevisionsPage owns newest-first order. Its API has no history-wide
+    // search/sort arguments, so do not offer page-local substitutes for them.
+    manualSorting: true,
+    manualFiltering: true,
+    enableSorting: false,
     enableMultiSort: false,
     enableColumnResizing: true,
     columnResizeMode: 'onChange',
@@ -2283,7 +2296,6 @@
     }),
     initialState: {
       pagination: { pageIndex: 0, pageSize: 20 },
-      sorting: [{ id: 'when', desc: true }], // most recent first
     },
   });
 
@@ -4185,12 +4197,11 @@
         </div>
       {:else if revisionRows.length === 0}
         <div class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
-          <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.history.empty', 'No prior revisions. A snapshot is saved each time the node is edited.')}</p>
+          <p class="text-sm text-zinc-500 dark:text-zinc-400">{revisionsPage && revisionsPage.total > 0 ? t('node.history.empty-page', 'No revisions on this page.') : t('node.history.empty', 'No prior revisions. A snapshot is saved each time the node is edited.')}</p>
         </div>
       {:else}
         <div class="mb-3 flex items-center justify-between gap-3">
           <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('node.history.intro', 'Revisions saved on each edit, most recent first.')}</p>
-          {#if revisionsCapped}<CappedNotice shown={revisionRows.length} what={t('capped.revisions', 'revisions (the newest)')} />{/if}
           <button type="button" onclick={() => (clearConfirm = true)} disabled={readOnly || historyBusy}
             class="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950">
             {t('node.history.clear', 'Clear')}
@@ -4207,6 +4218,8 @@
           <DataTable
             table={revisionTable}
             listKey="node:history"
+            showFooter={false}
+            showSearch={false}
             searchPlaceholder={t('node.history.search', 'Search history…')}
             searchAriaLabel={t('node.history.search', 'Search history…')}
             bind:globalFilter={revisionFilter}
@@ -4251,6 +4264,9 @@
           {/snippet}
         </DataTable>
         </div>
+      {/if}
+      {#if revisionsLoaded && !revisionsFailed && revisionsPage && (revisionsPage.total > 0 || revisionsPage.firstHref || revisionsPage.previousHref)}
+        <ListPageNav page={revisionsPage} label={t('node.history.pages', 'Revision pages')} disabled={historyBusy} />
       {/if}
 
       <!-- ═══ portal#1355 — edge-removal audit entries (server#2562,

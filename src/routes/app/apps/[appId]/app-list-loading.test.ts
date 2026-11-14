@@ -229,7 +229,7 @@ describe('App display-list request boundaries (#1758)', () => {
     const base = request.getMockImplementation()!;
     request.mockImplementation(async (document: string, variables: Variables = {}) => {
       const name = getOperationAST(parse(document))?.name?.value;
-      if (name === 'AppNodesPage') return { appNodesPage: { items: [root], total: 3, hasMore: true } };
+      if (name === 'AppFlowsPage') return { appNodesPage: { items: [root], total: 3, hasMore: true } };
       if (name === 'AppNodes') return { appNodes: [root, middle, last] };
       return base(document, variables);
     });

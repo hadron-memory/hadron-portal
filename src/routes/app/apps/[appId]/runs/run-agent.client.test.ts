@@ -137,7 +137,7 @@ describe('runs page: Agent picker (#1444)', () => {
     expect(t.querySelector('nav[aria-label="Flow pages"] a[rel="prev"]')).not.toBeNull();
   });
 
-  it('labels the pager as an App-node window, not a count of displayed flows', async () => {
+  it('labels the pager as a window of runnable nodes, not a count of displayed flows', async () => {
     const t = await mountRuns(null, {
       flowsPage: { offset: 0, count: 20, total: 45, firstHref: null, previousHref: null, nextHref: '?tab=runs&flowsOffset=20' },
     });
@@ -145,7 +145,7 @@ describe('runs page: Agent picker (#1444)', () => {
     expect(nav).not.toBeNull();
     expect(nav!.textContent).toContain('1–20');
     expect(nav!.textContent).toContain('of 45');
-    expect(t.textContent).toContain('Pagination covers all App nodes, not just runnable flows.');
+    expect(t.textContent).toContain('Pages step through this App’s runnable nodes; only Flow entry nodes are listed.');
     expect(t.querySelectorAll('ul li')).toHaveLength(1);
   });
 });
