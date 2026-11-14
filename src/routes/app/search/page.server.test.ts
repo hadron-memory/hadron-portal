@@ -67,7 +67,18 @@ describe('/app/search loader', () => {
 // portal#1946: consume the server task kind and resolve its canonical App only on click.
 describe('task search results', () => {
   it('honors type=agentTask and keeps the server title and handle unchanged', async () => {
-    const hit = { entityType: 'agentTask', id: 'task-id', urn: null, name: 'Repair the importer', handle: 'AT0.6508', description: null, matchedField: 'name', score: 9, memoryId: null, organizationId: null };
+    const hit = {
+      entityType: 'agentTask',
+      id: 'task-id',
+      urn: null,
+      name: 'Repair the importer',
+      handle: 'AT0.6508',
+      description: null,
+      matchedField: 'name',
+      score: 9,
+      memoryId: null,
+      organizationId: null,
+    };
     mockRequest.mockResolvedValueOnce({ globalSearch: { hits: [hit], degraded: [] } });
     const data = await (await importLoad())(ev('/app/search?q=AT0.6508&type=agentTask'));
     expect(mockRequest.mock.calls[0][1].entityTypes).toEqual(['agentTask']);
@@ -86,7 +97,8 @@ describe('task search results', () => {
     await expect((await importLoad())(ev('/app/search?task=missing'))).rejects.toMatchObject({ status: 404 });
   });
   it('a task lookup outage stays an outage, never a false not-found', async () => {
-    const fault = new Error('transport failure'); mockRequest.mockRejectedValueOnce(fault);
+    const fault = new Error('transport failure');
+    mockRequest.mockRejectedValueOnce(fault);
     await expect((await importLoad())(ev('/app/search?task=task-id'))).rejects.toBe(fault);
   });
 });

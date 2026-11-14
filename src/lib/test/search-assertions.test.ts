@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { parse, print, visit } from 'graphql';
+import { buildSchema, parse, print, validate, visit } from 'graphql';
+import { readFileSync } from 'node:fs';
 import { GLOBAL_SEARCH_QUERY } from '$lib/server/queries';
 import { searchHitFields, searchResult } from './search-assertions';
+
+const schema = buildSchema(readFileSync(new URL('../../../schema/schema.graphql', import.meta.url), 'utf8'));
 
 describe('the search query guard examines the consumed hits selection', () => {
   it('accepts the real query and fails when its handle selection is removed', () => {
@@ -13,11 +16,12 @@ describe('the search query guard examines the consumed hits selection', () => {
   });
 
   it.each([
-    ['another root field', 'query GlobalSearch { globalSearch(query: "q") { hits { id name } } user(id: "x") { handle } }'],
+    ['another root field', 'query GlobalSearch { globalSearch(query: "q") { hits { id name } } user(ref: "x") { handle } }'],
     ['another operation', 'query Other { globalSearch(query: "q") { hits { handle } } } query GlobalSearch { globalSearch(query: "q") { hits { id name } } }'],
     ['a renamed handle response', 'query GlobalSearch { globalSearch(query: "q") { hits { renamed: handle } } }'],
     ['another aliased result', 'query GlobalSearch { other: globalSearch(query: "q") { hits { handle } } globalSearch(query: "q") { hits { id name } } }'],
   ])('ignores handle in %s', (_label, query) => {
+    expect(validate(schema, parse(query))).toEqual([]);
     expect(searchHitFields(query)).not.toContain('handle');
   });
 });
