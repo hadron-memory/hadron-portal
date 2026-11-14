@@ -145,13 +145,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           headers: { 'Content-Type': 'application/json' },
         });
       }
-      // Fetch revision nodes from the agent's system memory. hrn:node:hadronmemory.com:specs:cor:api:090 —
-      // findNodes hides class:'system' memories on a broad call, so we scope to
-      // the system memory (which also overrides the exclusion) and use
-      // filter.locPrefix for the `revisions:` prefix. Results are hits[].node.
+      // Fetch revision nodes from the agent's system memory. Two ORTHOGONAL default exclusions apply to a
+      // findNodes call (hrn:node:hadronmemory.com:specs:cor:api:090:02):
+      //   1. memory class — hides class:'system' memories on a broad call; naming the memory in `memoryIds`
+      //      overrides it.
+      //   2. node type — an UNQUALIFIED call hides nodeType 'system' and 'chat-message'; only naming a
+      //      `nodeType` lifts it. Revision nodes ARE nodeType 'system', so without `nodeType` the list came
+      //      back empty for a genuinely published Agent (portal#2085).
+      // So we scope to the memory AND name the single Decided `nodeType` filter (not the Proposed `nodeTypes`
+      // list), and use filter.locPrefix for the `revisions:` prefix. Results are hits[].node.
       const REVISIONS_QUERY = /* GraphQL */ `
-        query Revisions($limit: Int, $offset: Int, $memoryIds: [ID!]) {
-          findNodes(filter: { memoryIds: $memoryIds, locPrefix: "revisions:" }, limit: $limit, offset: $offset) {
+        query Revisions($limit: Int, $offset: Int, $memoryIds: [ID!], $nodeType: String) {
+          findNodes(filter: { memoryIds: $memoryIds, nodeType: $nodeType, locPrefix: "revisions:" }, limit: $limit, offset: $offset) {
             hits { node { id loc name description data } }
           }
         }
@@ -159,7 +164,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       const result = await drainFindNodes<{ node: { id: string; loc: string; name: string; description: string | null; data: unknown } }>(
         client,
         REVISIONS_QUERY,
-        { memoryIds: [systemMemoryId] },
+        { memoryIds: [systemMemoryId], nodeType: 'system' },
       );
       const revisions = (result.findNodes?.hits ?? [])
         .map((h) => h.node)
