@@ -210,6 +210,8 @@ describe('scope identity in the memory browser (#1043)', () => {
     await vi.advanceTimersByTimeAsync(350);
     await tick(3);
     expect(searchBodies()).toEqual([]);
+    // #2162 BLIND F4: a refused toggle must not leave the box looking applied.
+    expect(comment.checked).toBe(false);
   });
 });
 

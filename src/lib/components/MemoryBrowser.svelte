@@ -1050,6 +1050,8 @@
   const reorderSafe = $derived(treeReorderAllowed({
     serverPaged: serverPage !== null,
     truncated: isTruncated,
+    // The server's own continuation outranks count equality (#2162 LOCAL F1).
+    continuation: !!serverPage && (serverPage.offset > 0 || !!serverPage.nextHref || !!serverPage.previousHref),
     serverResults: serverResults !== null,
     activeFilters: hasActiveFilters,
     hiddenUnshown: hasHiddenNodes && !showHidden,
