@@ -131,3 +131,33 @@ describe('ListPageNav unavailable controls', () => {
     }
   });
 });
+
+// #2170 F8: a list that fits on one page has nothing to navigate to, so it
+// gets no navigation landmark, only the count.
+describe('ListPageNav with nothing to link', () => {
+  const ONE_PAGE: ListPageNavigation = { offset: 0, count: 3, total: 3, firstHref: null, previousHref: null, nextHref: null };
+  function mountPage(page: ListPageNavigation) {
+    const m = mountComponent(ListPageNav as never, { page, label: 'List pages' } as never) as Mounted<NavProps>;
+    mounted.push(m as never);
+    return m;
+  }
+
+  it('renders the count without a navigation landmark', () => {
+    const m = mountPage(ONE_PAGE);
+    expect(m.target.querySelector('nav')).toBeNull();
+    expect(m.target.querySelector('[role="navigation"]')).toBeNull();
+    expect(m.target.textContent).toContain('1–3 of 3');
+  });
+
+  it('renders the landmark when even one direction links (control)', () => {
+    const m = mountPage({ ...ONE_PAGE, total: 30, nextHref: '/app/list?o=20' });
+    expect(m.target.querySelector('nav[aria-label="List pages"] a[rel="next"]')).not.toBeNull();
+  });
+
+  it('a lone First link at offset ≤ 20 does not count as something to link', () => {
+    // ListPageNav only renders First past offset 20, so firstHref alone at
+    // offset 0 links nothing.
+    const m = mountPage({ ...ONE_PAGE, firstHref: '/app/list?o=0' });
+    expect(m.target.querySelector('nav')).toBeNull();
+  });
+});
