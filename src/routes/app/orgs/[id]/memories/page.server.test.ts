@@ -138,16 +138,39 @@ describe('memories-list load() — system rows stay inside this org (#2140)', ()
     return (await load(ev({ orgId: 'org-1', userId }))) as unknown as Slices;
   }
 
-  it('drops an install memory of an App in another org, for every caller shape', async () => {
-    const other = { id: 'i-b', name: 'Product Team - install', class: 'system', organizationId: 'org-2', appId: 'app-b', userId: null };
-    // The leak is not caller-specific, so the same row is pinned for the org
-    // admin in B, the App owner in B and a platform admin (the loader sees the
-    // same row in each case; what differs is only who is asking).
-    for (const userId of ['admin-in-b', 'owner-in-b', 'platform-admin']) {
-      const r = await slices([other], userId);
-      expect(ids(r.systemMemories), userId).toEqual([]);
-      expect(ids(r.personalMemories), userId).toEqual([]);
-    }
+  it('drops an install memory of an App in another org', async () => {
+    // Whoever asks (an org admin in B, an App owner in B, a platform admin), the
+    // server hands the loader this same row, so one caller pins it; what the
+    // loader must not do is show it.
+    const r = await slices([
+      { id: 'i-b', name: 'Product Team - install', class: 'system', organizationId: 'org-2', appId: 'app-b', userId: null },
+    ]);
+    expect(ids(r.systemMemories)).toEqual([]);
+    expect(ids(r.personalMemories)).toEqual([]);
+  });
+
+  it('shows an org-less own system memory only to its owner', async () => {
+    const row = { id: 'flow-lab', name: 'flow-lab-system', class: 'system', organizationId: null, appId: null, userId: 'u1' };
+    expect(ids((await slices([row], 'u1')).personalMemories)).toEqual(['flow-lab']);
+    expect(ids((await slices([row], 'u2')).personalMemories)).toEqual([]);
+  });
+
+  it('never lists a row twice in Personal Memories, and takes only system class from the system read', async () => {
+    // Overlap: the same id arrives from the personal/private read and from the
+    // system read; and an own org-less personal-class row arrives in the system
+    // answer. Both would render twice if the slices were not kept disjoint.
+    routeMock(
+      [{ id: 'dup', name: 'Dup', class: 'private', organizationId: 'org-1', userId: 'u1' }],
+      [],
+      undefined,
+      [
+        { id: 'dup', name: 'Dup', class: 'system', organizationId: null, userId: 'u1' },
+        { id: 'stray', name: 'Stray personal', class: 'personal', organizationId: null, userId: 'u1' },
+      ],
+    );
+    const load = await importLoad();
+    const r = (await load(ev({ orgId: 'org-1', userId: 'u1' }))) as unknown as Slices;
+    expect(r.personalMemories.map((m) => m.id)).toEqual(['dup']);
   });
 
   it('keeps this org\'s own system memories, including its App\'s install memory (#2044)', async () => {

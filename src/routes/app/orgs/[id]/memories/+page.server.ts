@@ -72,27 +72,40 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   );
   // #2140: memories(orgId:) is not an "owned by this org" list. It returns the
   // caller's own user-owned memories in every org context, and unions in the
-  // install memory of every App the caller reaches, in ANY org (hrn:node:hadronmemory.com:specs:cor:api:100,
-  // hrn:node:hadronmemory.com:specs:cor:api:100:01, hrn:node:hadronmemory.com:specs:cor:api:120:03). So the rows are sorted here by who owns
-  // them: this org's stay in Org Memories, the caller's own org-less ones go to
-  // Personal Memories, and everything else (another org's install memory, someone
-  // else's user-owned row) is not shown. An install memory sits in its App's own
-  // tenancy, so an App of this org carries this org's id and survives.
+  // install memory of every App the caller reaches, in ANY org
+  // (hrn:node:hadronmemory.com:specs:cor:api:100,
+  // hrn:node:hadronmemory.com:specs:cor:api:100:01,
+  // hrn:node:hadronmemory.com:specs:cor:api:120:03). So the rows are sorted here
+  // by who owns them: this org's stay in Org Memories, the caller's own org-less
+  // ones go to Personal Memories, and everything else (another org's install
+  // memory, someone else's user-owned row) is not shown. An install memory sits
+  // in its App's own tenancy, so an App of this org carries this org's id and
+  // survives.
   const systemMemories = systemRows.filter((m) => m.organizationId === params.id);
+  // The class predicate is explicit, not left to the query's memoryClasses
+  // filter: this slice and the personal/private one below must stay disjoint
+  // however the server answers, or a row would render twice.
   const ownSystemMemories = systemRows.filter(
-    (m) => m.organizationId == null && !!locals.user?.id && m.userId === locals.user.id,
+    (m) =>
+      m.class === 'system' &&
+      m.organizationId == null &&
+      !!locals.user?.id &&
+      m.userId === locals.user.id,
   );
   // Spec 034: personal memories (the personal + private classes) are owner-only
   // and excluded from Organization.memories server-side, so surface the caller's
-  // own ones whose container is this org. memories() already scopes to the
-  // caller via userId.
-  const personalMemories = myMemories.filter(
+  // own ones whose container is this org (memories() scopes to the caller via
+  // userId). The caller's own org-less system memories join them (above), and a
+  // row already listed is never listed twice.
+  const ownPrivate = myMemories.filter(
     (m) =>
       m.organizationId === params.id &&
       !!locals.user?.id &&
       m.userId === locals.user.id &&
       (m.class === 'personal' || m.class === 'private'),
-  ).concat(ownSystemMemories);
+  );
+  const seen = new Set(ownPrivate.map((m) => m.id));
+  const personalMemories = ownPrivate.concat(ownSystemMemories.filter((m) => !seen.has(m.id)));
   // #555/#556: the create flow deep-links back with ?tab= so a just-created
   // personal memory lands on the tab that actually shows it. Validate against
   // the known tabs; anything else falls back to the org grid.
