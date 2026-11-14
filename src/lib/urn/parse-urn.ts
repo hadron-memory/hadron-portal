@@ -75,6 +75,15 @@ export {
   // The resolver and chip need no composer; it is re-exported so the shared
   // conformance corpus finds it, same policy as above (#1360).
   composeActionUrnV2,
+  // urn-lib-js 0.0.22 (corpus v23) — the App secret URN
+  // `hrn:secret:<root>:app:<app-slug>:<name>` (portal#2108, hadron-server#3991 S0b)
+  // and the grant / app-event composers that ride the same corpus. The grammar
+  // stays in the library (hrn:node:hadronmemory.com:specs:cor:urn:010:01); these are
+  // re-exported so the shared conformance corpus finds them, same policy as above.
+  composeAppSecretUrnV2,
+  composeAppEventUrnV2,
+  composeGrantUrnV2,
+  parseSecretUrnV2,
   isValidSlug,
   composeSecretUrnV2,
   composeAppRunUrnV2,
