@@ -1,3 +1,4 @@
+import { fixtureActions } from "../grants.fixture";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ClientError } from "graphql-request";
 import { GraphQLError } from "graphql";
@@ -13,6 +14,7 @@ beforeEach(() => {
   request.mockReset();
   request.mockImplementation(async (q: string) => {
     if (q.includes("query AppGrantsApp")) return { app: grantsFixture().app };
+    if (q.includes("query AppGrantActions")) return { grantActions: { items: fixtureActions, total: fixtureActions.length } };
     if (q.includes("query AppGrantsPage"))
       return { appGrants: { items: [fixtureGrant], total: 41 } };
     if (q.includes("query GrantHolderWorker"))

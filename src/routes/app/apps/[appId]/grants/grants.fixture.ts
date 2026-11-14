@@ -1,3 +1,7 @@
+export const fixtureActions = [
+  ["schedule.create", "entryNode"], ["webhook.create", "entryNode"],
+  ["bootprompt.source.edit", "sourceNode"], ["bootprompt.compile.approve", "compiledNode"],
+].map(([name, parameter]) => ({ name, parameters: [{ name: parameter, type: "node-ref", refusesWildcard: true }] }));
 import type { Grant } from "$lib/grants/types";
 export const fixtureGrant: Grant = {
   id: "grant-example",
@@ -18,6 +22,8 @@ export const fixtureGrant: Grant = {
   allows: false,
 };
 export const grantsFixture = (signing = true) => ({
+  actionDefinitions: fixtureActions,
+  actionDefinitionsFailed: false,
   routeRef: "app-example",
   viewerId: "person-example",
   app: {

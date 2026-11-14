@@ -22,6 +22,8 @@ const payload = () => {
     grants: d.grants,
     holders: d.holders,
     nodes: { "node-example": null },
+          actionDefinitions: d.actionDefinitions,
+          actionDefinitionsFailed: false,
   };
 };
 const result = {
@@ -65,6 +67,17 @@ afterEach(() => {
   vi.unstubAllGlobals();
   resetStubPage();
   resetNavigationGuards();
+});
+it("a section reread applies its catalogue failure state alongside its rows", async () => {
+  const form = setup();
+  vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({
+    ...payload(), actionDefinitions: [], actionDefinitionsFailed: true,
+  }) } as never);
+  const finish = await beginEnhanced(form, { update: async () => setForm(result.data) });
+  await finish(result);
+  flushSync();
+  expect(mounted!.target.textContent).toContain("Actions could not be loaded.");
+  expect(mounted!.target.querySelector('form[action*="/create"]')).toBeNull();
 });
 describe("confirmed Create owns its list read", () => {
   it("acknowledges before a held read, keeps a new draft and applies the fresh list without navigation", async () => {
