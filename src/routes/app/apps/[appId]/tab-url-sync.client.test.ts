@@ -6,11 +6,14 @@
  * by `replaceState` (no history entry), the same mechanism `?chat=` and `?view=` use on this page.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { superValidate } from 'sveltekit-superforms';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationCalls, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
 import Page from './+page.svelte';
 import { pageData } from './app-page.fixture';
+import { addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema } from './schema';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
@@ -24,7 +27,14 @@ afterEach(() => {
 async function mountAt(tab: string) {
   setStubPage(`https://example.test/app/apps/a1?tab=${tab}`, { appId: 'a1' });
   window.history.replaceState({}, '', `/app/apps/a1?tab=${tab}`);
-  const data = { ...await pageData(), initialTab: tab, bootPointerAppKey: 'a1' };
+  const data = {
+    ...await pageData(), initialTab: tab, bootPointerAppKey: 'a1',
+    // The Members tab mounts AppMembersPanel, which throws without its roster and three forms.
+    members: [], membersError: false, membersWithheld: false,
+    addMemberForm: await superValidate(zod4(addAppMemberSchema), { errors: false }),
+    ensureMemberForm: await superValidate(zod4(ensureAppMemberSchema), { errors: false }),
+    removeMemberForm: await superValidate(zod4(removeAppMemberSchema), { errors: false }),
+  };
   const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(3);
