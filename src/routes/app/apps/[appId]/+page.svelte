@@ -14,6 +14,7 @@
   import { applyAction } from '$app/forms';
   import { page } from '$app/stores';
   import { dropNamedActions } from './app-list-pages';
+  import { page as routePage } from '$app/stores';
   import { beforeNavigate, goto, afterNavigate, invalidateAll, preloadData, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -51,6 +52,7 @@
     const next = new URL(window.location.href);
     next.searchParams.set('tab', 'chats');
     next.searchParams.set('chat', key);
+    if (key !== AGENT_CHAT_KEY) next.searchParams.delete('agentChat');
     chatSwitchBusy = true;
     chatSwitchFailed = false;
     try { await goto(next, { noScroll: true }); }
@@ -197,6 +199,7 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const app = $derived(data.app);
+  let legacyChatResolvedForApp = $state<string | null>(null);
   // Survives the filter-keyed thread, but never follows a navigation to another App.
   let teamFilterFocusRequest = $state<import('$lib/components/team-chat-thread').TeamChatFilterFocusRequest | null>(null);
   let teamFilterAnnouncement = $state('');
@@ -1095,6 +1098,13 @@
       activeTab = ((urlTab ?? data.initialTab) as TabId | null) ?? 'chats';
     }
     chatMaximized = data.initialChatFullView;
+    // A known non-agent selector owns this URL; an old personal parameter
+    // must not travel with a shared/team link. Unknown selectors stay intact.
+    const url = new URL(window.location.href);
+    if (data.selectedChatKey && data.selectedChatKey !== AGENT_CHAT_KEY && !data.chatNotFound && url.searchParams.has('agentChat')) {
+      url.searchParams.delete('agentChat');
+      replaceState(url, {});
+    }
   });
 
   // The team chat MAXIMISED — a fixed overlay over the whole viewport. In the
@@ -2298,7 +2308,7 @@
       <ListPageNav page={data.chatRootsPage} label={t('app.chats.pages', 'Legacy chat-root pages')} />
     {/if}
 
-    {#if data.chatNotFound}
+    {#if data.chatNotFound && !(legacyChatResolvedForApp === app.id && $routePage.url.searchParams.get('chat') === AGENT_CHAT_KEY)}
       <!-- The reader followed a link to a SPECIFIC chat. Substituting the
            default silently would let them read one conversation believing it
            is another. -->
@@ -2324,6 +2334,8 @@
           <AgentChat
             agentId={app.agentId}
             appId={app.id}
+            allowLegacyAppChat={!!data.chatNotFound && !data.chatsError}
+            onLegacyChatResolved={(appId) => { legacyChatResolvedForApp = appId; }}
             aiChoices={liveAiChoices}
             uploadMemoryId={writableMemoryIds[0]}
           />

@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mountComponent, wait } from '$lib/test/mountComponent';
+import { mountComponent, wait, tick, captureUnhandledRejections } from '$lib/test/mountComponent';
 import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, buildAppChatList, resolveSelectedChat } from '$lib/app-chats';
 import AgentChat from './AgentChat.svelte';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 
 const loc = 'chats:same-loc';
 const persisted = { id: 'personal-chat', loc, title: 'Personal', conversationName: null, stageName: null,
@@ -94,6 +95,90 @@ describe('portal#2107: App AgentChat URL round trip', () => {
     const m = mountComponent(AgentChat, { agentId: 'agent', appId: 'app' });
     m.unmount(); release(); await wait(40);
     expect(navigationCalls.filter(c => c.fn === 'replaceState')).toEqual([]);
+  });
+
+  it('retains the non-App raw-chat URL round trip', async () => {
+    resetNavigationCalls(); const { bodies } = stub();
+    window.history.replaceState({}, '', `/app/agents/agent?chat=${encodeURIComponent(loc)}&keep=yes#anchor`);
+    const m = mountComponent(AgentChat, { agentId: 'agent' });
+    await vi.waitFor(() => expect(bodies).toEqual([{ agentId: 'agent', chatId: loc }]));
+    const url = new URL(window.location.href);
+    expect(url.searchParams.get('chat')).toBe(loc); expect(url.searchParams.has('agentChat')).toBe(false);
+    expect(url.searchParams.get('keep')).toBe('yes'); expect(url.hash).toBe('#anchor');
+    expect(navigationCalls.filter(c => c.fn === 'replaceState')).toEqual([]);
+    m.unmount();
+  });
+
+  it.each(['alive', 'unmounted', 'other-app'])('guards legacy recovery completion against lifecycle changes: %s', async (state) => {
+    resetNavigationCalls();
+    let release!: () => void; const gate = new Promise<void>(r => { release = r; });
+    let read!: () => void; const decoded = new Promise<void>(r => { read = r; });
+    const resolved = vi.fn(); let resumed = false;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/list')) return new Response(JSON.stringify({ chats: [persisted] }));
+      if (String(input).includes('/resume')) {
+        resumed = true; await gate;
+        const response = new Response(JSON.stringify({ chat: persisted, messages: [] }));
+        const json = response.json.bind(response);
+        response.json = async () => { const body = await json(); read(); return body; };
+        return response;
+      }
+      throw new Error(`Unexpected fetch ${input}`);
+    }));
+    window.history.replaceState({}, '', `/app/apps/app?chat=${encodeURIComponent(loc)}`);
+    const props = reactiveProps({ agentId: 'agent', appId: 'app', allowLegacyAppChat: true, onLegacyChatResolved: resolved });
+    const errors = await captureUnhandledRejections(async () => {
+      const m = mountComponent(AgentChat, props);
+      try {
+        await vi.waitFor(() => expect(resumed).toBe(true));
+        if (state === 'unmounted') m.unmount();
+        if (state === 'other-app') props.appId = 'other-app';
+        release(); await decoded; await tick(6);
+        if (state === 'alive') expect(resolved).toHaveBeenCalledExactlyOnceWith('app');
+        else expect(resolved).not.toHaveBeenCalled();
+      } finally { m.unmount(); }
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it.each(['app', 'agent'])('does not recover from an outgoing filtered list when its %s changes', async (changed) => {
+    resetNavigationCalls();
+    let release!: () => void; const held = new Promise<void>(r => { release = r; });
+    let decoded!: () => void; const read = new Promise<void>(r => { decoded = r; });
+    let requested = false; let resumed = false;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/list')) {
+        requested = true; await held;
+        return { ok: true, json: async () => { decoded(); return { chats: [persisted] }; } } as Response;
+      }
+      resumed = true; throw new Error(`Unexpected outgoing-list resume ${input}`);
+    }));
+    window.history.replaceState({}, '', `/app/apps/app?chat=${encodeURIComponent(loc)}`);
+    const props = reactiveProps({ agentId: 'agent', appId: 'app', allowLegacyAppChat: true });
+    const m = mountComponent(AgentChat, props);
+    try {
+      await vi.waitFor(() => expect(requested).toBe(true));
+      if (changed === 'app') props.appId = 'next-app'; else props.agentId = 'next-agent';
+      release(); await read; await tick(6);
+      expect(resumed).toBe(false);
+      expect(navigationCalls.filter(c => c.fn === 'replaceState')).toEqual([]);
+    } finally { m.unmount(); }
+  });
+
+  it('emits the existing raw-chat URL when starting a non-App chat', async () => {
+    resetNavigationCalls(); stub();
+    window.history.replaceState({}, '', '/app/agents/agent?keep=yes#anchor');
+    const m = mountComponent(AgentChat, { agentId: 'agent' });
+    try {
+      await vi.waitFor(() => expect(m.target.textContent).toContain('Personal'));
+      const start = [...m.target.querySelectorAll('button')].find(b => b.textContent?.includes('New chat'));
+      expect(start).toBeDefined(); start!.click();
+      await vi.waitFor(() => expect(navigationCalls.some(c => c.fn === 'replaceState')).toBe(true));
+      const call = navigationCalls.filter(c => c.fn === 'replaceState').at(-1)!;
+      const url = new URL(String(call.args[0]));
+      expect(url.searchParams.get('chat')).toBe(loc); expect(url.searchParams.has('agentChat')).toBe(false);
+      expect(url.searchParams.get('keep')).toBe('yes'); expect(url.hash).toBe('#anchor');
+    } finally { m.unmount(); }
   });
 
 });

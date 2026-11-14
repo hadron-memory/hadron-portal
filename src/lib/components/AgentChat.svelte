@@ -39,7 +39,18 @@
     uploadMemoryId,
     appId,
     aiChoices = null,
-  }: { agentId: string; uploadMemoryId?: string; appId?: string; aiChoices?: ChatAiChoiceOption[] | null } = $props();
+    allowLegacyAppChat = false,
+    onLegacyChatResolved,
+  }: {
+    agentId: string;
+    uploadMemoryId?: string;
+    appId?: string;
+    aiChoices?: ChatAiChoiceOption[] | null;
+    /** The App has proved the requested selector missing, without a read failure. */
+    allowLegacyAppChat?: boolean;
+    /** A successful legacy resume can dismiss the page's old missing banner. */
+    onLegacyChatResolved?: (appId: string) => void;
+  } = $props();
 
   // portal#1963: the choice stored with the open chat (null for a new chat, or none stored), and the one the
   // user picked in the dropdown. A pick is what gets SENT, so the server stores it; until the user picks, the
@@ -313,15 +324,21 @@
   // this, every reload silently emptied the transcript pane — to the
   // user that looked like "chats are not saving."
   onMount(async () => {
+    const issuedAppId = appId;
+    const issuedAgentId = agentId;
     await refreshChatList();
-    const target = resolveActiveChatFromUrl(new URL(window.location.href), chats, !!appId);
+    const url = new URL(window.location.href);
+    const legacyAllowed = allowLegacyAppChat && issuedAppId === appId && issuedAgentId === agentId;
+    const legacy = !!appId && legacyAllowed && url.searchParams.get('chat') !== AGENT_CHAT_KEY && !url.searchParams.has('agentChat');
+    const target = resolveActiveChatFromUrl(url, chats, { appChat: !!appId, allowLegacyAppChat: legacyAllowed });
     if (target) {
       // A page load is not the person choosing a chat: show it, don't move focus.
-      await resumeChat(target, { focus: false });
+      const resumed = await resumeChat(target, { focus: false });
+      if (legacy && resumed && !destroyed && issuedAppId && appId === issuedAppId && agentId === issuedAgentId) onLegacyChatResolved?.(issuedAppId);
     } else if (
       listError === null &&
-      (!appId || new URL(window.location.href).searchParams.get('chat') === AGENT_CHAT_KEY) &&
-      new URL(window.location.href).searchParams.has(appId ? 'agentChat' : 'chat')
+      (!appId || url.searchParams.get('chat') === AGENT_CHAT_KEY) &&
+      url.searchParams.has(appId ? 'agentChat' : 'chat')
     ) {
       if (appId) {
         setTurnError(t('agent-chat.not-found', 'That chat isn’t available — it may have been deleted, or you may not have access.'));
@@ -514,7 +531,7 @@
         syncChatIdToUrl(chatId);
         if (focus) void focusConversation();
       }
-      return;
+      return true;
     }
     showList = false;
     loadingChat = true;
@@ -561,10 +578,12 @@
       // a full last page is indistinguishable from a middle one.
       resetScrollback({ messages, hasOlder: body.hasOlder });
       scrollMessagesToBottom();
+      return true;
     } catch (e) {
       setTurnError(e instanceof Error ? e.message : 'Failed to resume chat');
       activeChatId = null;
       syncChatIdToUrl(null);
+      return false;
     } finally {
       loadingChat = false;
     }

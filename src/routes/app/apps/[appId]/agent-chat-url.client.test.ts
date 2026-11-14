@@ -13,12 +13,14 @@ const personal = { id: 'personal', loc, title: 'Personal fixture', conversationN
 let mounted: ReturnType<typeof mountComponent> | undefined;
 afterEach(() => { mounted?.unmount(); mounted = undefined; vi.restoreAllMocks(); vi.unstubAllGlobals(); resetNavigationCalls(); resetNavigationGuards(); });
 
-async function open(query: string, flags: { missing?: boolean; failed?: boolean; capped?: boolean; selected?: string } = {}) {
+async function open(query: string, flags: { missing?: boolean; failed?: boolean; unresolvedLookup?: boolean; selected?: string; collision?: boolean; listFailed?: boolean; resumeFailed?: boolean } = {}) {
   const href = `/app/apps/a1?tab=chats&${query}`;
   setStubPage(`https://example.test${href}`, { appId: 'a1' }); window.history.replaceState({}, '', href);
   const calls: string[] = [];
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input); calls.push(url);
+    const failure = (flags.listFailed && url.includes('/api/agent-chat/list')) || (flags.resumeFailed && url.includes('/api/agent-chat/resume'));
+    if (failure) return new Response(JSON.stringify({ error: 'Read unavailable' }), { status: 503 });
     const body = url.includes('/api/agent-chat/list') ? { chats: [personal] }
       : url.includes('/api/agent-chat/resume') ? { chat: personal, messages: [] }
       : url.includes('/api/served-prompts') ? { items: [], total: 0, offset: 0 }
@@ -36,9 +38,9 @@ async function open(query: string, flags: { missing?: boolean; failed?: boolean;
   });
   const base = await pageData();
   const data = { ...base, app: { ...base.app, surfaces: ['chat'], agentId: 'ag1' }, chatConfigs: null,
-    appChats: buildAppChatList([{ loc: 'chats:shared', name: 'Shared fixture', memoryId: 'shared' }], { hasAgentChat: true }),
+    appChats: buildAppChatList([{ loc: 'chats:shared', name: 'Shared fixture', memoryId: 'shared' }, ...(flags.collision ? [{ loc, name: 'Colliding shared fixture', memoryId: 'shared' }] : [])], { hasAgentChat: true }),
     selectedChatKey: flags.selected ?? AGENT_CHAT_KEY, chatNotFound: flags.missing ?? true,
-    chatsError: flags.failed ?? false, chatsCapped: flags.capped ?? false };
+    chatsError: flags.failed ?? flags.unresolvedLookup ?? false };
   const props = reactiveProps({ data, form: null });
   mounted = mountComponent(Page as never, props as never);
   await tick(3);
@@ -58,7 +60,7 @@ it('recovers a legacy personal URL, canonicalizes it and clears the parent missi
   expect(target.textContent).not.toContain('That chat isn’t available');
 });
 
-it.each([{ failed: true }, { capped: true }])('does not recover an unproven selector when discovery is incomplete: %j', async (flags) => {
+it.each([{ failed: true }, { unresolvedLookup: true }])('does not recover an unproven selector when discovery is incomplete: %j', async (flags) => {
   const { calls, target } = await open(`chat=${encodeURIComponent(loc)}`, flags);
   await vi.waitFor(() => expect(target.textContent).toContain('Personal fixture'));
   await tick(3);
@@ -88,4 +90,37 @@ it('cleans residue on arrival at a known Team selector without resuming a person
   expect(url.searchParams.has('agentChat')).toBe(false); expect(url.searchParams.get('chat')).toBe(TEAM_CHAT_LOC);
   expect(url.searchParams.get('keep')).toBe('yes'); expect(url.hash).toBe('#anchor');
   expect(calls.some(c => c.includes('/api/agent-chat/resume'))).toBe(false);
+});
+
+it('keeps a colliding known shared selector authoritative and never recovers its personal namesake', async () => {
+  const { calls, target } = await open(`chat=${encodeURIComponent(loc)}`, { missing: false, collision: true, selected: loc });
+  expect(target.querySelector<HTMLSelectElement>('#app-chat-select')?.value).toBe(loc);
+  expect(target.textContent).toContain('Colliding shared fixture');
+  expect(target.textContent).not.toContain('That chat isn’t available');
+  expect(calls.some(c => c.includes('/api/agent-chat/'))).toBe(false);
+  expect(new URL(window.location.href).searchParams.get('chat')).toBe(loc);
+});
+
+it('leaves an unlisted legacy loc unavailable without an arbitrary resume', async () => {
+  const { calls, target } = await open('chat=chats%3Anot-listed');
+  await vi.waitFor(() => expect(target.textContent).toContain('Personal fixture'));
+  await tick(3);
+  expect(calls.some(c => c.includes('/resume'))).toBe(false);
+  expect(target.textContent).toContain('That chat isn’t available');
+  expect(new URL(window.location.href).searchParams.get('chat')).toBe('chats:not-listed');
+});
+
+it('preserves a legacy URL and visible feedback when the personal list fails', async () => {
+  const { calls, target } = await open(`chat=${encodeURIComponent(loc)}&keep=yes`, { listFailed: true });
+  await vi.waitFor(() => expect(target.textContent).toContain('Read unavailable'));
+  expect(calls.some(c => c.includes('/resume'))).toBe(false);
+  expect(new URL(window.location.href).searchParams.get('chat')).toBe(loc);
+  expect(new URL(window.location.href).searchParams.has('agentChat')).toBe(false);
+});
+
+it('does not clear the legacy missing banner when the authorized resume fails', async () => {
+  const { target } = await open(`chat=${encodeURIComponent(loc)}`, { resumeFailed: true });
+  await vi.waitFor(() => expect(target.textContent).toContain('Read unavailable'));
+  expect(target.textContent).toContain('That chat isn’t available');
+  expect(target.textContent).not.toContain('Private stage');
 });
