@@ -6,10 +6,8 @@ import AppRunsTable from '$lib/components/AppRunsTable.svelte';
 import AiServiceConfigManager from '$lib/components/AiServiceConfigManager.svelte';
 import TaskFindings from '$lib/components/agent-tasks/TaskFindings.svelte';
 const date = '2026-11-01T02:04:36Z';
-// portal#2118 item 5: the two severity triggers from #2115 QA F1 / #2119. The markers are built from code points,
-// so the source holds no invisible character.
-const severityWithSixMarkers = 'sev-A' + [0x2061, 0x2062, 0x2063, 0x2064, 0x2028, 0x2029].map((cp, i) => String.fromCodePoint(cp) + 'BCDEFG'[i]).join('');
-export const FINDINGS_SEVERITIES = { markers: severityWithSixMarkers, plain: 'S'.repeat(80) } as const;
+import { FINDINGS_SEVERITIES } from './findings-severity-triggers';
+export { FINDINGS_SEVERITIES };
 export function mountOverflowFixture(target: HTMLElement, kind: string) {
   if (kind === 'findings') {
     const items = Object.entries(FINDINGS_SEVERITIES).map(([id, severity]) => ({ id, severity, text: `ordinary finding text for ${id} `.repeat(8) }));
