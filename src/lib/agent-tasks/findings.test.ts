@@ -138,11 +138,19 @@ describe('findingTextParts: invisible operators and separators are revealed (por
     expect(join(`a${ch}b`)).toBe(`a[U+${hex}]b`);
   });
   // portal#2118 F4/F5: U+2065 is unassigned but Default_Ignorable, so a browser draws nothing for it,
-  // the same hiding vector as its neighbours. The decision is to reveal it: the whole block is pinned.
-  it('reveals every code point U+2060 through U+2069, U+2065 included', () => {
-    for (let cp = 0x2060; cp <= 0x2069; cp++) {
+  // the same hiding vector as its neighbours. portal#2124: U+206A-206F are assigned but deprecated
+  // format characters (Cf: symmetric swapping, Arabic form shaping, digit shapes), also drawn as
+  // nothing, so they are revealed too. The whole block U+2060-206F is pinned.
+  it('reveals every code point U+2060 through U+206F, U+2065 and U+206A-206F included', () => {
+    for (let cp = 0x2060; cp <= 0x206F; cp++) {
       const hex = cp.toString(16).toUpperCase();
       expect(join(`a${String.fromCodePoint(cp)}b`), hex).toBe(`a[U+${hex}]b`);
+    }
+  });
+  it('control: the visible neighbours just outside the block are not revealed', () => {
+    for (const cp of [0x205E, 0x2070]) { // VERTICAL FOUR DOTS, SUPERSCRIPT ZERO
+      const ch = String.fromCodePoint(cp);
+      expect(join(`a${ch}b`), cp.toString(16)).toBe(`a${ch}b`);
     }
   });
 });
