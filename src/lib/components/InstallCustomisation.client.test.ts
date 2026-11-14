@@ -555,9 +555,10 @@ describe('install customisation polish (#1369)', () => {
     expect(root.textContent).not.toContain('1 customisations');
   });
 
-  it('says which rows are shown out of the server total, so disabled paging is explained in text', async () => {
+  it('names the loaded range out of the server total, so disabled paging is explained in text', async () => {
+    serve(listOf(25));
     const root = await panel();
-    expect(root.textContent).toContain('Showing 1–1 of 25 customisations');
+    expect(root.textContent).toContain('Loaded 1–1 of 25 customisations');
   });
 
   it.each([0, 20, 40])('uses one pager for the entire loaded batch at offset %s (UX F1)', async (targetOffset) => {
