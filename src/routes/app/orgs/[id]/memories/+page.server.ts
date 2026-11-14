@@ -11,6 +11,7 @@ import { requireNonConsumer } from '$lib/server/guards';
 import { t } from '$lib/i18n/t';
 import {
   ORG_SYSTEM_MEMORIES_QUERY,
+  OWN_SYSTEM_MEMORY_IDS_QUERY,
   DELETE_MEMORY_MUTATION,
   SYNC_MEMORY_MUTATION,
   PUBLIC_MEMORIES_QUERY,
@@ -56,9 +57,15 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // action BEFORE the layout load re-runs, so `parent()` is not available there.
   // #845: the layout carries chrome only; this tab needs the full org.
   const org = await loadOrgDetail(locals.token, params.id, ORG_MEMORIES_TAB_QUERY);
-  const [systemRows, publicMemories, myMemories] = await Promise.all([
+  const [systemRows, ownSystemIds, publicMemories, myMemories] = await Promise.all([
     fetchAllItems<Memory>(client, ORG_SYSTEM_MEMORIES_QUERY, 'memories', { orgId: params.id })
       .catch(() => [] as Memory[]),
+    // #2140: whose org-less system rows are the caller's is the server's call. A
+    // failed read leaves the set empty, which hides those rows rather than
+    // showing someone else's.
+    fetchAllItems<{ id: string }>(client, OWN_SYSTEM_MEMORY_IDS_QUERY, 'memories')
+      .then((rows) => new Set(rows.map((m) => m.id)))
+      .catch(() => new Set<string>()),
     fetchAllItems<Memory>(gqlClient(), PUBLIC_MEMORIES_QUERY, 'memories')
       .catch(() => [] as Memory[]),
     fetchAllItems<Memory>(client, MEMORIES_QUERY, 'memories')
@@ -86,11 +93,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // filter: this slice and the personal/private one below must stay disjoint
   // however the server answers, or a row would render twice.
   const ownSystemMemories = systemRows.filter(
-    (m) =>
-      m.class === 'system' &&
-      m.organizationId == null &&
-      !!locals.user?.id &&
-      m.userId === locals.user.id,
+    (m) => m.class === 'system' && m.organizationId == null && ownSystemIds.has(m.id),
   );
   // Spec 034: personal memories (the personal + private classes) are owner-only
   // and excluded from Organization.memories server-side, so surface the caller's

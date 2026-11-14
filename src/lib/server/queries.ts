@@ -4020,6 +4020,22 @@ export const PERSONAL_MEMORIES_QUERY = /* GraphQL */ `
   }
 `;
 
+// #2140: which org-less system memories the CALLER owns, as the server answers
+// it. A system row cannot be attributed client-side: Memory.userId is the
+// personal/private owner only, and every other class keys on ownerUserId, which
+// is not in the SDL, so a system row arrives with userId null. ownedByMe carries
+// that per-class rule (and is org-less by definition); memoryClasses must name
+// system explicitly or the default listing hides it. Ids only: the rows
+// themselves come from ORG_SYSTEM_MEMORIES_QUERY.
+export const OWN_SYSTEM_MEMORY_IDS_QUERY = /* GraphQL */ `
+  query OwnSystemMemoryIds($limit: Int, $offset: Int) {
+    memories(filter: { ownedByMe: true, memoryClasses: [system] }, limit: $limit, offset: $offset) {
+      items { id }
+      total
+    }
+  }
+`;
+
 // #642: a SLIM projection of the caller's owner-only memories — just what a
 // picker needs (id/name/urn/class/organizationId/visibility). Avoids pulling the
 // heavy MemoryFields fragment (relations, timestamps) when only the list shape
