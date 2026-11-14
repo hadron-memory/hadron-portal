@@ -127,7 +127,8 @@ describe('memories-list load() — system rows stay inside this org (#2140)', ()
   // The server's memories(orgId:) can return rows that are not this org's: an
   // App's install memory is unioned in for every App the caller reaches, in any
   // org, and the caller's own user-owned memories appear in every org context
-  // (cor:api:100, cor:api:100:01, cor:api:120:03). The tab captioned "owned by
+  // (hrn:node:hadronmemory.com:specs:cor:api:100, hrn:node:hadronmemory.com:specs:cor:api:100:01,
+  // hrn:node:hadronmemory.com:specs:cor:api:120:03). The tab captioned "owned by
   // this organization" must show only this org's rows.
   type Slices = { systemMemories: { id: string }[]; personalMemories: { id: string }[] };
   const ids = (rows: { id: string }[]) => rows.map((m) => m.id).sort();

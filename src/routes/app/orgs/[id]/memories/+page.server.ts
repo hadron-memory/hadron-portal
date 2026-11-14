@@ -72,8 +72,8 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   );
   // #2140: memories(orgId:) is not an "owned by this org" list. It returns the
   // caller's own user-owned memories in every org context, and unions in the
-  // install memory of every App the caller reaches, in ANY org (cor:api:100,
-  // cor:api:100:01, cor:api:120:03). So the rows are sorted here by who owns
+  // install memory of every App the caller reaches, in ANY org (hrn:node:hadronmemory.com:specs:cor:api:100,
+  // hrn:node:hadronmemory.com:specs:cor:api:100:01, hrn:node:hadronmemory.com:specs:cor:api:120:03). So the rows are sorted here by who owns
   // them: this org's stay in Org Memories, the caller's own org-less ones go to
   // Personal Memories, and everything else (another org's install memory, someone
   // else's user-owned row) is not shown. An install memory sits in its App's own
