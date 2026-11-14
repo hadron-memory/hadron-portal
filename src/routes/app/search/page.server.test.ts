@@ -10,10 +10,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mockRequest = vi.fn();
 
 vi.mock('$lib/server/api', () => ({
-  gqlClient: () => ({ request: (...args: unknown[]) => mockRequest(...args) }),
+  gqlClient: vi.fn(() => ({ request: (...args: unknown[]) => mockRequest(...args) })),
 }));
 
 beforeEach(() => {
+  vi.clearAllMocks();
   mockRequest.mockReset();
 });
 
@@ -75,6 +76,8 @@ describe('task search results', () => {
   it('opens a selected task using the viewer-scoped lookup and the returned App/id, with no search or guessed URN', async () => {
     mockRequest.mockResolvedValueOnce({ agentTask: { id: 'task-id', appId: 'app-id' } });
     await expect((await importLoad())(ev('/app/search?task=task-id'))).rejects.toMatchObject({ status: 307, location: '/app/apps/app-id/tasks/task-id' });
+    const { gqlClient } = await import('$lib/server/api');
+    expect(gqlClient).toHaveBeenCalledWith('tok');
     expect(mockRequest).toHaveBeenCalledTimes(1);
     expect(mockRequest.mock.calls[0][1]).toEqual({ id: 'task-id' });
   });
