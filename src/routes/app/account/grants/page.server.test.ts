@@ -10,7 +10,9 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: vi.fn(() => ({ request: mockRequest })) }));
 
-beforeEach(() => mockRequest.mockReset());
+beforeEach(() => {
+  mockRequest.mockReset();
+});
 
 const grant = (id: string, appId: string, over: Record<string, unknown> = {}) => ({
   id, appId, action: 'node.read', holderKind: 'USER', holderId: 'u1', values: null, reason: 'r',
