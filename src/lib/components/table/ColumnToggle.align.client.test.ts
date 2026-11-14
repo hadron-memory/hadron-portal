@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { COLUMN_MENU_WIDTH_PX } from './columnMenuAlign';
 import DialogTableHarness from '$lib/test/DialogTableHarness.svelte';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -19,15 +20,18 @@ async function openMenu(rect: { left: number; right: number }) {
 
 describe('ColumnToggle menu alignment (#2149)', () => {
   it('hangs from the left edge when right alignment would leave the viewport', async () => {
-    window.innerWidth = 390;
-    const menu = await openMenu({ left: 79, right: 159 });
+        const menu = await openMenu({ left: 79, right: 159 });
     expect(menu).not.toBeNull();
     expect(menu!.classList.contains('left-0')).toBe(true);
     expect(menu!.classList.contains('right-0')).toBe(false);
   });
   it('keeps right-0 at desktop width', async () => {
-    window.innerWidth = 1280;
-    const menu = await openMenu({ left: 1100, right: 1180 });
+        const menu = await openMenu({ left: 1100, right: 1180 });
     expect(menu!.classList.contains('right-0')).toBe(true);
+    expect(menu!.classList.contains('left-0')).toBe(false);
+  });
+  it('applies the one shared width as an inline style', async () => {
+    const menu = await openMenu({ left: 1100, right: 1180 });
+    expect(menu!.style.width).toBe(`${COLUMN_MENU_WIDTH_PX}px`);
   });
 });
