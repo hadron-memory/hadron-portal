@@ -42,12 +42,14 @@ describe("grant holder projections", () => {
       await nameOf(rejectAs(Error("offline")), userGrant("2026-11-12T10:00:00Z")),
     ).toBe("Holder unavailable");
   });
-  it("gives a typed user not-found error the outage wording too: no error code may claim departure for a USER", async () => {
+  // The server has no typed user-not-found error: user(ref:) returns null for
+  // a missing or unreadable user (schema: "denied and missing are
+  // indistinguishable"), so the null-return tests above are the real
+  // deleted-user path. Any thrown error — whatever its GraphQL code — is an
+  // outage, and no error code may reach the departed wording for a USER.
+  it("treats an identity-read error as unavailable, not departed, whatever the error code", async () => {
     expect(
-      await nameOf(rejectAs(error("USER_NOT_FOUND")), userGrant("2026-11-12T10:00:00Z")),
-    ).toBe("Holder unavailable");
-    expect(
-      await nameOf(rejectAs(error("USER_NOT_FOUND")), userGrant(null)),
+      await nameOf(rejectAs(error("WORKER_NOT_FOUND")), userGrant("2026-11-12T10:00:00Z")),
     ).toBe("Holder unavailable");
   });
   it("prefers a readable name or handle over any fallback, departed or not", async () => {
