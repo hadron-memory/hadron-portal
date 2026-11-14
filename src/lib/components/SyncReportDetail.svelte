@@ -30,7 +30,7 @@
 <div class="min-w-0 px-5 py-3 text-sm text-zinc-700 dark:text-zinc-300">
   <p class="font-medium">{t('sync-report.heading', 'Last recorded outcome')}</p>
   {#if view.recordedAt}<time datetime={view.recordedAt} class="text-xs text-zinc-500">{view.recordedAt}</time>{/if}
-  <p>{lastSyncReport === null && !lastSyncedAt ? t('sync-report.never-synced', 'Not synced yet.') : syncReportSummary(view)}</p>
+  <p>{syncReportSummary(view)}</p>
   {#if view.code}<p class="font-mono text-xs">{view.code}</p>{/if}
   {#if view.entries.length}
     <DataTable {table} {listKey} bind:globalFilter
