@@ -21,6 +21,12 @@ describe('my grants page', () => {
     expect(h).toContain('You have no grants');
     expect(h).not.toContain('my-grants-unavailable');
   });
+  it('puts "Allows now" before the wide App column so a 390px scroller shows it', () => {
+    const h = html({ unavailable: false, grants: [row('g1')] });
+    const allows = h.indexOf('Allows now');
+    expect(allows).toBeGreaterThan(-1);
+    expect(allows).toBeLessThan(h.search(/>\s*App\s*</));
+  });
   it('keeps a row for an App the person cannot open, naming its id', () => {
     const h = html({ unavailable: false, grants: [row('g1')] });
     expect(h).toContain('my-grant-row');

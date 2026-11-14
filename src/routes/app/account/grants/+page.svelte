@@ -45,9 +45,10 @@
   };
 
   const columns: PortalColumnDef<MyGrant>[] = [
+    // First, so it is on screen in a 390px scroller: the App column (name + URN chip) alone is wider than the phone viewport.
+    { accessorFn: allowsText, id: 'allows', header: t('grants.mine.col.allows', 'Allows now'), size: 110 },
     { accessorFn: (g) => appLabel(g), id: 'app', header: t('grants.mine.col.app', 'App'), enableHiding: false, size: 320 },
     { accessorKey: 'action', header: t('grants.mine.col.action', 'Action'), size: 160 },
-    { accessorFn: allowsText, id: 'allows', header: t('grants.mine.col.allows', 'Allows now'), size: 140 },
     { accessorFn: (g) => g.reason, id: 'reason', header: t('grants.mine.col.reason', 'Reason'), size: 220 },
     { accessorFn: valuesText, id: 'values', header: t('grants.mine.col.values', 'Values'), size: 200 },
     { accessorFn: (g) => ms(g.expiresAt), id: 'expiresAt', header: t('grants.mine.col.expires', 'Expires'), size: 150 },
