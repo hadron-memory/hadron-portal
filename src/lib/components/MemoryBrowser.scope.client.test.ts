@@ -387,3 +387,43 @@ describe('server-paged memory browser (#1881, #1929 findings)', () => {
     }
   });
 });
+
+// #2170 F14: on a server-paged browser the pager and the paged notice speak
+// for the loaded page; once server search results replace that page, neither
+// may stay up claiming a page the reader is no longer looking at.
+describe('server-paged browser: pager and paged notice (#2170 F14)', () => {
+  const SEARCH_DEBOUNCE_MS = 300;
+  const PAGED = { offset: 0, count: 2, total: 45, firstHref: null, previousHref: null, nextHref: '?nodesOffset=20' };
+
+  it('shows the paged notice and the node pager for the loaded page', async () => {
+    mount({ nodes: [node('first', 'Alpha'), { ...node('first', 'Beta'), id: 'beta', loc: 'beta' }], multiMemory: true, forcedView: 'nodes', scopeMemories: [scopeRow('first', 'First memory')], serverPage: PAGED });
+    await tick(5);
+    const text = m!.target.textContent ?? '';
+    expect(text).toContain('Showing 2 nodes on this page of 45.');
+    expect(text).toContain('Reordering is unavailable while paged.');
+    expect(m!.target.querySelector('nav[aria-label="Node pages"] a[rel="next"]')).not.toBeNull();
+  });
+
+  it('hides the pager and the paged notice while server search results are shown', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === '/api/nodes/search') return new Response(JSON.stringify({ nodes: [node('first', 'Needle hit')] }));
+      if (url === '/api/nodes/columns') {
+        const { refs } = JSON.parse(String(init?.body)) as { refs: string[] };
+        return new Response(JSON.stringify({ rows: [], unavailable: refs, omitted: [] }));
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    mount({ nodes: [node('first', 'Alpha'), { ...node('first', 'Beta'), id: 'beta', loc: 'beta' }], multiMemory: true, forcedView: 'nodes', scopeMemories: [scopeRow('first', 'First memory')], serverPage: PAGED });
+    await tick(3);
+    expect(m!.target.querySelector('nav[aria-label="Node pages"]')).not.toBeNull();
+    typeKeyword(m!.target, 'needle');
+    await tick(3);
+    await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS + 50);
+    await tick(5);
+    expect(searchBodies()).toHaveLength(1);
+    expect(m!.target.textContent).toContain('Needle hit');
+    expect(m!.target.querySelector('nav[aria-label="Node pages"]')).toBeNull();
+    expect(m!.target.textContent).not.toContain('on this page of 45');
+  });
+});
