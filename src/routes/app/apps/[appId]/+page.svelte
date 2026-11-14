@@ -1180,6 +1180,12 @@
   // clears the manager's copy of the question so its own route guard does not ask a second time.
   // If we then do not land on the chosen tab, the question is put back with the draft.
   let templatesLeaveMessage = $state<string | null>(null);
+  function syncTabParam(id: TabId) {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('tab') === id) return;
+    url.searchParams.set('tab', id);
+    replaceState(url, {});
+  }
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
     let asked: string | null = null;
@@ -1223,6 +1229,10 @@
       if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
       landed = true;
       activeTab = id;
+      // #1943: Runs and Templates already navigated to `?tab=<id>`; every other tab was local state,
+      // so the address bar kept the last navigated tab. Name the shown tab by a shallow replaceState
+      // (no history entry, no loader re-run), the way `?chat=` and `?view=` are synced.
+      if (!ownNavigationHref) syncTabParam(id);
       await tick();
       if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id}`)?.focus();
     } catch { /* A failed navigation keeps the current tab; the router owns its error. */ }

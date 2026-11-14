@@ -75,4 +75,23 @@ describe('portal#1943: ?tab= follows the shown tab', () => {
     expect(url.searchParams.get('tab')).toBe('settings');
     expect(url.searchParams.get('chat')).toBe('chats:team');
   });
+
+  it('writes nothing when the URL already names the tab', async () => {
+    const target = await mountAt('settings');
+    resetNavigationCalls();
+    target.querySelector<HTMLElement>('#tab-settings')!.click();
+    await tick(3);
+    expect(navigationCalls.filter((c) => c.fn === 'replaceState')).toHaveLength(0);
+  });
+
+  it('a tab that navigates (Templates) goes by goto alone, with no second replaceState', async () => {
+    const target = await mountAt('chats');
+    const tab = target.querySelector<HTMLElement>('#tab-node-role-templates');
+    expect(tab).not.toBeNull();
+    resetNavigationCalls();
+    tab!.click();
+    await tick(4);
+    expect(navigationCalls.filter((c) => c.fn === 'goto').map((c) => String(c.args[0]))).toEqual(['/app/apps/a1?tab=node-role-templates']);
+    expect(navigationCalls.filter((c) => c.fn === 'replaceState')).toHaveLength(0);
+  });
 });
