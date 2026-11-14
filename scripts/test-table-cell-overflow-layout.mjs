@@ -245,7 +245,11 @@ try {
    await page.locator('[data-testid="finding-severity"]').first().waitFor();
    // Fonts first: a late webfont would change the measured glyph boxes (portal#2125 item 5).
    const settle = () => settlePage(page);
-   if ((await page.evaluate(() => matchMedia('(pointer: coarse)').matches)) !== (width === 390)) failures.push(`${leg}: pointer mode does not match the emulated device`);
+   // Snapshot before ANY check on this leg, so a failure queued by the pointer check below also gates the success line.
+   const legFailuresBefore = failures.length;
+   // CELL_INJECT_POINTER_FAILURE=1 flips the expectation to prove a failure here is reported as FAILED, never as success.
+   const expectCoarse = (width === 390) !== (process.env.CELL_INJECT_POINTER_FAILURE === '1');
+   if ((await page.evaluate(() => matchMedia('(pointer: coarse)').matches)) !== expectCoarse) failures.push(`${leg}: pointer mode does not match the emulated device`);
    // Pixels of glyph box outside the owning td, per field: horizontal AND vertical (portal#2125 item 4).
    const escapes = () => page.locator('tbody td [data-testid^="finding-"]').evaluateAll(fields => fields.map(f => {
     const cell = f.closest('td').getBoundingClientRect(); let px = 0;
@@ -255,7 +259,6 @@ try {
    }));
    // One failure strategy: the measured checks on this leg queue into `failures`, so a failing check does not stop the other legs.
    // A thrown error from the page (a timeout, a missing trigger) still aborts the run, which is the loud failure we want.
-   const legFailuresBefore = failures.length;
    await settle();
    const clean = await escapes();
    const severityCount = clean.filter(x => x.field === 'finding-severity').length;
