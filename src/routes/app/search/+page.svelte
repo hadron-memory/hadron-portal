@@ -14,6 +14,7 @@
     agent: { label: 'Agent', cls: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' },
     app: { label: 'App', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' },
     aiServiceConfig: { label: 'AI Config', cls: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300' },
+    agentTask: { label: t('app.search.type.task', 'Task'), cls: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300' },
     user: { label: 'User', cls: 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200' },
   };
 
@@ -33,7 +34,8 @@
 
   // Build the canonical portal path directly from the ids each hit already
   // carries (mirrors the server resolver's canonicalPath) — no extra /app/u
-  // resolver hop. Falls back to /app/u/<urn> for kinds without a direct page.
+  // resolver hop for those kinds. Tasks resolve their App on click because the
+  // search hit has no App id; future unknown kinds fall back to /app/u/<urn>.
   function hitHref(h: {
     entityType: string;
     id: string;
@@ -56,6 +58,8 @@
         return `/app/apps/${h.id}`;
       case 'aiServiceConfig':
         return h.organizationId ? `/app/orgs/${h.organizationId}/integrations` : null;
+      case 'agentTask':
+        return `/app/search?task=${encodeURIComponent(h.id)}`;
       case 'user':
         // #533: PK-scoped profile page. Link by id (not urn) so handle-less
         // users — whose urn is null — stay clickable.
@@ -73,7 +77,7 @@
   <div>
     <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{t('app.search.title', 'Search')}</h1>
     <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-      {t('app.search.description', 'Find organizations, memories, nodes, agents, apps, AI configs, and users by name, URN, or id.')}
+      {t('app.search.description', 'Find organizations, memories, nodes, agents, apps, AI configs, users, and tasks by name, handle, URN, or id.')}
     </p>
   </div>
 
@@ -139,6 +143,9 @@
                 <span class="block truncate font-medium text-zinc-900 dark:text-white">
                   {hit.name ?? hit.urn ?? hit.id}
                 </span>
+              {/if}
+              {#if hit.entityType === 'agentTask' && hit.handle}
+                <span class="mt-0.5 block font-mono text-xs text-zinc-500 dark:text-zinc-400">{hit.handle}</span>
               {/if}
               {#if hit.urn}
                 <span class="mt-0.5 block"><Urn value={hit.urn} size={8} /></span>
