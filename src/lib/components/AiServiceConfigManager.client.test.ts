@@ -187,6 +187,51 @@ describe('kimi (#2138)', () => {
     expect($<HTMLInputElement>(root, '#ac-model')!.value).toBe('my-model');
   });
 
+  // #2181: Test must probe the string Save would leave (cor:dmo:050:10).
+  describe('saved-config Test override model rule', () => {
+    const saved = (over: Partial<AiServiceConfig>) => config({
+      provider: 'kimi', model: '  kimi-k3 ', effectiveEndpoint: 'https://api.moonshot.ai/v1', ...over,
+    });
+    const overrideAfterTest = async (root: HTMLElement) => {
+      await performAction(root, 'Test');
+      return posts.find((p) => p.action === 'testSaved')!.override as Record<string, unknown>;
+    };
+
+    it('an unchanged padded kimi model sends no model override', async () => {
+      const root = await open({ configs: [saved({})] });
+      editRow(root);
+      await settle();
+      expect($<HTMLInputElement>(root, '#ac-model')!.value).toBe('  kimi-k3 ');
+      expect('model' in await overrideAfterTest(root)).toBe(false);
+    });
+
+    it('a changed padded kimi model is sent verbatim', async () => {
+      const root = await open({ configs: [saved({})] });
+      editRow(root);
+      await settle();
+      set($<HTMLInputElement>(root, '#ac-model')!, '  kimi-k4 ');
+      expect((await overrideAfterTest(root)).model).toBe('  kimi-k4 ');
+    });
+
+    it('a non-kimi provider still trims its model override', async () => {
+      const root = await open({ configs: [config({ provider: 'glm', model: 'glm-5' })] });
+      editRow(root);
+      await settle();
+      set($<HTMLInputElement>(root, '#ac-model')!, '  glm-6 ');
+      expect((await overrideAfterTest(root)).model).toBe('glm-6');
+    });
+  });
+
+  it('a saved kimi config whose model equals the offered default keeps it when the provider is switched away', async () => {
+    const root = await open({ configs: [config({ provider: 'kimi', model: 'kimi-k3', effectiveEndpoint: 'https://api.moonshot.ai/v1' })] });
+    editRow(root);
+    await settle();
+    expect($<HTMLInputElement>(root, '#ac-model')!.value).toBe('kimi-k3');
+    set($<HTMLSelectElement>(root, '#ac-provider')!, 'openai');
+    await settle();
+    expect($<HTMLInputElement>(root, '#ac-model')!.value).toBe('kimi-k3');
+  });
+
   it('Test on an unsaved kimi config asks to save first and posts nothing to the test route', async () => {
     const root = await pickKimi();
     set($<HTMLInputElement>(root, '#ac-key')!, 'placeholder');
