@@ -60,4 +60,15 @@ describe('NodeList footer containment (#1270)', () => {
     expect(footer.className).toMatch(/(^|\s)flex-wrap(\s|$)/);
     expect(group.className).toMatch(/(^|\s)flex-wrap(\s|$)/);
   });
+
+  it('a server-owned window renders every supplied row and no second pager', () => {
+    const m = mountComponent(NodeList as never, {
+      nodes: (nodes as unknown as Array<unknown>).slice(0, 20), serverPaged: true,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    flushSync();
+    expect(m.target.querySelectorAll('tbody tr')).toHaveLength(20);
+    expect(m.target.querySelector('[data-testid="table-footer"]')).toBeNull();
+    expect(m.target.textContent).not.toContain('Nodes per page');
+  });
 });

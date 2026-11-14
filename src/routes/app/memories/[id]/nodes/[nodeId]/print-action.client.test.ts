@@ -11,7 +11,7 @@ import { flushSync } from 'svelte';
 import { captureUnhandledRejections, mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_PAGE_QUERY } from '$lib/server/queries';
 import { announcedAlertText } from '$lib/test/announcedAlertText';
 // Static imports: the page is large, and importing it inside a test spent the
 // test's whole timeout under full-suite load. `vi.mock` below is hoisted above
@@ -53,7 +53,7 @@ afterEach(() => {
 async function mountPage() {
   mockRequest.mockImplementation(async (doc: string) => {
     if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: NODE };
-    if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+    if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
     return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
   });
   const loaded = (await load({
@@ -304,7 +304,7 @@ describe('node menu Print (#1073)', () => {
   async function navigateTo(props: Record<string, unknown>, node: typeof NODE) {
     mockRequest.mockImplementation(async (doc: string) => {
       if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node };
-      if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+      if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
       return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
     });
     props.data = {

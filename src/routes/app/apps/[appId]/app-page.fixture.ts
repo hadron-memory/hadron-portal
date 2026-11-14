@@ -59,7 +59,7 @@ export async function runsPanel(runId: string) {
       startedAt: null, finishedAt: null, createdAt: '2026-11-01T00:00:00Z', createdBy: null,
     }],
     total: 1, page: 1, statuses: [], sort: 'createdAt', dir: 'desc', failed: false, explicitState: true,
-    flows: [], flowsCapped: false, flowsScanned: 0, runAgents: null,
+    flows: [], flowsPage: { offset: 0, count: 0, total: 0, firstHref: null, previousHref: null, nextHref: null }, runAgents: null,
     runForm: await superValidate(zod4(runAppFlowSchema), { errors: false }),
   };
 }

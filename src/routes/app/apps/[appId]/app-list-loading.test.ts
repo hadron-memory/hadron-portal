@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getOperationAST, parse } from 'graphql';
 import type { AiServiceConfig, TeamWorkItem } from '$lib/types';
+import type { FlowGraphNode } from '$lib/flow/flows';
+import { APP_FLOWS_PAGE_QUERY } from '$lib/server/queries';
 const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
 
@@ -22,6 +24,15 @@ const staff = Array.from({ length: 201 }, (_, i) => ({
 const channels = Array.from({ length: 201 }, (_, i) => ({
   id: `channel-${i}`, name: `Channel ${i}`, loc: `chats:channel-${i}`, memoryId: 'memory-a',
   chatRootUrn: `hrn:node:example.test:demo:chats:channel-${i}`,
+}));
+const nodes = Array.from({ length: 45 }, (_, i) => ({
+  id: `node-${i}`, urn: `hrn:node:example.test:demo:nodes:${i}`, memoryId: 'memory-a',
+  nodeType: 'info', loc: `nodes:${i}`, name: `Node ${i}`, description: null, tags: [], seq: null,
+  isRunnable: false, memory: { id: 'memory-a', urn: 'hrn:mem:example.test:demo', name: 'Memory', organizationId: null },
+  outgoingEdges: [], incomingEdges: [],
+}));
+const legacyChatRoots = Array.from({ length: 25 }, (_, i) => ({
+  id: `chat-${i}`, loc: `chats:${i}`, name: `Chat ${i}`, memoryId: 'memory-a', nodeType: 'chat',
 }));
 type Variables = Record<string, unknown>;
 const calls: { name: string; variables: Variables }[] = [];
@@ -47,7 +58,14 @@ beforeEach(() => {
       case 'TeamWorkItems': return { teamWorkItems: page(work, variables) };
       case 'AppMembers': return { app: { members: [] } };
       case 'AppNodes': case 'AppChatRoots': return { appNodes: [] };
+      case 'AppNodesPage': return { appNodesPage: page(nodes, variables) };
+      case 'AppChatRootsPage': return { appNodesPage: page(legacyChatRoots, variables) };
+      case 'AppFlowsPage': return { appNodesPage: page(nodes, variables) };
+      case 'AppRuns': return { appRuns: { items: [], total: 0 } };
+      case 'AgentTasksApp': return { app: { id: APP_ID, name: 'App', urn: 'hrn:app:example.test:demo', organizationId: null } };
+      case 'AppInstalledAgents': return { app: { appAgents: [] } };
       case 'TeamChatMessages': return { teamChatMessages: { items: [], total: 0 } };
+      case 'NodesByLocPrefix': return { findNodes: { hits: [], total: 0 } };
       case 'AppKeys': case 'AppKeyScopes': return { appKeysPage: { items: [], total: 0, hasMore: false } };
       case 'SelfCanManage': return { effectiveAccess: { canManage: false } };
       case 'AppViewerManages': return { app: { viewerManages: false } };
@@ -103,6 +121,137 @@ describe('App display-list request boundaries (#1758)', () => {
     expect(result.appConfigs).toEqual(configs.slice(20, 40));
     expect(result.appConfigs).toHaveLength(20);
   });
+  it('defaults the Memory/Flows and legacy chat-root lists to independent pages of 20', async () => {
+    const result = await loadPage('?tab=runs');
+    expect(calls.filter(c => c.name === 'AppNodesPage').map(c => c.variables)).toEqual([
+      expect.objectContaining({ appRef: APP_ID, limit: 20, offset: 0 }),
+    ]);
+    expect(calls.filter(c => c.name === 'AppChatRootsPage').map(c => c.variables)).toEqual([
+      expect.objectContaining({ appRef: APP_ID, limit: 20, offset: 0 }),
+    ]);
+    expect(calls.filter(c => c.name === 'AppFlowsPage').map(c => c.variables)).toEqual([
+      expect.objectContaining({ appRef: APP_ID, limit: 20, offset: 0 }),
+    ]);
+    expect(calls.filter(c => c.name === 'AppNodes')).toHaveLength(1); // complete Flow graph, not the display list
+    expect(calls.filter(c => c.name === 'AppChatRoots')).toEqual([]);
+    expect(result.appNodes).toHaveLength(20);
+    expect(result.appNodesPage).toMatchObject({ offset: 0, count: 20, total: 45 });
+    expect(result.chatRootsPage).toMatchObject({ offset: 0, count: 20, total: 25 });
+    expect(result.runsPanel).toMatchObject({ flowsPage: { offset: 0, count: 20, total: 45 } });
+    expect(result).not.toHaveProperty('appNodesCapped');
+    expect(result).not.toHaveProperty('chatsCapped');
+    expect(result.runsPanel).not.toHaveProperty('flowsCapped');
+  });
+  // #1929 LOCAL P3 / QA F4: a Flows pager over EVERY App node shows "No flows on
+  // this page" whenever docs sort first. Flows page their own runnable-only window
+  // on their own offset, independent of the Memory tab's node pages.
+  it('pages Flows over runnable nodes on their own offset, independent of Memory node pages', async () => {
+    const result = await loadPage('?tab=runs&flowsOffset=20&appNodesOffset=40');
+    expect(calls.filter(c => c.name === 'AppFlowsPage').map(c => c.variables)).toEqual([
+      expect.objectContaining({ appRef: APP_ID, limit: 20, offset: 20 }),
+    ]);
+    expect(calls.find(c => c.name === 'AppNodesPage')?.variables).toMatchObject({ limit: 20, offset: 40 });
+    expect(result.runsPanel).toMatchObject({ flowsPage: { offset: 20, count: 20, total: 45 } });
+    const next = (result.runsPanel as { flowsPage: { nextHref: string | null } }).flowsPage.nextHref!;
+    expect(new URL(next, 'https://x.test').searchParams.get('flowsOffset')).toBe('40');
+    expect(new URL(next, 'https://x.test').searchParams.get('appNodesOffset')).toBe('40');
+    expect(APP_FLOWS_PAGE_QUERY).toMatch(/isRunnable:\s*true/);
+  });
+  it('reads no Flows page outside the Runs tab', async () => {
+    await loadPage('?tab=memory');
+    expect(calls.filter(c => c.name === 'AppFlowsPage')).toEqual([]);
+  });
+  // #1929 QA F3: paging the chat list must not drop the conversation the reader has open.
+  it('keeps the selected chat across chat-root page links', async () => {
+    const result = await loadPage('?tab=chats&chat=chats%3A3');
+    const next = (result.chatRootsPage as { nextHref: string | null }).nextHref!;
+    expect(new URL(next, 'https://x.test').searchParams.get('chat')).toBe('chats:3');
+    expect(new URL(next, 'https://x.test').searchParams.get('chatRootsOffset')).toBe('20');
+  });
+  it('starts the complete Flow graph read with the first independent loader round', async () => {
+    const base = request.getMockImplementation()!;
+    let releaseApp!: () => void;
+    const appGate = new Promise<void>((resolve) => { releaseApp = resolve; });
+    request.mockImplementation(async (document: string, variables: Variables = {}) => {
+      const name = getOperationAST(parse(document))?.name?.value;
+      if (name === 'App') await appGate;
+      return base(document, variables);
+    });
+    const pending = loadPage('?tab=runs');
+    await vi.waitFor(() => expect(calls.some(c => c.name === 'AppNodes')).toBe(true));
+    expect(calls.some(c => c.name === 'App')).toBe(false);
+    releaseApp();
+    await pending;
+  });
+
+  it('continues each App node list by its own URL offset', async () => {
+    const result = await loadPage('?tab=memory&appNodesOffset=20&chatRootsOffset=20');
+    expect(calls.find(c => c.name === 'AppNodesPage')?.variables).toMatchObject({ limit: 20, offset: 20 });
+    expect(calls.find(c => c.name === 'AppChatRootsPage')?.variables).toMatchObject({ limit: 20, offset: 20 });
+    expect(result.appNodes).toEqual(nodes.slice(20, 40));
+    expect(result.appNodesPage).toMatchObject({ offset: 20, count: 20, total: 45 });
+    expect(result.chatRootsPage).toMatchObject({ offset: 20, count: 5, total: 25 });
+  });
+  it('resolves a legacy chat deep link outside the current root page', async () => {
+    const result = await loadPage('?tab=chats&chat=chats%3A24');
+    expect(result.chatNotFound).toBe(false);
+    expect(result.selectedChatKey).toBe('chats:24');
+    const targeted = calls.filter(c => c.name === 'AppChatRootsPage' && c.variables.locPrefix === 'chats:24');
+    expect(targeted.map(c => c.variables)).toEqual([expect.objectContaining({ offset: 0, limit: 200 })]);
+  });
+
+  it('resolves a later-page chat root whose loc has no chats: prefix', async () => {
+    const base = request.getMockImplementation()!;
+    const support = { id: 'support', loc: 'support', name: 'Support', memoryId: 'memory-a', nodeType: 'chat' };
+    request.mockImplementation(async (document: string, variables: Variables = {}) => {
+      const name = getOperationAST(parse(document))?.name?.value;
+      if (name === 'AppChatRootsPage' && variables.locPrefix === 'support') {
+        calls.push({ name, variables });
+        return { appNodesPage: { items: [support], total: 1, hasMore: false } };
+      }
+      return base(document, variables);
+    });
+    const result = await loadPage('?tab=chats&chat=support');
+    expect(result.chatNotFound).toBe(false);
+    expect(result.selectedChatKey).toBe('support');
+    expect(calls.filter(c => c.name === 'AppChatRootsPage' && c.variables.locPrefix === 'support')).toHaveLength(1);
+  });
+  it('counts Flow steps against the complete graph, not the 20-row display page', async () => {
+    const root: FlowGraphNode = { ...nodes[0], id: 'flow-root', loc: 'flow:root', name: 'Root', isRunnable: true };
+    const middle: FlowGraphNode = { ...nodes[1], id: 'flow-middle', loc: 'flow:middle', name: 'Middle', isRunnable: true };
+    const last: FlowGraphNode = { ...nodes[2], id: 'flow-last', loc: 'flow:last', name: 'Last', isRunnable: true };
+    root.outgoingEdges = [{ name: 'next', loc: 'flow:root:next:middle', target: { id: middle.id, loc: middle.loc, name: middle.name } }];
+    root.incomingEdges = [];
+    middle.outgoingEdges = [{ name: 'next', loc: 'flow:middle:next:last', target: { id: last.id, loc: last.loc, name: last.name } }];
+    middle.incomingEdges = [{ name: 'next', loc: 'flow:root:next:middle', source: { id: root.id, loc: root.loc, name: root.name } }];
+    last.outgoingEdges = [];
+    last.incomingEdges = [{ name: 'next', loc: 'flow:middle:next:last', source: { id: middle.id, loc: middle.loc, name: middle.name } }];
+    const base = request.getMockImplementation()!;
+    request.mockImplementation(async (document: string, variables: Variables = {}) => {
+      const name = getOperationAST(parse(document))?.name?.value;
+      if (name === 'AppNodesPage') return { appNodesPage: { items: [root], total: 3, hasMore: true } };
+      if (name === 'AppNodes') return { appNodes: [root, middle, last] };
+      return base(document, variables);
+    });
+    const result = await loadPage('?tab=runs');
+    expect(result.runsPanel).toMatchObject({ flows: [{ entry: { id: 'flow-root' }, stepCount: 3, stepCountComplete: true }] });
+  });
+  it('bounds an unresolved prefixed deep link to one lookup and discloses uncertainty', async () => {
+    const base = request.getMockImplementation()!;
+    request.mockImplementation(async (document: string, variables: Variables = {}) => {
+      const name = getOperationAST(parse(document))?.name?.value;
+      if (name === 'AppChatRootsPage' && variables.locPrefix === 'chats:a') {
+        calls.push({ name, variables });
+        return { appNodesPage: { items: legacyChatRoots.slice(0, 20), total: 1000, hasMore: true } };
+      }
+      return base(document, variables);
+    });
+    const result = await loadPage('?tab=chats&chat=chats%3Aa');
+    expect(result.chatNotFound).toBe(true);
+    expect(result.chatsError).toBe(true);
+    expect(calls.filter(c => c.name === 'AppChatRootsPage' && c.variables.locPrefix === 'chats:a')).toHaveLength(1);
+  });
+
   it('retains complete staff and channel identity contexts, including rows beyond 200', async () => {
     const result = await loadPage();
     expect(result.staff).toHaveLength(201);

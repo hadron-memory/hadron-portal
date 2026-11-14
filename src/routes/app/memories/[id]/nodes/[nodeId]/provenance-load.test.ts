@@ -12,8 +12,8 @@ import {
   NODE_QUERY,
   NODE_REVISION_PROVENANCE_QUERY,
   NODE_REVISION_QUERY,
-  NODE_REVISIONS_PROVENANCE_QUERY,
-  NODE_REVISIONS_QUERY,
+  NODE_REVISIONS_PROVENANCE_PAGE_QUERY,
+  NODE_REVISIONS_PAGE_QUERY,
 } from '$lib/server/queries';
 import type { NodeProvenance, ProvenanceResult } from '$lib/node-provenance';
 
@@ -50,16 +50,18 @@ function serve(overrides: Map<string, (vars: Record<string, unknown>) => unknown
     const o = overrides.get(doc);
     if (o) return o(vars);
     if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: NODE };
-    if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+    if (doc === NODE_REVISIONS_PAGE_QUERY || doc === NODE_REVISIONS_PROVENANCE_PAGE_QUERY) {
+      return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
+    }
     return { memories: { items: [], total: 0 } };
   });
 }
 
-function loadEvent() {
+function loadEvent(search = '') {
   return {
     params: { id: 'mem-A', nodeId: 'leaf-pk' },
     locals: { token: 'tok' },
-    url: new URL('http://localhost/app/memories/mem-A/nodes/leaf-pk'),
+    url: new URL(`http://localhost/app/memories/mem-A/nodes/leaf-pk${search}`),
     parent: vi.fn().mockResolvedValue({
       graphNodes: [{ id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo' }],
       graph: { urn: 'hrn:mem:acme.com:mem-a' },
@@ -74,9 +76,9 @@ type Loaded = {
   provenance: Promise<ProvenanceResult<NodeProvenance>>;
   revisionProvenance: Promise<ProvenanceResult<NodeProvenance[]>>;
 };
-async function runNodeLoad(): Promise<Loaded> {
+async function runNodeLoad(search = ''): Promise<Loaded> {
   const { load } = await import('./+page.server');
-  return (await load(loadEvent())) as unknown as Loaded;
+  return (await load(loadEvent(search))) as unknown as Loaded;
 }
 
 describe('node page — provenance is its own streamed read', () => {
@@ -86,31 +88,44 @@ describe('node page — provenance is its own streamed read', () => {
       [NODE_QUERY, () => ({ node: { ...NODE, nodeType: 'comment' } })],
     ]));
     const data = await runNodeLoad() as Loaded & { revisions: Promise<unknown> };
-    expect(await data.revisions).toEqual({ ok: true, items: [] });
+    expect(await data.revisions).toEqual({ ok: true, items: [], total: 0, hasMore: false });
     expect(await data.revisionProvenance).toEqual({ ok: true, value: [] });
-    expect(mockRequest.mock.calls.filter(([d]) => d === NODE_REVISIONS_QUERY || d === NODE_REVISIONS_PROVENANCE_QUERY)).toHaveLength(0);
+    expect(mockRequest.mock.calls.filter(([d]) => d === NODE_REVISIONS_PAGE_QUERY || d === NODE_REVISIONS_PROVENANCE_PAGE_QUERY)).toHaveLength(0);
   });
 
   it('reads the node\'s provenance by id, and its History rows\' with the history limit', async () => {
     const hist = { id: 'r1', revNo: 3, authorship: null, contentValidation: { state: 'STALE', latestReport: null } };
     serve(new Map<string, (v: Record<string, unknown>) => unknown>([
       [NODE_PROVENANCE_QUERY, () => ({ node: PROV })],
-      [NODE_REVISIONS_PROVENANCE_QUERY, () => ({ nodeRevisions: [hist] })],
+      [NODE_REVISIONS_PROVENANCE_PAGE_QUERY, () => ({ nodeRevisionsPage: { items: [hist], total: 1, hasMore: false } })],
     ]));
     const data = await runNodeLoad();
     expect(await data.provenance).toEqual({ ok: true, value: PROV });
     expect(await data.revisionProvenance).toEqual({ ok: true, value: [hist] });
     const nodeCall = mockRequest.mock.calls.find(([d]) => d === NODE_PROVENANCE_QUERY);
     expect(nodeCall?.[1]).toEqual({ ref: 'leaf-pk' });
-    const histCall = mockRequest.mock.calls.find(([d]) => d === NODE_REVISIONS_PROVENANCE_QUERY);
-    const listCall = mockRequest.mock.calls.find(([d]) => d === NODE_REVISIONS_QUERY);
+    const histCall = mockRequest.mock.calls.find(([d]) => d === NODE_REVISIONS_PROVENANCE_PAGE_QUERY);
+    const listCall = mockRequest.mock.calls.find(([d]) => d === NODE_REVISIONS_PAGE_QUERY);
     expect(histCall?.[1]).toEqual(listCall?.[1]); // same node, same limit: every row is covered
+  });
+
+  it('pages History and its display-only provenance together at 20 rows and the URL offset', async () => {
+    mockRequest.mockImplementation(async (doc: string) => {
+      if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: NODE };
+      if (doc.includes('nodeRevisionsPage')) return { nodeRevisionsPage: { items: [], total: 45, hasMore: true } };
+      return { memories: { items: [], total: 0 } };
+    });
+    const data = await runNodeLoad('?tab=history&revisionsOffset=20') as Loaded & { revisions: Promise<unknown> };
+    const pageCalls = mockRequest.mock.calls.filter(([doc]) => doc.includes('nodeRevisionsPage'));
+    expect(pageCalls).toHaveLength(2);
+    for (const [, vars] of pageCalls) expect(vars).toEqual({ nodeRef: 'leaf-pk', limit: 20, offset: 20 });
+    expect(await data.revisions).toMatchObject({ ok: true, items: [], total: 45, hasMore: true, nodeId: 'leaf-pk' });
   });
 
   it('a provenance failure leaves the node and its history loading, and reports ok:false', async () => {
     serve(new Map<string, (v: Record<string, unknown>) => unknown>([
       [NODE_PROVENANCE_QUERY, () => { throw new Error('validation resolver boom'); }],
-      [NODE_REVISIONS_PROVENANCE_QUERY, () => { throw new Error('history provenance boom'); }],
+      [NODE_REVISIONS_PROVENANCE_PAGE_QUERY, () => { throw new Error('history provenance boom'); }],
     ]));
     const data = await runNodeLoad();
     expect(data.node).toMatchObject({ id: 'leaf-pk' });
@@ -175,7 +190,7 @@ function selectedFields(doc: string): Set<string> {
 }
 
 describe('the shared reads never select provenance', () => {
-  for (const [name, doc] of Object.entries({ NODE_QUERY, NODE_BY_ID_QUERY, NODE_REVISIONS_QUERY, NODE_REVISION_QUERY })) {
+  for (const [name, doc] of Object.entries({ NODE_QUERY, NODE_BY_ID_QUERY, NODE_REVISIONS_PAGE_QUERY, NODE_REVISION_QUERY })) {
     it(`${name} selects neither contentValidation nor authorship`, () => {
       const fields = selectedFields(doc);
       expect(fields.has('contentValidation')).toBe(false);
@@ -185,7 +200,7 @@ describe('the shared reads never select provenance', () => {
 
   it('the guard can see a selection when there is one (positive control)', () => {
     expect(selectedFields(NODE_PROVENANCE_QUERY).has('contentValidation')).toBe(true);
-    expect(selectedFields(NODE_REVISIONS_PROVENANCE_QUERY).has('authorship')).toBe(true);
+    expect(selectedFields(NODE_REVISIONS_PROVENANCE_PAGE_QUERY).has('authorship')).toBe(true);
     // A mention in a comment is not a selection.
     expect(selectedFields('# contentValidation\nquery Q { node(ref: "x") { id } }').has('contentValidation')).toBe(false);
   });
