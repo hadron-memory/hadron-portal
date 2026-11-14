@@ -369,6 +369,15 @@ describe('text is literal', () => {
     expect(id.textContent).toBe('F[U+202E]1'); expect(sev.textContent).toBe('P[U+2066]1[U+2069]');
     for (const el of [id, sev]) { expect(el.getAttribute('dir')).toBe('auto'); expect(el.className).toContain('[unicode-bidi:isolate]'); }
   });
+  // portal#2119 / #2115 QA F1 — revealed markers (or a long unbroken label) widen severity; with no
+  // break opportunity it painted over the Text cell. Every provider-served field must be able to wrap.
+  it('id, severity and text can all wrap inside their cell', async () => {
+    const m = await setup(page('task', 0, [row('F1', 't', 'sev-A\u2061B\u2062C\u2063D\u2064E\u2028F\u2029G')], 1, false));
+    for (const testid of ['finding-id', 'finding-severity', 'finding-text']) {
+      const el = m.target.querySelector<HTMLElement>(`[data-testid="${testid}"]`)!;
+      expect(el.className, testid).toMatch(/break-all|break-words|\[overflow-wrap:anywhere\]/);
+    }
+  });
   it('keeps long multi-line text and every code point', async () => {
     const long = `line one\nline two ${'𝔘'.repeat(2000)}`;
     const m = await setup(page('task', 0, [row('F1', long)], 1, false));

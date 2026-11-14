@@ -289,8 +289,8 @@
   <div role="status" aria-live="polite" class="sr-only" data-testid="findings-status">{status}</div>
 
   <!-- Every provider-served value (id, severity, text) is shown literally, controls revealed, bidi isolated (portal#2111). -->
-  {#snippet literal(value: string, testid: string, extra: string)}
-    <div dir="auto" class="{extra} [unicode-bidi:isolate]" data-testid={testid}>{#each findingTextParts(value) as part, i (i)}{#if part.marker}<span class="mx-0.5 rounded bg-amber-100 px-1 font-mono text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">{part.text}</span>{:else}{part.text}{/if}{/each}</div>
+  {#snippet literal(value: string, testid: string, classes: string)}
+    <div dir="auto" class="{classes} [unicode-bidi:isolate]" data-testid={testid}>{#each findingTextParts(value) as part, i (i)}{#if part.marker}<span class="mx-0.5 rounded bg-amber-100 px-1 font-mono text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">{part.text}</span>{:else}{part.text}{/if}{/each}</div>
   {/snippet}
 
   {#if view.kind === 'loading'}
@@ -343,7 +343,7 @@
             aria-label={byId?.get(row.id) ? t('app.tasks.disposition.change-label', 'Change the disposition of finding {id}', { id: row.id }) : t('app.tasks.disposition.record-label', 'Record a disposition for finding {id}', { id: row.id })}
             onclick={(e) => openForm(row.id, e.currentTarget as HTMLButtonElement)}>{byId?.get(row.id) ? t('app.tasks.disposition.change', 'Change') : t('app.tasks.disposition.record', 'Record')}</button>
         {:else if c.column.id === 'severity'}
-          {@render literal(row.severity, 'finding-severity', 'font-mono')}
+          {@render literal(row.severity, 'finding-severity', '[overflow-wrap:anywhere] font-mono')}
         {:else}
           {@render literal(row.id, 'finding-id', 'break-all font-mono')}
         {/if}

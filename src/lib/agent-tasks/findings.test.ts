@@ -52,13 +52,13 @@ describe('findingTextParts: literal text, controls made visible, nothing else to
   it('shows ESC, CR, DEL, bidi overrides/isolates/marks as code-point markers', () => {
     expect(join('a\u001Bb')).toBe('a[U+001B]b');
     expect(join('a\rb')).toBe('a[U+000D]b');
-    expect(join('‮evil‬')).toBe('[U+202E]evil[U+202C]');
-    expect(join('x⁦y⁩')).toBe('x[U+2066]y[U+2069]');
-    expect(join('‎x‏؜')).toBe('[U+200E]x[U+200F][U+061C]');
+    expect(join('\u202Eevil\u202C')).toBe('[U+202E]evil[U+202C]');
+    expect(join('x\u2066y\u2069')).toBe('x[U+2066]y[U+2069]');
+    expect(join('\u200Ex\u200F\u061C')).toBe('[U+200E]x[U+200F][U+061C]');
     expect(findingTextParts('a\u001Bb').filter((p) => p.marker).map((p) => p.text)).toEqual(['[U+001B]']);
   });
   it('keeps emoji joiners, variation selectors, combining marks and astral text exactly', () => {
-    const keep = '👩‍💻 ❤️ é 𝔘𝔫𝔦';
+    const keep = '👩\u200D💻 ❤\uFE0F e\u0301 𝔘𝔫𝔦';
     expect(join(keep)).toBe(keep);
     expect(findingTextParts(keep).some((p) => p.marker)).toBe(false);
   });
@@ -76,8 +76,8 @@ describe('findingTextParts: literal text, controls made visible, nothing else to
 describe('findingTextParts: blank and tag characters are revealed too (portal#2111)', () => {
   const join = (s: string) => findingTextParts(s).map((p) => p.text).join('');
   it.each([
-    ['ZERO WIDTH SPACE', '​', '200B'], ['WORD JOINER', '⁠', '2060'], ['BOM / ZWNBSP', '﻿', 'FEFF'],
-    ['SOFT HYPHEN', '­', '00AD'], ['MONGOLIAN VOWEL SEPARATOR', '᠎', '180E'],
+    ['ZERO WIDTH SPACE', '\u200B', '200B'], ['WORD JOINER', '\u2060', '2060'], ['BOM / ZWNBSP', '\uFEFF', 'FEFF'],
+    ['SOFT HYPHEN', '\u00AD', '00AD'], ['MONGOLIAN VOWEL SEPARATOR', '\u180E', '180E'],
     ['LANGUAGE TAG', '\u{E0001}', 'E0001'], ['TAG LATIN SMALL A', '\u{E0061}', 'E0061'], ['CANCEL TAG', '\u{E007F}', 'E007F'], ['TAG block start', '\u{E0000}', 'E0000'],
   ])('reveals %s', (_n, ch, hex) => {
     expect(join(`a${ch}b`)).toBe(`a[U+${hex}]b`);
@@ -92,15 +92,67 @@ describe('findingTextParts: blank and tag characters are revealed too (portal#21
     expect(findingTextParts(england).some((p) => p.marker)).toBe(false);
   });
   it('still keeps the zero-width joiner and non-joiner that real scripts need', () => {
-    expect(join('a‍b‌c')).toBe('a‍b‌c');
+    const joined = 'a\u200Db\u200Cc';
+    expect(joined.length).toBe(5); // a stripped joiner fails here instead of passing vacuously
+    expect(join(joined)).toBe(joined);
+    expect(findingTextParts(joined).some((p) => p.marker)).toBe(false);
   });
 });
 
-describe('the neutralizer source is auditable (portal#2111)', () => {
+describe('the neutralizer source is auditable (portal#2111, portal#2113)', () => {
+  // Resolved from this test file, not the working directory.
+  const source = readFileSync(new URL('./findings.ts', import.meta.url), 'utf8');
   it('REVEALED is written with escapes only, never literal invisible characters', () => {
-    const line = readFileSync('src/lib/agent-tasks/findings.ts', 'utf8').split('\n').find((l) => l.includes('const REVEALED'));
+    const line = source.split('\n').find((l) => l.includes('const REVEALED'));
     expect(line).toBeDefined();
     expect(line!).toMatch(/^[\x20-\x7E]*$/);
+  });
+  it('the whole source holds no character the neutralizer would reveal', () => {
+    const hidden = findingTextParts(source).filter((p) => p.marker).map((p) => p.text);
+    expect(hidden).toEqual([]);
+  });
+  it('control: one injected U+202E anywhere in the source is caught', () => {
+    const injected = source.replace('Display only', '\u202EDisplay only');
+    expect(findingTextParts(injected).filter((p) => p.marker).map((p) => p.text)).toEqual(['[U+202E]']);
+  });
+});
+
+// portal#2113 A1 — invisible operators and line/paragraph separators render blank or break a line unseen.
+describe('findingTextParts: invisible operators and separators are revealed (portal#2113 A1)', () => {
+  const join = (s: string) => findingTextParts(s).map((p) => p.text).join('');
+  it.each([
+    ['FUNCTION APPLICATION', '\u2061', '2061'], ['INVISIBLE TIMES', '\u2062', '2062'], ['INVISIBLE SEPARATOR', '\u2063', '2063'],
+    ['INVISIBLE PLUS', '\u2064', '2064'], ['LINE SEPARATOR', '\u2028', '2028'], ['PARAGRAPH SEPARATOR', '\u2029', '2029'],
+  ])('reveals %s', (_n, ch, hex) => {
+    expect(ch).toHaveLength(1);
+    expect(join(`a${ch}b`)).toBe(`a[U+${hex}]b`);
+  });
+});
+
+// portal#2113 A2 — the kept emoji tag sequence stays bounded: black flag, 1-6 lowercase tag letters/digits, CANCEL TAG.
+describe('findingTextParts: the kept tag sequence is exactly bounded (portal#2113 A2)', () => {
+  const join = (s: string) => findingTextParts(s).map((p) => p.text).join('');
+  const FLAG = '\u{1F3F4}';
+  const CANCEL = '\u{E007F}';
+  const tags = (ascii: string) => Array.from(ascii, (c) => String.fromCodePoint(0xE0000 + c.charCodeAt(0))).join('');
+  const markers = (ascii: string) => Array.from(ascii, (c) => `[U+E00${(0x00 + c.charCodeAt(0)).toString(16).toUpperCase().padStart(2, '0')}]`).join('');
+  it('seven tags + CANCEL reveal every tag and the CANCEL (kills an unbounded or widened upper bound)', () => {
+    expect(join(FLAG + tags('gbengxx') + CANCEL)).toBe(FLAG + markers('gbengxx') + '[U+E007F]');
+  });
+  it('uppercase tags are not in the kept class and are revealed (kills widening to E0041-E005A)', () => {
+    expect(join(FLAG + tags('GBENG') + CANCEL)).toBe(FLAG + markers('GBENG') + '[U+E007F]');
+  });
+  it('tags without a CANCEL TAG are revealed (kills an optional CANCEL)', () => {
+    expect(join(FLAG + tags('gbeng'))).toBe(FLAG + markers('gbeng'));
+  });
+  it('positive control: six tags + CANCEL stay whole (kills an off-by-one upper bound)', () => {
+    const six = FLAG + tags('gbengx') + CANCEL;
+    expect(join(six)).toBe(six);
+    expect(findingTextParts(six).some((p) => p.marker)).toBe(false);
+  });
+  it('positive control: one tag + CANCEL stays whole (kills an off-by-one lower bound)', () => {
+    const one = FLAG + tags('g') + CANCEL;
+    expect(findingTextParts(one).some((p) => p.marker)).toBe(false);
   });
 });
 
