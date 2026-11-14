@@ -25,8 +25,10 @@ import { chromium } from 'playwright';
 // replacement must apply, or the run aborts: a mutant that silently did not
 // apply would pass and prove nothing.
 const MUTANTS = {
-  // the top-pinned row the human reported
-  'items-start': [/@sm:self-center @sm:col-start-2 @sm:row-start-2/, '@sm:self-start @sm:col-start-2 @sm:row-start-2'],
+  // the input top-pinned in the shared row (the 44px button is the row's
+  // tallest item, so the BUTTON's own self-start/stretch is equivalent to
+  // self-center and is not a mutant: the input's alignment is what centers)
+  'input-start': [/@sm:self-center @sm:col-start-1 @sm:row-start-2/, '@sm:self-start @sm:col-start-1 @sm:row-start-2'],
   // the button lands on the label row, not the input row
   'button-row': [/@sm:col-start-2 @sm:row-start-2/, '@sm:col-start-2 @sm:row-start-1'],
   // the old 42rem cap back around the table
