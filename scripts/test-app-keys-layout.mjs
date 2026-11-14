@@ -16,7 +16,7 @@
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { createServer } from 'vite';
+import { createServer, createLogger } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
 import { chromium } from 'playwright';
@@ -44,16 +44,34 @@ let mutantApplied = false;
 const PAGE = /\/routes\/app\/apps\/\[appId\]\/\+page\.svelte$/;
 
 const stub = (name) => resolve('src/lib/test/stubs', name);
+// A late dependency re-optimization reloads the page under a mounted
+// component; measurements taken across it mean nothing. Fail loudly instead.
+const lateOptimizations = [];
+const logger = createLogger();
+const info = logger.info.bind(logger);
+logger.info = (msg, opts) => {
+  if (/new dependencies optimized|optimized dependencies changed/.test(msg)) lateOptimizations.push(msg.trim());
+  info(msg, opts);
+};
 // No SvelteKit plugin: it would resolve `$app/*` to the real runtime ahead of
 // these aliases, and the page then talks to a kit client that isn't there.
 // This is the client test lane's environment (vitest.config.ts), plus Tailwind.
 const server = await createServer({
   configFile: false,
+  customLogger: logger,
   // Own pre-bundle cache, so this run never invalidates the dev server's.
   cacheDir: 'node_modules/.vite-app-keys-layout',
   // Superforms imports `$app/*` itself; pre-bundling would resolve those
   // before the aliases apply.
-  optimizeDeps: { exclude: ['sveltekit-superforms'] },
+  //
+  // `entries` (portal#2137 LOCAL F1): with no index.html there is nothing for
+  // Vite's startup scan to crawl, so on a cold cache it discovered deps
+  // (marked, @tanstack/table-core) only when the page first imported them,
+  // re-optimized and RELOADED the page mid-mount. Two copies of svelte's
+  // runtime then threw lifecycle_outside_component / effect_orphan. Scanning
+  // the harness's import graph up front pre-bundles every dep before the
+  // first request; the run below also fails if a late re-optimization happens.
+  optimizeDeps: { entries: ['src/lib/test/fixtures/app-keys-layout-harness.ts'], exclude: ['sveltekit-superforms'] },
   server: { host: '127.0.0.1', port: 0 },
   resolve: { alias: {
     $lib: resolve('src/lib'),
@@ -282,6 +300,7 @@ try {
 }
 
 if (mutantName && !mutantApplied) throw new Error(`mutant ${mutantName} never reached the page source`);
+for (const msg of lateOptimizations) failures.push(`vite re-optimized dependencies mid-run (cold cache?): ${msg}`);
 if (failures.length) {
   console.error(`FAIL (${failures.length})${mutantName ? ` with mutant ${mutantName}` : ''}:\n  ${failures.join('\n  ')}`);
   process.exit(1);
