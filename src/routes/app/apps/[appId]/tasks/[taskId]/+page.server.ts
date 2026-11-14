@@ -14,6 +14,7 @@ import {
   REMOVE_AGENT_TASK_BLOCKER_MUTATION,
   ASSIGN_AGENT_TASK_MUTATION,
   CANCEL_AGENT_TASK_MUTATION,
+  DISPOSE_AGENT_TASK_FINDING_MUTATION,
   HAND_BACK_AGENT_TASK_MUTATION,
   MAKE_AGENT_TASK_READY_MUTATION,
   PARK_AGENT_TASK_MUTATION,
@@ -33,6 +34,7 @@ import { t } from '$lib/i18n/t';
 import { resolveSegment } from '$lib/agent-tasks/handle';
 import { taskEditPatch } from '$lib/agent-tasks/edit';
 import { parseHandBack } from '$lib/agent-tasks/hand-back';
+import { readDispositionForm } from '$lib/agent-tasks/dispositions';
 import type { AgentTaskDetail } from '$lib/agent-tasks/types';
 import type { MemoriesRead } from '$lib/node-choices';
 import type { Actions, PageServerLoad } from './$types';
@@ -144,7 +146,7 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
  * refusal, which goes back verbatim with the reader's values. Park (portal#1143)
  * is offered on state alone; the same refusal answers anyone outside its audience.
  */
-type TaskWrite = 'handBack' | 'ready' | 'assign' | 'reassign' | 'park' | 'edit' | 'cancel' | 'priority' | 'addBlocker' | 'removeBlocker';
+type TaskWrite = 'handBack' | 'ready' | 'assign' | 'reassign' | 'park' | 'edit' | 'cancel' | 'priority' | 'addBlocker' | 'removeBlocker' | 'disposeFinding';
 
 async function write(
   action: TaskWrite,
@@ -168,7 +170,7 @@ async function write(
     if (isHttpError(e)) throw e;
     return writeFailure(action, { kind: 'uncertain' }, values);
   }
-  const planning = action === 'handBack' || action === 'priority' || action === 'addBlocker' || action === 'removeBlocker';
+  const planning = action === 'handBack' || action === 'disposeFinding' || action === 'priority' || action === 'addBlocker' || action === 'removeBlocker';
   const vars: Record<string, unknown> = { ...(planning ? { taskRef: taskId } : { taskId }), ...built.vars };
   // portal#1214: a write whose response can carry warnings keeps them.
   if (built.path) {
@@ -226,6 +228,13 @@ export const actions: Actions = {
     const reason = parseHandBack(String(fd.get('code') ?? ''), String(fd.get('text') ?? ''));
     if ('invalid' in reason) return reason;
     return { doc: HAND_BACK_AGENT_TASK_MUTATION, vars: { reason } };
+  }),
+  // portal#1643 (hadron-server#2663): the assigner's decision on one finding. The server decides who may
+  // (TASK_NOT_OWNER), and a refusal changes nothing the reader sees.
+  disposeFinding: (event) => write('disposeFinding', event, (fd) => {
+    const input = readDispositionForm(fd);
+    if (!input.ok) return { invalid: { field: input.field, message: input.message } };
+    return { doc: DISPOSE_AGENT_TASK_FINDING_MUTATION, path: 'disposeAgentTaskFinding', vars: input.vars };
   }),
   park: (event) => write('park', event, () => ({ doc: PARK_AGENT_TASK_MUTATION, vars: {} })),
   // portal#1357 (hadron-server#2645): the changed descriptive fields only; the server decides who may.

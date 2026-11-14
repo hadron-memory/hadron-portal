@@ -1,3 +1,4 @@
+import { fixtureActions } from "./grants.fixture";
 import { describe, it, expect, vi } from "vitest";
 import { render } from "svelte/server";
 import {
@@ -74,7 +75,8 @@ describe("grant approval history identities and facts", () => {
       urn: "hrn:worker:example.test:team:worker",
     };
     const request = vi.fn(async (q: string) => {
-      if (q.includes("query AppGrantsPage"))
+      if (q.includes("query AppGrantActions")) return { grantActions: { items: fixtureActions, total: fixtureActions.length } };
+    if (q.includes("query AppGrantsPage"))
         return {
           appGrants: { items: [grant, { ...grant, id: "second" }], total: 2 },
         };

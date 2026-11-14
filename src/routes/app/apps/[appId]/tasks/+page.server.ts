@@ -29,7 +29,7 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   const view = parseTaskView(url.searchParams.get('view'));
   const text = (url.searchParams.get('text') ?? '').trim();
   const filter = parseBoardFilter(url.searchParams.get('status'));
-  const { narrow, overdueDropped } = parseNarrow(url.searchParams, filter);
+  const { narrow, overdueDropped, unresolvedDropped } = parseNarrow(url.searchParams, filter);
   const alarmFilter = parseAlarmFilter(url.searchParams.get('alarms'));
 
   // The App's header comes first and alone: a missing App is a 404 whatever
@@ -43,11 +43,13 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   const blankText = url.searchParams.has('text') && !text;
   const blankTags = url.searchParams.has('tags') && parseTags(url.searchParams.get('tags')).length === 0;
   const strayOverdue = url.searchParams.has('overdue') && url.searchParams.get('overdue') !== '1';
-  if (view === 'board' && (blankText || blankTags || strayOverdue)) {
+  const strayUnresolved = url.searchParams.has('unresolved') && url.searchParams.get('unresolved') !== '1';
+  if (view === 'board' && (blankText || blankTags || strayOverdue || strayUnresolved)) {
     const canonical = new URL(url);
     if (blankText) canonical.searchParams.delete('text');
     if (blankTags) canonical.searchParams.delete('tags');
     if (strayOverdue) canonical.searchParams.delete('overdue');
+    if (strayUnresolved) canonical.searchParams.delete('unresolved');
     // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
     await parent();
     throw redirect(303, canonical.pathname + canonical.search);
@@ -62,6 +64,8 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
     overdue: narrow.overdue,
     tags: narrow.tags,
     overdueDropped,
+    unresolved: narrow.unresolved,
+    unresolvedDropped,
     boardLimit: BOARD_LIMIT,
     alarmPaging: null as { previousHref: string | null; nextHref: string | null } | null,
     loadedAt: new Date().toISOString(),

@@ -51,6 +51,7 @@
     idPrefix,
     replaces = false,
     invalid = null,
+    single = false,
   }: {
     /** The App the form is in. Without its URN a TASK target can't be built, so TASK isn't offered. */
     app: { id: string; urn: string | null };
@@ -70,6 +71,11 @@
     replaces?: boolean;
     /** The action's local refusal on this field (an unreadable post). */
     invalid?: string | null;
+    /**
+     * portal#1643: at most ONE reference (a finding's disposition). Singular wording, no ordering
+     * controls; the same kind pickers and the same one `references` field, holding zero or one.
+     */
+    single?: boolean;
   } = $props();
 
   // Seeded once, on purpose: a draft, not a view.
@@ -89,7 +95,8 @@
   let targetEl = $state<HTMLInputElement | null>(null);
   let labelEl = $state<HTMLInputElement | null>(null);
 
-  const full = $derived(list.length >= MAX_REFERENCES);
+  const limit = $derived(single ? 1 : MAX_REFERENCES);
+  const full = $derived(list.length >= limit);
   const draftTarget = $derived(
     kind === 'TASK'
       ? (picked && app.urn ? (taskReferenceTarget(app.urn, picked.handle) ?? '') : '')
@@ -178,9 +185,9 @@
      fieldset takes focus (tabindex -1) only when a refusal on this field moves focus here. -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
 <fieldset id="{p}-references" tabindex="-1" class="space-y-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800" onkeydown={onKey}>
-  <legend class="px-1 text-sm font-medium text-zinc-800 dark:text-zinc-200">{t('app.tasks.ref.title', 'References')}</legend>
+  <legend class="px-1 text-sm font-medium text-zinc-800 dark:text-zinc-200">{single ? t('app.tasks.ref.title-single', 'Reference') : t('app.tasks.ref.title', 'References')}</legend>
   <p class={helpClass}>
-    {t('app.tasks.ref.help', 'Issues, pull requests, nodes, tasks or links this task points at, kept in this order.')}
+    {single ? t('app.tasks.ref.help-single', 'Optional: the issue, pull request, node, task or link that shows why.') : t('app.tasks.ref.help', 'Issues, pull requests, nodes, tasks or links this task points at, kept in this order.')}
     {#if replaces}{t('app.tasks.ref.replaces', 'Saving replaces the whole list as shown.')}{/if}
   </p>
   {#if invalid}<p role="alert" class="text-xs text-red-700 dark:text-red-300">{invalid}</p>{/if}
@@ -193,10 +200,12 @@
           {#if ref.label}<span class="min-w-0 text-zinc-800 [overflow-wrap:anywhere] dark:text-zinc-100">{neutralizeFormatChars(ref.label)}</span>{/if}
           <span class="min-w-0 grow font-mono text-zinc-500 [overflow-wrap:anywhere] dark:text-zinc-400">{neutralizeTargetChars(ref.target)}</span>
           <span class="flex shrink-0 gap-1">
+            {#if !single}
             <button type="button" class={smallButton} disabled={i === 0} onclick={() => move(i, -1)}
               aria-label={t('app.tasks.ref.up', 'Move reference {n} up', { n: i + 1 })}>{t('app.tasks.ref.up-short', 'Move up')}</button>
             <button type="button" class={smallButton} disabled={i === list.length - 1} onclick={() => move(i, 1)}
               aria-label={t('app.tasks.ref.down', 'Move reference {n} down', { n: i + 1 })}>{t('app.tasks.ref.down-short', 'Move down')}</button>
+            {/if}
             <button type="button" class={smallButton} onclick={() => remove(i)}
               aria-label={t('app.tasks.ref.remove', 'Remove reference {n}', { n: i + 1 })}>{t('app.tasks.ref.remove-short', 'Remove')}</button>
           </span>
@@ -204,11 +213,11 @@
       {/each}
     </ol>
   {:else}
-    <p class={helpClass}>{t('app.tasks.ref.none', 'No references.')}</p>
+    <p class={helpClass}>{single ? t('app.tasks.ref.none-single', 'No reference.') : t('app.tasks.ref.none', 'No references.')}</p>
   {/if}
 
   {#if full}
-    <p class={helpClass}>{t('app.tasks.ref.full', 'A task holds at most {n} references. Remove one to add another.', { n: MAX_REFERENCES })}</p>
+    <p class={helpClass}>{single ? t('app.tasks.ref.full-single', 'A disposition holds one reference. Remove it to add another.') : t('app.tasks.ref.full', 'A task holds at most {n} references. Remove one to add another.', { n: MAX_REFERENCES })}</p>
   {:else}
     <div class="space-y-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
       <div class="space-y-1">

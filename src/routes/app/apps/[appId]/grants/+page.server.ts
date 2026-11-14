@@ -1,3 +1,5 @@
+import { readGrantActions } from "$lib/server/grant-actions";
+import { grantableAction } from "$lib/grants/actions";
 import { error, fail, isHttpError, isRedirect, redirect } from "@sveltejs/kit";
 import { ClientError } from "graphql-request";
 import { gqlClient } from "$lib/server/api";
@@ -15,12 +17,10 @@ import {
   requireGrantManager,
 } from "$lib/server/app-grants";
 import {
-  grantActions,
   grantError,
   GRANT_REASON_MAX,
   grantReasonLimitMessage,
   type Grant,
-  type GrantAction,
 } from "$lib/grants/types";
 import { t } from "$lib/i18n/t";
 import type { Actions, PageServerLoad } from "./$types";
@@ -199,8 +199,7 @@ export const actions: Actions = {
       const fd = await event.request.formData();
       const text = (key: string) => String(fd.get(key) ?? "").trim();
       const holder = text("holder"),
-        action = text("action") as GrantAction,
-        nodeId = text("nodeId"),
+        action = text("action"),
         reason = text("reason");
       const choices = await grantChoices(gqlClient(event.locals.token), app.id);
       const allowed = [
@@ -209,15 +208,12 @@ export const actions: Actions = {
       ];
       if (!allowed.includes(holder))
         return bad(400, grantError("GRANT_HOLDER_NOT_ALLOWED"));
-      if (!Object.hasOwn(grantActions, action))
+      const definitions = await readGrantActions(gqlClient(event.locals.token), app.id);
+      const definition = definitions.find((a) => a.name === action);
+      if (!definition || !grantableAction(definition))
         return bad(400, grantError("GRANT_ACTION_UNKNOWN"));
-      if (
-        !nodeId ||
-        nodeId.includes(":") ||
-        nodeId === "*" ||
-        nodeId.includes(",") ||
-        /[\s]/.test(nodeId)
-      )
+      const values = Object.fromEntries(definition.parameters.map((p) => [p.name, text("parameter:" + p.name)]));
+      if (Object.values(values).some((id) => !id || id.includes(":") || id === "*" || /[\s,]/.test(id)))
         return bad(400, grantError("GRANT_VALUES_INVALID"));
       const starts = text("startsAt"),
         expires = text("expiresAt"),
@@ -253,7 +249,7 @@ export const actions: Actions = {
         holderKind: holder.slice(0, colon),
         holderRef: holder.slice(colon + 1),
         action,
-        values: { [grantActions[action]]: nodeId },
+        values,
         reason,
         ...(startDate ? { startsAt: startDate.toISOString() } : {}),
         ...(expiryDate ? { expiresAt: expiryDate.toISOString() } : {}),

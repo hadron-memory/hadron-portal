@@ -2,7 +2,7 @@
   import TabRow from '$lib/components/TabRow.svelte';
   import { untrack } from 'svelte';
   import { TASK_SEARCH_MAX, taskBoardHref } from '$lib/agent-tasks/search';
-  import { overdueApplies, type BoardNarrow } from '$lib/agent-tasks/narrow';
+  import { overdueApplies, unresolvedApplies, type BoardNarrow } from '$lib/agent-tasks/narrow';
   import { invalidateAll } from '$app/navigation';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
@@ -138,9 +138,10 @@
   });
 
   // portal#1427: Overdue and tags ride along every link; a page loaded without them reads as unset.
-  const narrow: BoardNarrow = $derived({ overdue: data.overdue ?? false, tags: data.tags ?? [] });
-  const narrowed = $derived(narrow.overdue || narrow.tags.length > 0);
+  const narrow: BoardNarrow = $derived({ overdue: data.overdue ?? false, tags: data.tags ?? [], unresolved: data.unresolved ?? false });
+  const narrowed = $derived(narrow.overdue || narrow.tags.length > 0 || narrow.unresolved);
   const overdueOffered = $derived(overdueApplies(data.filter));
+  const unresolvedOffered = $derived(unresolvedApplies(data.filter));
 
   function viewHref(v: TaskView): string {
     return taskBoardHref(basePath, data.filter, data.text ?? '', v, narrow);
@@ -153,7 +154,7 @@
 
   // A route can be reused on navigation. Reset position for each server slice,
   // without subscribing to the table state that the reset itself writes.
-  const boardSlice = $derived(JSON.stringify([data.app.id, data.filter, data.text ?? '', narrow.overdue, narrow.tags]));
+  const boardSlice = $derived(JSON.stringify([data.app.id, data.filter, data.text ?? '', narrow.overdue, narrow.tags, narrow.unresolved]));
   $effect(() => {
     void boardSlice;
     untrack(() => {
@@ -296,6 +297,15 @@
           {t('app.tasks.narrow.overdue.label', 'Overdue only')}
         </label>
       </div>
+      <!-- portal#1643: finished tasks (subtasks included) with a finding nobody has disposed of yet. -->
+      <div class="w-full pb-0 sm:w-auto sm:pb-2">
+        <label class="flex items-center gap-2 text-sm font-medium {unresolvedOffered ? 'text-zinc-700 dark:text-zinc-300' : 'cursor-not-allowed text-zinc-500 dark:text-zinc-400'}">
+          <input type="checkbox" name="unresolved" value="1" checked={narrow.unresolved} aria-disabled={unresolvedOffered ? undefined : 'true'}
+            onclick={(event) => { if (!unresolvedOffered) event.preventDefault(); }}
+            aria-describedby="task-unresolved-guidance" class="size-4 rounded border-zinc-300 dark:border-zinc-700" />
+          {t('app.tasks.narrow.unresolved.label', 'Unresolved findings')}
+        </label>
+      </div>
       <button type="submit" class="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500">{t('app.tasks.search.submit', 'Search')}</button>
       <a href={taskBoardHref(basePath, data.filter, '')} data-sveltekit-reload class="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700">{t('app.tasks.search.clear', 'Clear')}</a>
       <p id="task-search-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.search.limit', 'Up to 200 characters after trimming. Searches titles and descriptions in this App.')}</p>
@@ -309,6 +319,15 @@
           {overdueOffered
             ? t('app.tasks.narrow.overdue.guidance', 'Overdue: the start-by time has passed and the task has not started.')
             : t('app.tasks.narrow.overdue.unavailable', 'Overdue applies to Active, Queued and All tasks.')}
+        </p>
+      {/if}
+      {#if data.unresolvedDropped}
+        <p id="task-unresolved-guidance" role="status" class="w-full text-xs text-amber-700 dark:text-amber-300" data-testid="unresolved-dropped">{t('app.tasks.narrow.unresolved.dropped', 'Unresolved findings was turned off: it does not apply to {bucket} tasks.', { bucket: boardFilterLabel(data.filter) })}</p>
+      {:else}
+        <p id="task-unresolved-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">
+          {unresolvedOffered
+            ? t('app.tasks.narrow.unresolved.guidance', 'Unresolved findings: finished tasks, subtasks included, with a finding no one has recorded a disposition for.')
+            : t('app.tasks.narrow.unresolved.unavailable', 'Unresolved findings applies to Ended and All tasks.')}
         </p>
       {/if}
     </form>

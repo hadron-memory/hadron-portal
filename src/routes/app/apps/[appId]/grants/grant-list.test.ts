@@ -17,6 +17,8 @@ const body = () => {
     appId: scope.appId,
     viewerId: scope.viewerId,
     offset: 0,
+    actionDefinitions: d.actionDefinitions,
+    actionDefinitionsFailed: false,
     grants: d.grants,
     holders: d.holders,
     nodes: { "node-example": null },
@@ -25,6 +27,11 @@ const body = () => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+it('rejects an old or malformed payload instead of silently replacing missing metadata with []', () => {
+  const payload = body() as any;
+  delete payload.actionDefinitions;
+  expect(parseGrantList(payload, scope)).toBeNull();
 });
 describe("owned Grants read", () => {
   it("accepts legal count lag and uses no-store JSON at the exact route scope", async () => {

@@ -60,7 +60,7 @@ async function taskActions() {
 
 describe('task page actions', () => {
   it('the page has exactly these write actions', async () => {
-    expect(Object.keys(await taskActions()).sort()).toEqual(['addBlocker', 'assign', 'cancel', 'edit', 'handBack', 'park', 'priority', 'ready', 'reassign', 'removeBlocker']);
+    expect(Object.keys(await taskActions()).sort()).toEqual(['addBlocker', 'assign', 'cancel', 'disposeFinding', 'edit', 'handBack', 'park', 'priority', 'ready', 'reassign', 'removeBlocker']);
   });
 
   // portal#1571 (hadron-server#2651, hrn:node:hadronmemory.com:specs:cor:agt:050:29)

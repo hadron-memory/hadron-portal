@@ -46,6 +46,8 @@ const listFixture = () => {
     appId: d.app.id,
     viewerId: "person-example",
     offset: 0,
+    actionDefinitions: d.actionDefinitions,
+    actionDefinitionsFailed: false,
     grants: d.grants,
     holders: d.holders,
     nodes: { "node-example": null },

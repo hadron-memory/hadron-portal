@@ -4,8 +4,16 @@ import { setStubPage } from '$lib/test/stubs/app-stores';
 import TasksAlarms from '$lib/components/agent-tasks/TasksAlarms.svelte';
 import AppRunsTable from '$lib/components/AppRunsTable.svelte';
 import AiServiceConfigManager from '$lib/components/AiServiceConfigManager.svelte';
+import TaskFindings from '$lib/components/agent-tasks/TaskFindings.svelte';
 const date = '2026-11-01T02:04:36Z';
+import { FINDINGS_SEVERITIES } from './findings-severity-triggers';
+export { FINDINGS_SEVERITIES };
 export function mountOverflowFixture(target: HTMLElement, kind: string) {
+  if (kind === 'findings') {
+    const items = Object.entries(FINDINGS_SEVERITIES).map(([id, severity]) => ({ id, severity, text: `ordinary finding text for ${id} `.repeat(8) }));
+    const instance = mount(TaskFindings, { target, props: { appId: 'fixture', taskId: 'fixture-task', initial: { kind: 'page', page: { taskId: 'fixture-task', offset: 0, items, total: items.length, hasMore: false } } } });
+    return () => unmount(instance);
+  }
   if (kind === 'config') {
     const configs = Array.from({ length: 4 }, (_, i) => ({ id: `config-${i}`, name: `LongConfigNameWithFortyUnbrokenCharacters${i}`, ownerType: 'APP' as const, ownerId: 'fixture-app', provider: 'anthropic' as const, model: 'fixture-model', endpoint: null, effectiveEndpoint: 'https://example.invalid', apiStyle: null, effectiveApiStyle: null, hasApiKey: true, apiKeyPreview: '…test', params: null, enabled: i % 2 === 0, createdAt: date, updatedAt: null }));
     let actionEpoch = 0;

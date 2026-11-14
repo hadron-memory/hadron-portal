@@ -1,3 +1,4 @@
+import { fixtureActions } from "./grants.fixture";
 import { GraphQLError } from "graphql";
 import { ClientError } from "graphql-request";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -50,6 +51,7 @@ beforeEach(() => {
           urn: "hrn:node:example.test:knowledge:daily",
         },
       };
+    if (q.includes("query AppGrantActions")) return { grantActions: { items: fixtureActions, total: fixtureActions.length } };
     if (q.includes("query AppGrantsPage"))
       return { appGrants: { items: [grant], total: 41 } };
     if (q.includes("query AppGrantWorkers"))
@@ -134,7 +136,7 @@ const event = (body?: Record<string, string>, search = "") => ({
 const input = {
   holder: "WORKER:worker-a",
   action: "schedule.create",
-  nodeId: "node-a",
+  "parameter:entryNode": "node-a",
   reason: "Testing",
 };
 async function load(search = "") {
@@ -323,14 +325,14 @@ describe("App Grants manager route", () => {
     ["bootprompt.source.edit", "sourceNode"],
     ["bootprompt.compile.approve", "compiledNode"],
   ])("maps %s to its one parameter", async (action, parameter) => {
-    await act("create", { ...input, action });
+    await act("create", { ...input, action, ["parameter:" + parameter]: "node-a" });
     expect(writes()[0][1].input.values).toEqual({ [parameter]: "node-a" });
   });
   it.each([
     { holder: "USER:person-a" },
     { holder: "WORKER:other-app-worker" },
-    { nodeId: "hrn:node:example.test:mem:n" },
-    { nodeId: "*" },
+    { "parameter:entryNode": "hrn:node:example.test:mem:n" },
+    { "parameter:entryNode": "*" },
     { action: "anything" },
     { maxUses: "1.5" },
   ])("rejects unsupported choices %j", async (bad) => {
