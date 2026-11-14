@@ -1,3 +1,4 @@
+import { fixtureActions } from "./grants.fixture";
 import { describe, expect, it, vi } from "vitest";
 import { grantNodes } from "$lib/server/app-grants";
 import { grantNodeRef } from "$lib/grants/types";
@@ -11,7 +12,7 @@ describe("grant node context", () => {
     };
     const request = vi.fn().mockResolvedValue({ node });
     expect(
-      await grantNodes({ request } as never, [fixtureGrant, fixtureGrant]),
+      await grantNodes({ request } as never, [fixtureGrant, fixtureGrant], fixtureActions),
     ).toEqual({ "node-example": node });
     expect(request).toHaveBeenCalledTimes(1);
     expect(request.mock.calls[0][1]).toEqual({ ref: "node-example" });
@@ -20,9 +21,9 @@ describe("grant node context", () => {
       { entryNode: ["one", "two"] },
       null,
     ])
-      expect(grantNodeRef({ ...fixtureGrant, values })).toBeNull();
+      expect(grantNodeRef({ ...fixtureGrant, values }, fixtureActions)).toBeNull();
     expect(
-      grantNodeRef({ ...fixtureGrant, action: "future.action" }),
+      grantNodeRef({ ...fixtureGrant, action: "future.action" }, fixtureActions),
     ).toBeNull();
   });
   it("does not invent identity or disclose refusal text for unreadable nodes", async () => {
@@ -30,10 +31,10 @@ describe("grant node context", () => {
       .fn()
       .mockResolvedValueOnce({ node: null })
       .mockRejectedValueOnce(Error("private content"));
-    expect(await grantNodes({ request } as never, [fixtureGrant])).toEqual({
+    expect(await grantNodes({ request } as never, [fixtureGrant], fixtureActions)).toEqual({
       "node-example": null,
     });
-    expect(await grantNodes({ request } as never, [fixtureGrant])).toEqual({
+    expect(await grantNodes({ request } as never, [fixtureGrant], fixtureActions)).toEqual({
       "node-example": null,
     });
   });
@@ -45,6 +46,7 @@ describe("grant node context", () => {
         ...fixtureGrant,
         values: { entryNode: `node-${i}` },
       })),
+      fixtureActions,
     );
     expect(request).toHaveBeenCalledTimes(20);
   });

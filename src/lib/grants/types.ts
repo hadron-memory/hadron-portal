@@ -1,11 +1,5 @@
 import { t } from "$lib/i18n/t";
-export const grantActions = {
-  "schedule.create": "entryNode",
-  "webhook.create": "entryNode",
-  "bootprompt.source.edit": "sourceNode",
-  "bootprompt.compile.approve": "compiledNode",
-} as const;
-export type GrantAction = keyof typeof grantActions;
+import type { GrantActionDefinition } from "./actions";
 export type Grant = {
   id: string;
   appId: string;
@@ -61,19 +55,22 @@ export function grantError(code: string | null): string {
   }
 }
 
-// Only the known single-node value shapes are projected as node identities.
+// Only a server-declared single node-ref scope is projected as a node identity.
 // Opaque, wildcard and multi-value grants keep their exact values instead.
-export function grantNodeRef(grant: Grant): string | null {
+export function grantNodeRef(
+  grant: Grant,
+  definitions: GrantActionDefinition[],
+): string | null {
   if (
-    !Object.hasOwn(grantActions, grant.action) ||
     !grant.values ||
     typeof grant.values !== "object" ||
     Array.isArray(grant.values)
   )
     return null;
-  const value = (grant.values as Record<string, unknown>)[
-    grantActions[grant.action as GrantAction]
-  ];
+  const parameters = definitions.find((a) => a.name === grant.action)?.parameters;
+  if (!parameters || parameters.length !== 1 || parameters[0].type !== "node-ref")
+    return null;
+  const value = (grant.values as Record<string, unknown>)[parameters[0].name];
   return typeof value === "string" &&
     value !== "*" &&
     value.length > 0 &&
@@ -100,6 +97,8 @@ export function grantHolderKey(grant: Grant): string {
 }
 
 export type GrantPageSlice = {
+  actionDefinitions: GrantActionDefinition[];
+  actionDefinitionsFailed: boolean;
   grants: { items: Grant[]; total: number };
   holders: Record<string, Holder>;
   nodes: Record<string, Holder | null>;

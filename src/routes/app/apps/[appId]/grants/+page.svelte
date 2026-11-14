@@ -12,7 +12,6 @@
   import { createSvelteTable } from "$lib/table/createSvelteTable.svelte";
   import type { PortalColumnDef } from "$lib/table/features";
   import {
-    grantActions,
     grantError,
     grantNodeRef,
     grantHolderKey,
@@ -21,6 +20,7 @@
     type Grant,
     type GrantListPayload,
   } from "$lib/grants/types";
+  import { grantableAction } from "$lib/grants/actions";
   import type { NodeChoice } from "$lib/node-choices";
   import { t } from "$lib/i18n/t";
   import { readGrantList } from "./grant-list";
@@ -185,7 +185,7 @@
         });
         if (!owns()) return;
         if (result.type === "success") {
-          node = null;
+          parameterNodes = {};
           holderChoice = "";
           reason = "";
           // The action is acknowledged before its bounded section read starts.
@@ -205,14 +205,19 @@
       ? data.choices.workers.find((w) => `WORKER:${w.id}` === holderChoice)
       : data.choices.agents.find((a) => `AGENT:${a.id}` === holderChoice),
   );
-  let node = $state<NodeChoice | null>(null),
-    picker = $state(false);
+  const actionDefinitions = $derived(view?.actionDefinitions ?? data.actionDefinitions);
+  const actionDefinitionsFailed = $derived(view?.actionDefinitionsFailed ?? data.actionDefinitionsFailed);
+  let actionName = $state("");
+  const chosenAction = $derived(actionDefinitions.find((a) => a.name === actionName) ?? actionDefinitions.find(grantableAction));
+  let parameterNodes = $state<Record<string, NodeChoice>>({});
+  let picker = $state(false), pickerParameter = $state(""), pickerAction = $state("");
   $effect.pre(() => {
     formScope;
     untrack(() => {
       ownershipEpoch++;
       submits++;
-      node = null;
+      parameterNodes = {};
+      actionName = "";
       holderChoice = "";
       reason = "";
       picker = false;
@@ -255,7 +260,7 @@
       id: "grant",
       header: t("grants.column", "Grant"),
       accessorFn: (g) =>
-        `${holders[grantHolderKey(g)]?.name ?? ""} ${g.action} ${g.reason} ${g.id} ${g.createdAt} ${nodes?.[grantNodeRef(g) ?? ""]?.name ?? ""} ${nodes?.[grantNodeRef(g) ?? ""]?.urn ?? ""} ${JSON.stringify(g.values)} ${grantActorRefs(
+        `${holders[grantHolderKey(g)]?.name ?? ""} ${g.action} ${g.reason} ${g.id} ${g.createdAt} ${nodes?.[grantNodeRef(g, actionDefinitions) ?? ""]?.name ?? ""} ${nodes?.[grantNodeRef(g, actionDefinitions) ?? ""]?.urn ?? ""} ${JSON.stringify(g.values)} ${grantActorRefs(
           g,
         )
           .map(
@@ -353,7 +358,7 @@
           {now}
           grant={returned}
           {actors}
-          node={nodes?.[grantNodeRef(returned) ?? ""]}
+          node={nodes?.[grantNodeRef(returned, actionDefinitions) ?? ""]}
           holder={holders[grantHolderKey(returned)]}
         />
       </section>
@@ -391,7 +396,7 @@
           grant={c.row.original}
           holder={holders[grantHolderKey(c.row.original)]}
           {actors}
-          node={nodes?.[grantNodeRef(c.row.original) ?? ""]}
+          node={nodes?.[grantNodeRef(c.row.original, actionDefinitions) ?? ""]}
           actionAlreadyRevoked={rowUpdates[c.row.original.id]?.alreadyRevoked ??
             (!!form &&
               "alreadyRevoked" in form &&
@@ -477,7 +482,9 @@
             {t("grants.create-title", "Create a grant")}
           </h2>
 
-          {#if data.choices.failed}<p role="alert" class="mt-3 text-sm">
+          {#if actionDefinitionsFailed}<p role="alert" class="mt-3 text-sm">{t("grants.actions.failed", "Actions could not be loaded. Refresh before creating a grant.")}</p>
+          {:else if !actionDefinitions.length}<p class="mt-3 text-sm">{t("grants.actions.empty", "No actions you can grant here.")}</p>
+          {:else if data.choices.failed}<p role="alert" class="mt-3 text-sm">
               {t(
                 "grants.choices.failed",
                 "The holder choices could not be loaded. Refresh before creating a grant.",
@@ -519,23 +526,29 @@
               <div class="text-sm">
                 <label for="grant-action">{t("grants.action", "Action")}</label
                 ><select id="grant-action" name="action" class={field}
-                  >{#each Object.keys(grantActions) as action}<option
-                      value={action}>{action}</option
-                    >{/each}</select
-                >
+                  value={chosenAction?.name ?? ""}
+                  onchange={(event) => { actionName = event.currentTarget.value; parameterNodes = {}; picker = false; }}
+                  >{#each actionDefinitions as action (action.name)}<option
+                      value={action.name} disabled={!grantableAction(action)}>{action.name}</option
+                    >{/each}</select>
               </div>
-              <div>
-                <span class="text-sm">{t("grants.node", "Node")}</span>
-                {#if node}<div class="mt-1 text-sm">{node.name}</div>
-                  <div class="mt-1"><Urn value={node.urn} linked /></div>{/if}
-                <input type="hidden" name="nodeId" value={node?.id ?? ""} />
-                <button
-                  type="button"
-                  onclick={() => (picker = true)}
-                  class="mt-2 min-h-11 rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700"
-                  >{t("grants.choose-node", "Choose a node…")}</button
-                >
-              </div>
+              {#if actionDefinitions.some((a) => !grantableAction(a))}
+                <p class="text-sm">{t("grants.actions.unsupported", "Actions with unsupported parameter types cannot be granted here.")}</p>
+              {/if}
+              {#if chosenAction && grantableAction(chosenAction)}
+                {#each chosenAction.parameters as parameter (parameter.name)}
+                  {@const picked = Object.hasOwn(parameterNodes, parameter.name) ? parameterNodes[parameter.name] : undefined}
+                  <div>
+                    <span class="text-sm">{parameter.name}</span>
+                    {#if picked}<div class="mt-1 text-sm">{picked.name}</div>
+                      <div class="mt-1"><Urn value={picked.urn} linked /></div>{/if}
+                    <input type="hidden" name={"parameter:" + parameter.name} value={picked?.id ?? ""} />
+                    <button type="button" onclick={() => { pickerParameter = parameter.name; pickerAction = chosenAction!.name; picker = true; }}
+                      aria-label={t("grants.choose-parameter", "Choose a node… {name}", { name: parameter.name })}
+                      class="mt-2 min-h-11 rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700">{t("grants.choose-node", "Choose a node…")}</button>
+                  </div>
+                {/each}
+              {/if}
               <label class="block text-sm"
                 >{t("grants.reason", "Reason")}<textarea
                   name="reason"
@@ -621,11 +634,11 @@
                   "A new grant needs a signature to take effect. Creating it does not activate it.",
                 )}
               </p>
-              <button
-                disabled={!node || creating || reading || rowWrites > 0}
+              {#if chosenAction && grantableAction(chosenAction)}<button
+                disabled={chosenAction.parameters.some((p) => !Object.hasOwn(parameterNodes, p.name)) || creating || reading || rowWrites > 0}
                 class="min-h-11 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
                 >{t("grants.create", "Create")}</button
-              >
+              >{/if}
             </form>
           {/if}
         </section>
@@ -637,7 +650,8 @@
             memories={memories.kind === "ok" ? memories.value : []}
             memoriesFailed={memories.kind === "failed"}
             onselect={(choice) => {
-              node = choice;
+              if (picker && chosenAction?.name === pickerAction && chosenAction.parameters.some((p) => p.name === pickerParameter))
+                parameterNodes = { ...parameterNodes, [pickerParameter]: choice };
               picker = false;
             }}
           />
