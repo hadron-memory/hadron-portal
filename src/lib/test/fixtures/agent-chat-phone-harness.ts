@@ -70,8 +70,9 @@ const json = (body: unknown, status = 200) =>
  * of the chats, so the row actions can be driven end to end; their calls are
  * counted as `title` and `delete`, never as `writes`.
  */
-export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boolean; rowActions?: boolean } = {}): AgentChatFixture {
+export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boolean; rowActions?: boolean; shortTitle?: boolean } = {}): AgentChatFixture {
   const chats = CHATS.map((c) => ({ ...c }));
+  if (options.shortTitle) chats[1].title = 'Hi';
   navigationCalls.length = 0;
   // The recorder only records. SvelteKit's replaceState also changes the
   // address, and AgentChat reads `window.location` live before each sync, so
