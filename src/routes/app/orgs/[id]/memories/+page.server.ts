@@ -56,7 +56,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // action BEFORE the layout load re-runs, so `parent()` is not available there.
   // #845: the layout carries chrome only; this tab needs the full org.
   const org = await loadOrgDetail(locals.token, params.id, ORG_MEMORIES_TAB_QUERY);
-  const [systemMemories, publicMemories, myMemories] = await Promise.all([
+  const [systemRows, publicMemories, myMemories] = await Promise.all([
     fetchAllItems<Memory>(client, ORG_SYSTEM_MEMORIES_QUERY, 'memories', { orgId: params.id })
       .catch(() => [] as Memory[]),
     fetchAllItems<Memory>(gqlClient(), PUBLIC_MEMORIES_QUERY, 'memories')
@@ -70,6 +70,18 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   const availableMemories = publicMemories.filter(
     (m) => !ownedIds.has(m.id) && !subscribedIds.has(m.id) && m.organizationId !== params.id,
   );
+  // #2140: memories(orgId:) is not an "owned by this org" list. It returns the
+  // caller's own user-owned memories in every org context, and unions in the
+  // install memory of every App the caller reaches, in ANY org (cor:api:100,
+  // cor:api:100:01, cor:api:120:03). So the rows are sorted here by who owns
+  // them: this org's stay in Org Memories, the caller's own org-less ones go to
+  // Personal Memories, and everything else (another org's install memory, someone
+  // else's user-owned row) is not shown. An install memory sits in its App's own
+  // tenancy, so an App of this org carries this org's id and survives.
+  const systemMemories = systemRows.filter((m) => m.organizationId === params.id);
+  const ownSystemMemories = systemRows.filter(
+    (m) => m.organizationId == null && !!locals.user?.id && m.userId === locals.user.id,
+  );
   // Spec 034: personal memories (the personal + private classes) are owner-only
   // and excluded from Organization.memories server-side, so surface the caller's
   // own ones whose container is this org. memories() already scopes to the
@@ -80,7 +92,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
       !!locals.user?.id &&
       m.userId === locals.user.id &&
       (m.class === 'personal' || m.class === 'private'),
-  );
+  ).concat(ownSystemMemories);
   // #555/#556: the create flow deep-links back with ?tab= so a just-created
   // personal memory lands on the tab that actually shows it. Validate against
   // the known tabs; anything else falls back to the org grid.
