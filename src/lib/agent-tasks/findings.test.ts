@@ -159,22 +159,30 @@ describe('findingTextParts: invisible operators and separators are revealed (por
 
 // portal#2128 — the space separators (Zs) are ordinary text and deliberately NOT revealed. A characterization pin.
 describe('findingTextParts: Unicode space separators pass through unchanged (portal#2128)', () => {
-  const join = (s: string) => findingTextParts(s).map((p) => p.text).join('');
+  // U+2000-U+200A is 11 code points.
   const ZS = [0x20, 0xA0, 0x1680, ...Array.from({ length: 11 }, (_, i) => 0x2000 + i), 0x202F, 0x205F, 0x3000];
-  it('renders each listed Zs code point unchanged, as one unmarked part', () => {
-    for (const cp of ZS) {
-      const ch = String.fromCodePoint(cp);
-      const hex = cp.toString(16).toUpperCase();
-      expect(findingTextParts(`a${ch}b`), hex).toEqual([{ text: `a${ch}b`, marker: false }]);
-    }
+  const label = (cp: number) => cp.toString(16).toUpperCase().padStart(4, '0');
+  // one test per code point: several Zs characters are indistinguishable blanks, so a failure must name the one
+  it.each(ZS.map((cp) => [`U+${label(cp)}`, cp] as const))('renders %s unchanged, as one unmarked part', (_name, cp) => {
+    const ch = String.fromCodePoint(cp);
+    expect(findingTextParts(`a${ch}b`)).toEqual([{ text: `a${ch}b`, marker: false }]);
+  });
+  it('keeps a Zs next to a revealed U+200B: only the U+200B is marked', () => {
+    expect(findingTextParts('\u200B\u00A0').map((p) => [p.text, p.marker])).toEqual([['[U+200B]', true], ['\u00A0', false]]);
+    expect(findingTextParts('\u00A0\u200B').map((p) => [p.text, p.marker])).toEqual([['\u00A0', false], ['[U+200B]', true]]);
+  });
+  it('keeps a Zs at the start and at the end of the string', () => {
+    expect(findingTextParts('\u3000ab')).toEqual([{ text: '\u3000ab', marker: false }]);
+    expect(findingTextParts('ab\u3000')).toEqual([{ text: 'ab\u3000', marker: false }]);
+    expect(findingTextParts('\u00A0')).toEqual([{ text: '\u00A0', marker: false }]);
   });
   it('the list is the whole Zs category of the Unicode version in use (a new Zs code point must be decided, not missed)', () => {
     const all: number[] = [];
     for (let cp = 0; cp <= 0x10FFFF; cp++) if (/^\p{Zs}$/u.test(String.fromCodePoint(cp))) all.push(cp);
     expect(all).toEqual(ZS);
   });
-  it('U+205F, between the revealed block and the visible control U+205E, is not revealed', () => {
-    expect(join('a\u205Fb')).toBe('a\u205Fb');
+  it('U+205F, between the revealed block and the visible punctuation U+205E, is not revealed', () => {
+    expect(findingTextParts('a\u205Fb')).toEqual([{ text: 'a\u205Fb', marker: false }]);
   });
 });
 
