@@ -95,6 +95,10 @@ jobs:
       - name: Check Org Integrations add-row phone layout
         run: pnpm test:org-integrations-row-layout
 
+      # portal#2092: all authoring actions and the lock stay reachable on phones.
+      - name: Check Conversation Editor toolbar layout
+        run: pnpm test:conversation-toolbar-layout
+
       # portal#2082: the conversation panel's Save, Clear and Save goals controls.
       - name: Check conversation panel button layout
         run: pnpm test:conversation-panel-buttons-layout
