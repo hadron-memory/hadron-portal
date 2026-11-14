@@ -48,6 +48,11 @@ async function pixelStrip(page, kind, net) {
  await next.evaluate(td=>td.style.visibility=''); await control.evaluate(el=>el.remove());
  return {clean,negativeControlChangedChannels:dirty,netOnChangedChannels:contained};
 }
+// Fonts first (portal#2125 item 5), but bounded: a font that never settles must not stall a leg forever.
+const settlePage = page => page.evaluate(async () => {
+ await Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 5000))]);
+ await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+});
 let browser;
 const failures = [];
 try {
@@ -55,8 +60,9 @@ try {
  const css = await (await fetch(new URL('/src/app.css?direct', origin))).text();
  browser = await chromium.launch({ headless: true });
  if (process.env.CELL_SHOTS) await mkdir(process.env.CELL_SHOTS, { recursive: true });
- const cellWidth = process.env.CELL_WIDTH === undefined ? null : Number(process.env.CELL_WIDTH);
+ const cellWidth = process.env.CELL_WIDTH ? Number(process.env.CELL_WIDTH) : null;
  if (cellWidth !== null && !(Number.isFinite(cellWidth) && cellWidth > 0)) throw new Error(`CELL_WIDTH must be a positive number, got ${JSON.stringify(process.env.CELL_WIDTH)}`);
+ if (process.env.CELL_KIND && !['alarms', 'runs', 'config', 'findings'].includes(process.env.CELL_KIND)) throw new Error(`CELL_KIND must be alarms, runs, config or findings, got ${JSON.stringify(process.env.CELL_KIND)}`);
  const widths = cellWidth !== null ? [cellWidth] : [390, 1280];
  for (const width of widths) for (const dark of [false, true]) for (const kind of (process.env.CELL_KIND ? [process.env.CELL_KIND] : ['alarms', 'runs', 'config']).filter(k => k !== 'findings')) {
   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
@@ -80,7 +86,7 @@ try {
    }
    if (process.env.CELL_SHOTS) await page.screenshot({path:`${process.env.CELL_SHOTS}/${kind}-${width}-${dark?'dark':'light'}-default.png`,fullPage:true});
    assert.equal(await page.evaluate(() => matchMedia('(pointer: coarse)').matches), width === 390, 'actual pointer mode');
-   const settle = () => page.evaluate(async () => { await document.fonts.ready; await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); });
+   const settle = () => settlePage(page);
    let net = await page.addStyleTag({ content: 'td { overflow: visible !important; }' });
    for (const zoom of [1, 2]) {
     const textZoom = zoom === 2 ? await page.addStyleTag({ content: 'td {font-size:28px} td span, td a, td code, td button {font-size:inherit !important}' }) : null;
@@ -238,7 +244,8 @@ try {
    await page.evaluate(async () => { const { mountOverflowFixture } = await import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'); window.stopFixture = mountOverflowFixture(document.getElementById('fixture'), 'findings'); });
    await page.locator('[data-testid="finding-severity"]').first().waitFor();
    // Fonts first: a late webfont would change the measured glyph boxes (portal#2125 item 5).
-   const settle = () => page.evaluate(async () => { await document.fonts.ready; await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); });
+   const settle = () => settlePage(page);
+   if ((await page.evaluate(() => matchMedia('(pointer: coarse)').matches)) !== (width === 390)) failures.push(`${leg}: pointer mode does not match the emulated device`);
    // Pixels of glyph box outside the owning td, per field: horizontal AND vertical (portal#2125 item 4).
    const escapes = () => page.locator('tbody td [data-testid^="finding-"]').evaluateAll(fields => fields.map(f => {
     const cell = f.closest('td').getBoundingClientRect(); let px = 0;
@@ -246,12 +253,13 @@ try {
     for (const r of range.getClientRects()) px = Math.max(px, cell.left - r.left, r.right - cell.right, cell.top - r.top, r.bottom - cell.bottom);
     return { field: f.dataset.testid, row: f.closest('tr').querySelector('[data-testid="finding-id"]').textContent, px: Math.round(px) };
    }));
-   // One failure strategy: every check on this leg queues into `failures`, so one leg never hides another (portal#2125 item 3).
+   // One failure strategy: the measured checks on this leg queue into `failures`, so a failing check does not stop the other legs.
+   // A thrown error from the page (a timeout, a missing trigger) still aborts the run, which is the loud failure we want.
    const legFailuresBefore = failures.length;
    await settle();
    const clean = await escapes();
-   const severities = clean.filter(x => x.field === 'finding-severity').length;
-   if (severities !== 2) failures.push(`${leg}: both severity triggers rendered, saw ${severities}`);
+   const severityCount = clean.filter(x => x.field === 'finding-severity').length;
+   if (severityCount !== 2) failures.push(`${leg}: both severity triggers rendered, saw ${severityCount}`);
    const out = clean.filter(x => x.px > 0.5);
    if (out.length) failures.push(`${leg}: findings field escapes its cell ${JSON.stringify(out)}`);
    const control = await page.addStyleTag({ content: '[data-testid="finding-severity"] { overflow-wrap: normal !important; word-break: normal !important; }' });
@@ -259,6 +267,15 @@ try {
    const dirty = (await escapes()).filter(x => x.field === 'finding-severity' && x.px > 0.5).map(x => x.row).sort();
    if (JSON.stringify(dirty) !== JSON.stringify(['markers', 'plain'])) failures.push(`${leg}: negative control (severity wrap stripped) must be detected for both triggers, saw ${JSON.stringify(dirty)}`);
    await control.evaluate(el => el.remove());
+   // Second control, for the vertical terms of escapes(): text pushed below its cell must be seen to escape
+   // vertically, or "both axes" is a claim the harness cannot fail (portal#2126 BLIND P2).
+   const vertical = await page.addStyleTag({ content: '[data-testid="finding-text"] { position: relative; top: 400px; }' });
+   await settle();
+   const verticalDirty = (await escapes()).filter(x => x.px > 0.5);
+   if (verticalDirty.length === 0) failures.push(`${leg}: vertical negative control (text displaced) was not detected`);
+   await vertical.evaluate(el => el.remove());
+   await settle();
+   if ((await escapes()).some(x => x.px > 0.5)) failures.push(`${leg}: vertical control left an escape behind`);
    if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}.png`, fullPage: true });
    if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
