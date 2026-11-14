@@ -921,7 +921,7 @@
                  in flow, so the title keeps the row's width and they never
                  cover the title or scope badge (#2095). -->
             <li
-              class="group grid grid-cols-[minmax(0,1fr)_auto] items-center transition
+              class="group relative grid grid-cols-[minmax(0,1fr)_auto] items-center transition
                 {activeChatId === chat.loc
                   ? 'bg-indigo-50 dark:bg-indigo-950/40'
                   : 'hover:bg-zinc-50 dark:hover:bg-zinc-800'}"
@@ -954,7 +954,7 @@
                   type="button"
                   data-chat-row={chat.loc}
                   onclick={() => resumeChat(chat.loc)}
-                  class="col-span-2 row-start-1 block min-w-0 px-3 pb-0.5 pt-2 text-left text-sm pointer-coarse:min-h-11
+                  class="col-span-2 row-start-1 block min-w-0 px-3 pb-0.5 pt-2 text-left text-sm pointer-coarse:min-h-11 after:absolute after:inset-0 after:content-['']
                     {activeChatId === chat.loc
                       ? 'text-indigo-900 dark:text-indigo-200'
                       : 'text-zinc-700 dark:text-zinc-300'}"
@@ -977,10 +977,14 @@
                     </span>
                   </div>
                 </button>
-                <!-- The meta line sits outside the row button so the actions
-                     can share it without covering the tap target. It hugs the
-                     title; the 44px targets' extra height falls below it. -->
-                <div class="col-start-1 row-start-2 flex items-center gap-2 self-start px-3 pt-0.5 text-[10px] text-zinc-400">
+                <!-- The existing row button's transparent pseudo-element
+                     stretches across the row. Actions sit above it in their
+                     own grid cell; meta text passes pointer hits through. No
+                     extra opener or keyboard stop is introduced (#2105). -->
+                <div
+                  data-chat-meta={chat.loc}
+                  class="pointer-events-none col-start-1 row-start-2 flex items-start gap-2 self-stretch px-3 pt-0.5 text-[10px] text-zinc-400"
+                >
                   <span>{agentChatRowStrings.messages(chat.messageCount)}</span>
                   {#if chat.lastMessageAt}
                     <span>{agentChatRowStrings.separator()}</span>
@@ -988,7 +992,7 @@
                   {/if}
                 </div>
                 <div
-                  class="col-start-2 row-start-2 flex gap-0.5 pb-1 pr-1
+                  class="relative z-10 col-start-2 row-start-2 flex gap-0.5 pb-1 pr-1
                     {activeChatId === chat.loc
                       ? 'opacity-100'
                       : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 @max-2xl:opacity-100 pointer-coarse:opacity-100'}"
