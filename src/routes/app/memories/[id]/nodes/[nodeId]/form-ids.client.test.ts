@@ -19,7 +19,7 @@ import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
-import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY, MOVE_NODE_MUTATION } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_PAGE_QUERY, MOVE_NODE_MUTATION } from '$lib/server/queries';
 // Static imports: the page is large, and importing it inside a test spent the
 // test's whole timeout under full-suite load. `vi.mock` below is hoisted above
 // these, so the loader still sees the mocked client.
@@ -61,7 +61,7 @@ afterEach(() => {
 function serveNode(node: typeof NODE | null) {
   mockRequest.mockImplementation(async (doc: string) => {
     if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node };
-    if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+    if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
     return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
   });
 }

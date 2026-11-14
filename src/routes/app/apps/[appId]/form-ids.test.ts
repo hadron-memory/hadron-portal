@@ -37,7 +37,7 @@ beforeEach(() => {
     if (query === APP_QUERY) return { app: APP };
     if (query === APP_MEMBERS_QUERY) return { app: { members: [] } };
     if (query === SELF_CAN_MANAGE_QUERY) return { effectiveAccess: { canManage: true } };
-    return {};
+    return { appNodesPage: { items: [], total: 0, hasMore: false } };
   });
 });
 

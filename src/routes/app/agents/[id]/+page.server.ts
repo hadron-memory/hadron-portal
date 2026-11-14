@@ -1,4 +1,5 @@
 import { installMarksOf, type AppAgentInstall } from '$lib/app-install-marks';
+import { testerLinkEligibility } from '$lib/server/agent-tester/link-eligibility';
 import { memberRolesFormId, UNSCOPED_MEMBER_ROLES_FORM_ID } from './member-roles-form-id';
 import { loadAgentExtensions, loadSystemMemoryIdentity } from '$lib/server/agent-profile';
 import { agentBaseSchema, agentIndexRefsSchema } from './inheritance-schema';
@@ -456,6 +457,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     memberRolesForm,
     bootPointer,
     canManageAgent,
+    canOpenTester: await testerLinkEligibility(client, agent, canManageAgent),
     // The key a pointer result carries (the action's own params.id), so a
     // result shows only for the Agent it was written for.
     bootPointerKey: params.id,
