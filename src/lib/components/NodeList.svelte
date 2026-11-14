@@ -38,6 +38,7 @@
     signingOffered = true,
     onretrycolumns,
     onvisiblenodes,
+    serverPaged = false,
   }: {
     nodes: MemoryNode[];
     basePath?: string;
@@ -88,6 +89,8 @@
      * rows only and never for the whole memory.
      */
     onvisiblenodes?: (ids: string[]) => void;
+    /** The owner fetched and ordered this complete window; its pager is the only one. */
+    serverPaged?: boolean;
   } = $props();
   const deletedSet = $derived(new Set(deletedIds));
 
@@ -181,10 +184,15 @@
       return nodes;
     },
     columns,
+    // A server-owned window is already paged, sorted and filtered. TanStack
+    // must not add a second, page-local implementation of any of them.
+    get manualPagination() { return serverPaged; },
+    get manualSorting() { return serverPaged; },
+    get manualFiltering() { return serverPaged; },
     enableMultiSort: false,
     // In the orderable (children) list, manual drag order is the source of
     // truth — sorting would fight it, so it's disabled there (PR #277 review).
-    enableSorting: tableCanSortAndResize,
+    get enableSorting() { return tableCanSortAndResize && !serverPaged; },
     // Resizing only in the browse list; the orderable children list uses a drag
     // handle and a narrow, fixed column set.
     enableColumnResizing: tableCanSortAndResize,
@@ -209,6 +217,7 @@
     // synchronous seed and overrides the page size from the active view if one
     // exists — and leaves this seed in place when no view is active (spec D7).
     try {
+      if (serverPaged) return;
       const v = Number(window.localStorage.getItem(PAGE_SIZE_KEY));
       if (PAGE_SIZES.includes(v)) table.setPageSize(v);
     } catch {
@@ -225,10 +234,10 @@
     }
   }
 
-  // Orderable (children) list shows every row so drag indices stay stable;
-  // the browse list shows the current page.
+  // Orderable and server-paged lists show every supplied row so drag indices
+  // and the outer server window stay stable; only a client-owned browse list pages.
   const displayRows = $derived(
-    orderable ? table.getPrePaginatedRowModel().rows : table.getRowModel().rows,
+    orderable || serverPaged ? table.getPrePaginatedRowModel().rows : table.getRowModel().rows,
   );
   // portal#1174: tell the owner which rows are on screen so it reads their
   // extra columns, and only theirs. Reads displayRows alone; the owner's
@@ -545,7 +554,7 @@
       </table>
     </div>
 
-    {#if !orderable}
+    {#if !orderable && !serverPaged}
       <!-- Footer: page size (left of Prev/Next) + pagination; always visible.
            Both rows wrap (#1270): this is the same footer DataTable carries —
            the select is sized by its longest option label and cannot shrink

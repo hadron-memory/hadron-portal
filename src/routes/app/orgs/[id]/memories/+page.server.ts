@@ -11,6 +11,7 @@ import { requireNonConsumer } from '$lib/server/guards';
 import { t } from '$lib/i18n/t';
 import {
   ORG_SYSTEM_MEMORIES_QUERY,
+  OWN_SYSTEM_MEMORY_IDS_QUERY,
   DELETE_MEMORY_MUTATION,
   SYNC_MEMORY_MUTATION,
   PUBLIC_MEMORIES_QUERY,
@@ -56,9 +57,15 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // action BEFORE the layout load re-runs, so `parent()` is not available there.
   // #845: the layout carries chrome only; this tab needs the full org.
   const org = await loadOrgDetail(locals.token, params.id, ORG_MEMORIES_TAB_QUERY);
-  const [systemMemories, publicMemories, myMemories] = await Promise.all([
+  const [systemRows, ownSystemIds, publicMemories, myMemories] = await Promise.all([
     fetchAllItems<Memory>(client, ORG_SYSTEM_MEMORIES_QUERY, 'memories', { orgId: params.id })
       .catch(() => [] as Memory[]),
+    // #2140: whose org-less system rows are the caller's is the server's call. A
+    // failed read leaves the set empty, which hides those rows rather than
+    // showing someone else's.
+    fetchAllItems<{ id: string }>(client, OWN_SYSTEM_MEMORY_IDS_QUERY, 'memories')
+      .then((rows) => new Set(rows.map((m) => m.id)))
+      .catch(() => new Set<string>()),
     fetchAllItems<Memory>(gqlClient(), PUBLIC_MEMORIES_QUERY, 'memories')
       .catch(() => [] as Memory[]),
     fetchAllItems<Memory>(client, MEMORIES_QUERY, 'memories')
@@ -70,17 +77,38 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   const availableMemories = publicMemories.filter(
     (m) => !ownedIds.has(m.id) && !subscribedIds.has(m.id) && m.organizationId !== params.id,
   );
+  // #2140: memories(orgId:) is not an "owned by this org" list. It returns the
+  // caller's own user-owned memories in every org context, and unions in the
+  // install memory of every App the caller reaches, in ANY org
+  // (hrn:node:hadronmemory.com:specs:cor:api:100,
+  // hrn:node:hadronmemory.com:specs:cor:api:100:01,
+  // hrn:node:hadronmemory.com:specs:cor:api:120:03). So the rows are sorted here
+  // by who owns them: this org's stay in Org Memories, the caller's own org-less
+  // ones go to Personal Memories, and everything else (another org's install
+  // memory, someone else's user-owned row) is not shown. An install memory sits
+  // in its App's own tenancy, so an App of this org carries this org's id and
+  // survives.
+  const systemMemories = systemRows.filter((m) => m.organizationId === params.id);
+  // The class predicate is explicit, not left to the query's memoryClasses
+  // filter: this slice and the personal/private one below must stay disjoint
+  // however the server answers, or a row would render twice.
+  const ownSystemMemories = systemRows.filter(
+    (m) => m.class === 'system' && m.organizationId == null && ownSystemIds.has(m.id),
+  );
   // Spec 034: personal memories (the personal + private classes) are owner-only
   // and excluded from Organization.memories server-side, so surface the caller's
-  // own ones whose container is this org. memories() already scopes to the
-  // caller via userId.
-  const personalMemories = myMemories.filter(
+  // own ones whose container is this org (memories() scopes to the caller via
+  // userId). The caller's own org-less system memories join them (above), and a
+  // row already listed is never listed twice.
+  const ownPrivate = myMemories.filter(
     (m) =>
       m.organizationId === params.id &&
       !!locals.user?.id &&
       m.userId === locals.user.id &&
       (m.class === 'personal' || m.class === 'private'),
   );
+  const seen = new Set(ownPrivate.map((m) => m.id));
+  const personalMemories = ownPrivate.concat(ownSystemMemories.filter((m) => !seen.has(m.id)));
   // #555/#556: the create flow deep-links back with ?tab= so a just-created
   // personal memory lands on the tab that actually shows it. Validate against
   // the known tabs; anything else falls back to the org grid.

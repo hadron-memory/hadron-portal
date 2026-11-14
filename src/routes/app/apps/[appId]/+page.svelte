@@ -12,6 +12,8 @@
   import { publicServerBaseUrl } from '$lib/public-server-base-url';
   import { tick, untrack, onDestroy } from 'svelte';
   import { applyAction } from '$app/forms';
+  import { page } from '$app/stores';
+  import { dropNamedActions } from './app-list-pages';
   import { beforeNavigate, goto, afterNavigate, invalidateAll, preloadData, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -152,7 +154,7 @@
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
   import skillGetStarted from '$lib/assets/skill-get-started.md?raw';
   import skillSearch from '$lib/assets/skill-search.md?raw';
-  import CappedNotice from '$lib/components/CappedNotice.svelte';
+  import ListPageNav from '$lib/components/ListPageNav.svelte';
   import type { PageData, ActionData } from './$types';
   import {
     addAgentSchema,
@@ -1145,11 +1147,21 @@
     }
   }
   // The post action URL REPLACES the query string (see the comment on the
-  // form), so it must carry the view too, or a non-enhanced POST would land
-  // the reader back in the tab view with their place lost.
-  const teamChatAction = $derived(
-    `?tab=chats&chat=chats%3Ateam${chatMaximized ? '&view=full' : ''}&/postTeamChatMessage`,
-  );
+  // form), so it must carry the COMPLETE current location: team filter, full
+  // view, selected chat and every independent list offset.
+  function chatActionUrl(action: 'postTeamChatMessage' | 'postChannelMessage', chatKey: string, full = false): string {
+    // A failed native post leaves its action name in the URL; replace it, never add a second.
+    const params = dropNamedActions(new URLSearchParams($page.url.searchParams));
+    params.set('tab', 'chats');
+    params.set('chat', chatKey);
+    if (data.chatRootsPage?.offset > 0 && !params.has('chatRootsOffset')) {
+      params.set('chatRootsOffset', String(data.chatRootsPage.offset));
+    }
+    if (full) params.set('view', 'full'); else params.delete('view');
+    return `?${params.toString()}&/${action}`;
+  }
+  const teamChatAction = $derived(chatActionUrl('postTeamChatMessage', TEAM_CHAT_LOC, chatMaximized));
+  const channelChatAction = $derived(chatActionUrl('postChannelMessage', data.selectedChatKey ?? ''));
 
   // #768 — roving focus for the tab strip. Only the selected tab is in the
   // sequential tab order, so the strip is ONE stop rather than one per tab, and
@@ -2285,10 +2297,11 @@
       {#if data.selectedChannelId && data.selectedChatKey?.startsWith('hrn:')}
         <Urn value={data.selectedChatKey} type="node" />
       {/if}
-      {#if data.chatsCapped}
-        <CappedNotice shown={data.chatRootsShown ?? 0} what={t('capped.chats', 'chats')} />
-      {/if}
     </div>
+    {#if data.chatRootsPage && !data.chatRootsError}
+      <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.chats.page-window', 'Registered Channels stay available on every page. Pagination covers legacy chat roots only.')}</p>
+      <ListPageNav page={data.chatRootsPage} label={t('app.chats.pages', 'Legacy chat-root pages')} />
+    {/if}
 
     {#if data.chatNotFound}
       <!-- The reader followed a link to a SPECIFIC chat. Substituting the
@@ -2527,7 +2540,7 @@
           <ChannelChatThread appId={app.id} {channelId} messages={data.selectedChannelMessages}
             total={data.selectedChannelTotal} loadError={data.selectedChannelError}
             postForm={data.postChannelMessageForm} {form} {workerUrns}
-            action={`?tab=chats&chat=${encodeURIComponent(data.selectedChatKey ?? '')}&/postChannelMessage`}
+            action={channelChatAction}
             onSubmittingChange={(submitting) => { channelPostBusy = submitting; }}
             viewState={channelViews[channelStateKey]} onViewStateChange={(view) => { channelViews[channelStateKey] = view; }}
             draft={channelDrafts[channelStateKey]} onDraftChange={(draft) => { channelDrafts[channelStateKey] = draft; }} />
@@ -3425,13 +3438,17 @@
          rights across this App. Omit the partial writable set so the browser
          makes no read-only claim from omission; server writes stay authoritative.
          The full memory list awaits the server projection in #2190. -->
-    {#if data.appNodesCapped}
-      <div class="mb-3"><CappedNotice shown={data.appNodes?.length ?? 0} what={t('capped.nodes', 'nodes')} /></div>
-    {/if}
     {#if memoryScope === null}
       <p role="alert" class="mb-3 text-sm text-red-600 dark:text-red-400">{t('app.memory-scope.failed', 'Could not load accessible memories. Reload to try again.')}</p>
     {/if}
-    <MemoryBrowser nodes={data.appNodes ?? []} multiMemory={true} scopeMemoryIds={(memoryScope ?? []).map((m) => m.memoryId)} scopeMemories={memoryScope ?? []} />
+    <MemoryBrowser
+      nodes={data.appNodes ?? []}
+      multiMemory={true}
+      scopeMemoryIds={(memoryScope ?? []).map((m) => m.memoryId)}
+      scopeMemories={memoryScope ?? []}
+      serverPage={data.appNodesPage ?? null}
+      pageLabel={t('app.memory-node.pages', 'Memory node pages')}
+    />
     </div>
   {/if}
 

@@ -48,7 +48,7 @@ import {
   NODES_BY_LOC_PREFIX_QUERY,
   NODE_BY_ID_QUERY,
   NODE_QUERY,
-  NODE_REVISIONS_QUERY,
+  NODE_REVISIONS_PAGE_QUERY,
 } from '$lib/server/queries';
 import { serveMemoryReads } from '$lib/test/serveMemoryReads';
 // Static imports: the page is large, and importing it inside a test spent the
@@ -126,7 +126,7 @@ function serveNode(...nodes: Array<ReturnType<typeof teamChatNode>>) {
       if (!served) throw new Error(`serveNode: no served node matches ref ${JSON.stringify(ref)} — the loader fetched by an unexpected ref`);
       return { node: served };
     }
-    if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+    if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
     if (doc === LEGACY_THREAD_PROBE_QUERY) {
       return { findNodes: { total: 1, hits: [{ node: { loc: `${nodes[0].loc}:messages:001-ada`, nodeType: 'message' } }] } };
     }

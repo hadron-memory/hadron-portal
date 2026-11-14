@@ -14,6 +14,11 @@ import { resetAiConfigRecoveryForTests } from './ai-config-recovery';
 import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 import type { AiServiceConfig } from '$lib/types';
 
+const KIMI_ENDPOINTS = [
+  { url: 'https://api.moonshot.ai/v1', label: 'Moonshot (international)', isDefault: true, note: null },
+  { url: 'https://api.moonshot.cn/v1', label: 'Moonshot (China)', isDefault: false, note: null },
+];
+
 const GLM_ENDPOINTS = [
   { url: 'https://api.z.ai/api/paas/v4', label: 'Z.ai (general)', isDefault: true, note: 'Pay-as-you-go.' },
   { url: 'https://api.z.ai/api/coding/paas/v4', label: 'Z.ai Coding Plan', isDefault: false, note: 'Coding Plan subscription.' },
@@ -28,7 +33,7 @@ beforeEach(() => {
     const body = JSON.parse(init.body) as Record<string, unknown>;
     posts.push(body);
     const reply = body.action === 'endpoints'
-      ? { endpoints: body.provider === 'glm' ? GLM_ENDPOINTS : [] }
+      ? { endpoints: body.provider === 'glm' ? GLM_ENDPOINTS : body.provider === 'kimi' ? KIMI_ENDPOINTS : [] }
       : body.action === 'testSaved'
         ? { result: { ok: true, provider: 'glm', model: 'm', endpoint: 'https://api.z.ai/api/paas/v4', apiStyle: 'CHAT_COMPLETIONS', latencyMs: 5, reply: 'hi', error: null, used: { provider: 'SAVED', model: 'SAVED', endpoint: 'OVERRIDE', apiStyle: 'SAVED', key: 'SAVED' } } }
         : { ok: true };
@@ -114,6 +119,82 @@ async function performAction(root: HTMLElement, label: string) {
   flushSync();
   await vi.waitFor(() => expect(!trigger.isConnected || !trigger.disabled).toBe(true));
 }
+
+describe('kimi (#2138)', () => {
+  async function pickKimi() {
+    const root = await open();
+    button(root, 'Add configuration').click();
+    await settle();
+    set($<HTMLSelectElement>(root, '#ac-provider')!, 'kimi');
+    await settle();
+    return root;
+  }
+
+  it('is listed, pre-fills kimi-k3, offers the server-supplied hosts and the protocol, and no tool-calling toggle', async () => {
+    const root = await pickKimi();
+    const options = [...$<HTMLSelectElement>(root, '#ac-provider')!.options].map((o) => o.textContent);
+    expect(options).toContain('Kimi (Moonshot)');
+    expect($<HTMLInputElement>(root, '#ac-model')!.value).toBe('kimi-k3');
+    // Endpoints come from the server's catalogue, never from the portal.
+    expect(posts.filter((p) => p.action === 'endpoints').map((p) => p.provider)).toContain('kimi');
+    const urls = [...root.querySelectorAll<HTMLOptionElement>('#ac-endpoint-options option')].map((o) => o.value);
+    expect(urls).toEqual(['https://api.moonshot.ai/v1', 'https://api.moonshot.cn/v1']);
+    expect($(root, '#ac-endpoint-hint')!.textContent).toContain('https://api.moonshot.ai/v1');
+    expect($<HTMLInputElement>(root, '#ac-endpoint')!.placeholder).toBe('https://api.moonshot.ai/v1');
+    expect($<HTMLSelectElement>(root, '#ac-api-style')!.options[0].textContent).toBe('Provider default (Chat Completions)');
+    expect(root.textContent).not.toContain('This host supports tool calling');
+  });
+
+  it('saves provider kimi unchanged; an edited model goes through verbatim', async () => {
+    const root = await pickKimi();
+    set($<HTMLInputElement>(root, '#ac-name')!, 'moon');
+    set($<HTMLInputElement>(root, '#ac-model')!, 'kimi-k4-preview');
+    set($<HTMLInputElement>(root, '#ac-key')!, 'placeholder');
+    await performAction(root, 'Save');
+    const create = posts.find((p) => p.action === 'create')!;
+    expect(create).toMatchObject({ provider: 'kimi', model: 'kimi-k4-preview', apiKey: 'placeholder' });
+    expect(create.endpoint).toBeUndefined(); // the default host is the server's, not ours
+    expect(create.params ?? null).toBeNull(); // no toolCalling knob for kimi
+  });
+
+  it('a padded model is saved verbatim for kimi (QA F1, portal#2155)', async () => {
+    const root = await pickKimi();
+    set($<HTMLInputElement>(root, '#ac-name')!, 'moon');
+    set($<HTMLInputElement>(root, '#ac-model')!, '  QA/Kimi-Custom:Exact_v1  ');
+    set($<HTMLInputElement>(root, '#ac-key')!, 'placeholder');
+    await performAction(root, 'Save');
+    expect(posts.find((p) => p.action === 'create')!.model).toBe('  QA/Kimi-Custom:Exact_v1  ');
+  });
+
+  it('the pre-filled model is saved as-is', async () => {
+    const root = await pickKimi();
+    set($<HTMLInputElement>(root, '#ac-name')!, 'moon');
+    set($<HTMLInputElement>(root, '#ac-key')!, 'placeholder');
+    await performAction(root, 'Save');
+    expect(posts.find((p) => p.action === 'create')).toMatchObject({ provider: 'kimi', model: 'kimi-k3' });
+  });
+
+  it('switching away from an untouched offer clears it; a hand-edited model is kept', async () => {
+    const root = await pickKimi();
+    set($<HTMLSelectElement>(root, '#ac-provider')!, 'openai');
+    await settle();
+    expect($<HTMLInputElement>(root, '#ac-model')!.value).toBe('');
+    set($<HTMLSelectElement>(root, '#ac-provider')!, 'kimi');
+    await settle();
+    set($<HTMLInputElement>(root, '#ac-model')!, 'my-model');
+    set($<HTMLSelectElement>(root, '#ac-provider')!, 'openai');
+    await settle();
+    expect($<HTMLInputElement>(root, '#ac-model')!.value).toBe('my-model');
+  });
+
+  it('Test on an unsaved kimi config asks to save first and posts nothing to the test route', async () => {
+    const root = await pickKimi();
+    set($<HTMLInputElement>(root, '#ac-key')!, 'placeholder');
+    await performAction(root, 'Test');
+    expect(root.textContent).toContain(aiConfigStrings.testSaveFirst());
+    expect(posts.filter((p) => p.action === 'test')).toHaveLength(0);
+  });
+});
 
 describe('openai-compatible', () => {
   it('requires an endpoint, offers the protocol and tool calling, and says the key is required', async () => {

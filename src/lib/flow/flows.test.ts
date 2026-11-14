@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { flowRoots, type FlowGraphNode } from './flows';
+import { flowPageSummaries, flowRoots, type FlowGraphNode } from './flows';
 
 const node = (over: Partial<FlowGraphNode> & { id: string; loc: string }): FlowGraphNode => ({
   memoryId: 'm1',
@@ -42,6 +42,24 @@ describe('flowRoots', () => {
     });
     expect(flows[0].branchCount).toBe(1);
     expect(flows[0].stepCount).toBe(3);
+    expect(flows[0].stepCountComplete).toBe(true);
+  });
+
+  it('uses the complete graph for a paged root instead of undercounting its walk', () => {
+    const step2 = node({ id: 'n3', loc: 'flow1:step-2', isRunnable: true });
+    const step1 = node({ id: 'n2', loc: 'flow1:step-1', isRunnable: true });
+    const root = node({ id: 'n1', loc: 'flow1', name: 'Flow One', isRunnable: true });
+    root.outgoingEdges = [edge('flow1', 'next', step1)];
+    step1.outgoingEdges = [edge('flow1:step-1', 'next', step2)];
+    step1.incomingEdges = [incoming(root, 'next', step1.loc)];
+    step2.incomingEdges = [incoming(step1, 'next', step2.loc)];
+
+    const pageOnly = flowRoots([root]);
+    expect(pageOnly[0].stepCount).toBe(2);
+    expect(pageOnly[0].stepCountComplete).toBe(false);
+    const flows = flowPageSummaries([root], [root, step1, step2]);
+    expect(flows[0].stepCount).toBe(3);
+    expect(flows[0].stepCountComplete).toBe(true);
   });
 
   it('excludes non-runnable roots, reference-only nodes, and mid-flow nodes', () => {

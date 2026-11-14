@@ -19,6 +19,26 @@ it('continues after the actual served count, preserving independent filters and 
   // href drops the param), never offset 13.
   expect(new URL(page.previousHref!, url).searchParams.get('worklogOffset')).toBe(null);
 });
+// #1929 QA F3: paging the chat list keeps the open conversation.
+it('chat-root continuation keeps the selected conversation and independent list offsets', () => {
+  const url = new URL('https://example.test/app/apps/a?tab=chats&chat=chats%3Aold&worklogOffset=40&configOffset=20');
+  const page = appListNavigation(url, 'chatRootsOffset', 'chats', 0, 20, 45);
+  const next = new URL(page.nextHref!, url);
+  expect(next.searchParams.get('chatRootsOffset')).toBe('20');
+  expect(next.searchParams.get('worklogOffset')).toBe('40');
+  expect(next.searchParams.get('configOffset')).toBe('20');
+  expect(next.searchParams.get('tab')).toBe('chats');
+  expect(next.searchParams.get('chat')).toBe('chats:old');
+});
+// #1929 BLIND P2: a failed native POST leaves `?…&/postChannelMessage` in the
+// page URL. A page link that copies it would carry a form action into a GET.
+it('page links never carry a named form action from the current URL', () => {
+  const url = new URL('https://example.test/app/apps/a?tab=chats&chat=chats%3Aold&/postChannelMessage');
+  const page = appListNavigation(url, 'chatRootsOffset', 'chats', 0, 20, 45);
+  const next = new URL(page.nextHref!, url);
+  expect([...next.searchParams.keys()].filter((k) => k.startsWith('/'))).toEqual([]);
+  expect(next.searchParams.get('chat')).toBe('chats:old');
+});
 // #1868 — Celine's exact repro: 41 records, short last page of 1. Previous
 // must return to the page the user came from (offset 20), and from there to
 // the start — two clicks back, with 21–40 seen again on the way.
@@ -47,9 +67,24 @@ it('stops at total or no progress, with a route back from a now-empty old page',
 });
 
 it('retains a forward probe when a full page races a lagging count', () => {
-  const page = appListNavigation(new URL('https://example.test/app/apps/a'), 'worklogOffset', 'worklog', 0, 20, 19);
-  expect(page.total).toBe(20);
-  expect(page.nextHref).toContain('worklogOffset=20');
+  const lagging = appListNavigation(new URL('https://example.test/app/apps/a'), 'worklogOffset', 'worklog', 0, 20, 19);
+  expect(lagging.total).toBe(20);
+  expect(lagging.nextHref).toContain('worklogOffset=20');
+  const equal = appListNavigation(new URL('https://example.test/app/apps/a'), 'worklogOffset', 'worklog', 0, 20, 20);
+  expect(equal.nextHref).toContain('worklogOffset=20');
+});
+
+it('does not probe beyond an exact final full page', () => {
+  const page = appListNavigation(new URL('https://example.test/app/apps/a'), 'worklogOffset', 'worklog', 0, 20, 20, { hasMore: false });
+  expect(page.nextHref).toBeNull();
+});
+
+it('lets an explicit hasMore answer override a raced total in both directions', () => {
+  const url = new URL('https://example.test/app/apps/a');
+  const ended = appListNavigation(url, 'worklogOffset', 'worklog', 0, 10, 20, { hasMore: false });
+  expect(ended.nextHref).toBeNull();
+  const more = appListNavigation(url, 'worklogOffset', 'worklog', 0, 10, 10, { hasMore: true });
+  expect(more.nextHref).toContain('worklogOffset=10');
 });
 
 // #1875 records existing race-only behavior, not a history-retrace promise.
