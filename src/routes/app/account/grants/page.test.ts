@@ -6,7 +6,7 @@ import Page from './+page.svelte';
 const row = (id: string, over: Record<string, unknown> = {}) => ({
   id, appId: 'app-' + id, action: 'node.read', holderKind: 'USER', holderId: 'u1', values: null, reason: 'because',
   startsAt: null, expiresAt: null, maxUses: null, useCount: 0, createdAt: '2026-01-01T00:00:00Z',
-  activatedAt: null, revokedAt: null, allows: false, app: null, ...over,
+  activatedAt: null, revokedAt: null, allows: false, app: null, appStatus: 'unopenable', ...over,
 });
 const html = (data: unknown) => render(Page as never, { props: { data } as never }).body;
 
@@ -26,6 +26,17 @@ describe('my grants page', () => {
     expect(h).toContain('my-grant-row');
     expect(h).toContain("can't open");
     expect(h).toContain('app-g1');
+  });
+  it('a lookup that failed is not called an access refusal', () => {
+    const h = html({ unavailable: false, grants: [row('g3', { appStatus: 'unavailable' })] });
+    expect(h).toContain('could not be loaded');
+    expect(h).not.toContain("can't open");
+  });
+  it('shows the intro and key: value text, not raw JSON', () => {
+    const h = html({ unavailable: false, grants: [row('g4', { values: { loc: 'findings:*' } })] });
+    expect(h).toContain('in effect now');
+    expect(h).toContain('loc: findings:*');
+    expect(h).not.toContain('{&quot;loc');
   });
   it('shows an openable App by name with its URN, and no derived state or signature wording', () => {
     const h = html({ unavailable: false, grants: [row('g2', { app: { id: 'a', name: 'Alpha', urn: 'hrn:app:hadronmemory.com:alpha' }, allows: true })] });

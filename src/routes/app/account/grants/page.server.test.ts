@@ -67,6 +67,35 @@ describe('my grants loader', () => {
     expect(d.grants).toHaveLength(450);
   });
 
+  it('follows past 10,000 rows to the server-reported end (no silent cap)', async () => {
+    const all = Array.from({ length: 10001 }, (_, i) => grant('g' + i, 'a1'));
+    serve(all, { a1: { id: 'a1', name: 'A', urn: 'hrn:app:x:a' } });
+    const d = await load({ token: 't', impersonation: null });
+    expect(d.grants).toHaveLength(10001);
+  });
+
+  it('a failed App lookup is unavailable, a concealment code is unopenable, null is unopenable', async () => {
+    const forbidden = Object.assign(new Error('x'), { response: { errors: [{ extensions: { code: 'FORBIDDEN' } }] } });
+    serve([grant('g1', 'a1'), grant('g2', 'a2'), grant('g3', 'a3')], { a1: new Error('network'), a2: forbidden, a3: null });
+    const d = await load({ token: 't', impersonation: null });
+    const by = Object.fromEntries(d.grants.map((g: any) => [g.id, g.appStatus]));
+    expect(by).toEqual({ g1: 'unavailable', g2: 'unopenable', g3: 'unopenable' });
+  });
+
+  it('bounds App lookups in flight', async () => {
+    let live = 0, peak = 0;
+    const all = Array.from({ length: 40 }, (_, i) => grant('g' + i, 'a' + i));
+    mockRequest.mockImplementation(async (doc: string, vars: any) => {
+      if (doc.includes('myGrants')) return { myGrants: { items: all.slice(vars.offset, vars.offset + vars.limit), total: all.length } };
+      live += 1; peak = Math.max(peak, live);
+      await new Promise((r) => setTimeout(r, 1));
+      live -= 1;
+      return { app: { id: vars.ref, name: vars.ref, urn: 'hrn:app:x:' + vars.ref } };
+    });
+    await load({ token: 't', impersonation: null });
+    expect(peak).toBeLessThanOrEqual(8);
+  });
+
   it('under impersonation: unavailable, no empty list, no myGrants call', async () => {
     const d = await load({ token: 't', impersonation: { sessionId: 's', actorUserId: 'admin', orgId: 'o', expiresAt: 1 } });
     expect(d.unavailable).toBe(true);
