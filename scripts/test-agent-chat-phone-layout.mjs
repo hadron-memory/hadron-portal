@@ -263,12 +263,54 @@ try {
         const b = await back.evaluate((el) => {
           const r = el.getBoundingClientRect();
           const s = getComputedStyle(el);
-          return { w: r.width, h: r.height, tag: el.tagName, text: el.textContent.trim(), colors: [s.color, s.backgroundColor, s.borderColor] };
+          const icon = el.querySelector('svg');
+          const ir = icon?.getBoundingClientRect();
+          return {
+            w: r.width,
+            h: r.height,
+            tag: el.tagName,
+            text: el.textContent.trim(),
+            colors: [s.color, s.backgroundColor, s.borderColor],
+            // portal#2094: Back must read as a control at rest, not bare text.
+            border: { width: parseFloat(s.borderWidth), color: s.borderColor },
+            icon: ir ? Math.round(Math.min(ir.width, ir.height)) : 0,
+          };
         });
         assert.equal(b.tag, 'BUTTON', `${leg}: Back must be a native button`);
         assert.match(b.text, /Chats/, `${leg}: Back needs the visible label "Chats"`);
         assert(b.w >= 44 && b.h >= 44, `${leg}: Back target is ${b.w}x${b.h}, below 44px`);
         assert(!b.colors.includes(WARM), `${leg}: Back uses the warm accent ${JSON.stringify(b.colors)}`);
+        // portal#2094: a drawn outline and a chevron big enough to see. A
+        // transparent/zero-alpha border or width 0 means it still reads as
+        // plain text (Uma's #2090 review P3, this issue's first ask).
+        assert(
+          b.border.width >= 1 && !/transparent|^rgba?\([^)]*,\s*0\s*\)$/.test(b.border.color),
+          `${leg}: Back has no drawn outline (${JSON.stringify(b.border)})`,
+        );
+        assert(b.icon >= 20, `${leg}: Back chevron is ${b.icon}px tall, under 20px`);
+        // portal#2094: the placeholder must be readable while one pane shows.
+        // A placeholder is not value text, so scrollHeight cannot see it
+        // directly: borrow the browser's own line-wrapping by setting the
+        // value to the placeholder, measuring, and restoring.
+        const composer = await page.evaluate(() => {
+          const ta = document.querySelector('textarea');
+          const prev = ta.value;
+          ta.value = ta.placeholder;
+          const need = ta.scrollHeight;
+          ta.value = prev;
+          return {
+            need,
+            box: ta.clientHeight,
+            min: parseFloat(getComputedStyle(ta).minHeight),
+            width: Math.round(ta.getBoundingClientRect().width),
+            font: getComputedStyle(ta).fontSize + '/' + getComputedStyle(ta).lineHeight + ' ' + getComputedStyle(ta).fontFamily,
+          };
+        });
+        assert(
+          composer.need <= composer.box + 1,
+          `${leg}: composer placeholder clips (needs ${composer.need}px, box ${composer.box}px, width ${composer.width}px, ${composer.font})`,
+        );
+        assert(composer.min >= 98, `${leg}: one-pane composer minimum is ${composer.min}px, under the 4-line floor`);
         assert.equal(
           await page.evaluate(() => document.activeElement?.tagName === 'H3' && document.activeElement.closest('main') !== null),
           true,
@@ -321,6 +363,10 @@ try {
         if (shots) await page.screenshot({ path: `${shots}/${leg.replace('/', '-')}-list.png` });
       } else {
         assert.equal(await back.isVisible(), false, `${leg}: Back must not show beside both panes`);
+        // portal#2094: the taller one-pane composer minimum must not leak
+        // past the pane switch; the two-pane side keeps its own floor.
+        const desktopMin = await page.locator('textarea').evaluate((el) => parseFloat(getComputedStyle(el).minHeight));
+        assert(desktopMin <= 50, `${leg}: two-pane composer minimum grew to ${desktopMin}px`);
         if (shots) await page.screenshot({ path: `${shots}/${leg.replace('/', '-')}-conversation.png` });
       }
       assert.deepEqual(errors, [], `${leg}: page errors`);
