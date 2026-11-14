@@ -4,6 +4,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { APICallError, RetryError, generateText, tool, jsonSchema } from 'ai';
 import type { AIProvider } from '$lib/types';
 import { ChatError } from './chatError.js';
+import type { ChatToolChoice } from './chatToolChoice.js';
 
 /**
  * The tool-use response shape returned by the `respond` tool. This is the
@@ -97,6 +98,8 @@ export async function callAgentChatLlm(args: {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   /** Inline config probe only: one bounded request and exactly one string-message respond call. */
   respondTest?: true;
+  /** Server-owned per-chat or unsaved-pair decision; absent stays forced. */
+  toolChoice?: ChatToolChoice | null;
 }): Promise<AgentChatLlmResult> {
   const trace: LlmTrace = { stage: 'config' };
   try {
@@ -219,77 +222,8 @@ function logLlmFailure(error: unknown, context: () => LlmFailureContext): void {
   }
 }
 
-// ── #1979: models that reject a forced tool_choice ──────────────────────────
-//
-// A maintained list of exact ids (#2037). Matching is exact and
-// case-sensitive, and the configured id is always sent verbatim: this set only
-// picks `auto` versus the forced choice. An id not listed here keeps the
-// forced choice and fails closed as before (provider 400 -> `llmFailed`).
-//
-// Evidence, read 2026-11-12. Each id needs BOTH sources before it is listed:
-// 1. Tool use, "Forcing tool use" restriction table
-//    https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools
-//    Row "Claude Fable 5.2, Claude Mythos 5.2, Claude Opus 5.5, Claude Sonnet
-//    5.5, Claude Fable 5.1, and Claude Mythos 5.1": "`any` and `tool` return a
-//    400 error". Haiku 5.5 is not named there and stays forced. Verified live
-//    on claude-sonnet-5-5 (#1979).
-// 2. Models overview table and "Model IDs and versioning"
-//    https://platform.claude.com/docs/en/models/overview
-//    https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions
-//    API ID = API alias = `claude-fable-5-2`, `claude-opus-5-5`,
-//    `claude-sonnet-5-5`. "For the 4.6 generation and later, the dateless ID is
-//    the canonical model ID for that release. It maps to a single, fixed model
-//    snapshot." So no dated snapshot, alias or suffixed form of these models is
-//    documented, and none is admitted: a pattern would only admit guesses.
-// Mythos 5.2 / Fable 5.1 / Mythos 5.1 are named in the restriction row, but
-// the models table gives them no API id, so they are NOT listed.
-//
-// Review trigger: the portal-engineer role owns this list. Re-read both pages
-// when Anthropic announces a model or changes either table, and at least every
-// 30 days; update the read date above, and add an id only with both citations.
-// The docs snapshot in agentChatLlm.toolChoiceEvidence.test.ts is the test
-// oracle and changes with this list.
-//
-// One home (hadron-server#4005 ruling): this set is the only copy of the
-// predicate. It moves to the server with #4005's portal slice; never add a
-// second list.
-export const AUTO_TOOL_CHOICE_ANTHROPIC_MODELS: ReadonlySet<string> = new Set([
-  'claude-sonnet-5-5',
-  'claude-opus-5-5',
-  'claude-fable-5-2',
-]);
-
-// #2031: AWS model-card Programmatic Access tables (2026-11-12) document
-// these exact base and geo/global inference-profile IDs. AWS restricts these
-// models to auto/none tool choice. No prefix rewriting, arbitrary profile ARN,
-// snapshot or other geography is inferred from the base ID.
-// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-5-5.html
-// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5-5.html
-// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-fable-5-2.html
-const AUTO_TOOL_CHOICE_BEDROCK_MODELS: ReadonlySet<string> = new Set([
-  'anthropic.claude-sonnet-5-5',
-  'us.anthropic.claude-sonnet-5-5',
-  'eu.anthropic.claude-sonnet-5-5',
-  'au.anthropic.claude-sonnet-5-5',
-  'global.anthropic.claude-sonnet-5-5',
-  'anthropic.claude-opus-5-5',
-  'us.anthropic.claude-opus-5-5',
-  'eu.anthropic.claude-opus-5-5',
-  'au.anthropic.claude-opus-5-5',
-  'jp.anthropic.claude-opus-5-5',
-  'global.anthropic.claude-opus-5-5',
-  'anthropic.claude-fable-5-2',
-  'us.anthropic.claude-fable-5-2',
-  'global.anthropic.claude-fable-5-2',
-]);
-
-export function usesAutoToolChoice(provider: AIProvider, model: string): boolean {
-  return (provider === 'anthropic' && AUTO_TOOL_CHOICE_ANTHROPIC_MODELS.has(model))
-    || (provider === 'bedrock' && AUTO_TOOL_CHOICE_BEDROCK_MODELS.has(model));
-}
-
 /**
- * Appended to the system text per turn, for the listed models only, because
+ * Appended to the system text per turn, when the server selects auto, because
  * `auto` (unlike a forced choice) lets the model answer in text. Never stored.
  */
 export const RESPOND_ONCE_INSTRUCTION =
@@ -304,6 +238,8 @@ async function callAgentChatLlmUnsafe(args: {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   /** Inline config probe only: one bounded request and exactly one string-message respond call. */
   respondTest?: true;
+  /** Server-owned per-chat or unsaved-pair decision; absent stays forced. */
+  toolChoice?: ChatToolChoice | null;
 }, trace: LlmTrace): Promise<AgentChatLlmResult> {
   const { provider, apiKey, model, systemMessage, messages } = args;
   const languageModel = createLanguageModel(provider, apiKey, model);
@@ -336,7 +272,7 @@ async function callAgentChatLlmUnsafe(args: {
   const respondTool = (args.tools ?? []).find((t) => t.name === 'respond');
   trace.stage = 'request';
   trace.branch = respondTool ? 'respond' : 'plain';
-  const autoToolChoice = respondTool !== undefined && usesAutoToolChoice(provider, model);
+  const autoToolChoice = respondTool !== undefined && args.toolChoice === 'AUTO';
   const systemForSdk = autoToolChoice
     ? (baseSystem === undefined ? RESPOND_ONCE_INSTRUCTION : `${baseSystem}\n\n${RESPOND_ONCE_INSTRUCTION}`)
     : baseSystem;
@@ -382,7 +318,7 @@ async function callAgentChatLlmUnsafe(args: {
     ...(args.respondTest ? { maxRetries: 0, abortSignal: AbortSignal.timeout(20_000) } : {}),
     // Force the LLM to call the respond tool on every turn. This is the
     // contract of the Chat API: one tool call per turn, no free-form text.
-    // Models that reject a forced choice (#1979, usesAutoToolChoice) get
+    // A server AUTO decision gets
     // `auto` plus the appended instruction; a reply with no respond call then
     // takes the same closed failure below as any other missing call.
     toolChoice: autoToolChoice ? 'auto' : { type: 'tool', toolName: 'respond' },

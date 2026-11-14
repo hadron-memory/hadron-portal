@@ -95,3 +95,10 @@ describe('#2043 saved run and chat outcomes stay separate', () => {
     expect(testResultView(result()).chat).toBeNull();
   });
 });
+
+it('#2043 never renders an unrecognized chat status as provider text', () => {
+  const r = { ok: true, provider: 'p', model: 'm', endpoint: null, apiStyle: null, used: { provider: 'SAVED', model: 'SAVED', endpoint: 'SAVED', apiStyle: 'SAVED', key: 'SAVED' }, latencyMs: 1, reply: null, error: null, chat: { status: 'SYNTHETIC_SECRET<script>' } } as unknown as AiConfigTestResult;
+  const view = testResultView(r);
+  expect(view.chat).toEqual({ ok: false, headline: 'Chat test result unavailable.' });
+  expect(JSON.stringify(view)).not.toContain('SYNTHETIC_SECRET');
+});

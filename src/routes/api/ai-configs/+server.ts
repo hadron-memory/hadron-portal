@@ -13,6 +13,7 @@ import {
 import { fetchAllItems } from '$lib/server/paginate';
 import { inlineTestable } from '$lib/components/ai-config-manager';
 import { callAgentChatLlm } from '$lib/server/llm/agentChatLlm.js';
+import { chatToolChoiceFor } from '$lib/server/llm/chatToolChoice.js';
 import { RESPOND_TEST_TOOLS } from '$lib/server/llm/respondTestTool';
 import { publicChatError } from '$lib/server/llm/chatError.js';
 import { t } from '$lib/i18n/t';
@@ -373,6 +374,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           systemMessage: TEST_SYSTEM,
           tools: RESPOND_TEST_TOOLS,
           respondTest: true,
+          toolChoice: await chatToolChoiceFor(client, provider, model),
           messages: [{ role: 'user', content: 'Are you there?' }],
         });
         return json({

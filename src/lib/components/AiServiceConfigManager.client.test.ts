@@ -676,7 +676,11 @@ describe('#2043 separately labelled saved Test outcomes', () => {
     const root = await open({ configs: [config()] });
     editRow(root);
     await settle();
+    const region = root.querySelector('[data-testid="ai-config-test-feedback"]');
+    expect(region).not.toBeNull();
+    expect(region?.textContent?.trim()).toBe('');
     await performAction(root, 'Test');
+    expect(root.querySelector('[data-testid="ai-config-test-feedback"]')).toBe(region);
     expect(root.querySelector('[data-testid="ai-config-test-run"]')?.textContent).toContain('Run');
     expect(root.querySelector('[data-testid="ai-config-test-run"]')?.textContent).toContain('Works:');
     const chat = root.querySelector('[data-testid="ai-config-test-chat"]');

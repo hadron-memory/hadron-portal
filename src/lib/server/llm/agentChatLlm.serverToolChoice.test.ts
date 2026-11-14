@@ -11,7 +11,7 @@ beforeEach(()=>{
 });
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();});
 async function request(model:string, toolChoice?:string|null, provider:AIProvider='anthropic', plain=false){
- const args={provider,model,toolChoice,apiKey:provider==='bedrock'?JSON.stringify({accessKeyId:'SYNTHETIC2043',secretAccessKey:'synthetic-secret',region:'us-east-1'}):'SYNTHETIC2043',systemMessage:'Stage prompt',tools:plain?null:tools,messages:[{role:'user' as const,content:'hello'}]};
+ const args={provider,model,toolChoice:toolChoice as 'AUTO'|'FORCED'|null|undefined,apiKey:provider==='bedrock'?JSON.stringify({accessKeyId:'SYNTHETIC2043',secretAccessKey:'synthetic-secret',region:'us-east-1'}):'SYNTHETIC2043',systemMessage:'Stage prompt',tools:plain?null:tools,messages:[{role:'user' as const,content:'hello'}]};
  await callAgentChatLlm(args).catch(()=>{});
  return JSON.parse(body);
 }
