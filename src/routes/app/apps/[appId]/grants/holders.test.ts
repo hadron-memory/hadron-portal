@@ -47,9 +47,15 @@ describe("grant holder projections", () => {
   // indistinguishable"), so the null-return tests above are the real
   // deleted-user path. Any thrown error — whatever its GraphQL code — is an
   // outage, and no error code may reach the departed wording for a USER.
+  // WORKER_NOT_FOUND below is a real server code, chosen deliberately: the
+  // holder kind does not match it, so kind+code must both line up before any
+  // wording is claimed.
   it("treats an identity-read error as unavailable, not departed, whatever the error code", async () => {
     expect(
       await nameOf(rejectAs(error("WORKER_NOT_FOUND")), userGrant("2026-11-12T10:00:00Z")),
+    ).toBe("Holder unavailable");
+    expect(
+      await nameOf(rejectAs(error("WORKER_NOT_FOUND")), userGrant(null)),
     ).toBe("Holder unavailable");
   });
   it("prefers a readable name or handle over any fallback, departed or not", async () => {
