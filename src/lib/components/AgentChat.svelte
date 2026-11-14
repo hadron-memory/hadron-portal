@@ -1038,8 +1038,9 @@
              chrome (never the warm accent); it changes no chat.
              portal#2094: reads as a control at rest — a drawn zinc outline
              and a 20px chevron, one ramp for both themes
-             (cor:brd:010:01: Back is navigation; the warm accent is never
-             the primary navigation color). -->
+             (hrn:node:hadronmemory.com:specs:cor:brd:010:01: Back is
+             navigation; the warm accent is never the primary
+             navigation color). -->
         <button
           type="button"
           onclick={backToChats}
