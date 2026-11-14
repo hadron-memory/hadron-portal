@@ -560,6 +560,41 @@ describe('install customisation polish (#1369)', () => {
     expect(root.textContent).toContain('Showing 1–1 of 25 customisations');
   });
 
+  it.each([0, 20, 40])('uses one pager for the entire loaded batch at offset %s (UX F1)', async (targetOffset) => {
+    vi.stubGlobal('fetch', vi.fn(async (input) => {
+      const offset = Number(new URL(String(input), 'https://example.test').searchParams.get('offset') ?? 0);
+      const nodes = Array.from({ length: Math.min(20, 45 - offset) }, (_, i) => ({
+        ...node, id: `n-${offset + i + 1}`, name: `Customisation ${offset + i + 1}`,
+        loc: `custom:${offset + i + 1}`, urn: `hrn:node:acme.com:install:custom:${offset + i + 1}`,
+      }));
+      const response = listOf(45, nodes);
+      response.list.value.offset = offset;
+      return new Response(JSON.stringify(response));
+    }));
+    const root = await panel();
+    for (let offset = 0; offset < targetOffset; offset += 20) {
+      button(root, 'Next').click();
+      await settle();
+    }
+    const loaded = Math.min(20, 45 - targetOffset);
+    // A loaded batch is already paged: a second client pager hid half its rows.
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(loaded);
+    expect(root.querySelector('[data-testid="table-footer"]')).toBeNull();
+    for (const label of ['Previous', 'Next']) {
+      expect([...root.querySelectorAll('button')].filter(b => b.textContent?.trim() === label)).toHaveLength(1);
+    }
+    expect(root.textContent).toContain(`Loaded ${targetOffset + 1}–${targetOffset + loaded} of 45 customisations`);
+    expect(button(root, 'Previous').disabled).toBe(targetOffset === 0);
+    expect(button(root, 'Next').disabled).toBe(targetOffset + loaded >= 45);
+    const search = root.querySelector<HTMLInputElement>('input[type="text"]')!;
+    search.value = 'no-such-customisation';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(4);
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(0);
+    // Loaded describes the fetched batch, rather than claiming these are visible matches.
+    expect(root.textContent).toContain(`Loaded ${targetOffset + 1}–${targetOffset + loaded} of 45 customisations`);
+  });
+
   it('scopes search to the loaded page in its accessible name', async () => {
     const root = await panel();
     const search = root.querySelector<HTMLInputElement>('input[type="text"]')!;
