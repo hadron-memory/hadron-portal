@@ -6,7 +6,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  APP_QUERY, APP_MEMBERS_QUERY, APP_NODES_QUERY, TEAM_CHAT_MESSAGES_QUERY, TEAM_WORK_ITEMS_QUERY,
+  APP_QUERY, APP_MEMBERS_QUERY, APP_NODES_PAGE_QUERY, APP_CHAT_ROOTS_PAGE_QUERY, TEAM_CHAT_MESSAGES_QUERY, TEAM_WORK_ITEMS_QUERY,
   MY_AGENTS_QUERY, PUBLIC_AGENTS_QUERY,
 } from '$lib/server/queries';
 
@@ -33,7 +33,9 @@ function route(opts: { orgs?: string[] | Error; orgAgents?: Record<string, Agent
   mockRequest.mockImplementation(async (query: string) => {
     if (query === APP_QUERY) return { app };
     if (query === APP_MEMBERS_QUERY) return { app: { members: [] } };
-    if (query === APP_NODES_QUERY) return { appNodes: [] };
+    if (query === APP_NODES_PAGE_QUERY || query === APP_CHAT_ROOTS_PAGE_QUERY) {
+      return { appNodesPage: { items: [], total: 0, hasMore: false } };
+    }
     if (query === TEAM_CHAT_MESSAGES_QUERY) return { teamChatMessages: { items: [], total: 0 } };
     if (query === TEAM_WORK_ITEMS_QUERY) return { teamWorkItems: { items: [], total: 0 } };
     return { resolveAiServiceConfigs: [] };

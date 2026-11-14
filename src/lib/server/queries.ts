@@ -1749,6 +1749,32 @@ export const NODE_REVISIONS_QUERY = /* GraphQL */ `
   }
 `;
 
+export const NODE_REVISIONS_PAGE_QUERY = /* GraphQL */ `
+  query NodeRevisionsPage($nodeRef: ID!, $limit: Int, $offset: Int) {
+    nodeRevisionsPage(nodeRef: $nodeRef, limit: $limit, offset: $offset) {
+      total
+      hasMore
+      items {
+        id
+        revNo
+        loc
+        name
+        alias
+        description
+        tags
+        editedBy
+        editedByInfo
+        editedByUser { handle urn }
+        editedByWorker { id name urn }
+        editedByAgent { id name urn }
+        revLabel
+        changes
+        createdAt
+      }
+    }
+  }
+`;
+
 // portal#1355 (server#2562, #2517): the audit entries a HARD delete left on
 // this node when it removed edges the node held to the deleted target
 // (hrn:node:hadronmemory.com:specs:cor:dmo:010:04). A separate record from NodeRevision — revisions stay
@@ -1848,6 +1874,20 @@ export const NODE_REVISIONS_PROVENANCE_QUERY = /* GraphQL */ `
       revNo
       authorship { ...NodeAuthorshipFields }
       contentValidation { ...NodeContentValidationFields }
+    }
+  }
+`;
+
+export const NODE_REVISIONS_PROVENANCE_PAGE_QUERY = /* GraphQL */ `
+  ${PROVENANCE_FIELDS}
+  query NodeRevisionsProvenancePage($nodeRef: ID!, $limit: Int, $offset: Int) {
+    nodeRevisionsPage(nodeRef: $nodeRef, limit: $limit, offset: $offset) {
+      items {
+        id
+        revNo
+        authorship { ...NodeAuthorshipFields }
+        contentValidation { ...NodeContentValidationFields }
+      }
     }
   }
 `;
@@ -2755,6 +2795,82 @@ export const APP_NODES_QUERY = /* GraphQL */ `
   }
 `;
 
+export const APP_NODES_PAGE_QUERY = /* GraphQL */ `
+  query AppNodesPage($appRef: ID!, $limit: Int, $offset: Int) {
+    appNodesPage(appRef: $appRef, limit: $limit, offset: $offset) {
+      total
+      hasMore
+      items {
+        urn
+        id
+        memoryId
+        nodeType
+        loc
+        name
+        description
+        tags
+        seq
+        isRunnable
+        memory { id urn name organizationId }
+        outgoingEdges {
+          id
+          name
+          loc
+          isRunnable
+          target { id loc name }
+        }
+        incomingEdges {
+          id
+          name
+          loc
+          isRunnable
+          source { id loc name }
+        }
+      }
+    }
+  }
+`;
+
+// portal#1881: the Runs tab's Flows list. Every Flow root is runnable, so the
+// display page reads runnable nodes only; the root test itself (routing edges,
+// no incoming routing) stays client-side in flowPageSummaries. Its own document
+// so the Memory tab's unfiltered AppNodesPage is untouched.
+export const APP_FLOWS_PAGE_QUERY = /* GraphQL */ `
+  query AppFlowsPage($appRef: ID!, $limit: Int, $offset: Int) {
+    appNodesPage(appRef: $appRef, filter: { isRunnable: true }, limit: $limit, offset: $offset) {
+      total
+      hasMore
+      items {
+        urn
+        id
+        memoryId
+        nodeType
+        loc
+        name
+        description
+        tags
+        seq
+        isRunnable
+        memory { id urn name organizationId }
+        outgoingEdges {
+          id
+          name
+          loc
+          isRunnable
+          target { id loc name }
+        }
+        incomingEdges {
+          id
+          name
+          loc
+          isRunnable
+          source { id loc name }
+        }
+      }
+    }
+  }
+`;
+
 // ---------------------------------------------------------------------------
 // Sessions
 // ---------------------------------------------------------------------------
@@ -3254,6 +3370,22 @@ export const APP_CHAT_ROOTS_QUERY = /* GraphQL */ `
   }
 `;
 
+export const APP_CHAT_ROOTS_PAGE_QUERY = /* GraphQL */ `
+  query AppChatRootsPage($appRef: ID!, $limit: Int, $offset: Int, $locPrefix: String) {
+    appNodesPage(appRef: $appRef, filter: { nodeType: "chat", locPrefix: $locPrefix }, limit: $limit, offset: $offset) {
+      total
+      hasMore
+      items {
+        id
+        loc
+        name
+        memoryId
+        nodeType
+      }
+    }
+  }
+`;
+
 // portal#1524: the node page's Children section, now that the memory layout no
 // longer carries the whole node list. ONE bounded, slim page of the nodes under
 // a loc: only the fields the children grid renders, no content, and `total` so
@@ -3468,6 +3600,8 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
     $approvalState: NodeApprovalState
     $minted: Boolean
     $contentScope: NodeContentScope
+    $nodeTypes: [String!]
+    $tags: [String!]
     $sortProperty: NodePropertySort
     $limit: Int
   ) {
@@ -3502,6 +3636,8 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
         # both, applied by the server BEFORE ranking, paging and the result cap.
         # Null is the server default, CONTENT.
         contentScope: $contentScope
+        nodeTypes: $nodeTypes
+        tags: $tags
       }
     ) {
       hits {

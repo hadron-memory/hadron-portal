@@ -44,8 +44,8 @@ const agentTwo = { id: 'ag2', urn: 'hrn:agent:acme.com:critic', name: 'Critic', 
 /** The last mount's props, reactive, so a test can replay a navigation that reuses the page. */
 let lastProps: Record<string, unknown> = {};
 
-async function mountTab(tab: string, over: { app?: Record<string, unknown>; data?: Record<string, unknown>; form?: unknown } = {}) {
-  setStubPage(`https://example.test/app/apps/a1?tab=${tab}`, { appId: 'a1' });
+async function mountTab(tab: string, over: { app?: Record<string, unknown>; data?: Record<string, unknown>; form?: unknown; url?: string } = {}) {
+  setStubPage(over.url ?? `https://example.test/app/apps/a1?tab=${tab}`, { appId: 'a1' });
   window.history.replaceState({}, '', `/app/apps/a1?tab=${tab}`);
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm,
     revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm,
@@ -254,21 +254,60 @@ it('App memory filters do not infer read-only access from the primary agent', as
   expect(target.textContent).not.toContain('(read-only)');
 });
 
-// portal#1226: a window that came back full is labeled where the reader sees it.
-describe('full-window cues on the App page (#1226)', () => {
-  it('the Memory tab says the first N nodes are shown when the window was full', async () => {
-    const target = await mountTab('memory', { data: { appNodes: [], appNodesCapped: true } });
-    expect(target.textContent).toContain('Showing the first 0 nodes');
-    expect((await mountTab('memory', { data: { appNodes: [], appNodesCapped: false } })).textContent).not.toContain('Showing the first');
+// portal#1881: the formerly capped lists expose user-initiated pages instead.
+describe('paged node lists on the App page (#1881)', () => {
+  it('the Memory tab links to the next node page without a capped notice', async () => {
+    const target = await mountTab('memory', { data: { appNodes: [], appNodesPage: { offset: 0, count: 20, total: 45, previousHref: null, nextHref: '/app/apps/a1?tab=memory&appNodesOffset=20' } } });
+    expect(target.textContent).not.toContain('Showing the first');
+    expect(target.querySelector<HTMLAnchorElement>('nav[aria-label="Memory node pages"] a[rel="next"]')?.getAttribute('href')).toBe('/app/apps/a1?tab=memory&appNodesOffset=20');
   });
 
-  it('the Chats selector says more chats exist when the root window was full', async () => {
-    const target = await mountTab('chats', { data: { chatsCapped: true, chatRootsShown: 200 } });
-    expect(target.textContent).toContain('Showing the first 200 chats');
+  it('the Chats selector links to more roots without a capped notice', async () => {
+    const target = await mountTab('chats', { data: { chatRootsPage: { offset: 0, count: 20, total: 25, previousHref: null, nextHref: '/app/apps/a1?tab=chats&chatRootsOffset=20' } } });
+    expect(target.textContent).not.toContain('Showing the first');
+    expect(target.textContent).toContain('Registered Channels stay available on every page. Pagination covers legacy chat roots only.');
+    expect(target.querySelector<HTMLAnchorElement>('nav[aria-label="Legacy chat-root pages"] a[rel="next"]')?.getAttribute('href')).toBe('/app/apps/a1?tab=chats&chatRootsOffset=20');
   });
 
-  it('and says nothing when the chat list was complete', async () => {
-    expect((await mountTab('chats', { data: { chatsCapped: false } })).textContent).not.toContain('Showing the first');
+  it('a registered-Channel failure does not hide a successful legacy-root pager', async () => {
+    const target = await mountTab('chats', { data: {
+      chatsError: true, channelsError: true, chatRootsError: false,
+      chatRootsPage: { offset: 0, count: 20, total: 25, previousHref: null, nextHref: '/app/apps/a1?tab=chats&chatRootsOffset=20' },
+    } });
+    expect(target.textContent).toContain('Could not load this App’s chat list');
+    expect(target.querySelector<HTMLAnchorElement>('nav[aria-label="Legacy chat-root pages"] a[rel="next"]')?.getAttribute('href')).toContain('chatRootsOffset=20');
+  });
+
+  it('a legacy-root failure hides its unavailable pager', async () => {
+    const target = await mountTab('chats', { data: {
+      chatsError: true, chatRootsError: true,
+      chatRootsPage: { offset: 0, count: 0, total: 0, previousHref: null, nextHref: null },
+    } });
+    expect(target.querySelector('nav[aria-label="Legacy chat-root pages"]')).toBeNull();
+  });
+
+  it('chat composers retain a later chat-root page across native and enhanced posts', async () => {
+    const target = await mountTab('chats', { data: { chatRootsPage: { offset: 20, count: 5, total: 25, previousHref: '/app/apps/a1?tab=chats', nextHref: null } } });
+    expect(target.querySelector('form[action*="postTeamChatMessage"]')?.getAttribute('action')).toContain('chatRootsOffset=20');
+  });
+
+  // #1929 BLIND P2: after a failed native post the URL already names that
+  // action. Switching composer must not send BOTH action names — SvelteKit
+  // could dispatch the stale one.
+  it('a composer action replaces, never accumulates, a named action left in the URL', async () => {
+    const target = await mountTab('chats', {
+      url: 'https://example.test/app/apps/a1?tab=chats&chat=chats%3Aother&chatRootsOffset=20&/postChannelMessage',
+      data: { chatRootsPage: { offset: 20, count: 5, total: 25, previousHref: '/app/apps/a1?tab=chats', nextHref: null } },
+    });
+    const action = target.querySelector('form[action*="postTeamChatMessage"]')!.getAttribute('action')!;
+    const query = new URLSearchParams(action.slice(1));
+    expect([...query.keys()].filter((k) => k.startsWith('/'))).toEqual(['/postTeamChatMessage']);
+    expect(query.get('chatRootsOffset')).toBe('20');
+  });
+
+  it('a one-page list has no continuation', async () => {
+    const target = await mountTab('chats', { data: { chatRootsPage: { offset: 0, count: 3, total: 3, previousHref: null, nextHref: null } } });
+    expect(target.querySelector('nav[aria-label="Legacy chat-root pages"] a')).toBeNull();
   });
 });
 
