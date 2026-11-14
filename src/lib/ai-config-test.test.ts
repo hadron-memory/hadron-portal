@@ -73,3 +73,25 @@ describe('testResultView: "Called" only when a call ran (Codex on #950)', () => 
     expect(failed.details.join(' ')).toContain('Called https://e.example');
   });
 });
+
+describe('#2043 saved run and chat outcomes stay separate', () => {
+  const cases = [
+    ['PASS', true, 'Passed: the model returned one valid response.'],
+    ['FAIL_TEXT_ONLY', false, 'Failed: the model answered in text instead of using its response tool.'],
+    ['FAIL_OTHER_TOOL', false, 'Failed: the model called a different tool.'],
+    ['FAIL_MULTIPLE_CALLS', false, 'Failed: the model called more than one tool.'],
+    ['FAIL_MALFORMED', false, 'Failed: the model returned an invalid response.'],
+    ['FAIL_PROVIDER_UNAVAILABLE', false, 'The chat test could not complete. Check the provider settings and try again.'],
+    ['UNSUPPORTED_PROVIDER', false, 'Chat testing is not supported by this provider.'],
+  ] as const;
+  it.each(cases)('%s has closed copy independent of run success', (status, ok, headline) => {
+    const v = testResultView({ ...result(), chat: { status } });
+    expect(v.saved).toBe(true);
+    expect(v.ok).toBe(true);
+    expect(v.chat).toMatchObject({ ok, headline });
+  });
+  it('an older/null response has only the run outcome', () => {
+    expect(testResultView({ ...result(), chat: null }).chat).toBeNull();
+    expect(testResultView(result()).chat).toBeNull();
+  });
+});

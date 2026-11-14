@@ -555,3 +555,14 @@ describe('#1986 the owner-list route no longer answers an identity read', () => 
     for (const call of mockRequest.mock.calls) expect(String(call[0])).not.toMatch(/AiConfigPrincipal|authContext/);
   });
 });
+
+
+it('#2043 inline Test consumes the server decision for the verbatim unsaved pair', async () => {
+  mockRequest.mockResolvedValueOnce({ chatToolChoiceFor: 'AUTO' });
+  mockCallAgentChatLlm.mockResolvedValueOnce({ respond: { message: 'hi' }, rawText: 'hi' });
+  const { POST } = await import('./+server');
+  const response = await POST(ev({ body: { action: 'test', provider: 'anthropic', model: 'opaque-future-id', apiKey: 'SYNTHETIC2043' } }));
+  expect(response.status).toBe(200);
+  expect(mockRequest).toHaveBeenCalledWith(expect.stringContaining('chatToolChoiceFor'), { provider: 'anthropic', model: 'opaque-future-id' });
+  expect(mockCallAgentChatLlm.mock.calls[0][0]).toMatchObject({ toolChoice: 'AUTO', respondTest: true, model: 'opaque-future-id' });
+});
