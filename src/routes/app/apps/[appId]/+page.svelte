@@ -1097,7 +1097,10 @@
     // #2164: `?view=full` is shallow-rewritten the same way, so it follows the address bar too. On a real
     // navigation the loader read the same URL through the same function, so the two agree; only a
     // history entry that was replaceState'd after its load can differ, and there the URL is right.
-    // The post-refresh path (`invalidateAll`) does not come through here and keeps its own guard.
+    // Whatever type fires this, the read is the address bar, never `data`: the only writer of `chatMaximized`
+    // is `setChatMaximized`, which rewrites `?view=` in the same call, so the bar and the flag cannot
+    // disagree except on a replaceState'd history entry. A stale loader snapshot (an `invalidateAll`
+    // returning `initialChatFullView: false`) therefore cannot reach the flag through this callback.
     chatMaximized = chatFullViewFromParams(new URL(window.location.href).searchParams);
   });
 

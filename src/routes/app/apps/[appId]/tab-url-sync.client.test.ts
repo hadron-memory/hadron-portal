@@ -205,4 +205,11 @@ describe('portal#2164: ?view=full follows the address bar on Back', () => {
     await tick(3);
     expect(overlay(target)).toBe(false);
   });
+
+  it.each(['link', 'goto', 'enter'] as const)('a %s navigation with a stale loader snapshot keeps the overlay the bar names', async (type) => {
+    const target = await mountAt('chats', { search: `${chatsUrl}&view=full`, initialChatFullView: false });
+    afterNavigate(type);
+    await tick(3);
+    expect(overlay(target)).toBe(true);
+  });
 });

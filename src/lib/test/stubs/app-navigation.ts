@@ -21,7 +21,7 @@ export const navigationCalls: NavigationCall[] = [];
  * portal#1216: runs inside `invalidateAll`, so a test can change what the page
  * shows while a reload is in flight (a reader navigating away mid-write).
  * portal#1502: `onGoto` runs inside `goto` — a test that makes it reject
- * proves what a control does when its OWN reload fails to navigate. Both are
+ * proves what a control does when its OWN reload fails to navigate.
  * portal#2164: `onReplaceState` runs inside `replaceState` (after the call is recorded), so a test can make
  * it throw. All are cleared by `resetNavigationCalls`.
  */
