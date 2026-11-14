@@ -4,7 +4,7 @@
   import { lookupOwn } from '$lib/lookup';
   import { safeRedirect } from '$lib/safeRedirect';
   import { beforeNavigate } from '$app/navigation';
-  import { AI_CONFIG_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
+  import { AI_CONFIG_PROVIDERS, CONFIG_ONLY_DEFAULT_MODELS, DEFAULT_MODELS } from '$lib/ai-config';
   import type { AiConfigOwnerType, AiConfigProvider, AiServiceConfig } from '$lib/types';
   import { aiConfigStrings as s } from '$lib/i18n/ai-config-strings';
   import { t } from '$lib/i18n/t';
@@ -472,6 +472,7 @@
     openai: 'RESPONSES',
     glm: 'CHAT_COMPLETIONS',
     'openai-compatible': 'CHAT_COMPLETIONS',
+    kimi: 'CHAT_COMPLETIONS',
   };
   function apiStyleLabel(style: AiApiStyle): string {
     return style === 'RESPONSES' ? s.apiStyleResponses() : s.apiStyleChat();
@@ -510,6 +511,22 @@
     // leftover value would still be sent and would still demand a key.
     if (providerInput === 'bedrock') endpointInput = '';
     if (providerInput !== 'openai-compatible') toolCalling = false;
+    prefillModel();
+  }
+
+  // #2138: choosing a config-only provider offers its default model, as an
+  // ordinary editable value. Only an empty field or our own earlier offer is
+  // replaced; anything the user typed or loaded is left alone, and nothing is
+  // validated or rewritten at save time.
+  let prefilledModel: string | null = null;
+  function prefillModel() {
+    if (prefilledModel !== null && modelInput === prefilledModel) modelInput = '';
+    prefilledModel = null;
+    const offer = lookupOwn(CONFIG_ONLY_DEFAULT_MODELS, providerInput);
+    if (offer && !modelInput.trim()) {
+      modelInput = offer;
+      prefilledModel = offer;
+    }
   }
 
   // #719 — the config list as the shared TanStack grid, replacing a stack of
@@ -615,6 +632,7 @@
     nameInput = '';
     providerInput = 'anthropic';
     modelInput = '';
+    prefilledModel = null;
     apiKeyInput = '';
     bedrockAccessKeyId = '';
     bedrockSecretAccessKey = '';
@@ -651,6 +669,7 @@
     nameInput = c.name;
     providerInput = c.provider;
     modelInput = c.model;
+    prefilledModel = null;
     enabledInput = c.enabled;
     bedrockRegion =
       (c.params && typeof c.params.bedrockRegion === 'string' && c.params.bedrockRegion) ||
