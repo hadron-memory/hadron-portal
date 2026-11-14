@@ -1,4 +1,4 @@
-import { parseSyncReport, syncOutcomeMessage, type SyncOutcomeFields } from '$lib/sync-report';
+import { classifySyncOutcome, type SyncOutcomeFields } from '$lib/sync-report';
 import { fail } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
@@ -175,17 +175,17 @@ export const actions: Actions = {
     // OK; one that stopped early returns still SYNCING.
     const errors: string[] = [];
     const unfinished: string[] = [];
+    const unconfirmed: string[] = [];
     const notes: string[] = [];
     for (const m of memories) {
       if (!m.source) continue;
       try {
         const res = await client.request<{ syncMemory: SyncOutcomeFields | null }>(SYNC_MEMORY_MUTATION, { id: m.id });
-        const view = parseSyncReport(res.syncMemory?.lastSyncReport, res.syncMemory?.syncStatus, res.syncMemory?.lastSyncedAt);
-        const outcome = syncOutcomeMessage(res.syncMemory);
+        const { view, message: outcome } = classifySyncOutcome(res.syncMemory);
         if (outcome.type === 'error') errors.push(`${m.name}: ${outcome.text}`);
         else if (res.syncMemory?.syncStatus !== 'OK') unfinished.push(m.name);
         else if (['partial', 'unknown', 'unavailable'].includes(view.state)) notes.push(m.name);
-        else if (view.state !== 'clean') unfinished.push(m.name);
+        else if (view.state !== 'clean') unconfirmed.push(m.name);
       } catch (e: unknown) {
         errors.push(`${m.name}: ${gitFailureMessage(extractGqlError(e, ''), 'sync')}`);
       }
@@ -196,10 +196,11 @@ export const actions: Actions = {
         text: t('org-memories.sync-errors', 'Sync errors: {errors}', { errors: errors.join(' · ') }),
       }, { status: 500 });
     }
-    if (notes.length || unfinished.length) {
+    if (notes.length || unfinished.length || unconfirmed.length) {
       const parts: string[] = [];
       if (notes.length) parts.push(t('org-memories.sync-notes', 'Synced with notes: {names}.', { names: notes.join(', ') }));
       if (unfinished.length) parts.push(t('org-memories.sync-not-finished', 'Some syncs didn’t finish yet: {names}. Check their status again shortly.', { names: unfinished.join(', ') }));
+      if (unconfirmed.length) parts.push(t('org-memories.sync-completion-unconfirmed', 'Clean completed syncs are not confirmed for: {names}. Check their status and last-synced time.', { names: unconfirmed.join(', ') }));
       return message(form, { type: 'success', text: parts.join(' ') });
     }
     return message(form, { type: 'success', text: t('org-memories.synced', 'All memories synced.') });
