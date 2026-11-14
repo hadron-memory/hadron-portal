@@ -41,7 +41,7 @@ try {
   if (shots) await mkdir(shots, { recursive: true });
 
   /** The App page's shell (nav from `sm`) around the Agent chat panel, the real component in it. */
-  async function open(width, dark, touch) {
+  async function open(width, dark, touch, shortTitle = false) {
     const context = await browser.newContext({ viewport: { width, height: 800 }, hasTouch: touch, isMobile: touch });
     const page = await context.newPage();
     // Everything that goes wrong in the page fails the leg (portal#2104): an
@@ -73,10 +73,10 @@ try {
           },
           { css, dark },
         );
-        await page.evaluate(async () => {
+        await page.evaluate(async (shortTitle) => {
           const { mountAgentChat } = await import('/src/lib/test/fixtures/agent-chat-phone-harness.ts');
-          window.__chat = mountAgentChat(document.getElementById('panel'), { rowActions: true });
-        });
+          window.__chat = mountAgentChat(document.getElementById('panel'), { rowActions: true, shortTitle });
+        }, shortTitle);
         break;
       } catch (e) {
         if (attempt >= 5 || !/Execution context was destroyed|navigation/i.test(String(e))) throw e;
@@ -178,8 +178,8 @@ try {
   // below @2xl. 1024 fine: wide panel, quiet actions. 1024 touch: a touch
   // tablet with the 256px list (actions on the meta line).
   const LEGS = [
-    { width: 390, touch: true },
     { width: 640, touch: false },
+    { width: 390, touch: true },
     { width: 768, touch: false },
     { width: 1024, touch: false },
     { width: 1024, touch: true },
@@ -187,6 +187,33 @@ try {
   for (const { width, touch } of LEGS) {
     for (const dark of [false, true]) {
       const leg = `${width}${touch ? ' touch' : ''}/${dark ? 'dark' : 'light'}`;
+      // portal#2105: use a fresh mount per activation so a selected-chat
+      // fast path cannot make a missing resume request look successful.
+      for (const shortTitle of [false, true]) {
+        for (const freeSpace of [false, true]) {
+          const metaRun = await open(width, dark, touch, shortTitle);
+          const p = metaRun.page;
+          const id = shortTitle ? 'chats:b' : 'chats:a';
+          const rowButton = p.locator(`[data-chat-row="${id}"]`);
+          // The text selector reaches main before the new hook exists: the
+          // red pin must fail on the missing interaction, not a missing hook.
+          const li = rowButton.locator('..');
+          const text = li.getByText(shortTitle ? '1 msg' : '3 msgs', { exact: true });
+          if (freeSpace) {
+            const bounds = await text.locator('..').boundingBox();
+            const x = bounds.x + bounds.width - 4;
+            const y = bounds.y + bounds.height / 2;
+            if (touch) await p.touchscreen.tap(x, y);
+            else await p.mouse.click(x, y);
+          } else if (touch) await text.tap();
+          else await text.click();
+          await p.waitForFunction(() => window.__chat.calls.resume === 1, null, { timeout: 2000 })
+            .catch(() => assert.fail(`${leg}: ${shortTitle ? 'short' : 'long'} meta ${freeSpace ? 'free space' : 'text'} did not resume exactly once`));
+          assert.equal(await p.evaluate(() => window.__chat.calls.title + window.__chat.calls.delete), 0, `${leg}: meta activation ran an action`);
+          assert.deepEqual(metaRun.errors, [], `${leg}: meta activation page errors`);
+          await metaRun.context.close();
+        }
+      }
       const { page, errors, context } = await open(width, dark, touch);
       const panelWidth = await page.evaluate(() => document.getElementById('panel').firstElementChild.clientWidth);
       const narrow = panelWidth < WIDE;
