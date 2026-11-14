@@ -29,7 +29,7 @@ import type { Actions, PageServerLoad } from './$types';
  * portal#1384: the task the team maps this ticker to is its own read, so its
  * failure blanks only that entry. Subscribers page forward with `?after=`; the server gives no total.
  */
-export const load: PageServerLoad = async ({ params, locals, url }) => {
+export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   const client = gqlClient(locals.token);
   const app = await loadTasksApp(client, params.appId);
   if (!app) throw error(404, 'App not found');
@@ -37,6 +37,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const ticker = await loadTicker(client, params.tickerId);
   if (!ticker?.app) throw error(404, 'Ticker not found');
   if (ticker.app.id !== app.id) {
+    // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
+    await parent();
     throw redirect(307, `/app/apps/${ticker.app.id}/tickers/${ticker.id}${url.search}`);
   }
 

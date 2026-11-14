@@ -37,6 +37,7 @@ async function importLoad() {
 function ev(urn: string, search = '') {
   return {
     params: { urn },
+    parent: async () => ({}),
     url: new URL(`http://localhost/app/u/${urn}${search}`),
     locals: { user: { id: 'u1', roles: ['user'], githubUsername: 'gh' }, token: 'tok' },
   } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];

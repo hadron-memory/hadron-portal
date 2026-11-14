@@ -24,7 +24,7 @@ import type { Actions, PageServerLoad } from './$types';
  *
  * Only the view on screen is read.
  */
-export const load: PageServerLoad = async ({ params, locals, url }) => {
+export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   const client = gqlClient(locals.token);
   const view = parseTaskView(url.searchParams.get('view'));
   const text = (url.searchParams.get('text') ?? '').trim();
@@ -50,6 +50,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     if (blankTags) canonical.searchParams.delete('tags');
     if (strayOverdue) canonical.searchParams.delete('overdue');
     if (strayUnresolved) canonical.searchParams.delete('unresolved');
+    // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
+    await parent();
     throw redirect(303, canonical.pathname + canonical.search);
   }
 
