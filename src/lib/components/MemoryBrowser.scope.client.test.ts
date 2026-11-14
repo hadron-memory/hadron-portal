@@ -252,7 +252,7 @@ describe('server search on the Memory tab after a scope read (#1043)', () => {
 });
 
 describe('tree reorder on a server-paged browser (#1881)', () => {
-  async function mountTree(total: number) {
+  async function mountTree(total: number, page: Partial<typeof serverPage> = {}) {
     window.localStorage.setItem('hadron:memoryBrowser:nodesPane', 'tree');
     fetchMock.mockImplementation(async (url: string) => {
       if (url === '/api/nodes/reorder') return new Response('{}', { status: 200 });
@@ -266,7 +266,7 @@ describe('tree reorder on a server-paged browser (#1881)', () => {
       multiMemory: true,
       forcedView: 'nodes',
       scopeMemories: [scopeRow('first', 'First memory')],
-      serverPage: { ...serverPage, total },
+      serverPage: { ...serverPage, total, ...page },
     });
     await tick(5);
     return mounted;
@@ -291,6 +291,20 @@ describe('tree reorder on a server-paged browser (#1881)', () => {
 
   it('does not renumber only the visible siblings of a larger tree', async () => {
     const mounted = await mountTree(25);
+    await dragAlphaBeforeBeta(mounted.target);
+    expect(fetchMock.mock.calls.filter(call => call[0] === '/api/nodes/reorder')).toEqual([]);
+  });
+
+  // #2162 LOCAL F1: a lagging total can equal the visible count while the
+  // server still says there is more. The continuation, not the count, decides.
+  it('does not renumber when the total equals the visible count but a next page exists (raced count)', async () => {
+    const mounted = await mountTree(2, { nextHref: '?nodesOffset=20' });
+    await dragAlphaBeforeBeta(mounted.target);
+    expect(fetchMock.mock.calls.filter(call => call[0] === '/api/nodes/reorder')).toEqual([]);
+  });
+
+  it('does not renumber on a later page even when its count matches the total', async () => {
+    const mounted = await mountTree(2, { offset: 20, previousHref: '?nodesOffset=0' });
     await dragAlphaBeforeBeta(mounted.target);
     expect(fetchMock.mock.calls.filter(call => call[0] === '/api/nodes/reorder')).toEqual([]);
   });
