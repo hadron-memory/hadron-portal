@@ -117,7 +117,9 @@ describe('the neutralizer source is auditable (portal#2111, portal#2113)', () =>
     const crlf = source.replace(/\n/g, '\r\n');
     expect(crlf).not.toBe(source);
     expect(hiddenIn(lf(crlf))).toEqual([]);
-    expect(hiddenIn(crlf)[0]).toBe('[U+000D]');
+    // Every line ending is a revealed U+000D, not just the first (portal#2125 item 7).
+    const markers = hiddenIn(crlf);
+    expect(markers).toEqual(Array(source.split('\n').length - 1).fill('[U+000D]'));
   });
   it('control: one injected U+202E anywhere in the source is caught', () => {
     // Anchored on the declaration the audit exists for, not on prose (portal#2118 F1).

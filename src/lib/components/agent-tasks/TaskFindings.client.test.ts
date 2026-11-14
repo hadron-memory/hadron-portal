@@ -4,6 +4,7 @@ import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import type { Finding, FindingsRead } from '$lib/agent-tasks/findings';
 import TaskFindings from './TaskFindings.svelte';
+import { FINDINGS_SEVERITIES } from '$lib/test/fixtures/table-cell-overflow-harness';
 
 const mounted: { unmount: () => void }[] = [];
 afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); vi.unstubAllGlobals(); resetNavigationCalls(); });
@@ -373,8 +374,8 @@ describe('text is literal', () => {
   // break opportunity it painted over the Text cell. Every provider-served field carries its wrap class;
   // the geometry itself is measured by scripts/test-table-cell-overflow-layout.mjs (findings pass, portal#2118 item 5).
   it.each([
-    ['revealed markers', 'sev-A\u2061B\u2062C\u2063D\u2064E\u2028F\u2029G'],
-    ['a long unbroken plain label', 'S'.repeat(80)],
+    ['revealed markers', FINDINGS_SEVERITIES.markers],
+    ['a long unbroken plain label', FINDINGS_SEVERITIES.plain],
   ])('id, severity and text each carry their own wrap class (severity: %s)', async (_n, severity) => {
     const m = await setup(page('task', 0, [row('F1', 't', severity)], 1, false));
     const cls = (testid: string) => m.target.querySelector<HTMLElement>(`[data-testid="${testid}"]`)!.className.split(/\s+/);
