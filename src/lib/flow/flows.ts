@@ -34,6 +34,8 @@ export interface FlowSummary {
   branchCount: number;
   /** Nodes reachable over routing edges, entry included (bounded walk). */
   stepCount: number;
+  /** False when a target was outside the graph or the walk cap left work unexpanded. */
+  stepCountComplete?: boolean;
 }
 
 /** Mirrors the runner's RUN_MAX_HOPS — a longer chain can't execute anyway. */
@@ -68,15 +70,20 @@ export function flowRoots(nodes: ReadonlyArray<FlowGraphNode>): FlowSummary[] {
       // Bounded BFS over routing edges; cycles are fine (visited set).
       const visited = new Set<string>([root.id]);
       const queue = [root.id];
+      let stepCountComplete = true;
       while (queue.length > 0 && visited.size < WALK_CAP) {
         const node = byId.get(queue.shift()!);
-        if (!node) continue; // target outside the fetched set — counted, not expanded
+        if (!node) {
+          stepCountComplete = false;
+          continue; // target outside the fetched set — counted, not expanded
+        }
         for (const targetId of routingTargets(node)) {
           if (visited.has(targetId) || visited.size >= WALK_CAP) continue;
           visited.add(targetId);
           queue.push(targetId);
         }
       }
+      if (queue.length > 0) stepCountComplete = false;
       return {
         entry: {
           id: root.id,
@@ -87,7 +94,23 @@ export function flowRoots(nodes: ReadonlyArray<FlowGraphNode>): FlowSummary[] {
         },
         branchCount: routingTargets(root).length,
         stepCount: visited.size,
+        stepCountComplete,
       };
     })
     .sort((a, b) => a.entry.name.localeCompare(b.entry.name));
+}
+
+/**
+ * The roots on one display page, with their walks evaluated against the
+ * complete-context graph rather than that page. If the graph read is capped or
+ * fails, the page's own lower bound is retained and explicitly marked incomplete.
+ */
+export function flowPageSummaries(
+  pageNodes: ReadonlyArray<FlowGraphNode>,
+  graphNodes: ReadonlyArray<FlowGraphNode>,
+): FlowSummary[] {
+  const complete = new Map(flowRoots(graphNodes).map((flow) => [flow.entry.id, flow]));
+  return flowRoots(pageNodes).map((flow) =>
+    complete.get(flow.entry.id) ?? { ...flow, stepCountComplete: false },
+  );
 }
