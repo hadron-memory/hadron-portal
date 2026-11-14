@@ -159,6 +159,9 @@ jobs:
       - name: Check App Runs table layout
         run: pnpm test:app-runs-layout
 
+      - name: Check App Keys tab layout (Generate Key centering, table width)
+        run: pnpm test:app-keys-layout
+
       - name: Check disabled AI config row menu pointer access
         run: pnpm test:ai-config-row-menu
 
