@@ -11,6 +11,7 @@
   import type { RowData } from '@tanstack/table-core';
   import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
   import { t } from '$lib/i18n/t';
+  import { columnMenuAlign, type ColumnMenuAlign } from './columnMenuAlign';
 
   let { table }: { table: PortalTable<T> } = $props();
 
@@ -20,6 +21,14 @@
 
   let open = $state(false);
   let detailsEl = $state<HTMLDetailsElement>();
+  let summaryEl = $state<HTMLElement>();
+  // Menu is w-44 (11rem = 176px). Re-measured on every open (#2149).
+  const MENU_WIDTH_PX = 176;
+  let align = $state<ColumnMenuAlign>('right');
+  $effect(() => {
+    if (!open || !summaryEl) return;
+    align = columnMenuAlign(summaryEl.getBoundingClientRect(), MENU_WIDTH_PX, window.innerWidth);
+  });
 
   // A plain stable object (never spread) so the close closure stays live
   // (hrn:node:hadronmemory.com:hadron-portal:review:preserve-getters-when-wrapping-options).
@@ -67,13 +76,13 @@
     class="relative"
     onkeydown={(event) => consumeEscapeAtDialog(event, { close: dropdownEscape.close, suppressed: () => !open })}
   >
-    <summary class="cursor-pointer list-none rounded-md border border-zinc-300 bg-zinc-100 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700">
+    <summary bind:this={summaryEl} class="cursor-pointer list-none rounded-md border border-zinc-300 bg-zinc-100 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700">
       {t('table.columns', 'Columns')} ▾
     </summary>
     {#if open}
       <div
         use:dialogEscapeFallback={dropdownEscape}
-        class="absolute right-0 z-20 mt-1 w-44 rounded-lg border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+        class="absolute {align === 'right' ? 'right-0' : 'left-0'} z-20 mt-1 w-44 rounded-lg border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
       >
         {#each columns as col (col.id)}
           <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">
