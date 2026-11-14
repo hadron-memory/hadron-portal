@@ -16,7 +16,7 @@ import { cancelAppRunSchema } from './schema';
 // Run detail (#478 phase 3): the full audit record — who/what/why, budgets,
 // live position (curNodeUrn while RUNNING), the envelope, failure payload —
 // plus the kill switch.
-export const load: PageServerLoad = async ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // #648: canonical org-optional run detail. No requireNonConsumer — a run of a
   // user-owned (org-less) app is reachable here too; the app(ref:) gate is the
   // auth.
@@ -40,6 +40,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   // URL correction (#237 pattern): the run resolves by PK alone — a run reached
   // under the wrong app URL redirects to its canonical (org-independent) page.
   if (run.appId !== params.appId) {
+    // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
+    await parent();
     redirect(303, `/app/apps/${run.appId}/runs/${run.id}`);
   }
 
