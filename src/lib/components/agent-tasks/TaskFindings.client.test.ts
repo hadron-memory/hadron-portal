@@ -4,7 +4,7 @@ import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import type { Finding, FindingsRead } from '$lib/agent-tasks/findings';
 import TaskFindings from './TaskFindings.svelte';
-import { FINDINGS_SEVERITIES } from '$lib/test/fixtures/table-cell-overflow-harness';
+import { FINDINGS_SEVERITIES } from '$lib/test/fixtures/findings-severity-triggers';
 
 const mounted: { unmount: () => void }[] = [];
 afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); vi.unstubAllGlobals(); resetNavigationCalls(); });
