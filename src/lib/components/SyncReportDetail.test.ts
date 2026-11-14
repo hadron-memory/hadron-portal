@@ -50,7 +50,7 @@ describe('SyncReportDetail', () => {
 it('distinguishes null, omitted, malformed completion and a never-run memory', () => {
   const body = (lastSyncReport: string | null | undefined, lastSyncedAt: string | null) => render(SyncReportDetail, { props: { lastSyncReport, lastSyncedAt, syncStatus: 'OK' } }).body;
   expect(body(null, at)).toContain('applied everything');
-  expect(body(null, null)).toContain('Not synced yet');
+  expect(body(null, null)).toContain('No clean completed sync is confirmed');
   expect(body(undefined, at)).toContain('Report unavailable');
   expect(body(null, 'bad')).toContain('Report unavailable');
 });

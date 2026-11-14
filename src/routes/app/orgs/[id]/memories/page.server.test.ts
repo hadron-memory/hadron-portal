@@ -508,3 +508,15 @@ it('returned failed reports stay sanitized errors in syncAll', async () => {
   const result = await runAction('syncAll') as { status: number; data: { form: { message: { type: string; text: string } } } };
   expect(result.status).toBe(500); expect(result.data.form.message.type).toBe('error'); expect(result.data.form.message.text).not.toContain('ghs_SECRET');
 });
+
+
+it('#1308 classifies each bulk result once', async () => {
+  const raw = JSON.stringify({ version: 1, outcome: 'partial', recordedAt: '2026-10-26T01:02:03.000Z', entries: [] });
+  mockRequest.mockResolvedValueOnce({ organization: { memories: [{ id: 'm', name: 'Docs', source: 'synthetic' }] } });
+  mockRequest.mockResolvedValueOnce({ syncMemory: { syncStatus: 'OK', lastSyncReport: raw } });
+  const parsed = vi.spyOn(JSON, 'parse');
+  try {
+    await runAction('syncAll');
+    expect(parsed.mock.calls.filter(([input]) => input === raw)).toHaveLength(1);
+  } finally { parsed.mockRestore(); }
+});
