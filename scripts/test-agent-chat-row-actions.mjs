@@ -31,6 +31,10 @@ const A = 'Planning the spring onboarding for the regional volunteer teams';
 const B = 'Second chat';
 const WIDE = 672; // AgentChat's `@2xl` container breakpoint (42rem)
 const shots = process.env.AGENT_CHAT_SHOTS;
+// Explicit adversarial self-checks only; a normal run keeps all ten legs.
+const control = process.env.CHAT_ROW_CONTROL;
+assert(!control || ['missing-meta-free', 'hidden-meta-text', 'delayed-resume', 'rename-overlay'].includes(control), 'unknown CHAT_ROW_CONTROL');
+if (control) console.log(`CONTROL ACTIVE: ${control}`);
 let browser;
 try {
   await server.listen();
@@ -185,8 +189,8 @@ try {
     { width: 1024, touch: false },
     { width: 1024, touch: true },
   ];
-  for (const { width, touch } of LEGS) {
-    for (const dark of [false, true]) {
+  for (const { width, touch } of (control ? LEGS.slice(0, 1) : LEGS)) {
+    for (const dark of (control ? [false] : [false, true])) {
       const leg = `${width}${touch ? ' touch' : ''}/${dark ? 'dark' : 'light'}`;
       // portal#2105: use a fresh mount per activation so a selected-chat
       // fast path cannot make a missing resume request look successful.
@@ -204,6 +208,8 @@ try {
           assert(measured.title.right <= measured.badge.left + 0.5, `${leg}: title overlaps scope badge`);
           assert.equal(await li.locator('button:not([tabindex="-1"])').count(), 3, `${leg}: unexpected row tab stops`);
           const text = li.getByText(shortTitle ? '1 msg' : '3 msgs', { exact: true });
+          if (control === 'missing-meta-free' && freeSpace) await li.locator('[data-chat-meta]').evaluate(el => el.remove());
+          if (control === 'hidden-meta-text' && !freeSpace) await text.evaluate(el => { el.style.display = 'none'; });
           if (freeSpace) {
             const bounds = await li.locator('[data-chat-meta]').boundingBox();
             const x = bounds.x + bounds.width - 4;
@@ -224,6 +230,9 @@ try {
           }
           await p.waitForFunction(() => window.__chat.calls.resume === 1, null, { timeout: 2000 })
             .catch(async () => assert.fail(`${leg}: ${shortTitle ? 'short' : 'long'} meta ${freeSpace ? 'free space' : 'text'} did not resume exactly once: ${JSON.stringify(await p.evaluate(() => window.__chat.calls))}`));
+          if (control === 'delayed-resume') await p.evaluate(() => {
+            setTimeout(() => { window.__chat.calls.resume++; }, 50);
+          });
           assert.equal(await p.evaluate(() => window.__chat.calls.title + window.__chat.calls.delete), 0, `${leg}: meta activation ran an action`);
           assert.deepEqual(metaRun.errors, [], `${leg}: meta activation page errors`);
           await metaRun.context.close();
@@ -287,6 +296,13 @@ try {
       await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
       assert.equal(await page.evaluate(() => window.__chat.calls.resume), 0, `${leg}: pointer Rename opened the chat`);
       assert.equal(await page.locator('#panel li input[type="text"]').count(), 1, `${leg}: pointer Rename did not open its input`);
+      if (control === 'rename-overlay') await page.locator('#panel li input[type="text"]').evaluate(input => {
+        // A simultaneous opener over the input, modelling a future DOM regression.
+        const opener = document.createElement('button');
+        opener.style.cssText = 'position:absolute;inset:0;z-index:50';
+        opener.onclick = () => { window.__chat.calls.resume++; };
+        input.parentElement.append(opener);
+      });
       await page.keyboard.press('Escape');
       await page.locator('#panel li input[type="text"]').waitFor({ state: 'detached' });
 
