@@ -14,7 +14,7 @@ import { t } from '$lib/i18n/t';
 import type { Grant } from '$lib/grants/types';
 import type { PageServerLoad } from './$types';
 
-const GRANT_FIELDS = /* GraphQL */ `
+const MY_GRANT_FIELDS = /* GraphQL */ `
   fragment MyGrantFields on Grant {
     id
     appId
@@ -33,8 +33,8 @@ const GRANT_FIELDS = /* GraphQL */ `
     allows
   }
 `;
-export const MY_GRANTS_PAGE = /* GraphQL */ `
-  ${GRANT_FIELDS}
+const MY_GRANTS_PAGE = /* GraphQL */ `
+  ${MY_GRANT_FIELDS}
   query MyGrantsPage($limit: Int!, $offset: Int!) {
     myGrants(limit: $limit, offset: $offset) {
       items {
@@ -44,7 +44,7 @@ export const MY_GRANTS_PAGE = /* GraphQL */ `
     }
   }
 `;
-export const MY_GRANT_APP = /* GraphQL */ `
+const MY_GRANT_APP = /* GraphQL */ `
   query MyGrantApp($ref: ID!) {
     app(ref: $ref) {
       id
@@ -54,7 +54,7 @@ export const MY_GRANT_APP = /* GraphQL */ `
   }
 `;
 
-const LIMIT = 200; // cor:api:120:04 cap
+const LIMIT = 200; // the page cap, hrn:node:hadronmemory.com:specs:cor:api:120:04
 const MAX_PAGES = 50;
 
 export type MyGrantApp = { id: string; name: string; urn: string };
