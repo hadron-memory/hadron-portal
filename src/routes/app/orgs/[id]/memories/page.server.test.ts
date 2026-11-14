@@ -520,3 +520,13 @@ it('#1308 classifies each bulk result once', async () => {
     expect(parsed.mock.calls.filter(([input]) => input === raw)).toHaveLength(1);
   } finally { parsed.mockRestore(); }
 });
+
+
+it('#1308 bulk OK without completion reports uncertainty, not failure to finish', async () => {
+  mockRequest.mockResolvedValueOnce({ organization: { memories: [{ id: 'm', name: 'Docs', source: 'synthetic' }] } });
+  mockRequest.mockResolvedValueOnce({ syncMemory: { syncStatus: 'OK', lastSyncReport: null, lastSyncedAt: null } });
+  const result = await runAction('syncAll') as { form: { message: { type: string; text: string } } };
+  expect(result.form.message.text).toContain('Clean completed syncs are not confirmed for: Docs.');
+  expect(result.form.message.text).not.toContain('didn’t finish');
+  expect(result.form.message.text).not.toContain('All memories synced.');
+});
