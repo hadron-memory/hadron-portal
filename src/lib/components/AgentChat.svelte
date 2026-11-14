@@ -9,6 +9,7 @@
   import AssetChip from '$lib/components/assets/AssetChip.svelte';
   import type { AssetSummary } from '$lib/api/assetUpload';
   import { olderCursorFrom } from '$lib/agent-chat-window';
+  import { AGENT_CHAT_KEY } from '$lib/app-chats';
   import { resolveActiveChatFromUrl } from '$lib/components/agent-chat-helpers.js';
   import { scrollTopAfterPrepend } from '$lib/team-chat-refresh';
   import { t } from '$lib/i18n/t.js';
@@ -307,20 +308,25 @@
 
   // ── Initial list fetch ───────────────────────────────────────────────
   // After loading the chat list, auto-resume the chat referenced by
-  // `?chat=<id>` so a reload restores the open conversation. Without
+  // `?chat=agent chat&agentChat=<loc>` on an App (legacy `?chat=<loc>`
+  // elsewhere) so a reload restores the open conversation. Without
   // this, every reload silently emptied the transcript pane — to the
   // user that looked like "chats are not saving."
   onMount(async () => {
     await refreshChatList();
-    const target = resolveActiveChatFromUrl(new URL(window.location.href), chats);
+    const target = resolveActiveChatFromUrl(new URL(window.location.href), chats, !!appId);
     if (target) {
       // A page load is not the person choosing a chat: show it, don't move focus.
       await resumeChat(target, { focus: false });
     } else if (
       listError === null &&
-      new URL(window.location.href).searchParams.has('chat')
+      (!appId || new URL(window.location.href).searchParams.get('chat') === AGENT_CHAT_KEY) &&
+      new URL(window.location.href).searchParams.has(appId ? 'agentChat' : 'chat')
     ) {
-      // Stale ?chat=<id> (e.g. chat deleted in another tab) — clear it.
+      if (appId) {
+        setTurnError(t('agent-chat.not-found', 'That chat isn’t available — it may have been deleted, or you may not have access.'));
+      }
+      // Stale personal chat id (e.g. deleted in another tab) — clear it.
       // Gated on a successful list fetch: a transient list failure
       // leaves `chats` empty too, but we MUST NOT throw away a valid
       // ?chat param in that case — the next list reload should still
@@ -375,12 +381,18 @@
     // hrn:node:hadronmemory.com:hadron-portal:review:async-onmount-runs-after-teardown.
     if (destroyed) return;
     const url = new URL(window.location.href);
+    const param = appId ? 'agentChat' : 'chat';
     if (chatId) {
-      if (url.searchParams.get('chat') === chatId) return;
-      url.searchParams.set('chat', chatId);
+      if (url.searchParams.get(param) === chatId &&
+        (!appId || (url.searchParams.get('chat') === AGENT_CHAT_KEY && url.searchParams.get('tab') === 'chats'))) return;
+      if (appId) {
+        url.searchParams.set('tab', 'chats');
+        url.searchParams.set('chat', AGENT_CHAT_KEY);
+      }
+      url.searchParams.set(param, chatId);
     } else {
-      if (!url.searchParams.has('chat')) return;
-      url.searchParams.delete('chat');
+      if (!url.searchParams.has(param)) return;
+      url.searchParams.delete(param);
     }
     replaceState(url, {});
   }
