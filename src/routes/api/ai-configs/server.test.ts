@@ -298,6 +298,15 @@ describe('POST /api/ai-configs', () => {
     expect(mockRequest.mock.calls[1][1].apiStyle).toBeUndefined();
   });
 
+  it('create/update: kimi reaches the server unchanged, model string included (#2138)', async () => {
+    mockRequest.mockResolvedValue({ createAiServiceConfig: { id: 'c1' }, updateAiServiceConfig: { id: 'c1' } });
+    const { POST } = await import('./+server');
+    await POST(ev({ body: { action: 'create', ownerType: 'ORGANIZATION', ownerId: 'o1', name: 'k', provider: 'kimi', model: ' Kimi-K3-Odd ', apiKey: 'k' } }));
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ provider: 'kimi', model: ' Kimi-K3-Odd ' });
+    await POST(ev({ body: { action: 'update', id: 'c1', provider: 'kimi', model: 'kimi-k9' } }));
+    expect(mockRequest.mock.calls[1][1]).toMatchObject({ provider: 'kimi', model: 'kimi-k9' });
+  });
+
   it('update: an ABSENT endpoint/apiStyle is unchanged, null clears, a value sets', async () => {
     mockRequest.mockResolvedValue({ updateAiServiceConfig: { id: 'c1' } });
     const { POST } = await import('./+server');
@@ -334,6 +343,7 @@ describe('POST /api/ai-configs', () => {
     const { POST } = await import('./+server');
     for (const body of [
       { provider: 'openai-compatible', endpoint: 'https://llm.example.com/v1' },
+      { provider: 'kimi' }, // #2138: config-only; saved-config test only, through the server
       { provider: 'glm' }, // the portal's glm host is the Coding Plan, not the server default
       { provider: 'openai', endpoint: 'https://proxy.example.com/v1' },
       { provider: 'openai', apiStyle: 'CHAT_COMPLETIONS' },

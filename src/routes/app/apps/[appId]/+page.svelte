@@ -12,6 +12,8 @@
   import { publicServerBaseUrl } from '$lib/public-server-base-url';
   import { tick, untrack, onDestroy } from 'svelte';
   import { applyAction } from '$app/forms';
+  import { page } from '$app/stores';
+  import { dropNamedActions } from './app-list-pages';
   import { beforeNavigate, goto, afterNavigate, invalidateAll, preloadData, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -138,7 +140,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker, AiServiceConfig } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
-  import type { AppTabId } from './tab-intent';
+  import { resolveTabIntent, type AppTabId } from './tab-intent';
   import AppNodeRoleTemplates from './AppNodeRoleTemplates.svelte';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
@@ -152,7 +154,7 @@
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
   import skillGetStarted from '$lib/assets/skill-get-started.md?raw';
   import skillSearch from '$lib/assets/skill-search.md?raw';
-  import CappedNotice from '$lib/components/CappedNotice.svelte';
+  import ListPageNav from '$lib/components/ListPageNav.svelte';
   import type { PageData, ActionData } from './$types';
   import {
     addAgentSchema,
@@ -1086,7 +1088,11 @@
   // below), and the action URL has no `?tab=` for the loader to agree with.
   afterNavigate((nav) => {
     if (!(nav.type === 'enter' && form)) {
-      activeTab = (data.initialTab as TabId | null) ?? 'chats';
+      // #1943: local tabs now rewrite `?tab=` by shallow replaceState, which leaves the entry's loader
+      // data (`data.initialTab`) on the tab that was LOADED. Back lands on such an entry, so the address
+      // bar is the truthful source; the loader's tab applies when the URL names none.
+      const urlTab = resolveTabIntent(new URL(window.location.href).searchParams).initialTab;
+      activeTab = ((urlTab ?? data.initialTab) as TabId | null) ?? 'chats';
     }
     chatMaximized = data.initialChatFullView;
   });
@@ -1137,11 +1143,21 @@
     }
   }
   // The post action URL REPLACES the query string (see the comment on the
-  // form), so it must carry the view too, or a non-enhanced POST would land
-  // the reader back in the tab view with their place lost.
-  const teamChatAction = $derived(
-    `?tab=chats&chat=chats%3Ateam${chatMaximized ? '&view=full' : ''}&/postTeamChatMessage`,
-  );
+  // form), so it must carry the COMPLETE current location: team filter, full
+  // view, selected chat and every independent list offset.
+  function chatActionUrl(action: 'postTeamChatMessage' | 'postChannelMessage', chatKey: string, full = false): string {
+    // A failed native post leaves its action name in the URL; replace it, never add a second.
+    const params = dropNamedActions(new URLSearchParams($page.url.searchParams));
+    params.set('tab', 'chats');
+    params.set('chat', chatKey);
+    if (data.chatRootsPage?.offset > 0 && !params.has('chatRootsOffset')) {
+      params.set('chatRootsOffset', String(data.chatRootsPage.offset));
+    }
+    if (full) params.set('view', 'full'); else params.delete('view');
+    return `?${params.toString()}&/${action}`;
+  }
+  const teamChatAction = $derived(chatActionUrl('postTeamChatMessage', TEAM_CHAT_LOC, chatMaximized));
+  const channelChatAction = $derived(chatActionUrl('postChannelMessage', data.selectedChatKey ?? ''));
 
   // #768 — roving focus for the tab strip. Only the selected tab is in the
   // sequential tab order, so the strip is ONE stop rather than one per tab, and
@@ -1180,6 +1196,12 @@
   // clears the manager's copy of the question so its own route guard does not ask a second time.
   // If we then do not land on the chosen tab, the question is put back with the draft.
   let templatesLeaveMessage = $state<string | null>(null);
+  function syncTabParam(id: TabId) {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('tab') === id) return;
+    url.searchParams.set('tab', id);
+    replaceState(url, {});
+  }
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
     let asked: string | null = null;
@@ -1223,6 +1245,10 @@
       if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
       landed = true;
       activeTab = id;
+      // #1943: Runs and Templates already navigated to `?tab=<id>`; every other tab was local state,
+      // so the address bar kept the last navigated tab. Name the shown tab by a shallow replaceState
+      // (no history entry, no loader re-run), the way `?chat=` and `?view=` are synced.
+      if (!ownNavigationHref) syncTabParam(id);
       await tick();
       if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id}`)?.focus();
     } catch { /* A failed navigation keeps the current tab; the router owns its error. */ }
@@ -2266,10 +2292,11 @@
       {#if data.selectedChannelId && data.selectedChatKey?.startsWith('hrn:')}
         <Urn value={data.selectedChatKey} type="node" />
       {/if}
-      {#if data.chatsCapped}
-        <CappedNotice shown={data.chatRootsShown ?? 0} what={t('capped.chats', 'chats')} />
-      {/if}
     </div>
+    {#if data.chatRootsPage && !data.chatRootsError}
+      <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.chats.page-window', 'Registered Channels stay available on every page. Pagination covers legacy chat roots only.')}</p>
+      <ListPageNav page={data.chatRootsPage} label={t('app.chats.pages', 'Legacy chat-root pages')} />
+    {/if}
 
     {#if data.chatNotFound}
       <!-- The reader followed a link to a SPECIFIC chat. Substituting the
@@ -2508,7 +2535,7 @@
           <ChannelChatThread appId={app.id} {channelId} messages={data.selectedChannelMessages}
             total={data.selectedChannelTotal} loadError={data.selectedChannelError}
             postForm={data.postChannelMessageForm} {form} {workerUrns}
-            action={`?tab=chats&chat=${encodeURIComponent(data.selectedChatKey ?? '')}&/postChannelMessage`}
+            action={channelChatAction}
             onSubmittingChange={(submitting) => { channelPostBusy = submitting; }}
             viewState={channelViews[channelStateKey]} onViewStateChange={(view) => { channelViews[channelStateKey] = view; }}
             draft={channelDrafts[channelStateKey]} onDraftChange={(draft) => { channelDrafts[channelStateKey] = draft; }} />
@@ -3406,13 +3433,17 @@
          rights across this App. Omit the partial writable set so the browser
          makes no read-only claim from omission; server writes stay authoritative.
          The full memory list awaits the server projection in #2190. -->
-    {#if data.appNodesCapped}
-      <div class="mb-3"><CappedNotice shown={data.appNodes?.length ?? 0} what={t('capped.nodes', 'nodes')} /></div>
-    {/if}
     {#if memoryScope === null}
       <p role="alert" class="mb-3 text-sm text-red-600 dark:text-red-400">{t('app.memory-scope.failed', 'Could not load accessible memories. Reload to try again.')}</p>
     {/if}
-    <MemoryBrowser nodes={data.appNodes ?? []} multiMemory={true} scopeMemoryIds={(memoryScope ?? []).map((m) => m.memoryId)} scopeMemories={memoryScope ?? []} />
+    <MemoryBrowser
+      nodes={data.appNodes ?? []}
+      multiMemory={true}
+      scopeMemoryIds={(memoryScope ?? []).map((m) => m.memoryId)}
+      scopeMemories={memoryScope ?? []}
+      serverPage={data.appNodesPage ?? null}
+      pageLabel={t('app.memory-node.pages', 'Memory node pages')}
+    />
     </div>
   {/if}
 
@@ -3420,8 +3451,12 @@
   {#if activeTab === 'keys'}
     <div id="panel-keys" role="tabpanel" aria-labelledby="tab-keys" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-8">
-      <!-- App Keys (the richer download flow lives on the Client tab for non-CHATBOT apps) -->
-      <section class="max-w-2xl">
+      <!-- App Keys (the richer download flow lives on the Client tab for non-CHATBOT apps).
+           portal#2135: only the prose and the create row keep the readable
+           42rem; the key table takes the panel's full width, so its default
+           columns fit on a desktop instead of scrolling inside a narrow box. -->
+      <section data-testid="app-keys-section">
+        <div class="max-w-2xl">
         <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">{t('app.keys.heading', 'App Keys')}</h2>
         <p class="mb-4 text-sm text-zinc-500">
           App Keys are long-lived server secrets. Store them in your backend environment —
@@ -3434,22 +3469,29 @@
         {#if keyControls === 'unknown'}
           <p role="status" data-testid="key-controls-unknown" class="mb-3 text-sm text-zinc-500">{keyControlsUnknownNote()}</p>
         {/if}
-        <form method="POST" action="?/createKey" use:createKeyEnhance class="mb-5 flex items-start gap-2" novalidate>
+        <!-- portal#2135: a grid, so the button shares the INPUT's row and is
+             centered on it; the label sits on the row above and an error on
+             the row below, and neither can move the button. The breakpoint
+             is the row's own width (@container, @sm = 24rem): below it there
+             is no room for a 200px input beside the button, so the same
+             button stacks under the input at full width. -->
+        <div class="@container mb-5">
+        <form method="POST" action="?/createKey" use:createKeyEnhance class="grid grid-cols-1 gap-x-2 @sm:grid-cols-[minmax(200px,1fr)_auto]" novalidate>
           <input type="hidden" name="_kind" value={$createKeyForm._kind} />
-          <div class="flex-1">
-            <label for="label" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Label (optional)</label>
-            <input id="label" type="text" name="label" placeholder="e.g. production-backend"
-              bind:value={$createKeyForm.label} class={inputClass} />
-            {#if createKeyActionError}
-              <p role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{createKeyActionError}</p>
-            {/if}
-          </div>
+          <label for="label" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300 @sm:col-start-1 @sm:row-start-1">Label (optional)</label>
+          <input id="label" type="text" name="label" placeholder="e.g. production-backend"
+            bind:value={$createKeyForm.label} class="{inputClass} @sm:self-center @sm:col-start-1 @sm:row-start-2" />
+          {#if createKeyActionError}
+            <p role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400 @sm:col-start-1 @sm:row-start-3">{createKeyActionError}</p>
+          {/if}
           <button type="submit" disabled={$createKeySubmitting}
-            class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" style="background: #fb8500;">
+            class="mt-2 min-h-11 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 @sm:mt-0 @sm:self-center @sm:col-start-2 @sm:row-start-2" style="background: #fb8500;">
             {$createKeySubmitting ? 'Generating...' : '+ Generate Key'}
           </button>
         </form>
+        </div>
         {/if}
+        </div>
 
         {#if data.keyScopes?.kind === 'failed'}
           <p role="status" class="text-xs text-amber-700 dark:text-amber-300">{t('app.keys.scopes.failed', 'Couldn’t load what these keys may do, so the Scopes column isn’t shown.')}</p>

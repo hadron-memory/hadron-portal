@@ -13,7 +13,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { beginEnhanced } from '$lib/test/stubs/app-forms';
-import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_PAGE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY } from '$lib/server/queries';
 import { COMMENT_THREADS_QUERY, NODE_COMMENT_SUMMARY_QUERY, SELF_MEMORY_ACCESS_QUERY } from '$lib/server/comments';
 // Static imports: the page is large (see form-ids.client.test.ts).
 import Page from './+page.svelte';
@@ -50,7 +50,7 @@ beforeEach(() => {
   setStubPage('http://localhost/app/memories/mem-A/nodes/leaf-pk', { id: 'mem-A', nodeId: 'leaf-pk' });
   mockRequest.mockImplementation(async (doc: string) => {
     if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: NODE };
-    if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+    if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
     if (doc === NODE_SIGNATURES_QUERY) {
       return { node: { id: 'leaf-pk', revision: 4, signatureStatus: { state: 'NOT_APPLICABLE', integrityProblems: 0, signatures: [] } } };
     }

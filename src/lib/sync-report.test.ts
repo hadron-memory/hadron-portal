@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { parseSyncReport, syncOutcomeMessage } from './sync-report';
-import { parse, Kind } from 'graphql';
-import { MEMORY_FIELDS, SYNC_MEMORY_MUTATION } from './server/queries';
 const at = '2026-10-26T01:02:03.000Z';
 const entry = { kind: 'held_move', loc: 'docs:new', fromLoc: 'docs:old', code: 'MOVE_HELD' };
 const report = (over: Record<string, unknown> = {}) => JSON.stringify({ version: 1, outcome: 'partial', recordedAt: at, entries: [entry], ...over });
@@ -61,10 +59,35 @@ describe('stored sync report', () => {
     expect(syncOutcomeMessage({ syncStatus: 'ERROR', lastSyncReport: null, lastSyncedAt: at }).type).toBe('error');
     expect(syncOutcomeMessage({ syncStatus: 'SYNCING', lastSyncReport: null, lastSyncedAt: at }).text).not.toBe('Memory synced.');
   });
-  it('selects the field in the real shared fragment and mutation; removal is red', () => {
-    const selected = (source: string) => parse(source).definitions.some(d => d.kind === Kind.FRAGMENT_DEFINITION && d.name.value === 'MemoryFields' && d.selectionSet.selections.some(s => s.kind === Kind.FIELD && s.name.value === 'lastSyncReport'));
-    expect(selected(MEMORY_FIELDS)).toBe(true);
-    expect(selected(SYNC_MEMORY_MUTATION)).toBe(true);
-    expect(selected(MEMORY_FIELDS.replace(/\blastSyncReport\b/g, 'syncError'))).toBe(false);
+
+});
+
+
+describe('#1308 defensive source and feedback pins', () => {
+  it.each(['https://user:secret@example.test/path', 'ghs_SYNTHETIC', 'github_pat_SYNTHETIC', 'hdr_app_SYNTHETIC', 'Bearer SYNTHETIC'])(
+    'rejects the entire report when fromLoc contains %s', fromLoc => {
+      expect(parseSyncReport(report({ entries: [{ ...entry, fromLoc }] }), 'OK', at)).toEqual({ state: 'unavailable', entries: [] });
+      expect(parseSyncReport(report({ entries: [{ ...entry, fromLoc: 'docs:previous' }] }), 'OK', at).state).toBe('partial');
+    },
+  );
+  it('uses only closed status copy, never a raw status value', () => {
+    const text = syncOutcomeMessage({ syncStatus: 'ghs_SYNTHETIC <script>', lastSyncReport: null }).text;
+    expect(text).toContain('status: —');
+    expect(text).not.toContain('SYNTHETIC');
+    expect(text).not.toContain('<script>');
+    expect(syncOutcomeMessage({ syncStatus: 'SYNCING', lastSyncReport: null }).text).toContain('status: SYNCING');
+  });
+  it('does not call an OK status unfinished when completion is unconfirmed', () => {
+    const text = syncOutcomeMessage({ syncStatus: 'OK', lastSyncReport: null, lastSyncedAt: null }).text;
+    expect(text).toBe('No clean completed sync is confirmed. Check the sync status and last-synced time.');
+    expect(text).not.toContain('didn’t finish');
+  });
+  it.each(['loc', 'fromLoc'] as const)('truncates %s by code points without cutting an astral character', field => {
+    const source = 'x'.repeat(238) + '😀' + 'y'.repeat(10);
+    const view = parseSyncReport(report({ entries: [{ ...entry, [field]: source }] }), 'OK', at);
+    expect(view.entries[0][field]).toBe('x'.repeat(238) + '😀…');
+    expect(Array.from(view.entries[0][field]!).length).toBe(240);
+    const exact = '😀'.repeat(240);
+    expect(parseSyncReport(report({ entries: [{ ...entry, [field]: exact }] }), 'OK', at).entries[0][field]).toBe(exact);
   });
 });

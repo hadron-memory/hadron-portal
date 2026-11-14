@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { APP_CHAT_ROOTS_QUERY, APP_MEMBERS_QUERY, APP_QUERY, CREATE_NODE_MUTATION, LEGACY_THREAD_PROBE_QUERY, NODES_BY_LOC_PREFIX_QUERY, NODE_BY_ID_QUERY, SELF_CAN_MANAGE_QUERY } from './queries';
+import { APP_CHAT_ROOTS_PAGE_QUERY, APP_NODES_PAGE_QUERY, APP_MEMBERS_QUERY, APP_QUERY, CREATE_NODE_MUTATION, LEGACY_THREAD_PROBE_QUERY, NODES_BY_LOC_PREFIX_QUERY, NODE_BY_ID_QUERY, SELF_CAN_MANAGE_QUERY } from './queries';
 import { chatPostTarget, postChatMessage } from './team-chat';
 import { serveMemoryReads } from '$lib/test/serveMemoryReads';
 
@@ -24,7 +24,11 @@ beforeEach(() => {
     if (doc === APP_QUERY) return { app: { id: 'app', name: 'Fixture', urn: 'hrn:app:fixture.test:fixture', organizationId: null, appType: 'CHATBOT', role: 'ADMIN', agentId: null, agent: null, createUserPermission: 'DENY', identifyUserMethod: 'USER_ID', sessionTimeoutSeconds: 3600, anonymousTtlDays: 14 } };
     if (doc === APP_MEMBERS_QUERY) return { app: { members: [] } };
     if (doc === SELF_CAN_MANAGE_QUERY) return { effectiveAccess: { canManage: true } };
-    if (doc === APP_CHAT_ROOTS_QUERY) return { appNodes: root ? [root] : [] };
+    if (doc === APP_NODES_PAGE_QUERY) return { appNodesPage: { items: [], total: 0, hasMore: false } };
+    if (doc === APP_CHAT_ROOTS_PAGE_QUERY) {
+      const items = root ? [root] : [];
+      return { appNodesPage: { items, total: items.length, hasMore: false } };
+    }
     if (doc === CREATE_NODE_MUTATION) {
       const n = { ...vars.input, id: 'written-legacy', seq: null, createdAt: '2026-11-01T00:00:00Z' };
       (thread ??= []).push(n);

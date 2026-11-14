@@ -6,6 +6,7 @@
   //   Organization → /app/account/organizations  (memberships / create org)
   //   Invite       → /app/account/invite         (invite a user)
   //   API Keys     → /app/account/api-keys        (API keys)
+  //   Grants       → /app/account/grants          (own grants across Apps, #2134)
   import { page } from '$app/stores';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import { t } from '$lib/i18n/t';
@@ -18,10 +19,13 @@
     { id: 'node-role-templates', label: t('config.templates', 'Node-role templates'), href: '/app/account/node-role-templates' },
     { id: 'invite', label: t('app.account.tab.invite', 'Invite'), href: '/app/account/invite' },
     { id: 'api-keys', label: t('app.account.tab.api-keys', 'API Keys'), href: '/app/account/api-keys' },
+    { id: 'grants', label: t('app.account.tab.grants', 'Grants'), href: '/app/account/grants' },
   ];
   const activeTab = $derived(
     $page.url.pathname.startsWith('/app/account/node-role-templates')
       ? 'node-role-templates'
+      : $page.url.pathname.startsWith('/app/account/grants')
+      ? 'grants'
       : $page.url.pathname.startsWith('/app/account/api-keys')
       ? 'api-keys'
       : $page.url.pathname.startsWith('/app/account/organizations')

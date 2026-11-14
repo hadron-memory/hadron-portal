@@ -157,6 +157,27 @@ describe('findingTextParts: invisible operators and separators are revealed (por
   });
 });
 
+// portal#2128 — the space separators (Zs) are ordinary text and deliberately NOT revealed. A characterization pin.
+describe('findingTextParts: Unicode space separators pass through unchanged (portal#2128)', () => {
+  const join = (s: string) => findingTextParts(s).map((p) => p.text).join('');
+  const ZS = [0x20, 0xA0, 0x1680, ...Array.from({ length: 11 }, (_, i) => 0x2000 + i), 0x202F, 0x205F, 0x3000];
+  it('renders each listed Zs code point unchanged, as one unmarked part', () => {
+    for (const cp of ZS) {
+      const ch = String.fromCodePoint(cp);
+      const hex = cp.toString(16).toUpperCase();
+      expect(findingTextParts(`a${ch}b`), hex).toEqual([{ text: `a${ch}b`, marker: false }]);
+    }
+  });
+  it('the list is the whole Zs category of the Unicode version in use (a new Zs code point must be decided, not missed)', () => {
+    const all: number[] = [];
+    for (let cp = 0; cp <= 0x10FFFF; cp++) if (/^\p{Zs}$/u.test(String.fromCodePoint(cp))) all.push(cp);
+    expect(all).toEqual(ZS);
+  });
+  it('U+205F, between the revealed block and the visible control U+205E, is not revealed', () => {
+    expect(join('a\u205Fb')).toBe('a\u205Fb');
+  });
+});
+
 // portal#2113 A2 — the kept emoji tag sequence stays bounded: black flag, 1-6 lowercase tag letters/digits, CANCEL TAG.
 describe('findingTextParts: the kept tag sequence is exactly bounded (portal#2113 A2)', () => {
   const join = (s: string) => findingTextParts(s).map((p) => p.text).join('');

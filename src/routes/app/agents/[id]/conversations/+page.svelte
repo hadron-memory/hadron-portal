@@ -606,13 +606,13 @@
     </p>
   </div>
 
-  <!-- Revisions toolbar -->
-  <div class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-zinc-900">
+  <!-- #2092: wrap authoring controls within the page; never clip or hide an action. -->
+  <div data-testid="conversation-toolbar" class="flex min-w-0 flex-wrap items-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-zinc-900">
     <!-- Lock indicator -->
     {#if lockBlockedBy}
-      <div class="flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-        Locked by {lockBlockedBy}
+      <div class="flex max-w-full min-w-0 items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400">
+        <svg class="shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        <span class="min-w-0 break-words">Locked by {lockBlockedBy}</span>
       </div>
     {:else if lockOwned}
       <div class="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
@@ -624,8 +624,8 @@
     <div class="flex-1"></div>
 
     <!-- Add conversation -->
-    <div class="flex flex-col items-start gap-1">
-      <form method="POST" action="?/addConversation" use:addConversationEnhance class="flex items-center gap-1" novalidate>
+    <div class="flex min-w-0 max-w-full flex-col items-start gap-1">
+      <form method="POST" action="?/addConversation" use:addConversationEnhance class="flex max-w-full flex-wrap items-center gap-1" novalidate>
         <input type="hidden" name="systemMemoryId" bind:value={$addConversationData.systemMemoryId} />
         <input
           type="text"
@@ -635,12 +635,12 @@
           aria-label={t('conversation.editor.addConversation.placeholder', 'New conversation…')}
           aria-invalid={$addConversationErrors.name?.[0] ? 'true' : undefined}
           aria-describedby={$addConversationErrors.name?.[0] ? 'add-conversation-name-error' : undefined}
-          class="w-44 rounded border border-zinc-300 px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+          class="min-h-11 w-44 max-w-full rounded border border-zinc-300 px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
         />
         <button
           type="submit"
           disabled={!$addConversationData.name.trim() || $addConversationSubmitting}
-          class="rounded-md px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+          class="min-h-11 shrink-0 rounded-md px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
           style="background: #219ebc;"
         >
           {$addConversationSubmitting
@@ -658,15 +658,15 @@
     </div>
 
     <button type="button" onclick={saveRevision} disabled={revisionsBusy || !!lockBlockedBy}
-      class="rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-200 disabled:opacity-50 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700">
+      class="min-h-11 shrink-0 rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-200 disabled:opacity-50 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700">
       Save revision
     </button>
     <button type="button" onclick={() => { showRevisions = !showRevisions; if (showRevisions && revisions.length === 0) loadRevisions(); }}
-      class="rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
+      class="min-h-11 shrink-0 rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
       {showRevisions ? 'Hide revisions' : 'Revisions'}
     </button>
     {#if revisionError}
-      <span class="text-xs text-red-500">{revisionError}</span>
+      <span class="min-w-0 break-words text-xs text-red-500">{revisionError}</span>
     {/if}
   </div>
 

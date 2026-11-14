@@ -33,6 +33,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   ci:
     # #1285: Playwright 1.58.2 cannot install Chromium on Ubuntu 26.04.
@@ -94,6 +98,10 @@ jobs:
       # portal#1826: the Org Integrations Add/select/Configure row at 390px.
       - name: Check Org Integrations add-row phone layout
         run: pnpm test:org-integrations-row-layout
+
+      # portal#2092: all authoring actions and the lock stay reachable on phones.
+      - name: Check Conversation Editor toolbar layout
+        run: pnpm test:conversation-toolbar-layout
 
       # portal#2082: the conversation panel's Save, Clear and Save goals controls.
       - name: Check conversation panel button layout
@@ -158,6 +166,9 @@ jobs:
 
       - name: Check App Runs table layout
         run: pnpm test:app-runs-layout
+
+      - name: Check App Keys tab layout (Generate Key centering, table width)
+        run: pnpm test:app-keys-layout
 
       - name: Check disabled AI config row menu pointer access
         run: pnpm test:ai-config-row-menu

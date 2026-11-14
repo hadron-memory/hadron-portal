@@ -41,7 +41,7 @@ try {
   if (shots) await mkdir(shots, { recursive: true });
 
   /** The App page's shell (nav from `sm`) around the Agent chat panel, the real component in it. */
-  async function open(width, dark, touch) {
+  async function open(width, dark, touch, shortTitle = false) {
     const context = await browser.newContext({ viewport: { width, height: 800 }, hasTouch: touch, isMobile: touch });
     const page = await context.newPage();
     // Everything that goes wrong in the page fails the leg (portal#2104): an
@@ -73,10 +73,10 @@ try {
           },
           { css, dark },
         );
-        await page.evaluate(async () => {
+        await page.evaluate(async (shortTitle) => {
           const { mountAgentChat } = await import('/src/lib/test/fixtures/agent-chat-phone-harness.ts');
-          window.__chat = mountAgentChat(document.getElementById('panel'), { rowActions: true });
-        });
+          window.__chat = mountAgentChat(document.getElementById('panel'), { rowActions: true, shortTitle });
+        }, shortTitle);
         break;
       } catch (e) {
         if (attempt >= 5 || !/Execution context was destroyed|navigation/i.test(String(e))) throw e;
@@ -160,10 +160,11 @@ try {
         li: box(li),
         row: box(button),
         title: box(titleEl),
+        titleLine: box(titleEl.parentElement),
         badge: box(badge),
-        // The count and time: the first text of the line after the row button.
-        meta: box(button.nextElementSibling.querySelector('span')),
-        metaText: button.nextElementSibling.textContent.replace(/\s+/g, ' ').trim(),
+        // The explicit meta hook is independent of sibling order.
+        meta: box(li.querySelector('[data-chat-meta] span')),
+        metaText: li.querySelector('[data-chat-meta]').textContent.replace(/\s+/g, ' ').trim(),
         rename: part(action('Rename')),
         del: part(action('Delete')),
         coarse: matchMedia('(pointer: coarse)').matches,
@@ -178,8 +179,8 @@ try {
   // below @2xl. 1024 fine: wide panel, quiet actions. 1024 touch: a touch
   // tablet with the 256px list (actions on the meta line).
   const LEGS = [
-    { width: 390, touch: true },
     { width: 640, touch: false },
+    { width: 390, touch: true },
     { width: 768, touch: false },
     { width: 1024, touch: false },
     { width: 1024, touch: true },
@@ -187,6 +188,47 @@ try {
   for (const { width, touch } of LEGS) {
     for (const dark of [false, true]) {
       const leg = `${width}${touch ? ' touch' : ''}/${dark ? 'dark' : 'light'}`;
+      // portal#2105: use a fresh mount per activation so a selected-chat
+      // fast path cannot make a missing resume request look successful.
+      for (const shortTitle of [false, true]) {
+        for (const freeSpace of [false, true]) {
+          const metaRun = await open(width, dark, touch, shortTitle);
+          const p = metaRun.page;
+          const id = shortTitle ? 'chats:b' : 'chats:a';
+          const rowButton = p.locator(`[data-chat-row="${id}"]`);
+          // Text activation is independent of the geometry hook; the red
+          // commit fails on a missing resume, not a missing hook.
+          const li = rowButton.locator('..');
+          const measured = await row(p, shortTitle ? 'Hi' : A);
+          assert(measured.titleLine.width >= measured.li.width - 25, `${leg}: title line lost available width (${shortTitle ? 'short' : 'long'})`);
+          assert(measured.title.right <= measured.badge.left + 0.5, `${leg}: title overlaps scope badge`);
+          assert.equal(await li.locator('button:not([tabindex="-1"])').count(), 3, `${leg}: unexpected row tab stops`);
+          const text = li.getByText(shortTitle ? '1 msg' : '3 msgs', { exact: true });
+          if (freeSpace) {
+            const bounds = await li.locator('[data-chat-meta]').boundingBox();
+            const x = bounds.x + bounds.width - 4;
+            const y = bounds.y + bounds.height / 2;
+            const hit = await p.evaluate(({ x, y }) => {
+              const el = document.elementFromPoint(x, y);
+              return { tag: el?.tagName, row: el?.closest('[data-chat-row]')?.getAttribute('data-chat-row'), text: el?.textContent };
+            }, { x, y });
+            assert.equal(hit.row, id, `${leg}: free-space point hits ${JSON.stringify(hit)} at ${x},${y}`);
+            if (touch) await p.touchscreen.tap(x, y);
+            else await p.mouse.click(x, y);
+          } else {
+            const bounds = await text.boundingBox();
+            const x = bounds.x + bounds.width / 2;
+            const y = bounds.y + bounds.height / 2;
+            if (touch) await p.touchscreen.tap(x, y);
+            else await p.mouse.click(x, y);
+          }
+          await p.waitForFunction(() => window.__chat.calls.resume === 1, null, { timeout: 2000 })
+            .catch(async () => assert.fail(`${leg}: ${shortTitle ? 'short' : 'long'} meta ${freeSpace ? 'free space' : 'text'} did not resume exactly once: ${JSON.stringify(await p.evaluate(() => window.__chat.calls))}`));
+          assert.equal(await p.evaluate(() => window.__chat.calls.title + window.__chat.calls.delete), 0, `${leg}: meta activation ran an action`);
+          assert.deepEqual(metaRun.errors, [], `${leg}: meta activation page errors`);
+          await metaRun.context.close();
+        }
+      }
       const { page, errors, context } = await open(width, dark, touch);
       const panelWidth = await page.evaluate(() => document.getElementById('panel').firstElementChild.clientWidth);
       const narrow = panelWidth < WIDE;
@@ -222,7 +264,7 @@ try {
       // title keeps the row's width.
       assert(r.rename.box.top >= r.title.bottom - 0.5, `${leg}: actions must sit below the title line`);
       assert(r.del.box.right >= r.li.right - 8, `${leg}: actions should sit at the row's right edge`);
-      assert(r.title.right <= r.badge.left + 0.5 && r.badge.right >= r.li.right - 120, `${leg}: the title line lost its width to the actions`);
+      assert(r.title.right <= r.badge.left + 0.5 && r.titleLine.width >= r.li.width - 25, `${leg}: the title line lost its width to the actions`);
       // With a mouse the count and time hug the title rather than floating in
       // the 44px line. On touch the row button itself is a 44px target, so
       // the gap below the title is that target's (acceptance 3: the actions
@@ -235,6 +277,18 @@ try {
       assert.match(r.metaText, /^3 msgs · \S/, `${leg}: A's meta line reads "${r.metaText}"`);
       const rb = await row(page, B);
       assert.equal(rb.metaText, '1 msg', `${leg}: B's meta line reads "${rb.metaText}"`);
+
+      // A real pointer at Rename's centre must activate Rename itself,
+      // not the stretched opener behind it (including touch hit adjustment).
+      r = await row(page, A);
+      const renamePoint = { x: r.rename.box.left + r.rename.box.width / 2, y: r.rename.box.top + r.rename.box.height / 2 };
+      if (touch) await page.touchscreen.tap(renamePoint.x, renamePoint.y);
+      else await page.mouse.click(renamePoint.x, renamePoint.y);
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+      assert.equal(await page.evaluate(() => window.__chat.calls.resume), 0, `${leg}: pointer Rename opened the chat`);
+      assert.equal(await page.locator('#panel li input[type="text"]').count(), 1, `${leg}: pointer Rename did not open its input`);
+      await page.keyboard.press('Escape');
+      await page.locator('#panel li input[type="text"]').waitFor({ state: 'detached' });
 
       // ── Hover reveals (wide, mouse) ───────────────────────────────────
       if (!touch) {
