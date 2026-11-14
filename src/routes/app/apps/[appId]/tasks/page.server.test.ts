@@ -44,6 +44,31 @@ describe('board loader', () => {
     expect(request).toHaveBeenLastCalledWith(AGENT_TASKS_BOARD_QUERY, expect.objectContaining({ overdue: true, tagsAll: ['ops', 'infra'] }));
   });
 
+  // portal#1643 (hadron-server#2663)
+  it('Unresolved findings in Ended or All asks for unresolvedFindings across the whole tree, and says it is on', async () => {
+    request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { agentTasks: [] }));
+    for (const status of ['ended', 'all']) {
+      const r = await loadBoard(`?status=${status}&unresolved=1`);
+      expect(r).toMatchObject({ unresolved: true, unresolvedDropped: false });
+      expect(request.mock.calls.filter((c) => c[0] === AGENT_TASKS_BOARD_QUERY).at(-1)![1]).toMatchObject({ unresolvedFindings: true, rootsOnly: false });
+    }
+  });
+  it('Unresolved findings in Active, Queued or Backlog is dropped, not sent, and the page is told', async () => {
+    request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { agentTasks: [] }));
+    for (const status of ['active', 'queued', 'backlog']) {
+      request.mockClear();
+      const r = await loadBoard(`?status=${status}&unresolved=1`);
+      expect(r).toMatchObject({ unresolved: false, unresolvedDropped: true });
+      const vars = request.mock.calls.find((c) => c[0] === AGENT_TASKS_BOARD_QUERY)![1];
+      expect(vars).not.toHaveProperty('unresolvedFindings');
+      expect(vars).not.toHaveProperty('rootsOnly');
+    }
+  });
+  it('a stray unresolved value is canonicalised away with a redirect, like a stray overdue', async () => {
+    request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { agentTasks: [] }));
+    await expect(loadBoard('?status=ended&unresolved=yes')).rejects.toMatchObject({ status: 303, location: expect.not.stringContaining('unresolved') });
+  });
+
   it('sends neither argument when the URL sets neither', async () => {
     request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { agentTasks: [] }));
     await loadBoard();

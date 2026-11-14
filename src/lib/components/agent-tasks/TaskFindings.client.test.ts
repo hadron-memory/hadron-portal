@@ -13,6 +13,17 @@ const rows = (from: number, n: number) => Array.from({ length: n }, (_, i) => ro
 const page = (taskId: string, offset: number, items: Finding[], total: number, hasMore: boolean): FindingsRead => ({ kind: 'page', page: { taskId, offset, items, total, hasMore } });
 const reply = (body: unknown, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => body }) as Response;
 function deferred() { let resolve!: (r: Response) => void; const promise = new Promise<Response>((r) => { resolve = r; }); return { promise, resolve }; }
+/**
+ * The dispositions are a separate read (portal#1643). The paging tests count THEIR requests, so the
+ * dispositions URL answers an empty set from its own function and never reaches the paging mock.
+ */
+const dispositionCalls = vi.fn();
+function stubFetch(paging: ReturnType<typeof vi.fn>) {
+  vi.stubGlobal('fetch', (url: unknown, init?: unknown) => {
+    if (String(url).endsWith('/dispositions')) { dispositionCalls(String(url)); return Promise.resolve(reply({ kind: 'ok', items: [], total: 0 })); }
+    return (paging as unknown as (u: unknown, i?: unknown) => Promise<Response>)(url, init);
+  });
+}
 const urls = (f: ReturnType<typeof vi.fn>) => f.mock.calls.map(([u]) => String(u));
 
 async function setup(initial: FindingsRead | Promise<FindingsRead>, taskId = 'task') {
@@ -63,7 +74,7 @@ describe('paging by the served page', () => {
     const f = vi.fn()
       .mockResolvedValueOnce(reply(page('task', 15, rows(16, 7), 40, true)))
       .mockResolvedValueOnce(reply(page('task', 22, rows(23, 18), 40, false)));
-    vi.stubGlobal('fetch', f);
+    stubFetch(f);
     const m = await setup(page('task', 0, rows(1, 15), 40, true));
     button(m.target, 'Next').click(); await tick(8);
     expect(urls(f)).toEqual(['/app/apps/app/tasks/task/findings?offset=15']);
@@ -81,7 +92,7 @@ describe('paging by the served page', () => {
       .mockResolvedValueOnce(reply(page('task', 0, rows(1, 15), 40, true)))
       .mockResolvedValueOnce(reply(page('task', 15, rows(16, 7), 40, true)))
       .mockResolvedValueOnce(reply(page('task', 0, rows(1, 15), 40, true)));
-    vi.stubGlobal('fetch', f);
+    stubFetch(f);
     const m = await setup(page('task', 0, rows(1, 15), 40, true));
     for (const label of ['Next', 'Next', 'Previous', 'Previous']) { button(m.target, label).click(); await tick(8); }
     expect(urls(f).map((u) => u.split('=')[1])).toEqual(['15', '22', '15', '0']);
@@ -92,13 +103,13 @@ describe('paging by the served page', () => {
   });
   it('makes exactly one request per click and no speculative or all-pages read', async () => {
     const f = vi.fn().mockResolvedValue(reply(page('task', 20, rows(21, 20), 100, true)));
-    vi.stubGlobal('fetch', f);
+    stubFetch(f);
     const m = await setup(page('task', 0, rows(1, 20), 100, true));
     await tick(10); expect(f).not.toHaveBeenCalled();
     button(m.target, 'Next').click(); await tick(8); expect(f).toHaveBeenCalledTimes(1);
   });
   it('an offset beyond the total (the list shrank) is a valid empty page that First recovers from', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply(page('task', 20, [], 10, false))));
+    stubFetch(vi.fn().mockResolvedValue(reply(page('task', 20, [], 10, false))));
     const m = await setup(page('task', 0, rows(1, 20), 40, true));
     button(m.target, 'Next').click(); await tick(8);
     expect(m.target.querySelector('[data-testid="findings-empty"]')?.textContent).toContain('10 recorded');
@@ -107,7 +118,7 @@ describe('paging by the served page', () => {
   });
   it('a provider that does not advance (empty/repeated page with hasMore) fails instead of looping', async () => {
     const f = vi.fn().mockResolvedValue(reply(page('task', 20, rows(1, 20), 100, true)));
-    vi.stubGlobal('fetch', f);
+    stubFetch(f);
     const m = await setup(page('task', 0, rows(1, 20), 100, true));
     button(m.target, 'Next').click(); await tick(8);
     expect(m.target.querySelector('[data-testid="findings-failed"]')).not.toBeNull();
@@ -121,7 +132,7 @@ describe('a repeated page is refused wherever it recurs, not only next to itself
     const f = vi.fn()
       .mockResolvedValueOnce(reply(page('task', 20, rows(21, 20), 80, true)))
       .mockResolvedValueOnce(reply(page('task', 40, rows(1, 20), 80, true)));
-    vi.stubGlobal('fetch', f);
+    stubFetch(f);
     const m = await setup(page('task', 0, rows(1, 20), 80, true));
     button(m.target, 'Next').click(); await tick(8);
     expect(range(m.target)).toBe('Showing findings 21 to 40 of 80');
@@ -137,7 +148,7 @@ describe('a repeated page is refused wherever it recurs, not only next to itself
       .mockResolvedValueOnce(reply(page('task', 20, rows(21, 20), 80, true)))
       .mockResolvedValueOnce(reply(page('task', 40, rows(41, 20), 80, true)))
       .mockResolvedValueOnce(reply(page('task', 0, rows(1, 20), 80, true)));
-    vi.stubGlobal('fetch', f);
+    stubFetch(f);
     const m = await setup(page('task', 0, rows(1, 20), 80, true));
     button(m.target, 'Next').click(); await tick(8);
     button(m.target, 'Previous').click(); await tick(8);
@@ -157,7 +168,7 @@ describe('short provider pages: the repeated-row guard keys on absolute position
       .mockResolvedValueOnce(reply(page('task', 20, rows(21, 7), 60, true)))
       .mockResolvedValueOnce(reply(page('task', 27, rows(28, 13), 60, true)))
       .mockResolvedValueOnce(reply(page('task', 20, rows(21, 20), 60, true)));
-    vi.stubGlobal('fetch', f);
+    stubFetch(f);
     const m = await setup(page('task', 0, rows(1, 20), 60, true));
     button(m.target, 'Next').click(); await tick(8);
     button(m.target, 'Next').click(); await tick(8);
@@ -168,7 +179,7 @@ describe('short provider pages: the repeated-row guard keys on absolute position
   });
   it('a known id at a different absolute position is still refused', async () => {
     const f = vi.fn().mockResolvedValueOnce(reply(page('task', 20, [row('F5'), ...rows(22, 6)], 60, true)));
-    vi.stubGlobal('fetch', f);
+    stubFetch(f);
     const m = await setup(page('task', 0, rows(1, 20), 60, true));
     button(m.target, 'Next').click(); await tick(8);
     expect(m.target.querySelector('[data-testid="findings-failed"]')).not.toBeNull();
@@ -178,7 +189,7 @@ describe('short provider pages: the repeated-row guard keys on absolute position
 describe('failures are never empty, and Retry is the section\'s own', () => {
   it('a failed Next keeps the page only as retained data, never advances, and Retry repeats the same offset', async () => {
     const f = vi.fn().mockRejectedValueOnce(new Error('private fault')).mockResolvedValueOnce(reply(page('task', 20, rows(21, 5), 25, false)));
-    vi.stubGlobal('fetch', f);
+    stubFetch(f);
     const m = await setup(page('task', 0, rows(1, 20), 25, true));
     button(m.target, 'Next').click(); await tick(8);
     expect(m.target.querySelector('[data-testid="findings-failed"]')).not.toBeNull();
@@ -195,7 +206,7 @@ describe('failures are never empty, and Retry is the section\'s own', () => {
   });
   it('an initial failure has no rows or count; Retry reads offset 0', async () => {
     const f = vi.fn().mockResolvedValue(reply(page('task', 0, rows(1, 3), 3, false)));
-    vi.stubGlobal('fetch', f);
+    stubFetch(f);
     const m = await setup({ kind: 'failed' });
     expect(m.target.querySelector('table')).toBeNull(); expect(range(m.target)).toBeUndefined();
     button(m.target, 'Retry').click(); await tick(8);
@@ -207,28 +218,28 @@ describe('failures are never empty, and Retry is the section\'s own', () => {
     ['{kind:"failed"}', () => reply({ kind: 'failed' })], ['a page for another task', () => reply(page('other', 20, rows(21, 2), 30, false))],
     ['a malformed page', () => reply({ kind: 'page', page: { taskId: 'task', offset: 20, items: null, total: 3, hasMore: false } })],
   ])('%s is a failure, not an empty page', async (_n, answer) => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(answer()));
+    stubFetch(vi.fn().mockResolvedValue(answer()));
     const m = await setup(page('task', 0, rows(1, 20), 30, true));
     button(m.target, 'Next').click(); await tick(8);
     expect(m.target.querySelector('[data-testid="findings-failed"]')).not.toBeNull();
     expect(range(m.target)).toBe('Showing findings 1 to 20 of 30');
   });
   it('a failed Retry does not navigate, invalidate or touch the root error page', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('down')));
+    stubFetch(vi.fn().mockRejectedValue(new Error('down')));
     const m = await setup({ kind: 'failed' });
     resetNavigationCalls();
     button(m.target, 'Retry').click(); await tick(8);
     expect(navigationCalls).toEqual([]); expect(m.target.querySelector('[data-testid="findings-failed"]')).not.toBeNull();
   });
   it.each([[404], [403]])('a later %s clears the rows and says unavailable', async (statusCode) => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply({ kind: 'unavailable' }, statusCode)));
+    stubFetch(vi.fn().mockResolvedValue(reply({ kind: 'unavailable' }, statusCode)));
     const m = await setup(page('task', 0, rows(1, 20), 30, true));
     button(m.target, 'Next').click(); await tick(8);
     expect(m.target.querySelector('[data-testid="findings-unavailable"]')).not.toBeNull();
     expect(texts(m.target)).toEqual([]); expect(m.target.querySelector('table')).toBeNull();
   });
   it('a later no-result is its own state, not zero findings', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply({ kind: 'no-result' })));
+    stubFetch(vi.fn().mockResolvedValue(reply({ kind: 'no-result' })));
     const m = await setup(page('task', 0, rows(1, 20), 30, true));
     button(m.target, 'Next').click(); await tick(8);
     expect(m.target.querySelector('[data-testid="findings-no-result"]')).not.toBeNull();
@@ -239,7 +250,7 @@ describe('failures are never empty, and Retry is the section\'s own', () => {
 describe('identity and request-generation fences', () => {
   it('a late page for task A never paints task B (and the current response does apply)', async () => {
     const hold = deferred(); const f = vi.fn().mockReturnValueOnce(hold.promise);
-    vi.stubGlobal('fetch', f);
+    stubFetch(f);
     const m = await setup(page('A', 0, rows(1, 20), 40, true), 'A');
     button(m.target, 'Next').click(); await tick(3);
     m.props.taskId = 'B'; m.props.initial = page('B', 0, [row('B1', 'B text')], 1, false); await tick(5);
@@ -253,7 +264,7 @@ describe('identity and request-generation fences', () => {
     expect(texts(m.target)).toEqual(['B two']);
   });
   it('navigating A to B resets rows, pager trail, loading and error', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('down')));
+    stubFetch(vi.fn().mockRejectedValue(new Error('down')));
     const m = await setup(page('A', 0, rows(1, 20), 40, true), 'A');
     button(m.target, 'Next').click(); await tick(8);
     expect(m.target.querySelector('[data-testid="findings-failed"]')).not.toBeNull();
@@ -262,7 +273,7 @@ describe('identity and request-generation fences', () => {
     expect(m.target.querySelector('[data-testid="findings-loading"]')).not.toBeNull(); expect(texts(m.target)).toEqual([]);
   });
   it('a new loader read for the same task supersedes a response still in flight', async () => {
-    const hold = deferred(); vi.stubGlobal('fetch', vi.fn().mockReturnValueOnce(hold.promise));
+    const hold = deferred(); stubFetch(vi.fn().mockReturnValueOnce(hold.promise));
     const m = await setup(page('task', 0, rows(1, 20), 40, true));
     button(m.target, 'Next').click(); await tick(3);
     m.props.initial = page('task', 0, [row('N1', 'fresh')], 1, false); await tick(5);
@@ -294,7 +305,7 @@ describe('identity and request-generation fences', () => {
   });
   it('unmounting while a fetch is pending aborts it and leaves no unhandled rejection', async () => {
     const hold = deferred(); let signal: AbortSignal | undefined;
-    vi.stubGlobal('fetch', vi.fn().mockImplementation((_u: string, init: RequestInit) => { signal = init.signal as AbortSignal; return hold.promise; }));
+    stubFetch(vi.fn().mockImplementation((_u: string, init: RequestInit) => { signal = init.signal as AbortSignal; return hold.promise; }));
     const m = await setup(page('task', 0, rows(1, 20), 40, true));
     button(m.target, 'Next').click(); await tick(3);
     const caught = await captureUnhandledRejections(async () => { m.unmount(); hold.resolve(reply(page('task', 20, rows(21, 20), 40, false))); await wait(5); });
@@ -304,7 +315,7 @@ describe('identity and request-generation fences', () => {
 
 describe('accessibility and focus', () => {
   it('marks the section busy while a page loads, keeps the live region mounted throughout, and focus on the initiating control', async () => {
-    const hold = deferred(); vi.stubGlobal('fetch', vi.fn().mockReturnValue(hold.promise));
+    const hold = deferred(); stubFetch(vi.fn().mockReturnValue(hold.promise));
     const m = await setup(page('task', 0, rows(1, 20), 40, true));
     const live = status(m.target); expect(live.getAttribute('aria-live')).toBe('polite');
     const next = button(m.target, 'Next'); next.focus(); next.click(); await tick(3);
@@ -317,7 +328,7 @@ describe('accessibility and focus', () => {
     expect(document.activeElement).toBe(button(m.target, 'Next'));
   });
   it('reaching the last page moves focus from the now-disabled Next to the Findings heading', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply(page('task', 20, rows(21, 5), 25, false))));
+    stubFetch(vi.fn().mockResolvedValue(reply(page('task', 20, rows(21, 5), 25, false))));
     const m = await setup(page('task', 0, rows(1, 20), 25, true));
     const next = button(m.target, 'Next'); next.focus(); next.click(); await tick(10);
     expect(button(m.target, 'Next').disabled).toBe(true);
@@ -328,7 +339,7 @@ describe('accessibility and focus', () => {
     expect(document.activeElement).toBe(document.body); expect(m.target.contains(document.activeElement)).toBe(false);
   });
   it('does not steal focus the reader moved elsewhere while the page loaded', async () => {
-    const hold = deferred(); vi.stubGlobal('fetch', vi.fn().mockReturnValue(hold.promise));
+    const hold = deferred(); stubFetch(vi.fn().mockReturnValue(hold.promise));
     const m = await setup(page('task', 0, rows(1, 20), 25, true));
     const other = document.createElement('button'); document.body.appendChild(other);
     const next = button(m.target, 'Next'); next.focus(); next.click(); await tick(3); other.focus();

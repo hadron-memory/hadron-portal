@@ -25,6 +25,9 @@ export const WRITE_REFUSAL_CODES = new Set([
   'TASK_BLOCKER_CYCLE',
   'TASK_NOT_OWNER',
   'TASK_NOT_ASSIGNEE',
+  // portal#1643 (hrn:node:hadronmemory.com:specs:cor:agt:050:30): disposing a finding of an unfinished task, or one that is not on it.
+  'TASK_NOT_FINISHED',
+  'TASK_FINDING_NOT_FOUND',
   'TASK_ENDED',
   'TASK_INVALID_TRANSITION',
   'TASK_ASSIGNEE_INVALID',
@@ -61,12 +64,14 @@ export function writeRefusalStatus(r: WriteRefusal): number {
     case 'SUBSCRIBE_FORBIDDEN':
       return 403;
     case 'TASK_NOT_FOUND':
+    case 'TASK_FINDING_NOT_FOUND':
     case 'TICKER_NOT_FOUND':
     case 'APP_NOT_FOUND':
     case 'WORKER_NOT_FOUND':
     case 'SUBSCRIPTION_NOT_FOUND':
       return 404;
     case 'TASK_ENDED':
+    case 'TASK_NOT_FINISHED':
     case 'TASK_INVALID_TRANSITION':
     case 'APP_UNINSTALLED':
     case 'TICKER_NAME_TAKEN':

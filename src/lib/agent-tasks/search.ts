@@ -13,5 +13,6 @@ export function taskBoardHref(basePath: string, filter: BoardFilter, text: strin
   if (text.trim()) params.set('text', text.trim());
   if (narrow?.overdue) params.set('overdue', '1');
   if (narrow?.tags.length) params.set('tags', narrow.tags.join(','));
+  if (narrow?.unresolved) params.set('unresolved', '1');
   return `${basePath}/tasks${params.size ? `?${params}` : ''}`;
 }

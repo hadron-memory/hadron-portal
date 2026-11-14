@@ -291,7 +291,7 @@
 
   <!-- portal#1637: a finished task's immutable findings, right after the Result they belong to. No result, no section. -->
   {#if task.result}
-    <TaskFindings appId={data.app.id} taskId={task.id} initial={data.findings} />
+    <TaskFindings appId={data.app.id} appUrn={data.app.urn ?? null} taskId={task.id} initial={data.findings} canWrite={data.canWrite} nodeMemories={data.nodeMemories} />
   {/if}
 
   <TaskHandBack handBack={task.handBack} />

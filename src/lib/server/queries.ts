@@ -5350,8 +5350,8 @@ export const AGENT_TASKS_APP_QUERY = /* GraphQL */ `
 
 export const AGENT_TASKS_BOARD_QUERY = /* GraphQL */ `
   ${AGENT_TASK_ROW_FIELDS}
-  query AgentTasksBoard($appRef: ID!, $status: [AgentTaskStatus!], $queued: Boolean, $limit: Int, $text: String, $overdue: Boolean, $tagsAll: [String!]) {
-    agentTasks(appRef: $appRef, rootsOnly: true, status: $status, queued: $queued, limit: $limit, text: $text, overdue: $overdue, tagsAll: $tagsAll) {
+  query AgentTasksBoard($appRef: ID!, $status: [AgentTaskStatus!], $queued: Boolean, $limit: Int, $text: String, $overdue: Boolean, $tagsAll: [String!], $rootsOnly: Boolean = true, $unresolvedFindings: Boolean) {
+    agentTasks(appRef: $appRef, rootsOnly: $rootsOnly, status: $status, queued: $queued, limit: $limit, text: $text, overdue: $overdue, tagsAll: $tagsAll, unresolvedFindings: $unresolvedFindings) {
       ...AgentTaskRowFields
     }
   }
@@ -5783,6 +5783,24 @@ export const TASK_BLOCKED_BY_PAGE_QUERY = /* GraphQL */ `
 export const AGENT_TASK_FINDINGS_QUERY = /* GraphQL */ `
   query AgentTaskFindings($id: ID!, $limit: Int!, $offset: Int!) {
     agentTask(id: $id) { id appId result { findings(limit: $limit, offset: $offset) { items { id severity text } total hasMore } } }
+  }
+`;
+
+/**
+ * portal#1643 (hadron-server#2663) — a finished task's current finding dispositions, the SEPARATE paged
+ * read beside the immutable findings (default 20, max 200). appId rides along so an answer for another
+ * App's task is refused rather than shown.
+ */
+export const AGENT_TASK_FINDING_DISPOSITIONS_QUERY = /* GraphQL */ `
+  query AgentTaskFindingDispositions($id: ID!, $offset: Int!) {
+    agentTask(id: $id) { id appId findingDispositions(limit: 200, offset: $offset) { items { findingId disposition reference { kind target label } } total hasMore } }
+  }
+`;
+
+/** portal#1643 — record (or replace) the disposition of one finding. The server decides who may. */
+export const DISPOSE_AGENT_TASK_FINDING_MUTATION = /* GraphQL */ `
+  mutation DisposeAgentTaskFinding($taskRef: ID!, $findingId: String!, $disposition: AgentTaskFindingDispositionCode!, $reference: AgentTaskReferenceInput) {
+    disposeAgentTaskFinding(taskRef: $taskRef, findingId: $findingId, disposition: $disposition, reference: $reference) { id }
   }
 `;
 
