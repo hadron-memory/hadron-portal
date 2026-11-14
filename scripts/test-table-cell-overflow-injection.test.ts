@@ -4,10 +4,13 @@ import { existsSync } from 'node:fs';
 import { chromium } from 'playwright';
 
 // portal#2129 rows 1, 6, 7, 8: the layout script's own failure paths, run for real in Chromium.
-// Without a browser (CI images that skip the browser legs) this is skipped with a visible reason; LOCAL runs it natively.
+// Without a browser (CI images that skip the browser legs) vitest reports these tests as skipped; LOCAL runs it natively.
 const haveChromium = (() => { try { return existsSync(chromium.executablePath()); } catch { return false; } })();
+// A stray CELL_* in the invoking shell (CELL_SHOTS writes screenshots, CELL_WIDTH narrows the run) must not leak into a case.
+const cleanEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('CELL_')));
 const run = (env: Record<string, string>) => {
-  const r = spawnSync('node', ['scripts/test-table-cell-overflow-layout.mjs'], { env: { ...process.env, CELL_KIND: 'findings', CELL_WIDTH: '390', ...env }, encoding: 'utf8', timeout: 240_000 });
+  const r = spawnSync('node', ['scripts/test-table-cell-overflow-layout.mjs'], { env: { ...cleanEnv(), CELL_KIND: 'findings', CELL_WIDTH: '390', ...env }, encoding: 'utf8', timeout: 240_000 });
+  expect(r.error, 'the layout script must spawn').toBeUndefined();
   return { code: r.status, out: `${r.stdout}\n${r.stderr}` };
 };
 const count = (text: string, needle: string) => text.split(needle).length - 1;
@@ -36,7 +39,7 @@ describe.skipIf(!haveChromium)('layout script failure paths (native)', { timeout
     expect(code).not.toBe(0);
     expect(queued(out, 'expected 2 severity fields, found 1')).toBe(2);
     expect(count(out, 'FAILED, 1 check(s) queued')).toBe(2);
-    expect(queued(out, 'negative control')).toBe(0);
+    expect(queued(out, 'to escape with the severity wrap stripped')).toBe(0);
     expect(queued(out, 'vertical')).toBe(0);
     expect(count(out, SUCCESS)).toBe(0);
   });
@@ -49,9 +52,11 @@ describe.skipIf(!haveChromium)('layout script failure paths (native)', { timeout
 
 // Row 1: a bad value fails before any browser launches. With no browsers installed, a launch would say so;
 // the validation message must be what comes out instead.
-describe('env validation happens before launch', () => {
+// The spawn is bounded at 60 s and must still import vite and playwright first, so the test timeout sits above it.
+describe('env validation happens before launch', { timeout: 90_000 }, () => {
   it.each(['', 'abc', '390px'])('CELL_WIDTH=%j exits non-zero with the validation line and no launch error', v => {
-    const r = spawnSync('node', ['scripts/test-table-cell-overflow-layout.mjs'], { env: { ...process.env, CELL_WIDTH: v, PLAYWRIGHT_BROWSERS_PATH: '/nonexistent-browsers' }, encoding: 'utf8', timeout: 60_000 });
+    const r = spawnSync('node', ['scripts/test-table-cell-overflow-layout.mjs'], { env: { ...cleanEnv(), CELL_WIDTH: v, PLAYWRIGHT_BROWSERS_PATH: '/nonexistent-browsers' }, encoding: 'utf8', timeout: 60_000 });
+    expect(r.error, 'the layout script must spawn').toBeUndefined();
     const out = `${r.stdout}${r.stderr}`;
     expect(r.status).not.toBe(0);
     expect(out).toContain(`CELL_WIDTH must be a whole number of pixels from 1 to 99999, got ${JSON.stringify(v)}`);

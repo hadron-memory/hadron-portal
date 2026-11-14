@@ -32,6 +32,19 @@ describe('parseHarnessEnv', () => {
   });
 });
 
+describe('injection knobs and CELL_KIND', () => {
+  it.each(['CELL_INJECT_POINTER_FAILURE', 'CELL_INJECT_MISSING_TRIGGER'])('%s=1 is rejected for a kind that never reaches the findings leg', name => {
+    for (const kind of ['alarms', 'runs', 'config']) {
+      expect(() => parseHarnessEnv({ [name]: '1', CELL_KIND: kind })).toThrow(`${name}=1 only acts on the findings leg, got CELL_KIND=${JSON.stringify(kind)}`);
+    }
+  });
+  it.each(['CELL_INJECT_POINTER_FAILURE', 'CELL_INJECT_MISSING_TRIGGER'])('%s=1 is accepted with CELL_KIND=findings or no kind, and 0 with any kind', name => {
+    expect(() => parseHarnessEnv({ [name]: '1', CELL_KIND: 'findings' })).not.toThrow();
+    expect(() => parseHarnessEnv({ [name]: '1' })).not.toThrow();
+    expect(() => parseHarnessEnv({ [name]: '0', CELL_KIND: 'alarms' })).not.toThrow();
+  });
+});
+
 describe('injectionEcho', () => {
   it('prints one line per knob set to exactly 1, nothing otherwise', () => {
     expect(injectionEcho(parseHarnessEnv({}))).toEqual([]);

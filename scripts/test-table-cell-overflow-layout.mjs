@@ -293,8 +293,9 @@ try {
     await tall.evaluate(el => el.remove());
     await settlePage(page);
     if ((await escapes()).some(x => x.px > ESCAPE_PX)) failures.push(`${leg}: vertical control left an escape behind`);
-    if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
    }
+   // Independent of the severity triggers, so it still runs when one is missing.
+   if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}.png`, fullPage: true });
    if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
    // The success line only prints for a leg that queued nothing.
