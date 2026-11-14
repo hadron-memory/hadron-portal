@@ -160,7 +160,7 @@ describe('install customisation panel', () => {
     twoRows.list.value!.nodes = [node, { ...node, id: 'n2', loc: 'other', name: 'Other' }];
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(twoRows))));
     const root = await panel();
-    const input = root.querySelector<HTMLInputElement>('input[aria-label="Search customisations"]')!;
+    const input = root.querySelector<HTMLInputElement>('input[aria-label="Search the customisations on this page"]')!;
     expect(root.querySelectorAll('tbody tr')).toHaveLength(2);
     input.value = 'note'; input.dispatchEvent(new Event('input', { bubbles: true })); await tick();
     expect(root.querySelectorAll('tbody tr')).toHaveLength(1);
@@ -493,7 +493,7 @@ describe('late save reply fence (#1368)', () => {
     await settle();
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(reads);
     expect(m.target.textContent).not.toContain('Saved.');
-    expect(m.target.querySelector('[role="status"]')).toBeNull();
+    expect(m.target.querySelector('[role="status"][data-feedback]')?.textContent).toBe('');
     expect(m.target.querySelector('textarea')?.value).toBe('saved for A');
   });
   it('drops a refusal that lands after the target changed', async () => {
@@ -510,7 +510,7 @@ describe('late save reply fence (#1368)', () => {
     await settle();
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(reads);
     expect(m.target.textContent).not.toContain('Changed for A');
-    expect(m.target.querySelector('[role="alert"]')).toBeNull();
+    expect(m.target.querySelector('[role="alert"][data-feedback]')?.textContent).toBe('');
   });
   it('control: the same reply on an unchanged target is shown and reloads', async () => {
     let reply!: (r: Response) => void;
@@ -598,15 +598,16 @@ describe('install customisation polish (#1369)', () => {
   });
 
   it('keeps both feedback regions mounted and empty before a save, and fills the same nodes', async () => {
+    let reject = true;
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url, options) =>
         options?.method === 'POST'
-          ? new Response(JSON.stringify({
+          ? new Response(JSON.stringify(reject ? {
               type: 'failure',
               status: 409,
               data: { customisationFailed: { code: 'unavailable', detail: 'Gone.' } },
-            }))
+            } : { type: 'success', status: 200 }))
           : new Response(JSON.stringify(payload())),
       ),
     );
@@ -623,13 +624,20 @@ describe('install customisation polish (#1369)', () => {
     expect(root.querySelector('section [role="alert"][data-feedback]')).toBe(alert);
     expect(alert?.textContent).toBe('Gone.');
     expect(status?.textContent).toBe('');
+    reject = false;
+    submit(root);
+    await settle();
+    expect(root.querySelector('section [role="status"][data-feedback]')).toBe(status);
+    expect(root.querySelector('section [role="alert"][data-feedback]')).toBe(alert);
+    expect(status?.textContent).toBe('Saved.');
+    expect(alert?.textContent).toBe('');
   });
 
-  it('treats a typed loc with unchanged empty content as unsaved', async () => {
+  it.each([['loc', 0], ['name', 1]] as const)('treats a typed %s with unchanged empty content as unsaved', async (_field, index) => {
     const root = await panel();
     button(root, 'Start customising').click();
     await settle();
-    const locInput = root.querySelector<HTMLInputElement>('form input')!;
+    const locInput = root.querySelectorAll<HTMLInputElement>('form input')[index]!;
     locInput.value = 'boot:extra';
     locInput.dispatchEvent(new Event('input', { bubbles: true }));
     await tick();
@@ -637,7 +645,7 @@ describe('install customisation polish (#1369)', () => {
     button(root, 'Next').click();
     await settle();
     expect(confirm).toHaveBeenCalledTimes(1);
-    expect(root.querySelector<HTMLInputElement>('form input')?.value).toBe('boot:extra');
+    expect(root.querySelectorAll<HTMLInputElement>('form input')[index]?.value).toBe('boot:extra');
   });
 });
 
