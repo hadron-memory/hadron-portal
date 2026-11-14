@@ -35,7 +35,7 @@ import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { page, resetStubPage, setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { actionResultOf, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
-import { MOVE_NODE_MUTATION, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY, UPDATE_NODE_MUTATION } from '$lib/server/queries';
+import { MOVE_NODE_MUTATION, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_QUERY, NODE_REVISIONS_PAGE_QUERY, UPDATE_NODE_MUTATION } from '$lib/server/queries';
 import Page from './+page.svelte';
 import { actions, load } from './+page.server';
 
@@ -76,7 +76,7 @@ beforeEach(() => {
   mockRequest.mockReset();
   mockRequest.mockImplementation(async (doc: string) => {
     if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY || doc === NODE_DATA_READ_QUERY) return { node: NODE };
-    if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+    if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
     if (doc === MOVE_NODE_MUTATION) throw OCCUPIED;
     return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
   });
@@ -285,7 +285,7 @@ describe('a refused move after a committed Save stays visible (#1989)', () => {
     const SAVED = { ...NODE, name: 'Foo renamed' };
     mockRequest.mockImplementation(async (doc: string) => {
       if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY || doc === NODE_DATA_READ_QUERY) return { node: SAVED };
-      if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+      if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
       if (doc === MOVE_NODE_MUTATION) throw OCCUPIED;
       return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
     });
@@ -297,7 +297,7 @@ describe('a refused move after a committed Save stays visible (#1989)', () => {
     mockRequest.mockImplementation(async (doc: string) => {
       if (doc === UPDATE_NODE_MUTATION) return { updateNode: { ...NODE, name: 'Foo renamed' } };
       if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY || doc === NODE_DATA_READ_QUERY) return { node: SAVED };
-      if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+      if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
       return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
     });
     const fd = new FormData(form);
