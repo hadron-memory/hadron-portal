@@ -1443,6 +1443,7 @@ export const GLOBAL_SEARCH_QUERY = /* GraphQL */ `
         id
         urn
         name
+        handle
         description
         matchedField
         score

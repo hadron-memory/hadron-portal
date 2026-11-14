@@ -3434,8 +3434,12 @@
   {#if activeTab === 'keys'}
     <div id="panel-keys" role="tabpanel" aria-labelledby="tab-keys" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-8">
-      <!-- App Keys (the richer download flow lives on the Client tab for non-CHATBOT apps) -->
-      <section class="max-w-2xl">
+      <!-- App Keys (the richer download flow lives on the Client tab for non-CHATBOT apps).
+           portal#2135: only the prose and the create row keep the readable
+           42rem; the key table takes the panel's full width, so its default
+           columns fit on a desktop instead of scrolling inside a narrow box. -->
+      <section data-testid="app-keys-section">
+        <div class="max-w-2xl">
         <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">{t('app.keys.heading', 'App Keys')}</h2>
         <p class="mb-4 text-sm text-zinc-500">
           App Keys are long-lived server secrets. Store them in your backend environment —
@@ -3448,22 +3452,29 @@
         {#if keyControls === 'unknown'}
           <p role="status" data-testid="key-controls-unknown" class="mb-3 text-sm text-zinc-500">{keyControlsUnknownNote()}</p>
         {/if}
-        <form method="POST" action="?/createKey" use:createKeyEnhance class="mb-5 flex items-start gap-2" novalidate>
+        <!-- portal#2135: a grid, so the button shares the INPUT's row and is
+             centered on it; the label sits on the row above and an error on
+             the row below, and neither can move the button. The breakpoint
+             is the row's own width (@container, @sm = 24rem): below it there
+             is no room for a 200px input beside the button, so the same
+             button stacks under the input at full width. -->
+        <div class="@container mb-5">
+        <form method="POST" action="?/createKey" use:createKeyEnhance class="grid grid-cols-1 gap-x-2 @sm:grid-cols-[minmax(200px,1fr)_auto]" novalidate>
           <input type="hidden" name="_kind" value={$createKeyForm._kind} />
-          <div class="flex-1">
-            <label for="label" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Label (optional)</label>
-            <input id="label" type="text" name="label" placeholder="e.g. production-backend"
-              bind:value={$createKeyForm.label} class={inputClass} />
-            {#if createKeyActionError}
-              <p role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{createKeyActionError}</p>
-            {/if}
-          </div>
+          <label for="label" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300 @sm:col-start-1 @sm:row-start-1">Label (optional)</label>
+          <input id="label" type="text" name="label" placeholder="e.g. production-backend"
+            bind:value={$createKeyForm.label} class="{inputClass} @sm:self-center @sm:col-start-1 @sm:row-start-2" />
+          {#if createKeyActionError}
+            <p role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400 @sm:col-start-1 @sm:row-start-3">{createKeyActionError}</p>
+          {/if}
           <button type="submit" disabled={$createKeySubmitting}
-            class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" style="background: #fb8500;">
+            class="mt-2 min-h-11 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 @sm:mt-0 @sm:self-center @sm:col-start-2 @sm:row-start-2" style="background: #fb8500;">
             {$createKeySubmitting ? 'Generating...' : '+ Generate Key'}
           </button>
         </form>
+        </div>
         {/if}
+        </div>
 
         {#if data.keyScopes?.kind === 'failed'}
           <p role="status" class="text-xs text-amber-700 dark:text-amber-300">{t('app.keys.scopes.failed', 'Couldn’t load what these keys may do, so the Scopes column isn’t shown.')}</p>

@@ -21,6 +21,7 @@ async function loadBoard(search = '') {
   const { load } = await import('./+page.server');
   return (await load({
     params: { appId: 'app-1' },
+    parent: async () => ({}),
     locals: { token: 'tok', user: { id: 'u1' }, impersonation: null },
     url: new URL(`http://localhost/app/apps/app-1/tasks${search}`),
   } as never)) as Record<string, unknown>;
@@ -148,6 +149,7 @@ async function loadDetail(taskId = 't1') {
   const { load } = await import('./[taskId]/+page.server');
   const r = (await load({
     params: { appId: 'app-1', taskId },
+    parent: async () => ({}),
     locals: { token: 'tok', user: { id: 'u1' }, impersonation: null },
     // portal#1090: the loader reads ?created=1 from the URL.
     url: new URL('http://localhost/app/apps/app-1/tasks/t1'),

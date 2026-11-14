@@ -71,7 +71,7 @@ async function publicOrganizationPath(urn: string, token: string | null | undefi
   return publicOrganization ? `/app/org/${publicOrganization.id}` : null;
 }
 
-export const load: PageServerLoad = async ({ params, locals, url }) => {
+export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   const urn = normalizeUrn(params.urn);
 
   // #1213: ticker and generic resolution share this rejection boundary.
@@ -96,6 +96,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     if (urn.startsWith('hrn:ticker:')) {
       const ticker = await loadTicker(gqlClient(locals.token), urn);
       if (!ticker?.app) throw error(404, notFoundMessage(urn));
+      // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
+      await parent();
       redirect(307, withQuery(`/app/apps/${ticker.app.id}/tickers/${ticker.id}`, url.search));
     }
 
@@ -127,7 +129,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         code === 'PERMISSION_DENIED'
       ) {
         const publicTarget = await publicOrganizationPath(urn, locals.token);
-        if (publicTarget) redirect(307, withQuery(publicTarget, url.search));
+        if (publicTarget) {
+          // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
+          await parent();
+          redirect(307, withQuery(publicTarget, url.search));
+        }
         throw error(404, notFoundMessage(urn));
       }
     }
@@ -136,7 +142,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
   if (!resolveUrn) {
     const publicTarget = await publicOrganizationPath(urn, locals.token);
-    if (publicTarget) redirect(307, withQuery(publicTarget, url.search));
+    if (publicTarget) {
+      // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
+      await parent();
+      redirect(307, withQuery(publicTarget, url.search));
+    }
     throw error(404, notFoundMessage(urn));
   }
 
@@ -168,6 +178,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // gate every time. That second reason is why a link may safely be handed to
   // someone who cannot open it, and it is the half this comment used to state
   // only in passing. The extra round-trip is the accepted cost.
+  // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
+  await parent();
   redirect(307, withQuery(target, url.search));
 };
 

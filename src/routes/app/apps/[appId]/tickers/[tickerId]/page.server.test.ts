@@ -30,6 +30,7 @@ vi.mock('$lib/server/tickers', () => ({
 
 const ev = (appId = 'app-1', tickerId = 'tk-1', search = '') => ({
   params: { appId, tickerId },
+  parent: async () => ({}),
   locals: { token: 't', impersonation: null, user: null },
   url: new URL(`https://x.test/app/apps/${appId}/tickers/${tickerId}${search}`),
 });

@@ -23,6 +23,7 @@
     "test:boot-install-layout": "node scripts/test-boot-install-layout.mjs",
     "test:urn-compact-layout": "node scripts/test-urn-compact-layout.mjs",
     "test:tickers-layout": "node scripts/test-tickers-layout.mjs",
+    "test:app-keys-layout": "node scripts/test-app-keys-layout.mjs",
     "test:select-node-layout": "node scripts/test-select-node-layout.mjs",
     "test:stacked-memory-layout": "node scripts/test-stacked-memory-layout.mjs",
     "test:node-list-search": "node scripts/test-node-list-search.mjs",
@@ -42,7 +43,8 @@
     "test:terminal-status-layout": "node scripts/test-terminal-status-layout.mjs",
     "test:table-cell-overflow-layout": "node scripts/test-table-cell-overflow-layout.mjs",
     "test:agent-chat-phone-layout": "node scripts/test-agent-chat-phone-layout.mjs",
-    "test:agent-chat-row-actions": "node scripts/test-agent-chat-row-actions.mjs"
+    "test:agent-chat-row-actions": "node scripts/test-agent-chat-row-actions.mjs",
+    "test:conversation-toolbar-layout": "node scripts/test-conversation-toolbar-layout.mjs"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.5.4",
