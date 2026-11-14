@@ -74,12 +74,19 @@ const fakeOrg = {
   members: [], memories: [], agents: [], subscriptions: [],
 };
 
-function routeMock(myMemories: unknown[], publicMemories: unknown[] = [], org: unknown = undefined) {
+function routeMock(
+  myMemories: unknown[],
+  publicMemories: unknown[] = [],
+  org: unknown = undefined,
+  systemMemories: unknown[] = [],
+) {
   mockRequest.mockImplementation(async (query: string) => {
     // #845: the loader fetches the org itself, so this is where a test injects
     // one — not through parent(), which now carries chrome only.
     if (query === ORG_MEMORIES_TAB_QUERY) return { organization: org ?? fakeOrg };
-    if (query === ORG_SYSTEM_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+    if (query === ORG_SYSTEM_MEMORIES_QUERY) {
+      return { memories: { items: systemMemories, total: systemMemories.length } };
+    }
     if (query === PUBLIC_MEMORIES_QUERY) {
       return { memories: { items: publicMemories, total: publicMemories.length } };
     }
@@ -113,6 +120,82 @@ describe('memories-list load() — personalMemories (spec 034)', () => {
     const load = await importLoad();
     const result = (await load(ev())) as { personalMemories: unknown[] };
     expect(result.personalMemories).toEqual([]);
+  });
+});
+
+describe('memories-list load() — system rows stay inside this org (#2140)', () => {
+  // The server's memories(orgId:) can return rows that are not this org's: an
+  // App's install memory is unioned in for every App the caller reaches, in any
+  // org, and the caller's own user-owned memories appear in every org context
+  // (cor:api:100, cor:api:100:01, cor:api:120:03). The tab captioned "owned by
+  // this organization" must show only this org's rows.
+  type Slices = { systemMemories: { id: string }[]; personalMemories: { id: string }[] };
+  const ids = (rows: { id: string }[]) => rows.map((m) => m.id).sort();
+  async function slices(system: unknown[], userId = 'u1'): Promise<Slices> {
+    routeMock([], [], undefined, system);
+    const load = await importLoad();
+    return (await load(ev({ orgId: 'org-1', userId }))) as unknown as Slices;
+  }
+
+  it('drops an install memory of an App in another org, for every caller shape', async () => {
+    const other = { id: 'i-b', name: 'Product Team - install', class: 'system', organizationId: 'org-2', appId: 'app-b', userId: null };
+    // The leak is not caller-specific, so the same row is pinned for the org
+    // admin in B, the App owner in B and a platform admin (the loader sees the
+    // same row in each case; what differs is only who is asking).
+    for (const userId of ['admin-in-b', 'owner-in-b', 'platform-admin']) {
+      const r = await slices([other], userId);
+      expect(ids(r.systemMemories), userId).toEqual([]);
+      expect(ids(r.personalMemories), userId).toEqual([]);
+    }
+  });
+
+  it('keeps this org\'s own system memories, including its App\'s install memory (#2044)', async () => {
+    const r = await slices([
+      { id: 's1', name: 'Org system', class: 'system', organizationId: 'org-1', appId: null, userId: null },
+      { id: 'i-a', name: 'Org App install', class: 'system', organizationId: 'org-1', appId: 'app-a', userId: null },
+      { id: 'i-b', name: 'Other org install', class: 'system', organizationId: 'org-2', appId: 'app-b', userId: null },
+    ]);
+    expect(ids(r.systemMemories)).toEqual(['i-a', 's1']);
+    expect(ids(r.personalMemories)).toEqual([]);
+  });
+
+  it('sends the caller\'s own org-less system memory to Personal Memories, not Org Memories', async () => {
+    const r = await slices([
+      { id: 'flow-lab', name: 'flow-lab-system', class: 'system', organizationId: null, appId: null, userId: 'u1' },
+    ]);
+    expect(ids(r.systemMemories)).toEqual([]);
+    expect(ids(r.personalMemories)).toEqual(['flow-lab']);
+  });
+
+  it('shows nobody else\'s user-owned system memory, and not the caller\'s own tied to another org', async () => {
+    const r = await slices([
+      { id: 'theirs', name: 'Other user', class: 'system', organizationId: null, appId: null, userId: 'u2' },
+      { id: 'mine-b', name: 'Mine in B', class: 'system', organizationId: 'org-2', appId: null, userId: 'u1' },
+    ]);
+    expect(ids(r.systemMemories)).toEqual([]);
+    expect(ids(r.personalMemories)).toEqual([]);
+  });
+
+  it('an org-owned system row stays in Org Memories even when the caller\'s id is on it', async () => {
+    const r = await slices([
+      { id: 'both', name: 'Org + user', class: 'system', organizationId: 'org-1', appId: null, userId: 'u1' },
+    ]);
+    expect(ids(r.systemMemories)).toEqual(['both']);
+    expect(ids(r.personalMemories)).toEqual([]);
+  });
+
+  it('a failed system read still degrades to empty slices without throwing', async () => {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === ORG_MEMORIES_TAB_QUERY) return { organization: fakeOrg };
+      if (query === ORG_SYSTEM_MEMORIES_QUERY) throw new Error('boom');
+      if (query === PUBLIC_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      if (query === MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      throw new Error('Unexpected query');
+    });
+    const load = await importLoad();
+    const r = (await load(ev())) as unknown as Slices;
+    expect(r.systemMemories).toEqual([]);
+    expect(r.personalMemories).toEqual([]);
   });
 });
 
