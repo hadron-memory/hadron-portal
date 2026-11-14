@@ -58,6 +58,24 @@ describe('task lookup response classification', () => {
     expect(isRedirect(failure)).toBe(false);
   });
 
+  it.each([401, 403, 500, 502, 503])('HTTP %i remains a failure for JSON and HTML bodies', async status => {
+    const bodies = [
+      { body: JSON.stringify({ data: { agentTask: null } }), contentType: 'application/json' },
+      { body: '<html><body>Synthetic upstream failure</body></html>', contentType: 'text/html' },
+    ];
+    for (const { body, contentType } of bodies) {
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(body, {
+        status,
+        headers: { 'content-type': contentType },
+      })));
+      const failure = await rejection('?task=task-id');
+      expect(failure).toBeInstanceOf(ClientError);
+      expect((failure as ClientError).response.status).toBe(status);
+      expect(isHttpError(failure, 404)).toBe(false);
+      expect(isRedirect(failure)).toBe(false);
+    }
+  });
+
   it.each(['INTERNAL_SERVER_ERROR', 'TASK_HANDLE_QUALIFY'])('a GraphQL %s response remains an error, not null data', async code => {
     reply({ errors: [{ message: 'Synthetic refusal or failure', extensions: { code } }] });
     const failure = await rejection('?task=task-id');
