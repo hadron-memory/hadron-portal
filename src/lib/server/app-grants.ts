@@ -270,7 +270,14 @@ export async function grantHolders(
             ? t("grants.deleted.worker", "a deleted worker")
             : g.holderKind === "USER"
               ? g.holderDepartedAt
-                ? t("grants.deleted.user", "a deleted user")
+                ? // Neutral and truthful for every way a person can be gone
+                  // from this App: erased, or merely out of the organization.
+                  // A departure fact plus an unreadable identity is the same
+                  // observable input either way, so the label must not claim
+                  // which one happened. Remove this interim label when the
+                  // departure reason itself is renderable (server#4180's
+                  // portal companion; issue #2139).
+                  t("grants.holder.departed", "a departed person")
                 : t("grants.holder.unavailable", "Holder unavailable")
               : g.holderKind === "AGENT"
                 ? t("grants.holder.agent", "Agent")
