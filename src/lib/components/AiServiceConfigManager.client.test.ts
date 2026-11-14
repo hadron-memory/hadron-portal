@@ -187,7 +187,7 @@ describe('kimi (#2138)', () => {
     expect($<HTMLInputElement>(root, '#ac-model')!.value).toBe('my-model');
   });
 
-  // #2181: Test must probe the string Save would leave (cor:dmo:050:10).
+  // #2181: Test must probe the string Save would leave (hrn:node:hadronmemory.com:specs:cor:dmo:050:10).
   describe('saved-config Test override model rule', () => {
     const saved = (over: Partial<AiServiceConfig>) => config({
       provider: 'kimi', model: '  kimi-k3 ', effectiveEndpoint: 'https://api.moonshot.ai/v1', ...over,
