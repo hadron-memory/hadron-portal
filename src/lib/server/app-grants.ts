@@ -270,7 +270,12 @@ export async function grantHolders(
             ? t("grants.deleted.worker", "a deleted worker")
             : g.holderKind === "USER"
               ? g.holderDepartedAt
-                ? t("grants.deleted.user", "a deleted user")
+                ? // Neutral and truthful for every way a person can be gone
+                  // from this App: erased, or merely out of the organization.
+                  // A departure fact plus an unreadable identity is the same
+                  // observable input either way, so the label must not claim
+                  // which one happened (#2139, interim ahead of server#4180).
+                  t("grants.holder.departed", "a departed person")
                 : t("grants.holder.unavailable", "Holder unavailable")
               : g.holderKind === "AGENT"
                 ? t("grants.holder.agent", "Agent")
