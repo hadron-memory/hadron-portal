@@ -4,8 +4,18 @@ import { setStubPage } from '$lib/test/stubs/app-stores';
 import TasksAlarms from '$lib/components/agent-tasks/TasksAlarms.svelte';
 import AppRunsTable from '$lib/components/AppRunsTable.svelte';
 import AiServiceConfigManager from '$lib/components/AiServiceConfigManager.svelte';
+import TaskFindings from '$lib/components/agent-tasks/TaskFindings.svelte';
 const date = '2026-11-01T02:04:36Z';
+// portal#2118 item 5: the two severity triggers from #2115 QA F1 / #2119. The markers are built from code points,
+// so the source holds no invisible character.
+const sixControls = 'sev-A' + [0x2061, 0x2062, 0x2063, 0x2064, 0x2028, 0x2029].map((cp, i) => String.fromCodePoint(cp) + 'BCDEFG'[i]).join('');
+export const FINDINGS_SEVERITIES = { markers: sixControls, plain: 'S'.repeat(80) } as const;
 export function mountOverflowFixture(target: HTMLElement, kind: string) {
+  if (kind === 'findings') {
+    const items = Object.entries(FINDINGS_SEVERITIES).map(([id, severity]) => ({ id, severity, text: `ordinary finding text for ${id} `.repeat(8) }));
+    const instance = mount(TaskFindings, { target, props: { appId: 'fixture', taskId: 'fixture-task', initial: { kind: 'page', page: { taskId: 'fixture-task', offset: 0, items, total: items.length, hasMore: false } } } });
+    return () => unmount(instance);
+  }
   if (kind === 'config') {
     const configs = Array.from({ length: 4 }, (_, i) => ({ id: `config-${i}`, name: `LongConfigNameWithFortyUnbrokenCharacters${i}`, ownerType: 'APP' as const, ownerId: 'fixture-app', provider: 'anthropic' as const, model: 'fixture-model', endpoint: null, effectiveEndpoint: 'https://example.invalid', apiStyle: null, effectiveApiStyle: null, hasApiKey: true, apiKeyPreview: '…test', params: null, enabled: i % 2 === 0, createdAt: date, updatedAt: null }));
     let actionEpoch = 0;

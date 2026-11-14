@@ -55,7 +55,8 @@ try {
  const css = await (await fetch(new URL('/src/app.css?direct', origin))).text();
  browser = await chromium.launch({ headless: true });
  if (process.env.CELL_SHOTS) await mkdir(process.env.CELL_SHOTS, { recursive: true });
- for (const width of (process.env.CELL_WIDTH ? [Number(process.env.CELL_WIDTH)] : [390, 1280])) for (const dark of [false, true]) for (const kind of (process.env.CELL_KIND ? [process.env.CELL_KIND] : ['alarms', 'runs', 'config'])) {
+ const widths = process.env.CELL_WIDTH ? [Number(process.env.CELL_WIDTH)] : [390, 1280];
+ for (const width of widths) for (const dark of [false, true]) for (const kind of (process.env.CELL_KIND ? [process.env.CELL_KIND] : ['alarms', 'runs', 'config']).filter(k => k !== 'findings')) {
   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
@@ -215,6 +216,47 @@ try {
    assert.deepEqual(errors, [], 'no browser errors');
    console.log(`${kind}/${width}/${dark ? 'dark' : 'light'}: completed8 sizing/text legs + native controls/menu/minimum`,{paint,narrowPaint});
 
+  } finally { await page.close(); }
+ }
+ // portal#2118 item 5: the findings table has no interactive column, so it gets its own geometry pass.
+ // Severity (six revealed markers, and an 80-character plain label) and text stay inside their cells
+ // (#2115 QA F1, #2119). The control strips severity's wrap and must see the overflow.
+ if (!process.env.CELL_KIND || process.env.CELL_KIND === 'findings') for (const width of widths) for (const dark of [false, true]) {
+  const page = await browser.newPage({ viewport: { width, height: 900 } });
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
+  const leg = `findings/${width}/${dark ? 'dark' : 'light'}`;
+  try {
+   await page.goto(new URL('/__cell_fixture', origin).href);
+   await page.evaluate(({ css, dark }) => {
+    document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
+    document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
+    document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
+   }, { css, dark });
+   await page.evaluate(async () => { const { mountOverflowFixture } = await import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'); window.stopFixture = mountOverflowFixture(document.getElementById('fixture'), 'findings'); });
+   await page.locator('[data-testid="finding-severity"]').first().waitFor();
+   const settle = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+   // Pixels of glyph box outside the owning td, per field.
+   const escapes = () => page.locator('tbody td [data-testid^="finding-"]').evaluateAll(fields => fields.map(f => {
+    const cell = f.closest('td').getBoundingClientRect(); let px = 0;
+    const range = document.createRange(); range.selectNodeContents(f);
+    for (const r of range.getClientRects()) px = Math.max(px, cell.left - r.left, r.right - cell.right);
+    return { field: f.dataset.testid, row: f.closest('tr').querySelector('[data-testid="finding-id"]').textContent, px: Math.round(px) };
+   }));
+   await settle();
+   const clean = await escapes();
+   assert.equal(clean.filter(x => x.field === 'finding-severity').length, 2, `${leg}: both severity triggers rendered`);
+   const out = clean.filter(x => x.px > 0.5);
+   if (out.length) failures.push(`${leg}: findings field escapes its cell ${JSON.stringify(out)}`);
+   const control = await page.addStyleTag({ content: '[data-testid="finding-severity"] { overflow-wrap: normal !important; word-break: normal !important; }' });
+   await settle();
+   const dirty = (await escapes()).filter(x => x.field === 'finding-severity' && x.px > 0.5).map(x => x.row).sort();
+   assert.deepEqual(dirty, ['markers', 'plain'], `${leg}: negative control (severity wrap stripped) is detected for both triggers`);
+   await control.evaluate(el => el.remove());
+   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${leg}: no document overflow`);
+   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}.png`, fullPage: true });
+   assert.deepEqual(errors, [], `${leg}: no browser errors`);
+   console.log(`${leg}: severity and text inside their cells; negative control detected`, clean);
   } finally { await page.close(); }
  }
  assert.deepEqual(failures, []);
