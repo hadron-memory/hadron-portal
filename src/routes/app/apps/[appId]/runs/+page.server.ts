@@ -17,13 +17,13 @@ export const load: PageServerLoad = async ({ params, url, request, locals, paren
     const app = await loadTasksApp(client, params.appId);
     if (!app) error(404, 'App not found');
     const flowsOffset = appListOffset(url.searchParams, 'flowsOffset');
-    const [section, extras, nodes, graph] = await Promise.all([
+    const [section, extras, flowsPage, flowGraph] = await Promise.all([
       loadAppRunsPage(client, params.appId, url.searchParams), loadAppRunsExtras(client, params.appId),
       client.request<{ appNodesPage: { items: FlowGraphNode[]; total: number; hasMore: boolean } }>(APP_FLOWS_PAGE_QUERY, {
         appRef: params.appId, limit: APP_DISPLAY_PAGE_SIZE, offset: flowsOffset,
       }).then((r) => r.appNodesPage).catch(e => {
         console.warn('[app-runs] legacy Flows read failed', e);
-        return { items: [] as FlowGraphNode[], total: 0, hasMore: false };
+        return { items: [] as FlowGraphNode[], total: 0, hasMore: false, failed: true };
       }),
       client.request<{ appNodes: FlowGraphNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: 500 })
         .then((r) => r.appNodes)
@@ -35,8 +35,9 @@ export const load: PageServerLoad = async ({ params, url, request, locals, paren
     return { legacyPanel: {
       ...section, ...extras,
       app: { ...app, organizationId: app.organizationId ?? null },
-      flows: flowPageSummaries(nodes.items, graph),
-      flowsPage: appListNavigation(url, 'flowsOffset', 'runs', flowsOffset, nodes.items.length, nodes.total, { hasMore: nodes.hasMore }),
+      flows: flowPageSummaries(flowsPage.items, flowGraph),
+      flowsPage: appListNavigation(url, 'flowsOffset', 'runs', flowsOffset, flowsPage.items.length, flowsPage.total, { hasMore: flowsPage.hasMore }),
+      flowsError: 'failed' in flowsPage,
     } };
   }
   await parent(); // The layout must finish its active-organisation cookie write first.

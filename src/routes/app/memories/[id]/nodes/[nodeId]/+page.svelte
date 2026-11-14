@@ -2248,7 +2248,6 @@
     return isNaN(ms) ? null : ms;
   }
 
-  let revisionFilter = $state('');
   const revisionColumns: PortalColumnDef<HistoryRow>[] = [
     { accessorFn: (r) => revisionDateMs(r.createdAt), id: 'when', header: t('node.history.col.when', 'When'), size: 200 },
     // #914: the revision number this row snapshots (null on legacy rows).
@@ -2277,23 +2276,8 @@
     enableMultiSort: false,
     enableColumnResizing: true,
     columnResizeMode: 'onChange',
-    state: {
-      get globalFilter() {
-        return revisionFilter;
-      },
-    },
-    onGlobalFilterChange: (u) => {
-      revisionFilter = typeof u === 'function' ? u(revisionFilter) : u;
-    },
-    // #820 — `when` accessors epoch millis so the history sorts by instant,
-    // while the cell renders `formatPortalDateTime(r.createdAt)`. Matched
-    // from the ORIGINAL row by calling that same expression rather than
-    // rebuilding it from the epoch, which would be a second definition of what
-    // the cell shows; the raw ISO rides along, and it is also the cell's own
-    // `title`, so a reader can search what the tooltip shows them.
-    globalFilterFn: makeGlobalFilterFn<HistoryRow>({}, {
-      when: (row) => `${formatPortalDateTime(row.createdAt)} ${row.createdAt}`,
-    }),
+    // #2170 F10: no global filter. History is searched by nothing the server
+    // offers, and showSearch is off, so a filter here would be dead state.
     initialState: {
       pagination: { pageIndex: 0, pageSize: 20 },
     },
@@ -4222,7 +4206,6 @@
             showSearch={false}
             searchPlaceholder={t('node.history.search', 'Search history…')}
             searchAriaLabel={t('node.history.search', 'Search history…')}
-            bind:globalFilter={revisionFilter}
             maxHeight="max(200px, calc(100vh - 28rem))"
           >
           {#snippet cell(cell, r)}

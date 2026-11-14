@@ -146,6 +146,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const tags = Array.isArray(filter?.tags)
     ? [...new Set(filter.tags.filter((v): v is string => typeof v === 'string' && v.length > 0))]
     : null;
+  // #2170 F5: the same bound as nodeTypes, counted after dedupe.
+  if (tags && tags.length > 20) {
+    return json({ error: 'At most 20 tags can be filtered.' }, { status: 400 });
+  }
   const nodeTypeFilter = nodeTypes?.length ? nodeTypes : null;
   const tagFilter = tags?.length ? tags : null;
   const sortProp = parseSortProperty(sortProperty);

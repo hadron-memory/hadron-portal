@@ -172,7 +172,10 @@ describe('runs list (#478)', () => {
   it('#1881: a one-page list has no continuation or capped notice', async () => {
     const body = await renderPage([], null, [flow], { flowsPage: { offset: 0, count: 12, total: 12, previousHref: null, nextHref: null } });
     expect(body).not.toContain('Showing the first');
-    expect(body).toContain('aria-label="Flow pages"');
+    // #2170 F8: one page has nothing to link, so no navigation landmark; the
+    // count still shows.
+    expect(body).not.toContain('aria-label="Flow pages"');
+    expect(body).toContain('1–12');
     expect(body).not.toContain('rel="next"');
   });
 });
