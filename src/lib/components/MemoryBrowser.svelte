@@ -1291,7 +1291,7 @@
             {/if}
             {#each availableNodeTypes as t}
               <label class="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer">
-                <input type="checkbox" checked={activeNodeTypes.has(t)} onchange={() => toggleNodeType(t)}
+                <input type="checkbox" checked={activeNodeTypes.has(t)} onchange={(e) => { toggleNodeType(t); e.currentTarget.checked = activeNodeTypes.has(t); }}
                   class="rounded border-zinc-300 text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
                 {t}
               </label>
