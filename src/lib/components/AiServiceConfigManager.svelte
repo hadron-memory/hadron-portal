@@ -285,6 +285,16 @@
     };
   });
 
+  /**
+   * The model string a SAVE sends. Kimi's gate (portal#2138) says the portal
+   * never normalises or rewrites the model, so its outer whitespace goes to the
+   * server as typed; every other provider keeps the long-standing trim. Blank
+   * is still refused by the callers' `trim()` check.
+   */
+  function savedModel(): string {
+    return providerInput === 'kimi' ? modelInput : modelInput.trim();
+  }
+
   function clearNotice(): number {
     return onAction();
   }
@@ -931,7 +941,7 @@
             ownerId: action.ownerId,
             name,
             provider: providerInput,
-            model: modelInput.trim(),
+            model: savedModel(),
             apiKey: enteredKey || undefined,
             params: paramsValue,
             enabled: enabledInput,
@@ -950,7 +960,7 @@
             id: editId,
             name,
             provider: providerInput,
-            model: modelInput.trim(),
+            model: savedModel(),
             params: paramsValue,
             enabled: enabledInput,
             ...keyArg,

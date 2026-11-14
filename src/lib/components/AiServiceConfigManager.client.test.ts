@@ -157,6 +157,15 @@ describe('kimi (#2138)', () => {
     expect(create.params ?? null).toBeNull(); // no toolCalling knob for kimi
   });
 
+  it('a padded model is saved verbatim for kimi (QA F1, portal#2155)', async () => {
+    const root = await pickKimi();
+    set($<HTMLInputElement>(root, '#ac-name')!, 'moon');
+    set($<HTMLInputElement>(root, '#ac-model')!, '  QA/Kimi-Custom:Exact_v1  ');
+    set($<HTMLInputElement>(root, '#ac-key')!, 'placeholder');
+    await performAction(root, 'Save');
+    expect(posts.find((p) => p.action === 'create')!.model).toBe('  QA/Kimi-Custom:Exact_v1  ');
+  });
+
   it('the pre-filled model is saved as-is', async () => {
     const root = await pickKimi();
     set($<HTMLInputElement>(root, '#ac-name')!, 'moon');
