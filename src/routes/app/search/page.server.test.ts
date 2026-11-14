@@ -99,7 +99,7 @@ describe('task search results', () => {
     ] as const) {
       it(`${name} throws a plain failure: no 404, no redirect`, async () => {
         mockRequest.mockResolvedValueOnce(payload);
-        const failure = await (await importLoad())(ev('/app/search?task=task-id')).catch((e: unknown) => e);
+        const failure = await Promise.resolve((await importLoad())(ev('/app/search?task=task-id'))).catch((e: unknown) => e);
         expect(failure).toBeInstanceOf(Error);
         expect(isHttpErrorOrRedirect(failure)).toBe(false);
       });
