@@ -29,6 +29,7 @@ async function loadList() {
   const { load } = await import('./+page.server');
   return (await load({
     params: { appId: 'app-1' },
+    parent: async () => ({}),
     locals: { token: 'tok', user: { id: 'u1' }, impersonation: null },
     url: new URL('http://localhost/app/apps/app-1/tickers'),
   } as never)) as Record<string, unknown>;
@@ -38,6 +39,7 @@ async function loadDetail(search = '') {
   const { load } = await import('./[tickerId]/+page.server');
   return (await load({
     params: { appId: 'app-1', tickerId: 'tk-1' },
+    parent: async () => ({}),
     locals: { token: 'tok', user: { id: 'u1' }, impersonation: null },
     url: new URL(`http://localhost/app/apps/app-1/tickers/tk-1${search}`),
   } as never)) as Record<string, unknown>;
