@@ -119,7 +119,7 @@ it.each([false, true])(
       grants: { items, total: 2 },
       holders,
     });
-    expect(html).toContain("a deleted user");
+    expect(html).toContain("a departed person");
     expect(html).toContain("Holder unavailable");
     expect(request).toHaveBeenCalledTimes(1);
   },
