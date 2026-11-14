@@ -1020,7 +1020,10 @@
         // which is tested and never saved.
         const override: Record<string, unknown> = {};
         if (providerInput !== editing.provider) override.provider = providerInput;
-        if (modelInput.trim() && modelInput.trim() !== editing.model) override.model = modelInput.trim();
+        // Test probes the string Save would leave (#2181): verbatim for Kimi,
+        // trimmed for every other provider, and compared the same way.
+        const model = savedModel();
+        if (model.trim() && model !== editing.model) override.model = model;
         // The credential Save would leave, by Save's own rule: "Remove the
         // stored key" wins over a typed key, so a pass can't hide a config that
         // won't run once saved.
