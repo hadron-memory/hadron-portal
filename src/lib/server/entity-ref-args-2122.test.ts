@@ -9,7 +9,7 @@
  * is caught too.
  */
 import { describe, expect, it } from 'vitest';
-import { parse, type FieldNode, type OperationDefinitionNode } from 'graphql';
+import { parse, print, type FieldNode, type OperationDefinitionNode } from 'graphql';
 import {
   CREATE_AGENT_MUTATION,
   UPDATE_AGENT_MUTATION,
@@ -23,10 +23,7 @@ function field(doc: string, name: string): { args: Map<string, string>; vars: Ma
   const args = new Map<string, string>();
   for (const a of f.arguments ?? []) args.set(a.name.value, a.value.kind === 'Variable' ? a.value.name.value : a.value.kind);
   const vars = new Map<string, string>();
-  for (const v of op.variableDefinitions ?? []) {
-    const t = v.type;
-    vars.set(v.variable.name.value, t.kind === 'NonNullType' ? `${(t.type as { name: { value: string } }).name.value}!` : (t as { name: { value: string } }).name.value);
-  }
+  for (const v of op.variableDefinitions ?? []) vars.set(v.variable.name.value, print(v.type));
   return { args, vars };
 }
 

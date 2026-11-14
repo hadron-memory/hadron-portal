@@ -245,7 +245,7 @@ describe('memory-detail `updateVectorIndex` action (spec 033)', () => {
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Changes saved.' });
     const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
     expect(vars).toMatchObject({
-      id: 'mem-id-abc',
+      ref: 'mem-id-abc',
       vectorIndexEnabled: true,
       embeddingSource: 'both',
       chunkTokens: 256,
@@ -719,7 +719,7 @@ describe('memory-detail `updateSchema` action (#588)', () => {
     expect((superFormFrom(result) as { id?: string })?.id).toBe('updateSchema:mem-id-abc');
     const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
     expect(vars).toEqual({
-      id: 'mem-id-abc',
+      ref: 'mem-id-abc',
       schema: JSON.parse(VALID_SCHEMA),
     });
   });
@@ -1014,9 +1014,9 @@ describe('memory-detail `updateMarketplaceListing` action (#841)', () => {
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Changes saved.' });
     const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
     // toEqual, not toMatchObject: the evidence map claims the variables
-    // carry id + the flag ONLY (Rook's P3 on #1244) — a subset match would
+    // carry ref + the flag ONLY (Rook's P3 on #1244) — a subset match would
     // let a smuggled extra field pass unnoticed.
-    expect(vars).toEqual({ id: 'mem-id-abc', listedOnMarketplace: true });
+    expect(vars).toEqual({ ref: 'mem-id-abc', listedOnMarketplace: true });
   });
 
   it('unlists explicitly — false is sent, not omitted', async () => {

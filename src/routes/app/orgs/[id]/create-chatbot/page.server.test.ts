@@ -96,11 +96,11 @@ describe('create chatbot action', () => {
       visibility: 'ORGANIZATION',
     });
     expect(mockRequest).toHaveBeenCalledWith(CREATE_AGENT_MUTATION, {
-      orgId: 'org-1',
+      orgRef: 'org-1',
       name: 'juno',
       description: 'Helpful assistant',
 
-      systemMemoryId: 'memory-1',
+      systemMemoryRef: 'memory-1',
       visibility: 'PERSONAL',
     });
     expect(mockRequest).toHaveBeenCalledWith(UPDATE_AGENT_MUTATION, {

@@ -76,7 +76,7 @@ export const actions: Actions = {
     }
     try {
       await gqlClient(locals.token).request(UPDATE_ORGANIZATION_MUTATION, {
-        id: params.id, name, urn,
+        ref: params.id, name, urn,
       });
       return message(form, { type: 'success', text: 'Changes saved.' });
     } catch (e: unknown) {

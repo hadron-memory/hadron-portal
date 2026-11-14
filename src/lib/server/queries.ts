@@ -1467,8 +1467,8 @@ export const CREATE_ORGANIZATION_MUTATION = /* GraphQL */ `
 
 export const UPDATE_ORGANIZATION_MUTATION = /* GraphQL */ `
   ${ORG_FIELDS}
-  mutation UpdateOrganization($id: ID!, $name: String, $urn: String) {
-    updateOrganization(id: $id, name: $name, urn: $urn) { ...OrgFields }
+  mutation UpdateOrganization($ref: ID!, $name: String, $urn: String) {
+    updateOrganization(ref: $ref, name: $name, urn: $urn) { ...OrgFields }
   }
 `;
 
@@ -1613,7 +1613,7 @@ export const CREATE_PERSONAL_MEMORY_MUTATION = /* GraphQL */ `
 export const UPDATE_MEMORY_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
   mutation UpdateMemory(
-    $id: ID!, $name: String, $urn: String, $shortDescription: String, $description: String,
+    $ref: ID!, $name: String, $urn: String, $shortDescription: String, $description: String,
     $tags: [String!], $license: String,
     $category0: String, $category1: String, $category2: String,
     $iconUrl: String, $heroUrl: String, $homeUrl: String,
@@ -1625,7 +1625,7 @@ export const UPDATE_MEMORY_MUTATION = /* GraphQL */ `
     $schema: JSON
   ) {
     updateMemory(
-      id: $id, name: $name, urn: $urn, shortDescription: $shortDescription, description: $description,
+      ref: $ref, name: $name, urn: $urn, shortDescription: $shortDescription, description: $description,
       tags: $tags, license: $license,
       category0: $category0, category1: $category1, category2: $category2,
       iconUrl: $iconUrl, heroUrl: $heroUrl, homeUrl: $homeUrl,
@@ -1930,8 +1930,8 @@ export const DELETE_MEMORY_SUBSCRIPTION_MUTATION = /* GraphQL */ `
 
 export const CREATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation CreateAgent($orgId: ID!, $name: String!, $description: String, $systemMemoryId: String, $visibility: AgentVisibility) {
-    createAgent(orgId: $orgId, name: $name, description: $description, systemMemoryId: $systemMemoryId, visibility: $visibility) { ...AgentFields }
+  mutation CreateAgent($orgRef: ID, $name: String!, $description: String, $systemMemoryRef: ID, $visibility: AgentVisibility) {
+    createAgent(orgRef: $orgRef, name: $name, description: $description, systemMemoryRef: $systemMemoryRef, visibility: $visibility) { ...AgentFields }
   }
 `;
 
@@ -1981,8 +1981,8 @@ export const CLONE_AGENT_MUTATION = /* GraphQL */ `
 
 export const UPDATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation UpdateAgent($ref: ID!, $name: String, $urn: String, $description: String, $systemMemoryId: String, $visibility: AgentVisibility, $personaRole: String) {
-    updateAgent(ref: $ref, name: $name, urn: $urn, description: $description, systemMemoryId: $systemMemoryId, visibility: $visibility, personaRole: $personaRole) { ...AgentFields }
+  mutation UpdateAgent($ref: ID!, $name: String, $urn: String, $description: String, $systemMemoryRef: ID, $visibility: AgentVisibility, $personaRole: String) {
+    updateAgent(ref: $ref, name: $name, urn: $urn, description: $description, systemMemoryRef: $systemMemoryRef, visibility: $visibility, personaRole: $personaRole) { ...AgentFields }
   }
 `;
 
