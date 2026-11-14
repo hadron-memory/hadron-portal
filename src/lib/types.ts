@@ -981,7 +981,7 @@ export type AiConfigOwnerType = 'HADRON_SERVER' | 'ORGANIZATION' | 'APP' | 'AGEN
  * `openai-compatible` (server#1389), which the portal's LLM client can't
  * speak. Kept apart so nothing that calls that client can be handed one.
  */
-export type AiConfigProvider = AIProvider | 'openai-compatible';
+export type AiConfigProvider = AIProvider | 'openai-compatible' | 'kimi';
 
 export interface AiServiceConfig {
   id: string;
