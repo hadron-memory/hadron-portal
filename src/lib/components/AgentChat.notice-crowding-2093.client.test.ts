@@ -32,7 +32,9 @@ describe('AgentChat notices with long names (#2093)', () => {
       expect(n.classList.contains('truncate')).toBe(true);
       expect(n.getAttribute('title')).toContain(LONG);
     }
-    for (const li of document.querySelectorAll('[data-testid="completed-conversations"] li')) expect(li.classList.contains('truncate')).toBe(true);
+    const chips = [...document.querySelectorAll('[data-testid="completed-conversations"] li')];
+    expect(chips.length).toBeGreaterThan(0);
+    for (const li of chips) { expect(li.classList.contains('truncate')).toBe(true); expect(li.getAttribute('title')).toBe(LONG); }
     m.unmount();
   });
 });

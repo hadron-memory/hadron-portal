@@ -1085,7 +1085,7 @@
               <span>{t('agent-chat.progress.done-label', 'Done')}:</span>
               <ul class="flex min-w-0 flex-wrap gap-1.5" data-testid="completed-conversations">
                 {#each activeChatMeta.completed as name (name)}
-                  <li class="max-w-full truncate rounded bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{name}</li>
+                  <li title={name} class="max-w-full truncate rounded bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{name}</li>
                 {/each}
               </ul>
             </div>
