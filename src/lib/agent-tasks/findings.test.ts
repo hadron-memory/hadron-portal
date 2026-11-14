@@ -100,20 +100,30 @@ describe('findingTextParts: blank and tag characters are revealed too (portal#21
 });
 
 describe('the neutralizer source is auditable (portal#2111, portal#2113)', () => {
-  // Resolved from this test file, not the working directory.
-  const source = readFileSync(new URL('./findings.ts', import.meta.url), 'utf8');
+  // Resolved from this test file, not the working directory. Line endings are normalized here rather than
+  // with a repo-wide .gitattributes (portal#2118 F3): a CRLF checkout must not read as hidden U+000D.
+  const lf = (text: string) => text.replace(/\r\n/g, '\n');
+  const hiddenIn = (text: string) => findingTextParts(text).filter((p) => p.marker).map((p) => p.text);
+  const source = lf(readFileSync(new URL('./findings.ts', import.meta.url), 'utf8'));
   it('REVEALED is written with escapes only, never literal invisible characters', () => {
     const line = source.split('\n').find((l) => l.includes('const REVEALED'));
     expect(line).toBeDefined();
     expect(line!).toMatch(/^[\x20-\x7E]*$/);
   });
   it('the whole source holds no character the neutralizer would reveal', () => {
-    const hidden = findingTextParts(source).filter((p) => p.marker).map((p) => p.text);
-    expect(hidden).toEqual([]);
+    expect(hiddenIn(source)).toEqual([]);
+  });
+  it('a CRLF checkout passes the audit once normalized, and would not without it (portal#2118 F3)', () => {
+    const crlf = source.replace(/\n/g, '\r\n');
+    expect(crlf).not.toBe(source);
+    expect(hiddenIn(lf(crlf))).toEqual([]);
+    expect(hiddenIn(crlf)[0]).toBe('[U+000D]');
   });
   it('control: one injected U+202E anywhere in the source is caught', () => {
-    const injected = source.replace('Display only', '\u202EDisplay only');
-    expect(findingTextParts(injected).filter((p) => p.marker).map((p) => p.text)).toEqual(['[U+202E]']);
+    // Anchored on the declaration the audit exists for, not on prose (portal#2118 F1).
+    const injected = source.replace('const REVEALED', '\u202Econst REVEALED');
+    expect(injected).not.toBe(source);
+    expect(hiddenIn(injected)).toEqual(['[U+202E]']);
   });
 });
 
@@ -127,6 +137,14 @@ describe('findingTextParts: invisible operators and separators are revealed (por
     expect(ch).toHaveLength(1);
     expect(join(`a${ch}b`)).toBe(`a[U+${hex}]b`);
   });
+  // portal#2118 F4/F5: U+2065 is unassigned but Default_Ignorable, so a browser draws nothing for it,
+  // the same hiding vector as its neighbours. The decision is to reveal it: the whole block is pinned.
+  it('reveals every code point U+2060 through U+2069, U+2065 included', () => {
+    for (let cp = 0x2060; cp <= 0x2069; cp++) {
+      const hex = cp.toString(16).toUpperCase();
+      expect(join(`a${String.fromCodePoint(cp)}b`), hex).toBe(`a[U+${hex}]b`);
+    }
+  });
 });
 
 // portal#2113 A2 — the kept emoji tag sequence stays bounded: black flag, 1-6 lowercase tag letters/digits, CANCEL TAG.
@@ -135,7 +153,7 @@ describe('findingTextParts: the kept tag sequence is exactly bounded (portal#211
   const FLAG = '\u{1F3F4}';
   const CANCEL = '\u{E007F}';
   const tags = (ascii: string) => Array.from(ascii, (c) => String.fromCodePoint(0xE0000 + c.charCodeAt(0))).join('');
-  const markers = (ascii: string) => Array.from(ascii, (c) => `[U+E00${(0x00 + c.charCodeAt(0)).toString(16).toUpperCase().padStart(2, '0')}]`).join('');
+  const markers = (ascii: string) => Array.from(ascii, (c) => `[U+${(0xE0000 + c.charCodeAt(0)).toString(16).toUpperCase()}]`).join('');
   it('seven tags + CANCEL reveal every tag and the CANCEL (kills an unbounded or widened upper bound)', () => {
     expect(join(FLAG + tags('gbengxx') + CANCEL)).toBe(FLAG + markers('gbengxx') + '[U+E007F]');
   });

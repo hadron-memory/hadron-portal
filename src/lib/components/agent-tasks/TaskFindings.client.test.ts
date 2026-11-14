@@ -359,13 +359,17 @@ describe('text is literal', () => {
     for (const el of [id, sev]) { expect(el.getAttribute('dir')).toBe('auto'); expect(el.className).toContain('[unicode-bidi:isolate]'); }
   });
   // portal#2119 / #2115 QA F1 — revealed markers (or a long unbroken label) widen severity; with no
-  // break opportunity it painted over the Text cell. Every provider-served field must be able to wrap.
-  it('id, severity and text can all wrap inside their cell', async () => {
-    const m = await setup(page('task', 0, [row('F1', 't', 'sev-A\u2061B\u2062C\u2063D\u2064E\u2028F\u2029G')], 1, false));
-    for (const testid of ['finding-id', 'finding-severity', 'finding-text']) {
-      const el = m.target.querySelector<HTMLElement>(`[data-testid="${testid}"]`)!;
-      expect(el.className, testid).toMatch(/break-all|break-words|\[overflow-wrap:anywhere\]/);
-    }
+  // break opportunity it painted over the Text cell. Every provider-served field carries its wrap class;
+  // the geometry itself is measured by scripts/test-table-cell-overflow-layout.mjs (findings pass, portal#2118 item 5).
+  it.each([
+    ['revealed markers', 'sev-A\u2061B\u2062C\u2063D\u2064E\u2028F\u2029G'],
+    ['a long unbroken plain label', 'S'.repeat(80)],
+  ])('id, severity and text each carry their own wrap class (severity: %s)', async (_n, severity) => {
+    const m = await setup(page('task', 0, [row('F1', 't', severity)], 1, false));
+    const cls = (testid: string) => m.target.querySelector<HTMLElement>(`[data-testid="${testid}"]`)!.className.split(/\s+/);
+    expect(cls('finding-id')).toContain('break-all');
+    expect(cls('finding-severity')).toContain('[overflow-wrap:anywhere]');
+    expect(cls('finding-text')).toContain('break-words');
   });
   it('keeps long multi-line text and every code point', async () => {
     const long = `line one\nline two ${'𝔘'.repeat(2000)}`;
