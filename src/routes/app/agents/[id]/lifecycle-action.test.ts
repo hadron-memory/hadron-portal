@@ -48,4 +48,14 @@ describe('Agent lifecycle action (portal#2194)', () => {
     expect(result.status).toBe(403);
     expect(result.data.lifecycleError).toMatch(/owner or an organization admin/);
   });
+
+  it('does not tell the manager they lack the right when the failure is not a refusal (#2196, Opus P3)', async () => {
+    for (const err of [new TypeError('fetch failed'), gqlError('INTERNAL_SERVER_ERROR', 'boom')]) {
+      mockRequest.mockRejectedValueOnce(err);
+      const result = (await run('SHORT_LIVED')) as { status: number; data: { lifecycleError: string } };
+      expect(result.status).toBe(500);
+      expect(result.data.lifecycleError).not.toMatch(/owner|admin/i);
+      expect(result.data.lifecycleError).toMatch(/try again/i);
+    }
+  });
 });
