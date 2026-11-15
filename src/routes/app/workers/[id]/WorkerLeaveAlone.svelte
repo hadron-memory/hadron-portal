@@ -5,7 +5,7 @@
   // same as "not marked". Only an App manager gets the buttons; the server stays
   // the authority and its refusal is shown as it comes back.
   import { enhance } from '$app/forms';
-  import { invalidateAll } from '$app/navigation';
+  import { readbackAfterWrite } from '$lib/readback-after-write';
   import type { SubmitFunction } from '@sveltejs/kit';
   import { t } from '$lib/i18n/t';
 
@@ -15,6 +15,8 @@
   let marking = $state(false);
   let saving = $state(false);
   let feedback = $state<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  let readback = $state<'idle' | 'pending' | 'stale'>('idle');
+  const locked = $derived(readback !== 'idle');
   const failed = t('worker.leave-alone.error.failed', 'Not saved. Try again.');
 
   const submit: SubmitFunction = () => {
@@ -25,7 +27,8 @@
       if (result.type === 'success') {
         feedback = { kind: 'ok', text: t('worker.leave-alone.saved', 'Saved.') };
         marking = false;
-        await invalidateAll();
+        readback = 'pending';
+        readback = (await readbackAfterWrite()) ? 'idle' : 'stale';
       } else if (result.type === 'failure') {
         feedback = { kind: 'error', text: String((result.data as { leaveAloneError?: string } | undefined)?.leaveAloneError ?? failed) };
       } else {
@@ -64,7 +67,7 @@
       <form method="POST" action="?/setLeaveAlone" use:enhance={submit} novalidate class="mt-3 space-y-3">
         {#if marker.on}
           <input type="hidden" name="leaveAlone" value="false" />
-          <button type="submit" disabled={saving} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">
+          <button type="submit" disabled={saving || locked} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">
             {saving ? t('worker.leave-alone.saving', 'Saving…') : t('worker.leave-alone.clear', 'Clear')}
           </button>
         {:else if marking}
@@ -73,15 +76,21 @@
           <input id="leave-alone-reason" name="reason" type="text" maxlength="500" autocomplete="off"
             class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
           <div class="flex items-center gap-2">
-            <button type="submit" disabled={saving} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
+            <button type="submit" disabled={saving || locked} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
               {saving ? t('worker.leave-alone.saving', 'Saving…') : t('worker.leave-alone.save', 'Save')}
             </button>
             <button type="button" onclick={() => { marking = false; }} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">{t('worker.leave-alone.cancel', 'Cancel')}</button>
           </div>
         {:else}
-          <button type="button" onclick={() => { marking = true; feedback = null; }} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">
+          <button type="button" disabled={locked} onclick={() => { marking = true; feedback = null; }} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">
             {t('worker.leave-alone.mark', 'Leave alone…')}
           </button>
+        {/if}
+        {#if readback === 'stale'}
+          <div role="alert" class="space-y-2 text-sm text-red-600 dark:text-red-400">
+            <p>{t('worker.leave-alone.stale', 'Saved, but this page could not reload and may be out of date. Reload the page before relying on what it shows.')}</p>
+            <button type="button" onclick={() => location.reload()} class="rounded-lg border border-zinc-300 px-3 py-1 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-200">{t('worker.leave-alone.reload', 'Reload')}</button>
+          </div>
         {/if}
         {#if feedback?.kind === 'error'}
           <p role="alert" class="text-sm text-red-600 dark:text-red-400">{feedback.text}</p>

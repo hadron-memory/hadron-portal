@@ -1871,7 +1871,7 @@
       <!-- portal#2194: how long this agent's workers run. Managers only; the server
            still decides and its refusal is shown as text. -->
       {#if data.canManageAgent === true}
-        <AgentLifecycle lifecycle={agent.lifecycle ?? 'LONG_LIVED'} />
+        <AgentLifecycle ownerId={agent.id} lifecycle={agent.lifecycle ?? 'LONG_LIVED'} />
       {/if}
 
       <!-- Danger zone -->
