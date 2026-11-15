@@ -161,3 +161,28 @@ describe('recovery starts at submission, not at the response (blind delta F5)', 
     expect(again.target.querySelector('[role="alert"]')!.textContent).toMatch(/reload/i);
   });
 });
+
+describe('an uncertain outcome keeps the lock and says so (blind P2 on #2198)', () => {
+  it.each([
+    ['an uncertain failure result', { type: 'failure' as const, status: 502, data: { leaveAloneError: 'Couldn’t confirm the save; checking…', uncertain: true } }],
+    ['a transport error result', { type: 'error' as const, status: 500, error: new Error('fetch failed') }],
+  ])('%s: stays locked and never says Not saved or the old marker', async (_n, result) => {
+    const { root, deliver } = await markWorker();
+    navigationHooks.onInvalidateAll = () => { throw new Error('reload failed'); };
+    await deliver(result as never);
+    flushSync();
+    expect(root.textContent).not.toMatch(/not saved/i);
+    expect(root.textContent).not.toContain('Not marked');
+    expect(root.textContent).toMatch(/couldn.t confirm/i);
+    expect(button(root, 'Leave alone…')?.disabled ?? true).toBe(true);
+  });
+
+  it('a refusal that did not commit releases the lock', async () => {
+    const { root, deliver } = await markWorker();
+    await deliver({ type: 'failure', status: 403, data: { leaveAloneError: 'Only a manager may mark a worker.' } });
+    flushSync();
+    expect(root.textContent).toContain('Only a manager');
+    expect(root.textContent).toContain('Not marked');
+  });
+});
+

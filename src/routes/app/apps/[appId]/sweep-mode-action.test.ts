@@ -44,4 +44,20 @@ describe('App sweep-mode action (portal#2194)', () => {
     expect(result.status).toBe(403);
     expect(result.data.sweepModeError).toBeTruthy();
   });
+
+  it('a transport failure may have committed: marked uncertain, never "Not saved"', async () => {
+    mockRequest.mockRejectedValueOnce(new TypeError('fetch failed'));
+    const result = (await run('APPLY')) as { status: number; data: { sweepModeError: string; uncertain?: boolean } };
+    expect(result.status).toBe(502);
+    expect(result.data.uncertain).toBe(true);
+    expect(result.data.sweepModeError).toMatch(/couldn.t confirm/i);
+    expect(result.data.sweepModeError).not.toMatch(/not saved/i);
+  });
+
+  it('a GraphQL error response did not commit: not uncertain, says Try again', async () => {
+    mockRequest.mockRejectedValueOnce(gqlError('INTERNAL_SERVER_ERROR', 'boom'));
+    const result = (await run('APPLY')) as { status: number; data: { sweepModeError: string; uncertain?: boolean } };
+    expect(result.status).toBe(500);
+    expect(result.data.uncertain).toBeUndefined();
+  });
 });

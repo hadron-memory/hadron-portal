@@ -282,3 +282,35 @@ describe('recovery starts at submission, not at the response (blind delta F5)', 
     expect(second.root.querySelector('fieldset')!.disabled).toBe(false);
   });
 });
+
+describe('an uncertain outcome keeps the lock and says so (blind P2 on #2198)', () => {
+  it.each([
+    ['an uncertain failure result', { type: 'failure' as const, status: 502, data: { sweepModeError: 'Couldn’t confirm the save; checking…', uncertain: true } }],
+    ['a transport error result', { type: 'error' as const, status: 500, error: new Error('fetch failed') }],
+  ])('%s: stays locked, never says Not saved, and lets go when the loader shows the mode', async (_n, result) => {
+    const { root, props } = mountIt('OFF', 'app-a');
+    radio(root, 'OBSERVE').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(root));
+    navigationHooks.onInvalidateAll = () => { throw new Error('reload failed'); };
+    await deliver(result as never);
+    flushSync();
+    expect(root.querySelector('fieldset')!.disabled).toBe(true);
+    expect(root.textContent).not.toMatch(/not saved/i);
+    expect(root.textContent).toMatch(/couldn.t confirm/i);
+    props.mode = 'OBSERVE';
+    flushSync();
+    expect(root.querySelector('fieldset')!.disabled).toBe(false);
+  });
+
+  it('a refusal that did not commit releases the lock', async () => {
+    const { root } = mountIt('OFF', 'app-a');
+    radio(root, 'OBSERVE').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(root));
+    await deliver({ type: 'failure', status: 403, data: { sweepModeError: 'Not allowed.' } });
+    flushSync();
+    expect(root.querySelector('fieldset')!.disabled).toBe(false);
+  });
+});
+
