@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AgentLifecycle from './AgentLifecycle.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import BootProvenance from '$lib/components/BootProvenance.svelte';
   import AgentMemberRolesEditor from './AgentMemberRolesEditor.svelte';
@@ -1865,6 +1866,12 @@
             </form>
           {/if}
         </section>
+      {/if}
+
+      <!-- portal#2194: how long this agent's workers run. Managers only; the server
+           still decides and its refusal is shown as text. -->
+      {#if data.canManageAgent === true}
+        <AgentLifecycle lifecycle={agent.lifecycle ?? 'LONG_LIVED'} />
       {/if}
 
       <!-- Danger zone -->

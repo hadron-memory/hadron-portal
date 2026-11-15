@@ -36,6 +36,7 @@ import {
   APP_ORG_AGENTS_QUERY,
   APP_ORG_AGENT_GRANTS_QUERY,
   APP_QUERY,
+  SET_APP_SWEEP_MODE_MUTATION,
   APP_MEMBERS_QUERY,
   SELF_CAN_MANAGE_QUERY,
   SET_APP_AGENT_BOOT_PROMPT_MUTATION,
@@ -1233,6 +1234,24 @@ export const actions: Actions = {
       }
       console.warn('[setChatbotAiConfig] failed:', code ?? 'error');
       return fail(500, { chatbotAiConfig: { ok: false as const, error: t('app.chatbot-ai-config.failed', "The chatbot AI config couldn't be saved. Try again.") } });
+    }
+  },
+
+  // portal#2194 (hadron-server#4242): set the App's sweep mode. A person acts as
+  // themselves (no instruction). The server decides who may; its refusal is
+  // shown as it comes back.
+  setSweepMode: async ({ request, params, locals }) => {
+    const mode = (await request.formData()).get('mode');
+    if (mode !== 'OFF' && mode !== 'OBSERVE' && mode !== 'APPLY') {
+      return fail(400, { sweepModeError: t('app.sweep-mode.error.invalid', 'Choose a sweep mode.') });
+    }
+    try {
+      await gqlClient(locals.token).request(SET_APP_SWEEP_MODE_MUTATION, { appRef: params.appId, mode });
+      return { sweepModeSaved: mode };
+    } catch (e: unknown) {
+      const code = extractGqlErrorCode(e);
+      const text = extractGqlError(e, t('app.sweep-mode.error.failed', 'Not saved. Try again.'), ['APP_NOT_FOUND', 'BAD_USER_INPUT']);
+      return fail(code === 'FORBIDDEN' ? 403 : code === 'APP_NOT_FOUND' ? 404 : code === 'BAD_USER_INPUT' ? 400 : 500, { sweepModeError: text });
     }
   },
 

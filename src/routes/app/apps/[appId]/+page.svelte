@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AppSweepMode from './AppSweepMode.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import AppRunsPanel from './runs/AppRunsPanel.svelte';
@@ -3786,6 +3787,10 @@
           </div>
         {/if}
       </section>
+
+      <!-- portal#2194: the host-sweep switch. Everyone who can read it sees the mode;
+           only an App manager acting as themselves gets the controls. -->
+      <AppSweepMode mode={data.app.sweepMode ?? null} canManage={data.canManageApp === true && !impersonating} />
 
       <!-- portal#1963: the App's chatbot AI config. Keyed on the App, so a pick never follows the person to another App. -->
       {#if app.agentId}

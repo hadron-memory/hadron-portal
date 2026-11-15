@@ -93,6 +93,8 @@ export interface Agent {
   id: string;
   /** #1335: the source's CURRENT URN; only the detail query selects it (absent elsewhere), null for a non-clone or an unreadable source. */
   clonedFromAgentRef?: string | null;
+  /** portal#2194: how long the Agent's workers run; only the detail query selects it. */
+  lifecycle?: 'LONG_LIVED' | 'SHORT_LIVED';
   organizationId: string;
   urn: string;
   name: string;
@@ -332,6 +334,8 @@ export interface TeamWorkItem {
 }
 
 export interface App {
+  /** portal#2194: the host-sweep switch; only the App detail query selects it. */
+  sweepMode?: 'OFF' | 'OBSERVE' | 'APPLY';
   id: string;
   name: string;
   urn: string;
@@ -403,6 +407,11 @@ export type AppMembershipRole = 'OWNER' | 'ADMIN' | 'CONTRIBUTOR' | 'READER';
  * absence as "this App's URN predates the flat grammar", never as an error.
  */
 export interface Worker {
+  /** portal#2194: the sweep leave-alone marker. null = not shown to this caller (profile tier), never "not marked". */
+  leaveAlone?: boolean | null;
+  leaveAloneReason?: string | null;
+  leaveAloneBy?: string | null;
+  leaveAloneAt?: string | null;
   /** portal#1492: the latest terminal report; null when none or masked, absent on the Profile tier. */
   terminal?: import('$lib/workers/terminal').TerminalRead | null;
   /** Profile scalars supplied by server#1149; never reconstructed from App. */
