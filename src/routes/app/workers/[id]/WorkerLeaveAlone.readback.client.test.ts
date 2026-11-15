@@ -90,6 +90,8 @@ describe('the unconfirmed marker outlives a remount (Diego delta P2, matching br
     const first = mountOwned(NOT_MARKED);
     button(first.root, 'Leave alone…')!.click();
     flushSync();
+    // The write carries its reason: only a loader showing it too confirms the write (F2).
+    first.root.querySelector<HTMLInputElement>('#leave-alone-reason')!.value = 'host migration';
     const deliver = await beginEnhanced(first.root.querySelector('form')!);
     navigationHooks.onInvalidateAll = () => { throw new Error('reload failed'); };
     await deliver(ok);
@@ -102,5 +104,46 @@ describe('the unconfirmed marker outlives a remount (Diego delta P2, matching br
     flushSync();
     expect(second.root.querySelector('[role="alert"]')).toBeNull();
     expect(second.root.textContent).toContain('host migration');
+  });
+});
+
+describe('a matching marker boolean is not confirmation of the written reason (local delta F2)', () => {
+  const OLD = { on: true, reason: 'OLD OTHER REASON', by: '@bob', at: '2026-11-14T12:00:00Z' };
+
+  async function markWithNewReason(props: { marker: typeof NOT_MARKED | typeof OLD; canManage: boolean }) {
+    const m = mountComponent(WorkerLeaveAlone as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    const root = m.target;
+    button(root, 'Leave alone…')!.click();
+    flushSync();
+    const input = root.querySelector<HTMLInputElement>('#leave-alone-reason')!;
+    input.value = 'OUR NEW REASON';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    const deliver = await beginEnhanced(root.querySelector('form')!);
+    return { root, deliver };
+  }
+
+  it('keeps the lock and the unknown-marker warning when the loader shows the same on-state with another reason', async () => {
+    const props = reactiveProps({ marker: NOT_MARKED as typeof NOT_MARKED | typeof OLD, canManage: true });
+    const { root, deliver } = await markWithNewReason(props);
+    props.marker = OLD;
+    flushSync();
+    navigationHooks.onInvalidateAll = () => { throw new Error('reload failed'); };
+    await deliver(ok);
+    flushSync();
+    expect(root.textContent).not.toContain('OLD OTHER REASON');
+    expect(root.querySelector('[role="alert"]')!.textContent).toMatch(/reload/i);
+  });
+
+  it('lets go once the loader shows the written reason as well', async () => {
+    const props = reactiveProps({ marker: NOT_MARKED as typeof NOT_MARKED | typeof OLD, canManage: true });
+    const { root, deliver } = await markWithNewReason(props);
+    navigationHooks.onInvalidateAll = () => { throw new Error('reload failed'); };
+    await deliver(ok);
+    flushSync();
+    props.marker = { ...OLD, reason: 'OUR NEW REASON' };
+    flushSync();
+    expect(root.querySelector('[role="alert"]')).toBeNull();
+    expect(root.textContent).toContain('OUR NEW REASON');
   });
 });

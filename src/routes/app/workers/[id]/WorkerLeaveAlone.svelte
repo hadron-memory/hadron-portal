@@ -12,6 +12,10 @@
   type Marker = { on: boolean; reason: string | null; by: string | null; at: string | null };
   let { marker, canManage, retired = false, ownerId }: { marker: Marker | null; canManage: boolean; retired?: boolean; ownerId: string } = $props();
 
+  // The full value a marker carries, as the write sends it: on/off plus the reason. A write is
+  // confirmed only when the loader shows all of it (a matching on-state with another reason is an
+  // older marker, not this write).
+  const markerKey = (on: boolean, reason: string | null | undefined): string => `${on}|${on ? (reason ?? '').trim() : ''}`;
   let marking = $state(false);
   let saving = $state(false);
   let feedback = $state<{ kind: 'ok' | 'error'; text: string } | null>(null);
@@ -20,13 +24,13 @@
   const recovery = $derived(recoveryOf(`leave-alone:${ownerId}`));
   const locked = $derived(recovery !== undefined);
   $effect(() => {
-    if (recovery?.phase === 'stale' && marker && String(marker.on) === recovery.value) clearRecovery(`leave-alone:${ownerId}`);
+    if (recovery?.phase === 'stale' && marker && markerKey(marker.on, marker.reason) === recovery.value) clearRecovery(`leave-alone:${ownerId}`);
   });
   const failed = t('worker.leave-alone.error.failed', 'Not saved. Try again.');
 
   const submit: SubmitFunction = ({ formData }) => {
     const owner = ownerId;
-    const written = String(formData.get('leaveAlone') ?? '');
+    const written = markerKey(String(formData.get('leaveAlone') ?? '') === 'true', String(formData.get('reason') ?? ''));
     saving = true;
     feedback = null;
     return async ({ result }) => {
@@ -34,7 +38,7 @@
       if (result.type === 'success') {
         feedback = { kind: 'ok', text: t('worker.leave-alone.saved', 'Saved.') };
         marking = false;
-        await settleCommittedWrite(`leave-alone:${owner}`, written, true, () => (ownerId === owner && marker ? String(marker.on) : undefined));
+        await settleCommittedWrite(`leave-alone:${owner}`, written, true, () => (ownerId === owner && marker ? markerKey(marker.on, marker.reason) : undefined));
       } else if (result.type === 'failure') {
         feedback = { kind: 'error', text: String((result.data as { leaveAloneError?: string } | undefined)?.leaveAloneError ?? failed) };
       } else {
