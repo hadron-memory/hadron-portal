@@ -10,6 +10,14 @@ Author check on a private fresh stack built from hadron-server `79652a984170` (#
 
 Screenshots: `sweep-*.png`, `sweep-apply-confirm-*.png`, `lifecycle-*.png`, `leave-alone-*.png` (`-light` and `-dark`).
 
-After a saved write whose page reload fails or hangs, the control keeps the saved value, locks further writes and warns that the page may be out of date, with a Reload button: `lifecycle-reload-failed-*.png` (reload held open past the 10 s limit).
+After a saved write whose page reload fails or hangs, the control keeps the saved value, locks further writes (the choices are disabled, not only Save) and warns that the page may be out of date, with a Reload button. A worker's leave-alone marker is shown as unknown rather than as the old state. Reload held open past the 10 s limit:
 
-The screenshots in this folder were re-taken at head `c85828f41` (the #2195 fix head) on a fresh private stack from the same server revision, Chromium, dev login, light and dark. The 19 checks above were run on the earlier head and were not repeated.
+- `lifecycle-reload-failed-*.png`: choices disabled, saved value kept selected, warning and Reload.
+- `leave-alone-reload-failed-*.png`: after Clear, "The current marker is unknown until this page reloads", Clear disabled, warning and Reload.
+- `leave-alone-marked-*.png`: a marked worker, with its reason, who set it and when.
+
+## What was re-run at the head these images were taken on
+
+Images re-taken at head `1976bfd59` (the second #2195 fix head, after the blind review) on a fresh private stack from hadron-server `79652a984170`, native Chromium, dev login as a synthetic admin, light (theme set to Light) and dark. At that head the following were re-run in the browser: each control's initial state, the Apply confirmation (opened, then cancelled, nothing saved), the lifecycle save with a held reload (choices disabled, saved value kept, warning), and the leave-alone mark, the marked display and Clear with a held reload (marker shown as unknown). The browser reported no page errors.
+
+NOT re-run at this head: the 19 checks listed above (save-and-reload round trips, the three 403 refusals for a non-manager, the 390px layout). They were run on the earlier head and still describe that head only.
