@@ -129,3 +129,42 @@ describe('lifecycle choices are fixed while a write is in flight or unconfirmed 
     expect(fieldset(root).disabled).toBe(false);
   });
 });
+
+describe('recovery outlives the control visit (Diego delta P2)', () => {
+  const fieldset = (root: HTMLElement) => root.querySelector('fieldset')!;
+
+  it('A -> B -> A before the response: the committed value is shown on A, locked and warned', async () => {
+    const { root, props } = mountIt('LONG_LIVED', 'agent-a');
+    radio(root, 'SHORT_LIVED').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(root));
+    props.ownerId = 'agent-b';
+    flushSync();
+    props.ownerId = 'agent-a';
+    flushSync();
+    await deliver(ok);
+    flushSync();
+    expect(radio(root, 'SHORT_LIVED').checked).toBe(true);
+    expect(fieldset(root).disabled).toBe(true);
+    expect(root.querySelector('[role="alert"]')!.textContent).toMatch(/reload/i);
+  });
+
+  it('keeps the warning and the lock across a remount on unchanged loader data, and lets go when the loader catches up', async () => {
+    const first = mountIt('LONG_LIVED', 'agent-a');
+    radio(first.root, 'SHORT_LIVED').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(first.root));
+    navigationHooks.onInvalidateAll = () => { throw new Error('reload failed'); };
+    await deliver(ok);
+    flushSync();
+    mounted.pop()!.unmount();
+    const second = mountIt('LONG_LIVED', 'agent-a');
+    expect(radio(second.root, 'SHORT_LIVED').checked).toBe(true);
+    expect(fieldset(second.root).disabled).toBe(true);
+    expect(second.root.querySelector('[role="alert"]')!.textContent).toMatch(/reload/i);
+    second.props.lifecycle = 'SHORT_LIVED';
+    flushSync();
+    expect(second.root.querySelector('[role="alert"]')).toBeNull();
+    expect(fieldset(second.root).disabled).toBe(false);
+  });
+});

@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { beginEnhanced } from '$lib/test/stubs/app-forms';
 import { holdInvalidateAll, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import WorkerLeaveAlone from './WorkerLeaveAlone.svelte';
@@ -75,5 +76,31 @@ describe('the marker is not shown as current after a committed write whose reloa
     expect(root.textContent).not.toContain('leaves this worker alone');
     expect(root.textContent).not.toContain('host migration');
     expect(root.textContent).toMatch(/marker.*unknown/i);
+  });
+});
+
+describe('the unconfirmed marker outlives a remount (Diego delta P2, matching branch)', () => {
+  it('still says the marker is unknown after the control is remounted on unchanged loader data, until the loader shows what was written', async () => {
+    const mountOwned = (marker: Record<string, unknown>) => {
+      const props = reactiveProps({ marker, canManage: true, ownerId: 'worker-a' });
+      const m = mountComponent(WorkerLeaveAlone as never, props as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      return { root: m.target, props };
+    };
+    const first = mountOwned(NOT_MARKED);
+    button(first.root, 'Leave alone…')!.click();
+    flushSync();
+    const deliver = await beginEnhanced(first.root.querySelector('form')!);
+    navigationHooks.onInvalidateAll = () => { throw new Error('reload failed'); };
+    await deliver(ok);
+    flushSync();
+    mounted.pop()!.unmount();
+    const second = mountOwned(NOT_MARKED);
+    expect(second.root.textContent).not.toContain('Not marked');
+    expect(second.root.querySelector('[role="alert"]')!.textContent).toMatch(/reload/i);
+    second.props.marker = { on: true, reason: 'host migration', by: '@ada', at: '2026-11-15T12:00:00Z' };
+    flushSync();
+    expect(second.root.querySelector('[role="alert"]')).toBeNull();
+    expect(second.root.textContent).toContain('host migration');
   });
 });

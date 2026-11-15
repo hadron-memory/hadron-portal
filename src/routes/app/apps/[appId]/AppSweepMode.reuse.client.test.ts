@@ -176,3 +176,92 @@ describe('sweep-mode choices are fixed while a write is in flight or unconfirmed
     expect(fieldset(root).disabled).toBe(false);
   });
 });
+
+describe('recovery outlives the control visit (Diego delta P2)', () => {
+  const fieldset = (root: HTMLElement) => root.querySelector('fieldset')!;
+  const failReload = () => { navigationHooks.onInvalidateAll = () => { throw new Error('reload failed'); }; };
+
+  it('A -> B -> A before the APPLY response: the committed write is shown on A, locked and warned', async () => {
+    const { root, props } = mountIt('OFF', 'app-a');
+    radio(root, 'APPLY').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(root));
+    props.ownerId = 'app-b';
+    flushSync();
+    props.ownerId = 'app-a';
+    flushSync();
+    await deliver(ok);
+    flushSync();
+    expect(radio(root, 'APPLY').checked).toBe(true);
+    expect(fieldset(root).disabled).toBe(true);
+    expect(root.querySelector('[role="alert"]')!.textContent).toMatch(/reload/i);
+  });
+
+  it('the same response while B is shown is not published on B, and waits for A', async () => {
+    const { root, props } = mountIt('OFF', 'app-a');
+    radio(root, 'APPLY').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(root));
+    props.ownerId = 'app-b';
+    flushSync();
+    await deliver(ok);
+    flushSync();
+    expect(root.querySelector('[role="status"]')).toBeNull();
+    expect(root.querySelector('[role="alert"]')).toBeNull();
+    expect(fieldset(root).disabled).toBe(false);
+    props.ownerId = 'app-a';
+    flushSync();
+    expect(radio(root, 'APPLY').checked).toBe(true);
+    expect(fieldset(root).disabled).toBe(true);
+    expect(root.querySelector('[role="alert"]')!.textContent).toMatch(/reload/i);
+  });
+
+  it('keeps the warning and the lock when the Settings tab is remounted on unchanged loader data', async () => {
+    const first = mountIt('OFF', 'app-a');
+    radio(first.root, 'APPLY').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(first.root));
+    failReload();
+    await deliver(ok);
+    flushSync();
+    expect(first.root.querySelector('[role="alert"]')).not.toBeNull();
+    mounted.pop()!.unmount();
+    const second = mountIt('OFF', 'app-a');
+    expect(radio(second.root, 'APPLY').checked).toBe(true);
+    expect(fieldset(second.root).disabled).toBe(true);
+    expect(second.root.querySelector('[role="alert"]')!.textContent).toMatch(/reload/i);
+    expect(button(second.root, 'Save')!.disabled).toBe(true);
+  });
+
+  it('lets go once the loader shows the committed value', async () => {
+    const first = mountIt('OFF', 'app-a');
+    radio(first.root, 'APPLY').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(first.root));
+    failReload();
+    await deliver(ok);
+    flushSync();
+    first.props.mode = 'APPLY';
+    flushSync();
+    expect(first.root.querySelector('[role="alert"]')).toBeNull();
+    expect(fieldset(first.root).disabled).toBe(false);
+    mounted.pop()!.unmount();
+    const second = mountIt('APPLY', 'app-a');
+    expect(second.root.querySelector('[role="alert"]')).toBeNull();
+    expect(fieldset(second.root).disabled).toBe(false);
+  });
+
+  it('keeps one App\'s recovery away from another', async () => {
+    const first = mountIt('OFF', 'app-a');
+    radio(first.root, 'APPLY').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(first.root));
+    failReload();
+    await deliver(ok);
+    flushSync();
+    first.props.ownerId = 'app-b';
+    flushSync();
+    expect(first.root.querySelector('[role="alert"]')).toBeNull();
+    expect(radio(first.root, 'OFF').checked).toBe(true);
+  });
+});
