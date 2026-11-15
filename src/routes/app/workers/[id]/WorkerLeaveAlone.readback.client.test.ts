@@ -50,3 +50,30 @@ describe('worker leave-alone after a committed write whose reload fails or hangs
     await done;
   });
 });
+
+describe('the marker is not shown as current after a committed write whose reload failed (blind P2)', () => {
+  const MARKED = { on: true, reason: 'host migration', by: '@ada', at: '2026-11-15T12:00:00Z' };
+
+  it('does not keep saying "Not marked" after marking', async () => {
+    const { root, deliver } = await markWorker();
+    navigationHooks.onInvalidateAll = () => { throw new Error('reload failed'); };
+    await deliver(ok);
+    flushSync();
+    expect(root.textContent).not.toContain('Not marked');
+    expect(root.textContent).toMatch(/current marker is unknown|marker.*unknown/i);
+  });
+
+  it('does not keep saying the sweep leaves the worker alone after clearing', async () => {
+    const m = mountComponent(WorkerLeaveAlone as never, { marker: MARKED, canManage: true } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    const root = m.target;
+    expect(root.textContent).toContain('leaves this worker alone');
+    const deliver = await beginEnhanced(root.querySelector('form')!);
+    navigationHooks.onInvalidateAll = () => { throw new Error('reload failed'); };
+    await deliver(ok);
+    flushSync();
+    expect(root.textContent).not.toContain('leaves this worker alone');
+    expect(root.textContent).not.toContain('host migration');
+    expect(root.textContent).toMatch(/marker.*unknown/i);
+  });
+});

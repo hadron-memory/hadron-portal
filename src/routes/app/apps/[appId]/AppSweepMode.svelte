@@ -81,7 +81,7 @@
     <form bind:this={formEl} method="POST" action="?/setSweepMode" use:enhance={submit} novalidate
       class="space-y-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
       {#if canManage}
-        <fieldset class="space-y-2">
+        <fieldset class="space-y-2" disabled={saving || locked}>
           <legend class="sr-only">{t('app.sweep-mode.heading', 'Sweep mode')}</legend>
           {#each options as o (o.value)}
             <label class="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">

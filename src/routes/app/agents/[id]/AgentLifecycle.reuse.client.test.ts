@@ -99,3 +99,33 @@ describe('lifecycle control after a committed write whose reload fails or hangs 
     await done;
   });
 });
+
+describe('lifecycle choices are fixed while a write is in flight or unconfirmed (blind P2)', () => {
+  const fieldset = (root: HTMLElement) => root.querySelector('fieldset')!;
+
+  it('disables the choices while saving and after a failed reload, keeping the saved value selected', async () => {
+    const { root } = mountIt('LONG_LIVED');
+    radio(root, 'SHORT_LIVED').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(root));
+    flushSync();
+    expect(fieldset(root).disabled).toBe(true);
+    navigationHooks.onInvalidateAll = () => { throw new Error('reload failed'); };
+    await deliver(ok);
+    flushSync();
+    expect(fieldset(root).disabled).toBe(true);
+    expect(radio(root, 'SHORT_LIVED').checked).toBe(true);
+    expect(root.querySelector('[role="status"]')!.textContent).toContain('Saved');
+  });
+
+  it('offers the choices again once the reload lands', async () => {
+    const { root, props } = mountIt('LONG_LIVED');
+    radio(root, 'SHORT_LIVED').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(root));
+    await deliver(ok);
+    props.lifecycle = 'SHORT_LIVED';
+    flushSync();
+    expect(fieldset(root).disabled).toBe(false);
+  });
+});

@@ -65,7 +65,7 @@
   <h2 id="lifecycleHeading" class="mb-2 font-semibold text-zinc-900 dark:text-white">{t('agent.lifecycle.heading', 'Worker lifecycle')}</h2>
   <form method="POST" action="?/updateLifecycle" use:enhance={submit} novalidate
     class="space-y-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-    <fieldset class="space-y-2">
+    <fieldset class="space-y-2" disabled={saving || locked}>
       <legend class="sr-only">{t('agent.lifecycle.heading', 'Worker lifecycle')}</legend>
       <label class="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
         <input type="radio" name="lifecycle" value="LONG_LIVED" checked={chosen === 'LONG_LIVED'} onchange={() => { draft = 'LONG_LIVED'; feedback = null; }} class="mt-0.5" />

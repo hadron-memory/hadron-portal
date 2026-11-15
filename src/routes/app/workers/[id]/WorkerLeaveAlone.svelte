@@ -46,7 +46,9 @@
 {#if marker}
   <section class="max-w-lg rounded-lg border border-zinc-200 p-4 dark:border-zinc-800" aria-labelledby="worker-leave-alone-title">
     <h2 id="worker-leave-alone-title" class="mb-2 font-semibold text-zinc-900 dark:text-white">{t('worker.leave-alone.heading', 'Leave alone')}</h2>
-    {#if marker.on}
+    {#if locked}
+      <p class="text-sm text-zinc-500">{t('worker.leave-alone.unknown', 'The current marker is unknown until this page reloads.')}</p>
+    {:else if marker.on}
       <p class="text-sm text-zinc-700 dark:text-zinc-300">{t('worker.leave-alone.on', 'The host sweep leaves this worker alone: it reports it and never starts, stops or repairs it.')}</p>
       <dl class="mt-2 space-y-1 text-sm">
         {#if marker.reason}

@@ -139,3 +139,40 @@ describe('sweep-mode control after a committed write whose reload fails or hangs
     expect(button(root, 'Save')!.disabled).toBe(false);
   });
 });
+
+describe('sweep-mode choices are fixed while a write is in flight or unconfirmed (blind P2)', () => {
+  const fieldset = (root: HTMLElement) => root.querySelector('fieldset')!;
+
+  it('disables the choices while saving, so a later pick cannot sit beside the saved one', async () => {
+    const { root } = mountIt('OFF');
+    radio(root, 'OBSERVE').click();
+    flushSync();
+    await beginEnhanced(form(root));
+    flushSync();
+    expect(fieldset(root).disabled).toBe(true);
+  });
+
+  it('keeps them disabled, and the saved mode selected, when the reload then fails', async () => {
+    const { root } = mountIt('OFF');
+    radio(root, 'OBSERVE').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(root));
+    navigationHooks.onInvalidateAll = () => { throw new Error('reload failed'); };
+    await deliver(ok);
+    flushSync();
+    expect(fieldset(root).disabled).toBe(true);
+    expect(radio(root, 'OBSERVE').checked).toBe(true);
+    expect(root.querySelector('[role="status"]')!.textContent).toContain('Saved');
+  });
+
+  it('offers the choices again once the reload lands', async () => {
+    const { root, props } = mountIt('OFF');
+    radio(root, 'OBSERVE').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(root));
+    await deliver(ok);
+    props.mode = 'OBSERVE';
+    flushSync();
+    expect(fieldset(root).disabled).toBe(false);
+  });
+});
