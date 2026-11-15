@@ -5,21 +5,28 @@
   // same as "not marked". Only an App manager gets the buttons; the server stays
   // the authority and its refusal is shown as it comes back.
   import { enhance } from '$app/forms';
-  import { readbackAfterWrite } from '$lib/readback-after-write';
+  import { clearRecovery, recoveryOf, settleCommittedWrite } from '$lib/write-recovery.svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import { t } from '$lib/i18n/t';
 
   type Marker = { on: boolean; reason: string | null; by: string | null; at: string | null };
-  let { marker, canManage, retired = false }: { marker: Marker | null; canManage: boolean; retired?: boolean } = $props();
+  let { marker, canManage, retired = false, ownerId }: { marker: Marker | null; canManage: boolean; retired?: boolean; ownerId: string } = $props();
 
   let marking = $state(false);
   let saving = $state(false);
   let feedback = $state<{ kind: 'ok' | 'error'; text: string } | null>(null);
-  let readback = $state<'idle' | 'pending' | 'stale'>('idle');
-  const locked = $derived(readback !== 'idle');
+  // A committed write with an unconfirmed reload is kept per worker, outside this control's lifetime
+  // (the page remounts it on a tab switch): the old marker must not come back as current.
+  const recovery = $derived(recoveryOf(`leave-alone:${ownerId}`));
+  const locked = $derived(recovery !== undefined);
+  $effect(() => {
+    if (recovery?.phase === 'stale' && marker && String(marker.on) === recovery.value) clearRecovery(`leave-alone:${ownerId}`);
+  });
   const failed = t('worker.leave-alone.error.failed', 'Not saved. Try again.');
 
-  const submit: SubmitFunction = () => {
+  const submit: SubmitFunction = ({ formData }) => {
+    const owner = ownerId;
+    const written = String(formData.get('leaveAlone') ?? '');
     saving = true;
     feedback = null;
     return async ({ result }) => {
@@ -27,8 +34,7 @@
       if (result.type === 'success') {
         feedback = { kind: 'ok', text: t('worker.leave-alone.saved', 'Saved.') };
         marking = false;
-        readback = 'pending';
-        readback = (await readbackAfterWrite()) ? 'idle' : 'stale';
+        await settleCommittedWrite(`leave-alone:${owner}`, written, true, () => (ownerId === owner && marker ? String(marker.on) : undefined));
       } else if (result.type === 'failure') {
         feedback = { kind: 'error', text: String((result.data as { leaveAloneError?: string } | undefined)?.leaveAloneError ?? failed) };
       } else {
@@ -88,7 +94,7 @@
             {t('worker.leave-alone.mark', 'Leave alone…')}
           </button>
         {/if}
-        {#if readback === 'stale'}
+        {#if recovery?.phase === 'stale'}
           <div role="alert" class="space-y-2 text-sm text-red-600 dark:text-red-400">
             <p>{t('worker.leave-alone.stale', 'Saved, but this page could not reload and may be out of date. Reload the page before relying on what it shows.')}</p>
             <button type="button" onclick={() => location.reload()} class="rounded-lg border border-zinc-300 px-3 py-1 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-200">{t('worker.leave-alone.reload', 'Reload')}</button>

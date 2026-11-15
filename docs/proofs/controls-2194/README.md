@@ -20,4 +20,6 @@ After a saved write whose page reload fails or hangs, the control keeps the save
 
 Images re-taken at head `1976bfd59` (the second #2195 fix head, after the blind review) on a fresh private stack from hadron-server `79652a984170`, native Chromium, dev login as a synthetic admin, light (theme set to Light) and dark. At that head the following were re-run in the browser: each control's initial state, the Apply confirmation (opened, then cancelled, nothing saved), the lifecycle save with a held reload (choices disabled, saved value kept, warning), and the leave-alone mark, the marked display and Clear with a held reload (marker shown as unknown). The browser reported no page errors.
 
+The third #2195 fix head (after the delta review) keeps an unconfirmed write's recovery state per App, Agent and worker outside the control's lifetime, so it survives A -> B -> A and a tab remount. That changes how long the state lives, not how it renders: the images above were NOT re-taken for it, and the remount and A -> B -> A paths were exercised by mounted tests only, not in a browser.
+
 NOT re-run at this head: the 19 checks listed above (save-and-reload round trips, the three 403 refusals for a non-manager, the 390px layout). They were run on the earlier head and still describe that head only.

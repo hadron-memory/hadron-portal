@@ -423,6 +423,7 @@
     <!-- portal#2194: the sweep leave-alone marker. Null = withheld (profile tier), so nothing renders. -->
     {#key data.worker.id}
       <WorkerLeaveAlone
+        ownerId={data.worker.id}
         marker={worker.leaveAlone == null ? null : { on: worker.leaveAlone, reason: worker.leaveAloneReason ?? null, by: data.leaveAloneByHandle ? `@${data.leaveAloneByHandle}` : (worker.leaveAloneBy ?? null), at: worker.leaveAloneAt ?? null }}
         canManage={data.canManageWorkerApp === true && !data.impersonation}
         {retired}

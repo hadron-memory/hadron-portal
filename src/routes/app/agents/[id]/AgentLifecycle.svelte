@@ -4,7 +4,7 @@
   // lifecycle is sent (omitted means unchanged on the server). The server's
   // updateAgent gate decides who may; this shows its refusal as it comes back.
   import { enhance } from '$app/forms';
-  import { readbackAfterWrite } from '$lib/readback-after-write';
+  import { clearRecovery, recoveryOf, settleCommittedWrite } from '$lib/write-recovery.svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import { t } from '$lib/i18n/t';
 
@@ -14,18 +14,18 @@
   // The pick is kept only while it differs from the saved value, so a reused
   // component follows the loader again after a save or a navigation.
   let draft = $state<Lifecycle | null>(null);
-  const chosen = $derived(draft ?? lifecycle);
+  // See AppSweepMode: a committed write with an unconfirmed reload is kept per Agent, outside this
+  // control's lifetime, until the loader shows the value the server confirmed.
+  const recovery = $derived(recoveryOf(`lifecycle:${ownerId}`));
+  const locked = $derived(recovery !== undefined);
+  const chosen = $derived((recovery?.value as Lifecycle | undefined) ?? draft ?? lifecycle);
   const changed = $derived(chosen !== lifecycle);
   let saving = $state(false);
   let feedback = $state<{ kind: 'ok' | 'error'; text: string } | null>(null);
-  // The page reuses this component when the person moves to another Agent: a draft,
-  // an open confirmation or a result still in flight belongs to the one they left.
+  // The page reuses this component for another Agent: what is in flight belongs to the one left.
   let seenOwner: string | undefined;
   let seeded = false;
   let gen = 0;
-  // After a committed write the reload must land before the old value is authoritative again.
-  let readback = $state<'idle' | 'pending' | 'stale'>('idle');
-  const locked = $derived(readback !== 'idle');
   $effect.pre(() => {
     const id = ownerId;
     if (!seeded) { seeded = true; seenOwner = id; return; }
@@ -35,24 +35,31 @@
     draft = null;
     saving = false;
     feedback = null;
-    readback = 'idle';
+  });
+  $effect(() => {
+    if (recovery?.phase === 'stale' && lifecycle === recovery.value) clearRecovery(`lifecycle:${ownerId}`);
   });
 
   const failed = t('agent.lifecycle.error.failed', 'Not saved. Changing this needs the agent’s owner or an organization admin.');
-  const submit: SubmitFunction = () => {
+  const submit: SubmitFunction = ({ formData }) => {
     const mine = gen;
+    const owner = ownerId;
+    const written = String(formData.get('lifecycle') ?? '');
     saving = true;
     feedback = null;
     return async ({ result }) => {
+      if (result.type === 'success') {
+        if (mine === gen) {
+          saving = false;
+          draft = null;
+          feedback = { kind: 'ok', text: t('agent.lifecycle.saved', 'Saved.') };
+        }
+        await settleCommittedWrite(`lifecycle:${owner}`, written, mine === gen, () => (ownerId === owner ? lifecycle : undefined));
+        return;
+      }
       if (mine !== gen) return;
       saving = false;
-      if (result.type === 'success') {
-        feedback = { kind: 'ok', text: t('agent.lifecycle.saved', 'Saved.') };
-        readback = 'pending';
-        const landed = await readbackAfterWrite();
-        if (mine !== gen) return;
-        if (landed) { draft = null; readback = 'idle'; } else readback = 'stale';
-      } else if (result.type === 'failure') {
+      if (result.type === 'failure') {
         feedback = { kind: 'error', text: String((result.data as { lifecycleError?: string } | undefined)?.lifecycleError ?? failed) };
       } else {
         feedback = { kind: 'error', text: failed };
@@ -87,7 +94,7 @@
     {:else if feedback?.kind === 'ok'}
       <p role="status" class="text-sm text-emerald-600 dark:text-emerald-400">{feedback.text}</p>
     {/if}
-    {#if readback === 'stale'}
+    {#if recovery?.phase === 'stale'}
       <div role="alert" class="space-y-2 text-sm text-red-600 dark:text-red-400">
         <p>{t('agent.lifecycle.stale', 'Saved, but this page could not reload and may be out of date. Reload the page before relying on what it shows.')}</p>
         <button type="button" onclick={() => location.reload()} class="rounded-lg border border-zinc-300 px-3 py-1 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-200">{t('agent.lifecycle.reload', 'Reload')}</button>

@@ -6,7 +6,7 @@
   // an App manager gets the controls; the server stays the authority and its
   // refusal is shown as it comes back.
   import { enhance } from '$app/forms';
-  import { readbackAfterWrite } from '$lib/readback-after-write';
+  import { clearRecovery, recoveryOf, settleCommittedWrite } from '$lib/write-recovery.svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import { t } from '$lib/i18n/t';
 
@@ -14,20 +14,22 @@
   let { mode, canManage, ownerId }: { mode: Mode | null; canManage: boolean; ownerId: string } = $props();
 
   let draft = $state<Mode | null>(null);
-  const chosen = $derived(draft ?? mode);
+  // A write the server committed whose reload is unconfirmed lives in a store keyed by this App,
+  // not here: this control can be torn down (Settings tab) or pointed at another App and back
+  // before the answer lands, and a local flag would forget the write the loader has not shown yet.
+  const recovery = $derived(recoveryOf(`sweep-mode:${ownerId}`));
+  const locked = $derived(recovery !== undefined);
+  const chosen = $derived(recovery?.value ?? draft ?? mode);
   const changed = $derived(mode !== null && chosen !== mode);
   let confirming = $state(false);
   let saving = $state(false);
   let feedback = $state<{ kind: 'ok' | 'error'; text: string } | null>(null);
   let formEl = $state<HTMLFormElement | null>(null);
-  // The page reuses this component when the person moves to another App: a draft,
-  // an open confirmation or a result still in flight belongs to the one they left.
+  // The page reuses this component when the person moves to another App: a draft, an open
+  // confirmation or a result still in flight belongs to the one they left.
   let seenOwner: string | undefined;
   let seeded = false;
   let gen = 0;
-  // After a committed write the reload must land before the old value is authoritative again.
-  let readback = $state<'idle' | 'pending' | 'stale'>('idle');
-  const locked = $derived(readback !== 'idle');
   $effect.pre(() => {
     const id = ownerId;
     if (!seeded) { seeded = true; seenOwner = id; return; }
@@ -38,25 +40,35 @@
     confirming = false;
     saving = false;
     feedback = null;
-    readback = 'idle';
+  });
+  // The loader caught up with what was written: the recovery has done its job.
+  $effect(() => {
+    if (recovery?.phase === 'stale' && mode === recovery.value) clearRecovery(`sweep-mode:${ownerId}`);
   });
 
   const failed = t('app.sweep-mode.error.failed', 'Not saved. Try again.');
-  const submit: SubmitFunction = () => {
+  const submit: SubmitFunction = ({ formData }) => {
     const mine = gen;
+    const owner = ownerId;
+    const written = String(formData.get('mode') ?? '');
     saving = true;
     feedback = null;
     return async ({ result }) => {
+      if (result.type === 'success') {
+        // Committed, whichever App is on screen now: it is recorded against the App it was sent to.
+        if (mine === gen) {
+          saving = false;
+          confirming = false;
+          draft = null;
+          feedback = { kind: 'ok', text: t('app.sweep-mode.saved', 'Saved.') };
+        }
+        await settleCommittedWrite(`sweep-mode:${owner}`, written, mine === gen, () => (ownerId === owner ? (mode ?? undefined) : undefined));
+        return;
+      }
       if (mine !== gen) return;
       saving = false;
       confirming = false;
-      if (result.type === 'success') {
-        feedback = { kind: 'ok', text: t('app.sweep-mode.saved', 'Saved.') };
-        readback = 'pending';
-        const landed = await readbackAfterWrite();
-        if (mine !== gen) return;
-        if (landed) { draft = null; readback = 'idle'; } else readback = 'stale';
-      } else if (result.type === 'failure') {
+      if (result.type === 'failure') {
         feedback = { kind: 'error', text: String((result.data as { sweepModeError?: string } | undefined)?.sweepModeError ?? failed) };
       } else {
         feedback = { kind: 'error', text: failed };
@@ -106,7 +118,7 @@
         {:else if feedback?.kind === 'ok'}
           <p role="status" class="text-sm text-emerald-600 dark:text-emerald-400">{feedback.text}</p>
         {/if}
-        {#if readback === 'stale'}
+        {#if recovery?.phase === 'stale'}
           <div role="alert" class="space-y-2 text-sm text-red-600 dark:text-red-400">
             <p>{t('app.sweep-mode.stale', 'Saved, but this page could not reload and may be out of date. Reload the page before relying on what it shows.')}</p>
             <button type="button" onclick={() => location.reload()} class="rounded-lg border border-zinc-300 px-3 py-1 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-200">{t('app.sweep-mode.reload', 'Reload')}</button>
