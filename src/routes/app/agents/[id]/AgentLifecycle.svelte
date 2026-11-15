@@ -4,7 +4,7 @@
   // lifecycle is sent (omitted means unchanged on the server). The server's
   // updateAgent gate decides who may; this shows its refusal as it comes back.
   import { enhance } from '$app/forms';
-  import { clearRecovery, recoveryOf, settleCommittedWrite } from '$lib/write-recovery.svelte';
+  import { beginWrite, clearRecovery, failWrite, recoveryOf, settleCommittedWrite } from '$lib/write-recovery.svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import { t } from '$lib/i18n/t';
 
@@ -45,6 +45,7 @@
     const mine = gen;
     const owner = ownerId;
     const written = String(formData.get('lifecycle') ?? '');
+    const token = beginWrite(`lifecycle:${owner}`, written);
     saving = true;
     feedback = null;
     return async ({ result }) => {
@@ -54,9 +55,10 @@
           draft = null;
           feedback = { kind: 'ok', text: t('agent.lifecycle.saved', 'Saved.') };
         }
-        await settleCommittedWrite(`lifecycle:${owner}`, written, mine === gen, () => (ownerId === owner ? lifecycle : undefined));
+        await settleCommittedWrite(`lifecycle:${owner}`, token, written, mine === gen, () => (ownerId === owner ? lifecycle : undefined));
         return;
       }
+      failWrite(`lifecycle:${owner}`, token);
       if (mine !== gen) return;
       saving = false;
       if (result.type === 'failure') {

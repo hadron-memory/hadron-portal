@@ -265,3 +265,20 @@ describe('recovery outlives the control visit (Diego delta P2)', () => {
     expect(radio(first.root, 'OFF').checked).toBe(true);
   });
 });
+
+describe('recovery starts at submission, not at the response (blind delta F5)', () => {
+  it('a remount before the response keeps the choices locked until the loader shows the write', async () => {
+    const first = mountIt('OFF', 'app-a');
+    radio(first.root, 'OBSERVE').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(first.root));
+    mounted.pop()!.unmount();
+    const second = mountIt('OFF', 'app-a');
+    expect(second.root.querySelector('fieldset')!.disabled).toBe(true);
+    expect(radio(second.root, 'OBSERVE').checked).toBe(true);
+    await deliver(ok);
+    second.props.mode = 'OBSERVE';
+    flushSync();
+    expect(second.root.querySelector('fieldset')!.disabled).toBe(false);
+  });
+});

@@ -147,3 +147,17 @@ describe('a matching marker boolean is not confirmation of the written reason (l
     expect(root.textContent).toContain('OUR NEW REASON');
   });
 });
+
+describe('recovery starts at submission, not at the response (blind delta F5)', () => {
+  it('a remount before the response keeps the control locked', async () => {
+    const { root, deliver } = await markWorker();
+    mounted.pop()!.unmount();
+    const again = mountComponent(WorkerLeaveAlone as never, { marker: NOT_MARKED, canManage: true } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(again);
+    expect(button(again.target, 'Leave alone…')!.disabled).toBe(true);
+    navigationHooks.onInvalidateAll = () => { throw new Error('reload failed'); };
+    await deliver(ok);
+    flushSync();
+    expect(again.target.querySelector('[role="alert"]')!.textContent).toMatch(/reload/i);
+  });
+});

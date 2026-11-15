@@ -5,7 +5,7 @@
   // same as "not marked". Only an App manager gets the buttons; the server stays
   // the authority and its refusal is shown as it comes back.
   import { enhance } from '$app/forms';
-  import { clearRecovery, recoveryOf, settleCommittedWrite } from '$lib/write-recovery.svelte';
+  import { beginWrite, clearRecovery, failWrite, recoveryOf, settleCommittedWrite } from '$lib/write-recovery.svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import { t } from '$lib/i18n/t';
 
@@ -27,6 +27,7 @@
   const submit: SubmitFunction = ({ formData }) => {
     const owner = ownerId;
     const written = String(formData.get('leaveAlone') ?? '');
+    const token = beginWrite(`leave-alone:${owner}`, written);
     saving = true;
     feedback = null;
     return async ({ result }) => {
@@ -34,10 +35,12 @@
       if (result.type === 'success') {
         feedback = { kind: 'ok', text: t('worker.leave-alone.saved', 'Saved.') };
         marking = false;
-        await settleCommittedWrite(`leave-alone:${owner}`, written, true, () => (ownerId === owner && marker ? String(marker.on) : undefined));
+        await settleCommittedWrite(`leave-alone:${owner}`, token, written, true, () => (ownerId === owner && marker ? String(marker.on) : undefined));
       } else if (result.type === 'failure') {
+        failWrite(`leave-alone:${owner}`, token);
         feedback = { kind: 'error', text: String((result.data as { leaveAloneError?: string } | undefined)?.leaveAloneError ?? failed) };
       } else {
+        failWrite(`leave-alone:${owner}`, token);
         feedback = { kind: 'error', text: failed };
       }
     };
@@ -52,7 +55,7 @@
 {#if marker}
   <section class="max-w-lg rounded-lg border border-zinc-200 p-4 dark:border-zinc-800" aria-labelledby="worker-leave-alone-title">
     <h2 id="worker-leave-alone-title" class="mb-2 font-semibold text-zinc-900 dark:text-white">{t('worker.leave-alone.heading', 'Leave alone')}</h2>
-    {#if locked}
+    {#if recovery && recovery.phase !== 'inflight'}
       <p class="text-sm text-zinc-500">{t('worker.leave-alone.unknown', 'The current marker is unknown until this page reloads.')}</p>
     {:else if marker.on}
       <p class="text-sm text-zinc-700 dark:text-zinc-300">{t('worker.leave-alone.on', 'The host sweep leaves this worker alone: it reports it and never starts, stops or repairs it.')}</p>

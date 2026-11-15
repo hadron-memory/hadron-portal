@@ -13,19 +13,37 @@ import { readbackAfterWrite } from '$lib/readback-after-write';
  * to (`<control>:<owner id>`), survives any component, and is dropped only when
  * the loader shows the value the server confirmed.
  *
+ *  - `inflight`: submitted, no answer yet. Held from submission so a remount or
+ *    A -> B -> A cannot open a second write on the same owner (blind delta F5).
  *  - `pending`: the reload is in flight.
  *  - `stale`: the reload failed, hung, or could not be confirmed. The control
  *    keeps showing `value`, locks further writes and warns the page may be old.
  */
-export type WriteRecovery = { value: string; phase: 'pending' | 'stale' };
+export type WriteRecovery = { value: string; phase: 'inflight' | 'pending' | 'stale'; token: number };
 
 const entries = new SvelteMap<string, WriteRecovery>();
+let nextToken = 0;
 
 export const recoveryOf = (key: string): WriteRecovery | undefined => entries.get(key);
-export const setRecovery = (key: string, value: string, phase: WriteRecovery['phase']): void => { entries.set(key, { value, phase }); };
 export const clearRecovery = (key: string): void => { entries.delete(key); };
 /** For tests: forget every recovery so one case cannot leak into the next. */
 export const resetWriteRecovery = (): void => { entries.clear(); };
+
+/** Lock `key` from submission. The token is how this operation's later callbacks prove the entry is still theirs. */
+export function beginWrite(key: string, value: string): number {
+  const token = ++nextToken;
+  entries.set(key, { value, phase: 'inflight', token });
+  return token;
+}
+/** The write was refused or never committed: release the lock, unless a newer operation owns the entry. */
+export function failWrite(key: string, token: number): void {
+  if (entries.get(key)?.token === token) entries.delete(key);
+}
+const advance = (key: string, token: number, value: string, phase: WriteRecovery['phase']): boolean => {
+  if (entries.get(key)?.token !== token) return false;
+  entries.set(key, { value, phase, token });
+  return true;
+};
 
 /**
  * Settle a write the server COMMITTED, for the control that sent it.
@@ -37,13 +55,13 @@ export const resetWriteRecovery = (): void => { entries.clear(); };
  * `value` (or for the person to reload). Otherwise the reload is awaited and a
  * loader that still shows something else after it is `stale` too.
  */
-export async function settleCommittedWrite(key: string, value: string, ownerShown: boolean, shownNow: () => string | undefined): Promise<void> {
-  if (!ownerShown) { setRecovery(key, value, 'stale'); return; }
-  setRecovery(key, value, 'pending');
+export async function settleCommittedWrite(key: string, token: number, value: string, ownerShown: boolean, shownNow: () => string | undefined): Promise<void> {
+  if (!ownerShown) { advance(key, token, value, 'stale'); return; }
+  if (!advance(key, token, value, 'pending')) return;
   const landed = await readbackAfterWrite();
   if (landed) {
     await tick();
-    if (shownNow() === value) { clearRecovery(key); return; }
+    if (shownNow() === value) { if (entries.get(key)?.token === token) clearRecovery(key); return; }
   }
-  setRecovery(key, value, 'stale');
+  advance(key, token, value, 'stale');
 }

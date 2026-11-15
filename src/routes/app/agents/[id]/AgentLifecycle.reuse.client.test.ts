@@ -168,3 +168,32 @@ describe('recovery outlives the control visit (Diego delta P2)', () => {
     expect(fieldset(second.root).disabled).toBe(false);
   });
 });
+
+describe('recovery starts at submission, not at the response (blind delta F5)', () => {
+  const fieldset = (root: HTMLElement) => root.querySelector('fieldset')!;
+
+  it('a remount before the response keeps the lock, so a second write cannot overlap the first', async () => {
+    const first = mountIt('LONG_LIVED', 'agent-a');
+    radio(first.root, 'SHORT_LIVED').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(first.root));
+    mounted.pop()!.unmount();
+    const second = mountIt('LONG_LIVED', 'agent-a');
+    expect(fieldset(second.root).disabled).toBe(true);
+    expect(radio(second.root, 'SHORT_LIVED').checked).toBe(true);
+    await deliver(ok);
+    second.props.lifecycle = 'SHORT_LIVED';
+    flushSync();
+    expect(fieldset(second.root).disabled).toBe(false);
+  });
+
+  it('a failed write releases the lock', async () => {
+    const { root } = mountIt('LONG_LIVED', 'agent-a');
+    radio(root, 'SHORT_LIVED').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(root));
+    await deliver({ type: 'failure', status: 400, data: { lifecycleError: 'no' } });
+    flushSync();
+    expect(fieldset(root).disabled).toBe(false);
+  });
+});

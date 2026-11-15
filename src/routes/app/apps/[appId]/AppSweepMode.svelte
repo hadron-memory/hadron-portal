@@ -6,7 +6,7 @@
   // an App manager gets the controls; the server stays the authority and its
   // refusal is shown as it comes back.
   import { enhance } from '$app/forms';
-  import { clearRecovery, recoveryOf, settleCommittedWrite } from '$lib/write-recovery.svelte';
+  import { beginWrite, clearRecovery, failWrite, recoveryOf, settleCommittedWrite } from '$lib/write-recovery.svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import { t } from '$lib/i18n/t';
 
@@ -51,6 +51,7 @@
     const mine = gen;
     const owner = ownerId;
     const written = String(formData.get('mode') ?? '');
+    const token = beginWrite(`sweep-mode:${owner}`, written);
     saving = true;
     feedback = null;
     return async ({ result }) => {
@@ -62,9 +63,10 @@
           draft = null;
           feedback = { kind: 'ok', text: t('app.sweep-mode.saved', 'Saved.') };
         }
-        await settleCommittedWrite(`sweep-mode:${owner}`, written, mine === gen, () => (ownerId === owner ? (mode ?? undefined) : undefined));
+        await settleCommittedWrite(`sweep-mode:${owner}`, token, written, mine === gen, () => (ownerId === owner ? (mode ?? undefined) : undefined));
         return;
       }
+      failWrite(`sweep-mode:${owner}`, token);
       if (mine !== gen) return;
       saving = false;
       confirming = false;
