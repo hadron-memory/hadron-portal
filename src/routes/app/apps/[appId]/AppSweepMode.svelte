@@ -6,7 +6,7 @@
   // an App manager gets the controls; the server stays the authority and its
   // refusal is shown as it comes back.
   import { enhance } from '$app/forms';
-  import { clearRecovery, recoveryOf, settleCommittedWrite } from '$lib/write-recovery.svelte';
+  import { beginWrite, clearRecovery, failWrite, isUncertainResult, recoveryOf, settleWriteOutcome } from '$lib/write-recovery.svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import { t } from '$lib/i18n/t';
 
@@ -51,20 +51,25 @@
     const mine = gen;
     const owner = ownerId;
     const written = String(formData.get('mode') ?? '');
+    const token = beginWrite(`sweep-mode:${owner}`, written);
     saving = true;
     feedback = null;
     return async ({ result }) => {
-      if (result.type === 'success') {
-        // Committed, whichever App is on screen now: it is recorded against the App it was sent to.
+      // A refusal or a GraphQL error response did not commit. No answer at all leaves the outcome
+      // unknown: keep the lock and check, never say "Not saved".
+      const uncertain = isUncertainResult(result);
+      if (result.type === 'success' || uncertain) {
+        // Committed or unknown, whichever App is on screen now: it is recorded against the App it was sent to.
         if (mine === gen) {
           saving = false;
           confirming = false;
           draft = null;
-          feedback = { kind: 'ok', text: t('app.sweep-mode.saved', 'Saved.') };
+          feedback = uncertain ? null : { kind: 'ok', text: t('app.sweep-mode.saved', 'Saved.') };
         }
-        await settleCommittedWrite(`sweep-mode:${owner}`, written, mine === gen, () => (ownerId === owner ? (mode ?? undefined) : undefined));
+        await settleWriteOutcome(`sweep-mode:${owner}`, token, written, mine === gen, () => (ownerId === owner ? (mode ?? undefined) : undefined), uncertain);
         return;
       }
+      failWrite(`sweep-mode:${owner}`, token);
       if (mine !== gen) return;
       saving = false;
       confirming = false;
@@ -118,9 +123,14 @@
         {:else if feedback?.kind === 'ok'}
           <p role="status" class="text-sm text-emerald-600 dark:text-emerald-400">{feedback.text}</p>
         {/if}
+        {#if recovery?.uncertain && recovery.phase !== 'stale'}
+        <p role="status" class="text-sm text-zinc-500">{t('app.sweep-mode.unconfirmed', 'Couldn’t confirm the save; checking…')}</p>
+    {/if}
         {#if recovery?.phase === 'stale'}
           <div role="alert" class="space-y-2 text-sm text-red-600 dark:text-red-400">
-            <p>{t('app.sweep-mode.stale', 'Saved, but this page could not reload and may be out of date. Reload the page before relying on what it shows.')}</p>
+            <p>{recovery.uncertain
+              ? t('app.sweep-mode.stale-unconfirmed', 'Couldn’t confirm the save, and this page could not reload. Reload the page before relying on what it shows.')
+              : t('app.sweep-mode.stale', 'Saved, but this page could not reload and may be out of date. Reload the page before relying on what it shows.')}</p>
             <button type="button" onclick={() => location.reload()} class="rounded-lg border border-zinc-300 px-3 py-1 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-200">{t('app.sweep-mode.reload', 'Reload')}</button>
           </div>
         {/if}

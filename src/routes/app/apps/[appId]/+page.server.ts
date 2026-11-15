@@ -27,7 +27,7 @@ import { appAgentPointerKey } from '$lib/boot-prompt-pointer';
 import { lookupOwn } from '$lib/lookup';
 import { loadAppTeamRoster } from '$lib/server/app-team-roster';
 import { fetchAllItems } from '$lib/server/paginate';
-import { extractGqlError, extractGqlErrorCode, gqlErrorBody } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode, gqlErrorBody, isDefiniteRefusal } from '$lib/server/gqlError';
 import { loadOrgDetail } from '$lib/server/org-detail';
 import { fetchOrgVisibleAgents, mergeInstallableAgents, type OrgAgentPool } from '$lib/server/installable-agents';
 import { t } from '$lib/i18n/t';
@@ -1249,6 +1249,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(SET_APP_SWEEP_MODE_MUTATION, { appRef: params.appId, mode });
       return { sweepModeSaved: mode };
     } catch (e: unknown) {
+      if (!isDefiniteRefusal(e)) return fail(502, { sweepModeError: t('app.sweep-mode.unconfirmed', 'Couldn’t confirm the save; checking…'), uncertain: true });
       const code = extractGqlErrorCode(e);
       const text = extractGqlError(e, t('app.sweep-mode.error.failed', 'Not saved. Try again.'), ['APP_NOT_FOUND', 'BAD_USER_INPUT']);
       return fail(code === 'FORBIDDEN' ? 403 : code === 'APP_NOT_FOUND' ? 404 : code === 'BAD_USER_INPUT' ? 400 : 500, { sweepModeError: text });
