@@ -11,7 +11,9 @@ concurrency:
 
 jobs:
   memory-config-browser:
-    runs-on: ubuntu-24.04
+    # PR jobs run on the orca1 self-hosted runner only while the repo variable PORTAL_SELF_HOSTED is 'true'
+    # (hadron-server proposals:orca1-self-hosted-runner-portal); otherwise, and for pushes to main, ubuntu-24.04.
+    runs-on: ${{ github.event_name == 'pull_request' && vars.PORTAL_SELF_HOSTED == 'true' && fromJSON('["self-hosted","orca1-portal"]') || 'ubuntu-24.04' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
