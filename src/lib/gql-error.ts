@@ -30,6 +30,8 @@ export function classifyGqlError(e: unknown): GqlFailure {
     ? { kind: 'internal', code, requestId: validRequestId(first.extensions?.requestId) }
     : { kind: 'graphql', code };
 }
+/** No GraphQL response came back: the request may or may not have been applied. */
+export const isTransportFailure = (e: unknown): boolean => classifyGqlError(e).kind === 'transport';
 export const internalErrorText = () => t('error.internal', 'Something went wrong on our side.');
 export function extractGqlError(e: unknown, fallback: string, knownRefusals: readonly string[] = [], options: { transport?: 'fallback' } = {}): string {
   const failure = classifyGqlError(e);

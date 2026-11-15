@@ -4,7 +4,7 @@
   // lifecycle is sent (omitted means unchanged on the server). The server's
   // updateAgent gate decides who may; this shows its refusal as it comes back.
   import { enhance } from '$app/forms';
-  import { beginWrite, clearRecovery, failWrite, recoveryOf, settleCommittedWrite } from '$lib/write-recovery.svelte';
+  import { beginWrite, clearRecovery, failWrite, isUncertainResult, recoveryOf, settleCommittedWrite } from '$lib/write-recovery.svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import { t } from '$lib/i18n/t';
 
@@ -49,13 +49,16 @@
     saving = true;
     feedback = null;
     return async ({ result }) => {
-      if (result.type === 'success') {
+      // A refusal or a GraphQL error response did not commit. No answer at all (`error`, or the action
+      // saying it could not reach the server) leaves the outcome unknown: keep the lock and check.
+      const uncertain = isUncertainResult(result);
+      if (result.type === 'success' || uncertain) {
         if (mine === gen) {
           saving = false;
           draft = null;
-          feedback = { kind: 'ok', text: t('agent.lifecycle.saved', 'Saved.') };
+          feedback = { kind: 'ok', text: uncertain ? t('agent.lifecycle.unconfirmed', 'Couldn’t confirm the save; checking…') : t('agent.lifecycle.saved', 'Saved.') };
         }
-        await settleCommittedWrite(`lifecycle:${owner}`, token, written, mine === gen, () => (ownerId === owner ? lifecycle : undefined));
+        await settleCommittedWrite(`lifecycle:${owner}`, token, written, mine === gen, () => (ownerId === owner ? lifecycle : undefined), uncertain);
         return;
       }
       failWrite(`lifecycle:${owner}`, token);
@@ -98,7 +101,9 @@
     {/if}
     {#if recovery?.phase === 'stale'}
       <div role="alert" class="space-y-2 text-sm text-red-600 dark:text-red-400">
-        <p>{t('agent.lifecycle.stale', 'Saved, but this page could not reload and may be out of date. Reload the page before relying on what it shows.')}</p>
+        <p>{recovery.uncertain
+          ? t('agent.lifecycle.stale-unconfirmed', 'Couldn’t confirm the save, and this page could not reload. Reload the page before relying on what it shows.')
+          : t('agent.lifecycle.stale', 'Saved, but this page could not reload and may be out of date. Reload the page before relying on what it shows.')}</p>
         <button type="button" onclick={() => location.reload()} class="rounded-lg border border-zinc-300 px-3 py-1 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-200">{t('agent.lifecycle.reload', 'Reload')}</button>
       </div>
     {/if}

@@ -4,7 +4,7 @@ import { ClientError } from 'graphql-request';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode, isTransportFailure } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
 import { APP_CASTABLE_AGENTS_QUERY, CHANGE_WORKER_AGENT_MUTATION, SET_WORKER_BOOT_PROMPT_MUTATION, SET_WORKER_LEAVE_ALONE_MUTATION, TEAM_WORK_ITEMS_QUERY, UPDATE_WORKER_SIGNATURE_MUTATION, USER_PROFILE_QUERY, WORKER_BOOT_POINTER_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
 import { pointerAction, readPointer, selfCanManage } from '$lib/server/boot-prompt-pointer';
@@ -252,6 +252,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(SET_WORKER_LEAVE_ALONE_MUTATION, { input });
       return { leaveAloneSaved: input.leaveAlone };
     } catch (e: unknown) {
+      if (isTransportFailure(e)) return fail(502, { leaveAloneError: t('worker.leave-alone.unconfirmed', 'Couldn’t confirm the save; checking…'), uncertain: true });
       const code = extractGqlErrorCode(e);
       const text = extractGqlError(e, t('worker.leave-alone.error.failed', 'Not saved. Try again.'), LEAVE_ALONE_REFUSALS);
       const status = code === 'FORBIDDEN' || code === 'WORKER_LEAVE_ALONE_NOT_PERMITTED' ? 403 : code === 'BAD_USER_INPUT' ? 400 : code === 'WORKER_NOT_FOUND' || code === 'WORKER_RETIRED' ? 404 : 500;

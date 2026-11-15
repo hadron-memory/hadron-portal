@@ -5,7 +5,7 @@
   // same as "not marked". Only an App manager gets the buttons; the server stays
   // the authority and its refusal is shown as it comes back.
   import { enhance } from '$app/forms';
-  import { beginWrite, clearRecovery, failWrite, recoveryOf, settleCommittedWrite } from '$lib/write-recovery.svelte';
+  import { beginWrite, clearRecovery, failWrite, isUncertainResult, recoveryOf, settleCommittedWrite } from '$lib/write-recovery.svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import { t } from '$lib/i18n/t';
 
@@ -36,10 +36,13 @@
     feedback = null;
     return async ({ result }) => {
       saving = false;
-      if (result.type === 'success') {
-        feedback = { kind: 'ok', text: t('worker.leave-alone.saved', 'Saved.') };
+      // A refusal or a GraphQL error response did not commit. No answer at all leaves the outcome
+      // unknown: keep the lock and check, never say "Not saved".
+      const uncertain = isUncertainResult(result);
+      if (result.type === 'success' || uncertain) {
+        feedback = { kind: 'ok', text: uncertain ? t('worker.leave-alone.unconfirmed', 'Couldn’t confirm the save; checking…') : t('worker.leave-alone.saved', 'Saved.') };
         marking = false;
-        await settleCommittedWrite(`leave-alone:${owner}`, token, written, true, () => (ownerId === owner && marker ? markerKey(marker.on, marker.reason) : undefined));
+        await settleCommittedWrite(`leave-alone:${owner}`, token, written, true, () => (ownerId === owner && marker ? markerKey(marker.on, marker.reason) : undefined), uncertain);
       } else if (result.type === 'failure') {
         failWrite(`leave-alone:${owner}`, token);
         feedback = { kind: 'error', text: String((result.data as { leaveAloneError?: string } | undefined)?.leaveAloneError ?? failed) };
@@ -103,7 +106,9 @@
         {/if}
         {#if recovery?.phase === 'stale'}
           <div role="alert" class="space-y-2 text-sm text-red-600 dark:text-red-400">
-            <p>{t('worker.leave-alone.stale', 'Saved, but this page could not reload and may be out of date. Reload the page before relying on what it shows.')}</p>
+            <p>{recovery.uncertain
+              ? t('worker.leave-alone.stale-unconfirmed', 'Couldn’t confirm the save, and this page could not reload. Reload the page before relying on what it shows.')
+              : t('worker.leave-alone.stale', 'Saved, but this page could not reload and may be out of date. Reload the page before relying on what it shows.')}</p>
             <button type="button" onclick={() => location.reload()} class="rounded-lg border border-zinc-300 px-3 py-1 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-200">{t('worker.leave-alone.reload', 'Reload')}</button>
           </div>
         {/if}

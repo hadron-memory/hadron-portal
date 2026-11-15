@@ -26,7 +26,7 @@ import { pointerAction, readPointer, selfCanManage } from '$lib/server/boot-prom
 import { drainFindNodes, fetchAllItems } from '$lib/server/paginate';
 import { fetchOwnedMemoriesLite } from '$lib/server/personal-memories';
 import type { OwnedMemoryLite } from '$lib/server/personal-memories';
-import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions, gqlErrorBody } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions, gqlErrorBody, isTransportFailure } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
 import { grantedAgents, type InstallableAgent, type OrgAgentPool } from '$lib/server/installable-agents';
 import { withTimeout, OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
@@ -789,6 +789,8 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(UPDATE_AGENT_LIFECYCLE_MUTATION, { ref: params.id, lifecycle });
       return { lifecycleSaved: lifecycle };
     } catch (e: unknown) {
+      // No GraphQL response: the write may have committed, so say so and let the page check (never "Not saved").
+      if (isTransportFailure(e)) return fail(502, { lifecycleError: t('agent.lifecycle.error.unconfirmed', 'Couldn’t confirm the save; checking…'), uncertain: true });
       switch (extractGqlErrorCode(e)) {
         case 'FORBIDDEN':
           return fail(403, { lifecycleError: t('agent.lifecycle.error.forbidden', 'Only the agent’s owner or an organization admin can change this.') });

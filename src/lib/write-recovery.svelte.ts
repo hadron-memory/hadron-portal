@@ -19,7 +19,13 @@ import { readbackAfterWrite } from '$lib/readback-after-write';
  *  - `stale`: the reload failed, hung, or could not be confirmed. The control
  *    keeps showing `value`, locks further writes and warns the page may be old.
  */
-export type WriteRecovery = { value: string; phase: 'inflight' | 'pending' | 'stale'; token: number };
+export type WriteRecovery = {
+  value: string;
+  phase: 'inflight' | 'pending' | 'stale';
+  token: number;
+  /** The write got no answer from the server (transport failure): it may or may not have committed. */
+  uncertain: boolean;
+};
 
 const entries = new SvelteMap<string, WriteRecovery>();
 let nextToken = 0;
@@ -32,21 +38,23 @@ export const resetWriteRecovery = (): void => { entries.clear(); };
 /** Lock `key` from submission. The token is how this operation's later callbacks prove the entry is still theirs. */
 export function beginWrite(key: string, value: string): number {
   const token = ++nextToken;
-  entries.set(key, { value, phase: 'inflight', token });
+  entries.set(key, { value, phase: 'inflight', token, uncertain: false });
   return token;
 }
 /** The write was refused or never committed: release the lock, unless a newer operation owns the entry. */
 export function failWrite(key: string, token: number): void {
   if (entries.get(key)?.token === token) entries.delete(key);
 }
-const advance = (key: string, token: number, value: string, phase: WriteRecovery['phase']): boolean => {
+const advance = (key: string, token: number, value: string, phase: WriteRecovery['phase'], uncertain: boolean): boolean => {
   if (entries.get(key)?.token !== token) return false;
-  entries.set(key, { value, phase, token });
+  entries.set(key, { value, phase, token, uncertain });
   return true;
 };
 
 /**
- * Settle a write the server COMMITTED, for the control that sent it.
+ * Settle a write the server COMMITTED, for the control that sent it, or one whose outcome is
+ * UNKNOWN (`uncertain`: no answer came back). Either way the owner stays locked until the loader
+ * shows `value`; an uncertain one is never described as saved.
  *
  * `shownNow()` is the loader's value for that owner while the owner is on
  * screen and `undefined` when it is not. A write whose owner has been left, or
@@ -55,13 +63,22 @@ const advance = (key: string, token: number, value: string, phase: WriteRecovery
  * `value` (or for the person to reload). Otherwise the reload is awaited and a
  * loader that still shows something else after it is `stale` too.
  */
-export async function settleCommittedWrite(key: string, token: number, value: string, ownerShown: boolean, shownNow: () => string | undefined): Promise<void> {
-  if (!ownerShown) { advance(key, token, value, 'stale'); return; }
-  if (!advance(key, token, value, 'pending')) return;
+export async function settleCommittedWrite(key: string, token: number, value: string, ownerShown: boolean, shownNow: () => string | undefined, uncertain = false): Promise<void> {
+  if (!ownerShown) { advance(key, token, value, 'stale', uncertain); return; }
+  if (!advance(key, token, value, 'pending', uncertain)) return;
   const landed = await readbackAfterWrite();
   if (landed) {
     await tick();
     if (shownNow() === value) { if (entries.get(key)?.token === token) clearRecovery(key); return; }
   }
-  advance(key, token, value, 'stale');
+  advance(key, token, value, 'stale', uncertain);
+}
+
+/**
+ * Whether an action result leaves the write's outcome UNKNOWN: the request itself failed
+ * (`error`), or the portal's action could not reach the server and said so (`uncertain`).
+ * A refusal or a GraphQL error response is a definite "did not commit" and is not this.
+ */
+export function isUncertainResult(result: { type: string; data?: unknown }): boolean {
+  return result.type === 'error' || (result.type === 'failure' && (result.data as { uncertain?: boolean } | undefined)?.uncertain === true);
 }
