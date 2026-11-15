@@ -5,7 +5,7 @@
   // same as "not marked". Only an App manager gets the buttons; the server stays
   // the authority and its refusal is shown as it comes back.
   import { enhance } from '$app/forms';
-  import { beginWrite, clearRecovery, failWrite, isUncertainResult, recoveryOf, settleCommittedWrite } from '$lib/write-recovery.svelte';
+  import { beginWrite, clearRecovery, failWrite, isUncertainResult, recoveryOf, settleWriteOutcome } from '$lib/write-recovery.svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import { t } from '$lib/i18n/t';
 
@@ -40,9 +40,9 @@
       // unknown: keep the lock and check, never say "Not saved".
       const uncertain = isUncertainResult(result);
       if (result.type === 'success' || uncertain) {
-        feedback = { kind: 'ok', text: uncertain ? t('worker.leave-alone.unconfirmed', 'Couldn’t confirm the save; checking…') : t('worker.leave-alone.saved', 'Saved.') };
+        feedback = uncertain ? null : { kind: 'ok', text: t('worker.leave-alone.saved', 'Saved.') };
         marking = false;
-        await settleCommittedWrite(`leave-alone:${owner}`, token, written, true, () => (ownerId === owner && marker ? markerKey(marker.on, marker.reason) : undefined), uncertain);
+        await settleWriteOutcome(`leave-alone:${owner}`, token, written, true, () => (ownerId === owner && marker ? markerKey(marker.on, marker.reason) : undefined), uncertain);
       } else if (result.type === 'failure') {
         failWrite(`leave-alone:${owner}`, token);
         feedback = { kind: 'error', text: String((result.data as { leaveAloneError?: string } | undefined)?.leaveAloneError ?? failed) };
@@ -104,6 +104,9 @@
             {t('worker.leave-alone.mark', 'Leave alone…')}
           </button>
         {/if}
+        {#if recovery?.uncertain && recovery.phase !== 'stale'}
+        <p role="status" class="text-sm text-zinc-500">{t('worker.leave-alone.unconfirmed', 'Couldn’t confirm the save; checking…')}</p>
+    {/if}
         {#if recovery?.phase === 'stale'}
           <div role="alert" class="space-y-2 text-sm text-red-600 dark:text-red-400">
             <p>{recovery.uncertain

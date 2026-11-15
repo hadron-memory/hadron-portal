@@ -63,7 +63,7 @@ const advance = (key: string, token: number, value: string, phase: WriteRecovery
  * `value` (or for the person to reload). Otherwise the reload is awaited and a
  * loader that still shows something else after it is `stale` too.
  */
-export async function settleCommittedWrite(key: string, token: number, value: string, ownerShown: boolean, shownNow: () => string | undefined, uncertain = false): Promise<void> {
+export async function settleWriteOutcome(key: string, token: number, value: string, ownerShown: boolean, shownNow: () => string | undefined, uncertain = false): Promise<void> {
   if (!ownerShown) { advance(key, token, value, 'stale', uncertain); return; }
   if (!advance(key, token, value, 'pending', uncertain)) return;
   const landed = await readbackAfterWrite();

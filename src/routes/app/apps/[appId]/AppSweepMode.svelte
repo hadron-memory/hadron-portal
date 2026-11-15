@@ -6,7 +6,7 @@
   // an App manager gets the controls; the server stays the authority and its
   // refusal is shown as it comes back.
   import { enhance } from '$app/forms';
-  import { beginWrite, clearRecovery, failWrite, isUncertainResult, recoveryOf, settleCommittedWrite } from '$lib/write-recovery.svelte';
+  import { beginWrite, clearRecovery, failWrite, isUncertainResult, recoveryOf, settleWriteOutcome } from '$lib/write-recovery.svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import { t } from '$lib/i18n/t';
 
@@ -64,9 +64,9 @@
           saving = false;
           confirming = false;
           draft = null;
-          feedback = { kind: 'ok', text: uncertain ? t('app.sweep-mode.unconfirmed', 'Couldn’t confirm the save; checking…') : t('app.sweep-mode.saved', 'Saved.') };
+          feedback = uncertain ? null : { kind: 'ok', text: t('app.sweep-mode.saved', 'Saved.') };
         }
-        await settleCommittedWrite(`sweep-mode:${owner}`, token, written, mine === gen, () => (ownerId === owner ? (mode ?? undefined) : undefined), uncertain);
+        await settleWriteOutcome(`sweep-mode:${owner}`, token, written, mine === gen, () => (ownerId === owner ? (mode ?? undefined) : undefined), uncertain);
         return;
       }
       failWrite(`sweep-mode:${owner}`, token);
@@ -123,6 +123,9 @@
         {:else if feedback?.kind === 'ok'}
           <p role="status" class="text-sm text-emerald-600 dark:text-emerald-400">{feedback.text}</p>
         {/if}
+        {#if recovery?.uncertain && recovery.phase !== 'stale'}
+        <p role="status" class="text-sm text-zinc-500">{t('app.sweep-mode.unconfirmed', 'Couldn’t confirm the save; checking…')}</p>
+    {/if}
         {#if recovery?.phase === 'stale'}
           <div role="alert" class="space-y-2 text-sm text-red-600 dark:text-red-400">
             <p>{recovery.uncertain
