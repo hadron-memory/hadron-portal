@@ -7,11 +7,13 @@ export function sameMembers(actual, expected) {
 }
 // The baseline (touch viewport => coarse pointer) is judged first and on its own. Only a correct
 // baseline lets the injected expectation fire, so a mis-wired baseline can never read as a successful injection.
+// The stable part of the wrong-baseline message; the self-test looks for its absence, so it is shared, not copied.
+export const POINTER_REGRESSION = 'pointer baseline regression';
 export function pointerVerdict({ width, actualCoarse, inject }) {
   const wantCoarse = width === 390;
   if (actualCoarse !== wantCoarse) {
     const name = c => (c ? 'coarse' : 'fine');
-    return [`pointer baseline regression: expected ${name(wantCoarse)} at ${width}, got ${name(actualCoarse)}`];
+    return [`${POINTER_REGRESSION}: expected ${name(wantCoarse)} at ${width}, got ${name(actualCoarse)}`];
   }
   return inject ? ['pointer mode does not match the emulated device (injected)'] : [];
 }

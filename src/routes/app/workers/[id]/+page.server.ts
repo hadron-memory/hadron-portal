@@ -6,7 +6,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
-import { APP_CASTABLE_AGENTS_QUERY, CHANGE_WORKER_AGENT_MUTATION, SET_WORKER_BOOT_PROMPT_MUTATION, TEAM_WORK_ITEMS_QUERY, UPDATE_WORKER_SIGNATURE_MUTATION, WORKER_BOOT_POINTER_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
+import { APP_CASTABLE_AGENTS_QUERY, CHANGE_WORKER_AGENT_MUTATION, SET_WORKER_BOOT_PROMPT_MUTATION, SET_WORKER_LEAVE_ALONE_MUTATION, TEAM_WORK_ITEMS_QUERY, UPDATE_WORKER_SIGNATURE_MUTATION, USER_PROFILE_QUERY, WORKER_BOOT_POINTER_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
 import { pointerAction, readPointer, selfCanManage } from '$lib/server/boot-prompt-pointer';
 import type { TeamWorkItem, Worker, WorkerSession } from '$lib/types';
 import { APPLY_AGENT_TICKER_TEMPLATES_MUTATION, loadAppTickerSettings, loadWakeSettings } from '$lib/server/tickers';
@@ -197,8 +197,15 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     { errors: false, id: updateSignatureFormId(params.id) },
   );
 
+  // portal#2194: who marked the worker leave-alone, as a handle a reader can use.
+  // Its own read: a person the viewer may not resolve is the raw id, never a failure.
+  const leaveAloneByHandle = worker.leaveAloneBy
+    ? await client.request<{ user: { handle: string | null } | null }>(USER_PROFILE_QUERY, { ref: worker.leaveAloneBy }).then((r) => r.user?.handle ?? null).catch(() => null)
+    : null;
+
   return {
     worker,
+    leaveAloneByHandle,
     // portal#1492: one clock for the terminal ages, so server render and hydration agree.
     terminalNow: new Date().toISOString(),
 
@@ -226,7 +233,32 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   };
 };
 
+// The refusals setWorkerLeaveAlone documents; their server text is shown as it comes back.
+const LEAVE_ALONE_REFUSALS = ['WORKER_LEAVE_ALONE_NOT_PERMITTED', 'WORKER_NOT_FOUND', 'WORKER_RETIRED', 'BAD_USER_INPUT'] as const;
+
 export const actions: Actions = {
+  // portal#2194 (hadron-server#4242): mark or clear the leave-alone marker. A
+  // person acts as themselves (no instruction). The server decides who may; its
+  // refusals are shown as they come back, never as a generic failure.
+  setLeaveAlone: async ({ request, params, locals }) => {
+    const data = await request.formData();
+    const leaveAlone = data.get('leaveAlone');
+    if (leaveAlone !== 'true' && leaveAlone !== 'false') return fail(400, { leaveAloneError: t('worker.leave-alone.error.invalid', 'Choose whether to leave this worker alone.') });
+    const reason = String(data.get('reason') ?? '').trim();
+    if (reason.length > 500) return fail(400, { leaveAloneError: t('worker.leave-alone.error.reason-long', 'The reason can be at most 500 characters.') });
+    const input: { worker: string; leaveAlone: boolean; reason?: string } = { worker: params.id, leaveAlone: leaveAlone === 'true' };
+    if (input.leaveAlone && reason) input.reason = reason;
+    try {
+      await gqlClient(locals.token).request(SET_WORKER_LEAVE_ALONE_MUTATION, { input });
+      return { leaveAloneSaved: input.leaveAlone };
+    } catch (e: unknown) {
+      const code = extractGqlErrorCode(e);
+      const text = extractGqlError(e, t('worker.leave-alone.error.failed', 'Not saved. Try again.'), LEAVE_ALONE_REFUSALS);
+      const status = code === 'FORBIDDEN' || code === 'WORKER_LEAVE_ALONE_NOT_PERMITTED' ? 403 : code === 'BAD_USER_INPUT' ? 400 : code === 'WORKER_NOT_FOUND' || code === 'WORKER_RETIRED' ? 404 : 500;
+      return fail(status, { leaveAloneError: text });
+    }
+  },
+
   // portal#1142 S8 (hadron-server#2219): set or clear the worker's pointer.
   // The worker's App manager, as themselves; the server decides.
   setBootPrompt: async ({ request, params, locals }) =>

@@ -1,6 +1,6 @@
 import { APP_DISPLAY_PAGE_SIZE, appListOffset, appListNavigation } from './app-list-pages';
 import { loadAppRunsPage, loadAppRunsExtras } from '$lib/server/app-runs-page';
-import { flowRoots } from '$lib/flow/flows';
+import { flowPageSummaries } from '$lib/flow/flows';
 import { chatAiChoiceOptions, type ChatAiChoiceRow } from '$lib/server/llm/chatAiChoices';
 import { extractGqlErrorCode as chatbotErrorCode } from '$lib/gql-error';
 import { runAppFlow } from '$lib/server/run-app-flow';
@@ -36,6 +36,7 @@ import {
   APP_ORG_AGENTS_QUERY,
   APP_ORG_AGENT_GRANTS_QUERY,
   APP_QUERY,
+  SET_APP_SWEEP_MODE_MUTATION,
   APP_MEMBERS_QUERY,
   SELF_CAN_MANAGE_QUERY,
   SET_APP_AGENT_BOOT_PROMPT_MUTATION,
@@ -48,6 +49,8 @@ import {
   REVOKE_APP_KEY_MUTATION,
   DELETE_APP_MUTATION,
   APP_NODES_QUERY,
+  APP_NODES_PAGE_QUERY,
+  APP_FLOWS_PAGE_QUERY,
   APP_CHANNELS_QUERY,
   AI_SERVICE_CONFIGS_QUERY,
   RESOLVE_AI_SERVICE_CONFIGS_QUERY,
@@ -63,7 +66,7 @@ import {
   TEAM_CHAT_MESSAGES_QUERY,
   CREATE_TEAM_CHAT_MESSAGE_MUTATION,
   TEAM_WORK_ITEMS_QUERY,
-  APP_CHAT_ROOTS_QUERY,
+  APP_CHAT_ROOTS_PAGE_QUERY,
 } from '$lib/server/queries';
 import { normalizeFilter, normalizeKind } from '$lib/components/worklog';
 // AGENT_CHAT_KEY / TEAM_CHAT_LOC moved out with RETIRED_TAB_ALIASES into
@@ -114,15 +117,13 @@ import {
   revokeAppKeySchema,
   updateAppAgentToolsSchema,
 } from './schema';
-import { isCapped } from '$lib/server/capped';
 import { loadLiveStops } from '$lib/server/stop-signals';
 import type { ReleaseWorkerMessage } from './schema';
-
-// appNodes and the chat-root read take a limit but have no continuation
-// (hadron-server#2212), so each fetches one window and says when it came back full.
-const APP_NODES_LIMIT = 500;
-const APP_CHAT_ROOTS_LIMIT = 200;
 import { readHoldStale, type HoldStale } from './hold-stale';
+
+// Flow summaries are a complete-graph consumer, not a display-list read.
+// Keep the established graph window; any lower bound it leaves is labelled.
+const APP_FLOW_GRAPH_LIMIT = 500;
 
 type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
 type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
@@ -569,6 +570,9 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
   const worklogTool = normalizeFilter(url.searchParams.get('worklogTool'));
   const worklogOffset = appListOffset(url.searchParams, 'worklogOffset');
   const configOffset = appListOffset(url.searchParams, 'configOffset');
+  const appNodesOffset = appListOffset(url.searchParams, 'appNodesOffset');
+  const chatRootsOffset = appListOffset(url.searchParams, 'chatRootsOffset');
+  const flowsOffset = appListOffset(url.searchParams, 'flowsOffset');
 
   // `?tab=` so a filtered worklog URL lands on the worklog rather than the
   // page's default tab, and `?chat=` to preselect a conversation. Both rules
@@ -595,6 +599,30 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
   // (#641). The server's app(ref:) gate IS the auth; a non-owner/non-member gets
   // null → 404 (no over-exposure).
   const client = gqlClient(locals.token);
+  // The complete Flow graph is independent of every other Runs read. Start it
+  // with the first loader round so a slow graph never queues behind chat,
+  // memory-scope, form or selected-transcript work.
+  const flowGraphPromise = initialTab === 'runs'
+    ? client.request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: APP_FLOW_GRAPH_LIMIT })
+      .then((r) => r.appNodes)
+      .catch((e) => {
+        console.warn(`[app-runs] Flow graph fetch failed for ${params.appId}:`, e);
+        return null;
+      })
+    : Promise.resolve(null);
+  // The Flows list pages its own window: runnable nodes only (every Flow root
+  // is runnable), on its own offset, so a page is not mostly documents and
+  // the Memory tab's node pages move independently (#1929 LOCAL P3, QA F4).
+  const flowsPagePromise = initialTab === 'runs'
+    ? client.request<{ appNodesPage: { items: MemoryNode[]; total: number; hasMore: boolean } }>(APP_FLOWS_PAGE_QUERY, {
+        appRef: params.appId, limit: APP_DISPLAY_PAGE_SIZE, offset: flowsOffset,
+      })
+      .then((r) => r.appNodesPage)
+      .catch((e) => {
+        console.warn(`[app-runs] Flows page fetch failed for ${params.appId}:`, e);
+        return { items: [] as MemoryNode[], total: 0, hasMore: false };
+      })
+    : Promise.resolve(null);
   const [appData, configsData, membersData] = await Promise.all([
     client.request<{ app: App | null }>(APP_QUERY, { ref: params.appId })
       .catch((e) => {
@@ -766,8 +794,11 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
     .catch(() => ({ ok: false as const }));
   const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, viewerManages, teamRoster, bootPointers, installMarks, liveStops, appProperties] = await Promise.all([
     client
-      .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: APP_NODES_LIMIT })
-      .catch(() => ({ appNodes: [] as MemoryNode[] })),
+      .request<{ appNodesPage: { items: MemoryNode[]; total: number; hasMore: boolean } }>(APP_NODES_PAGE_QUERY, {
+        appRef: params.appId, limit: APP_DISPLAY_PAGE_SIZE, offset: appNodesOffset,
+      })
+      .then((r) => r.appNodesPage)
+      .catch(() => ({ items: [] as MemoryNode[], total: 0, hasMore: false })),
     app.agentId
       ? client
           .request<{ resolveAiServiceConfigs: AiServiceConfig[] }>(RESOLVE_AI_SERVICE_CONFIGS_QUERY, {
@@ -833,11 +864,12 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
     // the staff and team-chat fetches: "couldn't load the chat list" and "this
     // App has one chat" are different statements.
     client
-      .request<{ appNodes: MemoryNode[] }>(APP_CHAT_ROOTS_QUERY, {
+      .request<{ appNodesPage: { items: MemoryNode[]; total: number; hasMore: boolean } }>(APP_CHAT_ROOTS_PAGE_QUERY, {
         appRef: params.appId,
-        limit: APP_CHAT_ROOTS_LIMIT,
+        limit: APP_DISPLAY_PAGE_SIZE,
+        offset: chatRootsOffset,
       })
-      .then((r) => r.appNodes)
+      .then((r) => r.appNodesPage)
       .catch((e) => {
         console.warn(`[app-chats] chat-root fetch failed for ${params.appId}:`, e);
         return null;
@@ -975,14 +1007,35 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
   // not gain an entry that cannot render.
   const registeredChannels = await fetchAllItems<import('$lib/types').Channel>(client, APP_CHANNELS_QUERY, 'channels', { appRef: params.appId })
     .catch(() => null);
-  const appChats = withRegisteredChannels(
-    buildAppChatList(chatRoots ?? [], { hasAgentChat: !!app.agentId }), registeredChannels ?? [],
+  let appChats = withRegisteredChannels(
+    buildAppChatList(chatRoots?.items ?? [], { hasAgentChat: !!app.agentId }), registeredChannels ?? [],
     (app as typeof app & { defaultChannel?: { id: string } | null }).defaultChannel?.id,
   );
-  const { selected: selectedChat, requestedMissing: chatNotFound } = resolveSelectedChat(
-    appChats,
-    requestedChat,
-  );
+  let chatSelection = resolveSelectedChat(appChats, requestedChat);
+  let requestedChatLookupFailed = false;
+  // A deep link addresses one root, not whichever 20-root window happens to be
+  // loaded. One targeted page handles arbitrary root locs without letting a
+  // pasted prefix trigger an unbounded sequential drain.
+  if (chatSelection.requestedMissing && requestedChat && requestedChat !== 'agent chat' && requestedChat !== 'chats:team' && registeredChannels !== null) {
+    const page = await client.request<{ appNodesPage: { items: MemoryNode[]; total: number; hasMore: boolean } }>(APP_CHAT_ROOTS_PAGE_QUERY, {
+      appRef: params.appId, limit: 200, offset: 0, locPrefix: requestedChat,
+    }).then((r) => r.appNodesPage).catch((e) => {
+      console.warn(`[app-chats] requested chat-root fetch failed for ${requestedChat}:`, e);
+      requestedChatLookupFailed = true;
+      return null;
+    });
+    const requestedRoot = page?.items.find((n) => n.loc === requestedChat) ?? null;
+    if (page?.hasMore && !requestedRoot) requestedChatLookupFailed = true;
+    if (requestedRoot) {
+      appChats = withRegisteredChannels(
+        buildAppChatList([...(chatRoots?.items ?? []), requestedRoot], { hasAgentChat: !!app.agentId }),
+        registeredChannels,
+        (app as typeof app & { defaultChannel?: { id: string } | null }).defaultChannel?.id,
+      );
+      chatSelection = resolveSelectedChat(appChats, requestedChat);
+    }
+  }
+  const { selected: selectedChat, requestedMissing: chatNotFound } = chatSelection;
 
   // Registered Channels use the addressed operation and the same envelope as
   // the default team chat. Unregistered old roots retain their node transcript;
@@ -1009,13 +1062,25 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
     superValidate(zod4(createAppMemorySchema), { id: `createAppMemory:${app.id}`, errors: false }),
   ]);
 
-  const runsSection = initialTab === 'runs' ? await loadAppRunsPage(client, params.appId, url.searchParams) : null;
-  const runsExtras = initialTab === 'runs' ? await loadAppRunsExtras(client, params.appId) : null;
+  const [runsSection, runsExtras, flowGraph, flowsData] = initialTab === 'runs'
+    ? await Promise.all([
+        loadAppRunsPage(client, params.appId, url.searchParams),
+        loadAppRunsExtras(client, params.appId),
+        flowGraphPromise,
+        flowsPagePromise,
+      ])
+    : [null, null, null, null];
   // #1936: the node-role templates tab's data, for that tab only.
   const templatesPanel = await loadTemplatesPanel(initialTab, locals, setHeaders, params.appId);
   return {
     templatesPanel,
-    runsPanel: runsSection && runsExtras ? { ...runsSection, app, flows: flowRoots(nodesData.appNodes), flowsCapped: isCapped(nodesData.appNodes?.length ?? 0, APP_NODES_LIMIT), flowsScanned: nodesData.appNodes?.length ?? 0, ...runsExtras } : null,
+    runsPanel: runsSection && runsExtras && flowsData ? {
+      ...runsSection,
+      app,
+      flows: flowPageSummaries(flowsData.items, flowGraph ?? []),
+      flowsPage: appListNavigation(url, 'flowsOffset', 'runs', flowsOffset, flowsData.items.length, flowsData.total, { hasMore: flowsData.hasMore }),
+      ...runsExtras,
+    } : null,
     appMemoryScope,
     appMemories: app.organizationId ? orgAppMemories : appMemoriesFromScope(appMemoryScope, app.id),
     createMemoryForm,
@@ -1025,8 +1090,8 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
     availableAgents,
     availableAgentsError,
     subscribedAgentsError,
-    appNodes: nodesData.appNodes,
-    appNodesCapped: isCapped(nodesData.appNodes?.length ?? 0, APP_NODES_LIMIT),
+    appNodes: nodesData.items,
+    appNodesPage: appListNavigation(url, 'appNodesOffset', 'memory', appNodesOffset, nodesData.items.length, nodesData.total, { hasMore: nodesData.hasMore }),
     chatConfigs,
     aiChoices: await aiChoiceRowsP.then((rows) => (rows ? chatAiChoiceOptions(rows, chatConfigs) : null)),
     chatbotAiConfig: await chatbotAiConfigP,
@@ -1061,9 +1126,10 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
     // chat is neither the team chat nor the agent chat. `chatsError` is the
     // discovery failing — distinct from an App that genuinely has one chat.
     appChats,
-    chatsError: chatRoots === null || registeredChannels === null,
-    chatRootsShown: chatRoots?.length ?? 0,
-    chatsCapped: chatRoots !== null && isCapped(chatRoots?.length ?? 0, APP_CHAT_ROOTS_LIMIT),
+    chatsError: chatRoots === null || registeredChannels === null || requestedChatLookupFailed,
+    chatRootsError: chatRoots === null,
+    channelsError: registeredChannels === null,
+    chatRootsPage: appListNavigation(url, 'chatRootsOffset', 'chats', chatRootsOffset, chatRoots?.items.length ?? 0, chatRoots?.total ?? 0, { hasMore: chatRoots?.hasMore }),
     selectedChannelId: selectedChat?.channelId ?? null,
     selectedChannelMessages: selectedChannelMessages?.items ?? [],
     selectedChannelTotal: selectedChannelMessages?.total ?? 0,
@@ -1168,6 +1234,24 @@ export const actions: Actions = {
       }
       console.warn('[setChatbotAiConfig] failed:', code ?? 'error');
       return fail(500, { chatbotAiConfig: { ok: false as const, error: t('app.chatbot-ai-config.failed', "The chatbot AI config couldn't be saved. Try again.") } });
+    }
+  },
+
+  // portal#2194 (hadron-server#4242): set the App's sweep mode. A person acts as
+  // themselves (no instruction). The server decides who may; its refusal is
+  // shown as it comes back.
+  setSweepMode: async ({ request, params, locals }) => {
+    const mode = (await request.formData()).get('mode');
+    if (mode !== 'OFF' && mode !== 'OBSERVE' && mode !== 'APPLY') {
+      return fail(400, { sweepModeError: t('app.sweep-mode.error.invalid', 'Choose a sweep mode.') });
+    }
+    try {
+      await gqlClient(locals.token).request(SET_APP_SWEEP_MODE_MUTATION, { appRef: params.appId, mode });
+      return { sweepModeSaved: mode };
+    } catch (e: unknown) {
+      const code = extractGqlErrorCode(e);
+      const text = extractGqlError(e, t('app.sweep-mode.error.failed', 'Not saved. Try again.'), ['APP_NOT_FOUND', 'BAD_USER_INPUT']);
+      return fail(code === 'FORBIDDEN' ? 403 : code === 'APP_NOT_FOUND' ? 404 : code === 'BAD_USER_INPUT' ? 400 : 500, { sweepModeError: text });
     }
   },
 

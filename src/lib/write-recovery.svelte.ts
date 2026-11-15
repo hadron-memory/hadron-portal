@@ -1,0 +1,49 @@
+import { tick } from 'svelte';
+import { SvelteMap } from 'svelte/reactivity';
+import { readbackAfterWrite } from '$lib/readback-after-write';
+
+/**
+ * What a control knows about a write the server COMMITTED but whose reload has
+ * not been confirmed (portal#2195), kept apart from the control's lifetime.
+ *
+ * The control that sent the write can be torn down (a tab switch that
+ * conditionally renders it) or pointed at another owner (A -> B -> A) before the
+ * outcome is settled, and a local `$state` then forgets the write while the
+ * loader still shows the old value. So the entry is keyed by the thing written
+ * to (`<control>:<owner id>`), survives any component, and is dropped only when
+ * the loader shows the value the server confirmed.
+ *
+ *  - `pending`: the reload is in flight.
+ *  - `stale`: the reload failed, hung, or could not be confirmed. The control
+ *    keeps showing `value`, locks further writes and warns the page may be old.
+ */
+export type WriteRecovery = { value: string; phase: 'pending' | 'stale' };
+
+const entries = new SvelteMap<string, WriteRecovery>();
+
+export const recoveryOf = (key: string): WriteRecovery | undefined => entries.get(key);
+export const setRecovery = (key: string, value: string, phase: WriteRecovery['phase']): void => { entries.set(key, { value, phase }); };
+export const clearRecovery = (key: string): void => { entries.delete(key); };
+/** For tests: forget every recovery so one case cannot leak into the next. */
+export const resetWriteRecovery = (): void => { entries.clear(); };
+
+/**
+ * Settle a write the server COMMITTED, for the control that sent it.
+ *
+ * `shownNow()` is the loader's value for that owner while the owner is on
+ * screen and `undefined` when it is not. A write whose owner has been left, or
+ * returned to, before the answer arrived cannot be confirmed by a reload of the
+ * page now shown, so it is recorded `stale` and waits for the loader to show
+ * `value` (or for the person to reload). Otherwise the reload is awaited and a
+ * loader that still shows something else after it is `stale` too.
+ */
+export async function settleCommittedWrite(key: string, value: string, ownerShown: boolean, shownNow: () => string | undefined): Promise<void> {
+  if (!ownerShown) { setRecovery(key, value, 'stale'); return; }
+  setRecovery(key, value, 'pending');
+  const landed = await readbackAfterWrite();
+  if (landed) {
+    await tick();
+    if (shownNow() === value) { clearRecovery(key); return; }
+  }
+  setRecovery(key, value, 'stale');
+}

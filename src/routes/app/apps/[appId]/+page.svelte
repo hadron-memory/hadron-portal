@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AppSweepMode from './AppSweepMode.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import AppRunsPanel from './runs/AppRunsPanel.svelte';
@@ -12,6 +13,8 @@
   import { publicServerBaseUrl } from '$lib/public-server-base-url';
   import { tick, untrack, onDestroy } from 'svelte';
   import { applyAction } from '$app/forms';
+  import { page } from '$app/stores';
+  import { dropNamedActions } from './app-list-pages';
   import { beforeNavigate, goto, afterNavigate, invalidateAll, preloadData, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -138,7 +141,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker, AiServiceConfig } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
-  import type { AppTabId } from './tab-intent';
+  import { resolveTabIntent, type AppTabId } from './tab-intent';
   import AppNodeRoleTemplates from './AppNodeRoleTemplates.svelte';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
@@ -152,7 +155,7 @@
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
   import skillGetStarted from '$lib/assets/skill-get-started.md?raw';
   import skillSearch from '$lib/assets/skill-search.md?raw';
-  import CappedNotice from '$lib/components/CappedNotice.svelte';
+  import ListPageNav from '$lib/components/ListPageNav.svelte';
   import type { PageData, ActionData } from './$types';
   import {
     addAgentSchema,
@@ -768,7 +771,8 @@
     }
     return id ? (installedAgents.find((a) => a.id === id) ?? null) : null;
   });
-  let customisationPanel = $state<{ reveal: () => void }>();
+  let customisationPanel = $state<{ reveal: () => void; mayLeave: () => boolean }>();
+  let agentsHeading = $state<HTMLHeadingElement>();
   let customisationChoice = $state<{ appRef: string; agentId: string } | null>(null);
   const customisationAgent = $derived(
     customisationChoice?.appRef === data.bootPointerAppKey
@@ -813,6 +817,9 @@
         if (appId === data.app.id && compileAgent?.id === agent.id) compilePanel?.reveal();
       });
     } else if (id === 'customisation') {
+      // Ask before a different Agent re-keys the panel and loses its draft (#1369).
+      // Choosing the same Agent only reveals the existing draft.
+      if (customisationAgent && customisationAgent.id !== agent.id && customisationPanel && !customisationPanel.mayLeave()) return;
       customisationChoice = { appRef: data.bootPointerAppKey, agentId: agent.id };
       const appKey = data.bootPointerAppKey;
       void tick().then(() => {
@@ -1086,7 +1093,11 @@
   // below), and the action URL has no `?tab=` for the loader to agree with.
   afterNavigate((nav) => {
     if (!(nav.type === 'enter' && form)) {
-      activeTab = (data.initialTab as TabId | null) ?? 'chats';
+      // #1943: local tabs now rewrite `?tab=` by shallow replaceState, which leaves the entry's loader
+      // data (`data.initialTab`) on the tab that was LOADED. Back lands on such an entry, so the address
+      // bar is the truthful source; the loader's tab applies when the URL names none.
+      const urlTab = resolveTabIntent(new URL(window.location.href).searchParams).initialTab;
+      activeTab = ((urlTab ?? data.initialTab) as TabId | null) ?? 'chats';
     }
     chatMaximized = data.initialChatFullView;
   });
@@ -1137,11 +1148,21 @@
     }
   }
   // The post action URL REPLACES the query string (see the comment on the
-  // form), so it must carry the view too, or a non-enhanced POST would land
-  // the reader back in the tab view with their place lost.
-  const teamChatAction = $derived(
-    `?tab=chats&chat=chats%3Ateam${chatMaximized ? '&view=full' : ''}&/postTeamChatMessage`,
-  );
+  // form), so it must carry the COMPLETE current location: team filter, full
+  // view, selected chat and every independent list offset.
+  function chatActionUrl(action: 'postTeamChatMessage' | 'postChannelMessage', chatKey: string, full = false): string {
+    // A failed native post leaves its action name in the URL; replace it, never add a second.
+    const params = dropNamedActions(new URLSearchParams($page.url.searchParams));
+    params.set('tab', 'chats');
+    params.set('chat', chatKey);
+    if (data.chatRootsPage?.offset > 0 && !params.has('chatRootsOffset')) {
+      params.set('chatRootsOffset', String(data.chatRootsPage.offset));
+    }
+    if (full) params.set('view', 'full'); else params.delete('view');
+    return `?${params.toString()}&/${action}`;
+  }
+  const teamChatAction = $derived(chatActionUrl('postTeamChatMessage', TEAM_CHAT_LOC, chatMaximized));
+  const channelChatAction = $derived(chatActionUrl('postChannelMessage', data.selectedChatKey ?? ''));
 
   // #768 — roving focus for the tab strip. Only the selected tab is in the
   // sequential tab order, so the strip is ONE stop rather than one per tab, and
@@ -1180,6 +1201,12 @@
   // clears the manager's copy of the question so its own route guard does not ask a second time.
   // If we then do not land on the chosen tab, the question is put back with the draft.
   let templatesLeaveMessage = $state<string | null>(null);
+  function syncTabParam(id: TabId) {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('tab') === id) return;
+    url.searchParams.set('tab', id);
+    replaceState(url, {});
+  }
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
     let asked: string | null = null;
@@ -1223,6 +1250,10 @@
       if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
       landed = true;
       activeTab = id;
+      // #1943: Runs and Templates already navigated to `?tab=<id>`; every other tab was local state,
+      // so the address bar kept the last navigated tab. Name the shown tab by a shallow replaceState
+      // (no history entry, no loader re-run), the way `?chat=` and `?view=` are synced.
+      if (!ownNavigationHref) syncTabParam(id);
       await tick();
       if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id}`)?.focus();
     } catch { /* A failed navigation keeps the current tab; the router owns its error. */ }
@@ -2266,10 +2297,11 @@
       {#if data.selectedChannelId && data.selectedChatKey?.startsWith('hrn:')}
         <Urn value={data.selectedChatKey} type="node" />
       {/if}
-      {#if data.chatsCapped}
-        <CappedNotice shown={data.chatRootsShown ?? 0} what={t('capped.chats', 'chats')} />
-      {/if}
     </div>
+    {#if data.chatRootsPage && !data.chatRootsError}
+      <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.chats.page-window', 'Registered Channels stay available on every page. Pagination covers legacy chat roots only.')}</p>
+      <ListPageNav page={data.chatRootsPage} label={t('app.chats.pages', 'Legacy chat-root pages')} />
+    {/if}
 
     {#if data.chatNotFound}
       <!-- The reader followed a link to a SPECIFIC chat. Substituting the
@@ -2508,7 +2540,7 @@
           <ChannelChatThread appId={app.id} {channelId} messages={data.selectedChannelMessages}
             total={data.selectedChannelTotal} loadError={data.selectedChannelError}
             postForm={data.postChannelMessageForm} {form} {workerUrns}
-            action={`?tab=chats&chat=${encodeURIComponent(data.selectedChatKey ?? '')}&/postChannelMessage`}
+            action={channelChatAction}
             onSubmittingChange={(submitting) => { channelPostBusy = submitting; }}
             viewState={channelViews[channelStateKey]} onViewStateChange={(view) => { channelViews[channelStateKey] = view; }}
             draft={channelDrafts[channelStateKey]} onDraftChange={(draft) => { channelDrafts[channelStateKey] = draft; }} />
@@ -3183,7 +3215,7 @@
     <div id="panel-agents" role="tabpanel" aria-labelledby="tab-agents" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-4">
       <div>
-        <h2 class="font-semibold text-zinc-900 dark:text-white">{t('app.agents.title', 'Agents')}</h2>
+        <h2 bind:this={agentsHeading} tabindex="-1" class="rounded font-semibold text-zinc-900 focus:outline-2 focus:outline-offset-2 focus:outline-indigo-600 dark:text-white">{t('app.agents.title', 'Agents')}</h2>
         <p class="mt-1 max-w-2xl text-sm text-zinc-500">
           {t(
             'app.agents.description',
@@ -3283,7 +3315,12 @@
               const label = t('app.agents.actions.label', 'Actions for {name}', { name: customisationAgent.name });
               customisationChoice = null;
               await tick();
-              document.querySelector<HTMLButtonElement>(`button[aria-label="${CSS.escape(label)}"]`)?.focus();
+              const opener = document.querySelector<HTMLButtonElement>(`button[aria-label="${CSS.escape(label)}"]`);
+              if (opener) opener.focus();
+              else {
+                agentsHeading?.focus();
+                agentsHeading?.scrollIntoView?.({ block: 'nearest' });
+              }
             }} />
           {/key}
         {/if}
@@ -3406,13 +3443,17 @@
          rights across this App. Omit the partial writable set so the browser
          makes no read-only claim from omission; server writes stay authoritative.
          The full memory list awaits the server projection in #2190. -->
-    {#if data.appNodesCapped}
-      <div class="mb-3"><CappedNotice shown={data.appNodes?.length ?? 0} what={t('capped.nodes', 'nodes')} /></div>
-    {/if}
     {#if memoryScope === null}
       <p role="alert" class="mb-3 text-sm text-red-600 dark:text-red-400">{t('app.memory-scope.failed', 'Could not load accessible memories. Reload to try again.')}</p>
     {/if}
-    <MemoryBrowser nodes={data.appNodes ?? []} multiMemory={true} scopeMemoryIds={(memoryScope ?? []).map((m) => m.memoryId)} scopeMemories={memoryScope ?? []} />
+    <MemoryBrowser
+      nodes={data.appNodes ?? []}
+      multiMemory={true}
+      scopeMemoryIds={(memoryScope ?? []).map((m) => m.memoryId)}
+      scopeMemories={memoryScope ?? []}
+      serverPage={data.appNodesPage ?? null}
+      pageLabel={t('app.memory-node.pages', 'Memory node pages')}
+    />
     </div>
   {/if}
 
@@ -3746,6 +3787,10 @@
           </div>
         {/if}
       </section>
+
+      <!-- portal#2194: the host-sweep switch. Everyone who can read it sees the mode;
+           only an App manager acting as themselves gets the controls. -->
+      <AppSweepMode ownerId={app.id} mode={data.app.sweepMode ?? null} canManage={data.canManageApp === true && !impersonating} />
 
       <!-- portal#1963: the App's chatbot AI config. Keyed on the App, so a pick never follows the person to another App. -->
       {#if app.agentId}

@@ -58,7 +58,6 @@ export const MEMORY_FIELDS = /* GraphQL */ `
     syncError
     pendingEdgeCount
     lastSyncedAt
-    lastSyncReport
     organization { id name }
     createdAt
     updatedAt
@@ -271,6 +270,7 @@ export const MEMORY_BY_ID_QUERY = /* GraphQL */ `
   query MemoryById($ref: ID!) {
     memory(ref: $ref) {
       ...MemoryFields
+      lastSyncReport
       organization { urn }
       subscriptions {
         id
@@ -1077,7 +1077,17 @@ export const APP_QUERY = /* GraphQL */ `
       # breaking unrelated app queries.
       installedAgentUrn
       defaultChannel { id }
+      # portal#2194 (hadron-server#4242): the App's host-sweep switch. Scoped to
+      # this query, not the shared fragment, like installedAgentUrn above.
+      sweepMode
     }
+  }
+`;
+
+// portal#2194: set the App's sweep mode. A person acts as themselves, so no instruction.
+export const SET_APP_SWEEP_MODE_MUTATION = /* GraphQL */ `
+  mutation SetAppSweepMode($appRef: String!, $mode: SweepMode!) {
+    setAppSweepMode(appRef: $appRef, mode: $mode) { sweepMode }
   }
 `;
 
@@ -1213,6 +1223,13 @@ export const WORKER_QUERY = /* GraphQL */ `
       appName
       ownerName
       hasLiveSession
+      # portal#2194 (hadron-server#4242): the leave-alone marker. All four are
+      # null for a caller who may see only the worker's profile, which is
+      # "not shown", never "not marked".
+      leaveAlone
+      leaveAloneReason
+      leaveAloneBy
+      leaveAloneAt
       # portal#1492: the terminal report, masked to null on the same gate as
       # hasLiveSession. State, reason and age only — never the host label or prompt.
       terminal { status reason checkedAt lastTurnAt }
@@ -1251,6 +1268,14 @@ export const WORKER_QUERY = /* GraphQL */ `
       # the briefing belongs; a list is not.
       prompt
     }
+  }
+`;
+
+// portal#2194: mark or clear a worker's leave-alone marker. A person acts as
+// themselves, so no instruction is sent. A clear sends no reason.
+export const SET_WORKER_LEAVE_ALONE_MUTATION = /* GraphQL */ `
+  mutation SetWorkerLeaveAlone($input: SetWorkerLeaveAloneInput!) {
+    setWorkerLeaveAlone(input: $input) { workerId leaveAlone reason by at }
   }
 `;
 
@@ -1749,6 +1774,32 @@ export const NODE_REVISIONS_QUERY = /* GraphQL */ `
   }
 `;
 
+export const NODE_REVISIONS_PAGE_QUERY = /* GraphQL */ `
+  query NodeRevisionsPage($nodeRef: ID!, $limit: Int, $offset: Int) {
+    nodeRevisionsPage(nodeRef: $nodeRef, limit: $limit, offset: $offset) {
+      total
+      hasMore
+      items {
+        id
+        revNo
+        loc
+        name
+        alias
+        description
+        tags
+        editedBy
+        editedByInfo
+        editedByUser { handle urn }
+        editedByWorker { id name urn }
+        editedByAgent { id name urn }
+        revLabel
+        changes
+        createdAt
+      }
+    }
+  }
+`;
+
 // portal#1355 (server#2562, #2517): the audit entries a HARD delete left on
 // this node when it removed edges the node held to the deleted target
 // (hrn:node:hadronmemory.com:specs:cor:dmo:010:04). A separate record from NodeRevision — revisions stay
@@ -1852,6 +1903,20 @@ export const NODE_REVISIONS_PROVENANCE_QUERY = /* GraphQL */ `
   }
 `;
 
+export const NODE_REVISIONS_PROVENANCE_PAGE_QUERY = /* GraphQL */ `
+  ${PROVENANCE_FIELDS}
+  query NodeRevisionsProvenancePage($nodeRef: ID!, $limit: Int, $offset: Int) {
+    nodeRevisionsPage(nodeRef: $nodeRef, limit: $limit, offset: $offset) {
+      items {
+        id
+        revNo
+        authorship { ...NodeAuthorshipFields }
+        contentValidation { ...NodeContentValidationFields }
+      }
+    }
+  }
+`;
+
 // #1001: the live content a revision's diff ends at, when that revision is the
 // newest snapshot. raw: true — the text as authored, never template-compiled.
 export const NODE_LIVE_CONTENT_QUERY = /* GraphQL */ `
@@ -1892,7 +1957,7 @@ export const CLEAR_NODE_HISTORY_MUTATION = /* GraphQL */ `
 export const SYNC_MEMORY_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
   mutation SyncMemory($id: ID!) {
-    syncMemory(id: $id) { ...MemoryFields }
+    syncMemory(id: $id) { ...MemoryFields lastSyncReport }
   }
 `;
 
@@ -1959,6 +2024,8 @@ export const AGENT_QUERY = /* GraphQL */ `
     agent(ref: $ref) {
       ...AgentFields
       clonedFromAgentRef
+      # portal#2194 (hadron-server#4242): how long its workers run.
+      lifecycle
       # portal#1850 (hrn:node:hadronmemory.com:specs:cor:dmo:050:19): manager-only, null for everyone else —
       # the page renders nothing without it. Kept out of AgentFields (like
       # registerDefaults) so surfaces sharing the fragment never select it.
@@ -2018,6 +2085,13 @@ export const AGENT_RESET_CONTEXT_QUERY = /* GraphQL */ `
 export const UPDATE_AGENT_RESET_CONTEXT_MUTATION = /* GraphQL */ `
   mutation UpdateAgentResetContext($ref: ID!, $resetContextAfterTask: Boolean!) {
     updateAgent(ref: $ref, resetContextAfterTask: $resetContextAfterTask) { id resetContextAfterTask }
+  }
+`;
+
+// portal#2194: sends ONLY lifecycle (omitted means unchanged on the server).
+export const UPDATE_AGENT_LIFECYCLE_MUTATION = /* GraphQL */ `
+  mutation UpdateAgentLifecycle($ref: ID!, $lifecycle: AgentLifecycle!) {
+    updateAgent(ref: $ref, lifecycle: $lifecycle) { id lifecycle }
   }
 `;
 
@@ -2755,6 +2829,82 @@ export const APP_NODES_QUERY = /* GraphQL */ `
   }
 `;
 
+export const APP_NODES_PAGE_QUERY = /* GraphQL */ `
+  query AppNodesPage($appRef: ID!, $limit: Int, $offset: Int) {
+    appNodesPage(appRef: $appRef, limit: $limit, offset: $offset) {
+      total
+      hasMore
+      items {
+        urn
+        id
+        memoryId
+        nodeType
+        loc
+        name
+        description
+        tags
+        seq
+        isRunnable
+        memory { id urn name organizationId }
+        outgoingEdges {
+          id
+          name
+          loc
+          isRunnable
+          target { id loc name }
+        }
+        incomingEdges {
+          id
+          name
+          loc
+          isRunnable
+          source { id loc name }
+        }
+      }
+    }
+  }
+`;
+
+// portal#1881: the Runs tab's Flows list. Every Flow root is runnable, so the
+// display page reads runnable nodes only; the root test itself (routing edges,
+// no incoming routing) stays client-side in flowPageSummaries. Its own document
+// so the Memory tab's unfiltered AppNodesPage is untouched.
+export const APP_FLOWS_PAGE_QUERY = /* GraphQL */ `
+  query AppFlowsPage($appRef: ID!, $limit: Int, $offset: Int) {
+    appNodesPage(appRef: $appRef, filter: { isRunnable: true }, limit: $limit, offset: $offset) {
+      total
+      hasMore
+      items {
+        urn
+        id
+        memoryId
+        nodeType
+        loc
+        name
+        description
+        tags
+        seq
+        isRunnable
+        memory { id urn name organizationId }
+        outgoingEdges {
+          id
+          name
+          loc
+          isRunnable
+          target { id loc name }
+        }
+        incomingEdges {
+          id
+          name
+          loc
+          isRunnable
+          source { id loc name }
+        }
+      }
+    }
+  }
+`;
+
 // ---------------------------------------------------------------------------
 // Sessions
 // ---------------------------------------------------------------------------
@@ -3254,6 +3404,22 @@ export const APP_CHAT_ROOTS_QUERY = /* GraphQL */ `
   }
 `;
 
+export const APP_CHAT_ROOTS_PAGE_QUERY = /* GraphQL */ `
+  query AppChatRootsPage($appRef: ID!, $limit: Int, $offset: Int, $locPrefix: String) {
+    appNodesPage(appRef: $appRef, filter: { nodeType: "chat", locPrefix: $locPrefix }, limit: $limit, offset: $offset) {
+      total
+      hasMore
+      items {
+        id
+        loc
+        name
+        memoryId
+        nodeType
+      }
+    }
+  }
+`;
+
 // portal#1524: the node page's Children section, now that the memory layout no
 // longer carries the whole node list. ONE bounded, slim page of the nodes under
 // a loc: only the fields the children grid renders, no content, and `total` so
@@ -3468,6 +3634,8 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
     $approvalState: NodeApprovalState
     $minted: Boolean
     $contentScope: NodeContentScope
+    $nodeTypes: [String!]
+    $tags: [String!]
     $sortProperty: NodePropertySort
     $limit: Int
   ) {
@@ -3502,6 +3670,8 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
         # both, applied by the server BEFORE ranking, paging and the result cap.
         # Null is the server default, CONTENT.
         contentScope: $contentScope
+        nodeTypes: $nodeTypes
+        tags: $tags
       }
     ) {
       hits {
@@ -4016,6 +4186,22 @@ export const PERSONAL_MEMORIES_QUERY = /* GraphQL */ `
       items {
         ...MemoryFields
       }
+      total
+    }
+  }
+`;
+
+// #2140: which org-less system memories the CALLER owns, as the server answers
+// it. A system row cannot be attributed client-side: Memory.userId is the
+// personal/private owner only, and every other class keys on ownerUserId, which
+// is not in the SDL, so a system row arrives with userId null. ownedByMe carries
+// that per-class rule (and is org-less by definition); memoryClasses must name
+// system explicitly or the default listing hides it. Ids only: the rows
+// themselves come from ORG_SYSTEM_MEMORIES_QUERY.
+export const OWN_SYSTEM_MEMORY_IDS_QUERY = /* GraphQL */ `
+  query OwnSystemMemoryIds($limit: Int, $offset: Int) {
+    memories(filter: { ownedByMe: true, memoryClasses: [system] }, limit: $limit, offset: $offset) {
+      items { id }
       total
     }
   }

@@ -102,7 +102,7 @@ export function parseParamsText(
 export type AiApiStyle = 'CHAT_COMPLETIONS' | 'RESPONSES';
 
 /** Providers that speak an OpenAI-style protocol, where apiStyle applies at all. */
-const API_STYLE_PROVIDERS = new Set(['openai', 'glm', 'openai-compatible']);
+const API_STYLE_PROVIDERS = new Set(['openai', 'glm', 'openai-compatible', 'kimi']);
 export function apiStyleApplies(provider: string): boolean {
   return API_STYLE_PROVIDERS.has(provider);
 }
