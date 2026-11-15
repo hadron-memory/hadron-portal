@@ -314,3 +314,19 @@ describe('an uncertain outcome keeps the lock and says so (blind P2 on #2198)', 
   });
 });
 
+describe('the checking status ends when the readback confirms (Diego P3 on #2198)', () => {
+  it('clears the "checking…" status together with the lock once the loader shows the mode', async () => {
+    const { root, props } = mountIt('OFF', 'app-a');
+    radio(root, 'OBSERVE').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(root));
+    await deliver({ type: 'error' as const, status: 500, error: new Error('fetch failed') } as never);
+    props.mode = 'OBSERVE';
+    flushSync();
+    await tick(3);
+    flushSync();
+    expect(root.querySelector('fieldset')!.disabled).toBe(false);
+    expect(root.textContent).not.toMatch(/checking/i);
+  });
+});
+

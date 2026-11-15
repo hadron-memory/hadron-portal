@@ -186,3 +186,23 @@ describe('an uncertain outcome keeps the lock and says so (blind P2 on #2198)', 
   });
 });
 
+describe('the checking status ends when the readback confirms (Diego P3 on #2198)', () => {
+  it('clears the "checking…" status together with the lock once the loader shows the marker', async () => {
+    const props = reactiveProps({ marker: NOT_MARKED as Record<string, unknown>, canManage: true });
+    const m = mountComponent(WorkerLeaveAlone as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    const root = m.target;
+    button(root, 'Leave alone…')!.click();
+    flushSync();
+    root.querySelector<HTMLInputElement>('#leave-alone-reason')!.value = 'migrating';
+    const deliver = await beginEnhanced(root.querySelector('form')!);
+    await deliver({ type: 'error' as const, status: 500, error: new Error('fetch failed') } as never);
+    props.marker = { on: true, reason: 'migrating', by: '@ada', at: '2026-11-15T12:00:00Z' };
+    flushSync();
+    await tick(3);
+    flushSync();
+    expect(root.textContent).not.toMatch(/checking|couldn.t confirm/i);
+    expect(root.textContent).toContain('migrating');
+  });
+});
+
