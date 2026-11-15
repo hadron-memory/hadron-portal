@@ -40,7 +40,7 @@
     if (recovery?.phase === 'stale' && lifecycle === recovery.value) clearRecovery(`lifecycle:${ownerId}`);
   });
 
-  const failed = t('agent.lifecycle.error.failed', 'Not saved. Changing this needs the agent’s owner or an organization admin.');
+  const failed = t('agent.lifecycle.error.failed', 'Not saved. Try again.');
   const submit: SubmitFunction = ({ formData }) => {
     const mine = gen;
     const owner = ownerId;

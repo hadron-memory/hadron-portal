@@ -795,7 +795,7 @@ export const actions: Actions = {
         case 'AGENT_NOT_FOUND':
           return fail(404, { lifecycleError: t('agent.lifecycle.error.not-found', 'This agent is not available to you.') });
         default:
-          return fail(500, { lifecycleError: t('agent.lifecycle.error.failed', 'Not saved. Changing this needs the agent’s owner or an organization admin.') });
+          return fail(500, { lifecycleError: t('agent.lifecycle.error.failed', 'Not saved. Try again.') });
       }
     }
   },
