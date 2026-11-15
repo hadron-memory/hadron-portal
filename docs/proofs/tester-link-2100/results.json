@@ -1,0 +1,106 @@
+[
+  {
+    "name": "admin-other",
+    "width": 1280,
+    "dark": false,
+    "shown": false,
+    "editor": true
+  },
+  {
+    "name": "admin-other",
+    "width": 1280,
+    "dark": true,
+    "shown": false,
+    "editor": true
+  },
+  {
+    "name": "admin-other",
+    "width": 390,
+    "dark": false,
+    "shown": false,
+    "editor": true
+  },
+  {
+    "name": "admin-other",
+    "width": 390,
+    "dark": true,
+    "shown": false,
+    "editor": true
+  },
+  {
+    "name": "admin-other",
+    "directTesterStatus": 404,
+    "pageErrors": []
+  },
+  {
+    "name": "owner",
+    "width": 1280,
+    "dark": false,
+    "shown": true,
+    "editor": true
+  },
+  {
+    "name": "owner",
+    "width": 1280,
+    "dark": true,
+    "shown": true,
+    "editor": true
+  },
+  {
+    "name": "owner",
+    "width": 390,
+    "dark": false,
+    "shown": true,
+    "editor": true
+  },
+  {
+    "name": "owner",
+    "width": 390,
+    "dark": true,
+    "shown": true,
+    "editor": true
+  },
+  {
+    "name": "owner",
+    "directTesterStatus": 200,
+    "pageErrors": []
+  },
+  {
+    "name": "admin-own",
+    "width": 1280,
+    "dark": false,
+    "shown": true,
+    "editor": true
+  },
+  {
+    "name": "admin-own",
+    "width": 1280,
+    "dark": true,
+    "shown": true,
+    "editor": true
+  },
+  {
+    "name": "admin-own",
+    "directTesterStatus": 200,
+    "pageErrors": []
+  },
+  {
+    "name": "org-manager",
+    "width": 1280,
+    "dark": false,
+    "shown": true,
+    "editor": true
+  },
+  {
+    "name": "org-manager",
+    "width": 1280,
+    "dark": true,
+    "shown": true,
+    "editor": true
+  },
+  {
+    "name": "org-manager",
+    "directTesterStatus": 200,
+    "pageErrors": []
+  }
+]

@@ -1,4 +1,5 @@
 import { installMarksOf, type AppAgentInstall } from '$lib/app-install-marks';
+import { testerLinkEligibility } from '$lib/server/agent-tester/link-eligibility';
 import { memberRolesFormId, UNSCOPED_MEMBER_ROLES_FORM_ID } from './member-roles-form-id';
 import { loadAgentExtensions, loadSystemMemoryIdentity } from '$lib/server/agent-profile';
 import { agentBaseSchema, agentIndexRefsSchema } from './inheritance-schema';
@@ -47,6 +48,7 @@ import {
   AGENT_REGISTER_DEFAULTS_QUERY,
   AGENT_RESET_CONTEXT_QUERY,
   UPDATE_AGENT_RESET_CONTEXT_MUTATION,
+  UPDATE_AGENT_LIFECYCLE_MUTATION,
   AGENT_BOOT_POINTER_QUERY,
   AGENT_BOOT_START_QUERY,
   CREATE_NODE_MUTATION,
@@ -456,6 +458,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     memberRolesForm,
     bootPointer,
     canManageAgent,
+    canOpenTester: await testerLinkEligibility(client, agent, canManageAgent),
     // The key a pointer result carries (the action's own params.id), so a
     // result shows only for the Agent it was written for.
     bootPointerKey: params.id,
@@ -770,6 +773,29 @@ export const actions: Actions = {
           return message(form, { type: 'error', text: t('agent.reset-context.error.not-found', 'This agent is not available to you.') }, { status: 404 });
         default:
           return message(form, { type: 'error', text: t('agent.reset-context.error.failed', 'Not saved. Changing this needs the agent’s owner or an organization admin.') }, { status: 500 });
+      }
+    }
+  },
+
+  // portal#2194 (hadron-server#4242): only lifecycle is sent. The server's
+  // updateAgent gate decides who may; the page shows the control to managers
+  // and renders the refusal as text, as it comes back.
+  updateLifecycle: async ({ request, params, locals }) => {
+    const lifecycle = (await request.formData()).get('lifecycle');
+    if (lifecycle !== 'LONG_LIVED' && lifecycle !== 'SHORT_LIVED') {
+      return fail(400, { lifecycleError: t('agent.lifecycle.error.invalid', 'Choose how long this agent’s workers run.') });
+    }
+    try {
+      await gqlClient(locals.token).request(UPDATE_AGENT_LIFECYCLE_MUTATION, { ref: params.id, lifecycle });
+      return { lifecycleSaved: lifecycle };
+    } catch (e: unknown) {
+      switch (extractGqlErrorCode(e)) {
+        case 'FORBIDDEN':
+          return fail(403, { lifecycleError: t('agent.lifecycle.error.forbidden', 'Only the agent’s owner or an organization admin can change this.') });
+        case 'AGENT_NOT_FOUND':
+          return fail(404, { lifecycleError: t('agent.lifecycle.error.not-found', 'This agent is not available to you.') });
+        default:
+          return fail(500, { lifecycleError: t('agent.lifecycle.error.failed', 'Not saved. Changing this needs the agent’s owner or an organization admin.') });
       }
     }
   },
