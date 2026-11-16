@@ -1,7 +1,7 @@
 import { composeAgentTaskUrnV2, parseUrnV2 } from '$lib/urn/parse-urn';
 import type { GraphQLClient } from 'graphql-request';
-import type { TaskChoice, TaskDependencyPage, TaskRead } from '$lib/agent-tasks/types';
-import { TASK_DEPENDENCIES_QUERY, TASK_BLOCKED_BY_PAGE_QUERY, TASK_BLOCKS_PAGE_QUERY, TASK_PICKER_EXACT_QUERY, TASK_PICKER_QUERY, TASK_REFERENCE_PICKER_QUERY } from './queries';
+import type { TaskChoice, TaskClonesPage, TaskDependencyPage, TaskRead } from '$lib/agent-tasks/types';
+import { TASK_DEPENDENCIES_QUERY, TASK_BLOCKED_BY_PAGE_QUERY, TASK_BLOCKS_PAGE_QUERY, TASK_CLONES_PAGE_QUERY, TASK_PICKER_EXACT_QUERY, TASK_PICKER_QUERY, TASK_REFERENCE_PICKER_QUERY } from './queries';
 
 const OPEN = ['BACKLOG', 'PENDING', 'STARTED'];
 const OPEN_OR_ENDED = [...OPEN, 'FINISHED', 'CANCELLED'];
@@ -53,6 +53,21 @@ export async function taskDependencyPage(client: GraphQLClient, appId: string, t
       : await client.request<PageResponse>(TASK_BLOCKS_PAGE_QUERY, { id: taskId, offset });
     const page = agentTask?.[direction];
     if (!agentTask || agentTask.id !== taskId || agentTask.appId !== appId || !page || !Array.isArray(page.items) || typeof page.hasMore !== 'boolean' || page.items.length > 200 || page.items.some((task) => task.appId !== appId)) return { kind: 'failed' };
+    return { kind: 'ok', value: page };
+  } catch { return { kind: 'failed' }; }
+}
+
+/**
+ * portal#2161 (hadron-server#3244): one page of a task's clones, paged
+ * (hrn:node:hadronmemory.com:specs:cor:api:120:04). Same refusal shape as the dependency pages: a
+ * foreign row, a skewed transport or a failed read is a FAILURE, never an empty list.
+ */
+export async function taskClonesPage(client: GraphQLClient, appId: string, taskId: string, offset: number): Promise<TaskRead<TaskClonesPage>> {
+  try {
+    type PageResponse = { agentTask: { id: string; appId: string; clones?: TaskClonesPage } | null };
+    const { agentTask } = await client.request<PageResponse>(TASK_CLONES_PAGE_QUERY, { id: taskId, offset });
+    const page = agentTask?.clones;
+    if (!agentTask || agentTask.id !== taskId || agentTask.appId !== appId || !page || !Array.isArray(page.items) || typeof page.hasMore !== 'boolean' || typeof page.total !== 'number' || page.total < 0 || page.items.length > 200 || page.items.some((task) => task.appId !== appId)) return { kind: 'failed' };
     return { kind: 'ok', value: page };
   } catch { return { kind: 'failed' }; }
 }

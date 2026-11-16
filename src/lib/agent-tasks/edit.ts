@@ -1,6 +1,7 @@
 import { t } from '$lib/i18n/t';
 import { startByIso } from './start-by';
 import { readReferences, referenceInput, sameReferences } from './references';
+import { readBaseRequirements, requirementsOverride, sameList, str, tagList } from './form-bases';
 
 /**
  * portal#1357 — what the Edit details form sends (hadron-server#2645,
@@ -18,38 +19,15 @@ import { readReferences, referenceInput, sameReferences } from './references';
  * so after any change (an add, a remove, a reorder, a relabel) the whole
  * ordered list goes, `[]` when the last one was removed; untouched, the field
  * is left out. Like every other field, nothing goes without its posted base.
+ *
+ * The base-diff grammar is shared with clone.ts (portal#2161) through form-bases.ts.
  */
 export type TaskEditPatch =
   | { input: Record<string, unknown> }
   | { invalid: { field: string; message: string } };
 
-const str = (fd: FormData, k: string) => String(fd.get(k) ?? '').trim();
-const all = (fd: FormData, k: string) => [...new Set(fd.getAll(k).map((v) => String(v).trim()).filter(Boolean))];
-const tagList = (text: string) => [...new Set(text.split(',').map((x) => x.trim()).filter(Boolean))];
-const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
-const sameSet = (a: string[], b: string[]) => sameList([...a].sort(), [...b].sort());
 /** The control carries no seconds: two instants in the same minute are the same choice. */
 const minute = (iso: string) => iso.slice(0, 16);
-
-interface Requirements {
-  role: string | null;
-  familyIn: string[];
-  familyNotIn: string[];
-  excludeWorkers: string[];
-  minTier: string | null;
-}
-
-function readBaseRequirements(raw: FormDataEntryValue | null): Requirements | null {
-  if (typeof raw !== 'string') return null;
-  try {
-    const b = JSON.parse(raw) as Partial<Requirements> | null;
-    if (!b || typeof b !== 'object') return null;
-    const list = (x: unknown) => (Array.isArray(x) ? x.filter((v): v is string => typeof v === 'string') : []);
-    return { role: typeof b.role === 'string' && b.role.trim() ? b.role.trim() : null, familyIn: list(b.familyIn), familyNotIn: list(b.familyNotIn), excludeWorkers: list(b.excludeWorkers), minTier: typeof b.minTier === 'string' && b.minTier.trim() ? b.minTier.trim() : null };
-  } catch {
-    return null;
-  }
-}
 
 export function taskEditPatch(fd: FormData): TaskEditPatch {
   const input: Record<string, unknown> = {};
@@ -97,24 +75,11 @@ export function taskEditPatch(fd: FormData): TaskEditPatch {
     if (!sameReferences(now, was)) input.references = now.map(referenceInput);
   }
 
+  // The requirements controls are always visible on the Edit panel, so an emptied set is real.
   const base = readBaseRequirements(fd.get('requirementsBase'));
   if (base) {
-    const role = str(fd, 'role') || null;
-    const familyIn = all(fd, 'familyIn');
-    // The server takes one family list or the other; "run as" wins, as on the create form.
-    const familyNotIn = familyIn.length ? [] : all(fd, 'familyNotIn');
-    const excludeWorkers = all(fd, 'excludeWorkers');
-    const minTier = str(fd, 'minTier') || null;
-    const baseNotIn = base.familyIn.length ? [] : base.familyNotIn;
-    if (role !== base.role || !sameSet(familyIn, base.familyIn) || !sameSet(familyNotIn, baseNotIn) || !sameSet(excludeWorkers, base.excludeWorkers) || minTier !== base.minTier) {
-      const requirements: Record<string, unknown> = {};
-      if (role) requirements.role = role;
-      if (familyIn.length) requirements.familyIn = familyIn;
-      else if (familyNotIn.length) requirements.familyNotIn = familyNotIn;
-      if (excludeWorkers.length) requirements.excludeWorkers = excludeWorkers;
-      if (minTier) requirements.minTier = minTier;
-      input.requirements = Object.keys(requirements).length ? requirements : null;
-    }
+    const override = requirementsOverride(fd, base);
+    if (override !== undefined) input.requirements = override;
   }
 
   return { input };
