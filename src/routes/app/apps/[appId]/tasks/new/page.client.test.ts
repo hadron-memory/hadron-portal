@@ -233,3 +233,51 @@ describe('clone form: a same-route App change re-seeds the family pre-fill (port
     expect(String(fd.get('requirementsBase'))).toContain('glm');
   });
 });
+
+// George's residual F2 on portal#2161: the requirements-visibility predicate must follow the
+// POSTED radios, not snapshot at mount. An enhanced refusal lands on the SAME component with
+// no excludeWorkers key (an emptied multiple select posts nothing); with a mount-time const
+// predicate the one-way exclude-workers read re-seeds the source's list, and an option the
+// person never touched re-selects — quietly putting the copy's excluded workers back into the
+// next save. The person cleared w1 only; w2 must clear with the response, because the
+// submission posted NEITHER. (The hidden opposite control is pinned in page.test.ts: a named
+// assignee renders no lists at all.)
+describe('clone form: a refused rerender keeps a cleared exclusion (portal#2161)', () => {
+  const cloneWithExclusions = {
+    source: { id: 'src-1', handle: 'AT1.x', title: 'Source' },
+    parent: { choice: 'none', task: null },
+    values: {
+      title: 'T', description: '', source: '', tags: '', closeSessionWhenDone: false, priority: null, references: '[]',
+      requirements: JSON.stringify({ role: null, familyIn: [], familyNotIn: [], excludeWorkers: ['w1', 'w2'], minTier: null }),
+    },
+  };
+
+  it('an untouched source exclusion clears with the response — the submit posted neither', async () => {
+    const props = reactiveProps<Record<string, unknown>>({
+      data: {
+        app,
+        candidates: { workers: [{ id: 'w1', name: 'Dara', role: 'eng', urn: null }], people: [] },
+        roles: [], families: [], canWrite: true, impersonating: null,
+        clone: cloneWithExclusions,
+      },
+      form: null,
+    });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const sel = m.target.querySelector<HTMLSelectElement>('#new-exclude')!;
+    const opt = (v: string) => [...sel.options].find((o) => o.value === v)!;
+    expect(opt('w1').selected).toBe(true);
+    expect(opt('w2').selected).toBe(true);
+    // The person clears only w1; w2 stays untouched in the DOM.
+    opt('w1').selected = false;
+    // The enhanced refusal lands on the SAME component: values appear, the radios name visible
+    // controls, and the emptied multiple select posts no excludeWorkers key.
+    props.form = { refusal: { kind: 'refused', code: 'TASK_ENDED', message: 'The parent you chose has ended.' }, values: { title: 'T', start: 'now', owner: 'me', assignee: 'nobody', cloneParent: 'none' } };
+    await tick(3);
+    expect(opt('w1').selected).toBe(false);
+    expect(opt('w2').selected).toBe(false);
+    const fd = new FormData(m.target.querySelector<HTMLFormElement>('form')!);
+    expect(fd.getAll('excludeWorkers')).toEqual([]);
+  });
+});

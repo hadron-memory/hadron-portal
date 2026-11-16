@@ -81,8 +81,10 @@
   // controls were VISIBLE; hidden ones (a backlog start, a named assignee) post nothing and
   // the copy stands, the same gate the save applies (clone.ts). Radios always post, so the
   // posted start and assignee name the visibility the person's submit saw. Without posted
-  // values (the first load) the pre-fill is the seed.
-  const reqVisible = v('start') !== 'backlog' && v('assignee') === 'nobody';
+  // values (the first load) the pre-fill is the seed. DERIVED, not a mount-time const: an
+  // enhanced refusal lands on this SAME component, and the one-way exclude-workers read must
+  // re-seed from the radios the response posted, not the empty ones it mounted with.
+  const reqVisible = $derived(v('start') !== 'backlog' && v('assignee') === 'nobody');
   const seedList = (k: string, fallback: string[]): string[] =>
     !result?.values ? fallback : k in result.values ? vs(k) : reqVisible ? [] : fallback;
 
