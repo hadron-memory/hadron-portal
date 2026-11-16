@@ -6,19 +6,29 @@ compiled `app.css` in headless Chromium, inside the app shell of
 `src/lib/test/fixtures/agent-chat-phone-harness.ts`. No server, provider,
 signed-in route or production call.
 
-Regenerate: `AGENT_CHAT_SHOTS=<dir> pnpm test:agent-chat-phone-layout` (the
-`baseline-main-*` shots come from running that on `origin/main`).
-
-A subset of what the regenerate command writes:
+Regenerate: `AGENT_CHAT_SHOTS=<dir> pnpm test:agent-chat-phone-layout`. The
+command writes `-list`, `-conversation` and `-refusal` shots for every width ×
+theme leg (320–1440, light and dark; a phone leg's `-conversation` shot is the
+deep-link state, captured last on its page). Only the subset below is
+committed; the `baseline-main-*` shots come from running the same command on
+`origin/main`.
 
 | File | What it shows |
 |---|---|
-| `baseline-main-390-light-conversation.png` | main before the fix: Back a bare text link (16px chevron, no border), placeholder hint clipped mid-sentence in the 42px textarea |
-| `390-{light,dark}-conversation.png` | Back in a neutral outlined chip (zinc-300/zinc-700, 20px chevron, 44px target); composer floor 104px so the four-line placeholder hint reads whole |
-| `320-{light,dark}-conversation.png` | 320px: same control, placeholder whole — here Send wraps under a 220px textarea, so the placeholder wraps differently than at 390 |
+| `baseline-main-390-light-conversation.png` | main before the fix: Back a bare text link (chevron + "Chats", no border); the long placeholder hint clipped mid-sentence in the two-row box |
+| `baseline-main-320-light-conversation.png` | main at 320: the same bare Back; the clipped hint wraps to a second line and still doesn't fit, with Send under the box |
+| `390-{light,dark}-conversation.png` | the fix: Back a drawn chip (zinc-500 outline on white/zinc-900 — ≥ 3:1 against its surface in both themes — 20px chevron + "Chats" label, 44px target); the placeholder the localized `Message…`; the Enter/Shift+Enter hint moved to helper text under the composer |
+| `320-{light,dark}-conversation.png` | 320px: the same chip and composer; the helper line fits, Send still wraps under the textarea (row layout unchanged) |
 | `390-light-list.png` | after Back: the list pane it returns to (unchanged by this fix) |
-| `948-light-conversation.png` | panel at `@2xl` and up: two panes, no Back, composer back at its 42px floor (`@2xl:min-h-[42px]` keeps the phone minimum from leaking) |
+| `948-light-conversation.png` | panel at `@2xl` and up: two panes, no Back, composer at the same natural two-row box (one floor everywhere — nothing leaks across the pane switch) |
+
+The shots run with a desktop pointer, so the helper line shows in them; on
+touch pointers it is hidden (`pointer-coarse:hidden`), pinned by the same
+script.
 
 Limits: component-fixture captures, not the signed-in App page; independent QA
 owns the route matrix (320/390, light and dark), and the UX seat owns the
-"Back visibly a control" confirmation.
+"Back visibly a control" confirmation. The transcript squeeze on 320×568
+viewports (header + AI row vs a 288px panel) predates this fix — #2088's
+layout owns it; on touch pointers the composer returns to main's exact
+footprint.

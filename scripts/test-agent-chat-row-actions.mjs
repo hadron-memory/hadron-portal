@@ -404,7 +404,7 @@ try {
         const slow = await open(width, dark, touch);
         const p = slow.page;
         await p.getByRole('button', { name: /^Second chat/ }).first().click();
-        const composer = p.getByPlaceholder(/Type your message/);
+        const composer = p.locator("#panel main textarea");
         await composer.waitFor();
         await p.evaluate(() => { window.__release = window.__chat.holdDelete(); });
         await p.getByRole('button', { name: `Delete chat ${A}`, exact: true }).click();
@@ -457,7 +457,7 @@ try {
         const f = await open(width, dark, touch);
         const p = f.page;
         await p.getByRole('button', { name: /^Second chat/ }).first().click();
-        await p.getByPlaceholder(/Type your message/).waitFor();
+        await p.locator("#panel main textarea").waitFor();
         const before = await p.evaluate(() => location.href);
         await p.evaluate(() => window.__chat.failDelete('json'));
         await p.getByRole('button', { name: `Delete chat ${A}`, exact: true }).click();
@@ -497,7 +497,7 @@ try {
         // list's earlier one (Gene's and Gloria's deltas on #2110): open B, a
         // send fails with "Failed to fetch", Back shows the list with no alert.
         await p.locator('[data-chat-row="chats:b"]').click();
-        const composer = p.getByPlaceholder(/Type your message/);
+        const composer = p.locator("#panel main textarea");
         await composer.waitFor();
         await p.evaluate(() => window.__chat.failTurn());
         await composer.fill('hello');
@@ -515,7 +515,7 @@ try {
         const slow = await open(width, dark, touch);
         const p = slow.page;
         await p.getByRole('button', { name: /^Second chat/ }).first().click();
-        const composer = p.getByPlaceholder(/Type your message/);
+        const composer = p.locator("#panel main textarea");
         await composer.waitFor();
         await p.evaluate(() => { window.__chat.failDelete('network'); window.__release = window.__chat.holdDelete(); });
         await p.getByRole('button', { name: `Delete chat ${A}`, exact: true }).click();

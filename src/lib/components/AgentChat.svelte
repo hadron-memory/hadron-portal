@@ -1041,15 +1041,15 @@
         <!-- portal#2088: phone-only view navigation back to the list. Neutral
              chrome (never the warm accent); it changes no chat.
              portal#2094: reads as a control at rest — a drawn zinc outline
-             and a 20px chevron, one ramp for both themes
-             (hrn:node:hadronmemory.com:specs:cor:brd:010:01: Back is
-             navigation; the warm accent is never the primary
-             navigation color). -->
+             strong enough to see against the header surface (>= 3:1 both
+             themes, one ramp step for both), a 20px chevron and the label,
+             inside the 44px target. Back is navigation; the warm accent is
+             never the primary navigation color. -->
         <button
           type="button"
           onclick={backToChats}
           aria-label={t('agent-chat.back.aria', 'Back to chats')}
-          class="-my-2 -ml-2 inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-lg border border-zinc-300 bg-white px-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 @2xl:hidden dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          class="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-lg border border-zinc-500 bg-white px-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 @2xl:hidden dark:border-zinc-500 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
         >
           <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" class="h-5 w-5">
             <path fill-rule="evenodd" d="M12.79 5.23a.75.75 0 0 1-.02 1.06L8.832 10l3.938 3.71a.75.75 0 1 1-1.04 1.08l-4.5-4.25a.75.75 0 0 1 0-1.08l4.5-4.25a.75.75 0 0 1 1.06.02Z" clip-rule="evenodd" />
@@ -1225,11 +1225,10 @@
         <!-- portal#2088: below `@2xl` (panel width) the textarea keeps at least 200px and Send
              wraps under it when the row is too narrow (DOM and Tab order
              unchanged); from `@2xl` up, one row as before.
-             portal#2094: while one pane shows, the composer's minimum is tall
-             enough for the placeholder's four wrapped lines at its narrowest
-             (210px at a 390 viewport — Send still fits beside it there, so
-             the box is squeezed; rows="2" alone left the hint clipped
-             mid-sentence); the two-pane side keeps its own 42px floor. -->
+             portal#2094: the placeholder stays short (one word) so the
+             natural rows="2" box shows it whole at every width and locale;
+             no height is sized around a sentence. The Enter/Shift+Enter hint
+             lives in the helper line below, shown for fine pointers only. -->
         <div class="flex flex-wrap items-end gap-2 @2xl:flex-nowrap">
           {#if uploadMemoryId}
             <AssetUploadButton
@@ -1241,10 +1240,12 @@
           <textarea
             bind:value={input}
             onkeydown={onInputKeydown}
-            placeholder={activeChatId ? 'Type your message… (Enter to send, Shift+Enter for a new line)' : 'Start a chat first'}
+            placeholder={activeChatId
+              ? t('agent-chat.composer.placeholder', 'Message…')
+              : t('agent-chat.composer.placeholder-disabled', 'Start a chat first')}
             rows="2"
             disabled={!activeChatId || sending}
-            class="min-h-[104px] w-full min-w-[12.5rem] flex-1 resize-none rounded-lg @2xl:min-h-[42px] @2xl:min-w-0 border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
+            class="min-h-[42px] w-full min-w-[12.5rem] flex-1 resize-none rounded-lg @2xl:min-w-0 border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
           ></textarea>
           <button
             type="button"
@@ -1256,6 +1257,20 @@
             Send
           </button>
         </div>
+        <!-- portal#2094/#2171: the keyboard hint the placeholder used to
+             carry. Helper text, not placeholder text, so the composer box is
+             never sized around a sentence; hidden on touch pointers, where
+             an Enter-to-send hint rarely applies and every pixel of the
+             composer column is scarce, and hidden with no chat open, where
+             there is nothing to send. -->
+        {#if activeChatId}
+          <p
+            data-testid="composer-hint"
+            class="pointer-coarse:hidden mt-1.5 text-xs text-zinc-400 dark:text-zinc-500"
+          >
+            {t('agent-chat.composer.hint', 'Enter to send · Shift+Enter for a new line')}
+          </p>
+        {/if}
       </div>
     {/if}
     {#if hasAiChoices}
