@@ -17,6 +17,7 @@ import {
   parsePartyChoice,
   taskWrite,
   writeFailure,
+  type TaskWriteOutcome,
 } from '$lib/server/agent-task-writes';
 import { t } from '$lib/i18n/t';
 import { isProjectZero, parseHandle, resolveSegment, taskHref } from '$lib/agent-tasks/handle';
@@ -221,20 +222,9 @@ async function cloneTask(fd: FormData, values: Record<string, string | string[]>
   const backlog = str(fd, 'start') === 'backlog';
   if (backlog) input.status = 'BACKLOG';
 
-  if (explicitBlank(fd, 'owner')) {
-    return writeFailure('clone', { kind: 'invalid', field: 'owner', message: t('app.tasks.write.other-required', 'Type their @handle or id, or choose someone from the list.') }, values);
-  }
-  if (!backlog && explicitBlank(fd, 'assignee')) {
-    return writeFailure('clone', { kind: 'invalid', field: 'assignee', message: t('app.tasks.write.other-required', 'Type their @handle or id, or choose someone from the list.') }, values);
-  }
-  // Owner and assignee are not copied: an absent owner means the cloner (as on a create), nobody
-  // means the matcher. A backlog task takes no assignee — hidden fields are ignored, not sent.
-  const owner = parsePartyChoice(str(fd, 'owner'), str(fd, 'ownerOther'));
-  if (owner) input.owner = owner;
-  if (!backlog) {
-    const assignee = parsePartyChoice(str(fd, 'assignee'), str(fd, 'assigneeOther'));
-    if (assignee) input.assignee = assignee;
-  }
+  // Owner and assignee are not copied: they are chosen exactly as on a plain create.
+  const partyRefusal = partyChoices(fd, input, backlog, 'clone', values);
+  if (partyRefusal) return partyRefusal;
 
   // Like the edit: an empty start-by is unchosen (sent as nothing); only a value that
   // doesn't parse once one is posted is refused on its field.
@@ -254,23 +244,68 @@ async function cloneTask(fd: FormData, values: Record<string, string | string[]>
     { taskId: sourceId, input },
     'cloneAgentTask',
   );
-  if (out.kind === 'refused') return writeFailure('clone', cloneRefusal(out.refusal), values);
-  const id = taskId(out.data?.cloneAgentTask?.id);
+  return createdResult('clone', out, (d) => d?.cloneAgentTask, `/app/apps/${appId}`, values, cloneRefusal, { cloned: true });
+}
+
+/**
+ * The party choices a create and a clone read exactly alike: an explicit "Someone else…" with
+ * nothing typed is refused on its field (Diego's P2-2 on #1135); `me`/`nobody`/empty names no
+ * party — the create's owner defaults to the creator, the clone's to the cloner — and an assignee
+ * goes on a matcher run only. A backlog task takes no assignee: its hidden fields are ignored,
+ * not sent to be refused.
+ */
+function partyChoices(
+  fd: FormData,
+  input: Record<string, unknown>,
+  backlog: boolean,
+  action: 'create' | 'clone',
+  values: Record<string, string | string[]>,
+): ReturnType<typeof writeFailure> | undefined {
+  if (explicitBlank(fd, 'owner')) {
+    return writeFailure(action, { kind: 'invalid', field: 'owner', message: t('app.tasks.write.other-required', 'Type their @handle or id, or choose someone from the list.') }, values);
+  }
+  if (!backlog && explicitBlank(fd, 'assignee')) {
+    return writeFailure(action, { kind: 'invalid', field: 'assignee', message: t('app.tasks.write.other-required', 'Type their @handle or id, or choose someone from the list.') }, values);
+  }
+  const owner = parsePartyChoice(str(fd, 'owner'), str(fd, 'ownerOther'));
+  if (owner) input.owner = owner;
+  if (!backlog) {
+    const assignee = parsePartyChoice(str(fd, 'assignee'), str(fd, 'assigneeOther'));
+    if (assignee) input.assignee = assignee;
+  }
+}
+
+/**
+ * The outcome a create and a clone share (portal#1214, portal#1349): a refusal keeps the form
+ * with its values; a write with nothing to show redirects to the new task's page; warnings, or a
+ * committed write whose response errored, are shown in the same response in place of the form. A
+ * write with no usable id and nothing to prove it is unknown, never failed.
+ */
+function createdResult<D>(
+  action: 'create' | 'clone',
+  out: TaskWriteOutcome<D>,
+  row: (data: D | Partial<D> | null) => { id?: string | null; handle?: string | null } | null | undefined,
+  basePath: string,
+  values: Record<string, string | string[]>,
+  refusal: (r: WriteRefusal) => WriteRefusal,
+  extra: { cloned?: boolean } = {},
+) {
+  if (out.kind === 'refused') return writeFailure(action, refusal(out.refusal), values);
+  const created = row(out.data);
+  const id = taskId(created?.id);
   // portal#1349: the link carries the immutable handle when the server returned a valid one.
-  const rawHandle = out.data?.cloneAgentTask?.handle;
+  const rawHandle = created?.handle;
   const handle = typeof rawHandle === 'string' && parseHandle(rawHandle) ? rawHandle : null;
 
-  // portal#1214: like a create with nothing to show, straight to the new task's page.
+  // portal#1214: a write with nothing to show goes straight to the new task's page.
   if (out.kind === 'ok' && out.warnings.length === 0 && out.more === 0) {
-    if (id) redirect(303, `${taskHref(`/app/apps/${appId}`, { id, handle })}?created=1`);
+    if (id) redirect(303, `${taskHref(basePath, { id, handle })}?created=1`);
     // No usable id and no warning to prove the write: the outcome is unknown.
-    if (!out.committed) return writeFailure('clone', { kind: 'uncertain' }, values);
+    if (!out.committed) return writeFailure(action, { kind: 'uncertain' }, values);
   }
-  // Warnings, or a committed write whose response errored: shown here, in the same response, in
-  // place of the form.
   return {
     created: { id, handle },
-    cloned: true,
+    ...extra,
     committedWithError: out.kind === 'committed-error',
     warnings: out.warnings,
     more: out.more,
@@ -292,18 +327,25 @@ export const actions: Actions = {
     const values = formValues(fd);
     if (locals.impersonation) return writeFailure('create', impersonationRefusal(), values);
 
+    // A plain create's empty title is refused before any server I/O (the clone branch below
+    // resolves its source first, so it reads the App before it can judge anything).
+    const from = str(fd, 'from');
+    if (!from) {
+      const title = str(fd, 'title');
+      if (!title) {
+        return writeFailure('create', { kind: 'invalid', field: 'title', message: t('app.tasks.write.title-required', 'Give the task a title.') }, values);
+      }
+    }
+
     const client = gqlClient(locals.token);
     const app = await loadTasksApp(client, params.appId);
     if (!app) throw error(404, 'App not found');
 
     // portal#2161: a `from` field means the Clone form — its own write, never createAgentTask,
     // so the server keeps the clone link and applies its own copy rules.
-    if (str(fd, 'from')) return cloneTask(fd, values, client, app.id);
+    if (from) return cloneTask(fd, values, client, app.id);
 
     const title = str(fd, 'title');
-    if (!title) {
-      return writeFailure('create', { kind: 'invalid', field: 'title', message: t('app.tasks.write.title-required', 'Give the task a title.') }, values);
-    }
 
     const backlog = str(fd, 'start') === 'backlog';
     const input: Record<string, unknown> = { appRef: app.id, title };
@@ -317,15 +359,8 @@ export const actions: Actions = {
     if (description) input.description = description;
     if (backlog) input.status = 'BACKLOG';
 
-    if (explicitBlank(fd, 'owner')) {
-      return writeFailure('create', { kind: 'invalid', field: 'owner', message: t('app.tasks.write.other-required', 'Type their @handle or id, or choose someone from the list.') }, values);
-    }
-    if (!backlog && explicitBlank(fd, 'assignee')) {
-      return writeFailure('create', { kind: 'invalid', field: 'assignee', message: t('app.tasks.write.other-required', 'Type their @handle or id, or choose someone from the list.') }, values);
-    }
-
-    const owner = parsePartyChoice(str(fd, 'owner'), str(fd, 'ownerOther'));
-    if (owner) input.owner = owner; // "me" names no owner: the server makes the creator the owner.
+    const partyRefusal = partyChoices(fd, input, backlog, 'create', values);
+    if (partyRefusal) return partyRefusal;
 
     // A backlog task takes no assignee and isn't matched (hrn:node:hadronmemory.com:specs:cor:agt:050:02), so
     // the hidden fields are ignored rather than sent to be refused.
@@ -368,26 +403,7 @@ export const actions: Actions = {
     }
 
     const out = await taskWrite<{ createAgentTask: { id: string; handle?: string | null } | null }>(client, CREATE_AGENT_TASK_MUTATION, { input }, 'createAgentTask');
-    if (out.kind === 'refused') return writeFailure('create', out.refusal, values);
-    const id = taskId(out.data?.createAgentTask?.id);
-    // portal#1349: the link carries the immutable handle when the server returned a valid one.
-    const rawHandle = out.data?.createAgentTask?.handle;
-    const handle = typeof rawHandle === 'string' && parseHandle(rawHandle) ? rawHandle : null;
-
-    // portal#1214: a create with nothing to show goes to its page, as before.
-    if (out.kind === 'ok' && out.warnings.length === 0 && out.more === 0) {
-      if (id) redirect(303, `${taskHref(`/app/apps/${app.id}`, { id, handle })}?created=1`);
-      // No usable id and no warning to prove the write: the outcome is unknown.
-      if (!out.committed) return writeFailure('create', { kind: 'uncertain' }, values);
-    }
-    // Warnings, or a committed write whose response errored: shown here, in the
-    // same response, in place of the form. Nothing crosses a request.
-    return {
-      created: { id, handle },
-      committedWithError: out.kind === 'committed-error',
-      warnings: out.warnings,
-      more: out.more,
-    };
+    return createdResult('create', out, (d) => d?.createAgentTask, `/app/apps/${app.id}`, values, (r) => r);
   },
 };
 

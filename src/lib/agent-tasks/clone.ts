@@ -1,6 +1,7 @@
 import { t } from '$lib/i18n/t';
 import { readTaskPriority } from './planning';
 import { readReferences, referenceInput, sameReferences } from './references';
+import { readBaseRequirements, requirementsOverride, sameList, str, tagList } from './form-bases';
 
 /**
  * portal#2161 (hadron-server#3244, hrn:node:hadronmemory.com:specs:cor:agt:050:02 "What a clone
@@ -11,7 +12,8 @@ import { readReferences, referenceInput, sameReferences } from './references';
  * field posts beside its BASE, the value the form pre-filled, and goes into the input only when
  * its base was posted AND the reader changed it. Merely opening and saving sends `{}`, and a
  * field the person EMPTIES is sent empty (`""`, `[]`, `null`) — never dropped as "unchanged",
- * which would silently copy the source's value back.
+ * which would silently copy the source's value back. The base-diff grammar itself is shared with
+ * edit.ts through form-bases.ts.
  *
  * The parent posts one vocabulary, `cloneParent` beside `cloneParentBase`: `project` (a root
  * source; the server clones it as a project), `none` (a root under AT0 — also the truthful
@@ -25,32 +27,6 @@ import { readReferences, referenceInput, sameReferences } from './references';
 export type TaskClonePatch =
   | { input: Record<string, unknown> }
   | { invalid: { field: string; message: string } };
-
-const str = (fd: FormData, k: string) => String(fd.get(k) ?? '').trim();
-const all = (fd: FormData, k: string) => [...new Set(fd.getAll(k).map((v) => String(v).trim()).filter(Boolean))];
-const tagList = (text: string) => [...new Set(text.split(',').map((x) => x.trim()).filter(Boolean))];
-const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
-const sameSet = (a: string[], b: string[]) => sameList([...a].sort(), [...b].sort());
-
-interface Requirements {
-  role: string | null;
-  familyIn: string[];
-  familyNotIn: string[];
-  excludeWorkers: string[];
-  minTier: string | null;
-}
-
-function readBaseRequirements(raw: FormDataEntryValue | null): Requirements | null {
-  if (typeof raw !== 'string') return null;
-  try {
-    const b = JSON.parse(raw) as Partial<Requirements> | null;
-    if (!b || typeof b !== 'object') return null;
-    const list = (x: unknown) => (Array.isArray(x) ? x.filter((v): v is string => typeof v === 'string') : []);
-    return { role: typeof b.role === 'string' && b.role.trim() ? b.role.trim() : null, familyIn: list(b.familyIn), familyNotIn: list(b.familyNotIn), excludeWorkers: list(b.excludeWorkers), minTier: typeof b.minTier === 'string' && b.minTier.trim() ? b.minTier.trim() : null };
-  } catch {
-    return null;
-  }
-}
 
 export function taskClonePatch(fd: FormData): TaskClonePatch {
   const input: Record<string, unknown> = {};
@@ -113,26 +89,14 @@ export function taskClonePatch(fd: FormData): TaskClonePatch {
     if (priority !== undefined) input.priority = priority;
   }
 
-  // Requirements are copied, so they diff against their base like every copied field — except on
-  // a backlog start, where the form hides the controls and the copy stands as it is.
+  // Requirements are copied, so they diff against their base like every copied field — except
+  // where the form HIDES the controls and the copy stands as it is: a backlog start, or a named
+  // assignee (a task with an assignee has no matcher requirements). Hidden controls post nothing,
+  // and reading them as "emptied" would send requirements: null, silently clearing the copy.
   const base = readBaseRequirements(fd.get('requirementsBase'));
-  if (base && str(fd, 'start') !== 'backlog') {
-    const role = str(fd, 'role') || null;
-    const familyIn = all(fd, 'familyIn');
-    // The server takes one family list or the other; "run as" wins, as on the create form.
-    const familyNotIn = familyIn.length ? [] : all(fd, 'familyNotIn');
-    const excludeWorkers = all(fd, 'excludeWorkers');
-    const minTier = str(fd, 'minTier') || null;
-    const baseNotIn = base.familyIn.length ? [] : base.familyNotIn;
-    if (role !== base.role || !sameSet(familyIn, base.familyIn) || !sameSet(familyNotIn, baseNotIn) || !sameSet(excludeWorkers, base.excludeWorkers) || minTier !== base.minTier) {
-      const requirements: Record<string, unknown> = {};
-      if (role) requirements.role = role;
-      if (familyIn.length) requirements.familyIn = familyIn;
-      else if (familyNotIn.length) requirements.familyNotIn = familyNotIn;
-      if (excludeWorkers.length) requirements.excludeWorkers = excludeWorkers;
-      if (minTier) requirements.minTier = minTier;
-      input.requirements = Object.keys(requirements).length ? requirements : null;
-    }
+  if (base && str(fd, 'start') !== 'backlog' && str(fd, 'assignee') === 'nobody') {
+    const override = requirementsOverride(fd, base);
+    if (override !== undefined) input.requirements = override;
   }
 
   return { input };

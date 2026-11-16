@@ -1,6 +1,6 @@
 /**
  * portal#2161 — the Clones list on a task's page (hadron-server#3244,
- * hrn:node:hadronmemory.com:specs:cor:agt:050:02 / cor:api:120:04): the tasks
+ * hrn:node:hadronmemory.com:specs:cor:agt:050:02 / hrn:node:hadronmemory.com:specs:cor:api:120:04): the tasks
  * cloned from this one, paged — the list offers the further pages and never
  * presents page one as the whole set. Nothing renders when the list is empty;
  * a failed read is unknown, never none, and says so.

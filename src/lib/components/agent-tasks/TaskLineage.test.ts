@@ -1,9 +1,9 @@
 /**
- * portal#2161 — the lineage link on a clone's page (cor:agt:050:02): "Replaces
+ * portal#2161 — the lineage link on a clone's page (hrn:node:hadronmemory.com:specs:cor:agt:050:02): "Replaces
  * <handle> <title>" when the source has ended (finished or cancelled —
  * replacing an ended task is what a clone is for), "Cloned from <handle>
  * <title>" otherwise. A null clonedFrom (not a clone, or a source this caller
- * can't read) renders nothing at all — no placeholder (cor:acl:110:02).
+ * can't read) renders nothing at all — no placeholder (hrn:node:hadronmemory.com:specs:cor:acl:110:02).
  */
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';

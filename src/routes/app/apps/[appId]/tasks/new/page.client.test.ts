@@ -196,3 +196,40 @@ describe('create page: min-tier help (portal#1530)', () => {
     expect(new FormData(form).get('minTier')).toBe('mid');
   });
 });
+
+// portal#2161 review: the clone form's bound family lists must re-seed from the INCOMING clone's
+// requirements on a same-route App change — the loader's cross-App redirect lands on this same
+// route component, so the re-seed effect runs without a remount, and [] would read as "emptied"
+// against the new requirementsBase and silently drop the copy on save.
+describe('clone form: a same-route App change re-seeds the family pre-fill (portal#2161)', () => {
+  const cloneOf = (appId: string, familyIn: string[]) => ({
+    source: { id: `${appId}-src`, handle: 'AT1.x', title: 'Source' },
+    parent: { choice: 'none', task: null },
+    values: {
+      title: 'T', description: '', source: '', tags: '', closeSessionWhenDone: false, priority: null, references: '[]',
+      requirements: JSON.stringify({ role: null, familyIn, familyNotIn: [], excludeWorkers: [], minTier: null }),
+    },
+  });
+  const dataWith = (appId: string, clone: ReturnType<typeof cloneOf>) => ({
+    app: appId === 'app-1' ? app : { ...app, id: appId },
+    clone,
+    candidates: { workers: [], people: [] }, roles: [], families: [], canWrite: true, impersonating: null,
+  });
+
+  it('keeps the incoming clone’s families selected, so the copy survives the save', async () => {
+    const props = reactiveProps<Record<string, unknown>>({ data: dataWith('app-1', cloneOf('app-1', ['claude'])), form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const selected = () => [...m.target.querySelectorAll<HTMLSelectElement>('#new-family-in option')].filter((o) => o.selected).map((o) => o.value);
+    expect(selected()).toEqual(['claude']);
+    // The cross-App redirect resolves to the SAME route: data updates without a remount.
+    props.data = dataWith('app-2', cloneOf('app-2', ['glm']));
+    await tick(3);
+    expect(selected()).toEqual(['glm']);
+    // What the save would post: the families beside the NEW base, not emptied against it.
+    const fd = new FormData(m.target.querySelector<HTMLFormElement>('form')!);
+    expect(fd.getAll('familyIn')).toEqual(['glm']);
+    expect(String(fd.get('requirementsBase'))).toContain('glm');
+  });
+});

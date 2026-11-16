@@ -114,8 +114,11 @@
         parentChoice = data.clone?.parent.choice ?? 'none';
         parentTask = data.clone?.parent.task ?? null;
         parentPicker = false;
-        familyIn = [];
-        familyNotIn = [];
+        // The bound family lists re-seed from the incoming clone's requirements — [] would read
+        // as "emptied" against the new requirementsBase and drop the copy on save. (role, minTier
+        // and excludeWorkers are one-way selected/seedList reads of cloneReq and follow alone.)
+        familyIn = [...(cloneReq?.familyIn ?? [])];
+        familyNotIn = [...(cloneReq?.familyNotIn ?? [])];
       }
       planningApp = key;
     });

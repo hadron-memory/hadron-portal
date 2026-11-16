@@ -67,7 +67,7 @@
      * portal#2161: the Clone link's destination (the New task form pre-filled from this task), or
      * null to hide it. Unlike every other control here, Clone is a CREATE, not a change to this
      * task: it is offered on every status, ended ones included (replacing an ended task is what the
-     * action is for, cor:agt:050:02). AT0 shows none — the page passes no href for it.
+     * action is for, hrn:node:hadronmemory.com:specs:cor:agt:050:02). AT0 shows none — the page passes no href for it.
      */
     cloneHref?: string | null;
   } = $props();
@@ -261,6 +261,15 @@
        has-actions branch, so it stays in view when the reload ends the task's actions. -->
   {@render refusalFor(refusal?.action ?? 'cancel', false)}
 
+  <!-- portal#2161: the Clone link, rendered by both branches below — a create, not a change to
+       this task, so it sits beside the state's actions (or the ended note) without being one of
+       them, and never opens a panel here: it is a link to the pre-filled New task form. -->
+  {#snippet cloneLink()}
+    {#if cloneHref}
+      <a href={cloneHref} data-testid="task-clone" class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('app.tasks.write.clone', 'Clone')}</a>
+    {/if}
+  {/snippet}
+
   {#if !canWrite}
     <p class="text-sm text-zinc-500 dark:text-zinc-400" data-testid="task-actions-off">
       {t('app.tasks.write.impersonating', 'Viewing as {name}: changes are switched off in a support session.', { name: impersonating ?? '—' })}
@@ -269,9 +278,7 @@
     <!-- portal#2161: an ended task can't be changed, but it can still be cloned into a new one. -->
     <div class="flex flex-wrap items-center gap-3">
       <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.tasks.write.ended', 'An ended task can’t be changed.')}</p>
-      {#if cloneHref}
-        <a href={cloneHref} data-testid="task-clone" class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('app.tasks.write.clone', 'Clone')}</a>
-      {/if}
+      {@render cloneLink()}
     </div>
   {:else}
     <div class="flex flex-wrap items-center gap-2" data-testid="task-actions">
@@ -287,12 +294,7 @@
             : 'rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800'}
         >{taskActionLabel(a)}</button>
       {/each}
-      <!-- portal#2161: a create, not a change to this task — so it sits beside the state's actions
-           without being one of them, and never opens a panel here: it is a link to the pre-filled
-           New task form. -->
-      {#if cloneHref}
-        <a href={cloneHref} data-testid="task-clone" class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('app.tasks.write.clone', 'Clone')}</a>
-      {/if}
+      {@render cloneLink()}
     </div>
     <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.write.who', 'You can change a task you own, or any task if you manage the App.')}</p>
 

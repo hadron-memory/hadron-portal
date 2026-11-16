@@ -50,16 +50,19 @@ const BASE: Record<string, string | string[]> = {
   start: 'now', owner: 'me', ownerOther: '', assignee: 'nobody', assigneeOther: '',
   startBy: '', startByUtc: '',
 };
-function event(over: Record<string, string | string[]> = {}, impersonation: unknown = null) {
+function event(over: Record<string, string | string[]> = {}, impersonation: unknown = null, drop: string[] = []) {
   const fd = new FormData();
-  for (const [k, v] of Object.entries({ ...BASE, ...over })) for (const x of Array.isArray(v) ? v : [v]) fd.append(k, x);
+  for (const [k, v] of Object.entries({ ...BASE, ...over })) {
+    if (drop.includes(k)) continue;
+    for (const x of Array.isArray(v) ? v : [v]) fd.append(k, x);
+  }
   return { request: { formData: async () => fd }, params: { appId: 'app-1' }, locals: { token: 'tok', user: { id: 'u1' }, impersonation } } as never;
 }
 /** The action's success answers with a redirect; a refusal answers with fail(). Both are outcomes. */
-async function post(over: Record<string, string | string[]> = {}, impersonation: unknown = null) {
+async function post(over: Record<string, string | string[]> = {}, impersonation: unknown = null, drop: string[] = []) {
   const act = (await import('./new/+page.server')).actions as unknown as { default: (e: never) => Promise<unknown> };
   try {
-    return { ret: (await act.default(event(over, impersonation))) as Record<string, any> };
+    return { ret: (await act.default(event(over, impersonation, drop))) as Record<string, any> };
   } catch (e) {
     return { thrown: e as { status?: number; location?: string; body?: { message?: string } } };
   }
@@ -130,6 +133,37 @@ describe('clone save: the call (acceptance 2, 3, 5)', () => {
     expect(cloneVars().input).toEqual({ status: 'BACKLOG' });
     await post({ assignee: 'worker:w2' });
     expect(cloneVars().input).toEqual({ assignee: { worker: 'w2' } });
+  });
+});
+
+describe('clone save: hidden requirements controls keep the copy (review on #2161)', () => {
+  // A source WITH requirements: the form hides the controls on a backlog start or a named
+  // assignee, so their fields never post — that must read as "unchanged", never as "emptied".
+  const reqBase = JSON.stringify({ role: 'portal-engineer', familyIn: ['claude'], familyNotIn: [], excludeWorkers: ['w9'], minTier: 'T1' });
+  const hidden = ['role', 'minTier', 'familyIn', 'familyNotIn', 'excludeWorkers'];
+
+  it('a named assignee hides the controls: the copy stands, no requirements is sent', async () => {
+    request.mockResolvedValue({ cloneAgentTask: { id: 'new-1' } });
+    await post({ requirementsBase: reqBase, assignee: 'worker:w2' }, null, hidden);
+    expect(cloneVars().input).toEqual({ assignee: { worker: 'w2' } });
+  });
+
+  it('a backlog start hides them the same way', async () => {
+    request.mockResolvedValue({ cloneAgentTask: { id: 'new-1' } });
+    await post({ requirementsBase: reqBase, start: 'backlog', assignee: 'worker:w2' }, null, hidden);
+    expect(cloneVars().input).toEqual({ status: 'BACKLOG' });
+  });
+
+  it('visible controls changed against their base still override — the gate swallows no real edit', async () => {
+    request.mockResolvedValue({ cloneAgentTask: { id: 'new-1' } });
+    await post({ requirementsBase: reqBase, role: 'server-engineer' });
+    expect(cloneVars().input).toEqual({ requirements: { role: 'server-engineer' } });
+  });
+
+  it('visible controls emptied against their base clear the copy: requirements null', async () => {
+    request.mockResolvedValue({ cloneAgentTask: { id: 'new-1' } });
+    await post({ requirementsBase: reqBase, role: '', minTier: '', familyIn: [], familyNotIn: [], excludeWorkers: [] });
+    expect(cloneVars().input).toEqual({ requirements: null });
   });
 });
 

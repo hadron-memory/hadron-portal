@@ -196,7 +196,7 @@
         </dd>
       {/if}
 
-      <!-- portal#2161 (cor:agt:050:02): where this task came from. The link reads "Replaces" when the
+      <!-- portal#2161 (hrn:node:hadronmemory.com:specs:cor:agt:050:02): where this task came from. The link reads "Replaces" when the
            source has ended (finished or cancelled) and "Cloned from" otherwise; null (not a clone, or a
            source this caller can't read) renders nothing at all — no placeholder. -->
       <!-- portal#2161: the null rule (nothing renders, no placeholder) is the component's own. -->
