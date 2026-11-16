@@ -86,3 +86,71 @@ describe('create page: a warned create (no JS)', () => {
     expect(html).toContain('won’t be picked');
   });
 });
+
+// portal#2161 — the same page as the Clone form (?from=): pre-filled with what the copy will
+// actually get, posting each copied field beside its base; blockers are neither copied nor
+// offered, and priority/properties are labelled as copied only if you may set them.
+describe('clone page (portal#2161)', () => {
+  const clone = {
+    source: { id: 'src-1', handle: 'AT3.2', title: 'Ship it' },
+    parent: { choice: 'none', task: null },
+    values: {
+      title: 'Ship it', description: 'The plan', source: 'http://x', tags: 'a, b',
+      closeSessionWhenDone: false, priority: 2, references: '[]',
+      requirements: JSON.stringify({ role: null, familyIn: [], familyNotIn: [], excludeWorkers: [], minTier: null }),
+    },
+  };
+  const clonePage = (over: Record<string, unknown> = {}) => page(null, { clone, ...over });
+
+  it('is headed Clone task, names its source, and posts the source id with every base', () => {
+    const html = clonePage();
+    expect(html).toContain('Clone task');
+    expect(html).toContain('Starts from AT3.2 Ship it');
+    expect(html).toMatch(/<input[^>]*name="from"[^>]*value="src-1"/);
+    expect(html).toMatch(/<input[^>]*name="titleBase"[^>]*value="Ship it"/);
+    expect(html).toMatch(/<input[^>]*name="descriptionBase"[^>]*value="The plan"/);
+    expect(html).toMatch(/<input[^>]*name="cloneParentBase"[^>]*value="none"/);
+    expect(html).toMatch(/<input[^>]*name="cloneParent"[^>]*value="none"/);
+    expect(html).toMatch(/<input[^>]*name="requirementsBase"/);
+    expect(html).not.toMatch(/name="blockedBy"/);
+  });
+
+  it('labels priority and properties as copied only if you may set them (acceptance 5)', () => {
+    const html = clonePage();
+    expect(html).toContain('Copied if you may set it (current: 2)');
+    expect(html).toContain('priority and properties are copied only if you may set them');
+    expect(html).toMatch(/<option[^>]*value="copied"[^>]*selected/);
+    expect(html).not.toContain('Use default (1, highest)');
+  });
+
+  it('pre-fills the parent the copy will get: none offers Change…, no No-project button (acceptance 4)', () => {
+    const html = clonePage();
+    expect(html).toContain('data-testid="clone-parent"');
+    expect(html).toContain('No project');
+    expect(html).not.toContain('data-testid="clone-parent-none"');
+  });
+
+  it('a kept parent shows its task and handle, and offers No project', () => {
+    const html = page(null, {
+      clone: { ...clone, parent: { choice: 'parent:parent-1', task: { id: 'parent-1', handle: 'AT3', title: 'Build' } } },
+    });
+    expect(html).toMatch(/href="\/app\/apps\/app-1\/tasks\/AT3"[^>]*>Build</);
+    expect(html).toContain('AT3');
+    expect(html).toContain('data-testid="clone-parent-none"');
+  });
+
+  it('seeds the copied fields into the inputs, close-session included', () => {
+    const html = clonePage();
+    expect(html).toMatch(/name="title"[^>]*value="Ship it"/);
+    expect(html).toMatch(/name="description"[^>]*>\s*The plan\s*</);
+    expect(html).toMatch(/name="source"[^>]*value="http:\/\/x"/);
+    expect(html).toMatch(/name="tags"[^>]*value="a, b"/);
+    expect(html).not.toMatch(/name="closeSessionWhenDone"[^>]*checked/);
+  });
+
+  it('submits as Clone task and cancels back to the source', () => {
+    const html = clonePage();
+    expect(html).toContain('>Clone task</button>');
+    expect(html).toContain('href="/app/apps/app-1/tasks/AT3.2"');
+  });
+});

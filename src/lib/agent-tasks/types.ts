@@ -95,6 +95,13 @@ export interface AgentTaskDetail extends AgentTaskRow {
    * (hadron-server#2877); a server without it rejects the read rather than omitting the field.
    */
   properties?: unknown;
+  /**
+   * portal#2161 (hadron-server#3244, hrn:node:hadronmemory.com:specs:cor:agt:050:02): the task this
+   * one was cloned from, or null when it was not made by a clone or the source is not readable to
+   * this caller — both render as nothing (no placeholder). The link reads "Replaces …" when the
+   * source has ended (FINISHED or CANCELLED), "Cloned from …" otherwise.
+   */
+  clonedFrom: { id: string; handle: string; title: string; status: AgentTaskStatus } | null;
 }
 
 export interface AgentTeamAlarmWake {
@@ -225,3 +232,8 @@ export type TaskRefs = Record<string, TaskRefInfo | null>;
 
 export interface TaskChoice { id: string; appId: string; title: string; handle: string; status: string }
 export interface TaskDependencyPage { items: TaskChoice[]; hasMore: boolean }
+/**
+ * portal#2161: a page of a task's clones. Same shape as a dependency page plus
+ * `total`, so the list can say how many there are, not just that more exist.
+ */
+export interface TaskClonesPage { items: TaskChoice[]; total: number; hasMore: boolean }

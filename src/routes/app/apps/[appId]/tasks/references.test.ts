@@ -25,7 +25,7 @@ const detail = (references: unknown) => ({
   source: 'https://source.test/1', owner: holger, assignee: null, startBy: null, createdAt: '2026-10-15T10:00:00Z', updatedAt: null, tags: [],
   appId: 'app-1', description: null, requirements: null, createdBy: holger, createdByRunId: null,
   assignedAt: null, assignedBy: null, startedAt: null, finishedAt: null, cancelledAt: null, closeSessionWhenDone: true,
-  result: null, sessionEndRequest: null, references,
+  result: null, sessionEndRequest: null, references, clonedFrom: null,
 });
 
 function page(references: unknown): string {
@@ -36,7 +36,9 @@ function page(references: unknown): string {
         canWrite: false, impersonating: null, created: false, candidates: { workers: [], people: [] },
         tree: { kind: 'ok', value: { rows: [task], capped: false } },
         history: { kind: 'ok', value: { events: [], capped: false } },
-        review: { kind: 'ok', value: { readiness: null, seat: null } } },
+        review: { kind: 'ok', value: { readiness: null, seat: null } },
+        // portal#2161: the loader's Clones read, optional like the review above.
+        clones: { kind: 'ok', value: { items: [], total: 0, hasMore: false } } },
     },
   } as never).body;
 }

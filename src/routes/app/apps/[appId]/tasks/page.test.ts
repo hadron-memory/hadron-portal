@@ -178,7 +178,7 @@ describe('board', () => {
 const detail = (over: Record<string, unknown> = {}) => ({
   ...task(), appId: 'app-1', description: null, requirements: null, createdBy: holger, createdByRunId: null,
   assignedAt: null, assignedBy: null, startedAt: null, finishedAt: null, cancelledAt: null, closeSessionWhenDone: true,
-  result: null, sessionEndRequest: null, ...over,
+  result: null, sessionEndRequest: null, clonedFrom: null, ...over,
 });
 
 function taskPage(over: Record<string, unknown> = {}) {
@@ -187,7 +187,9 @@ function taskPage(over: Record<string, unknown> = {}) {
       data: { app, task: detail(), ancestors: [], ancestorsTruncated: false,
         canWrite: true, impersonating: null, created: false, candidates: { workers: [], people: [] },
         tree: { kind: 'ok', value: { rows: [detail()], capped: false } },
-        history: { kind: 'ok', value: { events: [], capped: false } }, review: { kind: 'ok', value: { readiness: null, seat: null } }, ...over },
+        history: { kind: 'ok', value: { events: [], capped: false } }, review: { kind: 'ok', value: { readiness: null, seat: null } },
+        // portal#2161: the loader's Clones read, optional like the review above.
+        clones: { kind: 'ok', value: { items: [], total: 0, hasMore: false } }, ...over },
     },
   } as never).body;
 }
