@@ -110,6 +110,11 @@
   let parentTask = $state<{ id: string; handle: string; title: string } | null>(
     !postedParent || (cloneSeed?.parent.task != null && postedParent === `parent:${cloneSeed.parent.task.id}`) ? (cloneSeed?.parent.task ?? null) : null,
   );
+  // Gil's F4 on portal#2161: a parent the loader couldn't read (a `parent:` choice with no
+  // task) is opaque — "can't see", and a help line that hedges (it may have ended, and then
+  // the server files the clone under AT0). A parent a posted refusal names that the pre-fill
+  // didn't is the person's own pick — the neutral chosen line, never a false can't-see.
+  const postedChanged = !!postedParent && postedParent !== cloneSeed?.parent.choice;
   let parentPicker = $state(false);
   let planningApp = '';
   $effect(() => {
@@ -310,10 +315,12 @@
             {#if parentTask && parentChoice === `parent:${parentTask.id}`}
               <a href={taskHref(basePath, parentTask)} class="text-indigo-600 hover:underline dark:text-indigo-300">{parentTask.title}</a>
               <TaskHandle handle={parentTask.handle} />
-            {:else if parentChoice.startsWith('parent:')}
+            {:else if postedChanged && parentChoice.startsWith('parent:')}
               <!-- A posted parent the pre-fill didn't name (a refusal rerender): truthful and
                    neutral — the label returns when it is re-picked (the blocker labels' pattern). -->
               {t('app.tasks.clone.parent-chosen', 'A task you chose')}
+            {:else if parentChoice.startsWith('parent:')}
+              {t('app.tasks.clone.parent-unreadable', 'A task you can’t see')}
             {:else if parentChoice === 'project'}
               {t('app.tasks.clone.parent.project', 'A project of its own')}
             {:else}
@@ -327,7 +334,13 @@
             {/if}
           </div>
           <input type="hidden" name="cloneParent" value={parentChoice} />
-          <p class={helpClass}>{t('app.tasks.clone.parent.help', 'Unchanged, the copy keeps this parent. “No project” makes it a task under AT0.')}</p>
+          <p class={helpClass}>
+            {#if !parentTask && parentChoice.startsWith('parent:')}
+              {t('app.tasks.clone.parent.help-unreadable', 'Unchanged, the copy keeps this parent if it is still open. “No project” makes it a task under AT0.')}
+            {:else}
+              {t('app.tasks.clone.parent.help', 'Unchanged, the copy keeps this parent. “No project” makes it a task under AT0.')}
+            {/if}
+          </p>
         </div>
       {/if}
 

@@ -199,6 +199,13 @@ describe('clone page (portal#2161)', () => {
     expect(picked).toContain('A task you chose');
   });
 
+  it('an unreadable pre-filled parent shows the opaque line and the hedged help (Gil F4)', () => {
+    const html = page(null, { clone: { ...listed, parent: { choice: 'parent:unread-1', task: null } } });
+    expect(html).toContain('A task you can’t see');
+    expect(html).toContain('if it is still open');
+    expect(html).toMatch(/<input[^>]*name="cloneParent"[^>]*value="parent:unread-1"/);
+  });
+
   it('a gone source at save renders "Task not found" with the form and its values kept (George F1)', () => {
     const html = page(
       { refusal: { kind: 'refused', code: 'TASK_NOT_FOUND', message: 'Task not found' }, values: { title: 'My draft', start: 'now', owner: 'me', assignee: 'nobody', from: 'src-1', cloneParent: 'none' } },
