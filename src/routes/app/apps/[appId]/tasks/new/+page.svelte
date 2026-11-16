@@ -76,7 +76,15 @@
       : null,
   );
   const seed = (k: string, fallback: string): string => (result?.values && k in result.values ? v(k) : fallback);
-  const seedList = (k: string, fallback: string[]): string[] => (result?.values && k in result.values ? vs(k) : fallback);
+  // portal#2161, George's F2: an HTML multiple select with nothing selected posts no key, so
+  // once a submit's values exist an ABSENT list key means "cleared" — but only while the
+  // controls were VISIBLE; hidden ones (a backlog start, a named assignee) post nothing and
+  // the copy stands, the same gate the save applies (clone.ts). Radios always post, so the
+  // posted start and assignee name the visibility the person's submit saw. Without posted
+  // values (the first load) the pre-fill is the seed.
+  const reqVisible = v('start') !== 'backlog' && v('assignee') === 'nobody';
+  const seedList = (k: string, fallback: string[]): string[] =>
+    !result?.values ? fallback : k in result.values ? vs(k) : reqVisible ? [] : fallback;
 
   // The form's live choices; seeded from a refused submit so nothing typed is lost.
   let start = $state(v('start') || 'now');
@@ -92,9 +100,16 @@
   let blockers = $state<string[]>(vs('blockedBy'));
   let blockerLabels = $state<Record<string, string>>({});
   let taskPicker = $state(false);
-  // The clone's parent, one choice vocabulary posted as cloneParent beside its base.
-  let parentChoice = $state<string>(cloneSeed?.parent.choice ?? 'none');
-  let parentTask = $state<{ id: string; handle: string; title: string } | null>(cloneSeed?.parent.task ?? null);
+  // The clone's parent, one choice vocabulary posted as cloneParent beside its base. A refused
+  // submit re-seeds from what it posted (the hidden input always posts), so a parent the person
+  // changed survives the full-page rerender (George's F2 on portal#2161); only the task the
+  // pre-fill named keeps its label — a changed one shows the neutral chosen line until
+  // re-picked (the blocker labels' pattern).
+  const postedParent = cloneSeed ? v('cloneParent') : '';
+  let parentChoice = $state<string>(postedParent || cloneSeed?.parent.choice || 'none');
+  let parentTask = $state<{ id: string; handle: string; title: string } | null>(
+    !postedParent || (cloneSeed?.parent.task != null && postedParent === `parent:${cloneSeed.parent.task.id}`) ? (cloneSeed?.parent.task ?? null) : null,
+  );
   let parentPicker = $state(false);
   let planningApp = '';
   $effect(() => {
@@ -296,7 +311,9 @@
               <a href={taskHref(basePath, parentTask)} class="text-indigo-600 hover:underline dark:text-indigo-300">{parentTask.title}</a>
               <TaskHandle handle={parentTask.handle} />
             {:else if parentChoice.startsWith('parent:')}
-              {t('app.tasks.clone.parent-unreadable', 'A task you can’t see')}
+              <!-- A posted parent the pre-fill didn't name (a refusal rerender): truthful and
+                   neutral — the label returns when it is re-picked (the blocker labels' pattern). -->
+              {t('app.tasks.clone.parent-chosen', 'A task you chose')}
             {:else if parentChoice === 'project'}
               {t('app.tasks.clone.parent.project', 'A project of its own')}
             {:else}

@@ -209,9 +209,13 @@ async function cloneTask(fd: FormData, values: Record<string, string | string[]>
   try {
     sourceId = await canonicalTaskId(client, appId, str(fd, 'from'));
   } catch (e) {
-    // The source is gone (unknown, unreadable, another App's): the neutral 404, as on the task
-    // page. Any other fault is the uncertain line, like any write's resolution read.
-    if (isHttpError(e)) throw e;
+    // The source went missing or unreadable between the form's load and its save (George's F1
+    // on portal#2161): the Ask-3 refusal, never a page-level 404 — the person keeps the
+    // form and every value they typed, with the neutral "Task not found" (no existence
+    // oracle). Any other fault is the uncertain line, like any write's resolution read.
+    if (isHttpError(e) && e.status === 404) {
+      return writeFailure('clone', cloneRefusal({ kind: 'refused', code: 'TASK_NOT_FOUND', message: 'Task not found' }), values);
+    }
     return writeFailure('clone', { kind: 'uncertain' }, values);
   }
 

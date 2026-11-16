@@ -153,4 +153,60 @@ describe('clone page (portal#2161)', () => {
     expect(html).toContain('>Clone task</button>');
     expect(html).toContain('href="/app/apps/app-1/tasks/AT3.2"');
   });
+
+  // George's F2 on portal#2161: a refused submit's rerender must keep what the person CHANGED,
+  // including a cleared multi-select (an empty multiple select posts no key) and a changed
+  // parent — while hidden controls (a named assignee) still read as the standing copy.
+  const listed = {
+    source: { id: 'src-1', handle: 'AT3.2', title: 'Ship it' },
+    parent: { choice: 'parent:parent-1', task: { id: 'parent-1', handle: 'AT3', title: 'Build' } },
+    values: {
+      title: 'Ship it', description: '', source: '', tags: '',
+      closeSessionWhenDone: true, priority: null, references: '[]',
+      requirements: JSON.stringify({ role: null, familyIn: ['claude'], familyNotIn: [], excludeWorkers: ['w1'], minTier: null }),
+    },
+  };
+  const refused = (values: Record<string, string | string[]>) =>
+    page({ refusal: { kind: 'refused', code: 'TASK_ENDED', message: 'The parent you chose has ended. Choose another parent, or none.' }, values }, { clone: listed });
+  const block = (html: string, from: string, to: string) => html.slice(html.indexOf(from), html.indexOf(to));
+
+  it('a cleared multi-select stays cleared on a refused rerender (visible controls)', () => {
+    // familyIn and excludeWorkers post no key when emptied; start and assignee post, naming
+    // visibility. The source pre-filled claude and w1 — neither re-selects.
+    const html = refused({ title: 'Redone', start: 'now', owner: 'me', assignee: 'nobody', cloneParent: 'parent:parent-1' });
+    const inSel = block(html, 'id="new-family-in"', 'id="new-family-not-in"');
+    expect(inSel).not.toMatch(/value="claude"[^>]*selected/);
+    expect(inSel).not.toMatch(/value="codex"[^>]*selected/);
+    const exSel = block(html, 'id="new-exclude"', 'id="new-min-tier"');
+    expect(exSel).not.toMatch(/value="w1"[^>]*selected/);
+  });
+
+  it('hidden controls keep the copy on a refused rerender: a named assignee renders no lists at all', () => {
+    // A named assignee hides the requirements controls entirely, so nothing re-seeds and
+    // nothing posts; the copy stands at save (pinned in clone.server.test.ts).
+    const html = refused({ title: 'Redone', start: 'now', owner: 'me', assignee: 'worker:w1', cloneParent: 'parent:parent-1' });
+    expect(html).not.toContain('id="new-family-in"');
+    expect(html).not.toContain('id="new-exclude"');
+  });
+
+  it('a changed parent survives a refused rerender; an unlabelled one shows the neutral line', () => {
+    const none = refused({ title: 'Redone', start: 'now', owner: 'me', assignee: 'nobody', cloneParent: 'none' });
+    expect(none).toMatch(/<input[^>]*name="cloneParent"[^>]*value="none"/);
+    expect(none).toMatch(/<input[^>]*name="cloneParentBase"[^>]*value="parent:parent-1"/);
+    expect(none).toContain('No project');
+    const picked = refused({ title: 'Redone', start: 'now', owner: 'me', assignee: 'nobody', cloneParent: 'parent:picked-1' });
+    expect(picked).toMatch(/<input[^>]*name="cloneParent"[^>]*value="parent:picked-1"/);
+    expect(picked).toContain('A task you chose');
+  });
+
+  it('a gone source at save renders "Task not found" with the form and its values kept (George F1)', () => {
+    const html = page(
+      { refusal: { kind: 'refused', code: 'TASK_NOT_FOUND', message: 'Task not found' }, values: { title: 'My draft', start: 'now', owner: 'me', assignee: 'nobody', from: 'src-1', cloneParent: 'none' } },
+      { clone: listed },
+    );
+    expect(html).toContain('Task not found');
+    expect(html).toContain('Not changed');
+    expect(html).toMatch(/<input[^>]*name="title"[^>]*value="My draft"/);
+    expect(html).toMatch(/<form[^>]*method="POST"/);
+  });
 });

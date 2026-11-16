@@ -212,9 +212,12 @@ describe('clone save: refusals keep the form (acceptance 6)', () => {
     expect(rawRequest).not.toHaveBeenCalled();
   });
 
-  it('a `from` that resolves to nothing is the neutral 404, not a refusal', async () => {
-    const out = await post({ from: 'gone-1' });
-    expect(out.thrown?.status).toBe(404);
+  it('a `from` that resolves to nothing at save is the neutral TASK_NOT_FOUND refusal, form kept (George F1)', async () => {
+    const out = await post({ from: 'gone-1', title: 'My draft' });
+    expect(out.thrown).toBeUndefined();
+    expect(out.ret!.status).toBe(404);
+    expect(out.ret!.data).toMatchObject({ refusal: { kind: 'refused', code: 'TASK_NOT_FOUND', message: 'Task not found' } });
+    expect(out.ret!.data.values).toMatchObject({ title: 'My draft', from: 'gone-1' });
     expect(rawRequest).not.toHaveBeenCalled();
   });
 
