@@ -70,6 +70,11 @@ assert.equal(overlayFailure({ found: true, covering: true, root: true, inContain
 
 const WARM = 'rgb(251, 133, 0)';
 const ROW = 'Planning the spring onboarding';
+// The composer at rest is the natural rows="2" box: two 20px text lines,
+// 2x8px py-2 padding and a 1px border ~= 58px. 64 leaves slack for font
+// metrics; anything taller means a fixed floor crept back in and the
+// transcript is paying for it on small phones.
+const COMPOSER_REST_MAX = 64;
 const shots = process.env.AGENT_CHAT_SHOTS;
 let browser;
 try {
@@ -94,7 +99,7 @@ try {
     page.on('console', (m) => { if (m.type() === 'error') errors.push(`console.error: ${m.text()}`); });
     page.on('requestfailed', (r) => errors.push(`requestfailed: ${r.method()} ${r.url()} ${r.failure()?.errorText ?? ''}`));
     await page.route('**/__chat_fixture*', (r) =>
-      r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Agent chat fixture</title>' }),
+      r.fulfill({ contentType: 'text/html', body: '<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agent chat fixture</title>' }),
     );
     for (let attempt = 0; ; attempt++) {
       try {
@@ -308,13 +313,13 @@ try {
         assert.match(b.text, /Chats/, `${leg}: Back needs the visible label "Chats"`);
         assert(b.w >= 44 && b.h >= 44, `${leg}: Back target is ${b.w}x${b.h}, below 44px`);
         assert(!b.colors.includes(WARM), `${leg}: Back uses the warm accent ${JSON.stringify(b.colors)}`);
-        // portal#2094/#2171: a drawn outline a reader can actually see. The
-        // check is the WCAG 1.4.11 contrast (>= 3:1) of the border AS
-        // RENDERED — the border colour composited over the chip's own
-        // background in a 1x1 canvas, so Chromium parses the colour whatever
-        // its syntax (rgb()/oklch()/color(), any alpha) instead of a regex,
-        // and a zero-alpha border composites to the background itself
-        // (contrast 1:1) and fails (the BLIND review's F3).
+        // portal#2094: a drawn outline a reader can actually see. The check
+        // is the WCAG 1.4.11 contrast (>= 3:1) of the border AS RENDERED —
+        // the border colour composited over the chip's own background in a
+        // 1x1 canvas, so Chromium parses the colour whatever its syntax
+        // (rgb()/oklch()/color(), any alpha) instead of a regex, and a
+        // zero-alpha border composites to the background itself (contrast
+        // 1:1) and fails.
         assert(
           b.border.width >= 1 && b.border.contrast >= 3,
           `${leg}: Back outline is not visible enough (width ${b.border.width}px, contrast ${b.border.contrast}:1, ${JSON.stringify(b.border)})`,
@@ -325,12 +330,13 @@ try {
         // a box-only assertion proves the wrong thing. The chevron reads by
         // its taller dimension, the way text reads by x-height.
         assert(b.glyph >= 8, `${leg}: Back chevron glyph's larger side is ${b.glyph}px, under 8px`);
-        // portal#2094/#2171: the placeholder must fit its box while one pane
-        // shows — with the short placeholder this holds for any locale's
-        // wording, which a fixed floor sized to one English string did not.
-        // A placeholder is not value text, so scrollHeight cannot see it
-        // directly: borrow the browser's own line-wrapping by setting the
-        // value to the placeholder, measuring, and restoring.
+        // portal#2094: the placeholder must fit its box while one pane shows.
+        // The short placeholder fits the natural two-row box with room for a
+        // second wrapped line; whatever wording t() returns is measured, so
+        // a locale change that outgrows the box fails here rather than
+        // clipping silently. A placeholder is not value text, so scrollHeight
+        // cannot see it directly: borrow the browser's own line-wrapping by
+        // setting the value to the placeholder, measuring, and restoring.
         const composer = await page.evaluate(() => {
           const ta = document.querySelector('#panel main textarea');
           const prev = ta.value;
@@ -350,13 +356,57 @@ try {
           composer.need <= composer.box + 1,
           `${leg}: composer placeholder clips (needs ${composer.need}px, box ${composer.box}px, width ${composer.width}px, ${composer.font})`,
         );
-        // portal#2171 (BLIND F2): the one-pane composer at rest is the natural
-        // rows="2" box (~58px). A taller fixed floor starves the transcript on
-        // small phones — at 320x568 a 104px floor left it a 32px slit — so the
-        // rest height is pinned, on both sides of the pane switch.
+        // portal#2094: the one-pane composer at rest is the natural rows="2"
+        // box. A taller fixed floor starves the transcript on small phones —
+        // at 320x568 a 104px floor left it a 32px slit — so the rest height
+        // is pinned, on both sides of the pane switch.
         assert(
-          composer.box <= 64,
+          composer.box <= COMPOSER_REST_MAX,
           `${leg}: one-pane composer rest box is ${composer.box}px tall, above the two-row natural box (a fixed floor starves the transcript on small phones)`,
+        );
+        // The keyboard hint under the composer is real copy, not a placeholder
+        // ghost: full WCAG 1.4.3 text contrast (>= 4.5:1) against whatever
+        // surface it renders on, and it must be tied to the field so a screen
+        // reader hears it on focus (aria-describedby), not just see it.
+        const hint = await page.evaluate(() => {
+          const ta = document.querySelector('#panel main textarea');
+          const id = ta?.getAttribute('aria-describedby');
+          const p = id ? document.getElementById(id) : null;
+          if (!p) return { tied: false, text: '', contrast: 0 };
+          const s = getComputedStyle(p);
+          const cv = document.createElement('canvas');
+          cv.width = cv.height = 1;
+          const ctx = cv.getContext('2d', { willReadFrequently: true });
+          const paint = (fill) => {
+            ctx.fillStyle = fill;
+            ctx.fillRect(0, 0, 1, 1);
+            return [...ctx.getImageData(0, 0, 1, 1).data];
+          };
+          const lum = ([rr, gg, bb]) => {
+            const f = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+            return 0.2126 * f(rr) + 0.7152 * f(gg) + 0.0722 * f(bb);
+          };
+          // The hint paints on its nearest opaque ancestor surface; with
+          // none, the page's own canvas shows through (white by default).
+          let bg = 'rgb(255, 255, 255)';
+          for (let el = p; el; el = el.parentElement) {
+            const c = getComputedStyle(el).backgroundColor;
+            const px = paint(c);
+            if (px[3] !== 0) { bg = c; break; }
+          }
+          const l1 = lum(paint(s.color));
+          const l2 = lum(paint(bg));
+          return {
+            tied: true,
+            text: p.textContent.trim(),
+            contrast: Math.round(((Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)) * 100) / 100,
+          };
+        });
+        assert(hint.tied, `${leg}: the composer hint is not tied to the textarea by aria-describedby`);
+        assert.match(hint.text, /Enter to send/, `${leg}: the composer hint lost its keyboard instruction`);
+        assert(
+          hint.contrast >= 4.5,
+          `${leg}: composer hint contrast is ${hint.contrast}:1, under the 4.5:1 text minimum`,
         );
         assert.equal(
           await page.evaluate(() => document.activeElement?.tagName === 'H3' && document.activeElement.closest('main') !== null),
@@ -410,11 +460,11 @@ try {
         if (shots) await page.screenshot({ path: `${shots}/${leg.replace('/', '-')}-list.png` });
       } else {
         assert.equal(await back.isVisible(), false, `${leg}: Back must not show beside both panes`);
-        // portal#2171 (BLIND F2): the same natural-box pin as the one-pane
-        // side — 947/948 straddle the @2xl container switch, so a height
-        // floor that leaks across the boundary fails here too.
+        // The same natural-box pin as the one-pane side — the legs at 947
+        // and 948 straddle the @2xl container switch, so a height floor that
+        // leaks across the boundary fails here too.
         const desktopBox = await page.locator('#panel main textarea').evaluate((el) => el.getBoundingClientRect().height);
-        assert(desktopBox <= 64, `${leg}: two-pane composer rest box is ${desktopBox}px tall, above the two-row natural box`);
+        assert(desktopBox <= COMPOSER_REST_MAX, `${leg}: two-pane composer rest box is ${desktopBox}px tall, above the two-row natural box`);
         if (shots) await page.screenshot({ path: `${shots}/${leg.replace('/', '-')}-conversation.png` });
       }
       assert.deepEqual(errors, [], `${leg}: page errors`);
@@ -477,11 +527,11 @@ try {
     }
   }
 
-  // portal#2171 (BLIND F1): the Enter-to-send hint is helper text under the
-  // composer, not a long placeholder the box must be sized around — shown
-  // where a physical keyboard makes it actionable (fine pointer), hidden on
-  // touch, where Enter-to-send hints rarely apply and the vertical budget
-  // is scarce.
+  // portal#2094: the Enter-to-send hint is helper text under the composer,
+  // not a long placeholder the box must be sized around — shown where a
+  // physical keyboard makes it actionable (fine pointer), hidden on touch,
+  // where Enter-to-send hints rarely apply and the vertical budget is
+  // scarce.
   {
     const fine = await open(390, false);
     await fine.page.locator('[data-chat-row="chats:a"]').click();
@@ -495,6 +545,9 @@ try {
     const coarse = await open(390, false, { touch: true });
     await coarse.page.locator('[data-chat-row="chats:a"]').click();
     await coarse.page.getByText('Which weeks work best').waitFor();
+    // isMobile emulation can override the layout width when the page has no
+    // viewport meta; the leg's name is only honest at a true 390px.
+    assert.equal(await coarse.page.evaluate(() => innerWidth), 390, '390/light touch: the touch leg is not laying out at 390px (viewport meta missing?)');
     assert.equal(await coarse.page.getByTestId('composer-hint').isVisible(), false, '390/light touch: the Enter-to-send helper line must be hidden');
     assert.deepEqual(coarse.errors, [], '390/light touch: page errors (helper leg)');
     await coarse.page.close();

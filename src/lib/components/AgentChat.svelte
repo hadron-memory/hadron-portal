@@ -1243,6 +1243,7 @@
             placeholder={activeChatId
               ? t('agent-chat.composer.placeholder', 'Message…')
               : t('agent-chat.composer.placeholder-disabled', 'Start a chat first')}
+            aria-describedby={activeChatId ? 'agent-chat-composer-hint' : undefined}
             rows="2"
             disabled={!activeChatId || sending}
             class="min-h-[42px] w-full min-w-[12.5rem] flex-1 resize-none rounded-lg @2xl:min-w-0 border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
@@ -1257,16 +1258,20 @@
             Send
           </button>
         </div>
-        <!-- portal#2094/#2171: the keyboard hint the placeholder used to
-             carry. Helper text, not placeholder text, so the composer box is
-             never sized around a sentence; hidden on touch pointers, where
+        <!-- portal#2094: the keyboard hint the placeholder used to carry.
+             Helper text, not placeholder text, so the composer box is never
+             sized around a sentence, and tied to the field by
+             aria-describedby so it is announced on focus. It is real copy,
+             not a placeholder ghost, so it carries full text contrast
+             (>= 4.5:1, zinc-600/zinc-400). Hidden on touch pointers, where
              an Enter-to-send hint rarely applies and every pixel of the
              composer column is scarce, and hidden with no chat open, where
              there is nothing to send. -->
         {#if activeChatId}
           <p
+            id="agent-chat-composer-hint"
             data-testid="composer-hint"
-            class="pointer-coarse:hidden mt-1.5 text-xs text-zinc-400 dark:text-zinc-500"
+            class="pointer-coarse:hidden mt-1.5 text-xs text-zinc-600 dark:text-zinc-400"
           >
             {t('agent-chat.composer.hint', 'Enter to send · Shift+Enter for a new line')}
           </p>

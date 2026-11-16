@@ -28,7 +28,9 @@ script.
 
 Limits: component-fixture captures, not the signed-in App page; independent QA
 owns the route matrix (320/390, light and dark), and the UX seat owns the
-"Back visibly a control" confirmation. The transcript squeeze on 320×568
-viewports (header + AI row vs a 288px panel) predates this fix — #2088's
-layout owns it; on touch pointers the composer returns to main's exact
-footprint.
+"Back visibly a control" confirmation. The transcript squeeze on small phones
+(header meta + AI row + composer vs the `calc(100dvh − 280px)` panel — 0px
+of transcript content at 320×568, and a 20px panel at 320×300) reproduces
+identically on main and is tracked as #2201, not absorbed here; on touch
+pointers the composer returns to main's exact footprint, and on fine pointers
+the helper line is its one deliberate +22px.
