@@ -281,3 +281,59 @@ describe('clone form: a refused rerender keeps a cleared exclusion (portal#2161)
     expect(fd.getAll('excludeWorkers')).toEqual([]);
   });
 });
+
+// Cedar's QA P2 on portal#2161 (bb9cca602): pick an open parent, let it end while the form is
+// open, submit — the TASK_ENDED refusal keeps every posted value, but the visible parent summary
+// reverted to the BASE ("A project of its own") while the hidden cloneParent still named the
+// ended parent. The summary must never claim a base the form isn't posting: it keeps naming the
+// picked parent (state the person set), or the neutral chosen line — never the base.
+describe('clone form: a TASK_ENDED refusal keeps the picked parent visible (portal#2161 QA)', () => {
+  const rootClone = {
+    source: { id: 'src-1', handle: 'AT1.x', title: 'Source' },
+    parent: { choice: 'project', task: null },
+    values: {
+      title: 'T', description: '', source: '', tags: '', closeSessionWhenDone: false, priority: null, references: '[]',
+      requirements: JSON.stringify({ role: null, familyIn: [], familyNotIn: [], excludeWorkers: [], minTier: null }),
+    },
+  };
+
+  it('the summary does not revert to the base while cloneParent still names the ended pick', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ kind: 'ok', value: { items: [{ id: 'p1', appId: 'app-1', handle: 'AT1.1', title: 'Picked parent', status: 'RUNNING' }], hasMore: false } }),
+    }) as unknown as Response));
+    const props = reactiveProps<Record<string, unknown>>({
+      data: {
+        app,
+        candidates: { workers: [], people: [] }, roles: [], families: [], canWrite: true, impersonating: null,
+        clone: rootClone,
+      },
+      form: null,
+    });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const summary = () => m.target.querySelector('[data-testid="clone-parent"] > p')!;
+    // A root source opens as a project of its own.
+    expect(summary().textContent).toContain('A project of its own');
+    // The person picks an open parent through the Change… picker.
+    const change = [...m.target.querySelectorAll<HTMLButtonElement>('[data-testid="clone-parent"] button')].find((b) => b.textContent?.includes('Change'))!;
+    change.click();
+    await tick(8);
+    const select = [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Select')!;
+    select.click();
+    await tick(4);
+    expect(summary().textContent).toContain('Picked parent');
+    // The parent ends; the submit is refused. The refusal lands on the SAME component and the
+    // loader's invalidation rebuilds data.clone (the root source still pre-fills as a project).
+    props.form = { refusal: { kind: 'refused', code: 'TASK_ENDED', message: 'The parent you chose has ended. Choose another parent, or none.' }, values: { title: 'T', start: 'now', owner: 'me', assignee: 'nobody', cloneParent: 'parent:p1', cloneParentBase: 'project' } };
+    await tick(4);
+    props.data = { ...(props.data as Record<string, unknown>), clone: rootClone };
+    await tick(4);
+    // The hidden input still names the ended pick, so the summary must not claim the base.
+    expect(m.target.querySelector<HTMLInputElement>('input[name="cloneParent"]')!.value).toBe('parent:p1');
+    const text = summary().textContent ?? '';
+    expect(text).not.toContain('A project of its own');
+    expect(text.includes('Picked parent') || text.includes('A task you chose')).toBe(true);
+  });
+});
