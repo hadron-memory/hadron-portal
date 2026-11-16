@@ -221,7 +221,7 @@ describe('clone form: a same-route App change re-seeds the family pre-fill (port
     const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
-    const selected = () => [...m.target.querySelectorAll<HTMLSelectElement>('#new-family-in option')].filter((o) => o.selected).map((o) => o.value);
+    const selected = () => [...m.target.querySelectorAll<HTMLOptionElement>('#new-family-in option')].filter((o) => o.selected).map((o) => o.value);
     expect(selected()).toEqual(['claude']);
     // The cross-App redirect resolves to the SAME route: data updates without a remount.
     props.data = dataWith('app-2', cloneOf('app-2', ['glm']));
