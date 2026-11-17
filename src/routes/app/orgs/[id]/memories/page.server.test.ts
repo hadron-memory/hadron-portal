@@ -6,7 +6,7 @@
  * classes) whose container is the current org. Mocks `$lib/server/api`'s
  * `gqlClient` and routes by query identity, as in the sibling loader tests.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import {
   DELETE_MEMORY_MUTATION,
@@ -136,7 +136,7 @@ describe('memories-list load() — system rows stay inside this org (#2140)', ()
   // (hrn:node:hadronmemory.com:specs:cor:api:100, hrn:node:hadronmemory.com:specs:cor:api:100:01,
   // hrn:node:hadronmemory.com:specs:cor:api:120:03). The tab captioned "owned by
   // this organization" must show only this org's rows.
-  type Slices = { systemMemories: { id: string }[]; personalMemories: { id: string }[] };
+  type Slices = { systemMemories: { id: string; name?: string }[]; personalMemories: { id: string; name?: string }[] };
   const ids = (rows: { id: string }[]) => rows.map((m) => m.id).sort();
   // Ownership of a system row is the SERVER's answer (memories(ownedByMe) +
   // memoryClasses system): Memory.userId is the personal/private owner only, so a
@@ -254,36 +254,82 @@ describe('memories-list load() — system rows stay inside this org (#2140)', ()
   // duplicate must list once and land in the tab its OWNER fields give it (the
   // #2147 rule), never move between tabs.
   it('a duplicated systemRows id lists once, in the tab it would land in without the duplicate', async () => {
+    // The two copies of each id DIFFER in a payload field (a shifted row can
+    // re-read with a newer name): first occurrence wins, and the row keeps the
+    // tab its owner fields give it either way.
     const r = await slices(
       [
         { id: 's1', name: 'Org system', class: 'system', organizationId: 'org-1', appId: null, userId: null },
-        { id: 's1', name: 'Org system', class: 'system', organizationId: 'org-1', appId: null, userId: null },
+        { id: 's1', name: 'Org system v2', class: 'system', organizationId: 'org-1', appId: null, userId: null },
         { id: 'flow-lab', name: 'flow-lab-system', class: 'system', organizationId: null, appId: null, userId: null },
-        { id: 'flow-lab', name: 'flow-lab-system', class: 'system', organizationId: null, appId: null, userId: null },
+        { id: 'flow-lab', name: 'flow-lab-system v2', class: 'system', organizationId: null, appId: null, userId: null },
       ],
       ['flow-lab'],
     );
     // The control is the tests above: s1 (this org) → Org Memories, flow-lab
-    // (org-less, owned) → Personal Memories. The duplicates change nothing.
+    // (org-less, owned) → Personal Memories. The duplicates change nothing,
+    // and the FIRST copy is the one that survives.
     expect(ids(r.systemMemories)).toEqual(['s1']);
+    expect(r.systemMemories.find((m) => m.id === 's1')?.name).toBe('Org system');
     expect(ids(r.personalMemories)).toEqual(['flow-lab']);
+    expect(r.personalMemories.find((m) => m.id === 'flow-lab')?.name).toBe('flow-lab-system');
+  });
+
+  // portal#2175: the OTHER paged reads this loader consumes can hand back the
+  // same id twice the same way. The "never listed twice" invariant covers them
+  // too, not just systemRows.
+  it('a duplicated memories() id lists once in Personal Memories', async () => {
+    routeMock(
+      [
+        { id: 'p1', name: 'Mine private', organizationId: 'org-1', userId: 'u1', class: 'private' },
+        { id: 'p1', name: 'Mine private', organizationId: 'org-1', userId: 'u1', class: 'private' },
+        { id: 'p2', name: 'Mine personal', organizationId: 'org-1', userId: 'u1', class: 'personal' },
+      ],
+    );
+    const load = await importLoad();
+    const r = (await load(ev({ orgId: 'org-1', userId: 'u1' }))) as { personalMemories: { id: string }[] };
+    expect(r.personalMemories.map((m) => m.id).sort()).toEqual(['p1', 'p2']);
+  });
+
+  it('a duplicated publicMemories id is offered once in availableMemories (the subscribe picker)', async () => {
+    routeMock(
+      [],
+      [
+        { id: 'pub-1', name: 'Shared One', organizationId: 'org-9' },
+        { id: 'pub-1', name: 'Shared One', organizationId: 'org-9' },
+        { id: 'pub-2', name: 'Shared Two', organizationId: 'org-9' },
+      ],
+    );
+    const load = await importLoad();
+    const r = (await load(ev({ orgId: 'org-1', userId: 'u1' }))) as { availableMemories: { id: string }[] };
+    expect(r.availableMemories.map((m) => m.id).sort()).toEqual(['pub-1', 'pub-2']);
   });
 });
 
 // portal#2175 (FIT 6884373873 c): a degraded read stays fail-closed (the tests
 // above pin the fallbacks) but is no longer silent — each failing read logs one
-// warn naming itself plus the error's code or transport class. Nothing else
-// from the error prints: a ClientError's message/stack carry the
+// warn naming itself and the org plus the error's code or transport class.
+// Nothing else from the error prints: a ClientError's message/stack carry the
 // request/response payloads (bearer token, row content) —
 // hrn:node:hadronmemory.com:hadron-portal:findings:custom-handle-error-replaces-framework-copy-and-logging.
+// The failure is also no longer reader-indistinguishable from empty: every
+// list the failed read feeds carries a degraded flag, so the page can trade
+// its empty-state copy for truthful unavailable copy (pinned mounted in
+// page.client.test.ts — the acceptance's "never renders as no memories").
 describe('memories-list load() — degraded reads log (portal#2175)', () => {
-  // A failing assertion must not leak the console spy into the next test
-  // (it would keep counting): restore after every test in this block.
+  // The spy is created here and restored here: vi.restoreAllMocks would also
+  // wipe the module-factory mocks for later tests (they only survive today
+  // because an undefined requireNonConsumer happens to await fine), so restore
+  // ONLY the console spy even when an assertion fails first.
+  let warn: MockInstance<typeof console.warn>;
+  beforeEach(() => {
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
   afterEach(() => {
-    vi.restoreAllMocks();
+    warn.mockRestore();
   });
 
-  it('an uncoded transport failure logs the read name and the transport class', async () => {
+  it('an uncoded plain-Error failure logs the read name, the org, and the error class name', async () => {
     mockRequest.mockImplementation(async (query: string) => {
       if (query === ORG_MEMORIES_TAB_QUERY) return { organization: fakeOrg };
       if (query === ORG_SYSTEM_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
@@ -292,19 +338,81 @@ describe('memories-list load() — degraded reads log (portal#2175)', () => {
       if (query === MEMORIES_QUERY) throw new Error('boom');
       throw new Error('Unexpected query');
     });
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const load = await importLoad();
-    const r = (await load(ev())) as unknown as { personalMemories: unknown[] };
+    const r = (await load(ev())) as unknown as {
+      personalMemories: unknown[];
+      systemMemoriesDegraded: boolean;
+      personalMemoriesDegraded: boolean;
+      availableMemoriesDegraded: boolean;
+    };
     expect(r.personalMemories).toEqual([]);
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledWith('[org-memories] my memories read failed (transport); rows hidden, fail-closed');
+    // The label is the error's class, not 'transport': a plain Error here is
+    // (e.g.) the pager's own envelope bug, not a network problem.
+    expect(warn).toHaveBeenCalledWith('[org-memories] my memories read failed for org-1 (Error); rows hidden, fail-closed');
+    // Only the list this read feeds is flagged.
+    expect(r.personalMemoriesDegraded).toBe(true);
+    expect(r.systemMemoriesDegraded).toBe(false);
+    expect(r.availableMemoriesDegraded).toBe(false);
+  });
+
+  // The acceptance's named read: a failed OWNERSHIP read. Its rows hide
+  // (fail-closed, pinned above) and it flags exactly the personal tab — the
+  // tab whose rows it feeds — not the org or subscribe-picker lists.
+  it('a failed ownership read flags only the personal list it feeds', async () => {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === ORG_MEMORIES_TAB_QUERY) return { organization: fakeOrg };
+      if (query === ORG_SYSTEM_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      if (query === OWN_SYSTEM_MEMORY_IDS_QUERY) throw new Error('ownership read down');
+      if (query === PUBLIC_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      if (query === MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      throw new Error('Unexpected query');
+    });
+    const load = await importLoad();
+    const r = (await load(ev())) as unknown as {
+      personalMemories: unknown[];
+      systemMemoriesDegraded: boolean;
+      personalMemoriesDegraded: boolean;
+      availableMemoriesDegraded: boolean;
+    };
+    expect(r.personalMemories).toEqual([]);
+    expect(r.personalMemoriesDegraded).toBe(true);
+    expect(r.systemMemoriesDegraded).toBe(false);
+    expect(r.availableMemoriesDegraded).toBe(false);
+  });
+
+  // The org-system read feeds BOTH tabs (systemMemories directly, and the
+  // caller's own org-less system rows on the personal tab via ownSystemIds),
+  // so its failure flags both.
+  it('a failed org-system read flags both lists it feeds', async () => {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === ORG_MEMORIES_TAB_QUERY) return { organization: fakeOrg };
+      if (query === ORG_SYSTEM_MEMORIES_QUERY) throw new Error('system read down');
+      if (query === OWN_SYSTEM_MEMORY_IDS_QUERY) return { memories: { items: [], total: 0 } };
+      if (query === PUBLIC_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      if (query === MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      throw new Error('Unexpected query');
+    });
+    const load = await importLoad();
+    const r = (await load(ev())) as unknown as {
+      systemMemoriesDegraded: boolean;
+      personalMemoriesDegraded: boolean;
+      availableMemoriesDegraded: boolean;
+    };
+    expect(r.systemMemoriesDegraded).toBe(true);
+    expect(r.personalMemoriesDegraded).toBe(true);
+    expect(r.availableMemoriesDegraded).toBe(false);
   });
 
   it('a coded GraphQL failure logs the code, and every degraded read logs once — never the token, the raw message, or row content', async () => {
     // The shape graphql-request throws: the code lives on
-    // response.errors[0].extensions.code; the raw message and the response body
-    // are exactly what must NOT print.
-    const coded = { message: 'denied raw text', response: { errors: [{ message: 'denied raw text', extensions: { code: 'FORBIDDEN' } }] } };
+    // response.errors[0].extensions.code. The message and response body carry
+    // the bearer token — exactly what must NOT print, so the error is built to
+    // fail the assertion if any of it leaks.
+    const coded = {
+      message: 'FORBIDDEN: bearer test-token rejected',
+      response: { errors: [{ message: 'FORBIDDEN: bearer test-token rejected', extensions: { code: 'FORBIDDEN' } }] },
+    };
     mockRequest.mockImplementation(async (query: string) => {
       if (query === ORG_MEMORIES_TAB_QUERY) return { organization: fakeOrg };
       if (query === ORG_SYSTEM_MEMORIES_QUERY) throw coded;
@@ -313,32 +421,49 @@ describe('memories-list load() — degraded reads log (portal#2175)', () => {
       if (query === MEMORIES_QUERY) throw coded;
       throw new Error('Unexpected query');
     });
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const load = await importLoad();
-    const r = (await load(ev())) as unknown as { systemMemories: unknown[]; personalMemories: unknown[] };
+    const r = (await load(ev())) as unknown as {
+      systemMemories: unknown[];
+      personalMemories: unknown[];
+      systemMemoriesDegraded: boolean;
+      personalMemoriesDegraded: boolean;
+      availableMemoriesDegraded: boolean;
+    };
     // Fail-closed unchanged: every degraded read still hides its rows.
     expect(r.systemMemories).toEqual([]);
     expect(r.personalMemories).toEqual([]);
+    // Every list is flagged for its unavailable-state copy.
+    expect(r.systemMemoriesDegraded).toBe(true);
+    expect(r.personalMemoriesDegraded).toBe(true);
+    expect(r.availableMemoriesDegraded).toBe(true);
     expect(warn).toHaveBeenCalledTimes(4);
     const lines = warn.mock.calls.map((c) => c.join(' ')).sort();
     expect(lines).toEqual([
-      '[org-memories] my memories read failed (FORBIDDEN); rows hidden, fail-closed',
-      '[org-memories] org system memories read failed (FORBIDDEN); rows hidden, fail-closed',
-      '[org-memories] own system-memory ids read failed (FORBIDDEN); rows hidden, fail-closed',
-      '[org-memories] public memories read failed (FORBIDDEN); rows hidden, fail-closed',
+      '[org-memories] my memories read failed for org-1 (FORBIDDEN); rows hidden, fail-closed',
+      '[org-memories] org system memories read failed for org-1 (FORBIDDEN); rows hidden, fail-closed',
+      '[org-memories] own system-memory ids read failed for org-1 (FORBIDDEN); rows hidden, fail-closed',
+      '[org-memories] public memories read failed for org-1 (FORBIDDEN); rows hidden, fail-closed',
     ]);
     const logged = JSON.stringify(warn.mock.calls);
     expect(logged).not.toContain('test-token');
-    expect(logged).not.toContain('denied raw text');
+    expect(logged).not.toContain('rejected');
   });
 });
 
 describe('memories-list load() — initialTab (#556)', () => {
-  it('defaults to the org tab with no ?tab= hint', async () => {
+  it('defaults to the org tab with no ?tab= hint, and a healthy load flags no list degraded', async () => {
     routeMock([]);
     const load = await importLoad();
-    const result = (await load(ev())) as { initialTab: string };
+    const result = (await load(ev())) as {
+      initialTab: string;
+      systemMemoriesDegraded: boolean;
+      personalMemoriesDegraded: boolean;
+      availableMemoriesDegraded: boolean;
+    };
     expect(result.initialTab).toBe('org');
+    expect(result.systemMemoriesDegraded).toBe(false);
+    expect(result.personalMemoriesDegraded).toBe(false);
+    expect(result.availableMemoriesDegraded).toBe(false);
   });
 
   it('honors ?tab=personal (the create-flow deep link)', async () => {

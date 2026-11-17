@@ -1,6 +1,7 @@
 /**
- * portal#2175 items 1 and 2 — the Personal Memories tab's badge branch and the
- * #555/#556 create-flow deep link, neither of which had a component test.
+ * portal#2175 items 1–3 — the Personal Memories tab's badge branch, the
+ * #555/#556 create-flow deep link, and the degraded-read unavailable copy,
+ * none of which had a component test.
  *
  * Item 1: personalRows' badge picks per class — private → "Private", system →
  * "System" (#2140: the caller's own org-less system memory lands on this tab
@@ -13,6 +14,9 @@
  * is the last link: the page actually SELECTS the Personal Memories tab, and
  * the just-created row — the shape the loader's ownPrivate predicate passes
  * (class personal/private, this org, this user) — is visible there.
+ *
+ * Item 3 (FIT 6884373873 c): a failed read keeps its rows hidden but the tab
+ * never claims "no memories" — see the degraded describe block below.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { superValidate } from 'sveltekit-superforms';
@@ -34,7 +38,15 @@ const mem = (id: string, name: string, extra: Record<string, unknown> = {}) => (
   lastSyncedAt: null, vectorIndexEnabled: false, embeddingSource: null, ...extra,
 });
 
-async function mountMemories(initialTab: 'personal' | 'org', personalMemories: unknown[]) {
+async function mountMemories(
+  initialTab: 'personal' | 'org',
+  personalMemories: unknown[],
+  degraded: {
+    systemMemoriesDegraded?: boolean;
+    personalMemoriesDegraded?: boolean;
+    availableMemoriesDegraded?: boolean;
+  } = {},
+) {
   setStubPage('https://example.test/app/orgs/org-1/memories', { id: 'org-1' });
   const [subscribeForm, deleteForm, syncAllForm, unsubscribeForm] = await Promise.all(
     [orgMemorySubscribeSchema, deleteOrgMemorySchema, syncOrgMemoriesSchema, unsubscribeOrgMemorySchema]
@@ -51,6 +63,7 @@ async function mountMemories(initialTab: 'personal' | 'org', personalMemories: u
       personalMemories,
       availableMemories: [],
       initialTab,
+      ...degraded,
       subscribeForm, deleteForm, syncAllForm, unsubscribeForm,
     },
     form: null,
@@ -70,20 +83,12 @@ describe('Personal Memories tab — badges by class (portal#2175 item 1)', () =>
       mem('p-diary', 'Secret Diary', { class: 'private', userId: 'u1', organizationId: 'org-1' }),
       mem('p-flow', 'flow-lab-system', { class: 'system', userId: null, organizationId: null }),
     ]);
-    // Each row names its own privacy and no other: the words are distinct, so
-    // the type cell's badge is pinned by what the row as a whole carries.
-    const note = rowFor(target, 'p-note')!.textContent ?? '';
-    const diary = rowFor(target, 'p-diary')!.textContent ?? '';
-    const flow = rowFor(target, 'p-flow')!.textContent ?? '';
-    expect(note).toContain('Personal');
-    expect(note).not.toContain('Private');
-    expect(note).not.toContain('System');
-    expect(diary).toContain('Private');
-    expect(diary).not.toContain('Personal');
-    expect(diary).not.toContain('System');
-    expect(flow).toContain('System');
-    expect(flow).not.toContain('Personal');
-    expect(flow).not.toContain('Private');
+    // The type cell's badge is exactly the class word — each row names its own
+    // privacy and no other.
+    const badge = (id: string) => rowFor(target, id)!.querySelector('[data-testid="row-type-badge"]')!.textContent;
+    expect(badge('p-note')).toBe('Personal');
+    expect(badge('p-diary')).toBe('Private');
+    expect(badge('p-flow')).toBe('System');
   });
 
   it('the badge chip is the amber personal-section palette on every personal row, whatever the class', async () => {
@@ -94,7 +99,7 @@ describe('Personal Memories tab — badges by class (portal#2175 item 1)', () =>
     // badgeClass() keeps the old card layout's per-section palette: every row on
     // this tab is amber, including the system-class one.
     for (const id of ['p-diary', 'p-flow']) {
-      const badge = rowFor(target, id)!.querySelector('span.text-xs')!;
+      const badge = rowFor(target, id)!.querySelector('[data-testid="row-type-badge"]')!;
       expect(badge.className).toContain('bg-amber-100');
       expect(badge.className).toContain('text-amber-700');
     }
@@ -126,5 +131,49 @@ describe('Personal Memories tab — the create-flow deep link (portal#2175 item 
     expect(rowFor(target, 'm1')).not.toBeNull();
     expect(rowFor(target, 'sys1')).not.toBeNull();
     expect(rowFor(target, 'p-new')).toBeNull();
+  });
+});
+
+// portal#2175 (FIT 6884373873 c) — the acceptance's "a failed ownership read
+// … never renders as 'no memories'". The loader pins the flags
+// (page.server.test.ts); only a mount pins what the reader actually sees: a
+// flagged tab trades its empty-state copy for truthful unavailable copy. The
+// false-empty this replaces — "No personal memories yet." over a hidden-by-
+// failure list — was the review finding on this slice.
+describe('A degraded read never reads as an empty list (portal#2175)', () => {
+  it('a flagged personal tab renders the unavailable alert, not the false "No personal memories yet."', async () => {
+    const target = await mountMemories('personal', [], { personalMemoriesDegraded: true });
+    const alert = target.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain("Couldn't load your personal memories");
+    expect(target.textContent).not.toContain('No personal memories yet.');
+  });
+
+  it('the unflagged control still renders the empty copy — the alert is failure-driven, not unconditional', async () => {
+    const target = await mountMemories('personal', []);
+    expect(target.querySelector('[role="alert"]')).toBeNull();
+    expect(target.textContent).toContain('No personal memories yet.');
+  });
+
+  it('a flagged tab with surviving rows shows the alert AND those rows — fail-closed hides only the failed read\'s rows', async () => {
+    const target = await mountMemories(
+      'personal',
+      [mem('p-ok', 'Survivor', { class: 'personal', userId: 'u1', organizationId: 'org-1' })],
+      { personalMemoriesDegraded: true },
+    );
+    expect(target.querySelector('[role="alert"]')?.textContent).toContain("Couldn't load your personal memories");
+    expect(rowFor(target, 'p-ok')).not.toBeNull();
+  });
+
+  // The helper's org fixture always carries a surviving org row (m1), so this
+  // pins the flagged ORG tab's alert — the org-tab copy — above rows the org
+  // read did return. The empty-copy suppression itself is pinned on the
+  // personal tab above, where the fixture can be genuinely empty; both tabs
+  // render through the same {:else if} chain.
+  it('a flagged org tab renders its unavailable alert above the rows that survived', async () => {
+    const target = await mountMemories('org', [], { systemMemoriesDegraded: true });
+    expect(target.querySelector('[role="alert"]')?.textContent).toContain(
+      "Couldn't load this organization's memories",
+    );
+    expect(rowFor(target, 'm1')).not.toBeNull();
   });
 });

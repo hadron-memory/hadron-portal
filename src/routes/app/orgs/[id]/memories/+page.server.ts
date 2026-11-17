@@ -42,15 +42,55 @@ const unsubscribeOrgMemoryFormAdapter = zod4(unsubscribeOrgMemorySchema);
 
 // portal#2175 (FIT 6884373873 c): a failing read still hides its rows
 // (fail-closed, unchanged) but no longer silently — one warn line names the
-// read and the error's code or transport class. NOTHING else from the error is
-// logged: a ClientError's message/stack carry the request/response payloads
-// (bearer token, row content) —
+// read and the org (params.id, the same non-PII ref class as appRef in the
+// sibling loaders) plus the error's code, or its class name when the server
+// sent no code (e.name: ClientError for a codeless GraphQL/HTTP failure, the
+// plain Error of a portal-side envelope bug, TypeError of a network failure —
+// the honest limit without logging message content). NOTHING else from the
+// error is logged: a ClientError's message/stack carry the request/response
+// payloads (bearer token, row content) —
 // hrn:node:hadronmemory.com:hadron-portal:findings:custom-handle-error-replaces-framework-copy-and-logging.
-function degradedRead<T>(what: string, fallback: T): (e: unknown) => T {
-  return (e) => {
-    console.warn(`[org-memories] ${what} read failed (${extractGqlErrorCode(e) ?? 'transport'}); rows hidden, fail-closed`);
-    return fallback;
+//
+// The failure is also no longer indistinguishable from an empty list for the
+// reader: every list a failed read feeds gets a degraded flag, and the page
+// renders truthful unavailable copy instead of "No … memories yet" for a
+// flagged tab (the acceptance: a failed ownership read never renders as "no
+// memories"). Rows stay hidden either way — the flag changes copy, not access.
+//
+// The tracker is created PER LOAD, inside load(): the flags are request state,
+// and a module-level object would leak one request's degradation into a
+// concurrently running healthy load (SvelteKit runs loads concurrently).
+type DegradedReads = { systemMemories: boolean; personalMemories: boolean; availableMemories: boolean };
+function degradedReadsTracker() {
+  const state: DegradedReads = {
+    systemMemories: false,
+    personalMemories: false,
+    availableMemories: false,
   };
+  const degradedRead = <T,>(orgId: string, what: string, fallback: T, feeds: (keyof DegradedReads)[]) =>
+    (e: unknown): T => {
+      const label = extractGqlErrorCode(e) ?? (e instanceof Error ? e.name : 'non-error');
+      console.warn(`[org-memories] ${what} read failed for ${orgId} (${label}); rows hidden, fail-closed`);
+      for (const fed of feeds) state[fed] = true;
+      return fallback;
+    };
+  return { degradedRead, state };
+}
+
+// portal#2175: the paged reads behind this tab can hand back the same id twice
+// — a row shifting across a page boundary mid-fetch lists twice wherever the
+// caller doesn't dedupe. One shared helper keeps the rule identical for every
+// read this loader consumes (dedupe by id, first occurrence wins, BEFORE any
+// owner-field sort, so a duplicate never moves a row between tabs — the #2147
+// rule). The shared fetchAllItems pager itself is unchanged: making it dedupe
+// for every consumer is its own slice, not this one.
+function uniqueById<T extends { id: string }>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    if (seen.has(row.id)) return false;
+    seen.add(row.id);
+    return true;
+  });
 }
 
 export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
@@ -70,24 +110,27 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // action BEFORE the layout load re-runs, so `parent()` is not available there.
   // #845: the layout carries chrome only; this tab needs the full org.
   const org = await loadOrgDetail(locals.token, params.id, ORG_MEMORIES_TAB_QUERY);
+  const { degradedRead, state: degradedReads } = degradedReadsTracker();
   const [systemRows, ownSystemIds, publicMemories, myMemories] = await Promise.all([
+    // Feeds systemMemories AND personalMemories (ownSystemMemories below is
+    // cut from systemRows), so its failure degrades both tabs.
     fetchAllItems<Memory>(client, ORG_SYSTEM_MEMORIES_QUERY, 'memories', { orgId: params.id })
-      .catch(degradedRead('org system memories', [] as Memory[])),
+      .catch(degradedRead(params.id, 'org system memories', [] as Memory[], ['systemMemories', 'personalMemories'])),
     // #2140: whose org-less system rows are the caller's is the server's call. A
     // failed read leaves the set empty, which hides those rows rather than
-    // showing someone else's.
+    // showing someone else's — and flags the personal tab they were headed for.
     fetchAllItems<{ id: string }>(client, OWN_SYSTEM_MEMORY_IDS_QUERY, 'memories')
       .then((rows) => new Set(rows.map((m) => m.id)))
-      .catch(degradedRead('own system-memory ids', new Set<string>())),
+      .catch(degradedRead(params.id, 'own system-memory ids', new Set<string>(), ['personalMemories'])),
     fetchAllItems<Memory>(gqlClient(), PUBLIC_MEMORIES_QUERY, 'memories')
-      .catch(degradedRead('public memories', [] as Memory[])),
+      .catch(degradedRead(params.id, 'public memories', [] as Memory[], ['availableMemories'])),
     fetchAllItems<Memory>(client, MEMORIES_QUERY, 'memories')
-      .catch(degradedRead('my memories', [] as Memory[])),
+      .catch(degradedRead(params.id, 'my memories', [] as Memory[], ['personalMemories'])),
   ]);
   // Exclude memories already owned or subscribed to by this org
   const ownedIds = new Set((org.memories ?? []).map((m) => m.id));
   const subscribedIds = new Set((org.subscriptions ?? []).map((s) => s.memory.id));
-  const availableMemories = publicMemories.filter(
+  const availableMemories = uniqueById(publicMemories).filter(
     (m) => !ownedIds.has(m.id) && !subscribedIds.has(m.id) && m.organizationId !== params.id,
   );
   // #2140: memories(orgId:) is not an "owned by this org" list. It returns the
@@ -104,15 +147,10 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   //
   // portal#2175 (FIT 6884373873 a): the paginated system read can hand back the
   // same id twice — a row shifting across a page boundary mid-fetch. Dedupe by
-  // id, first occurrence wins, BEFORE the owner-field sort below, so a duplicate
-  // lists once and never moves between tabs: where a row shows depends only on
-  // its owner fields (the #2147 rule).
-  const seenSystemIds = new Set<string>();
-  const uniqueSystemRows = systemRows.filter((m) => {
-    if (seenSystemIds.has(m.id)) return false;
-    seenSystemIds.add(m.id);
-    return true;
-  });
+  // id (uniqueById), first occurrence wins, BEFORE the owner-field sort below,
+  // so a duplicate lists once and never moves between tabs: where a row shows
+  // depends only on its owner fields (the #2147 rule).
+  const uniqueSystemRows = uniqueById(systemRows);
   const systemMemories = uniqueSystemRows.filter((m) => m.organizationId === params.id);
   // The class predicate is explicit, not left to the query's memoryClasses
   // filter: this slice and the personal/private one below must stay disjoint
@@ -124,8 +162,9 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // and excluded from Organization.memories server-side, so surface the caller's
   // own ones whose container is this org (memories() scopes to the caller via
   // userId). The caller's own org-less system memories join them (above), and a
-  // row already listed is never listed twice.
-  const ownPrivate = myMemories.filter(
+  // row already listed is never listed twice — the memories() read paginates
+  // too, so it is deduped the same way (portal#2175).
+  const ownPrivate = uniqueById(myMemories).filter(
     (m) =>
       m.organizationId === params.id &&
       !!locals.user?.id &&
@@ -167,6 +206,14 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     systemMemories,
     availableMemories,
     personalMemories,
+    // portal#2175: per-list degraded flags — true when a read feeding that
+    // list failed. The page trades its empty-state copy for truthful
+    // unavailable copy on a flagged tab; the rows themselves stay hidden.
+    // (Suffixed keys: the tracker keys name the LISTS the failed read feeds,
+    // and spreading those here would clobber the lists themselves.)
+    systemMemoriesDegraded: degradedReads.systemMemories,
+    personalMemoriesDegraded: degradedReads.personalMemories,
+    availableMemoriesDegraded: degradedReads.availableMemories,
     initialTab,
     subscribeForm,
     deleteForm,
