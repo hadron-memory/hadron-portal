@@ -4,7 +4,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
-import { extractGqlError } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode, isDefiniteRefusal } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
 import {
   CREATE_MEMORY_SUBSCRIPTION_MUTATION,
@@ -12,6 +12,20 @@ import {
 } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
 import { memorySubscriptionSchema, memoryUnsubscribeSchema } from './schema';
+
+// createMemorySubscription's typed refusals, each with its own reader copy. The
+// hidden-memory miss stays the server's generic NOT_FOUND text (no oracle).
+const SUBSCRIBE_REFUSALS = ['SUBSCRIPTION_REQUIRES_PUBLIC_MEMORY', 'OWNER_ORG_CANNOT_SUBSCRIBE'] as const;
+function subscribeRefusalText(e: unknown): string | null {
+  switch (extractGqlErrorCode(e)) {
+    case 'SUBSCRIPTION_REQUIRES_PUBLIC_MEMORY':
+      return t('subscriptions.refused.not-public', 'Only a public memory can be subscribed to by another organization. Make this memory public first, or share it another way.');
+    case 'OWNER_ORG_CANNOT_SUBSCRIBE':
+      return t('subscriptions.refused.owner-org', 'The organization that owns this memory cannot subscribe to it. A subscription is created by another organization’s admin.');
+    default:
+      return null;
+  }
+}
 
 const memorySubscriptionFormAdapter = zod4(memorySubscriptionSchema);
 const memoryUnsubscribeFormAdapter = zod4(memoryUnsubscribeSchema);
@@ -57,10 +71,12 @@ export const actions: Actions = {
       });
       return message(form, { type: 'success', text: t('subscriptions.added', 'Subscription added.') });
     } catch (e: unknown) {
+      const refusal = subscribeRefusalText(e);
+      const text = refusal ?? extractGqlError(e, 'Failed to add subscription', SUBSCRIBE_REFUSALS);
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to add subscription') },
-        { status: 500 },
+        { type: 'error', text },
+        { status: refusal || isDefiniteRefusal(e, SUBSCRIBE_REFUSALS) ? 400 : 500 },
       );
     }
   },
