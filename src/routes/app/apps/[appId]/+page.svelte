@@ -52,6 +52,7 @@
     const next = new URL(window.location.href);
     next.searchParams.set('tab', 'chats');
     next.searchParams.set('chat', key);
+    if (key !== AGENT_CHAT_KEY) next.searchParams.delete('agentChat');
     chatSwitchBusy = true;
     chatSwitchFailed = false;
     try { await goto(next, { noScroll: true }); }
@@ -198,6 +199,7 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const app = $derived(data.app);
+  let legacyChatResolvedForApp = $state<string | null>(null);
   // Survives the filter-keyed thread, but never follows a navigation to another App.
   let teamFilterFocusRequest = $state<import('$lib/components/team-chat-thread').TeamChatFilterFocusRequest | null>(null);
   let teamFilterAnnouncement = $state('');
@@ -1092,6 +1094,10 @@
   // that result has already chosen the tab (above, and the routing effects
   // below), and the action URL has no `?tab=` for the loader to agree with.
   afterNavigate((nav) => {
+    // A real navigation brings loader data for the NEW URL, so the legacy-recovery suppression ends here.
+    // It is not keyed on `$page.url`: Kit's shallow `replaceState` (which writes the canonical pair) leaves
+    // `page.url` on the old href, so that key never cleared the banner outside a stubbed harness.
+    legacyChatResolvedForApp = null;
     if (!(nav.type === 'enter' && form)) {
       // #1943: local tabs now rewrite `?tab=` by shallow replaceState, which leaves the entry's loader
       // data (`data.initialTab`) on the tab that was LOADED. Back lands on such an entry, so the address
@@ -1100,7 +1106,22 @@
       activeTab = ((urlTab ?? data.initialTab) as TabId | null) ?? 'chats';
     }
     chatMaximized = data.initialChatFullView;
+    // A known non-agent selector owns this URL; an old personal parameter
+    // must not travel with a shared/team link. Unknown selectors stay intact.
+    // Kit fires this callback for the initial `enter` BEFORE it marks the router started, and `replaceState`
+    // throws until then ("before router is initialized"; QA F2 on #2148). Kit sets `started` synchronously
+    // after its callbacks, so a microtask is enough; a real navigation can write straight away.
+    if (nav.type === 'enter') queueMicrotask(dropStaleAgentChat);
+    else dropStaleAgentChat();
   });
+  function dropStaleAgentChat() {
+    const url = new URL(window.location.href);
+    if (data.selectedChatKey && data.selectedChatKey !== AGENT_CHAT_KEY && !data.chatNotFound && url.searchParams.has('agentChat')) {
+      url.searchParams.delete('agentChat');
+      // A throw here would escape queueMicrotask unhandled; a leftover parameter is harmless, so leave it for the next navigation.
+      try { replaceState(url, {}); } catch { /* router not ready: the parameter stays until the next selection */ }
+    }
+  }
 
   // The team chat MAXIMISED — a fixed overlay over the whole viewport. In the
   // tab it gets 395px of a 900px window (measured 2026-09-14: the header, the
@@ -2312,7 +2333,7 @@
       <ListPageNav page={data.chatRootsPage} label={t('app.chats.pages', 'Legacy chat-root pages')} />
     {/if}
 
-    {#if data.chatNotFound}
+    {#if data.chatNotFound && legacyChatResolvedForApp !== app.id}
       <!-- The reader followed a link to a SPECIFIC chat. Substituting the
            default silently would let them read one conversation believing it
            is another. -->
@@ -2345,6 +2366,8 @@
           <AgentChat
             agentId={app.agentId}
             appId={app.id}
+            allowLegacyAppChat={!!data.chatNotFound && !data.chatsError}
+            onLegacyChatResolved={(appId) => { legacyChatResolvedForApp = appId; }}
             aiChoices={liveAiChoices}
             uploadMemoryId={writableMemoryIds[0]}
           />

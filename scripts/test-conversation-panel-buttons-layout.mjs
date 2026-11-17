@@ -24,7 +24,13 @@ try {
 
   const open = async (width, dark, withCondition = true) => {
     const page = await browser.newPage({ viewport: { width, height: 1000 } });
-    await page.goto(new URL('/@vite/client', origin).href);
+    // Use inert HTML: /@vite/client can fall through to Kit's 404 document,
+    // whose late root-layout hydration resets the theme and replaces our DOM.
+    await page.route('**/__conversation_panel_fixture', (route) =>
+      route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Conversation panel fixture</title>' }),
+    );
+    const documentResponse = await page.goto(new URL('/__conversation_panel_fixture', origin).href);
+    assert.equal(documentResponse?.status(), 200, 'fixture document must not boot a Kit error page');
     await page.evaluate((css) => {
       document.head.innerHTML = '';
       document.body.innerHTML = `<style>${css}</style><main id="col"></main>`;

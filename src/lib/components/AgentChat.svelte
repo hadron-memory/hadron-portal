@@ -9,6 +9,7 @@
   import AssetChip from '$lib/components/assets/AssetChip.svelte';
   import type { AssetSummary } from '$lib/api/assetUpload';
   import { olderCursorFrom } from '$lib/agent-chat-window';
+  import { AGENT_CHAT_KEY } from '$lib/app-chats';
   import { resolveActiveChatFromUrl } from '$lib/components/agent-chat-helpers.js';
   import { scrollTopAfterPrepend } from '$lib/team-chat-refresh';
   import { t } from '$lib/i18n/t.js';
@@ -38,7 +39,18 @@
     uploadMemoryId,
     appId,
     aiChoices = null,
-  }: { agentId: string; uploadMemoryId?: string; appId?: string; aiChoices?: ChatAiChoiceOption[] | null } = $props();
+    allowLegacyAppChat = false,
+    onLegacyChatResolved,
+  }: {
+    agentId: string;
+    uploadMemoryId?: string;
+    appId?: string;
+    aiChoices?: ChatAiChoiceOption[] | null;
+    /** The App has proved the requested selector missing, without a read failure. */
+    allowLegacyAppChat?: boolean;
+    /** A successful legacy resume can dismiss the page's old missing banner. */
+    onLegacyChatResolved?: (appId: string) => void;
+  } = $props();
 
   // portal#1963: the choice stored with the open chat (null for a new chat, or none stored), and the one the
   // user picked in the dropdown. A pick is what gets SENT, so the server stores it; until the user picks, the
@@ -307,20 +319,37 @@
 
   // ── Initial list fetch ───────────────────────────────────────────────
   // After loading the chat list, auto-resume the chat referenced by
-  // `?chat=<id>` so a reload restores the open conversation. Without
+  // `?chat=agent chat&agentChat=<loc>` on an App (legacy `?chat=<loc>`
+  // elsewhere) so a reload restores the open conversation. Without
   // this, every reload silently emptied the transcript pane — to the
   // user that looked like "chats are not saving."
   onMount(async () => {
+    const issuedAppId = appId;
+    const issuedAgentId = agentId;
+    const issuedSelector = new URL(window.location.href).searchParams.get('chat');
+    const issuedLegacyProof = allowLegacyAppChat;
     await refreshChatList();
-    const target = resolveActiveChatFromUrl(new URL(window.location.href), chats);
+    const url = new URL(window.location.href);
+    const legacyAllowed = issuedLegacyProof && allowLegacyAppChat && url.searchParams.get('chat') === issuedSelector && issuedAppId === appId && issuedAgentId === agentId;
+    // The unresolved-selector proof still holds while the page shows its not-found banner. That includes Back/Forward
+    // into an already-recovered entry, where Kit serves the cached `chatNotFound: true` but the URL is canonical, so
+    // this is gated on the proof, not on the URL looking legacy (BLIND P2 on #2148). A fresh canonical load has
+    // chatNotFound false, so the proof is absent and nothing fires.
+    const legacy = !!appId && legacyAllowed;
+    const target = resolveActiveChatFromUrl(url, chats, { appChat: !!appId, allowLegacyAppChat: legacyAllowed });
     if (target) {
       // A page load is not the person choosing a chat: show it, don't move focus.
-      await resumeChat(target, { focus: false });
+      const resumed = await resumeChat(target, { focus: false });
+      if (legacy && resumed && !destroyed && issuedAppId && appId === issuedAppId && agentId === issuedAgentId) onLegacyChatResolved?.(issuedAppId);
     } else if (
       listError === null &&
-      new URL(window.location.href).searchParams.has('chat')
+      (!appId || url.searchParams.get('chat') === AGENT_CHAT_KEY) &&
+      url.searchParams.has(appId ? 'agentChat' : 'chat')
     ) {
-      // Stale ?chat=<id> (e.g. chat deleted in another tab) — clear it.
+      if (appId) {
+        setTurnError(t('agent-chat.not-found', 'That chat isn’t available — it may have been deleted, or you may not have access.'));
+      }
+      // Stale personal chat id (e.g. deleted in another tab) — clear it.
       // Gated on a successful list fetch: a transient list failure
       // leaves `chats` empty too, but we MUST NOT throw away a valid
       // ?chat param in that case — the next list reload should still
@@ -375,12 +404,18 @@
     // hrn:node:hadronmemory.com:hadron-portal:review:async-onmount-runs-after-teardown.
     if (destroyed) return;
     const url = new URL(window.location.href);
+    const param = appId ? 'agentChat' : 'chat';
     if (chatId) {
-      if (url.searchParams.get('chat') === chatId) return;
-      url.searchParams.set('chat', chatId);
+      if (url.searchParams.get(param) === chatId &&
+        (!appId || (url.searchParams.get('chat') === AGENT_CHAT_KEY && url.searchParams.get('tab') === 'chats'))) return;
+      if (appId) {
+        url.searchParams.set('tab', 'chats');
+        url.searchParams.set('chat', AGENT_CHAT_KEY);
+      }
+      url.searchParams.set(param, chatId);
     } else {
-      if (!url.searchParams.has('chat')) return;
-      url.searchParams.delete('chat');
+      if (!url.searchParams.has(param)) return;
+      url.searchParams.delete(param);
     }
     replaceState(url, {});
   }
@@ -502,7 +537,7 @@
         syncChatIdToUrl(chatId);
         if (focus) void focusConversation();
       }
-      return;
+      return true;
     }
     showList = false;
     loadingChat = true;
@@ -549,10 +584,12 @@
       // a full last page is indistinguishable from a middle one.
       resetScrollback({ messages, hasOlder: body.hasOlder });
       scrollMessagesToBottom();
+      return true;
     } catch (e) {
       setTurnError(e instanceof Error ? e.message : 'Failed to resume chat');
       activeChatId = null;
       syncChatIdToUrl(null);
+      return false;
     } finally {
       loadingChat = false;
     }
