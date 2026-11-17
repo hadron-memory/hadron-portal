@@ -14,12 +14,13 @@
   let pending = $state(false);
   let deleted = $state(false);
   let failure = $state<string | null>(null);
+  let failureHref = $state<string | null>(null);
   let generation = 0;
   let alive = true;
   $effect(() => {
     worker.id; // A new target is a new confirmation, even if a response is in flight.
     generation++;
-    confirmed = false; pending = false; deleted = false; failure = null;
+    confirmed = false; pending = false; deleted = false; failure = null; failureHref = null;
   });
   onMount(() => {
     const opener = document.activeElement;
@@ -53,8 +54,17 @@
           if (current()) pending = false;
         } catch {
           if (!current()) return;
+          // The redirect answer means the delete SUCCEEDED — the worker is
+          // gone. Keep the submit latch (a retry would re-post the delete for
+          // a worker that no longer exists and read WORKER_NOT_FOUND as a
+          // refusal); only Cancel/Escape release the dialog. And the roster-
+          // refresh sentence ("Reload the page") is a dead end here: this
+          // page's URL stops resolving, so point at the roster the redirect
+          // was carrying the reader to instead.
           pending = false;
-          failure = t('app.staff.delete.refresh-failed', 'The worker was deleted, but the roster could not refresh. Reload the page.');
+          deleted = true;
+          failure = t('app.staff.delete.redirect-failed', 'The worker was deleted, but the roster could not be opened automatically.');
+          failureHref = result.location;
         }
         return;
       }
@@ -98,7 +108,7 @@
       <input type="checkbox" name="confirmation" value={WORKER_DELETE_CONFIRMATION} bind:checked={confirmed} required disabled={pending || deleted} class="mt-1 shrink-0" />
       <span>{t('app.staff.delete.attestation', 'I have verified that no signed commit, trailer, PR, comment, review or published artifact attributes work to this worker.')}</span>
     </label>
-    {#if failure}<p role="alert" class="break-words text-sm text-red-700 dark:text-red-300">{failure}</p>{/if}
+    {#if failure}<p role="alert" class="break-words text-sm text-red-700 dark:text-red-300">{failure}{#if failureHref} <a class="underline" href={failureHref}>{t('app.staff.delete.open-roster', 'Open the roster')}</a>{/if}</p>{/if}
     {#if pending}<p role="status" class="text-sm">{t('app.staff.delete.pending', 'Deleting the selected worker…')}</p>{/if}
     <div class="flex flex-wrap justify-end gap-3">
       <button bind:this={cancelButton} type="button" onclick={close} disabled={pending} class="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600">{t('app.staff.delete.cancel', 'Cancel')}</button>
