@@ -4,10 +4,9 @@ import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { ClientError } from 'graphql-request';
 import { loadOrgDetail } from '$lib/server/org-detail';
 import { fetchAllItems } from '$lib/server/paginate';
-import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode, hasClientErrorResponse } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { t } from '$lib/i18n/t';
 import {
@@ -45,13 +44,15 @@ const unsubscribeOrgMemoryFormAdapter = zod4(unsubscribeOrgMemorySchema);
 // (fail-closed, unchanged) but no longer silently — one warn line names the
 // read and the org (params.id, the same non-PII ref class as appRef in the
 // sibling loaders) plus the error's code, or its class when the server sent
-// no code (ClientError for a codeless GraphQL/HTTP failure — e.name is NOT
-// enough there: graphql-request's ClientError never sets this.name, so e.name
-// is the inherited 'Error', the plain Error of a portal-side envelope bug
-// looks the same — TypeError of a network failure does name itself — the
-// honest limit without logging message content). NOTHING else from the
-// error is logged: a ClientError's message/stack carry the request/response
-// payloads (bearer token, row content) —
+// no code (ClientError for a codeless GraphQL/HTTP failure, STRUCTURALLY
+// tested — e.name is not enough: graphql-request's ClientError never sets
+// this.name, so e.name is the inherited 'Error', indistinguishable from a
+// portal-side envelope bug; and instanceof is not enough either, BLIND delta
+// D1: a duplicated graphql-request in the graph or a re-thrown error keeps
+// its response shape, not its class identity. TypeError of a network failure
+// does name itself — the honest limit without logging message content).
+// NOTHING else from the error is logged: a ClientError's message/stack carry
+// the request/response payloads (bearer token, row content) —
 // hrn:node:hadronmemory.com:hadron-portal:findings:custom-handle-error-replaces-framework-copy-and-logging.
 //
 // The failure is also no longer indistinguishable from an empty list for the
@@ -72,13 +73,12 @@ function degradedReadsTracker() {
   };
   const degradedRead = <T,>(orgId: string, what: string, fallback: T, feeds: (keyof DegradedReads)[]) =>
     (e: unknown): T => {
-      // ClientError before e.name: graphql-request's ClientError leaves name as
-      // the inherited 'Error' (Gemma's BLIND delta N1 on this PR), so e.name
-      // alone conflates a codeless transport/GraphQL failure with a portal-side
-      // envelope bug.
+      // ClientError structurally before e.name (BLIND delta N1: ClientError
+      // leaves name as the inherited 'Error'; D1: instanceof would break
+      // silently on a duplicated graphql-request or a re-thrown error).
       const label =
         extractGqlErrorCode(e) ??
-        (e instanceof ClientError ? 'ClientError' : e instanceof Error ? e.name : 'non-error');
+        (hasClientErrorResponse(e) ? 'ClientError' : e instanceof Error ? e.name : 'non-error');
       console.warn(`[org-memories] ${what} read failed for ${orgId} (${label}); rows hidden, fail-closed`);
       for (const fed of feeds) state[fed] = true;
       return fallback;
