@@ -4424,3 +4424,32 @@ describe('Link and Unlink answers belong to their App visit (#1776)', () => {
     });
   }
 });
+
+// #2170 F6: an inconclusive deep-link lookup is not a failed chat list.
+describe('App chats: deep-link uncertainty vs chat-list failure', () => {
+  async function mountChats(overrides: Record<string, unknown>) {
+    setStubPage('https://example.test/app/apps/a1?tab=chats', { appId: 'a1' });
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true, json: async () => ({ items: [], total: 0, workers: [], loadFailed: false }),
+    }) as Response));
+    const data = { ...(await pageData()), ...overrides };
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return m.target;
+  }
+  const DEEP_LINK = 'Couldn’t find the linked chat in this App — pick it from the list.';
+  const DISCOVERY = 'Could not load this App’s chat list';
+
+  it('says the linked chat could not be found, not that the list failed', async () => {
+    const t = await mountChats({ chatsError: false, chatDeepLinkUnresolved: true });
+    expect(t.textContent).toContain(DEEP_LINK);
+    expect(t.textContent).not.toContain(DISCOVERY);
+  });
+
+  it('a real chat-list failure keeps the discovery message (control)', async () => {
+    const t = await mountChats({ chatsError: true, chatDeepLinkUnresolved: false });
+    expect(t.textContent).toContain(DISCOVERY);
+    expect(t.textContent).not.toContain(DEEP_LINK);
+  });
+});

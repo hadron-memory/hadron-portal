@@ -148,4 +148,23 @@ describe('runs page: Agent picker (#1444)', () => {
     expect(t.textContent).toContain('Pages step through this App’s runnable nodes; only Flow entry nodes are listed.');
     expect(t.querySelectorAll('ul li')).toHaveLength(1);
   });
+
+  // #2170 F7: a failed Flows read says so; it never reads as "no Flows".
+  it('shows a visible Flows failure instead of hiding the section', async () => {
+    const t = await mountRuns(null, {
+      flows: [], flowsError: true,
+      flowsPage: { offset: 0, count: 0, total: 0, firstHref: null, previousHref: null, nextHref: null },
+    });
+    const alert = t.querySelector('[role="status"][data-flows-error]');
+    expect(alert?.textContent).toContain('Flows couldn’t load');
+    expect(t.textContent).not.toContain('No flows on this page.');
+  });
+
+  it('shows no Flows failure when the read succeeded with no Flows (control)', async () => {
+    const t = await mountRuns(null, {
+      flows: [], flowsError: false,
+      flowsPage: { offset: 0, count: 0, total: 0, firstHref: null, previousHref: null, nextHref: null },
+    });
+    expect(t.querySelector('[data-flows-error]')).toBeNull();
+  });
 });
