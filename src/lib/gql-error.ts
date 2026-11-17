@@ -15,18 +15,23 @@ function firstError(e: unknown): WireError | undefined {
   return first && typeof first === 'object' ? first : undefined;
 }
 
-/** Structural ClientError test: `response` AND `request` are the two own
- * fields graphql-request's ClientError always sets (non-optional in its type),
- * across every shape it wraps — coded GraphQL errors, codeless errors, an
- * empty errors array, or a non-GraphQL HTTP failure with NO errors array at
- * all (GraphQLResponse.errors is optional; testing for it would miss that
- * case, portal#2209 BLIND delta E1). Deliberately NOT instanceof (D1):
- * graphql-request can be duplicated in the dependency graph and a re-thrown
- * error keeps its shape, not its class identity, so an instanceof label would
- * silently degrade to e.name while the structural classification above kept
- * working. */
+/** Structural ClientError test. graphql-request's ClientError (pinned 7.4.0,
+ * runRequest.js) always sets exactly two own fields, `response` and `request`,
+ * across every shape it wraps:
+ * - a GraphQL reply with errors (response carries `errors`, maybe a `code`),
+ * - a non-2xx with an unparseable body — a proxy 502/503 or a text 401 —
+ *   where response is just `{ status, headers, body }` with NO `errors` key,
+ * - a non-2xx whose body parsed as GraphQL (errors + status together).
+ * The `request` side is `{ query, variables }`; a re-thrown or serialized
+ * copy may lose it, so a numeric `response.status` is accepted as the
+ * fallback marker. Deliberately NOT instanceof: graphql-request can be
+ * duplicated in the dependency graph and a re-thrown error keeps its shape,
+ * not its class identity, so an instanceof test would silently go false while
+ * the structural classification above kept working. */
 export function hasClientErrorResponse(e: unknown): boolean {
-  return !!e && typeof e === 'object' && 'response' in e && 'request' in e;
+  if (!e || typeof e !== 'object' || !('response' in e)) return false;
+  if ('request' in e) return true;
+  return typeof (e as { response?: { status?: unknown } }).response?.status === 'number';
 }
 
 /** Classification is structural; a request id never proves a domain refusal.

@@ -358,11 +358,10 @@ describe('memories-list load() — degraded reads log (portal#2175)', () => {
     expect(r.availableMemoriesDegraded).toBe(false);
   });
 
-  // Gemma's BLIND delta N1 (this PR, head 0e5c62888): graphql-request's
-  // ClientError extends Error but never sets this.name, so an e.name fallback
-  // labels a codeless transport/GraphQL failure 'Error' — the same word as the
-  // portal-side envelope bug above. D1 (delta at 4a2a56fe): the label is
-  // STRUCTURAL (hasClientErrorResponse), not instanceof — a duplicated
+  // graphql-request's ClientError extends Error but never sets this.name, so
+  // an e.name fallback labels a codeless transport/GraphQL failure 'Error' —
+  // the same word as the portal-side envelope bug above. The label is
+  // STRUCTURAL (hasClientErrorResponse), never instanceof: a duplicated
   // graphql-request or a re-thrown error keeps its response shape, not its
   // class identity.
   it('a codeless ClientError logs ClientError, not the inherited Error name', async () => {
@@ -387,26 +386,28 @@ describe('memories-list load() — degraded reads log (portal#2175)', () => {
     expect(warn).toHaveBeenCalledWith('[org-memories] my memories read failed for org-1 (ClientError); rows hidden, fail-closed');
   });
 
-  it('an empty-errors ClientError response and a re-thrown response-shaped error both log ClientError (D1: structural, not instanceof)', async () => {
+  it('an HTTP-level ClientError without an errors key and re-thrown response-shaped errors all log ClientError', async () => {
+    // The shapes here are the pinned graphql-request 7.4.0's real ones
+    // (runRequest.js): a non-2xx whose body did not parse is wrapped as
+    // ClientError({ status, headers, body }, { query, variables }) — NO
+    // errors key at all. Hand-added `errors: []` fixtures do not occur in
+    // the library and are not used here.
     const cases: unknown[] = [
-      // Codeless with an empty errors array: firstError sees nothing, the
-      // structural test still recognizes the envelope.
-      new ClientError(
-        { status: 503, body: '', headers: new Headers(), errors: [] },
-        { query: 'query Fixture { __typename }' },
-      ),
-      // E1's case: an HTTP-level ClientError with NO errors array at all
-      // (GraphQLResponse.errors is optional) — an errors-array test would
-      // miss it and mislabel it 'Error'.
       new ClientError(
         { status: 503, body: 'Service Unavailable', headers: new Headers() },
         { query: 'query Fixture { __typename }' },
       ),
-      // D1's scenario: NOT a ClientError instance at all (a re-throw across a
-      // duplicated graphql-request keeps the shape, not the class) — instanceof
-      // would label this 'Error' or 'non-error'. Both always-set fields
-      // present, no errors array anywhere.
+      new ClientError(
+        { status: 502, body: 'Bad Gateway', headers: new Headers() },
+        { query: 'query Fixture { __typename }', variables: { x: 1 } },
+      ),
+      // NOT a ClientError instance at all (a re-throw across a duplicated
+      // graphql-request keeps the shape, not the class): both always-set
+      // fields present, no errors array anywhere.
       Object.assign(new Error('rethrown'), { response: { status: 503 }, request: {} }),
+      // A re-thrown/serialized copy that lost `.request`: a numeric
+      // response.status is the fallback marker.
+      Object.assign(new Error('reserialized'), { response: { status: 502 } }),
     ];
     for (const thrown of cases) {
       warn.mockClear();

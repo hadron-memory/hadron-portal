@@ -44,16 +44,13 @@ const unsubscribeOrgMemoryFormAdapter = zod4(unsubscribeOrgMemorySchema);
 // (fail-closed, unchanged) but no longer silently — one warn line names the
 // read and the org (params.id, the same non-PII ref class as appRef in the
 // sibling loaders) plus the error's code, or its class when the server sent
-// no code (ClientError for a codeless GraphQL/HTTP failure, STRUCTURALLY
-// tested — e.name is not enough: graphql-request's ClientError never sets
-// this.name, so e.name is the inherited 'Error', indistinguishable from a
-// portal-side envelope bug; and instanceof is not enough either, BLIND delta
-// D1: a duplicated graphql-request in the graph or a re-thrown error keeps
-// its response shape, not its class identity. The structural test is
-// response+request presence — ClientError's two always-set own fields — so
-// even an HTTP-level failure with no errors array is named. TypeError of a
-// network failure does name itself — the honest limit without logging
-// message content).
+// no code. Why a structural test names the class (hasClientErrorResponse in
+// gql-error.ts), not e.name and not instanceof:
+// - e.name is 'Error' for ClientError: graphql-request's class never sets
+//   this.name, so a codeless GraphQL/HTTP failure is indistinguishable from
+//   a portal-side envelope bug. TypeError (network) does name itself.
+// - instanceof goes silently false on a duplicated graphql-request in the
+//   graph, or a re-thrown error: shape survives, class identity does not.
 // NOTHING else from the error is logged: a ClientError's message/stack carry
 // the request/response payloads (bearer token, row content) —
 // hrn:node:hadronmemory.com:hadron-portal:findings:custom-handle-error-replaces-framework-copy-and-logging.
@@ -76,9 +73,7 @@ function degradedReadsTracker() {
   };
   const degradedRead = <T,>(orgId: string, what: string, fallback: T, feeds: (keyof DegradedReads)[]) =>
     (e: unknown): T => {
-      // ClientError structurally before e.name (BLIND delta N1: ClientError
-      // leaves name as the inherited 'Error'; D1: instanceof would break
-      // silently on a duplicated graphql-request or a re-thrown error).
+      // ClientError structurally, before e.name (why: the header comment).
       const label =
         extractGqlErrorCode(e) ??
         (hasClientErrorResponse(e) ? 'ClientError' : e instanceof Error ? e.name : 'non-error');
