@@ -98,7 +98,7 @@ describe('parseParamsText', () => {
 
 describe('server#1373 / #1390 rules, mirrored', () => {
   it('apiStyle applies to the OpenAI-style providers only', () => {
-    expect(['openai', 'glm', 'openai-compatible'].every(apiStyleApplies)).toBe(true);
+    expect(['openai', 'glm', 'openai-compatible', 'kimi'].every(apiStyleApplies)).toBe(true);
     expect(apiStyleApplies('anthropic')).toBe(false);
     expect(apiStyleApplies('bedrock')).toBe(false);
   });
@@ -106,11 +106,12 @@ describe('server#1373 / #1390 rules, mirrored', () => {
   it('only openai-compatible requires an endpoint', () => {
     expect(endpointRequired('openai-compatible')).toBe(true);
     expect(endpointRequired('glm')).toBe(false);
+    expect(endpointRequired('kimi')).toBe(false); // it has server-supplied default hosts
   });
 
   it('every tenant config needs its own key (#1390)', () => {
     for (const ownerType of ['ORGANIZATION', 'APP', 'AGENT']) {
-      for (const provider of ['openai', 'anthropic', 'bedrock', 'glm', 'openai-compatible']) {
+      for (const provider of ['openai', 'anthropic', 'bedrock', 'glm', 'openai-compatible', 'kimi']) {
         expect(keyRequired({ ownerType, provider, endpoint: '' })).toBe(true);
       }
     }
@@ -120,6 +121,7 @@ describe('server#1373 / #1390 rules, mirrored', () => {
     expect(keyRequired({ ownerType: 'HADRON_SERVER', provider: 'openai', endpoint: '' })).toBe(false);
     expect(keyRequired({ ownerType: 'HADRON_SERVER', provider: 'anthropic', endpoint: ' ' })).toBe(false);
     expect(keyRequired({ ownerType: 'HADRON_SERVER', provider: 'glm', endpoint: '' })).toBe(true);
+    expect(keyRequired({ ownerType: 'HADRON_SERVER', provider: 'kimi', endpoint: '' })).toBe(true);
     expect(keyRequired({ ownerType: 'HADRON_SERVER', provider: 'openai', endpoint: 'https://proxy.example.com' })).toBe(true);
   });
 
@@ -143,6 +145,8 @@ describe('server#1373 / #1390 rules, mirrored', () => {
     expect(inlineTestable({ provider: 'anthropic', endpoint: '', apiStyle: '' })).toBe(true);
     expect(inlineTestable({ provider: 'openai', endpoint: '', apiStyle: '' })).toBe(true);
     expect(inlineTestable({ provider: 'glm', endpoint: '', apiStyle: '' })).toBe(false);
+    // #2138: kimi is served by the server only; the portal client has no kimi host.
+    expect(inlineTestable({ provider: 'kimi', endpoint: '', apiStyle: '' })).toBe(false);
     expect(inlineTestable({ provider: 'openai-compatible', endpoint: 'https://x.example', apiStyle: '' })).toBe(false);
     expect(inlineTestable({ provider: 'openai', endpoint: 'https://x.example', apiStyle: '' })).toBe(false);
     expect(inlineTestable({ provider: 'openai', endpoint: '', apiStyle: 'RESPONSES' })).toBe(false);

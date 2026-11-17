@@ -37,6 +37,13 @@ describe('portal#1352 task planning writes', () => {
     expect(await create({ priority })).toMatchObject({ status: 400, data: { refusal: { kind: 'invalid', field: 'priority' }, values: { priority } } });
     expect(rawRequest).not.toHaveBeenCalled();
   });
+  // portal#2161 review: a plain create's empty title is refused before ANY server I/O — not after
+  // the App read the clone branch needs (an invalid create post costs no GraphQL round trip).
+  it('refuses an empty title before any server I/O, unlike the clone branch', async () => {
+    expect(await create({ title: '   ' })).toMatchObject({ status: 400, data: { refusal: { kind: 'invalid', field: 'title' } } });
+    expect(request).not.toHaveBeenCalled();
+    expect(rawRequest).not.toHaveBeenCalled();
+  });
   it('forwards priority with the merged taskRef wire, using the warning-preserving path', async () => {
     await (await actions()).priority(event({ priority: '5' }));
     expect(rawRequest).toHaveBeenCalledWith(expect.stringContaining('setAgentTaskPriority(taskRef: $taskRef, priority: $priority)'), { taskRef: 't1', priority: 5 });

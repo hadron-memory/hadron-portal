@@ -921,7 +921,7 @@
                  in flow, so the title keeps the row's width and they never
                  cover the title or scope badge (#2095). -->
             <li
-              class="group grid grid-cols-[minmax(0,1fr)_auto] items-center transition
+              class="group relative grid grid-cols-[minmax(0,1fr)_auto] items-center transition
                 {activeChatId === chat.loc
                   ? 'bg-indigo-50 dark:bg-indigo-950/40'
                   : 'hover:bg-zinc-50 dark:hover:bg-zinc-800'}"
@@ -954,7 +954,7 @@
                   type="button"
                   data-chat-row={chat.loc}
                   onclick={() => resumeChat(chat.loc)}
-                  class="col-span-2 row-start-1 block min-w-0 px-3 pb-0.5 pt-2 text-left text-sm pointer-coarse:min-h-11
+                  class="col-span-2 row-start-1 block min-w-0 px-3 pb-0.5 pt-2 text-left text-sm pointer-coarse:min-h-11 after:absolute after:inset-0 after:content-['']
                     {activeChatId === chat.loc
                       ? 'text-indigo-900 dark:text-indigo-200'
                       : 'text-zinc-700 dark:text-zinc-300'}"
@@ -977,10 +977,14 @@
                     </span>
                   </div>
                 </button>
-                <!-- The meta line sits outside the row button so the actions
-                     can share it without covering the tap target. It hugs the
-                     title; the 44px targets' extra height falls below it. -->
-                <div class="col-start-1 row-start-2 flex items-center gap-2 self-start px-3 pt-0.5 text-[10px] text-zinc-400">
+                <!-- The existing row button's transparent pseudo-element
+                     stretches across the row. Actions sit above it in their
+                     own grid cell; meta text passes pointer hits through. No
+                     extra opener or keyboard stop is introduced (#2105). -->
+                <div
+                  data-chat-meta={chat.loc}
+                  class="pointer-events-none col-start-1 row-start-2 flex items-start gap-2 self-stretch px-3 pt-0.5 text-[10px] text-zinc-400"
+                >
                   <span>{agentChatRowStrings.messages(chat.messageCount)}</span>
                   {#if chat.lastMessageAt}
                     <span>{agentChatRowStrings.separator()}</span>
@@ -988,7 +992,7 @@
                   {/if}
                 </div>
                 <div
-                  class="col-start-2 row-start-2 flex gap-0.5 pb-1 pr-1
+                  class="relative z-10 col-start-2 row-start-2 flex gap-0.5 pb-1 pr-1
                     {activeChatId === chat.loc
                       ? 'opacity-100'
                       : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 @max-2xl:opacity-100 pointer-coarse:opacity-100'}"
@@ -1035,14 +1039,19 @@
       <!-- Header -->
       <header class="flex items-center gap-2 border-b border-zinc-200 px-4 py-3 @2xl:gap-3 dark:border-zinc-800">
         <!-- portal#2088: phone-only view navigation back to the list. Neutral
-             chrome (never the warm accent); it changes no chat. -->
+             chrome (never the warm accent); it changes no chat.
+             portal#2094: reads as a control at rest — a drawn zinc outline
+             strong enough to see against the header surface (>= 3:1 both
+             themes, one ramp step for both), a 20px chevron and the label,
+             inside the 44px target. Back is navigation; the warm accent is
+             never the primary navigation color. -->
         <button
           type="button"
           onclick={backToChats}
           aria-label={t('agent-chat.back.aria', 'Back to chats')}
-          class="-my-2 -ml-2 inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-lg px-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 @2xl:hidden dark:text-zinc-200 dark:hover:bg-zinc-800"
+          class="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-lg border border-zinc-500 bg-white px-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 @2xl:hidden dark:border-zinc-500 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
         >
-          <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4">
+          <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" class="h-5 w-5">
             <path fill-rule="evenodd" d="M12.79 5.23a.75.75 0 0 1-.02 1.06L8.832 10l3.938 3.71a.75.75 0 1 1-1.04 1.08l-4.5-4.25a.75.75 0 0 1 0-1.08l4.5-4.25a.75.75 0 0 1 1.06.02Z" clip-rule="evenodd" />
           </svg>
           {t('agent-chat.back.label', 'Chats')}
@@ -1215,7 +1224,11 @@
         {/if}
         <!-- portal#2088: below `@2xl` (panel width) the textarea keeps at least 200px and Send
              wraps under it when the row is too narrow (DOM and Tab order
-             unchanged); from `@2xl` up, one row as before. -->
+             unchanged); from `@2xl` up, one row as before.
+             portal#2094: the placeholder stays short (one word) so the
+             natural rows="2" box shows it whole at every width and locale;
+             no height is sized around a sentence. The Enter/Shift+Enter hint
+             lives in the helper line below, shown for fine pointers only. -->
         <div class="flex flex-wrap items-end gap-2 @2xl:flex-nowrap">
           {#if uploadMemoryId}
             <AssetUploadButton
@@ -1227,7 +1240,10 @@
           <textarea
             bind:value={input}
             onkeydown={onInputKeydown}
-            placeholder={activeChatId ? 'Type your message… (Enter to send, Shift+Enter for a new line)' : 'Start a chat first'}
+            placeholder={activeChatId
+              ? t('agent-chat.composer.placeholder', 'Message…')
+              : t('agent-chat.composer.placeholder-disabled', 'Start a chat first')}
+            aria-describedby={activeChatId ? 'agent-chat-composer-hint' : undefined}
             rows="2"
             disabled={!activeChatId || sending}
             class="min-h-[42px] w-full min-w-[12.5rem] flex-1 resize-none rounded-lg @2xl:min-w-0 border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
@@ -1242,6 +1258,24 @@
             Send
           </button>
         </div>
+        <!-- portal#2094: the keyboard hint the placeholder used to carry.
+             Helper text, not placeholder text, so the composer box is never
+             sized around a sentence, and tied to the field by
+             aria-describedby so it is announced on focus. It is real copy,
+             not a placeholder ghost, so it carries full text contrast
+             (>= 4.5:1, zinc-600/zinc-400). Hidden on touch pointers, where
+             an Enter-to-send hint rarely applies and every pixel of the
+             composer column is scarce, and hidden with no chat open, where
+             there is nothing to send. -->
+        {#if activeChatId}
+          <p
+            id="agent-chat-composer-hint"
+            data-testid="composer-hint"
+            class="pointer-coarse:hidden mt-1.5 text-xs text-zinc-600 dark:text-zinc-400"
+          >
+            {t('agent-chat.composer.hint', 'Enter to send · Shift+Enter for a new line')}
+          </p>
+        {/if}
       </div>
     {/if}
     {#if hasAiChoices}
