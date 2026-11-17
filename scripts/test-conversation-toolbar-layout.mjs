@@ -25,6 +25,15 @@ let applied = false;
 const LOCK_OWNER = 'Editor' + 'x'.repeat(64);
 const REVISION_ERROR = 'Could not save revision: ' + 'x'.repeat(120);
 const stub = (name) => resolve('src/lib/test/stubs', name);
+// The probe owns its document: a fulfilled inert page, not a dev-server path
+// (/@vite/client falls through to SvelteKit's 404 document and logs a server
+// error). Asserting 200 makes a regression to a Kit-404 URL fail loudly.
+async function gotoFixtureDocument(page, origin) {
+  await page.route('**/__conversation_toolbar_layout_fixture*', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>test-conversation-toolbar-layout</title>' }));
+  const response = await page.goto(new URL('/__conversation_toolbar_layout_fixture', origin).href);
+  assert.equal(response?.status(), 200, `fixture document was not served inert (HTTP ${response?.status()})`);
+}
+
 const server = await createServer({
   configFile: false,
   cacheDir: 'node_modules/.vite-conversation-toolbar-layout',
@@ -61,7 +70,7 @@ try {
   // fixture graph BEFORE mounting components. A cold optimizer reload must not
   // split Svelte runtimes during the first measured mount (#2137 LOCAL).
   const warm = await browser.newPage();
-  await warm.goto(new URL('/@vite/client', origin).href);
+  await gotoFixtureDocument(warm, origin);
   await warm.evaluate(async () => { await import('/src/lib/test/fixtures/conversation-toolbar-harness.ts'); });
   await warm.waitForLoadState('networkidle');
   await warm.close();
@@ -79,7 +88,7 @@ try {
       await route.fulfill({ contentType: 'application/json', body: JSON.stringify(response) });
     });
     try {
-      await page.goto(new URL('/@vite/client', origin).href);
+      await gotoFixtureDocument(page, origin);
       await page.evaluate(({ css, dark }) => {
         document.head.innerHTML = `<meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style>`;
         document.documentElement.classList.toggle('dark', dark);

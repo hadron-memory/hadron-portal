@@ -11,6 +11,15 @@ import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
 
+// The probe owns its document: a fulfilled inert page, not a dev-server path
+// (/@vite/client falls through to SvelteKit's 404 document and logs a server
+// error). Asserting 200 makes a regression to a Kit-404 URL fail loudly.
+async function gotoFixtureDocument(page, origin) {
+  await page.route('**/__node_list_search_fixture*', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>test-node-list-search</title>' }));
+  const response = await page.goto(new URL('/__node_list_search_fixture', origin).href);
+  assert.equal(response?.status(), 200, `fixture document was not served inert (HTTP ${response?.status()})`);
+}
+
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 } });
 let browser;
 try {
@@ -20,7 +29,7 @@ try {
   browser = await chromium.launch({ headless: true });
 
   const probe = await browser.newPage();
-  await probe.goto(new URL('/@vite/client', origin).href);
+  await gotoFixtureDocument(probe, origin);
   const cases = await probe.evaluate(async () => {
     const { NODE_LIST_CASES } = await import('/src/lib/test/fixtures/node-list-harness.ts');
     return NODE_LIST_CASES.map(({ name, query }) => ({ name, query }));
@@ -30,7 +39,7 @@ try {
 
   for (const [index, { name, query }] of cases.entries()) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-    await page.goto(new URL('/@vite/client', origin).href);
+    await gotoFixtureDocument(page, origin);
     await page.evaluate((css) => {
       document.head.innerHTML = '';
       document.body.innerHTML = `<style>${css}</style><main id="col"></main>`;
