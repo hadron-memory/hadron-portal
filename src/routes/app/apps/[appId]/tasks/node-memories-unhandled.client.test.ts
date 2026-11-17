@@ -81,6 +81,8 @@ describe('task detail: the memories read never becomes an uncaught page error (#
     ancestors: [],
     ancestorsTruncated: false,
     dependencies: { kind: 'failed' },
+    // portal#2161: the loader's Clones read, optional like the review above.
+    clones: { kind: 'ok', value: { items: [], total: 0, hasMore: false } },
     viewerId: 'u1',
     created: false,
     nodeMemories,
