@@ -33,11 +33,15 @@ async function importMod() {
   return import('./+page.server');
 }
 
-function loadEvent(opts: { isConsumerMode?: boolean; activeOrgId?: string | null } = {}) {
+type NavOrg = { id: string; name: string; urn: string; members: { role: string; user: { id: string } }[] };
+function loadEvent(opts: { isConsumerMode?: boolean; activeOrgId?: string | null; navOrgs?: NavOrg[]; userId?: string; ownerOrgId?: string | null } = {}) {
   return {
     parent: vi.fn().mockResolvedValue({
       isConsumerMode: opts.isConsumerMode ?? false,
       activeOrgId: opts.activeOrgId ?? 'org-1',
+      navOrgs: opts.navOrgs ?? [],
+      user: { id: opts.userId ?? 'user-1' },
+      graph: { organizationId: opts.ownerOrgId ?? null },
     }),
   } as unknown as Parameters<Awaited<ReturnType<typeof importMod>>['load']>[0];
 }
@@ -98,6 +102,31 @@ describe('memory subscriptions load()', () => {
       orgId: '',
     });
     expect((result as { form: { errors: Record<string, string[]> } }).form.errors).toEqual({});
+  });
+
+  // portal#2220: the picker offers only orgs the server will not refuse outright.
+  it('offers only orgs the caller owns or admins, never the memory\'s owning org', async () => {
+    const org = (id: string, role: string, userId = 'user-1'): NavOrg => ({ id, name: `Org ${id}`, urn: `hrn:org:${id}.com`, members: [{ role, user: { id: userId } }] });
+    const { load } = await importMod();
+    const result = await load(loadEvent({
+      ownerOrgId: 'org-owner',
+      navOrgs: [
+        org('org-admin', 'ADMIN'),
+        org('org-owner-role', 'OWNER'),
+        org('org-member', 'MEMBER'),
+        org('org-owner', 'ADMIN'),
+        org('org-someone-else-admin', 'ADMIN', 'user-2'),
+      ],
+    }));
+    expect((result as { targets: { id: string }[] }).targets.map((o) => o.id)).toEqual(['org-admin', 'org-owner-role']);
+    // Only what the picker shows; no member lists leak to the page.
+    expect((result as { targets: object[] }).targets[0]).toEqual({ id: 'org-admin', name: 'Org org-admin', urn: 'hrn:org:org-admin.com' });
+  });
+
+  it('offers nothing when the caller has no organization', async () => {
+    const { load } = await importMod();
+    const result = await load(loadEvent({ navOrgs: [] }));
+    expect((result as { targets: unknown[] }).targets).toEqual([]);
   });
 
   it('redirects consumer-mode users away before returning the form', async () => {
