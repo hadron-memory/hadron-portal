@@ -7,7 +7,9 @@
   import TaskIntegrations from './TaskIntegrations.svelte';
   import { taskHref } from '$lib/agent-tasks/handle';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
-  import WorkerDeleteDialog from './WorkerDeleteDialog.svelte';
+  // portal#2205: the delete dialog is shared with the worker's own page, so it
+  // lives in $lib/components rather than this route's directory.
+  import WorkerDeleteDialog from '$lib/components/WorkerDeleteDialog.svelte';
   import StopBanner from '$lib/components/stops/StopBanner.svelte';
   import { rosterOf } from '$lib/withheld';
   import { publicServerBaseUrl } from '$lib/public-server-base-url';
