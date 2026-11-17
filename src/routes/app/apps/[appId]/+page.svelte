@@ -147,7 +147,7 @@
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
   import { reportsToOf, reportsToSortKey, teamPlacementOf } from '$lib/worker-reports-to';
-  import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, withChatView } from '$lib/app-chats';
+  import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, chatFullViewFromParams, withChatView } from '$lib/app-chats';
   import { focusTrapWhen } from '$lib/a11y/focus-trap';
   import { enhance } from '$app/forms';
   import { submittedForm } from '$lib/forms/submitted-form';
@@ -1105,7 +1105,14 @@
       const urlTab = resolveTabIntent(new URL(window.location.href).searchParams).initialTab;
       activeTab = ((urlTab ?? data.initialTab) as TabId | null) ?? 'chats';
     }
-    chatMaximized = data.initialChatFullView;
+    // #2164: `?view=full` is shallow-rewritten the same way, so it follows the address bar too. On a real
+    // navigation the loader read the same URL through the same function, so the two agree; only a
+    // history entry that was replaceState'd after its load can differ, and there the URL is right.
+    // Whatever type fires this, the read is the address bar, never `data`: the only writer of `chatMaximized`
+    // is `setChatMaximized`, which rewrites `?view=` in the same call, so the bar and the flag cannot
+    // disagree except on a replaceState'd history entry. A stale loader snapshot (an `invalidateAll`
+    // returning `initialChatFullView: false`) therefore cannot reach the flag through this callback.
+    chatMaximized = chatFullViewFromParams(new URL(window.location.href).searchParams);
     // A known non-agent selector owns this URL; an old personal parameter
     // must not travel with a shared/team link. Unknown selectors stay intact.
     // Kit fires this callback for the initial `enter` BEFORE it marks the router started, and `replaceState`
@@ -1274,7 +1281,8 @@
       // #1943: Runs and Templates already navigated to `?tab=<id>`; every other tab was local state,
       // so the address bar kept the last navigated tab. Name the shown tab by a shallow replaceState
       // (no history entry, no loader re-run), the way `?chat=` and `?view=` are synced.
-      if (!ownNavigationHref) syncTabParam(id);
+      // Its own guard: a URL the router will not take must not cost the focus restore below.
+      if (!ownNavigationHref) { try { syncTabParam(id); } catch { /* the address bar stays as it was; the tab is still shown */ } }
       await tick();
       if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id}`)?.focus();
     } catch { /* A failed navigation keeps the current tab; the router owns its error. */ }
