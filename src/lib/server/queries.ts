@@ -1077,7 +1077,17 @@ export const APP_QUERY = /* GraphQL */ `
       # breaking unrelated app queries.
       installedAgentUrn
       defaultChannel { id }
+      # portal#2194 (hadron-server#4242): the App's host-sweep switch. Scoped to
+      # this query, not the shared fragment, like installedAgentUrn above.
+      sweepMode
     }
+  }
+`;
+
+// portal#2194: set the App's sweep mode. A person acts as themselves, so no instruction.
+export const SET_APP_SWEEP_MODE_MUTATION = /* GraphQL */ `
+  mutation SetAppSweepMode($appRef: String!, $mode: SweepMode!) {
+    setAppSweepMode(appRef: $appRef, mode: $mode) { sweepMode }
   }
 `;
 
@@ -1213,6 +1223,13 @@ export const WORKER_QUERY = /* GraphQL */ `
       appName
       ownerName
       hasLiveSession
+      # portal#2194 (hadron-server#4242): the leave-alone marker. All four are
+      # null for a caller who may see only the worker's profile, which is
+      # "not shown", never "not marked".
+      leaveAlone
+      leaveAloneReason
+      leaveAloneBy
+      leaveAloneAt
       # portal#1492: the terminal report, masked to null on the same gate as
       # hasLiveSession. State, reason and age only — never the host label or prompt.
       terminal { status reason checkedAt lastTurnAt }
@@ -1251,6 +1268,14 @@ export const WORKER_QUERY = /* GraphQL */ `
       # the briefing belongs; a list is not.
       prompt
     }
+  }
+`;
+
+// portal#2194: mark or clear a worker's leave-alone marker. A person acts as
+// themselves, so no instruction is sent. A clear sends no reason.
+export const SET_WORKER_LEAVE_ALONE_MUTATION = /* GraphQL */ `
+  mutation SetWorkerLeaveAlone($input: SetWorkerLeaveAloneInput!) {
+    setWorkerLeaveAlone(input: $input) { workerId leaveAlone reason by at }
   }
 `;
 
@@ -1999,6 +2024,8 @@ export const AGENT_QUERY = /* GraphQL */ `
     agent(ref: $ref) {
       ...AgentFields
       clonedFromAgentRef
+      # portal#2194 (hadron-server#4242): how long its workers run.
+      lifecycle
       # portal#1850 (hrn:node:hadronmemory.com:specs:cor:dmo:050:19): manager-only, null for everyone else —
       # the page renders nothing without it. Kept out of AgentFields (like
       # registerDefaults) so surfaces sharing the fragment never select it.
@@ -2058,6 +2085,13 @@ export const AGENT_RESET_CONTEXT_QUERY = /* GraphQL */ `
 export const UPDATE_AGENT_RESET_CONTEXT_MUTATION = /* GraphQL */ `
   mutation UpdateAgentResetContext($ref: ID!, $resetContextAfterTask: Boolean!) {
     updateAgent(ref: $ref, resetContextAfterTask: $resetContextAfterTask) { id resetContextAfterTask }
+  }
+`;
+
+// portal#2194: sends ONLY lifecycle (omitted means unchanged on the server).
+export const UPDATE_AGENT_LIFECYCLE_MUTATION = /* GraphQL */ `
+  mutation UpdateAgentLifecycle($ref: ID!, $lifecycle: AgentLifecycle!) {
+    updateAgent(ref: $ref, lifecycle: $lifecycle) { id lifecycle }
   }
 `;
 
@@ -5539,6 +5573,9 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
       # portal#1575 (hadron-server#3112): needs a server serving 1475888f or later. One without the field
       # rejects this whole read, so the portal deploys only after production serves it (#1575's Order).
       references { kind target label }
+      # portal#2161 (hadron-server#3244): the task this one was cloned from, or null when not a clone or
+      # unreadable to this caller. Needs a server serving the field; one without it rejects this whole read.
+      clonedFrom { id handle title status }
     }
   }
 `;
@@ -5547,6 +5584,13 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
 export const AGENT_TASK_ANCESTOR_QUERY = /* GraphQL */ `
   query AgentTaskAncestor($id: ID!) {
     agentTask(id: $id) { id handle title parentTaskId }
+  }
+`;
+
+/** portal#2161 (hadron-server#3244): a clone source's parent — everything the pre-fill rule reads. */
+export const AGENT_TASK_CLONE_PARENT_QUERY = /* GraphQL */ `
+  query AgentTaskCloneParent($id: ID!) {
+    agentTask(id: $id) { id handle title status }
   }
 `;
 
@@ -5755,6 +5799,17 @@ export const CREATE_AGENT_TASK_MUTATION = /* GraphQL */ `
   }
 `;
 
+/**
+ * portal#2161 (hadron-server#3244, hrn:node:hadronmemory.com:specs:cor:agt:050:02): clone a task. The
+ * server copies the source's fields by its own rules; the input names only what the reader changed,
+ * an optional field emptied as an explicit empty value. A refusal changes nothing.
+ */
+export const CLONE_AGENT_TASK_MUTATION = /* GraphQL */ `
+  mutation CloneAgentTask($taskId: ID!, $input: CloneAgentTaskInput!) {
+    cloneAgentTask(taskId: $taskId, input: $input) { id handle }
+  }
+`;
+
 export const ASSIGN_AGENT_TASK_MUTATION = /* GraphQL */ `
   mutation AssignAgentTask($taskId: ID!, $assignee: AgentTaskPartyInput!, $closeSessionWhenDone: Boolean) {
     assignAgentTask(taskId: $taskId, assignee: $assignee, closeSessionWhenDone: $closeSessionWhenDone) { id }
@@ -5960,6 +6015,17 @@ export const DISPOSE_AGENT_TASK_FINDING_MUTATION = /* GraphQL */ `
 export const TASK_BLOCKS_PAGE_QUERY = /* GraphQL */ `
   query TaskBlocksPage($id: ID!, $offset: Int!) {
     agentTask(id: $id) { id appId blocks(limit: 200, offset: $offset) { items { id appId title handle status } hasMore } }
+  }
+`;
+
+/**
+ * portal#2161 (hadron-server#3244): one page of a task's clones, paged
+ * (hrn:node:hadronmemory.com:specs:cor:api:120:04); the server leaves out any clone this caller can't
+ * read. total rides along so the list can say how many there are, not just that more exist.
+ */
+export const TASK_CLONES_PAGE_QUERY = /* GraphQL */ `
+  query TaskClonesPage($id: ID!, $offset: Int!) {
+    agentTask(id: $id) { id appId clones(limit: 200, offset: $offset) { items { id appId title handle status } total hasMore } }
   }
 `;
 

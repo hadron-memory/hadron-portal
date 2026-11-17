@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AppSweepMode from './AppSweepMode.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import AppRunsPanel from './runs/AppRunsPanel.svelte';
@@ -770,7 +771,8 @@
     }
     return id ? (installedAgents.find((a) => a.id === id) ?? null) : null;
   });
-  let customisationPanel = $state<{ reveal: () => void }>();
+  let customisationPanel = $state<{ reveal: () => void; mayLeave: () => boolean }>();
+  let agentsHeading = $state<HTMLHeadingElement>();
   let customisationChoice = $state<{ appRef: string; agentId: string } | null>(null);
   const customisationAgent = $derived(
     customisationChoice?.appRef === data.bootPointerAppKey
@@ -815,6 +817,9 @@
         if (appId === data.app.id && compileAgent?.id === agent.id) compilePanel?.reveal();
       });
     } else if (id === 'customisation') {
+      // Ask before a different Agent re-keys the panel and loses its draft (#1369).
+      // Choosing the same Agent only reveals the existing draft.
+      if (customisationAgent && customisationAgent.id !== agent.id && customisationPanel && !customisationPanel.mayLeave()) return;
       customisationChoice = { appRef: data.bootPointerAppKey, agentId: agent.id };
       const appKey = data.bootPointerAppKey;
       void tick().then(() => {
@@ -3210,7 +3215,7 @@
     <div id="panel-agents" role="tabpanel" aria-labelledby="tab-agents" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-4">
       <div>
-        <h2 class="font-semibold text-zinc-900 dark:text-white">{t('app.agents.title', 'Agents')}</h2>
+        <h2 bind:this={agentsHeading} tabindex="-1" class="rounded font-semibold text-zinc-900 focus:outline-2 focus:outline-offset-2 focus:outline-indigo-600 dark:text-white">{t('app.agents.title', 'Agents')}</h2>
         <p class="mt-1 max-w-2xl text-sm text-zinc-500">
           {t(
             'app.agents.description',
@@ -3310,7 +3315,12 @@
               const label = t('app.agents.actions.label', 'Actions for {name}', { name: customisationAgent.name });
               customisationChoice = null;
               await tick();
-              document.querySelector<HTMLButtonElement>(`button[aria-label="${CSS.escape(label)}"]`)?.focus();
+              const opener = document.querySelector<HTMLButtonElement>(`button[aria-label="${CSS.escape(label)}"]`);
+              if (opener) opener.focus();
+              else {
+                agentsHeading?.focus();
+                agentsHeading?.scrollIntoView?.({ block: 'nearest' });
+              }
             }} />
           {/key}
         {/if}
@@ -3777,6 +3787,10 @@
           </div>
         {/if}
       </section>
+
+      <!-- portal#2194: the host-sweep switch. Everyone who can read it sees the mode;
+           only an App manager acting as themselves gets the controls. -->
+      <AppSweepMode ownerId={app.id} mode={data.app.sweepMode ?? null} canManage={data.canManageApp === true && !impersonating} />
 
       <!-- portal#1963: the App's chatbot AI config. Keyed on the App, so a pick never follows the person to another App. -->
       {#if app.agentId}
