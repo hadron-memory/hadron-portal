@@ -20,6 +20,15 @@ describe('served now is only a viewer read', () => {
     expect(servedNowText(null, worker, 'c')).toBe('Couldn’t read what would be served now.');
   });
 });
+describe('portal#1754 servedNowText looks names up as own properties only', () => {
+  const unknown = 'Couldn’t read what would be served now.';
+  it.each(['constructor', '__proto__', 'toString', 'hasOwnProperty'])('a refusal named %s answers the serve-unknown text', name => {
+    expect(servedNowText({ refusal: name, served: null }, app, 'c')).toBe(unknown);
+  });
+  it.each(['constructor', '__proto__', 'toString'])('a pointer level named %s answers the serve-unknown text', name => {
+    expect(servedNowText({ refusal: null, served: { pointerLevel: name as never, compiledNodeId: 'x', servedRevSeq: 7 } }, app, 'c')).toBe(unknown);
+  });
+});
 describe('all typed compile refusals', () => {
   it.each(['BOOT_PROMPT_COMPILE_NOT_PERMITTED', 'BOOT_PROMPT_TARGET_RETIRED', 'BOOT_PROMPT_NO_SOURCE', 'BOOT_PROMPT_SOURCE_INVALID', 'BOOT_PROMPT_NODE_TYPE', 'BOOT_PROMPT_GRANT_REQUIRED', 'BOOT_PROMPT_COMPILE_LIMIT_EXCEEDED', ...['MALFORMED', 'UNAVAILABLE', 'RETIRED', 'REVISION_UNAVAILABLE', 'SOURCE_DISALLOWED', 'CYCLE', 'TOO_DEEP'].map(tail => `BOOT_PROMPT_INCLUDE_${tail}`)])('%s is fixed copy with no target leak', code => {
     for (const level of ['App', 'worker'] as const) {

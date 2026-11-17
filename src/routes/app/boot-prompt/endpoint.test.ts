@@ -107,3 +107,28 @@ describe('POST JSON media-type boundary', () => {
     expect(request).not.toHaveBeenCalled();
   });
 });
+
+// portal#1754 bullets 1 and 2: boundary refusals, with the file's own bodies (POST { ok: false }, GET { failed: true }).
+describe('portal#1754 POST body that is not an object', () => {
+  const rawPost = (raw: string) => POST({ request: new Request('https://portal.invalid/app/boot-prompt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: raw }), locals: { token: 'viewer', user: { id: 'person' } } } as never);
+  it.each(['null', 'true', '0', '"x"', '[]'])('a JSON body of %s answers 400 { ok: false } with no upstream call', async raw => {
+    const response = await rawPost(raw);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ ok: false });
+    expect(request).not.toHaveBeenCalled();
+  });
+});
+describe('portal#1754 malformed GET node', () => {
+  const get = (query: string) => GET({ url: new URL(`https://portal.invalid/app/boot-prompt?${query}`), locals: { token: 'viewer' }, setHeaders: vi.fn() } as never);
+  it.each([['blank', 'node='], ['whitespace', 'node=%20%20'], ['513 characters', `node=${'n'.repeat(513)}`]])('a %s node answers 400 { failed: true } before any upstream call', async (_n, query) => {
+    const response = await get(`${query}&revision=3`);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ failed: true });
+    expect(request).not.toHaveBeenCalled();
+  });
+  it.each([['a primary key', 'node=01a1e92c5cfa75c3badb2091328545e1'], ['a URN', 'node=hrn:node:hadronmemory.com:m:a:b'], ['512 characters', `node=${'n'.repeat(512)}`]])('%s is not refused', async (_n, query) => {
+    request.mockResolvedValueOnce({ compiledPromptProvenance: { items: [], total: 0, hasMore: false, pruned: false } });
+    expect((await get(`${query}&revision=3`)).status).toBe(200);
+    expect(request).toHaveBeenCalledOnce();
+  });
+});
