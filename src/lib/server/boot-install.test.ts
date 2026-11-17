@@ -216,7 +216,10 @@ describe('portal#1754 not visible answers like missing', () => {
   ])('GET: a null %s is absent, never unavailable', async (_n, reads) => {
     const request = vi.fn().mockResolvedValueOnce(identity);
     for (const r of reads) request.mockResolvedValueOnce(r);
-    expect(await readInstallPrompt({ request } as never, app)).toMatchObject({ compiled: null, compiledReadFailed: false });
+    const view = await readInstallPrompt({ request } as never, app);
+    expect(view).toMatchObject({ compiled: null, compiledReadFailed: false });
+    // Every case answers the one same view, not just the two fields above.
+    expect(view).toEqual({ key: 'appCompile:a:g', source: null, canStart: false, compiled: null, compiledReadFailed: false, pointerMatches: null });
   });
   it('approve: a null install memory and a null compiled node answer the same "changed" 409', async () => {
     const run = async (reads: unknown[]) => {

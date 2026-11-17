@@ -109,7 +109,7 @@ describe('POST JSON media-type boundary', () => {
 });
 
 // portal#1754 bullets 1 and 2: boundary refusals, with the file's own bodies (POST { ok: false }, GET { failed: true }).
-describe('portal#1754 POST body that is not an object', () => {
+describe('portal#1754 POST body that is not a plain object', () => {
   const rawPost = (raw: string) => POST({ request: new Request('https://portal.invalid/app/boot-prompt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: raw }), locals: { token: 'viewer', user: { id: 'person' } } } as never);
   it.each(['null', 'true', '0', '"x"', '[]'])('a JSON body of %s answers 400 { ok: false } with no upstream call', async raw => {
     const response = await rawPost(raw);
@@ -120,15 +120,21 @@ describe('portal#1754 POST body that is not an object', () => {
 });
 describe('portal#1754 malformed GET node', () => {
   const get = (query: string) => GET({ url: new URL(`https://portal.invalid/app/boot-prompt?${query}`), locals: { token: 'viewer' }, setHeaders: vi.fn() } as never);
-  it.each([['blank', 'node='], ['whitespace', 'node=%20%20'], ['513 characters', `node=${'n'.repeat(513)}`]])('a %s node answers 400 { failed: true } before any upstream call', async (_n, query) => {
+  it.each([['blank', 'node='], ['whitespace', 'node=%20%20']])('a %s node answers 400 { failed: true } before any upstream call', async (_n, query) => {
     const response = await get(`${query}&revision=3`);
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ failed: true });
     expect(request).not.toHaveBeenCalled();
   });
-  it.each([['a primary key', 'node=01a1e92c5cfa75c3badb2091328545e1'], ['a URN', 'node=hrn:node:hadronmemory.com:m:a:b'], ['512 characters', `node=${'n'.repeat(512)}`]])('%s is not refused', async (_n, query) => {
+  it.each([['a primary key', 'node=01a1e92c5cfa75c3badb2091328545e1'], ['a URN', 'node=hrn:node:hadronmemory.com:m:a:b'], ['a 546-character qualified URN the server resolver accepts', `node=hrn:node:example.com:mem:${'a:'.repeat(260)}z`]])('%s is not refused', async (_n, query) => {
     request.mockResolvedValueOnce({ compiledPromptProvenance: { items: [], total: 0, hasMore: false, pruned: false } });
     expect((await get(`${query}&revision=3`)).status).toBe(200);
     expect(request).toHaveBeenCalledOnce();
+  });
+  it('forwards the trimmed value it validated, never the padded one', async () => {
+    request.mockResolvedValueOnce({ compiledPromptProvenance: { items: [], total: 0, hasMore: false, pruned: false } });
+    expect((await get('node=%20c%20&revision=3')).status).toBe(200);
+    expect(JSON.stringify(request.mock.calls[0][1])).toContain('"c"');
+    expect(JSON.stringify(request.mock.calls[0][1])).not.toContain('" c');
   });
 });
