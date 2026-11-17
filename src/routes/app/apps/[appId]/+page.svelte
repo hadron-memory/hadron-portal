@@ -52,6 +52,7 @@
     const next = new URL(window.location.href);
     next.searchParams.set('tab', 'chats');
     next.searchParams.set('chat', key);
+    if (key !== AGENT_CHAT_KEY) next.searchParams.delete('agentChat');
     chatSwitchBusy = true;
     chatSwitchFailed = false;
     try { await goto(next, { noScroll: true }); }
@@ -198,6 +199,7 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const app = $derived(data.app);
+  let legacyChatResolvedForApp = $state<string | null>(null);
   // Survives the filter-keyed thread, but never follows a navigation to another App.
   let teamFilterFocusRequest = $state<import('$lib/components/team-chat-thread').TeamChatFilterFocusRequest | null>(null);
   let teamFilterAnnouncement = $state('');
@@ -1092,6 +1094,10 @@
   // that result has already chosen the tab (above, and the routing effects
   // below), and the action URL has no `?tab=` for the loader to agree with.
   afterNavigate((nav) => {
+    // A real navigation brings loader data for the NEW URL, so the legacy-recovery suppression ends here.
+    // It is not keyed on `$page.url`: Kit's shallow `replaceState` (which writes the canonical pair) leaves
+    // `page.url` on the old href, so that key never cleared the banner outside a stubbed harness.
+    legacyChatResolvedForApp = null;
     if (!(nav.type === 'enter' && form)) {
       // #1943: local tabs now rewrite `?tab=` by shallow replaceState, which leaves the entry's loader
       // data (`data.initialTab`) on the tab that was LOADED. Back lands on such an entry, so the address
@@ -1107,7 +1113,22 @@
     // disagree except on a replaceState'd history entry. A stale loader snapshot (an `invalidateAll`
     // returning `initialChatFullView: false`) therefore cannot reach the flag through this callback.
     chatMaximized = chatFullViewFromParams(new URL(window.location.href).searchParams);
+    // A known non-agent selector owns this URL; an old personal parameter
+    // must not travel with a shared/team link. Unknown selectors stay intact.
+    // Kit fires this callback for the initial `enter` BEFORE it marks the router started, and `replaceState`
+    // throws until then ("before router is initialized"; QA F2 on #2148). Kit sets `started` synchronously
+    // after its callbacks, so a microtask is enough; a real navigation can write straight away.
+    if (nav.type === 'enter') queueMicrotask(dropStaleAgentChat);
+    else dropStaleAgentChat();
   });
+  function dropStaleAgentChat() {
+    const url = new URL(window.location.href);
+    if (data.selectedChatKey && data.selectedChatKey !== AGENT_CHAT_KEY && !data.chatNotFound && url.searchParams.has('agentChat')) {
+      url.searchParams.delete('agentChat');
+      // A throw here would escape queueMicrotask unhandled; a leftover parameter is harmless, so leave it for the next navigation.
+      try { replaceState(url, {}); } catch { /* router not ready: the parameter stays until the next selection */ }
+    }
+  }
 
   // The team chat MAXIMISED — a fixed overlay over the whole viewport. In the
   // tab it gets 395px of a 900px window (measured 2026-09-14: the header, the
@@ -2294,6 +2315,15 @@
             'Could not load this App’s chat list — others may exist beyond the ones shown.',
           )}
         </span>
+      {:else if data.chatDeepLinkUnresolved}
+        <!-- #2170 F6: the list loaded; only the linked chat could not be found
+             for certain. Saying the list failed would overstate it. -->
+        <span
+          role="status"
+          class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+        >
+          {t('app.chats.deep-link-unresolved', 'Couldn’t find the linked chat in this App — pick it from the list.')}
+        </span>
       {/if}
       <label for="app-chat-select" class="text-sm text-zinc-500">{t('app.chats.select', 'Chat')}</label>
       <select id="app-chat-select" class="min-w-0 max-w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
@@ -2311,7 +2341,7 @@
       <ListPageNav page={data.chatRootsPage} label={t('app.chats.pages', 'Legacy chat-root pages')} />
     {/if}
 
-    {#if data.chatNotFound}
+    {#if data.chatNotFound && legacyChatResolvedForApp !== app.id}
       <!-- The reader followed a link to a SPECIFIC chat. Substituting the
            default silently would let them read one conversation believing it
            is another. -->
@@ -2331,12 +2361,21 @@
          under a phone browser's address bar; the `vh` line before it is the
          fallback for browsers without `dvh`. Same pattern, same reason as the
          sidebar in src/routes/app/+layout.svelte. -->
-    <div class="flex flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
+    <!-- #2201: reserve transcript space on short phones without hiding controls.
+         In the normal app shell, the chat crosses @2xl (672px) at viewport
+         948px: the nav/gutters use the other 276px. Scope the floor below that
+         switch; short desktops keep the original viewport height (Peter #111914).
+         With #2171 merged, fine-pointer chrome at 320x568 uses 405px.
+         A 560px floor leaves a 155px scroller and 123px content after its
+         32px padding, above the 120px transcript gate. -->
+    <div class="flex max-[948px]:min-h-[560px] flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
       {#if appChatRender === 'agent-chat' && app.agentId}
         <div class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
           <AgentChat
             agentId={app.agentId}
             appId={app.id}
+            allowLegacyAppChat={!!data.chatNotFound && !data.chatsError}
+            onLegacyChatResolved={(appId) => { legacyChatResolvedForApp = appId; }}
             aiChoices={liveAiChoices}
             uploadMemoryId={writableMemoryIds[0]}
           />

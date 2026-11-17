@@ -204,3 +204,38 @@ describe('portal#1857 compile revision boundary', () => {
     });
   }
 });
+
+// portal#1754 bullet 4 (hrn:node:hadronmemory.com:specs:cor:api:140:03): GUARD pins, green on main by design. A missing entity and a
+// not-visible one both arrive as null from the server and must answer alike; a thrown read is unavailable.
+describe('portal#1754 not visible answers like missing', () => {
+  const app = { level: 'app' as const, app: 'a', agent: 'g' };
+  const identity = { app: { id: 'a', appAgents: [{ agent: { id: 'g' }, bootPromptRef: null }] } };
+  it.each([
+    ['install memory', [{ installMemory: null }]],
+    ['compiled node', [{ installMemory: { id: 'm' } }, { node: null }]],
+  ])('GET: a null %s is absent, never unavailable', async (_n, reads) => {
+    const request = vi.fn().mockResolvedValueOnce(identity);
+    for (const r of reads) request.mockResolvedValueOnce(r);
+    const view = await readInstallPrompt({ request } as never, app);
+    expect(view).toMatchObject({ compiled: null, compiledReadFailed: false });
+    // Every case answers the one same view, not just the two fields above.
+    expect(view).toEqual({ key: 'appCompile:a:g', source: null, canStart: false, compiled: null, compiledReadFailed: false, pointerMatches: null });
+  });
+  it('approve: a null install memory and a null compiled node answer the same "changed" 409', async () => {
+    const run = async (reads: unknown[]) => {
+      const request = vi.fn().mockResolvedValueOnce(identity).mockResolvedValueOnce(identity);
+      for (const r of reads) request.mockResolvedValueOnce(r);
+      return writeInstallPrompt({ request } as never, app, { intent: 'approve', nodeId: 'c', revision: 3 }, false);
+    };
+    const missing = await run([{ installMemory: null }]);
+    const hidden = await run([{ installMemory: { id: 'm' } }, { node: null }]);
+    expect(missing).toMatchObject({ ok: false, status: 409 });
+    expect(hidden).toEqual(missing);
+  });
+  it('a thrown read is unavailable on both surfaces, never absent or changed', async () => {
+    const get = vi.fn().mockResolvedValueOnce(identity).mockRejectedValueOnce(new Error('private'));
+    expect(await readInstallPrompt({ request: get } as never, app)).toMatchObject({ compiledReadFailed: true });
+    const approve = vi.fn().mockResolvedValueOnce(identity).mockResolvedValueOnce(identity).mockRejectedValueOnce(new Error('private'));
+    expect(await writeInstallPrompt({ request: approve } as never, app, { intent: 'approve', nodeId: 'c', revision: 3 }, false)).toMatchObject({ ok: false, status: 502 });
+  });
+});

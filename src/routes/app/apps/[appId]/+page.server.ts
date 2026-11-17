@@ -124,6 +124,10 @@ import { readHoldStale, type HoldStale } from './hold-stale';
 // Flow summaries are a complete-graph consumer, not a display-list read.
 // Keep the established graph window; any lower bound it leaves is labelled.
 const APP_FLOW_GRAPH_LIMIT = 500;
+// A chat deep link outside the loaded root page is resolved by ONE targeted
+// locPrefix page of this size; past it, the link is reported as unresolved
+// rather than draining further pages (#2170 F6).
+const REQUESTED_CHAT_LOOKUP_LIMIT = 200;
 
 type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
 type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
@@ -620,7 +624,7 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
       .then((r) => r.appNodesPage)
       .catch((e) => {
         console.warn(`[app-runs] Flows page fetch failed for ${params.appId}:`, e);
-        return { items: [] as MemoryNode[], total: 0, hasMore: false };
+        return { items: [] as MemoryNode[], total: 0, hasMore: false, failed: true };
       })
     : Promise.resolve(null);
   const [appData, configsData, membersData] = await Promise.all([
@@ -1018,7 +1022,7 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
   // pasted prefix trigger an unbounded sequential drain.
   if (chatSelection.requestedMissing && requestedChat && requestedChat !== 'agent chat' && requestedChat !== 'chats:team' && registeredChannels !== null) {
     const page = await client.request<{ appNodesPage: { items: MemoryNode[]; total: number; hasMore: boolean } }>(APP_CHAT_ROOTS_PAGE_QUERY, {
-      appRef: params.appId, limit: 200, offset: 0, locPrefix: requestedChat,
+      appRef: params.appId, limit: REQUESTED_CHAT_LOOKUP_LIMIT, offset: 0, locPrefix: requestedChat,
     }).then((r) => r.appNodesPage).catch((e) => {
       console.warn(`[app-chats] requested chat-root fetch failed for ${requestedChat}:`, e);
       requestedChatLookupFailed = true;
@@ -1079,6 +1083,7 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
       app,
       flows: flowPageSummaries(flowsData.items, flowGraph ?? []),
       flowsPage: appListNavigation(url, 'flowsOffset', 'runs', flowsOffset, flowsData.items.length, flowsData.total, { hasMore: flowsData.hasMore }),
+      flowsError: 'failed' in flowsData,
       ...runsExtras,
     } : null,
     appMemoryScope,
@@ -1126,7 +1131,11 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
     // chat is neither the team chat nor the agent chat. `chatsError` is the
     // discovery failing — distinct from an App that genuinely has one chat.
     appChats,
-    chatsError: chatRoots === null || registeredChannels === null || requestedChatLookupFailed,
+    chatsError: chatRoots === null || registeredChannels === null,
+    // #2170 F6: the list loaded but a deep-linked chat could not be resolved
+    // for certain (the targeted lookup failed or was inconclusive). A distinct
+    // statement from the list failing, so the page words it differently.
+    chatDeepLinkUnresolved: requestedChatLookupFailed,
     chatRootsError: chatRoots === null,
     channelsError: registeredChannels === null,
     chatRootsPage: appListNavigation(url, 'chatRootsOffset', 'chats', chatRootsOffset, chatRoots?.items.length ?? 0, chatRoots?.total ?? 0, { hasMore: chatRoots?.hasMore }),

@@ -425,7 +425,7 @@ try {
           assert.equal(inAside, false, `${leg}: Tab reached the hidden list`);
         }
 
-        // ── Back: the list again, chat kept, ?chat cleared ───────────
+        // ── Back: list again, transcript kept, personal loc cleared ───────────
         const resumes = await page.evaluate(() => window.__chat.calls.resume);
         await back.click();
         p = await panes(page);
@@ -435,7 +435,10 @@ try {
           url: String(window.__chat.navigationCalls.at(-1)?.args[0] ?? ''),
         }));
         assert.match(afterBack.focus, new RegExp(ROW), `${leg}: Back should focus the selected row`);
-        assert(afterBack.url && !afterBack.url.includes('chat='), `${leg}: Back must clear ?chat, last sync ${afterBack.url}`);
+        assert(afterBack.url, `${leg}: Back must sync the URL`);
+        const backParams = new URL(afterBack.url).searchParams;
+        assert.equal(backParams.get('chat'), 'agent chat', `${leg}: Back must retain the App agent selector`);
+        assert.equal(backParams.has('agentChat'), false, `${leg}: Back must clear the personal chat loc`);
         assert.equal(await page.getByText('Which weeks work best').count(), 1, `${leg}: Back should keep exactly one copy of the transcript`);
 
         // ── Reselect the same retained chat ──────────────────────────
@@ -448,7 +451,9 @@ try {
           resumes: window.__chat.calls.resume,
           heading: document.activeElement?.tagName === 'H3',
         }));
-        assert.match(reopened.url, /chat=chats%3Aa/, `${leg}: reopening must restore ?chat`);
+        const reopenedParams = new URL(reopened.url).searchParams;
+        assert.equal(reopenedParams.get('chat'), 'agent chat', `${leg}: reopening must retain the App agent selector`);
+        assert.equal(reopenedParams.get('agentChat'), 'chats:a', `${leg}: reopening must restore the personal chat loc`);
         assert.equal(reopened.resumes, resumes, `${leg}: reopening the retained chat should not refetch it`);
         assert(reopened.heading, `${leg}: reopening should focus the conversation heading`);
         assert.deepEqual(
@@ -470,8 +475,8 @@ try {
       assert.deepEqual(errors, [], `${leg}: page errors`);
       await page.close();
 
-      // ── Deep link: ?chat=<id> lands on the conversation ────────────
-      const deep = await open(width, dark, { query: '?chat=chats%3Aa' });
+      // ── Deep link: App selector + personal loc open the conversation ────────────
+      const deep = await open(width, dark, { query: '?tab=chats&chat=agent+chat&agentChat=chats%3Aa' });
       await deep.page.getByText('Which weeks work best').waitFor();
       p = await panes(deep.page);
       if (phone) assert(p.aside === 0 && near(p.main, p.panel), `${leg}: deep link should open the conversation, got ${JSON.stringify(p)}`);
