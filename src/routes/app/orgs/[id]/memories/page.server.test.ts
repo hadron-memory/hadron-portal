@@ -7,6 +7,7 @@
  * `gqlClient` and routes by query identity, as in the sibling loader tests.
  */
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { ClientError } from 'graphql-request';
 import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import {
   DELETE_MEMORY_MUTATION,
@@ -354,6 +355,28 @@ describe('memories-list load() — degraded reads log (portal#2175)', () => {
     expect(r.personalMemoriesDegraded).toBe(true);
     expect(r.systemMemoriesDegraded).toBe(false);
     expect(r.availableMemoriesDegraded).toBe(false);
+  });
+
+  // Gemma's BLIND delta N1 (this PR, head 0e5c62888): graphql-request's
+  // ClientError extends Error but never sets this.name, so an e.name fallback
+  // labels a codeless transport/GraphQL failure 'Error' — the same word as the
+  // portal-side envelope bug above. The instanceof split pins the distinction.
+  it('a codeless ClientError logs ClientError, not the inherited Error name', async () => {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === ORG_MEMORIES_TAB_QUERY) return { organization: fakeOrg };
+      if (query === ORG_SYSTEM_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      if (query === OWN_SYSTEM_MEMORY_IDS_QUERY) return { memories: { items: [], total: 0 } };
+      if (query === PUBLIC_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      // errors with no extensions.code: extractGqlErrorCode yields null, so
+      // the label branch under test is the one that runs in production.
+      if (query === MEMORIES_QUERY) throw new ClientError({ errors: [{ message: 'nope' }] }, {});
+      throw new Error('Unexpected query');
+    });
+    const load = await importLoad();
+    const r = (await load(ev())) as unknown as { personalMemories: unknown[] };
+    expect(r.personalMemories).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith('[org-memories] my memories read failed for org-1 (ClientError); rows hidden, fail-closed');
   });
 
   // The acceptance's named read: a failed OWNERSHIP read. Its rows hide

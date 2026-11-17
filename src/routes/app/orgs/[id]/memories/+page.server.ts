@@ -4,6 +4,7 @@ import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { ClientError } from 'graphql-request';
 import { loadOrgDetail } from '$lib/server/org-detail';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
@@ -43,10 +44,12 @@ const unsubscribeOrgMemoryFormAdapter = zod4(unsubscribeOrgMemorySchema);
 // portal#2175 (FIT 6884373873 c): a failing read still hides its rows
 // (fail-closed, unchanged) but no longer silently — one warn line names the
 // read and the org (params.id, the same non-PII ref class as appRef in the
-// sibling loaders) plus the error's code, or its class name when the server
-// sent no code (e.name: ClientError for a codeless GraphQL/HTTP failure, the
-// plain Error of a portal-side envelope bug, TypeError of a network failure —
-// the honest limit without logging message content). NOTHING else from the
+// sibling loaders) plus the error's code, or its class when the server sent
+// no code (ClientError for a codeless GraphQL/HTTP failure — e.name is NOT
+// enough there: graphql-request's ClientError never sets this.name, so e.name
+// is the inherited 'Error', the plain Error of a portal-side envelope bug
+// looks the same — TypeError of a network failure does name itself — the
+// honest limit without logging message content). NOTHING else from the
 // error is logged: a ClientError's message/stack carry the request/response
 // payloads (bearer token, row content) —
 // hrn:node:hadronmemory.com:hadron-portal:findings:custom-handle-error-replaces-framework-copy-and-logging.
@@ -69,7 +72,13 @@ function degradedReadsTracker() {
   };
   const degradedRead = <T,>(orgId: string, what: string, fallback: T, feeds: (keyof DegradedReads)[]) =>
     (e: unknown): T => {
-      const label = extractGqlErrorCode(e) ?? (e instanceof Error ? e.name : 'non-error');
+      // ClientError before e.name: graphql-request's ClientError leaves name as
+      // the inherited 'Error' (Gemma's BLIND delta N1 on this PR), so e.name
+      // alone conflates a codeless transport/GraphQL failure with a portal-side
+      // envelope bug.
+      const label =
+        extractGqlErrorCode(e) ??
+        (e instanceof ClientError ? 'ClientError' : e instanceof Error ? e.name : 'non-error');
       console.warn(`[org-memories] ${what} read failed for ${orgId} (${label}); rows hidden, fail-closed`);
       for (const fed of feeds) state[fed] = true;
       return fallback;
