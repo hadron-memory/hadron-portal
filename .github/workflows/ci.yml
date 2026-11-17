@@ -91,7 +91,11 @@ jobs:
 
       # These native negative controls skip without Chromium in the early
       # unit-test step; run them explicitly after the browser install too.
+      # REQUIRE_CHROMIUM_CONTROLS turns a missing browser into a failure here, so
+      # this step can never pass having skipped every control (portal#2185).
       - name: Check Agent chat row oracle failure controls
+        env:
+          REQUIRE_CHROMIUM_CONTROLS: '1'
         run: pnpm exec vitest run scripts/test-agent-chat-row-actions-controls.test.ts
 
       - name: Check node phone layout

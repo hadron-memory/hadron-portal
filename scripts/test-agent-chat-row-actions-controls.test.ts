@@ -2,8 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { chromium } from 'playwright';
+import { chromiumControlsGate } from './chromium-controls-gate.mjs';
 
-const haveChromium = existsSync(chromium.executablePath());
+// The dedicated CI step sets REQUIRE_CHROMIUM_CONTROLS=1: there a missing
+// browser fails by name instead of skipping (portal#2185 blind F1).
+const gate = chromiumControlsGate({
+  required: process.env.REQUIRE_CHROMIUM_CONTROLS === '1',
+  executablePath: () => chromium.executablePath(),
+  exists: existsSync,
+});
+if (gate.mode === 'fail') {
+  it('Chromium is available for the required native controls', () => {
+    throw new Error(gate.reason);
+  });
+}
+const haveChromium = gate.mode === 'run';
 // Exercise the actual entrypoint: a new collector/guard that is never called
 // cannot pass by testing a disconnected copy of its assertions.
 describe.skipIf(!haveChromium)('chat row oracle native failure controls (#2176)', { timeout: 180_000 }, () => {
