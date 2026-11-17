@@ -53,7 +53,7 @@ async function loadFrom(from: string | null) {
   try {
     return { ret: (await load({ params: { appId: 'app-1' }, locals, url, parent: async () => ({}) } as never)) as Record<string, any> };
   } catch (e) {
-    return { thrown: e as { status?: number; location?: string } };
+    return { thrown: e as { status?: number; location?: string; body?: { message?: string } } };
   }
 }
 
@@ -107,10 +107,16 @@ describe('clone load: the source and its values', () => {
     expect(thrown?.location).toBe('/app/apps/app-2/tasks/new?from=src-1');
   });
 
-  it('an unknown source is the neutral 404; so is an unreadable one', async () => {
-    expect((await loadFrom('n0pe')).thrown?.status).toBe(404);
+  it('every clone-load 404 is pinned to the bare wording, per throw site', async () => {
+    // portal#2202 gate: exact wording per 404 site, each mutant red. The two
+    // throws in new/+page.server.ts are distinct sites: a cross-App URN is
+    // unknown BEFORE any task read (resolveSegment), while a bare unknown ref
+    // and a null source read both land on the src-null throw AFTER the read —
+    // two legs of one site, both asserted.
+    expect((await loadFrom('hrn:agenttask:acme.com:other:AT3')).thrown).toMatchObject({ status: 404, body: { message: 'Task not found' } });
+    expect((await loadFrom('n0pe')).thrown).toMatchObject({ status: 404, body: { message: 'Task not found' } });
     src = null;
-    expect((await loadFrom('src-1')).thrown?.status).toBe(404);
+    expect((await loadFrom('src-1')).thrown).toMatchObject({ status: 404, body: { message: 'Task not found' } });
   });
 
   it('without ?from= there is no clone pre-fill and no source read', async () => {
