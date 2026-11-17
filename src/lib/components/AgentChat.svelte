@@ -1129,9 +1129,9 @@
           {#if activeChatMeta && activeChatMeta.completed.length > 0}
             <div class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400" data-testid="completed-conversations-row">
               <span>{t('agent-chat.progress.done-label', 'Done')}:</span>
-              <ul class="flex flex-wrap gap-1.5" data-testid="completed-conversations">
+              <ul class="flex min-w-0 flex-wrap gap-1.5" data-testid="completed-conversations">
                 {#each activeChatMeta.completed as name (name)}
-                  <li class="rounded bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{name}</li>
+                  <li title={name} class="max-w-full truncate rounded bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{name}</li>
                 {/each}
               </ul>
             </div>
@@ -1140,15 +1140,15 @@
       </header>
 
       {#if stageToast}
-        <div class="mx-4 mt-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
+        <div data-testid="stage-toast" title={`Stage transitioned: ${stageToast.from || '(start)'} → ${stageToast.to}`} class="mx-4 mt-1.5 truncate rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
           Stage transitioned: <strong>{stageToast.from || '(start)'}</strong> → <strong>{stageToast.to}</strong>
         </div>
       {/if}
 
-      <div role="status" data-testid="chat-progress-notice" class={progressNotice && progressNotice.chatId === activeChatId ? 'mx-4 mt-2 space-y-1' : 'sr-only'}>
+      <div role="status" data-testid="chat-progress-notice" class={progressNotice && progressNotice.chatId === activeChatId ? 'mx-4 mt-1.5 space-y-1' : 'sr-only'}>
         {#if progressNotice && progressNotice.chatId === activeChatId}
           {#each progressNotice.notes as note}
-            <p class="rounded-md border px-3 py-2 text-xs {note.tone === 'good' ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200' : 'border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300'}">{note.text}</p>
+            <p data-testid="chat-progress-note" title={note.text} class="truncate rounded-md border px-3 py-1 text-xs {note.tone === 'good' ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200' : 'border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300'}">{note.text}</p>
           {/each}
         {/if}
       </div>
