@@ -1148,15 +1148,16 @@
       </header>
 
       {#if stageToast}
-        <div data-testid="stage-toast" title={stageToastText(stageToast)} class="mx-4 mt-1.5 line-clamp-2 break-words rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
-          {stageToastText(stageToast)}
+        <!-- The clamp sits on an inner element: line-clamp on a box that has vertical padding lets the next line show through the padding. -->
+        <div class="mx-4 mt-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
+          <span data-testid="stage-toast" title={stageToastText(stageToast)} class="line-clamp-2 break-words">{stageToastText(stageToast)}</span>
         </div>
       {/if}
 
       <div role="status" data-testid="chat-progress-notice" class={progressNotice && progressNotice.chatId === activeChatId ? 'mx-4 mt-1.5 space-y-1' : 'sr-only'}>
         {#if progressNotice && progressNotice.chatId === activeChatId}
           {#each progressNotice.notes as note}
-            <p data-testid="chat-progress-item" title={note.text} class="line-clamp-2 break-words rounded-md border px-3 py-1 text-xs {note.tone === 'good' ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200' : 'border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300'}">{note.text}</p>
+            <p class="rounded-md border px-3 py-1 text-xs {note.tone === 'good' ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200' : 'border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300'}"><span data-testid="chat-progress-item" title={note.text} class="line-clamp-2 break-words">{note.text}</span></p>
           {/each}
         {/if}
       </div>

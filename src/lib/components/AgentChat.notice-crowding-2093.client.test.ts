@@ -34,6 +34,8 @@ describe('AgentChat notices with long names (#2093)', () => {
       // At most two lines (the differing tail wraps into view), never one hidden-tail line; `title` keeps the full text.
       expect(n.classList.contains('line-clamp-2')).toBe(true);
       expect(n.classList.contains('truncate')).toBe(false);
+      // Vertical padding on the clamped element lets a third line show through it; the padding belongs on the wrapper.
+      expect(n.className).not.toMatch(/(^|\s)p[ytb]?-\d/);
       expect(n.getAttribute('title')).toBe(n.textContent?.trim());
       expect(n.getAttribute('title')).toContain(LONG);
     }
