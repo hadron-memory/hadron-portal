@@ -15,7 +15,6 @@
   import { applyAction } from '$app/forms';
   import { page } from '$app/stores';
   import { dropNamedActions } from './app-list-pages';
-  import { page as routePage } from '$app/stores';
   import { beforeNavigate, goto, afterNavigate, invalidateAll, preloadData, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -1095,6 +1094,10 @@
   // that result has already chosen the tab (above, and the routing effects
   // below), and the action URL has no `?tab=` for the loader to agree with.
   afterNavigate((nav) => {
+    // A real navigation brings loader data for the NEW URL, so the legacy-recovery suppression ends here.
+    // It is not keyed on `$page.url`: Kit's shallow `replaceState` (which writes the canonical pair) leaves
+    // `page.url` on the old href, so that key never cleared the banner outside a stubbed harness.
+    legacyChatResolvedForApp = null;
     if (!(nav.type === 'enter' && form)) {
       // #1943: local tabs now rewrite `?tab=` by shallow replaceState, which leaves the entry's loader
       // data (`data.initialTab`) on the tab that was LOADED. Back lands on such an entry, so the address
@@ -2313,7 +2316,7 @@
       <ListPageNav page={data.chatRootsPage} label={t('app.chats.pages', 'Legacy chat-root pages')} />
     {/if}
 
-    {#if data.chatNotFound && !(legacyChatResolvedForApp === app.id && $routePage.url.searchParams.get('chat') === AGENT_CHAT_KEY)}
+    {#if data.chatNotFound && legacyChatResolvedForApp !== app.id}
       <!-- The reader followed a link to a SPECIFIC chat. Substituting the
            default silently would let them read one conversation believing it
            is another. -->

@@ -27,12 +27,13 @@ async function open(query: string, flags: { missing?: boolean; failed?: boolean;
       : (() => { throw new Error(`Unexpected fetch ${url}`); })();
     return new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } });
   }));
-  // The recorder intentionally has no History API behavior; apply its URL writes
-  // to the shared page store as Kit does, so the parent observes shallow changes.
+  // The recorder has no History API behavior; apply the URL write to the address bar only. Kit's
+  // shallow replaceState sets page.state and leaves page.url on the loaded href (Kit 2.55 client.js), so
+  // the stub page store stays put and the page must not depend on it to clear the banner.
   const push = navigationCalls.push.bind(navigationCalls);
   vi.spyOn(navigationCalls, 'push').mockImplementation((...entries) => {
     for (const e of entries) if (e.fn === 'replaceState') {
-      const url = String(e.args[0]); window.history.replaceState({}, '', url); setStubPage(url, { appId: 'a1' });
+      const url = String(e.args[0]); window.history.replaceState({}, '', url); // Kit's shallow replaceState leaves page.url on the loaded href: do NOT update the stub page
     }
     return push(...entries);
   });
@@ -123,4 +124,16 @@ it('does not clear the legacy missing banner when the authorized resume fails', 
   await vi.waitFor(() => expect(target.textContent).toContain('Read unavailable'));
   expect(target.textContent).toContain('That chat isn’t available');
   expect(target.textContent).not.toContain('Private stage');
+});
+
+it('the recovery suppression ends at the next real navigation (not keyed on page.url)', async () => {
+  const { calls, props, target } = await open(`chat=${encodeURIComponent(loc)}`);
+  await vi.waitFor(() => expect(calls.some(c => c.includes('/resume'))).toBe(true));
+  await vi.waitFor(() => expect(target.textContent).toContain('Private stage'));
+  expect(target.textContent).not.toContain('That chat isn’t available');
+  // A real navigation delivers loader data for the new URL; if that data says not found, the banner is honest again.
+  const after = navigationGuards.filter(g => g.fn === 'afterNavigate').map(g => g.callback as (nav: { type: string }) => void);
+  for (const cb of after) cb({ type: 'goto' });
+  props.data = { ...props.data, chatNotFound: true }; await tick(3);
+  expect(target.textContent).toContain('That chat isn’t available');
 });
