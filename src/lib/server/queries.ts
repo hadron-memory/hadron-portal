@@ -5573,6 +5573,9 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
       # portal#1575 (hadron-server#3112): needs a server serving 1475888f or later. One without the field
       # rejects this whole read, so the portal deploys only after production serves it (#1575's Order).
       references { kind target label }
+      # portal#2161 (hadron-server#3244): the task this one was cloned from, or null when not a clone or
+      # unreadable to this caller. Needs a server serving the field; one without it rejects this whole read.
+      clonedFrom { id handle title status }
     }
   }
 `;
@@ -5581,6 +5584,13 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
 export const AGENT_TASK_ANCESTOR_QUERY = /* GraphQL */ `
   query AgentTaskAncestor($id: ID!) {
     agentTask(id: $id) { id handle title parentTaskId }
+  }
+`;
+
+/** portal#2161 (hadron-server#3244): a clone source's parent — everything the pre-fill rule reads. */
+export const AGENT_TASK_CLONE_PARENT_QUERY = /* GraphQL */ `
+  query AgentTaskCloneParent($id: ID!) {
+    agentTask(id: $id) { id handle title status }
   }
 `;
 
@@ -5789,6 +5799,17 @@ export const CREATE_AGENT_TASK_MUTATION = /* GraphQL */ `
   }
 `;
 
+/**
+ * portal#2161 (hadron-server#3244, hrn:node:hadronmemory.com:specs:cor:agt:050:02): clone a task. The
+ * server copies the source's fields by its own rules; the input names only what the reader changed,
+ * an optional field emptied as an explicit empty value. A refusal changes nothing.
+ */
+export const CLONE_AGENT_TASK_MUTATION = /* GraphQL */ `
+  mutation CloneAgentTask($taskId: ID!, $input: CloneAgentTaskInput!) {
+    cloneAgentTask(taskId: $taskId, input: $input) { id handle }
+  }
+`;
+
 export const ASSIGN_AGENT_TASK_MUTATION = /* GraphQL */ `
   mutation AssignAgentTask($taskId: ID!, $assignee: AgentTaskPartyInput!, $closeSessionWhenDone: Boolean) {
     assignAgentTask(taskId: $taskId, assignee: $assignee, closeSessionWhenDone: $closeSessionWhenDone) { id }
@@ -5994,6 +6015,17 @@ export const DISPOSE_AGENT_TASK_FINDING_MUTATION = /* GraphQL */ `
 export const TASK_BLOCKS_PAGE_QUERY = /* GraphQL */ `
   query TaskBlocksPage($id: ID!, $offset: Int!) {
     agentTask(id: $id) { id appId blocks(limit: 200, offset: $offset) { items { id appId title handle status } hasMore } }
+  }
+`;
+
+/**
+ * portal#2161 (hadron-server#3244): one page of a task's clones, paged
+ * (hrn:node:hadronmemory.com:specs:cor:api:120:04); the server leaves out any clone this caller can't
+ * read. total rides along so the list can say how many there are, not just that more exist.
+ */
+export const TASK_CLONES_PAGE_QUERY = /* GraphQL */ `
+  query TaskClonesPage($id: ID!, $offset: Int!) {
+    agentTask(id: $id) { id appId clones(limit: 200, offset: $offset) { items { id appId title handle status } total hasMore } }
   }
 `;
 

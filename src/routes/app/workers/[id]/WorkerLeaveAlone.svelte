@@ -5,13 +5,17 @@
   // same as "not marked". Only an App manager gets the buttons; the server stays
   // the authority and its refusal is shown as it comes back.
   import { enhance } from '$app/forms';
-  import { clearRecovery, recoveryOf, settleCommittedWrite } from '$lib/write-recovery.svelte';
+  import { beginWrite, clearRecovery, failWrite, isUncertainResult, recoveryOf, settleWriteOutcome } from '$lib/write-recovery.svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import { t } from '$lib/i18n/t';
 
   type Marker = { on: boolean; reason: string | null; by: string | null; at: string | null };
   let { marker, canManage, retired = false, ownerId }: { marker: Marker | null; canManage: boolean; retired?: boolean; ownerId: string } = $props();
 
+  // The full value a marker carries, as the write sends it: on/off plus the reason. A write is
+  // confirmed only when the loader shows all of it (a matching on-state with another reason is an
+  // older marker, not this write).
+  const markerKey = (on: boolean, reason: string | null | undefined): string => `${on}|${on ? (reason ?? '').trim() : ''}`;
   let marking = $state(false);
   let saving = $state(false);
   let feedback = $state<{ kind: 'ok' | 'error'; text: string } | null>(null);
@@ -20,24 +24,30 @@
   const recovery = $derived(recoveryOf(`leave-alone:${ownerId}`));
   const locked = $derived(recovery !== undefined);
   $effect(() => {
-    if (recovery?.phase === 'stale' && marker && String(marker.on) === recovery.value) clearRecovery(`leave-alone:${ownerId}`);
+    if (recovery?.phase === 'stale' && marker && markerKey(marker.on, marker.reason) === recovery.value) clearRecovery(`leave-alone:${ownerId}`);
   });
   const failed = t('worker.leave-alone.error.failed', 'Not saved. Try again.');
 
   const submit: SubmitFunction = ({ formData }) => {
     const owner = ownerId;
-    const written = String(formData.get('leaveAlone') ?? '');
+    const written = markerKey(String(formData.get('leaveAlone') ?? '') === 'true', String(formData.get('reason') ?? ''));
+    const token = beginWrite(`leave-alone:${owner}`, written);
     saving = true;
     feedback = null;
     return async ({ result }) => {
       saving = false;
-      if (result.type === 'success') {
-        feedback = { kind: 'ok', text: t('worker.leave-alone.saved', 'Saved.') };
+      // A refusal or a GraphQL error response did not commit. No answer at all leaves the outcome
+      // unknown: keep the lock and check, never say "Not saved".
+      const uncertain = isUncertainResult(result);
+      if (result.type === 'success' || uncertain) {
+        feedback = uncertain ? null : { kind: 'ok', text: t('worker.leave-alone.saved', 'Saved.') };
         marking = false;
-        await settleCommittedWrite(`leave-alone:${owner}`, written, true, () => (ownerId === owner && marker ? String(marker.on) : undefined));
+        await settleWriteOutcome(`leave-alone:${owner}`, token, written, true, () => (ownerId === owner && marker ? markerKey(marker.on, marker.reason) : undefined), uncertain);
       } else if (result.type === 'failure') {
+        failWrite(`leave-alone:${owner}`, token);
         feedback = { kind: 'error', text: String((result.data as { leaveAloneError?: string } | undefined)?.leaveAloneError ?? failed) };
       } else {
+        failWrite(`leave-alone:${owner}`, token);
         feedback = { kind: 'error', text: failed };
       }
     };
@@ -52,7 +62,7 @@
 {#if marker}
   <section class="max-w-lg rounded-lg border border-zinc-200 p-4 dark:border-zinc-800" aria-labelledby="worker-leave-alone-title">
     <h2 id="worker-leave-alone-title" class="mb-2 font-semibold text-zinc-900 dark:text-white">{t('worker.leave-alone.heading', 'Leave alone')}</h2>
-    {#if locked}
+    {#if recovery && recovery.phase !== 'inflight'}
       <p class="text-sm text-zinc-500">{t('worker.leave-alone.unknown', 'The current marker is unknown until this page reloads.')}</p>
     {:else if marker.on}
       <p class="text-sm text-zinc-700 dark:text-zinc-300">{t('worker.leave-alone.on', 'The host sweep leaves this worker alone: it reports it and never starts, stops or repairs it.')}</p>
@@ -94,9 +104,14 @@
             {t('worker.leave-alone.mark', 'Leave alone…')}
           </button>
         {/if}
+        {#if recovery?.uncertain && recovery.phase !== 'stale'}
+        <p role="status" class="text-sm text-zinc-500">{t('worker.leave-alone.unconfirmed', 'Couldn’t confirm the save; checking…')}</p>
+    {/if}
         {#if recovery?.phase === 'stale'}
           <div role="alert" class="space-y-2 text-sm text-red-600 dark:text-red-400">
-            <p>{t('worker.leave-alone.stale', 'Saved, but this page could not reload and may be out of date. Reload the page before relying on what it shows.')}</p>
+            <p>{recovery.uncertain
+              ? t('worker.leave-alone.stale-unconfirmed', 'Couldn’t confirm the save, and this page could not reload. Reload the page before relying on what it shows.')
+              : t('worker.leave-alone.stale', 'Saved, but this page could not reload and may be out of date. Reload the page before relying on what it shows.')}</p>
             <button type="button" onclick={() => location.reload()} class="rounded-lg border border-zinc-300 px-3 py-1 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-200">{t('worker.leave-alone.reload', 'Reload')}</button>
           </div>
         {/if}

@@ -265,3 +265,68 @@ describe('recovery outlives the control visit (Diego delta P2)', () => {
     expect(radio(first.root, 'OFF').checked).toBe(true);
   });
 });
+
+describe('recovery starts at submission, not at the response (blind delta F5)', () => {
+  it('a remount before the response keeps the choices locked until the loader shows the write', async () => {
+    const first = mountIt('OFF', 'app-a');
+    radio(first.root, 'OBSERVE').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(first.root));
+    mounted.pop()!.unmount();
+    const second = mountIt('OFF', 'app-a');
+    expect(second.root.querySelector('fieldset')!.disabled).toBe(true);
+    expect(radio(second.root, 'OBSERVE').checked).toBe(true);
+    await deliver(ok);
+    second.props.mode = 'OBSERVE';
+    flushSync();
+    expect(second.root.querySelector('fieldset')!.disabled).toBe(false);
+  });
+});
+
+describe('an uncertain outcome keeps the lock and says so (blind P2 on #2198)', () => {
+  it.each([
+    ['an uncertain failure result', { type: 'failure' as const, status: 502, data: { sweepModeError: 'Couldn’t confirm the save; checking…', uncertain: true } }],
+    ['a transport error result', { type: 'error' as const, status: 500, error: new Error('fetch failed') }],
+  ])('%s: stays locked, never says Not saved, and lets go when the loader shows the mode', async (_n, result) => {
+    const { root, props } = mountIt('OFF', 'app-a');
+    radio(root, 'OBSERVE').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(root));
+    navigationHooks.onInvalidateAll = () => { throw new Error('reload failed'); };
+    await deliver(result as never);
+    flushSync();
+    expect(root.querySelector('fieldset')!.disabled).toBe(true);
+    expect(root.textContent).not.toMatch(/not saved/i);
+    expect(root.textContent).toMatch(/couldn.t confirm/i);
+    props.mode = 'OBSERVE';
+    flushSync();
+    expect(root.querySelector('fieldset')!.disabled).toBe(false);
+  });
+
+  it('a refusal that did not commit releases the lock', async () => {
+    const { root } = mountIt('OFF', 'app-a');
+    radio(root, 'OBSERVE').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(root));
+    await deliver({ type: 'failure', status: 403, data: { sweepModeError: 'Not allowed.' } });
+    flushSync();
+    expect(root.querySelector('fieldset')!.disabled).toBe(false);
+  });
+});
+
+describe('the checking status ends when the readback confirms (Diego P3 on #2198)', () => {
+  it('clears the "checking…" status together with the lock once the loader shows the mode', async () => {
+    const { root, props } = mountIt('OFF', 'app-a');
+    radio(root, 'OBSERVE').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(root));
+    await deliver({ type: 'error' as const, status: 500, error: new Error('fetch failed') } as never);
+    props.mode = 'OBSERVE';
+    flushSync();
+    await tick(3);
+    flushSync();
+    expect(root.querySelector('fieldset')!.disabled).toBe(false);
+    expect(root.textContent).not.toMatch(/checking/i);
+  });
+});
+

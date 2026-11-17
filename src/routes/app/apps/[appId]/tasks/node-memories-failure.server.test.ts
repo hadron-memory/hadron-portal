@@ -44,7 +44,7 @@ vi.mock('$lib/server/agent-tasks', () => ({
   canonicalTaskId: (id: string) => id,
   loadReferences: async () => [],
 }));
-vi.mock('$lib/server/task-planning', () => ({ taskDependencies: async () => [] }));
+vi.mock('$lib/server/task-planning', () => ({ taskDependencies: async () => [], taskClonesPage: async () => ({ kind: 'ok', value: { items: [], total: 0, hasMore: false } }) }));
 
 beforeEach(() => {
   request.mockClear();

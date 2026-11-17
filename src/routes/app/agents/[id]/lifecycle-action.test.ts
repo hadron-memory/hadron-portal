@@ -48,4 +48,30 @@ describe('Agent lifecycle action (portal#2194)', () => {
     expect(result.status).toBe(403);
     expect(result.data.lifecycleError).toMatch(/owner or an organization admin/);
   });
+
+
+  it('a transport failure may have committed: marked uncertain, never "Not saved"', async () => {
+    mockRequest.mockRejectedValueOnce(new TypeError('fetch failed'));
+    const result = (await run('SHORT_LIVED')) as { status: number; data: { lifecycleError: string; uncertain?: boolean } };
+    expect(result.status).toBe(502);
+    expect(result.data.uncertain).toBe(true);
+    expect(result.data.lifecycleError).toMatch(/couldn.t confirm/i);
+    expect(result.data.lifecycleError).not.toMatch(/not saved|owner|admin/i);
+  });
+
+  it.each(['INTERNAL_SERVER_ERROR', 'SOMETHING_ELSE'])('GraphQL code %s can come after a commit: outcome unknown, locked, never "Not saved", no server text', async (code) => {
+    mockRequest.mockRejectedValueOnce(gqlError(code, 'secret internals'));
+    const result = (await run('SHORT_LIVED')) as { status: number; data: { lifecycleError: string; uncertain?: boolean } };
+    expect(result.status).toBe(502);
+    expect(result.data.uncertain).toBe(true);
+    expect(result.data.lifecycleError).toMatch(/couldn.t confirm/i);
+    expect(result.data.lifecycleError).not.toMatch(/not saved|secret internals/i);
+  });
+
+  it('a recognised refusal did not commit: released with its status, not uncertain', async () => {
+    mockRequest.mockRejectedValueOnce(gqlError('AGENT_NOT_FOUND', 'Refused.'));
+    const result = (await run('SHORT_LIVED')) as { status: number; data: { lifecycleError: string; uncertain?: boolean } };
+    expect(result.status).toBe(404);
+    expect(result.data.uncertain).toBeUndefined();
+  });
 });
