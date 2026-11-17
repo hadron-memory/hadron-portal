@@ -53,7 +53,7 @@ async function loadFrom(from: string | null) {
   try {
     return { ret: (await load({ params: { appId: 'app-1' }, locals, url, parent: async () => ({}) } as never)) as Record<string, any> };
   } catch (e) {
-    return { thrown: e as { status?: number; location?: string } };
+    return { thrown: e as { status?: number; location?: string; body?: { message?: string } } };
   }
 }
 
@@ -107,10 +107,18 @@ describe('clone load: the source and its values', () => {
     expect(thrown?.location).toBe('/app/apps/app-2/tasks/new?from=src-1');
   });
 
-  it('an unknown source is the neutral 404; so is an unreadable one', async () => {
-    expect((await loadFrom('n0pe')).thrown?.status).toBe(404);
+  it('every clone-load 404 site is pinned to the bare wording, each reachable on its own', async () => {
+    // portal#2202, George's P2 on the LOCAL review: the gate is the exact
+    // wording per 404 site, each mutant red. Status-only assertions let BOTH
+    // clone-load messages revert to the retired "or you can’t see it" oracle
+    // wording with the whole suite still green. The two throws in
+    // new/+page.server.ts are pinned separately: a cross-App URN is unknown
+    // BEFORE any task read (resolveSegment), while a bare ref and a null
+    // source read both land on the src-null throw after the read.
+    expect((await loadFrom('hrn:agenttask:acme.com:other:AT3')).thrown).toMatchObject({ status: 404, body: { message: 'Task not found' } });
+    expect((await loadFrom('n0pe')).thrown).toMatchObject({ status: 404, body: { message: 'Task not found' } });
     src = null;
-    expect((await loadFrom('src-1')).thrown?.status).toBe(404);
+    expect((await loadFrom('src-1')).thrown).toMatchObject({ status: 404, body: { message: 'Task not found' } });
   });
 
   it('without ?from= there is no clone pre-fill and no source read', async () => {
