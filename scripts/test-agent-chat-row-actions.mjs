@@ -9,11 +9,17 @@
 // Touch is Chromium's emulation (hasTouch + isMobile, `pointer: coarse`), not
 // a physical device.
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
 
+// Native self-check children must not invalidate one another's prebundled
+// modules (or another oracle's) through Vite's shared dependency cache.
+const cacheDir = await mkdtemp(join(tmpdir(), 'chat-row-oracle-'));
 const server = await createServer({
+  cacheDir,
   server: { host: '127.0.0.1', port: 0 },
   plugins: [
     {
@@ -31,6 +37,10 @@ const A = 'Planning the spring onboarding for the regional volunteer teams';
 const B = 'Second chat';
 const WIDE = 672; // AgentChat's `@2xl` container breakpoint (42rem)
 const shots = process.env.AGENT_CHAT_SHOTS;
+// Explicit adversarial self-checks only; a normal run keeps all ten legs.
+const control = process.env.CHAT_ROW_CONTROL;
+assert(!control || ['missing-meta-free', 'hidden-meta-text', 'delayed-resume', 'rename-overlay'].includes(control), 'unknown CHAT_ROW_CONTROL');
+if (control) console.log(`CONTROL ACTIVE: ${control}`);
 let browser;
 try {
   await server.listen();
@@ -171,6 +181,16 @@ try {
       };
     }, title);
 
+  // Count first: boundingBox auto-waits for a missing locator, which would
+  // otherwise obscure the activation identity behind a generic timeout.
+  async function targetBox(locator, label) {
+    assert.equal(await locator.count(), 1, `${label} is missing or hidden`);
+    assert(await locator.isVisible(), `${label} is missing or hidden`);
+    const bounds = await locator.boundingBox();
+    assert(bounds && bounds.width > 0 && bounds.height > 0, `${label} is missing or hidden`);
+    return bounds;
+  }
+
   const overlaps = (a, b) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
   const isRed = ([r, g, b]) => r > g + 60 && r > b + 60;
   const focused = (page) => page.evaluate(() => document.activeElement === document.body ? '<body>' : document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.textContent?.trim() ?? '');
@@ -185,8 +205,8 @@ try {
     { width: 1024, touch: false },
     { width: 1024, touch: true },
   ];
-  for (const { width, touch } of LEGS) {
-    for (const dark of [false, true]) {
+  for (const { width, touch } of (control ? LEGS.slice(0, 1) : LEGS)) {
+    for (const dark of (control ? [false] : [false, true])) {
       const leg = `${width}${touch ? ' touch' : ''}/${dark ? 'dark' : 'light'}`;
       // portal#2105: use a fresh mount per activation so a selected-chat
       // fast path cannot make a missing resume request look successful.
@@ -204,8 +224,10 @@ try {
           assert(measured.title.right <= measured.badge.left + 0.5, `${leg}: title overlaps scope badge`);
           assert.equal(await li.locator('button:not([tabindex="-1"])').count(), 3, `${leg}: unexpected row tab stops`);
           const text = li.getByText(shortTitle ? '1 msg' : '3 msgs', { exact: true });
+          if (control === 'missing-meta-free' && freeSpace) await li.locator('[data-chat-meta]').evaluate(el => el.remove());
+          if (control === 'hidden-meta-text' && !freeSpace) await text.evaluate(el => { el.style.display = 'none'; });
           if (freeSpace) {
-            const bounds = await li.locator('[data-chat-meta]').boundingBox();
+            const bounds = await targetBox(li.locator('[data-chat-meta]'), `${leg}: ${id} meta free space`);
             const x = bounds.x + bounds.width - 4;
             const y = bounds.y + bounds.height / 2;
             const hit = await p.evaluate(({ x, y }) => {
@@ -216,7 +238,7 @@ try {
             if (touch) await p.touchscreen.tap(x, y);
             else await p.mouse.click(x, y);
           } else {
-            const bounds = await text.boundingBox();
+            const bounds = await targetBox(text, `${leg}: ${id} meta text`);
             const x = bounds.x + bounds.width / 2;
             const y = bounds.y + bounds.height / 2;
             if (touch) await p.touchscreen.tap(x, y);
@@ -224,6 +246,18 @@ try {
           }
           await p.waitForFunction(() => window.__chat.calls.resume === 1, null, { timeout: 2000 })
             .catch(async () => assert.fail(`${leg}: ${shortTitle ? 'short' : 'long'} meta ${freeSpace ? 'free space' : 'text'} did not resume exactly once: ${JSON.stringify(await p.evaluate(() => window.__chat.calls))}`));
+          if (control === 'delayed-resume') await p.evaluate((chatId) => {
+            setTimeout(() => {
+              void fetch('/api/agent-chat/resume', { method: 'POST', body: JSON.stringify({ chatId }) });
+            }, 50);
+          }, id);
+          // Bounded settling window, not a claim about arbitrarily late calls:
+          // catch a second resume queued after the first-observation wait.
+          await p.evaluate(async () => {
+            await new Promise(resolve => setTimeout(resolve, 200));
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          });
+          assert.equal(await p.evaluate(() => window.__chat.calls.resume), 1, `${leg}: ${id} meta ${freeSpace ? 'free space' : 'text'} settled resume count`);
           assert.equal(await p.evaluate(() => window.__chat.calls.title + window.__chat.calls.delete), 0, `${leg}: meta activation ran an action`);
           assert.deepEqual(metaRun.errors, [], `${leg}: meta activation page errors`);
           await metaRun.context.close();
@@ -287,6 +321,26 @@ try {
       await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
       assert.equal(await page.evaluate(() => window.__chat.calls.resume), 0, `${leg}: pointer Rename opened the chat`);
       assert.equal(await page.locator('#panel li input[type="text"]').count(), 1, `${leg}: pointer Rename did not open its input`);
+      if (control === 'rename-overlay') await page.locator('#panel li input[type="text"]').evaluate(input => {
+        // A simultaneous opener over the input, modelling a future DOM regression.
+        const opener = document.createElement('button');
+        opener.style.cssText = 'position:absolute;inset:0;z-index:50';
+        opener.onclick = () => { void fetch('/api/agent-chat/resume', { method: 'POST', body: JSON.stringify({ chatId: 'chats:a' }) }); };
+        input.parentElement.append(opener);
+      });
+      const nativeInput = page.locator('#panel li input[type="text"]');
+      const inputHandle = await nativeInput.elementHandle();
+      assert(inputHandle, `${leg}: chats:a rename input is missing`);
+      const inputBox = await targetBox(nativeInput, `${leg}: chats:a rename input`);
+      const inputPoint = { x: inputBox.x + inputBox.width / 2, y: inputBox.y + inputBox.height / 2 };
+      if (touch) await page.touchscreen.tap(inputPoint.x, inputPoint.y);
+      else await page.mouse.click(inputPoint.x, inputPoint.y);
+      assert.equal(await page.evaluate(() => window.__chat.calls.resume), 0, `${leg}: rename input pointer opened the chat`);
+      await page.keyboard.press('ControlOrMeta+A');
+      await page.keyboard.type('Pointer input verified');
+      assert.equal(await nativeInput.inputValue(), 'Pointer input verified', `${leg}: native rename input lost typing`);
+      assert(await inputHandle.evaluate(el => el.isConnected && document.activeElement === el && el.value === 'Pointer input verified'), `${leg}: native rename input was replaced or lost focus/value`);
+      assert.equal(await page.evaluate(() => window.__chat.calls.resume), 0, `${leg}: rename input typing opened the chat`);
       await page.keyboard.press('Escape');
       await page.locator('#panel li input[type="text"]').waitFor({ state: 'detached' });
 
@@ -559,4 +613,5 @@ try {
 } finally {
   await browser?.close();
   await server.close();
+  await rm(cacheDir, { recursive: true, force: true });
 }

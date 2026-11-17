@@ -76,7 +76,15 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
     ? [{ role: 'user', content: 'Can we plan the next session?', seq: 1 },
        { role: 'assistant', content: 'Yes, let’s plan the next session.', seq: 2 }]
     : MESSAGES;
-  if (options.shortTitle && chats[1]) chats[1].title = 'Hi';
+  if (options.shortTitle) {
+    // Loc can change when a real node moves; this seeded fixture never moves
+    // its chats, so loc is stable here even if the seed array is reordered.
+    // The one-chat transcript-height seed has no chats:b; there shortTitle is a
+    // no-op, as it was on main. Every other seed must hold it.
+    const chat = chats.find(c => c.loc === 'chats:b');
+    if (!chat && !options.transcriptHeight) throw new Error('short-title fixture requires chats:b');
+    if (chat) chat.title = 'Hi';
+  }
   navigationCalls.length = 0;
   // The recorder only records. SvelteKit's replaceState also changes the
   // address, and AgentChat reads `window.location` live before each sync, so
