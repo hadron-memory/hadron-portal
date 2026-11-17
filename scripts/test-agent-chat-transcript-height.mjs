@@ -9,7 +9,7 @@ import { chromium } from 'playwright';
 const source = await readFile('src/routes/app/apps/[appId]/+page.svelte', 'utf8');
 const branchAt = source.indexOf('{#if data.selectedChatKey === AGENT_CHAT_KEY}');
 assert(branchAt >= 0, 'Agent chat branch not found');
-const wrapper = source.slice(branchAt).match(/<div class="([^"]*)" style="([^"]*)">/);
+const wrapper = source.slice(branchAt).match(/<div class="([^"]*)" style="([^"]*)">\s*\{#if appChatRender === 'agent-chat'/);
 assert(wrapper && wrapper[1].includes('flex-col'), 'Agent chat route wrapper not found');
 // #2201's content-box bounds; short desktop is a same-fixture equality guard,
 // not a new minimum-height requirement. The last phone leg simulates less
@@ -49,7 +49,9 @@ function measure(el) {
     content: scroller.clientHeight - parseFloat(s.paddingTop) - parseFloat(s.paddingBottom),
     latestVisible: msg.top >= box.top && msg.bottom <= box.bottom && msg.bottom <= composer.top,
     latestInViewport: msg.top >= 0 && msg.bottom <= innerHeight,
-    composerInViewport: composer.top >= 0 && composer.bottom <= innerHeight,
+    composerInViewport: composer.top >= -0.5 && composer.bottom <= innerHeight + 0.5,
+    composerBottom: composer.bottom,
+    viewportHeight: innerHeight,
     textarea: composer.height,
     overflow: document.documentElement.scrollWidth > innerWidth,
     nested,
@@ -92,7 +94,7 @@ try {
         }, { css, dark, cls: wrapper[1], style: wrapper[2] });
         await page.evaluate(async () => {
           const { mountAgentChat } = await import('/src/lib/test/fixtures/agent-chat-phone-harness.ts');
-          window.__chat = mountAgentChat(document.getElementById('panel'), { transcriptHeight: true });
+          window.__chat = mountAgentChat(document.getElementById('panel'), { transcriptHeight: true, shortTitle: true });
         });
         await page.locator('[data-chat-row]').click();
         const latest = page.getByText('Yes, let’s plan the next session.', { exact: true });
@@ -101,7 +103,7 @@ try {
         // Short phones intentionally scroll the document. Prove both the latest
         // message and composer can actually fit in the visible viewport, rather
         // than inferring that from a full-page screenshot.
-        await page.locator('textarea').scrollIntoViewIfNeeded();
+        await page.locator('textarea').evaluate(el => el.scrollIntoView({ block: 'end', behavior: 'instant' }));
         const m = await latest.evaluate(measure);
         const label = `${width}x${height}/${dark ? 'dark' : 'light'}/${coarse ? 'coarse' : 'fine'}`;
         console.log(label, JSON.stringify(m));

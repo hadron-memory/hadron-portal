@@ -76,7 +76,7 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
     ? [{ role: 'user', content: 'Can we plan the next session?', seq: 1 },
        { role: 'assistant', content: 'Yes, let’s plan the next session.', seq: 2 }]
     : MESSAGES;
-  if (options.shortTitle) chats[1].title = 'Hi';
+  if (options.shortTitle && chats[1]) chats[1].title = 'Hi';
   navigationCalls.length = 0;
   // The recorder only records. SvelteKit's replaceState also changes the
   // address, and AgentChat reads `window.location` live before each sync, so
