@@ -58,22 +58,46 @@ describe('task lookup response classification', () => {
     expect(isRedirect(failure)).toBe(false);
   });
 
-  it.each([401, 403, 500, 502, 503])('HTTP %i remains a failure for JSON and HTML bodies', async status => {
-    const bodies = [
-      { body: JSON.stringify({ data: { agentTask: null } }), contentType: 'application/json' },
-      { body: '<html><body>Synthetic upstream failure</body></html>', contentType: 'text/html' },
-    ];
-    for (const { body, contentType } of bodies) {
-      vi.stubGlobal('fetch', vi.fn(async () => new Response(body, {
-        status,
-        headers: { 'content-type': contentType },
-      })));
-      const failure = await rejection('?task=task-id');
-      expect(failure).toBeInstanceOf(ClientError);
-      expect((failure as ClientError).response.status).toBe(status);
-      expect(isHttpError(failure, 404)).toBe(false);
-      expect(isRedirect(failure)).toBe(false);
-    }
+  // portal#2159: every non-2xx upstream status is a failure with its HTTP
+  // status preserved — including 404, which the loader must never read as
+  // "task not found": only a parsed 200 carrying explicit null data maps to
+  // the 404 page (the case above). Each status × body pair is its own case,
+  // so a regression names the exact combination, and both JSON bodies make
+  // the policy assertions load-bearing: a loader that wrongly read the body
+  // of a failed response would take the null-task path (a 404 HttpError)
+  // for one and the redirect for the other.
+  it.each(
+    [400, 401, 403, 404, 429, 500, 502, 503].flatMap(status => [
+      [status, 'JSON null-task body', JSON.stringify({ data: { agentTask: null } }), 'application/json'],
+      [status, 'JSON redirect-worthy body', JSON.stringify({ data: { agentTask: { id: 'canonical-task', appId: 'canonical-app' } } }), 'application/json'],
+      [status, 'HTML body', '<html><body>Synthetic upstream failure</body></html>', 'text/html'],
+    ]),
+  )('HTTP %i with a %s remains a failure, never absence or a redirect', async (status, _label, body, contentType) => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(body, {
+      status,
+      headers: { 'content-type': contentType },
+    })));
+    const failure = await rejection('?task=task-id');
+    expect(failure).toBeInstanceOf(ClientError);
+    expect((failure as ClientError).response.status).toBe(status);
+    expect(isHttpError(failure, 404)).toBe(false);
+    expect(isRedirect(failure)).toBe(false);
+  });
+
+  // A 200 whose body is not a GraphQL document cannot become "task not
+  // found" either: absence requires explicit null data, so an unparseable
+  // success stays a failure the error boundary sees.
+  it.each([
+    ['HTML document', '<html><body>Synthetic gateway page</body></html>', 'text/html'],
+    ['empty body', '', 'text/plain'],
+  ])('HTTP 200 with an %s is a failure, never absence', async (_label, body, contentType) => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'content-type': contentType },
+    })));
+    const failure = await rejection('?task=task-id');
+    expect(isHttpError(failure, 404)).toBe(false);
+    expect(isRedirect(failure)).toBe(false);
   });
 
   it.each(['INTERNAL_SERVER_ERROR', 'TASK_HANDLE_QUALIFY'])('a GraphQL %s response remains an error, not null data', async code => {
