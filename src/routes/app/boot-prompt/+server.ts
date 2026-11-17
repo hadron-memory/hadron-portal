@@ -17,10 +17,14 @@ export const GET: RequestHandler = async ({ url, locals, setHeaders }) => {
   const client = gqlClient(locals.token);
   try {
     if (url.searchParams.has('node')) {
+      // portal#1754: a node ref is a primary key or a URN and the server's resolver sets no length bound,
+      // so only a blank value is malformed here. The trimmed value is what is checked AND what is forwarded.
+      const node = url.searchParams.get('node')!.trim();
+      if (!node) return json({ failed: true }, { status: 400 });
       const rev = Number(url.searchParams.get('revision'));
       const offset = Number(url.searchParams.get('offset') ?? 0);
       if (!Number.isInteger(rev) || rev < 1 || !Number.isInteger(offset) || offset < 0 || offset > 2147483647) return json({ failed: true }, { status: 400 });
-      return json({ page: await readProvenance(client, url.searchParams.get('node')!, rev, offset) });
+      return json({ page: await readProvenance(client, node, rev, offset) });
     }
     const owner = ownerOf(Object.fromEntries(url.searchParams));
     if (!owner) return json({ failed: true }, { status: 400 });
@@ -33,6 +37,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   if (mediaType !== 'application/json') return json({ ok: false }, { status: 415 });
   let body;
   try { body = await request.json(); } catch { return json({ ok: false }, { status: 400 }); }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return json({ ok: false }, { status: 400 });
   const owner = ownerOf(body.owner);
   if (!owner || !['compile', 'start', 'approve'].includes(body.intent)) return json({ ok: false }, { status: 400 });
   if (body.intent === 'approve' && (typeof body.nodeId !== 'string' || !Number.isInteger(body.revision) || body.revision < 1)) return json({ ok: false }, { status: 400 });
