@@ -35,6 +35,11 @@ const CHATS = [
     aiConfigChoice: null,
   },
 ];
+// portal#2201: the plain one-chat/two-message fixture of the report (no unbroken stress token).
+const PLAIN_MESSAGES = [
+  { role: 'user', content: 'Which weeks work best?', seq: 1, createdAt: '2026-11-01T00:00:00Z' },
+  { role: 'assistant', content: 'The latest plain reply, fully visible above the composer.', seq: 2, createdAt: '2026-11-01T00:01:00Z' },
+];
 const MESSAGES = [
   { role: 'assistant', content: 'Welcome! Which weeks work best for your team this spring?', seq: 1, createdAt: '2026-11-01T00:00:00Z' },
   { role: 'user', content: `Here is the reference you asked for: ${LONG_TOKEN}`, seq: 2, createdAt: '2026-11-01T00:01:00Z' },
@@ -70,7 +75,7 @@ const json = (body: unknown, status = 200) =>
  * of the chats, so the row actions can be driven end to end; their calls are
  * counted as `title` and `delete`, never as `writes`.
  */
-export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boolean; rowActions?: boolean; shortTitle?: boolean } = {}): AgentChatFixture {
+export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boolean; rowActions?: boolean; shortTitle?: boolean; plainMessages?: boolean } = {}): AgentChatFixture {
   const chats = CHATS.map((c) => ({ ...c }));
   if (options.shortTitle) chats[1].title = 'Hi';
   navigationCalls.length = 0;
@@ -113,7 +118,7 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
       const { chatId } = JSON.parse(String(init?.body ?? '{}'));
       const chat = chats.find((c) => c.loc === chatId);
       if (!chat) return json({ error: 'Chat not found' }, 404);
-      return json({ chat, messages: MESSAGES, hasOlder: false });
+      return json({ chat, messages: options.plainMessages ? PLAIN_MESSAGES : MESSAGES, hasOlder: false });
     }
     if (url.includes('/api/agent-chat/start')) {
       calls.start++;

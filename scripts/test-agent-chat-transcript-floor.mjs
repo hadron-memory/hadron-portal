@@ -5,6 +5,7 @@
 // the transcript scroller is the first overflow-y:auto ancestor of the first
 // message, and its CONTENT box is the client height minus its own padding.
 import assert from 'node:assert/strict';
+import { mkdir } from 'node:fs/promises';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
 
@@ -23,9 +24,10 @@ const server = await createServer({
   ],
 });
 
+const shots = process.env.TRANSCRIPT_SHOTS; // a directory: also write one screenshot per leg
 const MIN_CONTENT = 120; // the Ask: at 320x568 and 360x640
-const FIRST = 'Which weeks work best';
-const LAST = 'will use it for the schedule';
+const FIRST = 'Which weeks work best?';
+const LAST = 'The latest plain reply';
 const LEGS = [
   { name: '320x568', width: 320, height: 568, min: MIN_CONTENT },
   { name: '360x640', width: 360, height: 640, min: MIN_CONTENT },
@@ -72,7 +74,7 @@ try {
           }, { css, dark });
           await page.evaluate(async () => {
             const { mountAgentChat } = await import('/src/lib/test/fixtures/agent-chat-phone-harness.ts');
-            window.__chat = mountAgentChat(document.getElementById('panel'), {});
+            window.__chat = mountAgentChat(document.getElementById('panel'), { plainMessages: true });
           });
           break;
         } catch (e) {
@@ -106,6 +108,7 @@ try {
         };
       }, { FIRST, LAST });
       console.log(label, JSON.stringify(m));
+      if (shots) { await mkdir(shots, { recursive: true }); await page.screenshot({ path: `${shots}/${leg.name}-${dark ? 'dark' : 'light'}.png`, fullPage: true }); }
 
       const bad = [];
       if (leg.min !== undefined && m.content < leg.min) bad.push(`content ${m.content}px < ${leg.min}px`);
