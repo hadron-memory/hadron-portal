@@ -175,6 +175,14 @@
     turnErrorFromList = message !== null && fromList;
   }
 
+  /** One place for the stage toast's words: the visible line and its `title` read the same string (portal#2184). */
+  function stageToastText(toast: { from: string; to: string }): string {
+    return t('agent-chat.stage-toast', 'Stage transitioned: {from} → {to}', {
+      from: toast.from || t('agent-chat.stage-toast.start', '(start)'),
+      to: toast.to
+    });
+  }
+
   // Recent stage-transition toast
   let stageToast = $state<{ from: string; to: string } | null>(null);
 
@@ -577,7 +585,7 @@
       notes.push({ tone: 'good', text: stage ? t('agent-chat.progress.detour-returned', 'Back to {where}', { where: stage }) : t('agent-chat.progress.detour-returned-plain', 'Back to where we were') });
     }
     if (typeof body.rejectedNextStage === 'string' && body.rejectedNextStage) {
-      notes.push({ tone: 'neutral', text: t('agent-chat.progress.stage-refused', 'Couldn\'t move to "{name}", so we\'re staying on this step.', { name: body.rejectedNextStage }) });
+      notes.push({ tone: 'neutral', text: t('agent-chat.progress.stage-refused', 'Staying on this step, and your message is saved. Couldn\'t move to "{name}".', { name: body.rejectedNextStage }) });
     }
     progressNotice = notes.length ? { chatId, notes } : null;
   }
@@ -1094,15 +1102,15 @@
       </header>
 
       {#if stageToast}
-        <div data-testid="stage-toast" title={`Stage transitioned: ${stageToast.from || '(start)'} → ${stageToast.to}`} class="mx-4 mt-1.5 truncate rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
-          Stage transitioned: <strong>{stageToast.from || '(start)'}</strong> → <strong>{stageToast.to}</strong>
+        <div data-testid="stage-toast" title={stageToastText(stageToast)} class="mx-4 mt-1.5 line-clamp-2 break-words rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
+          {stageToastText(stageToast)}
         </div>
       {/if}
 
       <div role="status" data-testid="chat-progress-notice" class={progressNotice && progressNotice.chatId === activeChatId ? 'mx-4 mt-1.5 space-y-1' : 'sr-only'}>
         {#if progressNotice && progressNotice.chatId === activeChatId}
           {#each progressNotice.notes as note}
-            <p data-testid="chat-progress-note" title={note.text} class="truncate rounded-md border px-3 py-1 text-xs {note.tone === 'good' ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200' : 'border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300'}">{note.text}</p>
+            <p data-testid="chat-progress-item" title={note.text} class="line-clamp-2 break-words rounded-md border px-3 py-1 text-xs {note.tone === 'good' ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200' : 'border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300'}">{note.text}</p>
           {/each}
         {/if}
       </div>
