@@ -2332,7 +2332,14 @@
          under a phone browser's address bar; the `vh` line before it is the
          fallback for browsers without `dvh`. Same pattern, same reason as the
          sidebar in src/routes/app/+layout.svelte. -->
-    <div class="flex flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
+    <!-- #2201: reserve transcript space on short phones without hiding controls.
+         In the normal app shell, the chat crosses @2xl (672px) at viewport
+         948px: the nav/gutters use the other 276px. Scope the floor below that
+         switch; short desktops keep the original viewport height (Peter #111914).
+         With #2171 merged, fine-pointer chrome at 320x568 uses 405px.
+         A 560px floor leaves a 155px scroller and 123px content after its
+         32px padding, above the 120px transcript gate. -->
+    <div class="flex max-[948px]:min-h-[560px] flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
       {#if appChatRender === 'agent-chat' && app.agentId}
         <div class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
           <AgentChat
