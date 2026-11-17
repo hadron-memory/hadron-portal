@@ -269,7 +269,9 @@ export async function loadComposition(client: GraphQLClient, appRef: string): Pr
  * `resolveSegment`, and the server's resolver answers; a task that is missing,
  * unreadable (answered null or refused) or another App's is the same 404. A
  * transport failure or unknown fault is thrown as is. The raw segment is never
- * a mutation identity.
+ * a mutation identity. portal#2202: that 404's message is the bare
+ * "Task not found" — the refusal wording's no-oracle posture (portal#2161
+ * Ask 3), now converged on every task-surface 404.
  */
 export async function canonicalTaskId(client: GraphQLClient, appId: string, segment: string): Promise<string> {
   return (await canonicalTaskRef(client, appId, segment)).taskId;
@@ -284,16 +286,16 @@ export async function canonicalTaskRef(client: GraphQLClient, appId: string, seg
   const app = await loadTasksApp(client, appId);
   if (!app) throw error(404, 'App not found');
   const seg = resolveSegment(segment, app.urn);
-  if (seg.kind === 'unknown') throw error(404, 'Task not found, or you can’t see it');
+  if (seg.kind === 'unknown') throw error(404, 'Task not found');
   let r: { agentTask: { id: string; appId: string } | null };
   try {
     r = await client.request(AGENT_TASK_REF_QUERY, { id: seg.ref });
   } catch (e) {
     // A refusal is the same 404 as a null answer; any other failure is the caller's to classify.
-    if (TASK_REF_REFUSALS.has(extractGqlErrorCode(e) ?? '')) throw error(404, 'Task not found, or you can’t see it');
+    if (TASK_REF_REFUSALS.has(extractGqlErrorCode(e) ?? '')) throw error(404, 'Task not found');
     throw e;
   }
-  if (!r.agentTask || r.agentTask.appId !== app.id) throw error(404, 'Task not found, or you can’t see it');
+  if (!r.agentTask || r.agentTask.appId !== app.id) throw error(404, 'Task not found');
   return { appId: app.id, taskId: r.agentTask.id };
 }
 

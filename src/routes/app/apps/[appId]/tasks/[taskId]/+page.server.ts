@@ -62,10 +62,10 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   // forwarded to the server's own resolver; another App's qualified handle is
   // unknown before any task read, same as a task that does not exist.
   const seg = resolveSegment(params.taskId, app.urn);
-  if (seg.kind === 'unknown') throw error(404, 'Task not found, or you can’t see it');
+  if (seg.kind === 'unknown') throw error(404, 'Task not found');
   const taskData = await client.request<{ agentTask: AgentTaskDetail | null }>(AGENT_TASK_DETAIL_QUERY, { id: seg.ref });
   const task = taskData.agentTask;
-  if (!task) throw error(404, 'Task not found, or you can’t see it');
+  if (!task) throw error(404, 'Task not found');
 
   // A task resolves by id alone; one reached under another App's URL moves to
   // its own (the runs/[runId] pattern).
