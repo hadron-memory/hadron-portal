@@ -194,7 +194,13 @@ describe('kimi (#2138)', () => {
     });
     const overrideAfterTest = async (root: HTMLElement) => {
       await performAction(root, 'Test');
-      return posts.find((p) => p.action === 'testSaved')!.override as Record<string, unknown>;
+      const post = posts.find((p) => p.action === 'testSaved');
+      expect(post, 'Test should have posted testSaved').toBeDefined();
+      return post!.override as Record<string, unknown>;
+    };
+    const flip = async (root: HTMLElement, provider: string) => {
+      set($<HTMLSelectElement>(root, '#ac-provider')!, provider);
+      await settle();
     };
 
     it('an unchanged padded kimi model sends no model override', async () => {
@@ -210,6 +216,7 @@ describe('kimi (#2138)', () => {
       editRow(root);
       await settle();
       set($<HTMLInputElement>(root, '#ac-model')!, '  kimi-k4 ');
+      await settle();
       expect((await overrideAfterTest(root)).model).toBe('  kimi-k4 ');
     });
 
@@ -218,8 +225,48 @@ describe('kimi (#2138)', () => {
       editRow(root);
       await settle();
       set($<HTMLInputElement>(root, '#ac-model')!, '  glm-6 ');
+      await settle();
       expect((await overrideAfterTest(root)).model).toBe('glm-6');
     });
+
+    it('switching a padded kimi config to another provider trims the model (live provider rules)', async () => {
+      const root = await open({ configs: [saved({})] });
+      editRow(root);
+      await settle();
+      await flip(root, 'openai');
+      const o = await overrideAfterTest(root);
+      expect(o.provider).toBe('openai');
+      expect(o.model).toBe('kimi-k3');
+    });
+
+    it('switching a padded non-kimi config to kimi sends the model verbatim', async () => {
+      const root = await open({ configs: [config({ provider: 'glm', model: 'glm-5' })] });
+      editRow(root);
+      await settle();
+      set($<HTMLInputElement>(root, '#ac-model')!, '  kimi-k3 ');
+      await flip(root, 'kimi');
+      const o = await overrideAfterTest(root);
+      expect(o.provider).toBe('kimi');
+      expect(o.model).toBe('  kimi-k3 ');
+    });
+
+    for (const [label, cfg] of [
+      ['kimi', saved({})],
+      ['non-kimi', config({ provider: 'glm', model: 'glm-5' })],
+    ] as const) {
+      it(`a cleared or whitespace-only model on a ${label} config is refused like Save, with no test post`, async () => {
+        for (const blank of ['', '   ']) {
+          const root = await open({ configs: [cfg] });
+          editRow(root);
+          await settle();
+          set($<HTMLInputElement>(root, '#ac-model')!, blank);
+          await settle();
+          await performAction(root, 'Test');
+          expect(root.textContent).toContain(aiConfigStrings.modelRequired());
+          expect(posts.filter((p) => p.action === 'testSaved')).toHaveLength(0);
+        }
+      });
+    }
   });
 
   it('a saved kimi config whose model equals the offered default keeps it when the provider is switched away', async () => {
