@@ -267,7 +267,8 @@
       name: g.name,
       urn: g.urn,
       section: 'personal' as const,
-      badge: g.class === 'private' ? 'Private' : 'Personal',
+      // #2140: the caller's own org-less system memory lands here too.
+      badge: g.class === 'private' ? 'Private' : g.class === 'system' ? 'System' : 'Personal',
       storage: null,
       branch: null,
       lastSyncedAt: null,

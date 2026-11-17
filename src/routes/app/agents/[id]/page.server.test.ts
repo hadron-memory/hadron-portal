@@ -1,4 +1,5 @@
 import { AGENT_EXTENSIONS_QUERY, AGENT_SYSTEM_MEMORY_IDENTITY_QUERY } from '$lib/server/agent-profile';
+import { TESTER_OWNED_AGENT_IDS_QUERY } from '$lib/server/agent-tester/link-eligibility';
 import { SELF_AGENT_MANAGE_QUERY, AGENT_INDEX_REFS_QUERY } from '$lib/server/agent-inheritance-write';
 /**
  * Spec 018 — /app/agents/[id] detail-page loader tests.
@@ -12,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { parse, visit, type FieldNode, type SelectionSetNode } from 'graphql';
 import {
   AGENT_QUERY,
+  SELF_CAN_MANAGE_QUERY,
   ORGANIZATIONS_QUERY,
   ORGANIZATION_QUERY,
   ORG_SYSTEM_MEMORIES_QUERY,
@@ -215,6 +217,24 @@ const publicPersonalAgent = { ...personalAgent, id: 'agent-public', visibility: 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe('/app/agents/[id] loader', () => {
+  it.each([false, true])('#2100: keeps management separate from Tester owner eligibility (owned=%s)', async (owned) => {
+    routeMock({ agent: { data: { agent: personalAgent } } });
+    const fallback = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation(async (query, vars) => {
+      if (query === SELF_CAN_MANAGE_QUERY) return { effectiveAccess: { canManage: true } };
+      if (query === TESTER_OWNED_AGENT_IDS_QUERY) {
+        return { agents: { items: owned ? [{ id: personalAgent.id }] : [], total: owned ? 1 : 0 } };
+      }
+      return fallback(query, vars);
+    });
+    const event = ev({ agentId: personalAgent.id });
+    Object.assign(event.locals, { user: { id: 'viewer', roles: ['ADMIN'] } });
+    const result = await (await importLoad())(event) as { canManageAgent: boolean; canOpenTester: boolean };
+    expect(result.canManageAgent).toBe(true);
+    expect(result.canOpenTester).toBe(owned);
+    expect(mockRequest).toHaveBeenCalledWith(TESTER_OWNED_AGENT_IDS_QUERY, { limit: 200, offset: 0 });
+  });
+
   it('#1226: a failed Nodes-tab read (any page) is agentNodesError, not an empty memory', async () => {
     routeMock({
       agent: { data: { agent: { ...agentInA, memoryItems: [{ memory: { id: 'mem-1' }, role: 'read' }] } } },

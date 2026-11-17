@@ -19,7 +19,7 @@ vi.mock('$lib/server/agent-tasks', () => ({
   loadTree: async () => [], loadHistory: async () => [], loadReview: async () => ({ kind: 'ok', value: { readiness: null, seat: null } }),
   loadAncestors: async () => ({ ancestors: [], truncated: false }), canonicalTaskId: (id: string) => id, loadReferences: async () => [],
 }));
-vi.mock('$lib/server/task-planning', () => ({ taskDependencies: async () => [] }));
+vi.mock('$lib/server/task-planning', () => ({ taskDependencies: async () => [], taskClonesPage: async () => ({ kind: 'ok', value: { items: [], total: 0, hasMore: false } }) }));
 const locals = { token: 't', user: { id: 'u1', name: 'U' }, impersonation: undefined };
 const run = async () => { const { load } = await import('./[taskId]/+page.server'); return (await load({ params: { appId: 'app-1', taskId: 'x' }, locals, url: new URL('https://x/') } as never)) as { findings: Promise<unknown> }; };
 beforeEach(() => { request.mockClear(); vi.spyOn(console, 'warn').mockImplementation(() => {}); });
