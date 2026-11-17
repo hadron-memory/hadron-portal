@@ -2323,7 +2323,12 @@
          under a phone browser's address bar; the `vh` line before it is the
          fallback for browsers without `dvh`. Same pattern, same reason as the
          sidebar in src/routes/app/+layout.svelte. -->
-    <div class="flex flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
+    <!-- #2201: the header, AI row and composer must leave a readable transcript even
+         on short phones (including the narrow column beside the menu opener). The
+         544px floor reserves 152px of transcript + padding after the fixed chrome,
+         with room for the pending #2171 fine-pointer hint. It grows the document,
+         rather than hiding controls or adding another scroll container; taller viewports retain the existing height. -->
+    <div class="flex min-h-[544px] flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
       {#if appChatRender === 'agent-chat' && app.agentId}
         <div class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
           <AgentChat

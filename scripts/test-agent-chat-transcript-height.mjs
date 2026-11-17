@@ -41,7 +41,9 @@ try {
         document.documentElement.classList.toggle('dark', dark);
         document.body.className = 'bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
         document.body.innerHTML = `<div class="flex gap-4 px-4 py-8 sm:gap-8 sm:px-6">
-          <aside class="w-48 shrink-0 hidden sm:flex">Nav</aside><div class="min-w-0 flex-1">
+          <aside class="w-48 shrink-0 hidden sm:flex">Nav</aside>
+          <button class="self-start rounded-md border p-2 sm:hidden" aria-label="Expand menu"><svg width="16" height="16"></svg></button>
+          <div class="min-w-0 flex-1">
           <div id="chat-wrapper" class="${cls}" style="${style}"><div id="panel" class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden"></div></div></div></div>`;
       }, { css, dark, cls: wrapper[1], style: wrapper[2] });
       await page.evaluate(async () => {
@@ -75,7 +77,21 @@ try {
       assert(m.latestVisible, `${label}: latest message clipped`);
       assert.equal(m.textarea, 58, `${label}: composer height changed`);
       assert.equal(m.overflow, false, `${label}: horizontal overflow`);
-      if (width === 948) { assert.equal(m.panel, 620); assert.equal(m.scroller, 362); }
+      if (width === 948) {
+        assert.equal(m.panel, 620);
+        // Compare this exact fixture with the floor disabled: changing message metadata
+        // must not turn an unchanged desktop into a false failure of a historic px table.
+        const before = await page.evaluate(() => {
+          const wrapper = document.getElementById('chat-wrapper');
+          wrapper.style.minHeight = '0px';
+          const panel = wrapper.getBoundingClientRect().height;
+          const transcript = [...document.querySelectorAll('#panel main *')].find(el => ['auto', 'scroll'].includes(getComputedStyle(el).overflowY));
+          const scroller = transcript.clientHeight;
+          wrapper.style.removeProperty('min-height');
+          return { panel, scroller };
+        });
+        assert.deepEqual(before, { panel: m.panel, scroller: m.scroller }, `${label}: desktop changed`);
+      }
       assert(await page.getByLabel('AI config').isVisible(), `${label}: AI config hidden`);
       assert(await page.getByRole('button', { name: 'Send', exact: true }).isVisible(), `${label}: Send hidden`);
       assert.deepEqual(errors, [], `${label}: browser diagnostics`);
