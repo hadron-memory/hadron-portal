@@ -269,9 +269,10 @@ export async function loadComposition(client: GraphQLClient, appRef: string): Pr
  * `resolveSegment`, and the server's resolver answers; a task that is missing,
  * unreadable (answered null or refused) or another App's is the same 404. A
  * transport failure or unknown fault is thrown as is. The raw segment is never
- * a mutation identity. portal#2202: that 404's message is the bare
- * "Task not found" — the refusal wording's no-oracle posture (portal#2161
- * Ask 3), now converged on every task-surface 404.
+ * a mutation identity. Every task 404 here carries the bare message
+ * "Task not found" (portal#2202): the refusal wording's no-oracle posture
+ * (portal#2161 Ask 3) — while the App 404 keeps its own distinct message,
+ * because it names a different resource that is genuinely absent.
  */
 export async function canonicalTaskId(client: GraphQLClient, appId: string, segment: string): Promise<string> {
   return (await canonicalTaskRef(client, appId, segment)).taskId;
