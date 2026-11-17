@@ -160,6 +160,39 @@ describe('memory subscriptions subscribe action', () => {
     });
   });
 
+  it.each([
+    ['SUBSCRIPTION_REQUIRES_PUBLIC_MEMORY', /Only a public memory/],
+    ['OWNER_ORG_CANNOT_SUBSCRIBE', /owns this memory cannot subscribe/],
+  ])('maps %s to its own message and a 400, not a 500', async (code, text) => {
+    mockRequest.mockRejectedValueOnce(Object.assign(new Error('outer'), {
+      response: { errors: [{ message: 'server prose', extensions: { code } }] },
+    }));
+    const result = await runSubscribe({ orgId: 'org-1', role: 'READER' });
+    expect(result).toMatchObject({ status: 400 });
+    const msg = superFormFrom(result)?.message as { type: string; text: string };
+    expect(msg.type).toBe('error');
+    expect(msg.text).toMatch(text);
+    expect(msg.text).not.toBe('Something went wrong on our side.');
+  });
+
+  it('keeps the hidden-memory miss as the generic not-found text', async () => {
+    mockRequest.mockRejectedValueOnce(Object.assign(new Error('outer'), {
+      response: { errors: [{ message: 'Memory not found', extensions: { code: 'NOT_FOUND' } }] },
+    }));
+    const result = await runSubscribe({ orgId: 'org-1', role: 'READER' });
+    expect(result).toMatchObject({ status: 400 });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Memory not found' });
+  });
+
+  it('keeps an unrecognised failure a 500 with the generic text', async () => {
+    mockRequest.mockRejectedValueOnce(Object.assign(new Error('outer'), {
+      response: { errors: [{ message: 'boom', extensions: { code: 'SOMETHING_NEW' } }] },
+    }));
+    const result = await runSubscribe({ orgId: 'org-1', role: 'READER' });
+    expect(result).toMatchObject({ status: 500 });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
+  });
+
   it('returns GraphQL failures as Superforms messages', async () => {
     mockRequest.mockRejectedValueOnce(Object.assign(new Error('outer'), {
       response: { errors: [{ message: 'Subscription already exists' }] },
