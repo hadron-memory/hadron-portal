@@ -85,6 +85,34 @@ describe('task search results', () => {
     mockRequest.mockResolvedValueOnce({ agentTask: null });
     await expect((await importLoad())(ev('/app/search?task=missing'))).rejects.toMatchObject({ status: 404 });
   });
+  // portal#2177: a schema-violating 200 success is a failure, never a 404 and never a redirect built from a missing appId.
+  describe('a schema-violating success is a failure', () => {
+    const isHttpErrorOrRedirect = (e: unknown) => typeof e === 'object' && e !== null && ('status' in e || 'location' in e);
+    for (const [name, payload] of [
+      ['data without the agentTask key', {}],
+      ['a task without appId', { agentTask: { id: 'task-id' } }],
+      ['a task with an empty appId', { agentTask: { id: 'task-id', appId: '' } }],
+      ['a task with a non-string appId', { agentTask: { id: 'task-id', appId: 7 } }],
+      ['a task without id', { agentTask: { appId: 'app-1' } }],
+      ['a task with an empty id', { agentTask: { id: '', appId: 'app-1' } }],
+      ['a task that is not an object', { agentTask: 'task-id' }],
+    ] as const) {
+      it(`${name} throws a plain failure: no 404, no redirect`, async () => {
+        mockRequest.mockResolvedValueOnce(payload);
+        const failure = await Promise.resolve((await importLoad())(ev('/app/search?task=task-id'))).catch((e: unknown) => e);
+        expect(failure).toBeInstanceOf(Error);
+        expect(isHttpErrorOrRedirect(failure)).toBe(false);
+      });
+    }
+  });
+  it('does not require the returned id to equal ?task=: a short handle resolves to the real id', async () => {
+    mockRequest.mockResolvedValueOnce({ agentTask: { id: 'real-id', appId: 'app-1' } });
+    await expect((await importLoad())(ev('/app/search?task=AT0.6508'))).rejects.toMatchObject({ status: 307, location: '/app/apps/app-1/tasks/real-id' });
+  });
+  it('encodes the returned appId and id as before', async () => {
+    mockRequest.mockResolvedValueOnce({ agentTask: { id: 'a/b', appId: 'c d' } });
+    await expect((await importLoad())(ev('/app/search?task=x'))).rejects.toMatchObject({ status: 307, location: '/app/apps/c%20d/tasks/a%2Fb' });
+  });
   it('a task lookup outage stays an outage, never a false not-found', async () => {
     const fault = new Error('transport failure'); mockRequest.mockRejectedValueOnce(fault);
     await expect((await importLoad())(ev('/app/search?task=task-id'))).rejects.toBe(fault);
