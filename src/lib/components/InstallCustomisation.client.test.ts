@@ -160,7 +160,7 @@ describe('install customisation panel', () => {
     twoRows.list.value!.nodes = [node, { ...node, id: 'n2', loc: 'other', name: 'Other' }];
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(twoRows))));
     const root = await panel();
-    const input = root.querySelector<HTMLInputElement>('input[aria-label="Search customisations"]')!;
+    const input = root.querySelector<HTMLInputElement>('input[aria-label="Search the customisations on this page"]')!;
     expect(root.querySelectorAll('tbody tr')).toHaveLength(2);
     input.value = 'note'; input.dispatchEvent(new Event('input', { bubbles: true })); await tick();
     expect(root.querySelectorAll('tbody tr')).toHaveLength(1);
@@ -493,7 +493,7 @@ describe('late save reply fence (#1368)', () => {
     await settle();
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(reads);
     expect(m.target.textContent).not.toContain('Saved.');
-    expect(m.target.querySelector('[role="status"]')).toBeNull();
+    expect(m.target.querySelector('[role="status"][data-feedback]')?.textContent).toBe('');
     expect(m.target.querySelector('textarea')?.value).toBe('saved for A');
   });
   it('drops a refusal that lands after the target changed', async () => {
@@ -510,7 +510,7 @@ describe('late save reply fence (#1368)', () => {
     await settle();
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(reads);
     expect(m.target.textContent).not.toContain('Changed for A');
-    expect(m.target.querySelector('[role="alert"]')).toBeNull();
+    expect(m.target.querySelector('[role="alert"][data-feedback]')?.textContent).toBe('');
   });
   it('control: the same reply on an unchanged target is shown and reloads', async () => {
     let reply!: (r: Response) => void;
@@ -533,6 +533,155 @@ describe('late save reply fence (#1368)', () => {
     await settle();
     expect(root.textContent).toContain('Saved.');
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(reads + 1);
+  });
+});
+
+describe('install customisation polish (#1369)', () => {
+  const listOf = (total: number, nodes = [node]) => ({
+    list: {
+      state: 'ok',
+      value: { memoryId: 'mem', urn: 'hrn:mem:acme.com:install', nodes, total, offset: 0 },
+    },
+    replacement: { state: 'not-shown' },
+    original: { state: 'not-shown' },
+  });
+  const serve = (body: unknown) =>
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body))));
+
+  it('counts one customisation in the singular', async () => {
+    serve(listOf(1));
+    const root = await panel();
+    expect(root.textContent).toContain('1 customisation');
+    expect(root.textContent).not.toContain('1 customisations');
+  });
+
+  it('names the loaded range out of the server total, so disabled paging is explained in text', async () => {
+    serve(listOf(25));
+    const root = await panel();
+    expect(root.textContent).toContain('Loaded 1–1 of 25 customisations');
+  });
+
+  it.each([0, 20, 40])('uses one pager for the entire loaded batch at offset %s (UX F1)', async (targetOffset) => {
+    vi.stubGlobal('fetch', vi.fn(async (input) => {
+      const offset = Number(new URL(String(input), 'https://example.test').searchParams.get('offset') ?? 0);
+      const nodes = Array.from({ length: Math.min(20, 45 - offset) }, (_, i) => ({
+        ...node, id: `n-${offset + i + 1}`, name: `Customisation ${offset + i + 1}`,
+        loc: `custom:${offset + i + 1}`, urn: `hrn:node:acme.com:install:custom:${offset + i + 1}`,
+      }));
+      const response = listOf(45, nodes);
+      response.list.value.offset = offset;
+      return new Response(JSON.stringify(response));
+    }));
+    const root = await panel();
+    for (let offset = 0; offset < targetOffset; offset += 20) {
+      button(root, 'Next').click();
+      await settle();
+    }
+    const loaded = Math.min(20, 45 - targetOffset);
+    // A loaded batch is already paged: a second client pager hid half its rows.
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(loaded);
+    expect(root.querySelector('[data-testid="table-footer"]')).toBeNull();
+    for (const label of ['Previous', 'Next']) {
+      expect([...root.querySelectorAll('button')].filter(b => b.textContent?.trim() === label)).toHaveLength(1);
+    }
+    expect(root.textContent).toContain(`Loaded ${targetOffset + 1}–${targetOffset + loaded} of 45 customisations`);
+    expect(button(root, 'Previous').disabled).toBe(targetOffset === 0);
+    expect(button(root, 'Next').disabled).toBe(targetOffset + loaded >= 45);
+    const search = root.querySelector<HTMLInputElement>('input[type="text"]')!;
+    search.value = 'no-such-customisation';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(4);
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(0);
+    // Loaded describes the fetched batch, rather than claiming these are visible matches.
+    expect(root.textContent).toContain(`Loaded ${targetOffset + 1}–${targetOffset + loaded} of 45 customisations`);
+  });
+
+  it('scopes search to the loaded page in its accessible name', async () => {
+    const root = await panel();
+    const search = root.querySelector<HTMLInputElement>('input[type="text"]')!;
+    expect(search.getAttribute('aria-label')).toBe('Search the customisations on this page');
+  });
+
+  it('filters the loaded rows by the search text (QA #1508 F1)', async () => {
+    const other = { ...node, id: 'n2', loc: 'boot', name: 'Boot prompt' };
+    serve(listOf(2, [node, other]));
+    const root = await panel();
+    const search = root.querySelector<HTMLInputElement>('input[type="text"]')!;
+    const rowNames = () =>
+      [...root.querySelectorAll('tbody tr')].map((r) => r.textContent ?? '');
+    expect(rowNames()).toHaveLength(2);
+    search.value = 'boot';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(4);
+    expect(rowNames()).toHaveLength(1);
+    expect(rowNames()[0]).toContain('Boot prompt');
+    search.value = 'no-such-customisation';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(4);
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(0);
+  });
+
+  it('names each row action with the row it opens', async () => {
+    const root = await panel();
+    expect(button(root, 'Open').getAttribute('aria-label')).toBe('Open Note (note)');
+  });
+
+  it('shows read-only guidance only for an explicit non-manager', async () => {
+    const sentence = 'You can view these customisations. Only someone who manages this App can change them.';
+    expect((await panel(false)).textContent).toContain(sentence);
+    expect((await panel(null)).textContent).not.toContain(sentence);
+    expect((await panel(true)).textContent).not.toContain(sentence);
+  });
+
+  it('keeps both feedback regions mounted and empty before a save, and fills the same nodes', async () => {
+    let reject = true;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, options) =>
+        options?.method === 'POST'
+          ? new Response(JSON.stringify(reject ? {
+              type: 'failure',
+              status: 409,
+              data: { customisationFailed: { code: 'unavailable', detail: 'Gone.' } },
+            } : { type: 'success', status: 200 }))
+          : new Response(JSON.stringify(payload())),
+      ),
+    );
+    const root = await panel();
+    button(root, 'Open').click();
+    await settle();
+    const status = root.querySelector<HTMLElement>('section [role="status"][data-feedback]');
+    const alert = root.querySelector<HTMLElement>('section [role="alert"][data-feedback]');
+    expect(status?.textContent).toBe('');
+    expect(alert?.textContent).toBe('');
+    await edit(root, 'my draft');
+    submit(root);
+    await settle();
+    expect(root.querySelector('section [role="alert"][data-feedback]')).toBe(alert);
+    expect(alert?.textContent).toBe('Gone.');
+    expect(status?.textContent).toBe('');
+    reject = false;
+    submit(root);
+    await settle();
+    expect(root.querySelector('section [role="status"][data-feedback]')).toBe(status);
+    expect(root.querySelector('section [role="alert"][data-feedback]')).toBe(alert);
+    expect(status?.textContent).toBe('Saved.');
+    expect(alert?.textContent).toBe('');
+  });
+
+  it.each([['loc', 0], ['name', 1]] as const)('treats a typed %s with unchanged empty content as unsaved', async (_field, index) => {
+    const root = await panel();
+    button(root, 'Start customising').click();
+    await settle();
+    const locInput = root.querySelectorAll<HTMLInputElement>('form input')[index]!;
+    locInput.value = 'boot:extra';
+    locInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    button(root, 'Next').click();
+    await settle();
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(root.querySelectorAll<HTMLInputElement>('form input')[index]?.value).toBe('boot:extra');
   });
 });
 

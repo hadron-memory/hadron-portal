@@ -621,3 +621,44 @@ describe('TaskActionBar', () => {
     });
   });
 });
+
+// portal#2161 — the Clone link: a create offered beside the state's actions on every status
+// (replacing an ended task is what the action is for), never one of them and never a panel.
+// The page withholds it from AT0 (no bar at all) and from a support session; those gates are
+// pinned here at the bar's own contract: no href, no link.
+describe('TaskActionBar: Clone (portal#2161)', () => {
+  const href = '/app/apps/app-1/tasks/new?from=t1';
+  const cloneLink = (root: HTMLElement) => root.querySelector<HTMLAnchorElement>('a[data-testid="task-clone"]');
+
+  it('a finished task with no state actions offers Clone beside the ended note', async () => {
+    const root = await mountBar({ status: 'FINISHED', finishedAt: '2026-11-01T00:00:00Z' }, { cloneHref: href });
+    expect(cloneLink(root)?.getAttribute('href')).toBe(href);
+    expect(cloneLink(root)?.textContent?.trim()).toBe('Clone');
+    expect(root.textContent).toContain('An ended task can’t be changed.');
+  });
+
+  it('a cancelled task offers Clone the same way', async () => {
+    const root = await mountBar({ status: 'CANCELLED', cancelledAt: '2026-11-01T00:00:00Z' }, { cloneHref: href });
+    expect(cloneLink(root)?.getAttribute('href')).toBe(href);
+    expect(root.textContent).toContain('An ended task can’t be changed.');
+  });
+
+  it('a live task offers Clone in the actions row, beside them rather than among them', async () => {
+    const root = await mountBar({}, { cloneHref: href });
+    const row = root.querySelector('[data-testid="task-actions"]');
+    expect(row).not.toBeNull();
+    expect(row!.contains(cloneLink(root))).toBe(true);
+    expect([...root.querySelectorAll<HTMLButtonElement>('[data-testid="task-actions"] button')].some((b) => b.textContent?.trim() === 'Clone')).toBe(false);
+  });
+
+  it('no cloneHref, no link', async () => {
+    const root = await mountBar({ status: 'FINISHED', finishedAt: '2026-11-01T00:00:00Z' });
+    expect(cloneLink(root)).toBeNull();
+  });
+
+  it('an impersonation session sees no Clone link', async () => {
+    const root = await mountBar({}, { cloneHref: href, canWrite: false, impersonating: 'Mike' });
+    expect(cloneLink(root)).toBeNull();
+    expect(root.textContent).toContain('Viewing as Mike');
+  });
+});

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import WorkerLeaveAlone from './WorkerLeaveAlone.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import WorkerProfile from '$lib/components/WorkerProfile.svelte';
@@ -418,6 +419,16 @@
         />
       {/key}
     {/if}
+
+    <!-- portal#2194: the sweep leave-alone marker. Null = withheld (profile tier), so nothing renders. -->
+    {#key data.worker.id}
+      <WorkerLeaveAlone
+        ownerId={data.worker.id}
+        marker={worker.leaveAlone == null ? null : { on: worker.leaveAlone, reason: worker.leaveAloneReason ?? null, by: data.leaveAloneByHandle ? `@${data.leaveAloneByHandle}` : (worker.leaveAloneBy ?? null), at: worker.leaveAloneAt ?? null }}
+        canManage={data.canManageWorkerApp === true && !data.impersonation}
+        {retired}
+      />
+    {/key}
 
     {#if isHeld(hold)}
       <!-- The consequence a reader cannot infer from "held": a name is a person's

@@ -52,6 +52,21 @@ describe('/api/nodes/search (#429)', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  // #1929 BLIND P2: a server-paged browser that narrows memoryIds to a chosen
+  // memory has no query and no filter, but is not a bare browse of loaded rows.
+  it('runs a scoped browse when the caller narrowed the memory scope (scopedBrowse)', async () => {
+    mockRequest.mockResolvedValue(findNodesResult(1, 1));
+    const res = await POST(ev({ memoryIds: ['m2'], scopedBrowse: true, sort: 'loc' }));
+    expect((await res.json()).nodes).toHaveLength(1);
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ memoryIds: ['m2'], query: null });
+  });
+  it('ignores a non-boolean scopedBrowse, so a bare browse stays local', async () => {
+    const res = await POST(ev({ memoryIds: ['m2'], scopedBrowse: 'yes' }));
+    expect(await res.json()).toEqual({ nodes: [], total: null });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('forwards createdBy ("my nodes") with no query as a filter-only list', async () => {
     mockRequest.mockResolvedValue(findNodesResult(2, 2));
     const res = await POST(ev({ memoryIds: ['m1'], filter: { createdBy: 'u1' } }));
@@ -60,6 +75,22 @@ describe('/api/nodes/search (#429)', () => {
     expect(body.total).toBe(2);
     const vars = mockRequest.mock.calls[0][1];
     expect(vars).toMatchObject({ createdBy: 'u1', query: null, mode: null, memoryIds: ['m1'] });
+  });
+
+  it('forwards nodeTypes and tags as whole-scope filter-only dimensions', async () => {
+    mockRequest.mockResolvedValue(findNodesResult(1, 1));
+    await POST(ev({ memoryIds: ['m1'], filter: { nodeTypes: ['task'], tags: ['beta'] } }));
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({
+      nodeTypes: ['task'], tags: ['beta'], query: null, mode: null, memoryIds: ['m1'],
+    });
+  });
+
+  it('rejects more than 20 distinct node types instead of silently dropping a selection', async () => {
+    const nodeTypes = Array.from({ length: 21 }, (_, i) => `type-${i}`);
+    const res = await POST(ev({ memoryIds: ['m1'], filter: { nodeTypes } }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'At most 20 node types can be filtered.' });
+    expect(mockRequest).not.toHaveBeenCalled();
   });
 
   it('forwards updatedAfter + sort', async () => {

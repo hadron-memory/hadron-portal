@@ -73,6 +73,7 @@ export default defineConfig({
         test: {
           name: 'client',
           include: ['src/**/*.client.test.ts'],
+          setupFiles: ['src/lib/test/setup-write-recovery.ts'],
           environment: 'jsdom',
         },
         resolve: {
