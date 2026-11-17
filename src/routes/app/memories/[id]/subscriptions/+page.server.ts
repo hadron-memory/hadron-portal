@@ -4,12 +4,14 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
+import { eligibleCloneTargets } from '$lib/agents/clone';
 import { extractGqlError, extractGqlErrorCode, isDefiniteRefusal } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
 import {
   CREATE_MEMORY_SUBSCRIPTION_MUTATION,
   DELETE_MEMORY_SUBSCRIPTION_MUTATION,
 } from '$lib/server/queries';
+import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { memorySubscriptionSchema, memoryUnsubscribeSchema } from './schema';
 
@@ -36,7 +38,16 @@ type MemoryUnsubscribeForm = Infer<typeof memoryUnsubscribeSchema, 'zod4'>;
 // Subscribe/unsubscribe mutate, so — like /settings — keep consumer-mode users
 // out of this tab.
 export const load: PageServerLoad = async ({ parent }) => {
-  await requireNonConsumer(parent);
+  const layout = (await parent()) as { isConsumerMode?: boolean; activeOrgId?: string | null; navOrgs?: Organization[]; user?: { id: string } | null; graph?: { organizationId?: string | null } | null };
+  await requireNonConsumer(async () => layout);
+  // portal#2220: the orgs the Add picker offers. The server needs ADMIN of the
+  // subscribing org and refuses the owning org (OWNER_ORG_CANNOT_SUBSCRIBE), so
+  // every other org is a guaranteed refusal. A UI hint only: the server's gate
+  // stays authoritative on submit. Same pair the agent clone picker uses.
+  const ownerOrgId = layout.graph?.organizationId ?? null;
+  const targets = eligibleCloneTargets(layout.navOrgs ?? [], layout.user?.id)
+    .filter((o) => o.id !== ownerOrgId)
+    .map((o) => ({ id: o.id, name: o.name, urn: o.urn }));
   const [form, unsubscribeForm] = await Promise.all([
     superValidate<MemorySubscriptionForm>(
       { orgId: '', role: 'READER' },
@@ -52,6 +63,7 @@ export const load: PageServerLoad = async ({ parent }) => {
   return {
     form,
     unsubscribeForm,
+    targets,
   };
 };
 

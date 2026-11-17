@@ -42,8 +42,8 @@ describe('#2220 subscribe form', () => {
     await tick();
     const dialog = document.querySelector('[role=dialog]')!;
     expect(dialog).not.toBeNull();
-    const row = [...dialog.querySelectorAll('tr, li, button')].find((el) => /Beta/.test(el.textContent ?? '') && !/Gamma/.test(el.textContent ?? ''))!;
-    (row.closest('tr') ?? row as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    // Each row carries its own Select button, named for its organization.
+    [...dialog.querySelectorAll<HTMLButtonElement>('button[aria-label]')].find((b) => /Beta/.test(b.getAttribute('aria-label') ?? ''))!.click();
     await tick();
     expect(root.querySelector<HTMLInputElement>('form[action="?/subscribe"] input[name=orgId]')!.value).toBe('org-2');
     expect(root.querySelector('[title="hrn:org:beta.com"]')).not.toBeNull();
