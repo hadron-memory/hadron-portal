@@ -49,8 +49,11 @@ const unsubscribeOrgMemoryFormAdapter = zod4(unsubscribeOrgMemorySchema);
 // this.name, so e.name is the inherited 'Error', indistinguishable from a
 // portal-side envelope bug; and instanceof is not enough either, BLIND delta
 // D1: a duplicated graphql-request in the graph or a re-thrown error keeps
-// its response shape, not its class identity. TypeError of a network failure
-// does name itself — the honest limit without logging message content).
+// its response shape, not its class identity. The structural test is
+// response+request presence — ClientError's two always-set own fields — so
+// even an HTTP-level failure with no errors array is named. TypeError of a
+// network failure does name itself — the honest limit without logging
+// message content).
 // NOTHING else from the error is logged: a ClientError's message/stack carry
 // the request/response payloads (bearer token, row content) —
 // hrn:node:hadronmemory.com:hadron-portal:findings:custom-handle-error-replaces-framework-copy-and-logging.

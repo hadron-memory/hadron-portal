@@ -395,10 +395,18 @@ describe('memories-list load() — degraded reads log (portal#2175)', () => {
         { status: 503, body: '', headers: new Headers(), errors: [] },
         { query: 'query Fixture { __typename }' },
       ),
+      // E1's case: an HTTP-level ClientError with NO errors array at all
+      // (GraphQLResponse.errors is optional) — an errors-array test would
+      // miss it and mislabel it 'Error'.
+      new ClientError(
+        { status: 503, body: 'Service Unavailable', headers: new Headers() },
+        { query: 'query Fixture { __typename }' },
+      ),
       // D1's scenario: NOT a ClientError instance at all (a re-throw across a
       // duplicated graphql-request keeps the shape, not the class) — instanceof
-      // would label this 'Error' or 'non-error'.
-      Object.assign(new Error('rethrown'), { response: { errors: [] } }),
+      // would label this 'Error' or 'non-error'. Both always-set fields
+      // present, no errors array anywhere.
+      Object.assign(new Error('rethrown'), { response: { status: 503 }, request: {} }),
     ];
     for (const thrown of cases) {
       warn.mockClear();

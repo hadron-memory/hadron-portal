@@ -15,20 +15,18 @@ function firstError(e: unknown): WireError | undefined {
   return first && typeof first === 'object' ? first : undefined;
 }
 
-/** Structural ClientError test, the same shape rule firstError judges: a
- * `response` whose `errors` is an array is graphql-request's ClientError
- * envelope — coded, codeless, or with an empty errors array. Deliberately NOT
- * instanceof (portal#2209, BLIND delta D1): graphql-request can be duplicated
- * in the dependency graph and a re-thrown error keeps its shape, not its class
- * identity, so an instanceof label would silently degrade to e.name while the
- * structural classification above kept working. */
+/** Structural ClientError test: `response` AND `request` are the two own
+ * fields graphql-request's ClientError always sets (non-optional in its type),
+ * across every shape it wraps — coded GraphQL errors, codeless errors, an
+ * empty errors array, or a non-GraphQL HTTP failure with NO errors array at
+ * all (GraphQLResponse.errors is optional; testing for it would miss that
+ * case, portal#2209 BLIND delta E1). Deliberately NOT instanceof (D1):
+ * graphql-request can be duplicated in the dependency graph and a re-thrown
+ * error keeps its shape, not its class identity, so an instanceof label would
+ * silently degrade to e.name while the structural classification above kept
+ * working. */
 export function hasClientErrorResponse(e: unknown): boolean {
-  return (
-    !!e &&
-    typeof e === 'object' &&
-    'response' in e &&
-    Array.isArray((e as { response?: { errors?: unknown } }).response?.errors)
-  );
+  return !!e && typeof e === 'object' && 'response' in e && 'request' in e;
 }
 
 /** Classification is structural; a request id never proves a domain refusal.
