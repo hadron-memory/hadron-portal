@@ -21,7 +21,7 @@ const SUBSCRIBE_REFUSAL_TEXT: Record<string, () => string> = {
 };
 const SUBSCRIBE_REFUSALS = Object.keys(SUBSCRIBE_REFUSAL_TEXT);
 // These codes reach only a caller who can already open the memory: the server
-// refuses a hidden memory first, as NOT_FOUND (cor:api:140:02 ordering), so
+// refuses a hidden memory first, as NOT_FOUND (hrn:node:hadronmemory.com:specs:cor:api:140:02 ordering; resolvers.mutation.memory.ts :2037 hidden check precedes :2049 public refusal, :2053 ADMIN precedes :2058 owner refusal), so
 // surfacing them discloses nothing.
 function subscribeRefusalText(e: unknown): string | null {
   const code = extractGqlErrorCode(e);
