@@ -1,18 +1,20 @@
 import { profileWorker, workerInternalsVisible } from '$lib/worker-profile';
-import { error, fail } from '@sveltejs/kit';
+import { error, fail, redirect } from '@sveltejs/kit';
 import { ClientError } from 'graphql-request';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode, isDefiniteRefusal } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
-import { APP_CASTABLE_AGENTS_QUERY, CHANGE_WORKER_AGENT_MUTATION, SET_WORKER_BOOT_PROMPT_MUTATION, SET_WORKER_LEAVE_ALONE_MUTATION, TEAM_WORK_ITEMS_QUERY, UPDATE_WORKER_SIGNATURE_MUTATION, USER_PROFILE_QUERY, WORKER_BOOT_POINTER_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
+import { APP_CASTABLE_AGENTS_QUERY, CHANGE_WORKER_AGENT_MUTATION, DELETE_WORKER_MUTATION, RETIRE_WORKER_MUTATION, SET_WORKER_BOOT_PROMPT_MUTATION, SET_WORKER_LEAVE_ALONE_MUTATION, TEAM_WORK_ITEMS_QUERY, UPDATE_WORKER_SIGNATURE_MUTATION, USER_PROFILE_QUERY, WORKER_APP_QUERY, WORKER_BOOT_POINTER_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
 import { pointerAction, readPointer, selfCanManage } from '$lib/server/boot-prompt-pointer';
 import type { TeamWorkItem, Worker, WorkerSession } from '$lib/types';
 import { APPLY_AGENT_TICKER_TEMPLATES_MUTATION, loadAppTickerSettings, loadWakeSettings } from '$lib/server/tickers';
 import { applyRefusal } from '$lib/tickers/apply';
 import { changeAgentRefusal } from '$lib/workers/change-agent';
 import { castableAgentOptions } from '../../apps/[appId]/cast-agents';
+import { readDeleteWorkerPost, deleteWorkerFailureRefusal, type DeleteWorkerRefusal, type DeleteWorkerResult } from '$lib/workers/delete-worker';
+import { logAppActionTransportFailure } from '$lib/server/app-action-transport-diagnostic';
 import type { Actions, PageServerLoad } from './$types';
 import { updateSignatureFormId, updateSignatureSchema } from './schema';
 
@@ -225,6 +227,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     changeAgentOptions,
     // The key a change result carries (the action's own params.id; the route may spell the worker as its URN).
     changeAgentKey: params.id,
+    // The key a retire result carries (the action's own params.id; same URN-spelling rule as changeAgentKey).
+    retireKey: params.id,
     // The key a pointer result carries (the action's own params.id).
     bootPointerKey: params.id,
     // portal#1462: the same for an apply result. The route may spell the worker as its URN while
@@ -376,6 +380,117 @@ export const actions: Actions = {
         { type: 'error', text: t('worker.signature.error.failed', "The signature and trailer couldn't be saved.") },
         { status: 500 },
       );
+    }
+  },
+
+  /**
+   * portal#2205 (hrn:node:hadronmemory.com:specs:cor:agt:020:02,
+   * hrn:node:hadronmemory.com:specs:cor:acl:140:03) — retire THIS worker from
+   * its own page, same mutation and same authority as the App roster's action.
+   * The worker is the route's, never a posted field. Retirement is idempotent
+   * and has no undo: the name stays reserved forever, and the worker's
+   * tickers, subscriptions and held grants end (the confirm the client shows
+   * states all of this). The server decides who may; FORBIDDEN gets the
+   * staffing copy the App roster uses. Keyed to the route's worker
+   * (data.retireKey) like every result on this page, so a stale reply cannot
+   * land on another worker's page.
+   */
+  retireWorker: async ({ request, params, locals }) => {
+    const posted = await request.formData();
+    if (posted.getAll('_kind').length !== 1 || posted.get('_kind') !== 'retireWorker') {
+      return fail(400, { retireResult: { key: params.id, ok: false, message: t('worker.retire.confirm-required', 'Refresh the page and try again.') } });
+    }
+    try {
+      await gqlClient(locals.token).request(RETIRE_WORKER_MUTATION, { workerRef: params.id });
+      return { retireResult: { key: params.id, ok: true, message: t('worker.retire.success', 'Worker retired. Its name stays reserved.') } };
+    } catch (e: unknown) {
+      // Ruling hrn:node:hadronmemory.com:hadron-dev-team-shared:rulings:0247:
+      // the closed transport record only — never any part of the exception,
+      // message, stack, query or variables (which a raw console.warn of a
+      // graphql-request ClientError would print).
+      logAppActionTransportFailure('retire', e);
+      // An unrecognized error on a one-way mutation is an UNKNOWN OUTCOME, not
+      // a definite failure: the server may have retired the worker before the
+      // response was lost. Same convention as setLeaveAlone below — never tell
+      // a manager "failed" when the truthful answer is "check the page".
+      if (!isDefiniteRefusal(e, ['FORBIDDEN', 'WORKER_NOT_FOUND'])) {
+        return fail(502, {
+          retireResult: { key: params.id, ok: false, uncertain: true, message: t('worker.retire.unconfirmed', 'Couldn’t confirm the retirement. Reload the page to see the worker’s current state.') },
+        });
+      }
+      const code = extractGqlErrorCode(e);
+      if (code === 'FORBIDDEN') {
+        return fail(403, {
+          retireResult: { key: params.id, ok: false, message: t('app.staff.error.forbidden', 'You don’t have permission to staff this App. Casting and retiring need contributor access to the organization, or a non-reader role in the App.') },
+        });
+      }
+      if (code === 'WORKER_NOT_FOUND') {
+        return fail(404, { retireResult: { key: params.id, ok: false, message: extractGqlError(e, '', ['WORKER_NOT_FOUND']) || t('worker.retire.error', 'Failed to retire the worker.') } });
+      }
+      return fail(500, { retireResult: { key: params.id, ok: false, message: t('worker.retire.error', 'Failed to retire the worker.') } });
+    }
+  },
+
+  /**
+   * portal#2205 (hrn:node:hadronmemory.com:specs:cor:dmo:050:11,
+   * hrn:node:hadronmemory.com:specs:cor:dmo:050:12) — delete THIS worker from
+   * its own page, through the same dialog, schema, consent contract and
+   * refusal machinery as the App roster's action
+   * ($lib/workers/delete-worker.ts; only the two sentences this page answers
+   * WORKER_IN_USE and FORBIDDEN with are its own). The user must have ticked
+   * the external-attribution attestation themselves (the literal token), and
+   * the server runs the reference census and the authority gate. Two
+   * differences from the roster action, both because this is the worker's own
+   * page:
+   *
+   * - the mutation names the ROUTE's worker (params.id), never a posted ref —
+   *   same rule as every other action here — while the posted workerRef is
+   *   still validated for shape and echoed in refusal results, which is the
+   *   contract the shared dialog's guard matches on;
+   * - on success the page stops resolving, so the reader is redirected to the
+   *   worker's App staff roster. The roster URL is resolved BEFORE the delete;
+   *   a failed lookup only degrades the redirect target, never the delete
+   *   itself. The degraded target follows the page's own appsHref rule
+   *   (hadron-portal#742): `/app/apps` is the ORG-LESS "My apps" list and
+   *   cannot contain an org-owned App, so an org-owned worker falls back to
+   *   `/app/orgs/<orgId>/apps`, a list the App is actually on.
+   */
+  deleteWorker: async ({ request, params, locals }) => {
+    const posted = await request.formData();
+    const guards = readDeleteWorkerPost(posted);
+    const workerRef = guards.ok ? guards.workerRef : guards.refusal.result.workerRef;
+    const refuse = (refusal: DeleteWorkerRefusal) =>
+      fail(refusal.status, { deleteWorkerResult: refusal.result satisfies DeleteWorkerResult });
+    if (!guards.ok) return refuse(guards.refusal);
+    let rosterHref = '/app/apps';
+    try {
+      const r = await gqlClient(locals.token).request<{ worker: { app: { id: string | null; organizationId: string | null } | null } | null }>(WORKER_APP_QUERY, { ref: params.id });
+      if (r.worker?.app?.id) rosterHref = `/app/apps/${r.worker.app.id}?tab=staff`;
+      else if (r.worker?.app?.organizationId) rosterHref = `/app/orgs/${r.worker.app.organizationId}/apps`;
+    } catch {
+      // The redirect target is best-effort; the delete below still runs and
+      // its own refusals are the ones shown.
+    }
+    try {
+      const result = await gqlClient(locals.token).request<{ deleteWorker: boolean }>(DELETE_WORKER_MUTATION, {
+        workerRef: params.id,
+        confirmNoExternalAttribution: true,
+      });
+      if (result.deleteWorker !== true) {
+        return refuse({ status: 500, result: { ok: false, workerRef, message: t('app.staff.delete.unconfirmed', 'Deletion was not confirmed. Refresh before trying again.'), code: null } });
+      }
+      redirect(303, rosterHref);
+    } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'location' in e) throw e;
+      // WORKER_IN_USE is answered with the portal's own fixed sentence and
+      // FORBIDDEN with the same staffing sentence retireWorker uses above
+      // (one gate, one voice); the roster keeps the server sentences. Both
+      // choices and the redaction live in the shared refusal mapper.
+      return refuse(deleteWorkerFailureRefusal(e, workerRef, {
+        inUse: t('worker.delete.in-use', 'This worker has history — retire it instead.'),
+        forbidden: t('app.staff.error.forbidden', 'You don’t have permission to staff this App. Casting and retiring need contributor access to the organization, or a non-reader role in the App.'),
+        failed: t('app.staff.delete.failed', 'Could not confirm deletion. Refresh and try again.'),
+      }));
     }
   },
 

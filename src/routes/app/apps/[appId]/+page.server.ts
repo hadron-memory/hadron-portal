@@ -9,8 +9,7 @@ import { withRegisteredChannels } from '$lib/app-chats';
 
 import { createMemory, readAppMemories, readAppMemoryScope, appMemoriesFromScope, canCreateAppMemory } from './app-memories';
 import { writeCustomisation } from '$lib/server/install-customisation';
-import { deleteWorkerSchema } from './schema';
-import type { DeleteWorkerResult } from './delete-worker';
+import { readDeleteWorkerPost, deleteWorkerFailureRefusal, type DeleteWorkerRefusal, type DeleteWorkerResult } from '$lib/workers/delete-worker';
 
 import { fail, error, redirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
@@ -1548,35 +1547,31 @@ export const actions: Actions = {
 
   // #1023: no local eligibility or App-based authority shortcut. The mutation
   // resolves the supplied worker and checks its own staffing/reference gates.
+  // portal#2205: the consent guards and refusal mapping are shared with the
+  // worker page's delete action in $lib/workers/delete-worker.ts; this action
+  // keeps only what is genuinely the roster's (the posted ref, the staying
+  // success answer, the server's own refusal sentences).
   deleteWorker: async ({ request, locals }) => {
     const posted = await request.formData();
-    const workerRef = typeof posted.get('workerRef') === 'string' ? String(posted.get('workerRef')) : '';
-    const refuse = (status: number, message: string, code: string | null = null) =>
-      fail(status, { deleteWorkerResult: { ok: false, workerRef, message, code } satisfies DeleteWorkerResult });
-    if (['_kind', 'workerRef', 'confirmation'].some(key => posted.getAll(key).length !== 1)) {
-      return refuse(400, t('app.staff.delete.confirm-required', 'Explicit external-artifact verification is required.'));
-    }
-    const parsed = deleteWorkerSchema.safeParse(Object.fromEntries(posted));
-    if (!parsed.success) return refuse(400, t('app.staff.delete.confirm-required', 'Explicit external-artifact verification is required.'));
+    const guards = readDeleteWorkerPost(posted);
+    const workerRef = guards.ok ? guards.workerRef : guards.refusal.result.workerRef;
+    const refuse = (refusal: DeleteWorkerRefusal) =>
+      fail(refusal.status, { deleteWorkerResult: refusal.result satisfies DeleteWorkerResult });
+    if (!guards.ok) return refuse(guards.refusal);
     try {
       const result = await gqlClient(locals.token).request<{ deleteWorker: boolean }>(DELETE_WORKER_MUTATION, {
-        workerRef: parsed.data.workerRef, confirmNoExternalAttribution: true,
+        workerRef, confirmNoExternalAttribution: true,
       });
-      if (result.deleteWorker !== true) return refuse(500, t('app.staff.delete.unconfirmed', 'Deletion was not confirmed. Refresh the roster before trying again.'));
-      return { deleteWorkerResult: { ok: true, workerRef: parsed.data.workerRef,
+      if (result.deleteWorker !== true) return refuse({ status: 500, result: { ok: false, workerRef,
+        message: t('app.staff.delete.unconfirmed', 'Deletion was not confirmed. Refresh the roster before trying again.'), code: null } });
+      return { deleteWorkerResult: { ok: true, workerRef,
         message: t('app.staff.delete.done', 'Worker deleted.') } satisfies DeleteWorkerResult };
     } catch (e: unknown) {
-      const code = gqlErrorCode(e);
-      // Only GraphQL's own refusal sentence, never the request/extension census
-      // or a transport exception containing query variables, reaches the UI.
-      const errors = (e as { response?: { errors?: { message?: string }[] } } | null)?.response?.errors;
-      const status = code === 'FORBIDDEN' ? 403
-        : code === 'WORKER_NOT_FOUND' ? 404
-        : code === 'WORKER_IN_USE' || code === 'WORKER_EXTERNAL_ATTRIBUTION_UNCONFIRMED' ? 400 : 500;
-      const text = status < 500 && typeof errors?.[0]?.message === 'string'
-        ? errors[0].message
-        : t('app.staff.delete.failed', 'Could not confirm deletion. Refresh the roster and try again.');
-      return refuse(status, text, code);
+      // No sentence overrides here: the roster shows the server's own refusal
+      // text (redaction and the status table live in the shared mapper).
+      return refuse(deleteWorkerFailureRefusal(e, workerRef, {
+        failed: t('app.staff.delete.failed', 'Could not confirm deletion. Refresh the roster and try again.'),
+      }));
     }
   },
 

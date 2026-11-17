@@ -1212,6 +1212,25 @@ export const UPDATE_WORKER_SIGNATURE_MUTATION = /* GraphQL */ `
   }
 `;
 
+/**
+ * portal#2205 — the worker's App id, for the worker page's delete action to
+ * redirect to the App's staff roster after the worker's own page stops
+ * resolving. Light on purpose: it runs beside a destructive mutation, so it
+ * selects nothing the redirect does not need. organizationId backs the
+ * degraded target (hadron-portal#742): /app/apps is the org-less "My apps"
+ * list and cannot show an org-owned App, so a masked/unreadable App falls
+ * back to its org's Apps list instead. A missing/masked app answers null,
+ * and the caller falls back from there.
+ */
+export const WORKER_APP_QUERY = /* GraphQL */ `
+  query WorkerApp($ref: ID!) {
+    worker(ref: $ref) {
+      id
+      app { id organizationId }
+    }
+  }
+`;
+
 export const WORKER_QUERY = /* GraphQL */ `
   ${WORKER_FIELDS}
   query Worker($ref: ID!) {

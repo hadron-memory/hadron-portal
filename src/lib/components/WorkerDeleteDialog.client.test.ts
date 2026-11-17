@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vite
 import { flushSync } from 'svelte';
 import { mountComponent, tick } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import { submitEnhanced, submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { submitEnhanced, submitEnhancedDeferred, submitEnhancedWithResult, submitEnhancedWithRawResult } from '$lib/test/stubs/app-forms';
 import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import Dialog from './WorkerDeleteDialog.svelte';
 const worker = (id = 'one') => ({ id, name: id, urn: `hrn:worker:acme.com:app:${id}` });
@@ -111,4 +111,29 @@ it('a failed roster refresh cannot enable a second deletion', async () => {
   await submitEnhancedWithResult(form(), result(true)); await tick();
   expect(document.querySelector('[role=alert]')?.textContent).toContain('worker was deleted');
   expect((await submitEnhanced(form())).cancelled).toBe(true);
+});
+it('portal#2205: a redirect answer is the worker page’s success — FOLLOWED, never read as a refusal', async () => {
+  const { onclose } = open(); await tick(); await check();
+  await submitEnhancedWithRawResult(form(), { type: 'redirect', status: 303, location: '/app/apps/app-one?tab=staff' }); flushSync(); await tick();
+  // A custom enhance callback REPLACES Kit's default result handling, so
+  // following the redirect is the callback's own job: without an explicit
+  // goto, pending stays true forever and the modal can never be closed while
+  // the worker is already deleted.
+  expect(navigationCalls).toContainEqual({ fn: 'goto', args: ['/app/apps/app-one?tab=staff'] });
+  // No "Deletion was not confirmed" misread of the empty data, and nothing
+  // invalidated behind a page whose URL is about to stop resolving: the
+  // redirect itself carries the reader to the roster.
+  expect(document.querySelector('[role=alert]')).toBeNull();
+  expect(navigationCalls.some(c => c.fn === 'invalidateAll')).toBe(false);
+  expect(onclose).not.toHaveBeenCalled();
+});
+it('portal#2205: if following the delete redirect fails, the dialog turns closable and says so', async () => {
+  const { onclose } = open(); await tick(); await check();
+  navigationHooks.onGoto = async () => { throw new Error('navigation unavailable'); };
+  await submitEnhancedWithRawResult(form(), { type: 'redirect', status: 303, location: '/app/apps/app-one?tab=staff' }); flushSync(); await tick();
+  expect(document.querySelector('[role=alert]')?.textContent).toContain('worker was deleted');
+  // pending was released: a retry is possible instead of a trapped modal.
+  expect(document.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled).toBe(false);
+  expect(document.querySelector('[role=status]')).toBeNull();
+  expect(onclose).not.toHaveBeenCalled();
 });

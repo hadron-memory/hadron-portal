@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { enhance } from '$app/forms';
-  import { invalidateAll } from '$app/navigation';
+  import { goto, invalidateAll } from '$app/navigation';
   import type { SubmitFunction } from '@sveltejs/kit';
-  import Urn from '$lib/components/Urn.svelte';
+  import Urn from './Urn.svelte';
   import { t } from '$lib/i18n/t';
-  import { WORKER_DELETE_CONFIRMATION, type DeleteWorkerResult } from './delete-worker';
+  import { WORKER_DELETE_CONFIRMATION, type DeleteWorkerResult } from '$lib/workers/delete-worker';
 
   let { worker, onclose }: { worker: { id: string; name: string; urn: string | null }; onclose: () => void } = $props();
   let dialog: HTMLDialogElement;
@@ -36,6 +36,28 @@
     pending = true; failure = null;
     return async ({ result }) => {
       if (!current()) return;
+      // portal#2205 — the worker's own page redirects on success (the page's
+      // URL stops resolving once the worker is gone), unlike the roster action,
+      // which answers with a result and stays. A redirect IS the success here
+      // — but a custom enhance callback REPLACES Kit's default result
+      // handling, so following it is this callback's own job: without an
+      // explicit goto, pending stays true forever, Cancel and Escape stay
+      // disabled, and the reader is trapped in the modal of a worker that was
+      // already deleted. Same shape as StopSignalsPanel's redirect leg. There
+      // is nothing left to invalidate behind a page that no longer exists.
+      if (result.type === 'redirect') {
+        try {
+          await goto(result.location);
+          // Navigating away unmounts this dialog; if it somehow survives
+          // (same-page redirect target), stop blocking close.
+          if (current()) pending = false;
+        } catch {
+          if (!current()) return;
+          pending = false;
+          failure = t('app.staff.delete.refresh-failed', 'The worker was deleted, but the roster could not refresh. Reload the page.');
+        }
+        return;
+      }
       const answer = result.type === 'success' || result.type === 'failure'
         ? (result.data as { deleteWorkerResult?: DeleteWorkerResult } | undefined)?.deleteWorkerResult : null;
       if (!answer || answer.workerRef !== workerId) {
