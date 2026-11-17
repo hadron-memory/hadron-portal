@@ -1118,7 +1118,8 @@
     const url = new URL(window.location.href);
     if (data.selectedChatKey && data.selectedChatKey !== AGENT_CHAT_KEY && !data.chatNotFound && url.searchParams.has('agentChat')) {
       url.searchParams.delete('agentChat');
-      replaceState(url, {});
+      // A throw here would escape queueMicrotask unhandled; a leftover parameter is harmless, so leave it for the next navigation.
+      try { replaceState(url, {}); } catch { /* router not ready: the parameter stays until the next selection */ }
     }
   }
 

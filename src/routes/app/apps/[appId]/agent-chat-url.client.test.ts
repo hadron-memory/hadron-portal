@@ -153,3 +153,10 @@ it('arrival cleanup waits for Kit to start the router: replaceState during the e
   expect(new URL(window.location.href).searchParams.has('agentChat')).toBe(false);
   expect(target.textContent).not.toContain('router is initialized');
 });
+
+it('Back into a recovered entry (canonical URL, cached chatNotFound:true) does not show the banner beside the resumed chat', async () => {
+  const { calls, target } = await open(`chat=${encodeURIComponent(AGENT_CHAT_KEY)}&agentChat=${encodeURIComponent(loc)}`);
+  await vi.waitFor(() => expect(calls.some(c => c.includes('/resume'))).toBe(true));
+  await vi.waitFor(() => expect(target.textContent).toContain('Private stage'));
+  expect(target.textContent).not.toContain('That chat isn’t available');
+});

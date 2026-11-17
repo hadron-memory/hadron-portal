@@ -331,7 +331,11 @@
     await refreshChatList();
     const url = new URL(window.location.href);
     const legacyAllowed = issuedLegacyProof && allowLegacyAppChat && url.searchParams.get('chat') === issuedSelector && issuedAppId === appId && issuedAgentId === agentId;
-    const legacy = !!appId && legacyAllowed && url.searchParams.get('chat') !== AGENT_CHAT_KEY && !url.searchParams.has('agentChat');
+    // The unresolved-selector proof still holds while the page shows its not-found banner. That includes Back/Forward
+    // into an already-recovered entry, where Kit serves the cached `chatNotFound: true` but the URL is canonical, so
+    // this is gated on the proof, not on the URL looking legacy (BLIND P2 on #2148). A fresh canonical load has
+    // chatNotFound false, so the proof is absent and nothing fires.
+    const legacy = !!appId && legacyAllowed;
     const target = resolveActiveChatFromUrl(url, chats, { appChat: !!appId, allowLegacyAppChat: legacyAllowed });
     if (target) {
       // A page load is not the person choosing a chat: show it, don't move focus.
