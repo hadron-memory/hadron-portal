@@ -405,9 +405,6 @@ describe('memories-list load() — degraded reads log (portal#2175)', () => {
       // graphql-request keeps the shape, not the class): both always-set
       // fields present, no errors array anywhere.
       Object.assign(new Error('rethrown'), { response: { status: 503 }, request: {} }),
-      // A re-thrown/serialized copy that lost `.request`: a numeric
-      // response.status is the fallback marker.
-      Object.assign(new Error('reserialized'), { response: { status: 502 } }),
     ];
     for (const thrown of cases) {
       warn.mockClear();

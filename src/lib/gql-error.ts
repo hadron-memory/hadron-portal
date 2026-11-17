@@ -22,16 +22,15 @@ function firstError(e: unknown): WireError | undefined {
  * - a non-2xx with an unparseable body — a proxy 502/503 or a text 401 —
  *   where response is just `{ status, headers, body }` with NO `errors` key,
  * - a non-2xx whose body parsed as GraphQL (errors + status together).
- * The `request` side is `{ query, variables }`; a re-thrown or serialized
- * copy may lose it, so a numeric `response.status` is accepted as the
- * fallback marker. Deliberately NOT instanceof: graphql-request can be
+ * The `request` side is `{ query, variables }`. Both fields are set together
+ * and survive or drop together, so `response` alone (even with a numeric
+ * `status`) is NOT enough: axios/ky/got-style errors carry the same shape.
+ * Deliberately NOT instanceof: graphql-request can be
  * duplicated in the dependency graph and a re-thrown error keeps its shape,
  * not its class identity, so an instanceof test would silently go false while
  * the structural classification above kept working. */
 export function hasClientErrorResponse(e: unknown): boolean {
-  if (!e || typeof e !== 'object' || !('response' in e)) return false;
-  if ('request' in e) return true;
-  return typeof (e as { response?: { status?: unknown } }).response?.status === 'number';
+  return !!e && typeof e === 'object' && 'response' in e && 'request' in e;
 }
 
 /** Classification is structural; a request id never proves a domain refusal.

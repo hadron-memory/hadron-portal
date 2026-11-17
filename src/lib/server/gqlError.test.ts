@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ClientError } from 'graphql-request';
-import { extractGqlError } from './gqlError';
+import { extractGqlError, hasClientErrorResponse } from './gqlError';
 import { appKeyRefusal, APP_KEY_MANAGERS_ONLY } from './app-key-refusal';
 const requestId = 'a4451409-72f6-4f08-b90b-f8db328e8c58';
 const secret = 'SELECT password FROM users at /srv/private.ts; query Secret($token: String!)';
@@ -32,5 +32,18 @@ describe('portal#1132 public error envelope', () => {
   it('a ClientError without GraphQL errors never renders its query-bearing constructor text',()=>{
     const e=new ClientError({status:503,headers:new Headers(),body:'Service unavailable'}, {query:secret,variables:{token:'secret'}});
     expect(extractGqlError(e,'Save failed')).toBe('Save failed');
+  });
+});
+
+describe('hasClientErrorResponse (portal#2221)', () => {
+  it('a bare { response: { status } } wrapper is not a ClientError', () => {
+    expect(hasClientErrorResponse({ response: { status: 500 } })).toBe(false);
+    expect(hasClientErrorResponse(Object.assign(new Error('axios-like'), { response: { status: 502 } }))).toBe(false);
+    expect(hasClientErrorResponse(null)).toBe(false);
+  });
+  it('real graphql-request shapes still are, including a text-body 503 without errors', () => {
+    expect(hasClientErrorResponse(new ClientError({ status: 503, body: 'Service Unavailable', headers: new Headers() }, { query: 'query Q { __typename }' }))).toBe(true);
+    expect(hasClientErrorResponse(new ClientError({ status: 502, body: 'Bad Gateway', headers: new Headers() }, { query: 'query Q { __typename }', variables: { x: 1 } }))).toBe(true);
+    expect(hasClientErrorResponse(Object.assign(new Error('rethrown'), { response: { status: 503 }, request: {} }))).toBe(true);
   });
 });
