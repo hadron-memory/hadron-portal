@@ -6,7 +6,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { loadOrgDetail } from '$lib/server/org-detail';
 import { fetchAllItems } from '$lib/server/paginate';
-import { extractGqlError } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { t } from '$lib/i18n/t';
 import {
@@ -40,6 +40,19 @@ const orgMemorySubscribeFormAdapter = zod4(orgMemorySubscribeSchema);
 const syncOrgMemoriesFormAdapter = zod4(syncOrgMemoriesSchema);
 const unsubscribeOrgMemoryFormAdapter = zod4(unsubscribeOrgMemorySchema);
 
+// portal#2175 (FIT 6884373873 c): a failing read still hides its rows
+// (fail-closed, unchanged) but no longer silently — one warn line names the
+// read and the error's code or transport class. NOTHING else from the error is
+// logged: a ClientError's message/stack carry the request/response payloads
+// (bearer token, row content) —
+// hrn:node:hadronmemory.com:hadron-portal:findings:custom-handle-error-replaces-framework-copy-and-logging.
+function degradedRead<T>(what: string, fallback: T): (e: unknown) => T {
+  return (e) => {
+    console.warn(`[org-memories] ${what} read failed (${extractGqlErrorCode(e) ?? 'transport'}); rows hidden, fail-closed`);
+    return fallback;
+  };
+}
+
 export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
@@ -59,17 +72,17 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   const org = await loadOrgDetail(locals.token, params.id, ORG_MEMORIES_TAB_QUERY);
   const [systemRows, ownSystemIds, publicMemories, myMemories] = await Promise.all([
     fetchAllItems<Memory>(client, ORG_SYSTEM_MEMORIES_QUERY, 'memories', { orgId: params.id })
-      .catch(() => [] as Memory[]),
+      .catch(degradedRead('org system memories', [] as Memory[])),
     // #2140: whose org-less system rows are the caller's is the server's call. A
     // failed read leaves the set empty, which hides those rows rather than
     // showing someone else's.
     fetchAllItems<{ id: string }>(client, OWN_SYSTEM_MEMORY_IDS_QUERY, 'memories')
       .then((rows) => new Set(rows.map((m) => m.id)))
-      .catch(() => new Set<string>()),
+      .catch(degradedRead('own system-memory ids', new Set<string>())),
     fetchAllItems<Memory>(gqlClient(), PUBLIC_MEMORIES_QUERY, 'memories')
-      .catch(() => [] as Memory[]),
+      .catch(degradedRead('public memories', [] as Memory[])),
     fetchAllItems<Memory>(client, MEMORIES_QUERY, 'memories')
-      .catch(() => [] as Memory[]),
+      .catch(degradedRead('my memories', [] as Memory[])),
   ]);
   // Exclude memories already owned or subscribed to by this org
   const ownedIds = new Set((org.memories ?? []).map((m) => m.id));
@@ -88,11 +101,23 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // memory, someone else's user-owned row) is not shown. An install memory sits
   // in its App's own tenancy, so an App of this org carries this org's id and
   // survives.
-  const systemMemories = systemRows.filter((m) => m.organizationId === params.id);
+  //
+  // portal#2175 (FIT 6884373873 a): the paginated system read can hand back the
+  // same id twice — a row shifting across a page boundary mid-fetch. Dedupe by
+  // id, first occurrence wins, BEFORE the owner-field sort below, so a duplicate
+  // lists once and never moves between tabs: where a row shows depends only on
+  // its owner fields (the #2147 rule).
+  const seenSystemIds = new Set<string>();
+  const uniqueSystemRows = systemRows.filter((m) => {
+    if (seenSystemIds.has(m.id)) return false;
+    seenSystemIds.add(m.id);
+    return true;
+  });
+  const systemMemories = uniqueSystemRows.filter((m) => m.organizationId === params.id);
   // The class predicate is explicit, not left to the query's memoryClasses
   // filter: this slice and the personal/private one below must stay disjoint
   // however the server answers, or a row would render twice.
-  const ownSystemMemories = systemRows.filter(
+  const ownSystemMemories = uniqueSystemRows.filter(
     (m) => m.class === 'system' && m.organizationId == null && ownSystemIds.has(m.id),
   );
   // Spec 034: personal memories (the personal + private classes) are owner-only
