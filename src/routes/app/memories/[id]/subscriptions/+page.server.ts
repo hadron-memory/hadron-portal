@@ -15,16 +15,17 @@ import { memorySubscriptionSchema, memoryUnsubscribeSchema } from './schema';
 
 // createMemorySubscription's typed refusals, each with its own reader copy. The
 // hidden-memory miss stays the server's generic NOT_FOUND text (no oracle).
-const SUBSCRIBE_REFUSALS = ['SUBSCRIPTION_REQUIRES_PUBLIC_MEMORY', 'OWNER_ORG_CANNOT_SUBSCRIBE'] as const;
+const SUBSCRIBE_REFUSAL_TEXT: Record<string, () => string> = {
+  SUBSCRIPTION_REQUIRES_PUBLIC_MEMORY: () => t('subscriptions.refused.not-public', 'Only a public memory can be subscribed to by another organization. Make this memory public first, or share it another way.'),
+  OWNER_ORG_CANNOT_SUBSCRIBE: () => t('subscriptions.refused.owner-org', 'The organization that owns this memory cannot subscribe to it. A subscription is created by another organization’s admin.'),
+};
+const SUBSCRIBE_REFUSALS = Object.keys(SUBSCRIBE_REFUSAL_TEXT);
+// These codes reach only a caller who can already open the memory: the server
+// refuses a hidden memory first, as NOT_FOUND (cor:api:140:02 ordering), so
+// surfacing them discloses nothing.
 function subscribeRefusalText(e: unknown): string | null {
-  switch (extractGqlErrorCode(e)) {
-    case 'SUBSCRIPTION_REQUIRES_PUBLIC_MEMORY':
-      return t('subscriptions.refused.not-public', 'Only a public memory can be subscribed to by another organization. Make this memory public first, or share it another way.');
-    case 'OWNER_ORG_CANNOT_SUBSCRIBE':
-      return t('subscriptions.refused.owner-org', 'The organization that owns this memory cannot subscribe to it. A subscription is created by another organization’s admin.');
-    default:
-      return null;
-  }
+  const code = extractGqlErrorCode(e);
+  return code && Object.hasOwn(SUBSCRIBE_REFUSAL_TEXT, code) ? SUBSCRIBE_REFUSAL_TEXT[code]() : null;
 }
 
 const memorySubscriptionFormAdapter = zod4(memorySubscriptionSchema);
@@ -76,7 +77,8 @@ export const actions: Actions = {
       return message(
         form,
         { type: 'error', text },
-        { status: refusal || isDefiniteRefusal(e, SUBSCRIBE_REFUSALS) ? 400 : 500 },
+        // isDefiniteRefusal: framework/access codes (incl. NOT_FOUND) or the known list above.
+        { status: isDefiniteRefusal(e, SUBSCRIBE_REFUSALS) ? 400 : 500 },
       );
     }
   },

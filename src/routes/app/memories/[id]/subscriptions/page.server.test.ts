@@ -184,6 +184,15 @@ describe('memory subscriptions subscribe action', () => {
     expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Memory not found' });
   });
 
+  it('keeps an unrecognised failure a 500 with the generic text', async () => {
+    mockRequest.mockRejectedValueOnce(Object.assign(new Error('outer'), {
+      response: { errors: [{ message: 'boom', extensions: { code: 'SOMETHING_NEW' } }] },
+    }));
+    const result = await runSubscribe({ orgId: 'org-1', role: 'READER' });
+    expect(result).toMatchObject({ status: 500 });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
+  });
+
   it('returns GraphQL failures as Superforms messages', async () => {
     mockRequest.mockRejectedValueOnce(Object.assign(new Error('outer'), {
       response: { errors: [{ message: 'Subscription already exists' }] },
