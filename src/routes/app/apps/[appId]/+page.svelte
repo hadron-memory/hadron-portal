@@ -1108,12 +1108,19 @@
     chatMaximized = data.initialChatFullView;
     // A known non-agent selector owns this URL; an old personal parameter
     // must not travel with a shared/team link. Unknown selectors stay intact.
+    // Kit fires this callback for the initial `enter` BEFORE it marks the router started, and `replaceState`
+    // throws until then ("before router is initialized"; QA F2 on #2148). Kit sets `started` synchronously
+    // after its callbacks, so a microtask is enough; a real navigation can write straight away.
+    if (nav.type === 'enter') queueMicrotask(dropStaleAgentChat);
+    else dropStaleAgentChat();
+  });
+  function dropStaleAgentChat() {
     const url = new URL(window.location.href);
     if (data.selectedChatKey && data.selectedChatKey !== AGENT_CHAT_KEY && !data.chatNotFound && url.searchParams.has('agentChat')) {
       url.searchParams.delete('agentChat');
       replaceState(url, {});
     }
-  });
+  }
 
   // The team chat MAXIMISED — a fixed overlay over the whole viewport. In the
   // tab it gets 395px of a 900px window (measured 2026-09-14: the header, the

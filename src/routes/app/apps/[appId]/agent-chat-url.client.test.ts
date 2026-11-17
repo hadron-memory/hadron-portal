@@ -137,3 +137,19 @@ it('the recovery suppression ends at the next real navigation (not keyed on page
   props.data = { ...props.data, chatNotFound: true }; await tick(3);
   expect(target.textContent).toContain('That chat isn’t available');
 });
+
+it('arrival cleanup waits for Kit to start the router: replaceState during the enter callback would throw', async () => {
+  const { target } = await open(`chat=chats%3Ateam&agentChat=${encodeURIComponent(loc)}`, { missing: false, selected: TEAM_CHAT_LOC });
+  let routerStarted = false;
+  const write = window.history.replaceState.bind(window.history);
+  vi.spyOn(window.history, 'replaceState').mockImplementation((...a) => {
+    if (!routerStarted) throw new Error('Cannot call replaceState(...) before router is initialized');
+    return write(...a);
+  });
+  const after = navigationGuards.find(g => g.fn === 'afterNavigate')?.callback as (nav: { type: string }) => void;
+  expect(() => after({ type: 'enter' })).not.toThrow(); // Kit's callbacks run first ...
+  routerStarted = true;                                  // ... then it sets `started = true`
+  await tick(3);
+  expect(new URL(window.location.href).searchParams.has('agentChat')).toBe(false);
+  expect(target.textContent).not.toContain('router is initialized');
+});
