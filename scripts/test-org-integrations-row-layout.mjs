@@ -12,6 +12,15 @@ import { chromium } from 'playwright';
 
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 } });
 let browser;
+// The probe owns its document: a fulfilled inert page, not a dev-server path
+// (/@vite/client falls through to SvelteKit's 404 document and logs a server
+// error). Asserting 200 makes a regression to a Kit-404 URL fail loudly.
+async function gotoFixtureDocument(page, origin) {
+  await page.route('**/__org_integrations_row_fixture*', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>Org integrations row</title>' }));
+  const response = await page.goto(new URL('/__org_integrations_row_fixture', origin).href);
+  assert.equal(response?.status(), 200, `fixture document was not served inert (HTTP ${response?.status()})`);
+}
+
 try {
   await server.listen();
   const origin = server.resolvedUrls.local[0];
@@ -24,7 +33,7 @@ try {
   for (const [width, column] of [[390, 308], [390, 324], [320, 238], [1280, 1000]]) {
     for (const dark of [false, true]) {
       const page = await browser.newPage({ viewport: { width, height: 844 } });
-      await page.goto(new URL('/@vite/client', origin).href);
+      await gotoFixtureDocument(page, origin);
       await page.evaluate(([css, dark]) => {
         document.head.innerHTML = '';
         document.documentElement.classList.toggle('dark', dark);
@@ -97,7 +106,7 @@ try {
   // once configured, only Exchange, and the row still fits the narrowest column.
   for (const [hasGithubConfigured, expected] of [[false, ['', 'github', 'exchange']], [true, ['', 'exchange']]]) {
     const page = await browser.newPage({ viewport: { width: 320, height: 844 } });
-    await page.goto(new URL('/@vite/client', origin).href);
+    await gotoFixtureDocument(page, origin);
     await page.evaluate((css) => { document.head.innerHTML = ''; document.body.innerHTML = `<style>${css}</style><main id="col"></main>`; }, css);
     await page.addStyleTag({ content: '#col { width: 238px; margin: 0 auto; }' });
     await page.evaluate(async (hasGithubConfigured) => {
