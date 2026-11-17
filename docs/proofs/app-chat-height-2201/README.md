@@ -2,7 +2,7 @@
 
 Author: George (Codex/OpenAI), 2026-11-17. Portal base `7a9ed30bb06cff8e229a6731535070b5ff67c97d`.
 
-The real route gives its Agent chat wrapper a 544px minimum height below 948px viewport width (the default shell’s narrow-pane range). Its existing
+The real route gives its Agent chat wrapper a 560px minimum height below 948px viewport width (the default shell’s narrow-pane range). Its existing
 `100dvh - 280px` / `100vh - 280px` height remains. Nothing is hidden, collapsed or re-parented;
 short pages scroll as documents, with no added scroll container. The composer stays 58px.
 
@@ -85,3 +85,24 @@ The original results.json is explicitly the signed-in author driver’s output,
 not the component probe’s output. Both are labelled here; the added nested-scroll
 and viewport checks are now executable in the committed component probe as well.
 Physical browser toolbars, Safari and virtual keyboards remain untested.
+
+
+## Required post-#2171 measurement
+
+#2171 merged as `74d275d85f754d97767ee281b13d9b017be17150`. The combined
+component probe caught a real failure: the prior 544px floor left only107px
+content at320x568/light/fine. That integrated tree is the red pin for this round.
+The floor is now560px, scoped to the same narrow layout. All24 legs pass with
+the merged hint. At320x568 fine-pointer content is123px; the unchanged390,
+948 and short-desktop comparisons still pass. Textarea remains58px, latest
+message and composer remain in the viewport after document scroll, and there
+is no horizontal overflow or extra scrolling ancestor.
+
+- [Post-merge probe measurements](post-2171/probe-results.json)
+- 320x568 fine-pointer viewport: [Light](post-2171/320x568-light-fine-viewport.png), [Dark](post-2171/320x568-dark-fine-viewport.png)
+
+Earlier sections and screenshots describe historical heads. This is a component
+probe, not a fresh signed-in QA receipt. Independent browser QA must recheck
+this integrated fix head before readiness. The author merged the dependency
+because its runtime change required this fix, rather than carrying the old
+approvals onto an untested combination.
