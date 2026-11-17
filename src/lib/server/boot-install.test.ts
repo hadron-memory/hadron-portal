@@ -205,7 +205,7 @@ describe('portal#1857 compile revision boundary', () => {
   }
 });
 
-// portal#1754 bullet 4 (cor:api:140:03): GUARD pins, green on main by design. A missing entity and a
+// portal#1754 bullet 4 (hrn:node:hadronmemory.com:specs:cor:api:140:03): GUARD pins, green on main by design. A missing entity and a
 // not-visible one both arrive as null from the server and must answer alike; a thrown read is unavailable.
 describe('portal#1754 not visible answers like missing', () => {
   const app = { level: 'app' as const, app: 'a', agent: 'g' };
