@@ -1,12 +1,12 @@
 /**
- * #1979 remedy: models that reject a forced tool_choice get `auto`.
+ * #1979 remedy: server AUTO decisions preserve the former auto request and output baseline.
  *
  * The real locked SDK over an intercepted fetch with a SYNTHETIC key. A fixture
  * models request compatibility; it is NOT proof the provider accepts the
  * request (that is the separately granted live corroboration).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { RESPOND_ONCE_INSTRUCTION, callAgentChatLlm, usesAutoToolChoice, type HadronTool } from './agentChatLlm.js';
+import { RESPOND_ONCE_INSTRUCTION, callAgentChatLlm, type HadronTool } from './agentChatLlm.js';
 import { CHAT_ERROR, publicChatError } from './chatError.js';
 
 const KEY = 'sk-ant-api03-SYNTHETIC1979remedyKEYabcdef0123456789';
@@ -65,17 +65,8 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
-const call = (model: string, provider: 'anthropic' | 'openai' | 'glm' = 'anthropic', messages = HISTORY, tools: HadronTool[] | null = TOOLS) =>
-  callAgentChatLlm({ provider, apiKey: KEY, model, systemMessage: STAGE_SYSTEM, tools, messages });
-
-describe('which models get auto', () => {
-  it.each(LISTED)('%s on anthropic', (m) => expect(usesAutoToolChoice('anthropic', m)).toBe(true));
-  it.each([
-    ['anthropic', 'claude-haiku-5-5'], ['anthropic', 'claude-sonnet-5-5-x'], ['anthropic', 'CLAUDE-SONNET-5-5'],
-    ['anthropic', 'claude-mythos-5-2'], ['anthropic', 'claude-sonnet-5'],
-    ['bedrock', 'claude-sonnet-5-5'], ['openai', 'claude-sonnet-5-5'], ['glm', 'claude-sonnet-5-5'],
-  ] as const)('%s / %s keeps the forced choice', (p, m) => expect(usesAutoToolChoice(p, m)).toBe(false));
-});
+const call = (model: string, provider: 'anthropic' | 'openai' | 'glm' = 'anthropic', messages = HISTORY, tools: HadronTool[] | null = TOOLS, toolChoice: 'AUTO' | 'FORCED' = 'AUTO') =>
+  callAgentChatLlm({ provider, apiKey: KEY, model, systemMessage: STAGE_SYSTEM, tools, messages, toolChoice });
 
 describe.each(LISTED)('%s: request on the wire', (model) => {
   it.each([['welcome', []], ['history', HISTORY]] as const)('%s turn sends auto, the schema byte-for-byte, the model verbatim', async (_t, messages) => {
@@ -102,7 +93,7 @@ describe.each(LISTED)('%s: request on the wire', (model) => {
   });
 
   it('an empty stage prompt yields just the instruction (no degenerate block)', async () => {
-    await callAgentChatLlm({ provider: 'anthropic', apiKey: KEY, model, systemMessage: '  \n', tools: TOOLS, messages: HISTORY });
+    await callAgentChatLlm({ provider: 'anthropic', apiKey: KEY, model, systemMessage: '  \n', tools: TOOLS, messages: HISTORY, toolChoice: 'AUTO' });
     const system = bodies[0].system;
     const text = typeof system === 'string' ? system : system.map((s: { text: string }) => s.text).join('');
     expect(text).toBe(RESPOND_ONCE_INSTRUCTION);
@@ -119,7 +110,7 @@ describe.each(LISTED)('%s: request on the wire', (model) => {
 
 describe('controls keep today\'s forced request', () => {
   it('claude-haiku-5-5 (accepts a forced choice) stays forced, no instruction', async () => {
-    await call('claude-haiku-5-5');
+    await call('claude-haiku-5-5', 'anthropic', HISTORY, TOOLS, 'FORCED');
     expect(bodies[0].tool_choice).toEqual({ type: 'tool', name: 'respond' });
     expect(bodies[0].tools[0].input_schema).toEqual(SERVER_SCHEMA);
     expect(JSON.stringify(bodies[0].system)).not.toContain(RESPOND_ONCE_INSTRUCTION);
@@ -128,7 +119,7 @@ describe('controls keep today\'s forced request', () => {
 
   it.each([['openai', 'gpt-4o'], ['glm', 'glm-4.6'], ['openai', 'claude-sonnet-5-5']] as const)('%s / %s: never auto, no instruction', async (provider, model) => {
     next = () => new Response('{}', { status: 400 });
-    await call(model, provider).catch(() => undefined);
+    await call(model, provider, HISTORY, TOOLS, 'FORCED').catch(() => undefined);
     expect(bodies).toHaveLength(1);
     const wire = JSON.stringify(bodies[0]);
     expect(JSON.stringify(bodies[0].tool_choice)).not.toContain('auto');

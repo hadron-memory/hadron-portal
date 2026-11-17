@@ -5020,12 +5020,25 @@ export const SKILL_PLAN_EXPORT_QUERY = /* GraphQL */ `
   }
 `;
 
+// #2043 / server#4042: server-owned decisions; no model policy lives in the portal.
+export const CHAT_EFFECTIVE_TOOL_CHOICE_QUERY = /* GraphQL */ `
+  query ChatEffectiveToolChoice($chatId: String!) {
+    chatEffectiveToolChoice(chatId: $chatId)
+  }
+`;
+
+export const CHAT_TOOL_CHOICE_FOR_QUERY = /* GraphQL */ `
+  query ChatToolChoiceFor($provider: String!, $model: String!) {
+    chatToolChoiceFor(provider: $provider, model: $model)
+  }
+`;
+
 // #937 (server#1378): test a SAVED config by id, of any owner kind, through the
 // server's own run path. The stored key never leaves the server; `override`
 // tests edited-but-unsaved values without storing them.
 export const TEST_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
   mutation TestAiServiceConfig($id: ID!, $override: AiServiceConfigTestOverride) {
-    testAiServiceConfig(id: $id, override: $override) {
+    testAiServiceConfig(id: $id, override: $override, chatProbe: true) {
       ok
       provider
       model
@@ -5035,6 +5048,7 @@ export const TEST_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
       latencyMs
       reply
       error { code message transient }
+      chat { status }
     }
   }
 `;

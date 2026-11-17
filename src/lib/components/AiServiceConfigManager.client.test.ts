@@ -25,9 +25,11 @@ const GLM_ENDPOINTS = [
 ];
 
 let posts: Array<Record<string, unknown>>;
+let chatProbeStatus: string | null;
 beforeEach(() => {
   resetAiConfigRecoveryForTests();
   posts = [];
+  chatProbeStatus = null;
   vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
     if (_url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
     const body = JSON.parse(init.body) as Record<string, unknown>;
@@ -35,7 +37,7 @@ beforeEach(() => {
     const reply = body.action === 'endpoints'
       ? { endpoints: body.provider === 'glm' ? GLM_ENDPOINTS : body.provider === 'kimi' ? KIMI_ENDPOINTS : [] }
       : body.action === 'testSaved'
-        ? { result: { ok: true, provider: 'glm', model: 'm', endpoint: 'https://api.z.ai/api/paas/v4', apiStyle: 'CHAT_COMPLETIONS', latencyMs: 5, reply: 'hi', error: null, used: { provider: 'SAVED', model: 'SAVED', endpoint: 'OVERRIDE', apiStyle: 'SAVED', key: 'SAVED' } } }
+        ? { result: { chat: chatProbeStatus === null ? null : { status: chatProbeStatus }, ok: true, provider: 'glm', model: 'm', endpoint: 'https://api.z.ai/api/paas/v4', apiStyle: 'CHAT_COMPLETIONS', latencyMs: 5, reply: 'hi', error: null, used: { provider: 'SAVED', model: 'SAVED', endpoint: 'OVERRIDE', apiStyle: 'SAVED', key: 'SAVED' } } }
         : { ok: true };
     return { ok: true, json: async () => reply } as Response;
   }));
@@ -829,5 +831,39 @@ describe('a late save response must not replace the replacement editor’s basel
     const updates = posts.filter((p) => p.action === 'update');
     expect(updates).toHaveLength(2);
     expect('endpoint' in updates[1]!).toBe(false); // no spurious endpoint change
+  });
+});
+
+
+describe('#2043 separately labelled saved Test outcomes', () => {
+  it.each([
+    ['PASS', 'Passed: the model returned one valid response.'],
+    ['FAIL_TEXT_ONLY', 'Failed: the model answered in text instead of using its response tool.'],
+    ['FAIL_OTHER_TOOL', 'Failed: the model called a different tool.'],
+    ['FAIL_MULTIPLE_CALLS', 'Failed: the model called more than one tool.'],
+    ['FAIL_MALFORMED', 'Failed: the model returned an invalid response.'],
+    ['FAIL_PROVIDER_UNAVAILABLE', 'The chat test could not complete. Check the provider settings and try again.'],
+    ['UNSUPPORTED_PROVIDER', 'Chat testing is not supported by this provider.'],
+  ])('renders %s alongside a successful run result', async (status, copy) => {
+    chatProbeStatus = status;
+    const root = await open({ configs: [config()] });
+    editRow(root);
+    await settle();
+    const region = root.querySelector('[data-testid="ai-config-test-feedback"]');
+    expect(region).not.toBeNull();
+    expect(region?.textContent?.trim()).toBe('');
+    await performAction(root, 'Test');
+    expect(root.querySelector('[data-testid="ai-config-test-feedback"]')).toBe(region);
+    expect(root.querySelector('[data-testid="ai-config-test-run"]')?.textContent).toContain('Run');
+    expect(root.querySelector('[data-testid="ai-config-test-run"]')?.textContent).toContain('Works:');
+    const chat = root.querySelector('[data-testid="ai-config-test-chat"]');
+    expect(chat?.textContent).toContain('Chat');
+    expect(chat?.textContent).toContain(copy);
+  });
+  it('null chat on an older response renders the labelled run only', async () => {
+    const root = await open({ configs: [config()] });
+    editRow(root); await settle(); await performAction(root, 'Test');
+    expect(root.querySelector('[data-testid="ai-config-test-run"]')?.textContent).toContain('Works:');
+    expect(root.querySelector('[data-testid="ai-config-test-chat"]')).toBeNull();
   });
 });

@@ -47,6 +47,7 @@ const notOwned = () => Object.assign(new Error('AI service config "cfg-x" not fo
 
 function setup(o: { refuseChoice?: boolean } = {}) {
   mockRequest.mockImplementation(async (doc: string, vars: Vars) => {
+    if (doc.includes('chatEffectiveToolChoice(')) return { chatEffectiveToolChoice: 'FORCED' };
     if (o.refuseChoice && (doc === START_CHAT_MUTATION || doc === SEND_CHAT_MESSAGE_MUTATION) && vars.aiConfigChoice) throw notOwned();
     if (doc === CHAT_AI_CONFIG_CHOICES_QUERY) return { chatAiConfigChoices: CHOICES };
     if (doc === RESOLVE_AI_CONFIG_QUERY) {

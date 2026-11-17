@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte';
+  import AiConfigTestFeedback from './AiConfigTestFeedback.svelte';
   import { testResultView, type AiConfigTestResult, type AiConfigTestView } from '$lib/ai-config-test';
   import { lookupOwn } from '$lib/lookup';
   import { safeRedirect } from '$lib/safeRedirect';
@@ -1367,18 +1368,7 @@
         <p class="mt-1 text-xs text-zinc-400">{s.paramsHint()}</p>
       </div>
 
-      {#if testResult}
-        <div
-          class="rounded-md border px-3 py-2 text-xs {testResult.ok
-            ? 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300'
-            : 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'}"
-        >
-          <p>{testResult.ok ? '' : '× '}{testResult.headline}</p>
-          {#each testResult.details as d (d)}
-            <p class="mt-0.5 opacity-80">{d}</p>
-          {/each}
-        </div>
-      {/if}
+      <AiConfigTestFeedback result={testResult} />
 
       <div class="flex flex-wrap gap-2">
         <button

@@ -8,6 +8,7 @@ import { callAgentChatLlm, type HadronTool } from './agentChatLlm.js';
 import { publicChatError } from './chatError.js';
 import { llmModelVariable, resolveChatAi, type ChatAiResolution } from './chatAi.js';
 import { aiConfigChoiceVariable } from './aiConfigChoice.js';
+import { chatEffectiveToolChoice } from './chatToolChoice.js';
 
 export { fetchAgentAIConfig } from './chatAi.js';
 
@@ -106,6 +107,9 @@ export async function runChatTurn(args: {
     summarizationNeeded = sendResult.sendChatMessage.summarizationNeeded;
   }
 
+  // Resolve after sendChatMessage stored any new choice; welcome already stored it in startChat.
+  const toolChoice = await chatEffectiveToolChoice(client, chatId);
+
   // 3. Call the LLM with the tool contract
   const llmResult = await callAgentChatLlm({
     provider: ai.provider,
@@ -114,6 +118,7 @@ export async function runChatTurn(args: {
     systemMessage,
     tools,
     messages: messageHistory,
+    toolChoice,
   });
 
   // 4. Hand the tool call back to Hadron so it can save the assistant
