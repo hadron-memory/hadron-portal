@@ -104,7 +104,8 @@ export function nextFindingsOffset(page: FindingsPage): number {
  * marks, and a well-formed emoji tag sequence (a subdivision flag such as
  * England's: U+1F3F4, 1–6 tag letters or digits, CANCEL TAG), which the
  * first, captured alternative matches whole so its tags are never split out.
- * Likewise the Unicode space separators (category Zs): NBSP U+00A0, OGHAM SPACE
+ * Likewise the Unicode space separators (category Zs): plain space U+0020
+ * (listed so this comment and the test agree), NBSP U+00A0, OGHAM SPACE
  * MARK U+1680, U+2000-200A, NARROW NO-BREAK SPACE U+202F, MEDIUM MATHEMATICAL
  * SPACE U+205F and IDEOGRAPHIC SPACE U+3000. They are ordinary text even though
  * some draw as wide blanks; revealing them would mangle legitimate prose
