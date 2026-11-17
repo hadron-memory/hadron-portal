@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { AGENT_CHAT_PANEL_STYLE } from '$lib/agent-chat-panel';
   import AppSweepMode from './AppSweepMode.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
@@ -2332,7 +2333,7 @@
          under a phone browser's address bar; the `vh` line before it is the
          fallback for browsers without `dvh`. Same pattern, same reason as the
          sidebar in src/routes/app/+layout.svelte. -->
-    <div class="flex flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
+    <div class="flex flex-col" style={AGENT_CHAT_PANEL_STYLE}>
       {#if appChatRender === 'agent-chat' && app.agentId}
         <div class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
           <AgentChat

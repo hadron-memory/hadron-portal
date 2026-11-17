@@ -43,6 +43,7 @@
     "test:terminal-status-layout": "node scripts/test-terminal-status-layout.mjs",
     "test:table-cell-overflow-layout": "node scripts/test-table-cell-overflow-layout.mjs",
     "test:agent-chat-phone-layout": "node scripts/test-agent-chat-phone-layout.mjs",
+    "test:agent-chat-transcript-floor": "node scripts/test-agent-chat-transcript-floor.mjs",
     "test:agent-chat-row-actions": "node scripts/test-agent-chat-row-actions.mjs",
     "test:conversation-toolbar-layout": "node scripts/test-conversation-toolbar-layout.mjs"
   },
