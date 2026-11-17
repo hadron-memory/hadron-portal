@@ -93,6 +93,23 @@ describe('/api/nodes/search (#429)', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  // #2170 F5: tags get the same bound as nodeTypes, counted after dedupe.
+  it('rejects more than 20 distinct tags instead of forwarding an unbounded filter', async () => {
+    const tags = Array.from({ length: 21 }, (_, i) => `tag-${i}`);
+    const res = await POST(ev({ memoryIds: ['m1'], filter: { tags } }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'At most 20 tags can be filtered.' });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('accepts 20 distinct tags, counting duplicates once (control)', async () => {
+    mockRequest.mockResolvedValue(findNodesResult(1, 1));
+    const tags = [...Array.from({ length: 20 }, (_, i) => `tag-${i}`), 'tag-0'];
+    const res = await POST(ev({ memoryIds: ['m1'], filter: { tags } }));
+    expect(res.status).toBe(200);
+    expect((mockRequest.mock.calls[0][1] as { tags: string[] }).tags).toHaveLength(20);
+  });
+
   it('forwards updatedAfter + sort', async () => {
     mockRequest.mockResolvedValue(findNodesResult(1));
     await POST(ev({ memoryIds: ['m1'], filter: { updatedAfter: '2026-07-01T00:00:00.000Z' }, sort: 'updatedAt' }));

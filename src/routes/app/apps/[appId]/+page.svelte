@@ -2286,6 +2286,15 @@
             'Could not load this App’s chat list — others may exist beyond the ones shown.',
           )}
         </span>
+      {:else if data.chatDeepLinkUnresolved}
+        <!-- #2170 F6: the list loaded; only the linked chat could not be found
+             for certain. Saying the list failed would overstate it. -->
+        <span
+          role="status"
+          class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+        >
+          {t('app.chats.deep-link-unresolved', 'Couldn’t find the linked chat in this App — pick it from the list.')}
+        </span>
       {/if}
       <label for="app-chat-select" class="text-sm text-zinc-500">{t('app.chats.select', 'Chat')}</label>
       <select id="app-chat-select" class="min-w-0 max-w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"

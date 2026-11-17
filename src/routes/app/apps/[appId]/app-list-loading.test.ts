@@ -248,8 +248,54 @@ describe('App display-list request boundaries (#1758)', () => {
     });
     const result = await loadPage('?tab=chats&chat=chats%3Aa');
     expect(result.chatNotFound).toBe(true);
-    expect(result.chatsError).toBe(true);
+    // #2170 F6: the chat list itself loaded; only the deep link is uncertain.
+    expect(result.chatsError).toBe(false);
+    expect(result.chatDeepLinkUnresolved).toBe(true);
     expect(calls.filter(c => c.name === 'AppChatRootsPage' && c.variables.locPrefix === 'chats:a')).toHaveLength(1);
+  });
+
+  it('a failed deep-link lookup is uncertainty about the link, not a failed chat list (#2170 F6)', async () => {
+    const base = request.getMockImplementation()!;
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    request.mockImplementation(async (document: string, variables: Variables = {}) => {
+      const name = getOperationAST(parse(document))?.name?.value;
+      if (name === 'AppChatRootsPage' && variables.locPrefix === 'chats:gone') throw new Error('synthetic lookup failure');
+      return base(document, variables);
+    });
+    const result = await loadPage('?tab=chats&chat=chats%3Agone');
+    expect(result.chatsError).toBe(false);
+    expect(result.chatDeepLinkUnresolved).toBe(true);
+  });
+
+  it('a failed chat-root page is still a chat-list failure, and no deep-link uncertainty is claimed (#2170 F6 control)', async () => {
+    const base = request.getMockImplementation()!;
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    request.mockImplementation(async (document: string, variables: Variables = {}) => {
+      const name = getOperationAST(parse(document))?.name?.value;
+      if (name === 'AppChatRootsPage' && variables.locPrefix == null) throw new Error('synthetic page failure');
+      return base(document, variables);
+    });
+    const result = await loadPage('?tab=chats');
+    expect(result.chatsError).toBe(true);
+    expect(result.chatDeepLinkUnresolved).toBe(false);
+  });
+
+  // #2170 F7: a failed Flows page read must be visible, not an empty list.
+  it('reports a failed Flows page read instead of an empty Flows list', async () => {
+    const base = request.getMockImplementation()!;
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    request.mockImplementation(async (document: string, variables: Variables = {}) => {
+      const name = getOperationAST(parse(document))?.name?.value;
+      if (name === 'AppFlowsPage') throw new Error('synthetic Flows failure');
+      return base(document, variables);
+    });
+    const result = await loadPage('?tab=runs');
+    expect(result.runsPanel).toMatchObject({ flows: [], flowsError: true });
+  });
+
+  it('a successful Flows page read reports no Flows error (#2170 F7 control)', async () => {
+    const result = await loadPage('?tab=runs');
+    expect(result.runsPanel).toMatchObject({ flowsError: false });
   });
 
   it('retains complete staff and channel identity contexts, including rows beyond 200', async () => {
