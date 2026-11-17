@@ -37,7 +37,7 @@ export async function pageData() {
     ],
     staffError: false,
     teamChatMessages: [message(1, 'w1')], teamChatTotal: 1, teamChatError: false, teamFilter: { kind: 'none' }, teamFilterInvalid: false, teamChatRefusal: null,
-    appChats: [{ key: 'chats:team', label: 'Team chat' }], chatsError: false,
+    appChats: [{ key: 'chats:team', label: 'Team chat' }], chatsError: false, chatDeepLinkUnresolved: false,
     selectedChatKey: 'chats:team', initialTab: 'chats', initialChatFullView: false,
     runsPanel: null as Awaited<ReturnType<typeof runsPanel>> | null,
     chatConfigs: [], appConfigs: [], worklog: [], worklogTotal: 0, worklogError: false,
@@ -59,7 +59,7 @@ export async function runsPanel(runId: string) {
       startedAt: null, finishedAt: null, createdAt: '2026-11-01T00:00:00Z', createdBy: null,
     }],
     total: 1, page: 1, statuses: [], sort: 'createdAt', dir: 'desc', failed: false, explicitState: true,
-    flows: [], flowsCapped: false, flowsScanned: 0, runAgents: null,
+    flows: [], flowsPage: { offset: 0, count: 0, total: 0, firstHref: null, previousHref: null, nextHref: null }, flowsError: false, runAgents: null,
     runForm: await superValidate(zod4(runAppFlowSchema), { errors: false }),
   };
 }

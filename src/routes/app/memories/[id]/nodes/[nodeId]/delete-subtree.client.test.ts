@@ -16,7 +16,7 @@ import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { announcedAlertText } from '$lib/test/announcedAlertText';
-import { DELETE_NODE_MUTATION, NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import { DELETE_NODE_MUTATION, NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_PAGE_QUERY } from '$lib/server/queries';
 // Static imports: the page is large, and importing it inside a test spent the
 // test's whole timeout under full-suite load. `vi.mock` below is hoisted above
 // these, so the loader still sees the mocked client.
@@ -56,7 +56,7 @@ afterEach(() => {
 function serveRefusal(count: number) {
   mockRequest.mockImplementation(async (doc: string) => {
     if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: NODE };
-    if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+    if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
     if (doc === DELETE_NODE_MUTATION) {
       return Promise.reject({
         name: 'ClientError',
@@ -70,7 +70,7 @@ function serveRefusal(count: number) {
 async function mountPage() {
   mockRequest.mockImplementation(async (doc: string) => {
     if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: NODE };
-    if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+    if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
     return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
   });
   const loaded = (await load({
@@ -224,7 +224,7 @@ describe('delete confirm dialog (#621)', () => {
     const nodeB = { ...NODE, id: 'other-pk', loc: 'other', name: 'Other' };
     mockRequest.mockImplementation(async (doc: string) => {
       if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: nodeB };
-      if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+      if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
       return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
     });
     props.data = {
@@ -343,7 +343,7 @@ describe('delete confirm dialog (#621)', () => {
     const nodeB = { ...NODE, id: 'other-pk', loc: 'other', name: 'Other' };
     mockRequest.mockImplementation(async (doc: string) => {
       if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: nodeB };
-      if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+      if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
       return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
     });
     props.data = {

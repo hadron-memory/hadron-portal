@@ -33,6 +33,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   ci:
     # #1285: Playwright 1.58.2 cannot install Chromium on Ubuntu 26.04.
@@ -80,6 +84,10 @@ jobs:
       # portal#2088: App agent chat panes at 320-1440px, Back control and focus.
       - name: Check App agent chat phone layout
         run: pnpm test:agent-chat-phone-layout
+
+      # portal#2201: short phone transcripts retain readable vertical space.
+      - name: Check App agent chat transcript height
+        run: pnpm test:agent-chat-transcript-height
 
       # portal#2098: the chat list's Rename/Delete by keyboard, mouse and touch.
       - name: Check App agent chat row actions

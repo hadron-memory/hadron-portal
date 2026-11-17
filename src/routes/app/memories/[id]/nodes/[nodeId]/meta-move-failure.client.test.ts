@@ -41,8 +41,8 @@ import {
   NODE_PROPERTIES_READ_QUERY,
   NODE_PROVENANCE_QUERY,
   NODE_QUERY,
-  NODE_REVISIONS_PROVENANCE_QUERY,
-  NODE_REVISIONS_QUERY,
+  NODE_REVISIONS_PAGE_QUERY,
+  NODE_REVISIONS_PROVENANCE_PAGE_QUERY,
   UPDATE_NODE_MUTATION,
 } from '$lib/server/queries';
 import Page from './+page.svelte';
@@ -96,9 +96,9 @@ function serve() {
       case NODE_DATA_READ_QUERY:
       case NODE_PROPERTIES_READ_QUERY:
         return { node: stored };
-      case NODE_REVISIONS_QUERY:
-      case NODE_REVISIONS_PROVENANCE_QUERY:
-        return { nodeRevisions: [] };
+      case NODE_REVISIONS_PAGE_QUERY:
+      case NODE_REVISIONS_PROVENANCE_PAGE_QUERY:
+        return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
       case NODE_PROVENANCE_QUERY:
       case NODE_APPROVAL_QUERY:
       case NODE_COMMENT_SUMMARY_QUERY:

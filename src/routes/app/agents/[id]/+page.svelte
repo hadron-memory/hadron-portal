@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AgentLifecycle from './AgentLifecycle.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import BootProvenance from '$lib/components/BootProvenance.svelte';
   import AgentMemberRolesEditor from './AgentMemberRolesEditor.svelte';
@@ -1482,8 +1483,8 @@
             <div class="mb-3 flex items-center justify-between">
               <h2 class="font-semibold text-zinc-900 dark:text-white">Conversations</h2>
               <div class="flex items-center gap-4">
-                <!-- portal#2083: the Tester is manager-only (startChat refuses everyone else); unknown (null) hides it too. -->
-                {#if data.canManageAgent === true}
+                <!-- #2100: management alone does not admit another user's personal Agent to the Tester. -->
+                {#if data.canOpenTester === true}
                   <a href="/app/agents/{agent.id}/test"
                     class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">
                     Open Tester →
@@ -1865,6 +1866,12 @@
             </form>
           {/if}
         </section>
+      {/if}
+
+      <!-- portal#2194: how long this agent's workers run. Managers only; the server
+           still decides and its refusal is shown as text. -->
+      {#if data.canManageAgent === true}
+        <AgentLifecycle ownerId={agent.id} lifecycle={agent.lifecycle ?? 'LONG_LIVED'} />
       {/if}
 
       <!-- Danger zone -->

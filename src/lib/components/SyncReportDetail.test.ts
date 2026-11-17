@@ -39,9 +39,10 @@ describe('SyncReportDetail', () => {
   });
 
   it('escapes source text and rejects unknown secret-bearing codes', () => {
-    const entry = { kind: 'held_move', loc: '<script>alert(1)</script>', fromLoc: 'old', code: 'MOVE_HELD' };
+    const entry = { kind: 'held_move', loc: '<script>alert(1)</script>', fromLoc: '<img src=x onerror=alert(2)>', code: 'MOVE_HELD' };
     const body = render(SyncReportDetail, { props: { lastSyncReport: raw('partial', [entry]) } }).body;
     expect(body).not.toContain('<script>'); expect(body).toContain('&lt;script>');
+    expect(body).not.toContain('<img'); expect(body).toContain('&lt;img');
     const bad = render(SyncReportDetail, { props: { lastSyncReport: raw('partial', [{ ...entry, code: 'ghs_SECRET' }]) } }).body;
     expect(bad).toContain('Report unavailable'); expect(bad).not.toContain('ghs_SECRET');
   });
@@ -50,7 +51,7 @@ describe('SyncReportDetail', () => {
 it('distinguishes null, omitted, malformed completion and a never-run memory', () => {
   const body = (lastSyncReport: string | null | undefined, lastSyncedAt: string | null) => render(SyncReportDetail, { props: { lastSyncReport, lastSyncedAt, syncStatus: 'OK' } }).body;
   expect(body(null, at)).toContain('applied everything');
-  expect(body(null, null)).toContain('Not synced yet');
+  expect(body(null, null)).toContain('No clean completed sync is confirmed');
   expect(body(undefined, at)).toContain('Report unavailable');
   expect(body(null, 'bad')).toContain('Report unavailable');
 });

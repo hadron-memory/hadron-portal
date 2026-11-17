@@ -1,16 +1,15 @@
 /**
- * portal#1226 — the History tab says when its revision window came back full,
- * on the REAL node page with data from the REAL loader (the #995 harness
- * pattern), and the cue belongs to the node whose read set it: navigating to
- * another node, or a late answer for the node left behind, never shows or keeps
- * another node's cap.
+ * portal#1881 — the History tab pages revisions on the REAL node page with
+ * data from the REAL loader (the #995 harness pattern). Page navigation belongs
+ * to the node whose read produced it: navigating to another node, or a late
+ * answer for the node left behind, never shows or keeps another node's pages.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_PAGE_QUERY } from '$lib/server/queries';
 import { COMMENT_THREADS_QUERY, NODE_COMMENT_SUMMARY_QUERY, SELF_MEMORY_ACCESS_QUERY } from '$lib/server/comments';
 // Static imports: the page is large (see form-ids.client.test.ts).
 import Page from './+page.svelte';
@@ -43,6 +42,17 @@ const revisionRows = (n: number) => Array.from({ length: n }, (_, i) => ({
   id: `r${i}`, revNo: i, nodeId: 'leaf-pk', loc: 'foo', name: 'Foo', alias: null, description: null,
   tags: [], editedBy: null, revLabel: null, changedFields: [], createdAt: revisionCreatedAt,
 }));
+const resolvedRevisions = (nodeId: string, count = 20, total = 100) => ({
+  ok: true,
+  items: revisionRows(count),
+  total,
+  hasMore: count < total,
+  nodeId,
+  page: {
+    offset: 0, count, total, firstHref: null, previousHref: null,
+    nextHref: count < total ? '/app/memories/mem-A/nodes/leaf-pk?tab=history&revisionsOffset=20' : null,
+  },
+});
 
 beforeEach(() => {
   revisionCount = 0;
@@ -50,15 +60,23 @@ beforeEach(() => {
   mockRequest.mockReset();
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   setStubPage('http://localhost/app/memories/mem-A/nodes/leaf-pk', { id: 'mem-A', nodeId: 'leaf-pk' });
-  mockRequest.mockImplementation(async (doc: string) => {
+  mockRequest.mockImplementation(async (doc: string, vars: Record<string, unknown> = {}) => {
     if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: NODE };
-    if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: revisionRows(revisionCount) };
+    if (doc === NODE_REVISIONS_PAGE_QUERY) {
+      const offset = Number(vars.offset ?? 0);
+      const limit = Number(vars.limit ?? 20);
+      return { nodeRevisionsPage: {
+        items: revisionRows(revisionCount).slice(offset, offset + limit),
+        total: revisionCount,
+        hasMore: offset + limit < revisionCount,
+      } };
+    }
     if (doc === COMMENT_THREADS_QUERY) return { commentThreads: { total: 0, items: [] } };
     if (doc === NODE_COMMENT_SUMMARY_QUERY) {
       return { node: { id: 'leaf-pk', revision: 4, memory: { id: 'mem-A', urn: PARENT.graph.urn }, commentSummary: { openThreads: 0, resolvedThreads: 0, comments: 0, viewerOpenThreadId: null } } };
     }
     if (doc === SELF_MEMORY_ACCESS_QUERY) return { effectiveAccess: { canWrite: true, canManage: false } };
-    return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
+    return { memories: { items: [], total: 0 }, node: null, nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
   });
 });
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -88,23 +106,35 @@ async function mountPage(search = '', parent: typeof PARENT = PARENT) {
 
 const NOTICE = 'Showing the first';
 
-describe('History tab full-window cue (portal#1226)', () => {
-  it('says the history may be longer when the window came back full', async () => {
+describe('History tab paging (portal#1881)', () => {
+  it('links to older revisions without a capped notice', async () => {
     revisionCount = 100;
-    const { target } = await mountPage('?tab=history');
-    expect(target.textContent).toContain(`${NOTICE} 100 revisions`);
-  });
-
-  it('says nothing when the history is shorter than the window', async () => {
-    revisionCount = 99;
     const { target } = await mountPage('?tab=history');
     expect(target.textContent).not.toContain(NOTICE);
+    expect(target.querySelector('[data-testid="table-footer"]')).toBeNull();
+    expect(target.querySelector<HTMLAnchorElement>('nav[aria-label="Revision pages"] a[rel="next"]')?.getAttribute('href')).toContain('revisionsOffset=20');
   });
 
-  it('the cue does not follow the reader to another node, and a late answer for the old node is ignored', async () => {
+  it.each([19, 20])('has no continuation or capped notice when every revision fits one page (%i)', async (count) => {
+    revisionCount = count;
+    const { target } = await mountPage('?tab=history');
+    expect(target.textContent).not.toContain(NOTICE);
+    expect(target.querySelector('nav[aria-label="Revision pages"] a[rel="next"]')).toBeNull();
+  });
+
+  it('keeps a route back when a later History page becomes empty and the total falls to zero', async () => {
+    revisionCount = 0;
+    const { target } = await mountPage('?tab=history&revisionsOffset=20');
+    const nav = target.querySelector('nav[aria-label="Revision pages"]');
+    expect(nav).not.toBeNull();
+    expect(nav!.textContent).toContain('0');
+    expect(nav!.querySelector<HTMLAnchorElement>('a[rel="prev"]')?.getAttribute('href')).not.toContain('revisionsOffset=');
+  });
+
+  it('page navigation does not follow the reader to another node, and a late answer for the old node is ignored', async () => {
     revisionCount = 100;
     const m = await mountPage('?tab=history');
-    expect(m.target.textContent).toContain(NOTICE);
+    expect(m.target.querySelector('nav[aria-label="Revision pages"] a[rel="next"]')).not.toBeNull();
 
     const data = m.props.data as Record<string, unknown>;
     const oldNode = data.node as Record<string, unknown>;
@@ -112,44 +142,50 @@ describe('History tab full-window cue (portal#1226)', () => {
     let answerA!: (v: unknown) => void;
     m.props.data = { ...data, revisions: new Promise((r) => { answerA = r; }) };
     await settle();
+    expect(m.target.querySelectorAll('button[aria-label="Revision actions"]')).toHaveLength(0);
+    expect(m.target.querySelector('nav[aria-label="Revision pages"]')).toBeNull();
     // Node B's short history resolves first.
     m.props.data = {
       ...data,
       node: { ...oldNode, id: 'other-pk', loc: 'bar' },
-      revisions: Promise.resolve({ ok: true, items: revisionRows(2), capped: false, nodeId: 'other-pk' }),
+      revisions: Promise.resolve(resolvedRevisions('other-pk', 2, 2)),
     };
     await settle();
     expect(m.target.textContent).not.toContain(NOTICE);
+    expect(m.target.querySelector('nav[aria-label="Revision pages"] a[rel="next"]')).toBeNull();
 
-    // Node A's capped answer arrives late.
-    answerA({ ok: true, items: revisionRows(100), capped: true, nodeId: 'leaf-pk' });
+    // Node A's paged answer arrives late.
+    answerA(resolvedRevisions('leaf-pk'));
     await settle();
     expect(m.target.textContent).not.toContain(NOTICE);
+    expect(m.target.querySelector('nav[aria-label="Revision pages"] a[rel="next"]')).toBeNull();
   });
 
   // Each guard alone, so deleting either one is caught (Glen/Gizelle, P3).
-  it('the node pin alone: moving to another node on the SAME promise never shows the old cap', async () => {
+  it('the node pin alone: moving to another node on the SAME promise never shows the old page navigation', async () => {
     revisionCount = 100;
     const m = await mountPage('?tab=history');
-    expect(m.target.textContent).toContain(NOTICE);
+    expect(m.target.querySelector('nav[aria-label="Revision pages"] a[rel="next"]')).not.toBeNull();
     const data = m.props.data as Record<string, unknown>;
     m.props.data = { ...data, node: { ...(data.node as Record<string, unknown>), id: 'other-pk', loc: 'bar' } };
     await settle();
     expect(m.target.textContent).not.toContain(NOTICE);
+    expect(m.target.querySelector('nav[aria-label="Revision pages"] a[rel="next"]')).toBeNull();
   });
 
-  it('the promise guard alone: a superseded promise that names the CURRENT node cannot set the cue', async () => {
+  it('the promise guard alone: a superseded promise that names the CURRENT node cannot set page navigation', async () => {
     revisionCount = 0;
     const m = await mountPage('?tab=history');
     const data = m.props.data as Record<string, unknown>;
     let stale!: (v: unknown) => void;
     m.props.data = { ...data, revisions: new Promise((r) => { stale = r; }) };
     await settle();
-    m.props.data = { ...data, revisions: Promise.resolve({ ok: true, items: revisionRows(2), capped: false, nodeId: 'leaf-pk' }) };
+    m.props.data = { ...data, revisions: Promise.resolve(resolvedRevisions('leaf-pk', 2, 2)) };
     await settle();
-    stale({ ok: true, items: revisionRows(100), capped: true, nodeId: 'leaf-pk' });
+    stale(resolvedRevisions('leaf-pk'));
     await settle();
     expect(m.target.textContent).not.toContain(NOTICE);
+    expect(m.target.querySelector('nav[aria-label="Revision pages"] a[rel="next"]')).toBeNull();
   });
 });
 
@@ -160,18 +196,12 @@ it('renders History timestamps with the Info date style and retains seconds (#11
   expect(document.body.textContent).toContain('Oct 19, 2026, 1:04:05 PM');
 });
 
-it('matches both the displayed History timestamp and its raw wire value (#1167)', async () => {
-  revisionCount = 1;
-  revisionCreatedAt = new Date(2026, 9, 19, 13, 4, 5).toISOString();
+it('does not offer page-local History search or sorting as history-wide operations', async () => {
+  revisionCount = 100;
   const m = await mountPage('?tab=history');
-  const search = m.target.querySelector<HTMLInputElement>('input[aria-label="Search history…"]')!;
-  expect(search).not.toBeNull();
-  for (const query of ['Oct 19, 2026, 1:04:05 PM', revisionCreatedAt]) {
-    search.value = query;
-    search.dispatchEvent(new Event('input', { bubbles: true }));
-    await settle();
-    expect(m.target.querySelectorAll('button[aria-label="Revision actions"]')).toHaveLength(1);
-  }
+  expect(m.target.querySelector('input[aria-label="Search history…"]')).toBeNull();
+  expect(m.target.querySelector('[aria-sort]')).toBeNull();
+  expect(m.target.querySelectorAll('button[aria-label="Revision actions"]')).toHaveLength(20);
 });
 
 it('uses the same timestamp in the restore confirmation without restoring (#1167)', async () => {
