@@ -100,14 +100,20 @@ describe('TeamChatThread team filter — chips', () => {
       onSelectTeam,
     });
     const m = await mountThread(props);
-    // Both membership states visible on the rows before any click.
+    // Both membership states visible on the rows before any click, and the
+    // title names the action the click will take (#1482 made it a toggle).
     expect(qa(m, 'team-chat-tag').map((el) => el.getAttribute('aria-pressed'))).toEqual(['true', 'false']);
+    expect(qa(m, 'team-chat-tag').map((el) => el.getAttribute('title'))).toEqual([
+      'Remove this team from the filter',
+      'Show messages with this team tag',
+    ]);
     // Adding: the set grows, the existing member stays, and once the parent's
     // read lands both rows read as in the set.
     (qa(m, 'team-chat-tag')[1] as HTMLButtonElement).click();
     expect(onSelectTeam).toHaveBeenLastCalledWith({ kind: 'teams', headRefs: ['head-ada', 'head-bo'] });
     await tick(4);
     expect(qa(m, 'team-chat-tag').map((el) => el.getAttribute('aria-pressed'))).toEqual(['true', 'true']);
+    expect(qa(m, 'team-chat-tag').every((el) => el.getAttribute('title') === 'Remove this team from the filter')).toBe(true);
     // Removing: that member leaves, the other stays.
     (qa(m, 'team-chat-tag')[0] as HTMLButtonElement).click();
     expect(onSelectTeam).toHaveBeenLastCalledWith({ kind: 'teams', headRefs: ['head-bo'] });

@@ -24,6 +24,15 @@ export const NO_TEAM_FILTER: TeamChatFilter = { kind: 'none' };
 /** The `?team=` value that selects the untagged view. A head id never spells it. */
 export const UNTAGGED_PARAM = 'untagged';
 
+/**
+ * The server's documented cap on the selection (schema snapshot,
+ * teamChatMessages.teamHeadRefs: "At most 20 entries"). The portal refuses
+ * larger URLs and stops a toggle from growing a full selection so a click can
+ * never push the read into the server's cap refusal — that refusal is sticky
+ * (nothing loads while it stands), and 20 is far past any real team's set.
+ */
+export const TEAM_HEAD_REFS_MAX = 20;
+
 // Ids are opaque to the portal; this only keeps a hostile or mangled value out
 // of a URL and a GraphQL variable. The server's typed refusal stays the
 // authority on whether a well-formed id is a usable head.
@@ -40,12 +49,22 @@ const HEAD_REF_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
  */
 export function parseTeamParam(raws: readonly string[] | null): { ok: true; filter: TeamChatFilter } | { ok: false } {
   if (raws === null || raws.length === 0) return { ok: true, filter: NO_TEAM_FILTER };
-  if (raws.length === 1 && raws[0] === UNTAGGED_PARAM) return { ok: true, filter: { kind: 'untagged' } };
+  // The set is the selection, so duplicates collapse FIRST — a doubled
+  // `untagged` stays the untagged view exactly as the single-value read
+  // served it, and only a genuine `untagged`-with-heads mix is refused as
+  // mutually exclusive. Set iteration keeps first-seen order for display.
+  const unique = [...new Set(raws)];
+  if (unique.length === 1 && unique[0] === UNTAGGED_PARAM) return { ok: true, filter: { kind: 'untagged' } };
+  if (unique.includes(UNTAGGED_PARAM)) return { ok: false };
   const headRefs: string[] = [];
-  for (const raw of raws) {
-    if (raw === UNTAGGED_PARAM || !HEAD_REF_PATTERN.test(raw)) return { ok: false };
-    if (!headRefs.includes(raw)) headRefs.push(raw);
+  for (const raw of unique) {
+    if (!HEAD_REF_PATTERN.test(raw)) return { ok: false };
+    headRefs.push(raw);
   }
+  // Over-cap is invalid HERE rather than a read the server would refuse:
+  // the invalid state names the filter, the refusal state would wedge the
+  // thread on nothing-loaded until heads are removed one by one.
+  if (headRefs.length > TEAM_HEAD_REFS_MAX) return { ok: false };
   return { ok: true, filter: { kind: 'teams', headRefs } };
 }
 
@@ -58,8 +77,14 @@ export function parseTeamParam(raws: readonly string[] | null): { ok: true; filt
  */
 export function toggleTeamHead(filter: TeamChatFilter, headRef: string): TeamChatFilter {
   const current = filter.kind === 'teams' ? filter.headRefs : [];
-  const next = current.includes(headRef) ? current.filter((r) => r !== headRef) : [...current, headRef];
-  return next.length > 0 ? { kind: 'teams', headRefs: next } : NO_TEAM_FILTER;
+  if (current.includes(headRef)) {
+    const next = current.filter((r) => r !== headRef);
+    return next.length > 0 ? { kind: 'teams', headRefs: next } : NO_TEAM_FILTER;
+  }
+  // A full selection does not grow: the click is a no-op (the chip keeps its
+  // state) rather than a navigation into the server's over-cap refusal.
+  if (current.length >= TEAM_HEAD_REFS_MAX) return filter;
+  return { kind: 'teams', headRefs: [...current, headRef] };
 }
 
 /** The GraphQL variables for a filter: exactly one of the pair, or neither. */

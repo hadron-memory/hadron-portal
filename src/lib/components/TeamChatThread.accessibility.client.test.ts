@@ -104,6 +104,26 @@ describe('portal#1410 chip feedback and refusal polling', () => {
   expect(q(m,'team-chat-filter-status')?.textContent).toContain('team.bo');
   expect(q(m,'team-chat-filter-status')?.textContent).not.toContain('team.ada');
  });
+ it('announces an added sparse head by its clicked label, and a removal-to-singleton by the generic name (#1482)',async()=>{
+  const props=reactiveProps<Record<string,unknown>>({messages:[message(1,{teamTags:[ADA]}),message(2,{teamTags:[BO]})],total:2,filter:{kind:'none'}});
+  props.onSelectTeam=(next:TeamChatFilter)=>{
+    props.filter=next;
+    // The parent's read lands as new props: the tail under [BO] carries no
+    // row for it (its tagged messages sit older than the window).
+    if(next.kind==='teams'&&next.headRefs.length===1&&next.headRefs[0]==='head-bo')props.messages=[];
+  };
+  const m=await mountThread(props);document.body.append(m.target);
+  (qa(m,'team-chat-tag')[1] as HTMLButtonElement).click();await tick(4);
+  // Sparse, but the reader JUST clicked it: the clicked label announces.
+  expect(q(m,'team-chat-filter-status')?.textContent).toContain('team.bo');
+  // A removal that leaves an unlabeled singleton: the generic name, never
+  // the departing head's label posing as the filter.
+  props.messages=[message(1,{teamTags:[ADA]})];
+  props.filter={kind:'teams',headRefs:['head-ada','head-zoe']};await tick(4);
+  (qa(m,'team-chat-tag')[0] as HTMLButtonElement).click();await tick(4);
+  expect(q(m,'team-chat-filter-status')?.textContent).toContain('Selected team');
+  expect(q(m,'team-chat-filter-status')?.textContent).not.toContain('team.ada');
+ });
  it('gives guidance, a non-colour selected cue, plain empty copy and a refusal next step',async()=>{
   const m=await mountThread({messages:[],filter:{kind:'untagged'},onSelectTeam:vi.fn()});
   expect(q(m,'team-chat-filter')?.textContent).not.toContain('Choose a team by clicking a tag on a message.');

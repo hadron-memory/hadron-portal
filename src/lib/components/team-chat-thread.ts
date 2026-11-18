@@ -4,6 +4,12 @@ import type { TeamChatMessage } from '$lib/types';
 export interface TeamChatFilterFocusRequest {
   key: string;
   label?: string;
+  /**
+   * The head id this request ADDED to the selection, when it added one. The
+   * label above is that head's clicked tag label; on a removal it is the
+   * departing head's label and must never announce as the active filter.
+   */
+  addedHead?: string;
   opener: Element | null;
   /** The route owner marks its own goto; absent for synchronous component consumers. */
   navigation?: 'pending' | 'complete';

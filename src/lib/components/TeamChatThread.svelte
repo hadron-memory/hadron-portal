@@ -423,7 +423,13 @@
   let filterAnnouncement = $state('');
   function selectTeam(next: TeamChatFilter, label?: string) {
     if (!onSelectTeam) return;
-    filterFocusRequest = { key: filterKeyOf(next), label, opener: document.activeElement };
+    // The clicked tag's label is an announcement fallback for the head this
+    // click ADDS (its filtered read may have no row on screen). On a removal
+    // it is the departing head's label and must not announce as the filter.
+    const addedHead = next.kind === 'teams'
+      ? next.headRefs.find((h) => filter.kind !== 'teams' || !filter.headRefs.includes(h))
+      : undefined;
+    filterFocusRequest = { key: filterKeyOf(next), label, addedHead, opener: document.activeElement };
     onSelectTeam(next);
   }
   function rememberFilterFocus(event: FocusEvent) {
@@ -466,12 +472,12 @@
         ? t('app.team-chat.filter.announcement.teams', 'Team filter selected: {teams}.', {
             teams: filter.headRefs
               .map((headRef) =>
-                // A singleton keeps the old behavior: the clicked tag's label
-                // announces even when its filtered read has no row on screen.
-                // In a set, a head with no loaded row falls back to the
+                // The head this click added announces under the clicked tag's
+                // label even when its filtered read has no row on screen.
+                // Every other head with no loaded row falls back to the
                 // generic name rather than guessing from other rows' labels.
                 activeTeamLabels.get(headRef)
-                  ?? (filter.headRefs.length === 1 ? requested.label : undefined)
+                  ?? (headRef === requested.addedHead ? requested.label : undefined)
                   ?? t('app.team-chat.filter.selected-team', 'Selected team'))
               .join(', '),
           })
@@ -1073,7 +1079,9 @@
                       aria-pressed={pressed}
                       disabled={!onSelectTeam}
                       onclick={() => selectTeam(toggleTeamHead(filter, tag.headId), tag.label)}
-                      title={t('app.team-chat.tag.filter', 'Show messages with this team tag')}
+                      title={pressed
+                        ? t('app.team-chat.tag.unfilter', 'Remove this team from the filter')
+                        : t('app.team-chat.tag.filter', 'Show messages with this team tag')}
                       class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 text-zinc-600 enabled:hover:bg-zinc-200 aria-pressed:border-indigo-500 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:enabled:hover:bg-zinc-700 dark:aria-pressed:border-indigo-400 dark:aria-pressed:bg-indigo-950 dark:aria-pressed:text-indigo-200"
                     >{#if pressed}<Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />{/if}{tag.label}</button>
                   {/each}

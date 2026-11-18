@@ -36,6 +36,22 @@ describe('parseTeamParam', () => {
     expect(parseTeamParam(['h2', 'h1', 'h2'])).toEqual({ ok: true, filter: { kind: 'teams', headRefs: ['h2', 'h1'] } });
   });
 
+  it('collapses a doubled `untagged` to the untagged view — duplicates are not a mix', () => {
+    // The single-value read served ?team=untagged&team=untagged as untagged
+    // (it read the first value); the set read must not turn that URL into an
+    // error. Only untagged WITH heads is a mutually-exclusive mix.
+    expect(parseTeamParam(['untagged', 'untagged'])).toEqual({ ok: true, filter: { kind: 'untagged' } });
+  });
+
+  it('holds the server’s documented cap: 20 heads parse, the 21st is invalid locally', () => {
+    // The schema caps teamHeadRefs at 20 entries. Over-cap is refused HERE so
+    // the read never becomes the server’s sticky cap refusal; the invalid
+    // state names the filter and is left the same way as any other bad URL.
+    const twenty = Array.from({ length: 20 }, (_, i) => `h${i}`);
+    expect(parseTeamParam(twenty)).toEqual({ ok: true, filter: { kind: 'teams', headRefs: twenty } });
+    expect(parseTeamParam([...twenty, 'h20'])).toEqual({ ok: false });
+  });
+
   it('refuses `untagged` mixed with heads rather than dropping either side', () => {
     // The server would refuse the pair as mutually exclusive (server#3759);
     // the portal refuses at the URL so nothing is read at all.
@@ -64,6 +80,15 @@ describe('toggleTeamHead — a tag chip click', () => {
 
   it('takes a tag click from the untagged view to that team, as from no filter', () => {
     expect(toggleTeamHead({ kind: 'untagged' }, 'h1')).toEqual({ kind: 'teams', headRefs: ['h1'] });
+  });
+
+  it('does not grow a full selection past the cap: the click is a no-op, not a wedging read', () => {
+    // 20 is the server’s documented teamHeadRefs cap. Toggling a 21st head in
+    // returns the SAME filter (the chip keeps its state) so navigation never
+    // asks for a read the server would refuse wholesale; removals still work.
+    const twenty: TeamChatFilter = { kind: 'teams', headRefs: Array.from({ length: 20 }, (_, i) => `h${i}`) };
+    expect(toggleTeamHead(twenty, 'h20')).toBe(twenty);
+    expect(toggleTeamHead(twenty, 'h0')).toEqual({ kind: 'teams', headRefs: twenty.headRefs.slice(1) });
   });
 });
 

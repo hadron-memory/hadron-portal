@@ -271,9 +271,23 @@ describe('GET /app/apps/[appId]/team-chat — team filter (#1137)', () => {
     expect(mockRequest).toHaveBeenCalledTimes(1);
   });
 
-  it('surfaces the server’s cap refusal (BAD_USER_INPUT) as a refusal, not a phantom transport blip (#1482)', async () => {
-    // A hand-built URL past 20 heads is answered typed by the server
-    // (server#3759); the reader is told what it says.
+  it('refuses an over-cap selection locally: 400 bad-team, no server read (#1482)', async () => {
+    // The schema caps teamHeadRefs at 20. A 21-value URL is invalid HERE —
+    // the invalid state names the filter and is left like any other bad URL,
+    // where the server’s cap refusal would wedge the thread on nothing-loaded.
+    ok();
+    const { status, body } = await get('app-1', `?${Array.from({ length: 21 }, (_, i) => `team=h${i}`).join('&')}`);
+    expect(status).toBe(400);
+    expect(body).toMatchObject({ items: [], total: 0, loadFailed: true, reason: 'bad-team' });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('keeps BAD_USER_INPUT a degraded read, never a team-filter refusal (#1482)', async () => {
+    // BAD_USER_INPUT is not this call’s alone — the same request carries
+    // appRef, and a malformed ref is answered BAD_USER_INPUT before any
+    // lookup. Mapping it would sell that as a filter refusal and halt the
+    // poll over a filter the reader never chose
+    // (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
     const refusal = Object.assign(new Error('teamHeadRefs accepts at most 20 entries.'), {
       response: {
         errors: [
@@ -282,12 +296,9 @@ describe('GET /app/apps/[appId]/team-chat — team filter (#1137)', () => {
       },
     });
     mockRequest.mockRejectedValue(refusal);
-    const { body } = await get('app-1', `?${Array.from({ length: 21 }, (_, i) => `team=h${i}`).join('&')}`);
-    expect(body).toMatchObject({
-      items: [],
-      loadFailed: true,
-      refusal: { code: 'BAD_USER_INPUT', message: 'teamHeadRefs accepts at most 20 entries.' },
-    });
+    const { body } = await get('app-1', '?team=h1');
+    expect(body).toMatchObject({ items: [], loadFailed: true });
+    expect(body).not.toHaveProperty('refusal');
   });
 
   it('keeps an ordinary failure a degraded tick: no refusal is invented', async () => {
