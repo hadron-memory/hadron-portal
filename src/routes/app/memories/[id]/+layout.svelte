@@ -1,9 +1,9 @@
 <script lang="ts">
+  import LazyNodesBrowser from '$lib/components/LazyNodesBrowser.svelte';
   // #266: memory-detail is a tab layout. The layout renders the breadcrumb +
   // header + tab bar; each tab is a sub-route rendered via {@render children()}.
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
@@ -11,7 +11,8 @@
   import { t } from '$lib/i18n/t';
   import ApproveAllDialog from '$lib/components/memory/ApproveAllDialog.svelte';
   import MintDialog from '$lib/components/memory/MintDialog.svelte';
-  import { canSeeShares } from '$lib/memory/can-manage-shares';
+  import { canSeeShares, isSharePrincipal } from '$lib/memory/can-manage-shares';
+  import { canAccessMemorySettings, canEditMemorySettings } from '$lib/memory/can-access-settings';
   import { scrollHint } from '$lib/scroll-hint';
   import type { OrgSummary } from '$lib/types';
   import type { LayoutData } from './$types';
@@ -22,24 +23,42 @@
 
   // ── #520: memory actions menu (⋯), mirroring the node-detail page ─────────
   const g = $derived(data.graph);
-  const readOnly = $derived(data.canWriteMemory !== true);
   // canDelete mirrors the Settings danger-zone gate (spec 013/034): owner-only
   // classes → the owner; other classes → an org ADMIN/OWNER; agent-system
   // memories are excluded (delete goes through the owning agent). The server
   // resolver is the trust boundary; this only hides the affordance.
   const myMember = $derived(data.org?.members?.find((m) => m.user?.id === data.user?.id));
+  const isOwnerOnly = $derived(g.class === 'personal' || g.class === 'private');
+  const isStrictOwner = $derived(isOwnerOnly && isSharePrincipal(g, data.user));
   const canDelete = $derived(
     g.class !== 'system' &&
-      (g.class === 'personal' || g.class === 'private'
-        ? !!data.user?.id && data.user.id === g.userId
+      (isOwnerOnly
+        ? isStrictOwner
         : myMember?.role === 'ADMIN' || myMember?.role === 'OWNER'),
   );
   // cloneMemory rejects system + encrypted sources — hide Clone there.
   const cloneable = $derived(g.class !== 'system' && !g.isEncrypted);
 
+  const canAccessSettings = $derived(
+    canAccessMemorySettings(g, data.user, !!data.org, data.orgReadFailed === true),
+  );
+  const impersonating = $derived(data.impersonation != null);
+  // Keep Edit aligned with the destination's manage gate without granting
+  // node-write actions to a manage-only org admin.
+  const canEditSettings = $derived(canEditMemorySettings({
+    memory: g,
+    user: data.user,
+    orgAvailable: !!data.org,
+    orgReadFailed: data.orgReadFailed === true,
+    canManageMemory: data.canManageMemory === true,
+    canWriteMemory: data.canWriteMemory === true,
+    impersonating,
+    myMember,
+  }));
+  const readOnly = $derived(impersonating || data.canWriteMemory !== true);
   const memoryActions = $derived<NodeMenuAction[]>([
     { id: 'add-node', label: t('memory-actions.add-node', 'Add node') },
-    { id: 'edit', label: t('memory-actions.edit', 'Edit memory') },
+    ...(canEditSettings ? [{ id: 'edit', label: t('memory-actions.edit', 'Edit memory') }] : []),
     ...(cloneable ? [{ id: 'clone', label: t('memory-actions.clone', 'Clone memory') }] : []),
     // #992: system memories hold an agent's own state, not specs to approve.
     // portal#1088 (hadron-server#1637): encrypted memories are never approved.
@@ -47,7 +66,7 @@
     // #992 slice C: the server refuses encrypted memories outright.
     ...(g.class !== 'system' && !g.isEncrypted ? [{ id: 'mint', label: t('memory-actions.mint', 'Mint nodes') }] : []),
     ...(canDelete ? [{ id: 'delete', label: t('memory-actions.delete', 'Delete memory'), danger: true }] : []),
-  ].filter((action) => !readOnly || action.id === 'clone'));
+  ].filter((action) => !impersonating && (!readOnly || action.id === 'clone' || action.id === 'edit' || (action.id === 'delete' && canEditSettings))));
 
   // Clone dialog — mirrors the node Move dialog: a full target memory URN the
   // user can edit, with a "Select org" button that rewrites the org segment.
@@ -74,11 +93,19 @@
   // #992: Approve all (approveMemoryNodes), in its own dialog component.
   let approveAllOpen = $state(false);
   let mintOpen = $state(false);
+  $effect(() => {
+    if (!impersonating) return;
+    cloneOpen = false;
+    orgPickerOpen = false;
+    approveAllOpen = false;
+    mintOpen = false;
+  });
   // Bumped after a confirmed Approve all, so an active server filter in the
   // node list ("Not approved") re-runs instead of listing approved nodes.
   let approvalsVersion = $state(0);
 
   function onMenuSelect(id: string) {
+    if (impersonating) return;
     cloneOpen = false;
     cloneError = null;
     approveAllOpen = false;
@@ -106,6 +133,7 @@
   }
 
   async function submitClone() {
+    if (impersonating) return;
     const target = cloneTarget.trim();
     if (!target || cloning) return;
     cloning = true;
@@ -163,7 +191,9 @@
     // portal#696: the memory's files. Sits next to Nodes/Graph — it's content,
     // not configuration.
     { id: 'assets', label: t('memory-detail.tab.assets', 'Files'), href: `${basePath}/assets` },
-    { id: 'settings', label: t('memory-detail.tab.settings', 'Settings'), href: `${basePath}/settings` },
+    ...(canAccessSettings
+      ? [{ id: 'settings' as const, label: t('memory-detail.tab.settings', 'Settings'), href: `${basePath}/settings` }]
+      : []),
     // #668 — who this memory is shared with (spec 023 US3 MemoryShare).
     //
     // Offered only to someone who can actually read the share list. The first
@@ -320,19 +350,20 @@
     <p role="status" class="mb-4 text-sm text-zinc-500">{t('memory-detail.read-only', 'Read only — editing is unavailable for this memory.')}</p>
   {/if}
 
-  <!-- Nodes/Graph share one MemoryBrowser rendered HERE (in the persistent
-       layout) so its tree width, open/closed, search, and filters survive
-       switching between the two tabs (the page components would remount). The
-       page components only set the <title>. -->
-  {#if !isNodeDetail && (activeTab === 'nodes' || activeTab === 'graph')}
-    {#if data.nodesFailed}
-      <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
-        {t('memory-detail.nodes-load-error', "Couldn't load this memory's nodes — the node service returned an error. This is not the same as an empty memory; try refreshing, and if it persists check the hadron-server logs.")}
-      </div>
-    {/if}
-    <!-- #589: memory drives the structured-query UI (schema pickers +
-         encrypted-data annotation). -->
-    <MemoryBrowser {readOnly} nodes={data.graphNodes ?? []} nodesTotal={data.nodesTotal} {basePath} forcedView={activeTab} memory={data.graph} refreshKey={approvalsVersion} />
+  <!-- portal#1524 (Holger, 2026-10-31): the layout drains no node list (it
+       loaded 44 MB of HTML at 33k nodes, portal#1380) and the Graph is still
+       OFF; TopicGraph is kept, disabled. portal#1700: the Nodes tab is back on
+       BOUNDED reads only: LazyNodesBrowser reads one page per user action
+       through nodes/children and nodes/page, never the whole list.
+       MemoryBrowser is not rendered here (it takes a loaded array). -->
+  {#if !isNodeDetail && activeTab === 'nodes'}
+    {#key g.id}
+      <LazyNodesBrowser memoryId={g.id} />
+    {/key}
+  {:else if !isNodeDetail && activeTab === 'graph'}
+    <p role="status" data-testid="memory-views-off" class="mb-4 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+      {t('memory-detail.views-off', 'The graph view is temporarily off. Open a node by its URL or from a link to it.')}
+    </p>
   {/if}
   {@render children()}
 </div>

@@ -339,3 +339,17 @@ describe('buildCommandRoute — open a worker URN (#815)', () => {
     });
   });
 });
+
+// portal#1946: a short task handle has no App context here, so never guess one.
+describe('task handles in the command palette', () => {
+  it.each(['AT0.6508', 'at0.6508'])('open %s searches task hits without URN probes', async handle => {
+    const probe = vi.fn();
+    expect(await buildCommandRoute('open', handle, probe)).toEqual({ ok: true, path: `/app/search?q=${handle}&type=agentTask` });
+    expect(probe).not.toHaveBeenCalled();
+  });
+  it('find keeps the original query for global task/name matching', async () => {
+    const parsed = parseCommand('find AT0.6508');
+    expect(parsed.command?.id).toBe('search');
+    expect(await resolveCommandAction(parsed.command!, parsed.arg, { activeOrgId: null, resolve })).toEqual({ type: 'navigate', path: '/app/search?q=AT0.6508' });
+  });
+});

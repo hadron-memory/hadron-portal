@@ -1,16 +1,28 @@
 <script lang="ts">
+  import TaskFindings from '$lib/components/agent-tasks/TaskFindings.svelte';
+  import TaskHandBack from '$lib/components/agent-tasks/TaskHandBack.svelte';
+  import TaskProperties from '$lib/components/agent-tasks/TaskProperties.svelte';
+  import TaskReview from '$lib/components/agent-tasks/TaskReview.svelte';
+  import TaskPlanning from '$lib/components/agent-tasks/TaskPlanning.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import CopyCode from '$lib/components/agent-tasks/CopyCode.svelte';
   import NotParticipant from '$lib/components/agent-tasks/NotParticipant.svelte';
   import PartyLabel from '$lib/components/agent-tasks/PartyLabel.svelte';
   import SubtaskTree from '$lib/components/agent-tasks/SubtaskTree.svelte';
   import TaskHistory from '$lib/components/agent-tasks/TaskHistory.svelte';
+  import TaskExternalId from '$lib/components/agent-tasks/TaskExternalId.svelte';
   import TaskSource from '$lib/components/agent-tasks/TaskSource.svelte';
+  import TaskReferences from '$lib/components/agent-tasks/TaskReferences.svelte';
   import TaskStateChips from '$lib/components/agent-tasks/TaskStateChips.svelte';
+  import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
+  import TaskClones from '$lib/components/agent-tasks/TaskClones.svelte';
+  import TaskLineage from '$lib/components/agent-tasks/TaskLineage.svelte';
+  import { isProjectZero, taskHref } from '$lib/agent-tasks/handle';
   import TaskActionBar from '$lib/components/agent-tasks/TaskActionBar.svelte';
   import { fmtRunTime } from '$lib/flow/runs';
-  import { t } from '$lib/i18n/t';
+  import { splitAt, t } from '$lib/i18n/t';
   import { outcomeClass, sourceKind, taskDisplayState } from '$lib/agent-tasks/status';
+  import { markStreamHandled } from '$lib/mark-stream-handled';
   import type { PageData } from './$types';
 
   /**
@@ -19,8 +31,22 @@
    */
   let { data }: { data: PageData } = $props();
 
+  // portal#1588 QA F2: the streamed memories promise reaches a consumer only
+  // when the Edit-details panel opens (TaskActionBar -> TaskEditFields ->
+  // TaskReferencesEditor), so a rejected read sat unhandled until then — an
+  // uncaught page error on the failure path. Mark it handled here, at the
+  // page that owns the stream; the editor's {#await}/{:catch} still renders
+  // the failure copy from its own handler.
+  $effect(() => {
+    markStreamHandled(data.nodeMemories);
+  });
+
   const task = $derived(data.task);
+  // portal#1349: AT0 is the server's fixed "No project" row — read-only here, whatever the viewer may do elsewhere.
+  const fixedTask = $derived(isProjectZero(data.task.handle));
   const basePath = $derived(`/app/apps/${data.app.id}`);
+  // portal#1415 A: one message with a {link} placeholder, so a translation can place the link.
+  const projectZeroNote = splitAt(t('app.tasks.tree.project-zero', 'Tasks that belong to no project are listed on the {link}, not under this one.'), 'link');
   const appsHref = $derived(data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps');
   const state = $derived(taskDisplayState(task));
 
@@ -29,7 +55,14 @@
     { label: data.app.name, href: basePath },
     { label: t('app.tasks.crumb.tasks', 'Tasks'), href: `${basePath}/tasks` },
     ...(data.ancestorsTruncated ? [{ label: '…' }] : []),
-    ...data.ancestors.map((a) => ({ label: a.title, href: `${basePath}/tasks/${a.id}` })),
+    ...data.ancestors.map((a) => ({
+      label: a.title,
+      href: taskHref(basePath, a),
+      // portal#1415 item 1: the chip's accessible name is a visually hidden
+      // prefix + the chip value, so the label is the KIND, not the whole name.
+      chip: a.handle,
+      chipLabel: t('app.tasks.handle.prefix', 'Task handle'),
+    })),
     { label: task.title },
   ]);
 
@@ -56,6 +89,7 @@
     if (r?.role) parts.push(t('app.tasks.req.role', 'role {role}', { role: r.role }));
     if (r?.familyIn?.length) parts.push(t('app.tasks.req.family-in', 'model family {families}', { families: r.familyIn.join(', ') }));
     if (r?.familyNotIn?.length) parts.push(t('app.tasks.req.family-not-in', 'not {families}', { families: r.familyNotIn.join(', ') }));
+    if (r?.minTier) parts.push(t('app.tasks.req.min-tier', 'a {tier}-tier model or higher', { tier: r.minTier }));
     return parts.join(', ');
   });
 
@@ -91,21 +125,41 @@
   <div class="flex flex-wrap items-start justify-between gap-3">
     <div class="min-w-0">
       <h1 class="text-xl font-bold break-words text-zinc-900 dark:text-white">{task.title}</h1>
-      <div class="mt-1"><TaskStateChips {task} /></div>
-      <TaskActionBar
-        {task}
-        canWrite={data.canWrite}
-        impersonating={data.impersonating}
-        candidates={data.candidates}
-        {openChildren}
-        created={data.created}
-      />
+      <div class="mt-1 flex flex-wrap items-center gap-2"><TaskHandle handle={task.handle} /><TaskStateChips {task} /></div>
+      {#if fixedTask}
+        <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-300" data-testid="project-zero-note">
+          {t('app.tasks.project-zero', 'This is the fixed “No project” task. It can’t be started, assigned, or cancelled.')}
+        </p>
+      {/if}
+      <!-- AT0 has no action bar at all: the note above says why. Passing it canWrite=false
+           instead read as a support session ("Viewing as —") to everyone (Celine QA P2, portal#1375). -->
+      {#if !fixedTask}
+        <TaskActionBar
+          {task}
+          canWrite={data.canWrite}
+          impersonating={data.impersonating}
+          candidates={data.candidates}
+          roles={data.roles}
+          families={data.families}
+          {openChildren}
+          created={data.created}
+          viewerId={data.viewerId}
+          appUrn={data.app.urn}
+          nodeMemories={data.nodeMemories}
+          cloneHref={`/app/apps/${data.app.id}/tasks/new?from=${encodeURIComponent(task.id)}`}
+        />
+      {/if}
     </div>
     <div class="flex min-w-0 flex-col items-start gap-1 sm:items-end">
-      <CopyCode value={task.id} label={t('app.tasks.copy-id', 'Copy the task id')} />
-      <CopyCode value="hadron team task get {task.id}" label={t('app.tasks.copy-cli', 'Copy the CLI command that reads this task')} />
+      <!-- portal#1415 item 2: visible names, so three stacked rows are not three
+           anonymous "Copy" buttons to a sighted reader. -->
+      <CopyCode value={task.handle} label={t('app.tasks.copy-handle', 'Copy the task handle')} name={t('app.tasks.copy-name-handle', 'Handle')} />
+      <CopyCode value={task.id} label={t('app.tasks.copy-id', 'Copy the task id')} name={t('app.tasks.copy-name-id', 'ID')} />
+      <CopyCode value="hadron team task get {task.id}" label={t('app.tasks.copy-cli', 'Copy the CLI command that reads this task')} name={t('app.tasks.copy-name-cli', 'CLI')} />
     </div>
   </div>
+
+  <TaskPlanning {task} appId={data.app.id} canWrite={data.canWrite} dependencies={data.dependencies} />
 
   <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="task-facts">
     <h2 id="task-facts" class="sr-only">{t('app.tasks.facts', 'Facts')}</h2>
@@ -133,16 +187,36 @@
 
       {#if task.parentTaskId}
         <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.parent', 'Parent')}</dt>
-        <dd class="min-w-0">
-          <a href="{basePath}/tasks/{task.parentTaskId}" class="text-indigo-600 hover:underline dark:text-indigo-300">
+        <dd class="flex min-w-0 items-center gap-1.5">
+          <a href={taskHref(basePath, parent && parent.id === task.parentTaskId ? parent : { id: task.parentTaskId })} class="min-w-0 truncate text-indigo-600 hover:underline dark:text-indigo-300">
             {parent && parent.id === task.parentTaskId ? parent.title : t('app.tasks.fact.parent-task', 'Parent task')}
           </a>
+          <!-- portal#1349: the parent's handle beside its title; an unread parent shows none. -->
+          {#if parent && parent.id === task.parentTaskId}<TaskHandle handle={parent.handle} />{/if}
         </dd>
       {/if}
+
+      <!-- portal#2161 (hrn:node:hadronmemory.com:specs:cor:agt:050:02): where this task came from. The link reads "Replaces" when the
+           source has ended (finished or cancelled) and "Cloned from" otherwise; null (not a clone, or a
+           source this caller can't read) renders nothing at all — no placeholder. -->
+      <!-- portal#2161: the null rule (nothing renders, no placeholder) is the component's own. -->
+      <TaskLineage clonedFrom={task.clonedFrom} {basePath} />
 
       {#if task.source}
         <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.source', 'Source')}</dt>
         <dd class="min-w-0" data-source-kind={sourceKind(task.source)}><TaskSource source={task.source} /></dd>
+      {/if}
+
+      <!-- portal#1607: the outside item the task claimed, under Source; nothing when null. -->
+      {#if task.externalId?.trim()}
+        <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.external-id', 'External ID')}</dt>
+        <dd class="min-w-0" data-external-id><TaskExternalId externalId={task.externalId} /></dd>
+      {/if}
+
+      <!-- portal#1575: the task's typed references, in order, under the source; nothing when there are none. -->
+      {#if task.references?.length}
+        <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.references', 'References')}</dt>
+        <dd class="min-w-0"><TaskReferences references={task.references} app={data.app} /></dd>
       {/if}
 
       {#if task.startBy}
@@ -224,17 +298,45 @@
     {/if}
   </section>
 
+  <!-- portal#2161: the tasks cloned from this one, paged; nothing renders when the list is empty. -->
+  <TaskClones initial={data.clones} appId={data.app.id} taskId={task.id} {basePath} />
+
+  <!-- portal#1637: a finished task's immutable findings, right after the Result they belong to. No result, no section. -->
+  {#if task.result}
+    <TaskFindings appId={data.app.id} appUrn={data.app.urn ?? null} taskId={task.id} initial={data.findings} canWrite={data.canWrite} nodeMemories={data.nodeMemories} />
+  {/if}
+
+  <TaskHandBack handBack={task.handBack} />
+
+  <!-- portal#1697: above Properties, whose pr.* and review.* keys are mirrors of what this section reads. -->
+  <TaskReview
+    review={data.review}
+    rows={data.tree.kind === 'ok' ? (data.tree.value?.rows ?? []) : []}
+    references={task.references ?? []}
+    app={data.app}
+    {basePath}
+    build={task.parentTaskId ? (parent && parent.id === task.parentTaskId ? parent : { id: task.parentTaskId }) : null}
+  />
+
+  <TaskProperties properties={task.properties} />
+
   <section id="subtasks" class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="subtasks-heading">
     <h2 id="subtasks-heading" class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tasks.subtasks', 'Subtasks')}</h2>
     {#if data.tree.kind === 'ok' && data.tree.value}
       {#if data.tree.value.capped}
         <p role="status" class="mb-2 text-xs text-amber-700 dark:text-amber-300">
-          {t('app.tasks.tree.capped', 'Showing the first 1000 tasks in this tree; deeper or later subtasks aren’t shown.')}
+          {t('app.tasks.tree.capped', 'Showing the first 1000 tasks in this tree; deeper or later subtasks may not be shown.')}
         </p>
       {/if}
       <SubtaskTree rows={data.tree.value.rows} rootId={task.id} {basePath} />
     {:else if data.tree.kind === 'not-participant'}
       <NotParticipant />
+    {:else if data.tree.kind === 'ok' && fixedTask}
+      <!-- portal#1414: the server answers AT0's tree with null by design (AT0 is not a tree root).
+           Neutral on AT0 only: any other null is a race with deletion or revoked access, and keeps the alert. -->
+      <p class="text-sm text-zinc-500 dark:text-zinc-400" data-testid="project-zero-tree">
+        {projectZeroNote[0]}<a href="{basePath}/tasks" class="text-indigo-600 underline dark:text-indigo-300">{t('app.tasks.tree.project-zero.link', 'Tasks page')}</a>{projectZeroNote[1]}
+      </p>
     {:else}
       <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
         {t('app.tasks.tree.failed', 'Couldn’t load the subtasks.')}

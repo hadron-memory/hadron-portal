@@ -7,6 +7,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import {
   APP_CHANNELS_APP_QUERY,
   APP_CHANNELS_QUERY,
@@ -45,7 +46,7 @@ function channel(over: Record<string, unknown> = {}) {
     id: 'ch-team', name: 'Team chat', description: null, kind: 'CHAT', loc: 'chats:team',
     chatRootUrn: 'hrn:node:acme.com:team-shared:chats:team', chatRootNodeId: 'root-1',
     lastSeq: 12, lastMessageAt: '2026-09-26T10:00:00Z', createdAt: '2026-09-01T00:00:00Z',
-    memory: SHARED, ...over,
+    memoryId: 'mem-shared', memory: SHARED, ...over,
   };
 }
 
@@ -129,6 +130,7 @@ async function load() {
     agentsWithheld: boolean;
     canManageRegister: boolean | null;
     registerLoadFailed: boolean;
+    [form: string]: unknown;
   };
 }
 
@@ -146,6 +148,24 @@ const msg = (r: Awaited<ReturnType<typeof act>>) => (r.data?.form ?? r.form)?.me
 const sent = (doc: string) => mockRequest.mock.calls.filter(([d]) => d === doc).map(([, v]) => v);
 
 describe('load', () => {
+  it('#1320 gives every form its own Superforms id (Delete shared one with the register Remove form)', async () => {
+    route({ channels: [channel()] });
+    expectDistinctFormIds(await load(), 6);
+  });
+
+  it.each([
+    ['createChannel', 'createForm'],
+    ['renameChannel', 'renameForm'],
+    ['deleteChannel', 'deleteForm'],
+  ] as const)('the %s action answers under the id its form was loaded with', async (action, formName) => {
+    route({ channels: [channel()] });
+    const data = await load();
+    const { actions } = await import('./+page.server');
+    // An empty post fails validation, so no mutation runs and the action returns its form.
+    const result = (await actions[action]({ request: new Request('http://localhost/', { method: 'POST', body: new FormData() }), params: { appId: 'app-1' }, locals: { token: 'tok' } } as never)) as unknown as { data: { form: { id: string } } };
+    expect(result.data.form.id).toBe((data[formName] as { id: string }).id);
+  });
+
   it('lists the App’s Channels, marks the default, and audits write access per host memory', async () => {
     route({ channels: [channel(), channel({ id: 'ch-x', loc: 'chats:x', memory: OTHER })], canWrite: { [OTHER.urn]: false } });
     const data = await load();
@@ -158,6 +178,16 @@ describe('load', () => {
       { user: 'u-1', resource: SHARED.urn },
       { user: 'u-1', resource: OTHER.urn },
     ]);
+  });
+
+  it('a concealed host memory (#2509, memory: null) skips the write audit instead of crashing the loader', async () => {
+    route({ channels: [channel(), channel({ id: 'ch-x', loc: 'chats:x', memoryId: 'mem-other', memory: null })] });
+    const data = await load();
+    expect(data.channels.map((c) => c.id)).toEqual(['ch-team', 'ch-x']);
+    // No record means no URN to audit: the concealed host never reaches the
+    // audit map, and its channels' write access stays unknown (null).
+    expect('mem-other' in data.canWrite).toBe(false);
+    expect(sent(SELF_CAN_WRITE_QUERY)).toEqual([{ user: 'u-1', resource: SHARED.urn }]);
   });
 
   it('pages past the 200-per-page cap, so a Channel after the first page is still listed', async () => {
@@ -280,10 +310,10 @@ describe('createChannel', () => {
     expect(msg(r)).toMatchObject({ type: 'error', text: expect.stringContaining('overlaps an existing channel') });
   });
 
-  it('an untyped Forbidden is the server’s own words, not a guess', async () => {
+  it('an untyped Forbidden remains a generic fault', async () => {
     route({ create: refusal('Forbidden', 'INTERNAL_SERVER_ERROR') });
     const r = await act('createChannel', { _kind: 'createChannel', name: 'N', slug: 'ok', description: '' });
-    expect(msg(r)).toEqual({ type: 'error', text: 'Forbidden' });
+    expect(msg(r)).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
   });
 
   it('an App with no readable shared memory gets an explanation that doesn’t claim it’s missing, and no create', async () => {
@@ -454,10 +484,10 @@ describe('attendance actions', () => {
     expect(sent(UPDATE_REGISTER_ENTRY_MUTATION)).toEqual([{ ref: 're-1', input: { role: 'POST', mentionOnly: false, description: '' } }]);
   });
 
-  it('remove sends the row; a refusal on a row the caller can’t manage is the server’s words, and nothing else is written', async () => {
+  it('remove sends the row and suppresses an untyped fault without further writes', async () => {
     route({ reg: { del: refusal('Forbidden', 'INTERNAL_SERVER_ERROR') } });
     const r = await act('removeAttendance', { _kind: 'removeAttendance', ref: 're-org' });
-    expect(msg(r)).toEqual({ type: 'error', text: 'Forbidden' });
+    expect(msg(r)).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
     expect(sent(DELETE_REGISTER_ENTRY_MUTATION)).toEqual([{ ref: 're-org' }]);
     expect(mockRequest.mock.calls.filter(([d]) => /mutation/.test(d as string))).toHaveLength(1);
   });

@@ -1,6 +1,6 @@
 <script lang="ts">
   import DOMPurify from 'dompurify';
-  import { marked } from 'marked';
+  import { renderChatMarkdown } from '$lib/markdown/chat-markdown';
   import { invalidateAll } from '$app/navigation';
   import { t } from '$lib/i18n/t';
   import type { DriftVerdict, FixtureRunSummary, Verdict } from '$lib/agent-tester/verdict-types';
@@ -97,7 +97,7 @@
   // Per Portal Invariant P4 — markdown → HTML → DOMPurify before insertion.
   const replyHtml = $derived.by(() => {
     if (!result?.reply) return '';
-    const raw = String(marked.parse(result.reply));
+    const raw = renderChatMarkdown(result.reply);
     return DOMPurify.sanitize(raw);
   });
 

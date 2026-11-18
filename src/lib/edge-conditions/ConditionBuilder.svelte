@@ -11,10 +11,15 @@
   let {
     value = $bindable(),
     extraVariables = [],
+    allowedScopes,
+    emptyLabel,
   }: {
     value: UiCondition;
     /** Context-specific variable paths surfaced first in the field picker. */
     extraVariables?: ReadonlyArray<KnownVariable>;
+    allowedScopes?: ReadonlyArray<string>;
+    /** What an empty builder says; defaults to the edge wording. */
+    emptyLabel?: string;
   } = $props();
 
   function enable() {
@@ -40,7 +45,7 @@
         + {t('edge-conditions.builder.enable', 'Add condition')}
       </button>
       <span class="text-[10px] text-zinc-500">
-        {t('edge-conditions.builder.always-fires', 'No condition — this edge always fires.')}
+        {emptyLabel ?? t('edge-conditions.builder.always-fires', 'No condition — this edge always fires.')}
       </span>
     {:else}
       <button
@@ -54,6 +59,6 @@
   </div>
 
   {#if value !== null}
-    <GroupRow bind:group={value as UiGroup} {extraVariables} />
+    <GroupRow bind:group={value as UiGroup} {extraVariables} {allowedScopes} />
   {/if}
 </div>

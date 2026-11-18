@@ -1,8 +1,10 @@
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError } from '$lib/server/gqlError';
+import { classifyGqlError, extractGqlError, gqlErrorTextForBranching } from '$lib/server/gqlError';
 import { START_CHAT_MUTATION } from '$lib/server/queries';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
-import { publicChatError } from '$lib/server/llm/chatError.js';
+import { llmModelVariable, resolveChatAi } from '$lib/server/llm/chatAi.js';
+import { aiConfigChoiceVariable, readAiConfigChoice } from '$lib/server/llm/aiConfigChoice.js';
+import { bootPromptRefusalCode, configChoiceRefusalCode, entryConditionRefusalCode, partialTurnRefusal, publicChatError } from '$lib/server/llm/chatError.js';
 import { t } from '$lib/i18n/t';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
 import type { RequestHandler } from './$types';
@@ -23,7 +25,7 @@ function getGqlErrorCode(e: unknown): string | null {
 
 /**
  * POST /api/agent-chat/start
- * Body: { agentId: string, conversationName?: string, scope?: 'private' | 'shared' }
+ * Body: { agentId: string, conversationName?: string, scope?: 'private' | 'shared', appId?, configName?, aiConfigChoice? }
  *
  * Spec 017: scope defaults to 'private' (FR-003). A 'shared' request requires
  * a resolvable App context server-side; if none, the server throws
@@ -50,6 +52,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     scope?: 'private' | 'shared';
     appId?: string;
     configName?: string;
+    aiConfigChoice?: unknown;
   };
   try {
     body = await request.json();
@@ -61,6 +64,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
   if (!body.agentId) {
     return new Response(JSON.stringify({ error: 'agentId is required' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // portal#1963: a malformed choice is refused before anything is written.
+  const choice = readAiConfigChoice(body.aiConfigChoice);
+  if (!choice.ok) {
+    return new Response(JSON.stringify({ error: 'aiConfigChoice must be a config id or "default"' }), {
       status: 400,
       headers: { 'Content-Type': 'application/json' },
     });
@@ -78,6 +90,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   // user can still type the first message themselves and chat begins
   // there. Welcome-turn failures surface as a soft `welcomeError`
   // hint, not a blocking error.
+
+  // 0. portal#1611: resolve the AI config ONCE, before startChat, so the model
+  //    the server is told about is the model the welcome turn (and later
+  //    turns of this request) will actually call. Never throws: with no usable
+  //    config the chat still starts, `llmModel` is omitted, and the welcome
+  //    turn fails exactly as it always did (as a soft `welcomeError`).
+  const ai = await resolveChatAi(locals.token, body.agentId, { appId: body.appId, configName: body.configName, aiConfigChoice: choice.value });
 
   // 1. Create the chat in Hadron — provisions the user memory and
   //    returns the compiled first-stage prompt + tool schema.
@@ -99,6 +118,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       agentId: body.agentId,
       conversationName: body.conversationName ?? null,
       scope,
+      ...llmModelVariable(ai),
+      ...aiConfigChoiceVariable(choice.value),
     });
     chatId = startResult.startChat.chatId;
     systemMessage = startResult.startChat.systemMessage;
@@ -106,7 +127,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     conversationName = startResult.startChat.conversationName;
     stageName = startResult.startChat.stageName;
   } catch (e) {
-    const msg = extractGqlError(e, 'Failed to start chat');
     // Spec 017 FR-006 / SC-005 — distinguish ChatScopeError sub-codes so
     // the portal can render an actionable message per failure mode.
     //
@@ -117,9 +137,19 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     // server hasn't yet shipped the `extends GraphQLError` change — they
     // can be removed once the deploy is confirmed.
     const code = getGqlErrorCode(e);
+    // portal#1665: a refused boot prompt is a fixed message keyed on the code alone; the server's
+    // message, agentName and surface are never copied. No retry and no lookup for the reader.
+    // portal#1963: a refused AI config choice is one fixed message too; the id is never echoed.
+    if (bootPromptRefusalCode(e) || configChoiceRefusalCode(e) || entryConditionRefusalCode(e)) {
+      const safe = publicChatError(e);
+      return new Response(JSON.stringify({ error: safe.message, code: safe.code }), {
+        status: safe.status,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
     if (
       code === 'SHARED_CHAT_REQUIRES_APP_CONTEXT' ||
-      msg.toLowerCase().includes('not a member of any app')
+      gqlErrorTextForBranching(e).toLowerCase().includes('not a member of any app')
     ) {
       return new Response(
         JSON.stringify({
@@ -131,7 +161,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }
     if (
       code === 'SHARED_CHAT_NOT_AVAILABLE_FOR_APP_SESSIONS' ||
-      msg.toLowerCase().includes('not available for mcp app-key sessions')
+      gqlErrorTextForBranching(e).toLowerCase().includes('not available for mcp app-key sessions')
     ) {
       // Practically unreachable via the portal (/api/agent-chat/start is
       // JWT-only), but kept so MCP-App-key callers via this endpoint get
@@ -144,7 +174,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         { status: 400, headers: { 'Content-Type': 'application/json' } },
       );
     }
-    return new Response(JSON.stringify({ error: publicChatError(e).message }), {
+    return new Response(JSON.stringify({ error: classifyGqlError(e).kind === 'internal' ? extractGqlError(e, '') : publicChatError(e).message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });
@@ -158,6 +188,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   let welcomeError: string | null = null;
   let finalStageName = stageName;
   let stageTransitioned = false;
+  // portal#2065 (LOCAL F1/F2): the welcome turn runs the real processChatResponse, so its routing outcome counts too.
+  let welcomePartial = false;
+  let conversationCompleted: string | null = null;
+  let detourReturned = false;
+  let rejectedNextStage: string | null = null;
+  let finalConversationName = conversationName;
   try {
     const turn = await runChatTurn({
       token: locals.token,
@@ -166,13 +202,22 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       userMessage: null,
       appId: body.appId,
       configName: body.configName,
+      ai,
       startPayload: { systemMessage, tools },
     });
     welcomeMessage = turn.assistantMessage;
     finalStageName = turn.newStageName ?? stageName;
     stageTransitioned = turn.stageTransitioned;
+    conversationCompleted = turn.conversationCompleted ?? null;
+    detourReturned = turn.detourReturned === true;
+    rejectedNextStage = turn.rejectedNextStage ?? null;
+    finalConversationName = turn.conversationHandoff ?? conversationName;
   } catch (e) {
-    const safe = publicChatError(e);
+    // portal#2065 B3 on the welcome turn: a routing refusal after the reply was saved. The chat page reloads the saved
+    // reply and shows the fixed notice; the chat itself stays created and usable.
+    const partial = partialTurnRefusal(e);
+    const safe = partial ?? publicChatError(e);
+    welcomePartial = partial !== null;
     welcomeError = safe.message;
     console.warn('[agent-chat/start] welcome turn failed (chat is created and usable):', safe.code);
   }
@@ -180,10 +225,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   return new Response(
     JSON.stringify({
       chatId,
-      conversationName,
+      conversationName: finalConversationName,
       stageName: finalStageName,
       welcomeMessage,
       welcomeError,
+      welcomePartial,
+      conversationCompleted,
+      detourReturned,
+      rejectedNextStage,
       stageTransitioned,
       scope,
     }),

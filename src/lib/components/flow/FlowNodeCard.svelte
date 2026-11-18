@@ -1,6 +1,8 @@
 <script lang="ts">
   import { Handle, Position, type NodeProps } from '@xyflow/svelte';
   import { t } from '$lib/i18n/t';
+  import type { FlowCanvasScript } from '$lib/flow/canvas';
+  import FlowScriptMarker from './FlowScriptMarker.svelte';
 
   // Card data assembled by FlowCanvas from a FlowCanvasNode.
   interface FlowCardData extends Record<string, unknown> {
@@ -12,6 +14,7 @@
     extractionFields: string[];
     tools: string[];
     outputWriteTo: string | null;
+    script: FlowCanvasScript | null;
     href: string;
   }
 
@@ -52,6 +55,10 @@
       </span>
     {/if}
   </div>
+
+  {#if card.script}
+    <FlowScriptMarker script={card.script} />
+  {/if}
 
   {#if card.extractionFields.length > 0}
     <div class="mt-2 flex flex-wrap gap-1">

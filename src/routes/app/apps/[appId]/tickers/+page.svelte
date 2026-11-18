@@ -4,20 +4,23 @@
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import TickersNotParticipant from '$lib/components/tickers/TickersNotParticipant.svelte';
+  import TickerForm from '$lib/components/tickers/TickerForm.svelte';
   import TickerSettingsPanel from '$lib/components/tickers/TickerSettingsPanel.svelte';
+  import DeliverySettingsPanel from '$lib/components/tickers/DeliverySettingsPanel.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
-  import { cadenceText, noVisibleChannelsText, quietHoursSummary, relativeTime, tickerSearchText, tickerStateLabel } from '$lib/tickers/format';
+  import { cadenceText, isKnownReason, isWellFormedReasons, noVisibleChannelsText, noReasonsText, quietHoursSummary, reasonHelp, reasonLabel, reasonsSearchText, reasonsUnavailableText, relativeTime, tickerSearchText, tickerStateLabel, unrecognisedReasonText } from '$lib/tickers/format';
   import type { TickerListRow } from '$lib/tickers/types';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
 
   /**
-   * portal#1099 — the App's tickers (design §3.1), READ-ONLY: S7a (Holger via
-   * Vera, team chat #11540). No Create, Edit, Subscribe or Delete control is
-   * rendered; those are S7b and not in v1.
+   * portal#1099 — the App's tickers (design §3.1). The list itself is a read;
+   * the writes are the Delivery section below the settings (portal#1141 slice
+   * A, hadron-server S9) and New ticker (portal#1151, S7b). Edit and Delete
+   * live on the ticker's own page; Subscribe is not in the portal yet.
    */
   let { data }: { data: PageData } = $props();
 
@@ -35,6 +38,7 @@
     stateText: string;
     cadence: number;
     quiet: string;
+    reasonsText: string;
     channelsText: string;
     subscriberCount: number;
     nextMs: number;
@@ -63,6 +67,7 @@
           stateText: stateLabel(tk.enabled),
           cadence: tk.cadenceSeconds,
           quiet: quietHoursSummary(tk.quietHours),
+          reasonsText: reasonsSearchText(tk.reasons),
           channelsText: channelsText(tk),
           subscriberCount: tk.subscribers.hasNextPage ? Number.MAX_SAFE_INTEGER : tk.subscribers.items.length,
           // A disabled ticker has no next tick; it sorts last, not first.
@@ -83,6 +88,7 @@
     { id: 'state', accessorFn: (r) => r.stateText, header: t('app.tickers.col.state', 'State'), size: 84 },
     { id: 'cadence', accessorFn: (r) => r.cadence, header: t('app.tickers.col.every', 'Every'), size: 76 },
     { id: 'quiet', accessorFn: (r) => r.quiet, header: t('app.tickers.col.quiet', 'Quiet hours'), size: 240 },
+    { id: 'reasons', accessorFn: (r) => r.reasonsText, header: t('app.tickers.col.reasons', 'Wakes when'), size: 200 },
     { id: 'channels', accessorFn: (r) => r.channelsText, header: t('app.tickers.col.counts', 'Counts'), size: 240 },
     { id: 'subscribers', accessorFn: (r) => r.subscriberCount, header: t('app.tickers.col.subscribers', 'Subscribers'), enableGlobalFilter: false, size: 120 },
     { id: 'next', accessorFn: (r) => r.nextMs, header: t('app.tickers.col.next', 'Next tick'), size: 150 },
@@ -134,7 +140,7 @@
       <span class="font-normal text-zinc-400">{t('app.tickers.title.prefix', 'Tickers:')}</span> {data.app.name}
     </h1>
     <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-      {t('app.tickers.intro', 'A ticker decides when the workers subscribed to it are due a wake-up. A router delivers the wake-ups; this page only shows who is due and when.')}
+      {t('app.tickers.intro', 'A ticker decides when the workers subscribed to it are due a wake. A router delivers the wakes; this page only shows who is due and when.')}
     </p>
   </div>
 
@@ -165,17 +171,16 @@
     {#if tickers.kind === 'failed'}
       <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
         {t('app.tickers.load-failed', 'Couldn’t load tickers.')}
-        <button type="button" onclick={refresh} class="ml-2 font-medium underline">{t('app.tickers.retry', 'Try again')}</button>
+        <button type="button" onclick={refresh} class="ml-2 py-1 font-medium underline">{t('app.tickers.retry', 'Try again')}</button>
       </div>
     {:else if rows.length === 0}
       <!-- §7: the state everyone meets first. It must not claim a ticker wakes anyone today. -->
       <div role="status" class="space-y-2 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-testid="tickers-empty">
         <p>
           <span class="font-medium text-zinc-900 dark:text-white">{t('app.tickers.empty.lead', 'No tickers yet.')}</span>
-          {t('app.tickers.empty.body', 'A mention already makes a worker due at once, unless its mentions are off or it is paused. A ticker adds scheduled wake-ups: every so often, it makes the workers subscribed to it that have unread messages due.')}
+          {t('app.tickers.empty.body', 'A mention already makes a worker due at once, unless its mentions are off or it is paused. A ticker adds scheduled wakes: every so often, it makes the workers subscribed to it that have unread messages due.')}
         </p>
-        <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tickers.empty.router', 'A router delivers the wake-ups. This page only decides who is due and when.')}</p>
-        <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tickers.empty.create', 'Creating a ticker isn’t available in the portal yet; use the MCP tool hadron_ticker_create.')}</p>
+        <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tickers.empty.router', 'A router delivers the wakes. This page only decides who is due and when.')}</p>
       </div>
     {:else}
       <DataTable
@@ -202,6 +207,20 @@
             <span class="whitespace-nowrap">{cadenceText(row.ticker.cadenceSeconds)}</span>
           {:else if cell.column.id === 'quiet'}
             <span class="block max-w-full truncate" title={row.quiet}>{row.quiet}</span>
+          {:else if cell.column.id === 'reasons'}
+            <span class="flex min-w-0 flex-wrap items-center gap-1">
+              {#if !isWellFormedReasons(row.ticker.reasons)}
+                <span class="text-zinc-500 dark:text-zinc-400">{reasonsUnavailableText()}</span>
+              {:else if row.ticker.reasons.length === 0}
+                <span class="text-zinc-500 dark:text-zinc-400">{noReasonsText()}</span>
+              {:else}
+                {#each row.ticker.reasons as reason (reason)}
+                  <span class="rounded px-1.5 py-0.5 text-xs {reason === 'EVERY_TICK'
+                    ? 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200'
+                    : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'}" title={reasonHelp(reason) ?? undefined}>{reasonLabel(reason)}{#if !isKnownReason(reason)} <span class="text-zinc-600 dark:text-zinc-400">{unrecognisedReasonText()}</span>{/if}</span>
+                {/each}
+              {/if}
+            </span>
           {:else if cell.column.id === 'channels'}
             <span class="flex min-w-0 flex-wrap items-center gap-1">
               <span class="block max-w-full truncate" title={row.channelsText}>{row.channelsText}</span>
@@ -234,6 +253,14 @@
       </DataTable>
     {/if}
 
+    {#if tickers.kind === 'ok'}
+      <section aria-labelledby="ticker-create-heading" class="space-y-2" data-testid="ticker-create-section">
+        <h2 id="ticker-create-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tickers.create.heading', 'New ticker')}</h2>
+        <TickerForm appId={data.app.id} impersonating={data.impersonating} />
+      </section>
+    {/if}
+
     <TickerSettingsPanel settings={data.settings} />
+    <DeliverySettingsPanel appId={data.app.id} settings={data.delivery} impersonating={data.impersonating} />
   {/if}
 </div>

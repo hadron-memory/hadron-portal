@@ -11,7 +11,7 @@ export interface AppRun {
   appId: string;
   agentId: string | null;
   userId: string | null;
-  triggerKind: 'SCHEDULE' | 'WEBHOOK' | 'MANUAL' | 'INTEGRATION';
+  triggerKind: 'SCHEDULE' | 'WEBHOOK' | 'MANUAL' | 'INTEGRATION' | 'SPAWN';
   triggerId: string | null;
   entryNodeUrn: string;
   eventData: Record<string, unknown> | null;

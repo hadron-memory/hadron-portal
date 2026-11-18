@@ -8,19 +8,24 @@
   import { buildGraphViewData, buildTreeEntries } from '$lib/graph-utils';
   import { isHiddenNodeType } from '$lib/node-types';
   import type { ContentScope } from '$lib/comments';
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
   import { createNodeColumns } from '$lib/node-columns.svelte';
   import { NODE_FIELD_MASK_OPTIONS } from '$lib/search/node-fields';
+  import PropertyFilter from '$lib/components/PropertyFilter.svelte';
+  import ListPageNav from '$lib/components/ListPageNav.svelte';
+  import { treeReorderAllowed } from './memory-browser-reorder';
+  import type { ListPageNavigation } from '$lib/list-page';
   import { objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
   import type { Memory, MemoryNode, TreeEntry, SearchHitMeta } from '$lib/types';
   import type { NodeColumnRow } from '$lib/node-columns';
+  import type { AppScopedMemory } from '$lib/app-memory-scope';
 
   /** Build the URL to a node's detail page, or empty if memory context is missing */
   function nodeHref(node: MemoryNode, base: string): string {
     if (base) return `${base}/nodes/${node.id}`;
     // #260: memory pages are org-less, so the fallback needs only the memory id.
-    const memId = node.memory?.id;
+    const memId = memoryIdentity(node)?.id;
     if (memId) return `/app/memories/${memId}/nodes/${node.id}`;
     return '';
   }
@@ -33,9 +38,12 @@
     readOnly = false,
     writableMemoryIds = [],
     scopeMemoryIds = [],
+    scopeMemories = [],
     forcedView,
     memory = null,
     refreshKey = 0,
+    serverPage = null,
+    pageLabel = null,
   }: {
     nodes: MemoryNode[];
     /**
@@ -60,6 +68,8 @@
      * recovered from basePath).
      */
     scopeMemoryIds?: string[];
+    /** Authorized leaf identities; never fabricate a nested Memory record. */
+    scopeMemories?: Pick<AppScopedMemory, 'memoryId' | 'memoryUrn' | 'name'>[];
     /** When set (the #266 tab layout), fixes the view and hides the toggle. */
     forcedView?: 'graph' | 'nodes';
     /**
@@ -77,15 +87,23 @@
      * set is the load's; this only refreshes server results.
      */
     refreshKey?: number;
+    /** A server-owned browse window. Search/filter results replace it and hide this pager. */
+    serverPage?: ListPageNavigation | null;
+    pageLabel?: string | null;
   } = $props();
+
+  const scopeIdentity = $derived(new Map(scopeMemories.map(row => [row.memoryId, { id: row.memoryId, urn: row.memoryUrn, name: row.name }])));
+  function memoryIdentity(node: MemoryNode) {
+    return scopeIdentity.get(node.memoryId) ?? node.memory ?? null;
+  }
 
   const writableSet = $derived(new Set(writableMemoryIds));
 
   // #429: the loaded window is truncated when the server's full count exceeds
   // the rows we actually loaded. Drives the "N of M" count + a notice so the
   // truncation is no longer silent.
-  const displayTotal = $derived(nodesTotal ?? nodes.length);
-  const isTruncated = $derived(nodesTotal != null && nodes.length < nodesTotal);
+  const displayTotal = $derived(serverPage?.total ?? nodesTotal ?? nodes.length);
+  const isTruncated = $derived((serverPage?.total ?? nodesTotal) != null && nodes.length < displayTotal);
 
   // The single memory being browsed, as carried by basePath
   // (`/app/memories/<id>`); undefined on the multi-memory global browse
@@ -322,6 +340,9 @@
   }
 
   async function handleTreeReorder(parentLoc: string, orderedLocs: string[]) {
+    // Reassigning seq 1…N is valid only for a COMPLETE sibling set. A server
+    // page or filtered result set can omit siblings and duplicate their seq.
+    if (!reorderSafe) return;
     // Determine memoryId from the first sibling
     const firstNode = nodes.find((n) => n.loc === orderedLocs[0]);
     if (!firstNode) return;
@@ -466,8 +487,8 @@
 
   // #589 (server #719/#725): structured query over a node's properties/data.
   // objectType is the collection facet; `where` is the recursive predicate
-  // (v1: a validated raw-JSON editor — grammar parity with the server; a
-  // visual builder is a fast-follow); sortProperty orders by a JSON path and
+  // (a schema-aware leaf builder plus Advanced JSON for the full grammar).
+  // sortProperty orders by a JSON path and
   // overrides the sort enum. All three are server-side dimensions (the slim
   // loaded set carries no properties), so any of them puts the browser into
   // server view.
@@ -475,7 +496,22 @@
   const collectionNames = $derived(objectTypeNames(memorySchema));
   const memoryEncrypted = $derived(!!memory?.isEncrypted);
   let objectTypeFilter = $state('');
+  let collectionControl = $state<HTMLSelectElement | HTMLInputElement>();
   let whereJson = $state('');
+  let propertyFilterStatus = $state('');
+  let propertyEditorVersion = $state(0);
+  // A declared field belongs to one memory/collection. Reused route instances
+  // must not carry its applied predicate into the next memory.
+  const propertyMemoryScope = $derived(`${basePath}:${memory?.id ?? ''}`);
+  let propertyScope: string | undefined;
+  $effect(() => {
+    const scope = propertyMemoryScope;
+    if (scope === propertyScope) return;
+    propertyScope = scope;
+    propertyFilterStatus = '';
+    objectTypeFilter = '';
+    whereJson = '';
+  });
   const whereParse = $derived.by(() => {
     const trimmed = whereJson.trim();
     if (!trimmed) return { value: null as Record<string, unknown> | null, error: null as string | null };
@@ -525,6 +561,14 @@
     }
   }
 
+  // One native radio group per instance: a shared name lets one browser's tag
+  // choice uncheck another's without its state knowing (#1929 BLIND P3).
+  const instanceId = $props.id();
+  const tagGroupName = `server-paged-tag-${instanceId}`;
+  let activeMemoryUrns = $state<Set<string>>(new Set());
+  let activeNodeTypes = $state<Set<string>>(new Set());
+  let activeTags = $state<Set<string>>(new Set());
+
   const changedSinceIso = $derived.by(() => {
     const now = Date.now();
     const days = changedSince === '24h' ? 1 : changedSince === '7d' ? 7 : changedSince === '30d' ? 30 : 0;
@@ -540,6 +584,11 @@
     approvalState: approvalFilter || null,
     minted: mintedFilter === 'any' ? null : mintedFilter === 'minted',
     contentScope: contentScope === 'CONTENT' ? null : contentScope,
+    // #1058 + #1881: server-side type/tag refinement applies only to CONTENT.
+    // Under COMMENTS/ALL it would remove comment hits before the local
+    // comment-preserving refinement below can run.
+    nodeTypes: serverPage !== null && contentScope === 'CONTENT' && activeNodeTypes.size > 0 ? [...activeNodeTypes].sort() : null,
+    tags: serverPage !== null && contentScope === 'CONTENT' && activeTags.size > 0 ? [...activeTags].sort() : null,
   });
   // A stable key for the fields mask — a fresh Set identity on every toggle
   // would re-run the search effect even when the selection is unchanged (same
@@ -548,8 +597,15 @@
   // In server view, serverResults replaces the loaded set as the working pool.
   // #589: a non-empty (even invalid) where text counts — an invalid predicate
   // must show its error over an empty result set, not silently browse.
+  // #1929 BLIND P2: on a server page the Memory filter narrows memoryIds and
+  // nothing else, so the request must say the scope IS the query, or the
+  // endpoint's bare-browse shortcut answers "nothing to do".
+  const memoryScopedBrowse = $derived(serverPage !== null && activeMemoryUrns.size > 0);
   const serverViewActive = $derived(
     keyword.trim() !== '' ||
+      (serverPage !== null && activeMemoryUrns.size > 0) ||
+      (serverPage !== null && activeNodeTypes.size > 0) ||
+      (serverPage !== null && activeTags.size > 0) ||
       !!serverFilter.createdBy ||
       !!serverFilter.updatedAfter ||
       !!serverFilter.includeDeleted ||
@@ -569,11 +625,22 @@
   // every reorder/invalidate, and a fresh array reference would re-run the
   // search effect each time even when the id set is unchanged (PR #358 review).
   const searchMemoryIdsStr = $derived.by(() => {
-    const ids = new Set(nodes.map((n) => n.memoryId));
+    const selectedMemory = (urn: string | undefined) =>
+      serverPage === null || activeMemoryUrns.size === 0 || activeMemoryUrns.has(urn ?? '');
+    const ids = new Set(
+      nodes.filter((n) => selectedMemory(memoryIdentity(n)?.urn)).map((n) => n.memoryId),
+    );
     // #433: also include the page's declared scope so a memory with zero loaded
     // (non-deleted) rows stays searchable — the Include-deleted audit/restore
     // view must reach fully soft-deleted memories, which never appear in `nodes`.
-    for (const id of scopeMemoryIds) ids.add(id);
+    // A selected Memory filter narrows this SAME authorized scope server-side;
+    // it no longer reports a false empty from the one browse page in hand.
+    for (const row of scopeMemories) {
+      if (selectedMemory(row.memoryUrn)) ids.add(row.memoryId);
+    }
+    for (const id of scopeMemoryIds) {
+      if (serverPage === null || activeMemoryUrns.size === 0 || scopeMemories.length === 0) ids.add(id);
+    }
     // Single-memory pages carry the memory id in basePath (/app/memories/<id>)
     // even when nothing loaded — recover it so an empty memory is searchable.
     if (memoryIdFromBasePath) ids.add(memoryIdFromBasePath);
@@ -630,6 +697,18 @@
       : null,
   );
 
+  type ServerSearchResponse = {
+    nodes?: MemoryNode[];
+    note?: string | null;
+    reason?: string | null;
+    degraded?: string[] | string;
+    capped?: boolean;
+    snippets?: Record<string, string>;
+    meta?: Record<string, SearchHitMeta>;
+    deletedIds?: string[];
+    error?: string;
+  };
+
   async function runServerFetch(
     q: string,
     mode: 'exact' | 'regex' | 'fuzzy',
@@ -644,11 +723,14 @@
       approvalState: string | null;
       minted: boolean | null;
       contentScope: string | null;
+      nodeTypes: string[] | null;
+      tags: string[] | null;
     },
     sort: 'loc' | 'updatedAt' | 'relevance',
     sortProperty: { path: string[]; field: string; as: string; direction: string } | null,
     fields: string[],
     signal?: AbortSignal,
+    scopedBrowse = false,
   ) {
     if (memoryIds.length === 0) { setServerResults([]); searching = false; return; }
     const seq = ++searchSeq;
@@ -664,10 +746,10 @@
       const res = await fetch('/api/nodes/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: q, mode, memoryIds, filter, sort, sortProperty, fields }),
+        body: JSON.stringify({ query: q, mode, memoryIds, filter, sort, sortProperty, fields, ...(scopedBrowse ? { scopedBrowse: true } : {}) }),
         signal,
       });
-      const data = await res.json();
+      const data = await res.json() as ServerSearchResponse;
       if (seq !== searchSeq) return; // a newer request superseded this one
       if (!res.ok) { searchError = data.error ?? 'Search failed'; setServerResults([]); return; }
       setServerResults(data.nodes ?? []);
@@ -693,6 +775,7 @@
     const q = keyword.trim();
     const mode = searchMode;
     const idsStr = searchMemoryIdsStr;
+    const scoped = memoryScopedBrowse;
     const filter = serverFilter;
     const sort = sortMode;
     const sortProperty = sortPropertyPayload;
@@ -750,33 +833,80 @@
     }
     const fields = fieldsStr ? fieldsStr.split(',') : [];
     const controller = new AbortController();
-    const timer = setTimeout(() => runServerFetch(q, mode, ids, filter, sort, sortProperty, fields, controller.signal), 300);
+    const timer = setTimeout(() => runServerFetch(q, mode, ids, filter, sort, sortProperty, fields, controller.signal, scoped), 300);
     return () => {
       clearTimeout(timer);
+      searchSeq++; // invalidate even a transport that ignores abort, before the next debounce
       controller.abort(); // cancel an in-flight fetch on new keystroke / destroy
     };
   });
 
   // ── Filters ───────────────────────────────────────────────────────────
-  const availableMemoryUrns = $derived([...new Set(nodes.map((n) => n.memory?.urn ?? ''))].filter(Boolean).sort());
-  const availableNodeTypes = $derived([...new Set(nodes.map((n) => n.nodeType ?? 'info'))].sort());
-  const availableTags = $derived([...new Set(nodes.flatMap((n) => n.tags ?? []))].sort());
+  const availableMemoryUrns = $derived([...new Set([...scopeMemories.map(m => m.memoryUrn), ...nodes.map(n => memoryIdentity(n)?.urn ?? '')])].filter(Boolean).sort());
+  const availableNodeTypes = $derived([...new Set([...nodes.map((n) => n.nodeType ?? 'info'), ...activeNodeTypes])].sort());
+  const availableTags = $derived([...new Set([...nodes.flatMap((n) => n.tags ?? []), ...activeTags])].sort());
 
-  let activeMemoryUrns = $state<Set<string>>(new Set());
-  let activeNodeTypes = $state<Set<string>>(new Set());
-  let activeTags = $state<Set<string>>(new Set());
+  let customNodeType = $state('');
+  let customTag = $state('');
+  let nodeTypeFilterError = $state('');
+  function allowNodeType(value: string): boolean {
+    if (serverPage !== null && value === 'comment') {
+      nodeTypeFilterError = t('memory-browser.comment-type-guidance', 'To show comments, use the Show filter and choose Comments.');
+      return false;
+    }
+    nodeTypeFilterError = '';
+    return true;
+  }
+  function addCustomNodeType() {
+    const value = customNodeType.trim();
+    if (!value || !allowNodeType(value)) return;
+    activeNodeTypes = new Set([...activeNodeTypes, value]);
+    customNodeType = '';
+  }
+  function addCustomTag() {
+    const value = customTag.trim();
+    if (!value) return;
+    activeTags = serverPage !== null ? new Set([value]) : new Set([...activeTags, value]);
+    customTag = '';
+  }
+  // portal#1058 V74 (hrn:node:hadronmemory.com:hadron-dev-team-shared:decisions:2026-11-11-vera-rulings-portal-search-guidance):
+  // Node Types and Tags refine content only. A comment hit has no tags and the
+  // type `comment`, so applying them to it would silently empty the comment
+  // results. Under Comments the two controls are disabled (a choice made under
+  // Content is kept, not applied); under All they filter only the content rows.
+  const refinementsOff = $derived(contentScope === 'COMMENTS');
+  // portal#1930 (Uma 6787706001): the reason is visible page text, not a
+  // hover title, and only when there is a disabled control for it to explain.
+  // A server-paged browser offers the menus even when this page has no variety:
+  // their add-a-value inputs filter the whole scope (#1881).
+  const showTypeFilter = $derived(availableNodeTypes.length > 1 || serverPage !== null);
+  const showTagsFilter = $derived(availableTags.length > 0 || serverPage !== null);
+  const REFINEMENT_HINT_ID = 'refinement-off-hint';
+  const refinementHintShown = $derived(refinementsOff && (showTypeFilter || showTagsFilter));
+  const refinementHintId = $derived(refinementHintShown ? REFINEMENT_HINT_ID : undefined);
 
   // Dropdown open state
   let openDropdown = $state<'memory' | 'type' | 'tags' | 'fields' | 'properties' | null>(null);
+  // Close at the user's scope change, even if another change happens before
+  // effects flush. Keep selections and unrelated menus intact.
+  function changeContentScope(value: ContentScope) {
+    contentScope = value;
+    if (value === 'COMMENTS' && (openDropdown === 'type' || openDropdown === 'tags')) {
+      openDropdown = null;
+    }
+  }
 
   function toggleDropdown(d: 'memory' | 'type' | 'tags' | 'fields' | 'properties') {
     openDropdown = openDropdown === d ? null : d;
   }
 
   function handleWindowClick(e: MouseEvent) {
-    if (openDropdown && !(e.target as Element)?.closest?.('.filter-dropdown')) {
-      openDropdown = null;
-    }
+    // Discard can remove its own button before this listener runs. The event's
+    // dispatch path retains the original dropdown even when target.closest cannot.
+    const insideDropdown = e.composedPath().some(
+      (target) => target instanceof Element && target.classList.contains('filter-dropdown'),
+    );
+    if (openDropdown && !insideDropdown) openDropdown = null;
   }
 
   // #589: how many structured-query controls are active — drives the
@@ -801,10 +931,34 @@
       sortMode !== 'loc',
   );
 
+  function changeCollection(typing = false) {
+    if (whereJson.trim()) {
+      propertyFilterStatus = t('property-filter.collection-cleared', 'Filter cleared because the collection changed.');
+    } else if (!typing) {
+      propertyFilterStatus = '';
+    }
+    // The first input event already cleared the predicate. Keep its notice
+    // visible while subsequent events complete the free-text collection name.
+    whereJson = '';
+  }
+
+  async function clearStructuredFilters() {
+    propertyFilterStatus = t('property-filter.all-cleared', 'Property filters cleared.');
+    objectTypeFilter = '';
+    whereJson = '';
+    sortPropPath = '';
+    propertyEditorVersion++;
+    await tick();
+    collectionControl?.focus();
+  }
+
   function clearAllFilters() {
+    propertyFilterStatus = '';
+    propertyEditorVersion++;
     activeMemoryUrns = new Set();
     activeNodeTypes = new Set();
     activeTags = new Set();
+    nodeTypeFilterError = '';
     keyword = '';
     myNodesOnly = false;
     changedSince = 'any';
@@ -835,12 +989,19 @@
   }
 
   function toggleNodeType(t: string) {
+    if (!allowNodeType(t)) return;
     if (activeNodeTypes.has(t)) activeNodeTypes.delete(t);
     else activeNodeTypes.add(t);
     activeNodeTypes = new Set(activeNodeTypes);
   }
 
   function toggleTag(t: string) {
+    if (serverPage !== null) {
+      // One scoped query preserves global order and caps. The unpaged browser's
+      // multi-tag OR control is unchanged; NodeFilter.tags itself is hasEvery.
+      activeTags = activeTags.has(t) ? new Set() : new Set([t]);
+      return;
+    }
     if (activeTags.has(t)) activeTags.delete(t);
     else activeTags.add(t);
     activeTags = new Set(activeTags);
@@ -864,7 +1025,8 @@
   }
   const filteredNodes = $derived(
     displayNodes.filter((n) => {
-      if (activeMemoryUrns.size > 0 && !activeMemoryUrns.has(n.memory?.urn ?? '')) return false;
+      if (activeMemoryUrns.size > 0 && !activeMemoryUrns.has(memoryIdentity(n)?.urn ?? '')) return false;
+      if (n.comment) return true;
       if (activeNodeTypes.size > 0 && !activeNodeTypes.has(n.nodeType ?? 'info')) return false;
       if (activeTags.size > 0 && !(n.tags ?? []).some((t) => activeTags.has(t))) return false;
       return true;
@@ -883,6 +1045,17 @@
   // and there would be no way to turn it back on. A one-way switch, reachable
   // by "simplifying" one identifier.
   const hasHiddenNodes = $derived(filteredNodes.some((n) => isHiddenNode(n)));
+  // Renumbering is safe only over a complete sibling set; see treeReorderAllowed
+  // for which browsers guard it (only server-paged ones — #1929 LOCAL F1).
+  const reorderSafe = $derived(treeReorderAllowed({
+    serverPaged: serverPage !== null,
+    truncated: isTruncated,
+    // The server's own continuation outranks count equality (#2162 LOCAL F1).
+    continuation: !!serverPage && (serverPage.offset > 0 || !!serverPage.nextHref || !!serverPage.previousHref),
+    serverResults: serverResults !== null,
+    activeFilters: hasActiveFilters,
+    hiddenUnshown: hasHiddenNodes && !showHidden,
+  }));
 
   // The pool every pane shows. #706: this used to feed only NodeList while the
   // graph was built from `filteredNodes` — the pool BEFORE the hidden filter —
@@ -940,7 +1113,7 @@
   // ── Derived views ─────────────────────────────────────────────────────
   // Derive single memory URN for loc normalization (only when all nodes share one memory)
   const singleMemoryUrn = $derived.by(() => {
-    const urns = new Set(filteredNodes.map((n) => n.memory?.urn).filter(Boolean));
+    const urns = new Set(filteredNodes.map((n) => memoryIdentity(n)?.urn).filter(Boolean));
     return urns.size === 1 ? [...urns][0] : undefined;
   });
   // #706: the graph is built from `visibleNodes`, not `filteredNodes` — it was
@@ -966,7 +1139,7 @@
     // actually renders. On `filteredNodes` a hidden node still voted — it could
     // tip `hasMultiMemory` on for a memory with nothing visible in it, and
     // `locToType` could colour a FOLDER by the type of a node not on screen.
-    const memoryUrns = [...new Set(visibleNodes.map((n) => n.memory?.urn ?? ''))].filter(Boolean);
+    const memoryUrns = [...new Set(visibleNodes.map((n) => memoryIdentity(n)?.urn ?? ''))].filter(Boolean);
     const hasMultiMemory = multiMemory && memoryUrns.length > 1;
     const hasMultiTypeFilter = activeNodeTypes.size > 1;
 
@@ -989,9 +1162,9 @@
 
     for (const n of visibleNodes) {
       idToType[n.id] = n.nodeType ?? 'info';
-      idToMemory[n.id] = n.memory?.name ?? n.memory?.urn ?? '';
+      idToMemory[n.id] = memoryIdentity(n)?.name ?? memoryIdentity(n)?.urn ?? '';
       locToType[n.loc] = n.nodeType ?? 'info';
-      locToMemory[n.loc] = n.memory?.name ?? n.memory?.urn ?? '';
+      locToMemory[n.loc] = memoryIdentity(n)?.name ?? memoryIdentity(n)?.urn ?? '';
       if (readOnly || writableSet.size > 0) {
         idToReadOnly[n.id] = readOnly || !writableSet.has(n.memoryId);
       }
@@ -1028,7 +1201,7 @@
   const memoryColors = ['#58a6ff', '#3fb950', '#d29922', '#bc8cff', '#f97583', '#56d4dd'];
   const memoryColorMap = $derived.by(() => {
     const map: Record<string, string> = {};
-    const urns = [...new Set(nodes.map((n) => n.memory?.urn ?? ''))];
+    const urns = [...new Set(nodes.map((n) => memoryIdentity(n)?.urn ?? ''))];
     urns.forEach((u, i) => { map[u] = memoryColors[i % memoryColors.length]; });
     return map;
   });
@@ -1036,8 +1209,9 @@
   // Memory name lookup + read-only status by URN
   const memoryNameMap = $derived.by(() => {
     const map: Record<string, string> = {};
+    for (const row of scopeMemories) map[row.memoryUrn] = row.name;
     for (const n of nodes) {
-      if (n.memory?.urn && n.memory.name) map[n.memory.urn] = n.memory.name;
+      if (memoryIdentity(n)?.urn && memoryIdentity(n)!.name) map[memoryIdentity(n)!.urn] = memoryIdentity(n)!.name;
     }
     return map;
   });
@@ -1045,7 +1219,7 @@
     if (writableSet.size === 0) return {} as Record<string, boolean>;
     const map: Record<string, boolean> = {};
     for (const n of nodes) {
-      if (n.memory?.urn) map[n.memory.urn] = !writableSet.has(n.memoryId);
+      if (memoryIdentity(n)?.urn) map[memoryIdentity(n)!.urn] = !writableSet.has(n.memoryId);
     }
     return map;
   });
@@ -1084,22 +1258,40 @@
     {/if}
 
     <!-- Node type dropdown -->
-    {#if availableNodeTypes.length > 1}
+    {#if showTypeFilter}
       <div class="relative filter-dropdown">
-        <button onclick={() => toggleDropdown('type')}
-          class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition
+        <button onclick={() => toggleDropdown('type')} disabled={refinementsOff}
+          aria-describedby={refinementHintId}
+          class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50
             {activeNodeTypes.size > 0 ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600'}">
           Node Types {#if activeNodeTypes.size > 0}<span class="rounded-full bg-indigo-500 px-1.5 text-[10px] text-white">{activeNodeTypes.size}</span>{/if}
           <svg width="10" height="10" viewBox="0 0 10 10" class="transition-transform {openDropdown === 'type' ? 'rotate-180' : ''}"><path d="M2 4 L5 7 L8 4" stroke="currentColor" fill="none" stroke-width="1.5"/></svg>
         </button>
-        {#if openDropdown === 'type'}
+        {#if openDropdown === 'type' && !refinementsOff}
           <div class="absolute left-0 top-full z-20 mt-1 w-44 rounded-lg border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
             {#if activeNodeTypes.size > 0}
               <button onclick={() => { activeNodeTypes = new Set(); }} class="mb-1 w-full rounded px-2 py-1 text-left text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-zinc-800">Clear</button>
             {/if}
+            {#if serverPage}
+              <p class="px-2 pb-1 text-[10px] leading-tight text-zinc-400">{t('memory-browser.type-suggestions', 'Suggestions from this page. Add a content type to filter the whole scope.')}</p>
+              <div class="mb-1 flex gap-1 px-1 pb-1">
+                <input
+                  type="text"
+                  bind:value={customNodeType}
+                  aria-label={t('memory-browser.custom-type-label', 'Add a node type')}
+                  placeholder={t('memory-browser.custom-type-placeholder', 'Add type…')}
+                  onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustomNodeType(); } }}
+                  class="min-w-0 flex-1 rounded border border-zinc-300 bg-white px-2 py-1 text-xs dark:border-zinc-600 dark:bg-zinc-800"
+                />
+                <button type="button" onclick={addCustomNodeType} class="rounded px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-zinc-800">{t('memory-browser.add-filter', 'Add')}</button>
+              </div>
+              {#if nodeTypeFilterError}
+                <p class="px-2 pb-1 text-[10px] leading-tight text-amber-700 dark:text-amber-300">{nodeTypeFilterError}</p>
+              {/if}
+            {/if}
             {#each availableNodeTypes as t}
               <label class="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer">
-                <input type="checkbox" checked={activeNodeTypes.has(t)} onchange={() => toggleNodeType(t)}
+                <input type="checkbox" checked={activeNodeTypes.has(t)} onchange={(e) => { toggleNodeType(t); e.currentTarget.checked = activeNodeTypes.has(t); }}
                   class="rounded border-zinc-300 text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
                 {t}
               </label>
@@ -1110,22 +1302,37 @@
     {/if}
 
     <!-- Tags dropdown -->
-    {#if availableTags.length > 0}
+    {#if showTagsFilter}
       <div class="relative filter-dropdown">
-        <button onclick={() => toggleDropdown('tags')}
-          class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition
+        <button onclick={() => toggleDropdown('tags')} disabled={refinementsOff}
+          aria-describedby={refinementHintId}
+          class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50
             {activeTags.size > 0 ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600'}">
           Tags {#if activeTags.size > 0}<span class="rounded-full bg-indigo-500 px-1.5 text-[10px] text-white">{activeTags.size}</span>{/if}
           <svg width="10" height="10" viewBox="0 0 10 10" class="transition-transform {openDropdown === 'tags' ? 'rotate-180' : ''}"><path d="M2 4 L5 7 L8 4" stroke="currentColor" fill="none" stroke-width="1.5"/></svg>
         </button>
-        {#if openDropdown === 'tags'}
+        {#if openDropdown === 'tags' && !refinementsOff}
           <div class="absolute left-0 top-full z-20 mt-1 max-h-64 w-48 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
             {#if activeTags.size > 0}
               <button onclick={() => { activeTags = new Set(); }} class="mb-1 w-full rounded px-2 py-1 text-left text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-zinc-800">Clear</button>
             {/if}
+            {#if serverPage}
+              <p class="px-2 pb-1 text-[10px] leading-tight text-zinc-400">{t('memory-browser.tag-suggestions', 'Suggestions from this page. Add any tag to filter the whole scope, one tag at a time.')}</p>
+              <div class="mb-1 flex gap-1 px-1 pb-1">
+                <input
+                  type="text"
+                  bind:value={customTag}
+                  aria-label={t('memory-browser.custom-tag-label', 'Add a tag')}
+                  placeholder={t('memory-browser.custom-tag-placeholder', 'Add tag…')}
+                  onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustomTag(); } }}
+                  class="min-w-0 flex-1 rounded border border-zinc-300 bg-white px-2 py-1 text-xs dark:border-zinc-600 dark:bg-zinc-800"
+                />
+                <button type="button" onclick={addCustomTag} class="rounded px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-zinc-800">{t('memory-browser.add-filter', 'Add')}</button>
+              </div>
+            {/if}
             {#each availableTags as t}
               <label class="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer">
-                <input type="checkbox" checked={activeTags.has(t)} onchange={() => toggleTag(t)}
+                <input type={serverPage ? 'radio' : 'checkbox'} name={serverPage ? tagGroupName : undefined} checked={activeTags.has(t)} onchange={() => toggleTag(t)}
                   class="rounded border-zinc-300 text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
                 {t}
               </label>
@@ -1183,7 +1390,7 @@
     {/if}
 
     <!-- #589 (server #719/#725): structured query over properties/data —
-         objectType facet, where predicate (raw JSON v1), sort-by-property. -->
+         objectType facet, where predicate, sort-by-property. -->
     <div class="relative filter-dropdown">
       <button type="button" onclick={() => toggleDropdown('properties')}
         title="Filter and sort by structured properties"
@@ -1193,9 +1400,9 @@
         <svg width="10" height="10" viewBox="0 0 10 10" class="transition-transform {openDropdown === 'properties' ? 'rotate-180' : ''}"><path d="M2 4 L5 7 L8 4" stroke="currentColor" fill="none" stroke-width="1.5"/></svg>
       </button>
       {#if openDropdown === 'properties'}
-        <div class="absolute left-0 top-full z-20 mt-1 w-80 rounded-lg border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 space-y-3">
+        <div class="absolute left-0 top-full z-20 mt-1 w-72 max-w-[calc(100vw-2rem)] max-h-[70vh] overflow-y-auto rounded-lg border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 space-y-3">
           {#if structuredActiveCount > 0}
-            <button type="button" onclick={() => { objectTypeFilter = ''; whereJson = ''; sortPropPath = ''; }}
+            <button type="button" onclick={clearStructuredFilters}
               class="w-full rounded px-2 py-1 text-left text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-zinc-800">Clear</button>
           {/if}
 
@@ -1205,7 +1412,7 @@
             {#if collectionNames.length > 0}
               <!-- onchange: re-run the cast auto-pick — switching collections
                    can change the selected sort field's declared type. -->
-              <select id="structured-object-type" bind:value={objectTypeFilter} onchange={syncSortCastFromSchema}
+              <select id="structured-object-type" bind:this={collectionControl} bind:value={objectTypeFilter} onchange={() => { changeCollection(); syncSortCastFromSchema(); }}
                 class="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white">
                 <option value="">Any</option>
                 {#each collectionNames as name (name)}
@@ -1213,29 +1420,21 @@
                 {/each}
               </select>
             {:else}
-              <input id="structured-object-type" type="text" bind:value={objectTypeFilter} placeholder="e.g. competitor"
+              <input id="structured-object-type" bind:this={collectionControl} type="text" bind:value={objectTypeFilter} oninput={() => changeCollection(true)} placeholder="e.g. competitor"
                 class="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white dark:placeholder-zinc-500" />
             {/if}
           </div>
 
-          <!-- Structured predicate (filter.where) — raw JSON v1 -->
-          <div>
-            <label for="structured-where" class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Filter (where, JSON)</label>
-            <textarea id="structured-where" rows="4" bind:value={whereJson} spellcheck="false"
-              aria-invalid={!!whereParse.error}
-              aria-describedby={whereParse.error ? 'structured-where-error' : 'structured-where-hint'}
-              placeholder={'{"path": ["stage"], "eq": "seed"}'}
-              class="w-full rounded-lg border bg-white px-2 py-1.5 font-mono text-xs text-zinc-900 placeholder-zinc-400 dark:bg-zinc-950 dark:text-white dark:placeholder-zinc-600 {whereParse.error ? 'border-red-400 dark:border-red-700' : 'border-zinc-300 dark:border-zinc-700'}"
-              style="resize: vertical;"></textarea>
-            {#if whereParse.error}
-              <p id="structured-where-error" class="mt-1 text-xs text-red-600 dark:text-red-400">{whereParse.error}</p>
-            {:else}
-              <p id="structured-where-hint" class="mt-1 text-[10px] leading-tight text-zinc-400">
-                A leaf is a path + one operator (eq, ne, in, lt, lte, gt, gte, between, exists, contains);
-                branches are and / or / not. Optional per-leaf: field (properties | data), as (text | number | datetime | boolean).
-              </p>
-            {/if}
-          </div>
+          <!-- Outside the keyed editor: collection changes must update an existing live region. -->
+          <p role="status" aria-live="polite" aria-atomic="true" data-testid="property-filter-status" class="min-h-4 text-xs text-zinc-500 dark:text-zinc-400">{propertyFilterStatus}</p>
+          <!-- The builder and Advanced share the same applied where channel. -->
+          {#key `${propertyMemoryScope}:${objectTypeFilter}:${propertyEditorVersion}`}
+            <PropertyFilter
+              collection={memorySchema && Object.hasOwn(memorySchema.objectTypes, objectTypeFilter) ? memorySchema.objectTypes[objectTypeFilter] : null}
+              bind:value={whereJson}
+              onstatus={(message) => propertyFilterStatus = message}
+            />
+          {/key}
 
           <!-- Property sort (sortProperty) — overrides the Sort dropdown -->
           <div>
@@ -1314,7 +1513,9 @@
     <!-- portal#1174: a bare "Content" beside "Node Types" read as a second type filter; name what it is. One label wraps both so they never split across lines, and the select takes its accessible name from the visible word (an aria-label would override it, WCAG 2.5.3). -->
     <label class="inline-flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
       <span>{t('memory-browser.scope-label', 'Show')}</span>
-    <select bind:value={contentScope} id="scope-filter" data-testid="scope-filter"
+    <!-- Disabled controls may be omitted by assistive technology; the enabled
+         Show select must also carry the visible explanation. -->
+    <select value={contentScope} onchange={(event) => changeContentScope(event.currentTarget.value as ContentScope)} id="scope-filter" data-testid="scope-filter" aria-describedby={refinementHintId}
       class="rounded-lg border px-2 py-1.5 text-xs
         {contentScope !== 'CONTENT' ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400'}">
       <option value="CONTENT">{t('memory-browser.scope.content', 'Content')}</option>
@@ -1429,6 +1630,9 @@
         {#if serverResults !== null}{searchedNodes.length} result{searchedNodes.length === 1 ? '' : 's'}{:else}{searchedNodes.length}{searchedNodes.length !== displayTotal ? ` / ${displayTotal}` : ''}{/if}
       </span>
     </div>
+    {#if refinementHintShown}
+      <p id={REFINEMENT_HINT_ID} class="basis-full text-xs leading-snug text-zinc-500 dark:text-zinc-400">{t('memory-browser.refinement-content-only-hint', 'Node Types and Tags filter content, not comments. Your selections are kept for Content.')}</p>
+    {/if}
   </div>
 
   <!-- Search status: server error (red) or a degrade note (amber, e.g. fuzzy
@@ -1462,16 +1666,24 @@
     </div>
   {/if}
 
-  <!-- #429: the loaded window is capped (5000) — when the memory has more, say
-       so instead of silently truncating. The type/tag filters and the tree/graph
-       reflect only this loaded set; the search box queries the whole memory. -->
+  <!-- A capped or server-paged browse window is not the whole set — say so.
+       On a server-paged App, Memory/type/tag filters and text search use the
+       server across the full authorized scope; the unfiltered tree/graph stay local. -->
   {#if serverResults === null && isTruncated}
     <div class="text-xs text-amber-600 dark:text-amber-400">
-      {t(
-        'memory-browser.truncated-notice',
-        'Showing the first {loaded} of {total} nodes. The type/tag filters and the tree/graph reflect only this loaded set; the search box covers the whole memory.',
-        { loaded: nodes.length.toLocaleString(), total: (nodesTotal ?? 0).toLocaleString() },
-      )}
+      {#if serverPage}
+        {t(
+          'memory-browser.paged-notice',
+          'Showing {loaded} nodes on this page of {total}. Filters and search cover the whole scope; the tree and graph show this page. Reordering is unavailable while paged.',
+          { loaded: nodes.length.toLocaleString(), total: displayTotal.toLocaleString() },
+        )}
+      {:else}
+        {t(
+          'memory-browser.truncated-notice',
+          'Showing the first {loaded} of {total} nodes. The type/tag filters and the tree/graph reflect only this loaded set; the search box covers the whole memory.',
+          { loaded: nodes.length.toLocaleString(), total: (nodesTotal ?? 0).toLocaleString() },
+        )}
+      {/if}
     </div>
   {/if}
 
@@ -1503,11 +1715,11 @@
        A duplicated DIRECT declaration is dropped at parse time when the unit is
        unknown, which is what makes it a real fallback. Caught by Copilot on
        PR #753. -->
-  {#if nodes.length === 0}
+  {#if nodes.length === 0 && serverResults === null}
     <div class="flex items-center justify-center rounded-xl border border-zinc-200 bg-white p-12 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900" style="min-height: 400px;">
       No nodes to display.
     </div>
-  {:else if activeView === 'graph'}
+  {:else if activeView === 'graph' && displayNodes.length > 0}
     <!-- Graph view: the tree stays as a navigation sidebar beside the graph —
          a complementary representation, not a duplicate of the table. -->
     <!-- #747: below `sm` in the viewport-decided state the row becomes a
@@ -1542,7 +1754,7 @@
               <button type="button" class="ml-1 font-semibold hover:underline" aria-label="Dismiss move error" title="Dismiss" onclick={() => (moveError = null)}>×</button>
             </p>
           {/if}
-          <TreeView entries={treeEntries} {basePath} nodeHrefFn={basePath ? undefined : treeNodeHrefFn} onselect={handleTreeSelect} onmove={handleTreeMove} onreorder={handleTreeReorder} bind:showHidden />
+          <TreeView entries={treeEntries} {basePath} nodeHrefFn={basePath ? undefined : treeNodeHrefFn} onselect={handleTreeSelect} onmove={handleTreeMove} onreorder={reorderSafe ? handleTreeReorder : undefined} bind:showHidden />
         </aside>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- Hidden with the tree it resizes. It is also mouse-only
@@ -1621,19 +1833,25 @@
               <button type="button" class="ml-1 font-semibold hover:underline" aria-label="Dismiss move error" title="Dismiss" onclick={() => (moveError = null)}>×</button>
             </p>
           {/if}
-          <TreeView entries={treeEntries} {basePath} nodeHrefFn={basePath ? undefined : treeNodeHrefFn} onmove={handleTreeMove} onreorder={handleTreeReorder} bind:showHidden />
+          <TreeView entries={treeEntries} {basePath} nodeHrefFn={basePath ? undefined : treeNodeHrefFn} onmove={handleTreeMove} onreorder={reorderSafe ? handleTreeReorder : undefined} bind:showHidden />
         </div>
       {:else}
         <div class="p-4">
           <!-- hideSearch: the single search box lives in MemoryBrowser now
                (issue #355 — was two boxes); NodeList's own box would be the
                redundant second field. -->
+          <!-- portal#1346: embedding badges follow the browsed memory's vectorIndexEnabled. `memory` is
+               single-memory pages only, so agent/app browsers (several memories) show none by design. -->
           <NodeList
             nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} snippets={searchSnippets} meta={searchMeta} deletedIds={searchDeletedIds}
-            showColumns onvisiblenodes={showColumnsFor} columnData={nodeColumns.rows} signingOffered={nodeColumns.signing !== false} columnsLoading={nodeColumns.loading} columnsFailed={nodeColumns.failed} onretrycolumns={() => void nodeColumns.retry()}
+            serverPaged={serverPage !== null && serverResults === null}
+            showColumns embeddingEnabled={memory?.vectorIndexEnabled === true} onvisiblenodes={showColumnsFor} columnData={nodeColumns.rows} signingOffered={nodeColumns.signing !== false} columnsLoading={nodeColumns.loading} columnsFailed={nodeColumns.failed} onretrycolumns={() => void nodeColumns.retry()}
           />
         </div>
       {/if}
     </div>
+  {/if}
+  {#if serverPage && serverResults === null}
+    <ListPageNav page={serverPage} label={pageLabel ?? t('memory-browser.node-pages', 'Node pages')} />
   {/if}
 </div>

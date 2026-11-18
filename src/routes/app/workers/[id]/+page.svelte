@@ -1,23 +1,38 @@
 <script lang="ts">
+  import WorkerLeaveAlone from './WorkerLeaveAlone.svelte';
+  import TabRow from '$lib/components/TabRow.svelte';
+  import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
+  import WorkerProfile from '$lib/components/WorkerProfile.svelte';
+  import { workerInternalsVisible } from '$lib/worker-profile';
+  import TerminalStatus from '$lib/components/TerminalStatus.svelte';
+  import { terminalBadge } from '$lib/workers/terminal';
+  import { createDisplayClock } from '$lib/workers/display-clock.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import WorkerSessionsTable from '$lib/components/WorkerSessionsTable.svelte';
   import WakeUpsPanel from '$lib/components/tickers/WakeUpsPanel.svelte';
-  import { marked } from 'marked';
+  import type { ApplyResult } from '$lib/tickers/apply';
+  import { workerOfPage } from '$lib/tickers/refresh-page';
+  import WorkerSignatureSection from './WorkerSignatureSection.svelte';
+  import ChangeWorkerAgent from './ChangeWorkerAgent.svelte';
+  import { changeAgentResultFor, type ChangeAgentResult } from '$lib/workers/change-agent';
+  import { renderChatMarkdown } from '$lib/markdown/chat-markdown';
   import DOMPurify from 'dompurify';
   import { onMount, tick, untrack } from 'svelte';
   import { afterNavigate } from '$app/navigation';
-  import { superForm } from 'sveltekit-superforms/client';
-  import { submittedForm } from '$lib/forms/submitted-form';
-  import { zod4Client } from 'sveltekit-superforms/adapters';
-  import { updateBriefingSchema, type UpdateBriefingForm } from './schema';
+  import { page } from '$app/stores';
+  import { get } from 'svelte/store';
   import { t } from '$lib/i18n/t';
+  import ServedPrompt from '$lib/components/ServedPrompt.svelte';
+  import { pickedSessionFor } from '$lib/served-prompts';
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
   import { pointerResultFor, type PointerResult } from '$lib/boot-prompt-pointer';
   import { isHeld, workerHold } from '$lib/worker-hold';
-  import { reportsToOf } from '$lib/worker-reports-to';
+  import { reportsToOf, teamPlacementOf } from '$lib/worker-reports-to';
+  import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
+  import WorkerDeleteDialog from '$lib/components/WorkerDeleteDialog.svelte';
   import type { PageData } from './$types';
 
   let { data, form }: { data: PageData; form: unknown } = $props();
@@ -34,6 +49,12 @@
   // a deep link here is exactly the link #761 taught to survive the resolver.
   // Labels may be reworded; these ids may not.
   type WorkerTabId = 'profile' | 'briefing' | 'sessions' | 'worklog' | 'wake';
+  // portal#1665: the session whose served record is open. It counts only while it is a row of THIS
+  // worker's list: the page component is reused across /workers/A to /workers/B, and A's pick must not
+  // open a record under B (the id is never typed, only ever one of the rows shown).
+  let pickedSessionId = $state<string | null>(null);
+  const servedSessionId = $derived(pickedSessionFor(data.workerSessions, pickedSessionId));
+
   let activeTab = $state<WorkerTabId>(
     untrack(() => (data.initialTab as WorkerTabId | null) ?? 'profile'),
   );
@@ -50,42 +71,13 @@
     { id: 'sessions', label: t('worker.tabs.sessions', 'Worker sessions') },
     { id: 'worklog', label: t('worker.tabs.worklog', 'Worklog') },
     // portal#1099 — why this worker is or isn't woken (Tickers S7a, read-only).
-    { id: 'wake', label: t('worker.tabs.wake', 'Wake-ups') },
+    { id: 'wake', label: t('worker.tabs.wake', 'Tickers') },
   ];
 
-  // ── Boot briefing (#1010) ──────────────────────────────────────────
-  //
-  // Rendered shows the COMPOSED briefing; Source edits the OVERRIDE. They are
-  // deliberately not two views of one string, which is the one place this tab
-  // departs from the node Content tab it otherwise mirrors — and the reason is
-  // that the briefing is DERIVED and unwritable:
-  //
-  //   prompt = boundTemplate + promptOverride + derivedRegisterBlock
-  //
-  // `updateWorker` takes only `promptOverride`; the server exposes no way to
-  // write the composed prompt. Offering a Source view that edited the whole
-  // briefing would let a reader save the template back into the override, and
-  // it would then be prepended again on every render, compounding with each
-  // save. So Source shows the inherited half read-only beside the editable
-  // half, and says which is which.
-  // URL-addressable, like `?tab=` above (@codex on #857). As pure client state
-  // the Source editor was unreachable with JavaScript off — which also made the
-  // non-enhanced POST handling this page just gained unreachable, so that fix
-  // would have been theatre. Seeding from the loader means the server can
-  // render the editor, the form posts without JS, and a Source view is
-  // linkable. The toggle buttons still only flip local state: switching views
-  // is not a navigation and must not push history.
+  // The served briefing is read-only; edits belong to source nodes.
   let showSource = $state(untrack(() => data.initialView === 'source'));
   let isBrowser = $state(false);
-  onMount(() => {
-    isBrowser = true;
-  });
-
-  // `worker` and `retired` are declared further down with the profile bindings.
-  /** The agent's RAW template. Null when the agent has none, OR when the agent
-   *  read gate denies it — the composed prompt sits behind the worker gate, so
-   *  the two can disagree and the panel distinguishes them. */
-  const inheritedTemplate = $derived(data.worker.agent?.systemPrompt ?? null);
+  onMount(() => { isBrowser = true; });
 
   function renderMarkdown(text: string): string {
     // DOMPurify needs a real DOM and cannot run under SSR, so emit nothing
@@ -93,55 +85,9 @@
     // raw prompt text during SSR or the pre-hydration render
     // (hrn:node:hadronmemory.com:hadron-portal:review:sanitize-html-with-dompurify).
     if (!isBrowser || !text) return '';
-    return DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
+    return DOMPurify.sanitize(renderChatMarkdown(text));
   }
   const renderedBriefing = $derived(data.worker.prompt ? renderMarkdown(data.worker.prompt) : '');
-
-  const {
-    form: briefingData,
-    message: briefingMessage,
-    submitting: briefingSubmitting,
-    enhance: briefingEnhance,
-  } = superForm(
-    // @copilot on #857: prefer the SUBMITTED form when the action returned one.
-    // Without this a non-enhanced POST — JS off, or an SSR response after a
-    // refusal — discards the server's message AND the text the reader just
-    // typed, handing them back the stored value as if nothing had happened.
-    // Same shape the App page uses for its post form.
-    //
-    // untrack: superForm takes the INITIAL form and owns the store from then
-    // on, so a top-level read is intentional. `briefingDirty` below reads
-    // `data` reactively, which is what keeps the button honest after a save
-    // invalidates, and `afterNavigate` re-seeds on a worker change.
-    untrack(
-      () =>
-        (submittedForm<UpdateBriefingForm>(form, 'updateBriefing') as typeof data.briefingForm | null) ??
-        data.briefingForm,
-    ),
-    {
-    validators: zod4Client(updateBriefingSchema),
-    // The whole override is one field with no cross-field rules, so validating
-    // per keystroke only flickers; the submit is the meaningful moment.
-    validationMethod: 'submit-only',
-    resetForm: false,
-    invalidateAll: true,
-    // @codex on #857: `afterNavigate` re-seeds the editor, and by the time it
-    // runs the navigation cannot be cancelled — so without this a click on any
-    // link silently discards a multi-KB draft. Superforms' own guard runs on
-    // `beforeNavigate`, which is the only moment the reader still has a choice.
-    taintedMessage: t(
-      'worker.briefing.override.discard',
-      'You have unsaved changes to this worker’s override. Leave the page and lose them?',
-    ),
-  },
-  );
-
-  // Unsaved-edit guard: comparing against the SERVER's value, not a snapshot
-  // taken at mount, so a successful save (which invalidates and re-seeds)
-  // clears the flag instead of leaving it armed forever.
-  const briefingDirty = $derived(
-    ($briefingData.promptOverride ?? '') !== (data.worker.promptOverride ?? ''),
-  );
 
   // The ARIA tab pattern, taken from src/routes/app/memories/+page.svelte
   // rather than from the App detail page's strip — which is plain buttons with
@@ -177,57 +123,30 @@
   // this still does not couple the buttons to the URL.
   afterNavigate(() => {
     activeTab = (data.initialTab as WorkerTabId | null) ?? 'profile';
-    // #1010 / @codex on #857 — the SAME reuse trap, one field further in.
-    //
-    // The Superforms store is seeded ONCE from the initial `data`, so walking
-    // /app/workers/A → /app/workers/B left it holding A's override. Against
-    // B's stored value that reads as dirty, which ENABLES Save — and the form
-    // posts to `?/updateBriefing` on B's route, writing A's individuality onto
-    // B. One worker's text silently becoming another's is the worst outcome
-    // this page could have, and nothing about it looks wrong on screen.
-    //
-    // Reset here rather than keying on worker.id, for the reason the comment
-    // above gives: a navigation is the honest signal, and a same-worker
-    // query-only navigation should re-seed too (the loader re-read the worker,
-    // so the stored override may have changed under an open editor).
-    $briefingData.promptOverride = data.worker.promptOverride ?? '';
-    // @codex on #857: clear the RESULT too, not just the value. A save or a
-    // refusal on worker A leaves "Override saved" (or a permission error) in
-    // the store; reusing the instance for worker B would show B's editor under
-    // A's verdict — a banner asserting something about a worker it never
-    // touched, which is worse than no banner at all.
-    $briefingMessage = undefined;
     showSource = data.initialView === 'source';
   });
 
-  async function focusTab(id: WorkerTabId) {
-    activeTab = id;
-    await tick();
-    document.getElementById(`tab-${id}`)?.focus();
-  }
-  function onTabKeydown(e: KeyboardEvent) {
-    const order = tabs.map((tt) => tt.id);
-    // Index from the tab RECEIVING the key, not from `activeTab` (@codex on
-    // #767). A `tabindex="-1"` button is still POINTER-focusable, so pressing
-    // on an unselected tab and dragging away before release leaves focus and
-    // selection diverged — and arrows computed from `activeTab` would then jump
-    // relative to a tab the user is not on.
-    const focusedId = (e.currentTarget as HTMLElement | null)?.id?.replace(/^tab-/, '');
-    const from = focusedId && order.includes(focusedId as WorkerTabId)
-      ? (focusedId as WorkerTabId)
-      : activeTab;
-    const i = order.indexOf(from);
-    // Left/Right ONLY: this tablist is HORIZONTAL (no aria-orientation),
-    // so Up/Down must keep their normal page-scrolling behaviour rather
-    // than changing section under a keyboard user who is just scrolling
-    // (@codex on #769).
-    if (e.key === 'ArrowRight') { e.preventDefault(); focusTab(order[(i + 1) % order.length]); }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); focusTab(order[(i - 1 + order.length) % order.length]); }
-    else if (e.key === 'Home') { e.preventDefault(); focusTab(order[0]); }
-    else if (e.key === 'End') { e.preventDefault(); focusTab(order[order.length - 1]); }
-  }
+
+
 
   const worker = $derived(data.worker);
+  // portal#1492: this branch renders only for a reader who may see internals, so
+  // the terminal is shown; the page clock is the loader's, shared by SSR and hydration.
+
+  // portal#1495 P3 — the loader's clock seeds a display clock that advances
+  // every 30 s in the browser (server-relative offset, cleared on destroy, no
+  // requests), so ages on an open page stop going stale.
+  // The seed is read ONCE, deliberately: later ticks carry the offset, not the
+  // seed, and the offset (loader clock vs browser clock at first paint) is a
+  // property of the viewer, unchanged by later data for this same instance.
+  // svelte-ignore state_referenced_locally
+  const terminalClock = createDisplayClock(data.terminalNow);
+  $effect(() => {
+    terminalClock.start();
+    return terminalClock.stop;
+  });
+  const terminalNow = $derived(terminalClock.now);
+  const terminal = $derived(terminalBadge(worker.terminal, workerInternalsVisible(worker), terminalNow));
   const retired = $derived(!!worker.retiredAt);
 
   // #1050 / hrn:node:hadronmemory.com:specs:cor:agt:020:09 — whose name this
@@ -236,6 +155,8 @@
   const hold = $derived(workerHold(worker, data.user?.id));
   // portal#1067 — masked like the hold, so `none` renders no row at all.
   const reportsTo = $derived(reportsToOf(worker));
+  // hadron-portal#1149 — the cast's recorded placement; null is withheld.
+  const placement = $derived(teamPlacementOf(worker));
 
   // Mirrors the App detail page's own `appsHref`. `/app/apps` is the ORG-LESS
   // "My apps" list (#647) — it shows only the caller's user-owned Apps, so for
@@ -252,10 +173,75 @@
     const d = new Date(s);
     return Number.isNaN(d.getTime()) ? s : d.toLocaleString();
   }
+
+  // ───────── portal#2205 — header actions (Retire, Delete) ─────────
+  //
+  // Offered ONLY to an App manager acting as themselves — the same gate the
+  // loader applies to "Change agent" (canChangeAgent, #1538), checked here
+  // against the loader's two facts rather than re-derived. Hiding the menu is
+  // display only: the actions keep their own `_kind`/attestation guards and
+  // the server's staffing gate stays the real gate (FIT point 4 on #2205).
+  const canManageHere = $derived(data.canManageWorkerApp === true && !data.impersonation);
+
+  // Delete is offered on a retired worker too — the law admits deleting a
+  // just-retired, never-used worker
+  // (hrn:node:hadronmemory.com:specs:cor:dmo:050:11) — but Retire is not:
+  // retiring an already-retired worker is a no-op the menu need not offer.
+  const headerActions = $derived<NodeMenuAction[]>([
+    ...(!retired ? [{ id: 'retire', label: t('worker.menu.retire', 'Retire'), danger: true }] : []),
+    { id: 'delete', label: t('worker.menu.delete', 'Delete verified-unused worker'), danger: true },
+  ]);
+
+  // The retire outcome is keyed to the ROUTE's worker by the action, and the
+  // key the action uses is params.id (data.retireKey) — NOT worker.id, because
+  // the route may spell the worker as its URN while worker.id is its canonical
+  // id (the same rule as changeAgentKey/applyKey in the loader; matching
+  // worker.id here would silently drop the banner on every URN-spelled visit).
+  // The page component is reused across /workers/A → B (#251), so a reply that
+  // arrives after a move to another worker must not render as this worker's
+  // banner either.
+  const retireNotice = $derived.by(() => {
+    const r = (form as { retireResult?: { key: string; ok: boolean; uncertain?: boolean; message: string } } | null)?.retireResult;
+    return r && r.key === data.retireKey ? r : null;
+  });
+
+  // Retire is one-way in the sense that matters
+  // (hrn:node:hadronmemory.com:specs:cor:agt:020:02): the casting
+  // ends and the name stays reserved FOREVER, and retirement also ends the
+  // worker's tickers, subscriptions and held grants
+  // (hrn:node:hadronmemory.com:specs:cor:acl:140:03). The
+  // roster's confirm (app.staff.retire.confirm) states the permanence; this
+  // page's confirm extends it with the two consequences a manager cannot
+  // undo or see coming. Native confirm() — focus-trapping and Escape-safe
+  // for free — exactly as the App roster's Retire does.
+  let retireForm = $state<HTMLFormElement | undefined>();
+  function retireFromMenu() {
+    const prompt = t(
+      'worker.retire.confirm',
+      'Retire this worker? There is no undo: its name stays reserved in this App permanently, and its tickers, subscriptions and held grants end:',
+    );
+    if (!confirm(`${prompt} ${worker.name}`)) return;
+    retireForm?.requestSubmit();
+  }
+
+  // The delete dialog, shared with the App roster's staff tab. Re-keyed per
+  // worker like every control on this page, so a dialog opened for A closes
+  // (never re-targets) when the route moves to B.
+  let deleteTarget = $state(false);
+  const deleteTargetKey = $derived(worker.id);
+  $effect(() => { deleteTargetKey; deleteTarget = false; });
+
+  function onHeaderAction(id: string) {
+    if (id === 'retire') retireFromMenu();
+    else if (id === 'delete') deleteTarget = true;
+  }
 </script>
 
 <svelte:head><title>{worker.name} · Worker · Hadron</title></svelte:head>
 
+{#if !workerInternalsVisible(worker)}
+  <WorkerProfile {worker} />
+{:else}
 <div class="mx-auto max-w-3xl space-y-6 py-6">
   <div>
     <Breadcrumb
@@ -273,7 +259,35 @@
     <div class="mt-2 flex flex-wrap items-center gap-3">
       <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{worker.name}</h1>
       <WorkerBadge {retired} />
+      {#if canManageHere}
+        <!-- portal#2205 — Retire/Delete, in the header so they are reachable from
+             every tab. The retire form posts with the CURRENT tab in its action
+             URL, so a plain POST (authoritative re-read: only the loader's fresh
+             answer flips the page to retired) returns the reader where they
+             were. -->
+        <div class="ml-auto">
+          <NodeActionsMenu
+            actions={headerActions}
+            onselect={onHeaderAction}
+            label={t('worker.menu.label', 'Actions for {name}', { name: worker.name })}
+          />
+        </div>
+        <form method="POST" action="?tab={activeTab}&/retireWorker" bind:this={retireForm} class="hidden">
+          <input type="hidden" name="_kind" value="retireWorker" />
+        </form>
+      {/if}
     </div>
+
+    {#if retireNotice}
+      <div
+        role={retireNotice.ok ? 'status' : 'alert'}
+        class="mt-3 rounded-lg border px-4 py-3 text-sm {retireNotice.ok
+          ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
+          : 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200'}"
+      >
+        {retireNotice.message}
+      </div>
+    {/if}
 
     <!-- The URN below the name, per hrn:node:hadronmemory.com:hadron-portal:review:render-urn. Nullable by contract
          (#991) — an App whose URN predates the flat grammar has no worker URN,
@@ -293,39 +307,7 @@
       )}
     </p>
   </div>
-
-
-  <!-- Tabs (#758) — the ARIA tab pattern from src/routes/app/memories, NOT the
-       App detail page's strip, which is plain buttons with no
-       tablist/tab/tabpanel relationship (@codex on #767).
-
-       The horizontal scroll is kept from that strip and is load-bearing:
-       `shrink-0` + `whitespace-nowrap` make a narrow viewport SCROLL the tabs
-       rather than squeeze every label into an unreadable column. -->
-  <div
-    role="tablist"
-    aria-label={t('worker.tabs-label', 'Worker details')}
-    class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800"
-  >
-    {#each tabs as tab (tab.id)}
-      <button
-        type="button"
-        role="tab"
-        id="tab-{tab.id}"
-        aria-selected={activeTab === tab.id}
-        aria-controls="panel-{tab.id}"
-        tabindex={activeTab === tab.id ? 0 : -1}
-        onclick={() => (activeTab = tab.id)}
-        onkeydown={onTabKeydown}
-        class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
-          {activeTab === tab.id
-            ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-            : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
-      >
-        {tab.label}
-      </button>
-    {/each}
-  </div>
+  <TabRow items={tabs} active={activeTab} label={t('worker.tabs-label', 'Worker details')} onselect={(id) => activeTab = id as typeof activeTab} />
 
   {#if activeTab === 'profile'}
     <div id="panel-profile" role="tabpanel" aria-labelledby="tab-profile" tabindex="0" class="space-y-6 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
@@ -351,6 +333,16 @@
         </dt>
         <dd class="mt-1 text-sm text-zinc-900 dark:text-white">{worker.role ?? '—'}</dd>
       </div>
+      <!-- portal#1495 (Uma, UX): Terminal used to LEAD this grid, reading as the
+           worker's primary fact; Role is the identity field, so Terminal follows it. -->
+      {#if terminal}
+        <div class="bg-white p-4 dark:bg-zinc-950">
+          <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">
+            {t('worker.field.terminal', 'Terminal')}
+          </dt>
+          <dd class="mt-1"><TerminalStatus badge={terminal} now={terminalNow} /></dd>
+        </div>
+      {/if}
 
       <div class="bg-white p-4 dark:bg-zinc-950">
         <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">
@@ -373,6 +365,7 @@
         </dd>
       </div>
 
+      {#if worker.agent}
       <div class="bg-white p-4 dark:bg-zinc-950">
         <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">
           {t('worker.field.agent', 'Backed by')}
@@ -397,6 +390,8 @@
           {/if}
         </dd>
       </div>
+
+      {/if}
 
       <div class="bg-white p-4 dark:bg-zinc-950">
         <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">
@@ -442,6 +437,21 @@
             <!-- hrn:node:hadronmemory.com:hadron-portal:review:render-urn — nullable, so absent rather than empty. -->
             {#if reportsTo.urn}
               <div class="mt-1"><Urn value={reportsTo.urn} type="worker" size={8} linked /></div>
+            {/if}
+          </dd>
+        </div>
+      {:else if placement.kind === 'no-team' || placement.kind === 'unset'}
+        <!-- hadron-portal#1149 — UNSET and NO_TEAM are different facts and are
+             worded differently. A withheld placement renders nothing at all. -->
+        <div class="bg-white p-4 dark:bg-zinc-950">
+          <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">
+            {t('worker.field.reports-to', 'Reports to')}
+          </dt>
+          <dd class="mt-1 text-sm text-zinc-900 dark:text-white">
+            {#if placement.kind === 'no-team'}
+              {t('worker.field.reports-to.no-team', 'No team')}
+            {:else}
+              <span class="text-zinc-500">{t('worker.field.reports-to.unset', 'Not set')}</span>
             {/if}
           </dd>
         </div>
@@ -492,6 +502,26 @@
       {/if}
     </dl>
 
+    <!-- portal#1538: offered only to an App manager acting as themselves (the loader decides). -->
+    {#if data.canChangeAgent}
+      {#key data.worker.id}
+        <ChangeWorkerAgent
+          options={data.changeAgentOptions}
+          result={changeAgentResultFor((form as { changeAgent?: ChangeAgentResult } | null)?.changeAgent, data.changeAgentKey)}
+        />
+      {/key}
+    {/if}
+
+    <!-- portal#2194: the sweep leave-alone marker. Null = withheld (profile tier), so nothing renders. -->
+    {#key data.worker.id}
+      <WorkerLeaveAlone
+        ownerId={data.worker.id}
+        marker={worker.leaveAlone == null ? null : { on: worker.leaveAlone, reason: worker.leaveAloneReason ?? null, by: data.leaveAloneByHandle ? `@${data.leaveAloneByHandle}` : (worker.leaveAloneBy ?? null), at: worker.leaveAloneAt ?? null }}
+        canManage={data.canManageWorkerApp === true && !data.impersonation}
+        {retired}
+      />
+    {/key}
+
     {#if isHeld(hold)}
       <!-- The consequence a reader cannot infer from "held": a name is a person's
            until released, and releasing it hands on the worker's memory and
@@ -530,6 +560,17 @@
         />
         {/key}
       </section>
+      {#if data.worker.app?.id && data.worker.agent?.id}
+        {#key `${data.worker.id}:${data.worker.app.id}:${data.worker.agent.id}`}
+          <BootInstallCompile owner={{ level: 'worker', worker: data.worker.id, app: data.worker.app.id, agent: data.worker.agent.id }} canManage={data.canManageWorkerApp} impersonating={!!data.impersonation} />
+        {/key}
+      {/if}
+      <!-- portal#1665: what this worker's OPEN session was served (hrn:node:hadronmemory.com:specs:cor:agt:040:03). Ids, revisions and
+           hashes only; no heading or "none" text of its own, because an empty answer is the provider's
+           concealment, not "no record". Keyed by the worker: this page component is reused A to B. -->
+      {#key data.worker.id}
+        <ServedPrompt collapsible source="worker" refId={data.worker.id} />
+      {/key}
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div class="min-w-0">
           <h2 class="font-semibold text-zinc-900 dark:text-white">
@@ -538,7 +579,7 @@
           <p class="mt-1 text-sm text-zinc-500">
             {t(
               'worker.briefing.description',
-              'What this worker is told at the start of every worker session: its role agent’s template with the name and role bound, plus this worker’s override. It renders live, so a copy goes stale.',
+              'What this worker is told at the start of every worker session: its approved boot prompt with this worker’s variables filled in. It renders live, so a copy goes stale.',
             )}
           </p>
         </div>
@@ -569,8 +610,7 @@
 
       {#if !showSource}
         <!-- ── RENDERED: the composed briefing, which is what the worker is
-             actually told. Read-only by nature, not by choice — see the Source
-             view for what can be changed. -->
+             actually told. Both rendered and source views are read-only. -->
         {#if data.worker.prompt}
           <div class="rounded-xl border border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900">
             {#if isBrowser}
@@ -597,134 +637,29 @@
           </p>
         {/if}
       {:else}
-        <!-- ── SOURCE: the two halves, separated, because only one is writable.
-             This is the one place the tab departs from a node's Content tab,
-             and deliberately: the briefing is DERIVED (bound template +
-             override + a register block the server evaluates per reader), so
-             there is no single source string to edit. -->
-        <section class="space-y-2">
-          <div class="flex flex-wrap items-baseline justify-between gap-2">
-            <h3 class="text-sm font-medium text-zinc-900 dark:text-white">
-              {t('worker.briefing.inherited.title', 'Inherited from the role agent')}
-            </h3>
-            {#if data.worker.agent}
-              <a
-                href="/app/agents/{data.worker.agent.id}"
-                class="text-xs text-indigo-500 hover:underline dark:text-indigo-400"
-              >{t('worker.briefing.inherited.edit', 'Edit on the agent →')}</a>
-            {/if}
-          </div>
-          <p class="text-xs text-zinc-500">
-            {t(
-              'worker.briefing.inherited.description',
-              'Shared by every worker cast from this agent, so it is not editable here — the placeholders are bound to this worker’s name and role when the briefing renders.',
-            )}
-          </p>
-          {#if inheritedTemplate}
-            <pre
-              class="max-h-72 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 font-mono text-xs whitespace-pre-wrap break-words text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400">{inheritedTemplate}</pre>
-          {:else}
-            <p class="rounded-lg border border-dashed border-zinc-300 px-4 py-3 text-xs text-zinc-500 dark:border-zinc-700">
-              <!-- @codex on #857: this said "hidden" or "no template" by
-                   branching on `worker.prompt`, and that predicate cannot tell
-                   them apart. The composed prompt is non-null whenever an
-                   OVERRIDE exists even with no template at all, so an agent
-                   that genuinely carries none was reported as one being
-                   withheld; and a prompt masked by the worker gate would read
-                   as "no template", which is a false statement about the agent.
-                   Nothing in this payload distinguishes the two cases, so the
-                   copy names both instead of picking one — the same posture as
-                   the team chat's `unattributed` author, where the honest
-                   rendering of a record that cannot say is to say so. -->
-              {t(
-                'worker.briefing.inherited.unavailable',
-                'No template is shown here — either this role agent carries none, or reading it needs access to the agent itself, which is a different permission from reading this worker. The agent page says which.',
-              )}
-            </p>
-          {/if}
-        </section>
-
-        <!-- The action carries tab+view, not just the action name (@codex and
-               @copilot on #857). A bare `?/updateBriefing` REPLACES the query
-               string, so a JS-off submit from ?tab=briefing&view=source lands
-               back on Profile/Rendered — and a validation or server failure
-               then leaves the preserved text and the error message in a panel
-               the same reader can no longer see. SvelteKit identifies the
-               action by the `/`-prefixed key, so the other params ride along
-               untouched. Harmless when enhanced: the params already match. -->
-          <form
-            method="POST"
-            action="?tab=briefing&view=source&/updateBriefing"
-            use:briefingEnhance
-            class="space-y-2"
-            novalidate
-          >
-          <input type="hidden" name="_kind" value="updateBriefing" />
-          <div class="flex flex-wrap items-baseline justify-between gap-2">
-            <label for="promptOverride" class="text-sm font-medium text-zinc-900 dark:text-white">
-              {t('worker.briefing.override.title', 'This worker’s override')}
-            </label>
-            {#if briefingDirty}
-              <span class="text-xs text-amber-600 dark:text-amber-400">
-                {t('worker.briefing.override.unsaved', 'Unsaved changes')}
-              </span>
-            {/if}
-          </div>
-          <p class="text-xs text-zinc-500">
-            {t(
-              'worker.briefing.override.description',
-              'Individuality layered over the shared template — what is true of THIS casting and not of every casting of the role. Saving REPLACES the whole override; emptying it clears it. It reaches the worker at its next bind.',
-            )}
-          </p>
-          <textarea
-            id="promptOverride"
-            name="promptOverride"
-            bind:value={$briefingData.promptOverride}
-            disabled={retired}
-            rows="14"
-            spellcheck="false"
-            class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-xs text-zinc-900 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-          ></textarea>
-
-          {#if retired}
-            <!-- A fact the payload carries, so the control is disabled rather
-                 than left to fail: updateWorker refuses WORKER_RETIRED. The
-                 STAFFING permission is NOT pre-derived the same way — the
-                 server's refusal is the authority there, and a hidden control
-                 is a worse answer than a refused one. -->
-            <p class="text-xs text-zinc-500">
-              {t(
-                'worker.briefing.override.retired',
-                'This worker is retired — it takes no new session bindings, so an override could never be delivered.',
-              )}
-            </p>
-          {:else}
-            <div class="flex items-center gap-3">
-              <button
-                type="submit"
-                disabled={$briefingSubmitting || !briefingDirty}
-                class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {$briefingSubmitting
-                  ? t('worker.briefing.override.saving', 'Saving…')
-                  : t('worker.briefing.override.save', 'Save override')}
-              </button>
-            </div>
-          {/if}
-
-          {#if $briefingMessage}
-            <!-- role per outcome, per
-                 hrn:node:hadronmemory.com:hadron-portal:review:superforms-banner-a11y-roles:
-                 an error is assertive, a success is polite. -->
-            <p
-              role={$briefingMessage.type === 'error' ? 'alert' : 'status'}
-              class="rounded-lg border px-3 py-2 text-sm {$briefingMessage.type === 'error'
-                ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'
-                : 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300'}"
-            >{$briefingMessage.text}</p>
-          {/if}
-        </form>
+        <pre class="whitespace-pre-wrap break-words rounded-lg border border-zinc-200 bg-white p-4 font-mono text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">{data.worker.prompt ?? t('worker.briefing.not-shown', 'No briefing is shown.')}</pre>
       {/if}
+
+      <!-- portal#1142 P4 / portal#1448 / portal#1450. Keyed on the loader's
+           stamped form id: SvelteKit reuses this page across /app/workers/[id]
+           navigations, and a superForm seeded once would carry worker A's draft
+           onto worker B. The stamp is per worker (and per ref spelling of one
+           worker, so a name→URN move remounts onto the fresh stamp), and every
+           remount mints a fresh per-mount instance id on top of it (George's
+           LOCAL P2 on #1450: with the stamp alone, a reply from an earlier
+           mount of the SAME worker — a save still in flight across an A→B→A
+           move, where the router may even reuse the cached loader stamp —
+           matched the returned-to editor and clobbered its fresh draft). -->
+      {#key data.signatureForm.id}
+        <WorkerSignatureSection
+          workerId={worker.id}
+          signature={worker.signature}
+          trailer={worker.trailer}
+          {retired}
+          initialForm={data.signatureForm}
+          actionResult={form}
+        />
+      {/key}
     </div>
   {/if}
 
@@ -784,7 +719,13 @@
              (hrn:node:hadronmemory.com:hadron-portal:findings:table-chrome-conventions),
              and here the chrome is the feature: the fields are now sortable
              columns a reader can hide, search and page rather than a ribbon. -->
-        <WorkerSessionsTable sessions={data.workerSessions} />
+        <WorkerSessionsTable sessions={data.workerSessions} onServed={(id) => (pickedSessionId = servedSessionId === id ? null : id)} servedId={servedSessionId} />
+        {#if servedSessionId}
+          <!-- portal#1665: the picked session's record. The id is one of THIS list's rows, never typed. -->
+          {#key servedSessionId}
+            <ServedPrompt source="session" refId={servedSessionId} />
+          {/key}
+        {/if}
 
         {#if data.sessionsTruncated}
           <!-- `sessions` returns a bare list with no `total`, so this says "there
@@ -845,8 +786,8 @@
   {#if activeTab === 'wake'}
     <div id="panel-wake" role="tabpanel" aria-labelledby="tab-wake" tabindex="0" class="space-y-6 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
       <div>
-        <h2 class="font-semibold text-zinc-900 dark:text-white">{t('worker.wake.title', 'Wake-ups')}</h2>
-        <p class="mt-1 text-sm text-zinc-500">{t('worker.wake.description', 'When this worker is due a wake-up: from a mention, or from the tickers it follows.')}</p>
+        <h2 class="font-semibold text-zinc-900 dark:text-white">{t('worker.wake.title', 'Tickers')}</h2>
+        <p class="mt-1 text-sm text-zinc-500">{t('worker.wake.description', 'When this worker is due a wake: from a mention, or from the tickers it follows.')}</p>
       </div>
       <WakeUpsPanel
         wake={data.wake}
@@ -854,7 +795,27 @@
         worker={data.worker}
         appId={data.worker.app?.id ?? null}
         loadedAt={data.wakeLoadedAt}
+        canManage={data.canManageWorkerApp}
+        applyKey={data.applyKey}
+        viewerId={data.user?.id ?? null}
+        errorPageWorker={() => { const p = get(page); return p.error != null ? workerOfPage(p) : null; }}
+        applyResult={(form as { applyTickers?: ApplyResult } | null)?.applyTickers ?? null}
       />
     </div>
   {/if}
+
+  {#if canManageHere && deleteTarget}
+    {#key worker.id}
+      <!-- portal#2205 — the roster's own delete dialog, posting to this page's
+           ?/deleteWorker action. On success the action redirects to the App's
+           staff roster: this page's URL stops resolving, so there is nothing
+           here to invalidate back to. -->
+      <WorkerDeleteDialog
+        worker={{ id: worker.id, name: worker.name, urn: worker.urn ?? null }}
+        onclose={() => { deleteTarget = false; }}
+      />
+    {/key}
+  {/if}
 </div>
+
+{/if}

@@ -3,7 +3,11 @@
   // Mirrors SelectMemory.svelte (same TanStack adapter, modal chrome, untrack
   // reset); orgs have a display URN so rows use the Urn component.
   import type { PortalColumnDef } from '$lib/table/features';
+  import { pickerStrings } from '$lib/i18n/picker-strings';
   import { untrack } from 'svelte';
+  import { focusTrap } from '$lib/a11y/focus-trap';
+  import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
+  import { t } from '$lib/i18n/t';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
   import type { OrgSummary } from '$lib/types';
@@ -25,14 +29,6 @@
   } = $props();
 
   let query = $state('');
-
-  // Focus the search box when the modal opens. A Svelte action runs on mount,
-  // and the input is (re)created each time the {#if open} block renders, so it
-  // fires on every open. Cleaner than the `autofocus` attribute, which is
-  // unreliable inside {#if} and trips Svelte's a11y_autofocus warning.
-  function focusOnMount(node: HTMLInputElement) {
-    node.focus();
-  }
 
   // NOTE: Headers render from this list, but the <td> cells in <tbody> are
   // hardcoded (custom URN/link markup) — same approach as SelectMemory. Keep
@@ -82,11 +78,9 @@
     open = false;
   }
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (open && e.key === 'Escape') {
-      open = false;
-    }
-  }
+  // Escape: consumed at this dialog's own layer — the shared helper owns the
+  // layering contract and the guards (src/lib/a11y/dialog-escape.ts).
+  const escapeFallback = { close: () => { open = false; } };
 
   // Reset search + pagination whenever the modal closes. `open` is the only
   // tracked dependency; the reset itself runs untracked because
@@ -103,27 +97,36 @@
   });
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="fixed inset-0 z-50 flex items-start justify-center pt-[10vh]" onclick={() => { open = false; }}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- #1589: announced as a modal dialog layer, named like the rest of the Select family. -->
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={t('select-org.title', 'Choose an organization')}
+      tabindex="-1"
       class="w-full max-w-2xl rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 flex flex-col"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => consumeEscapeAtDialog(e, escapeFallback)}
+      use:focusTrap
+      use:dialogEscapeFallback={escapeFallback}
       style="max-height: 70vh;"
     >
-      <!-- Header with search -->
+      <!-- Header with search. The input must NOT focus itself via an action:
+           child actions run before the parent focusTrap captures
+           document.activeElement, so a self-focusing input gets recorded as
+           the opener and focus is never restored on close (portal#1305). The
+           trap moves focus to the first tabbable control — this input — after
+           capturing the real opener. -->
       <div class="border-b border-zinc-200 p-4 dark:border-zinc-700">
         <input
           type="text"
           bind:value={query}
           {placeholder}
           aria-label={placeholder}
-          use:focusOnMount
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
         />
       </div>
@@ -162,9 +165,10 @@
                     <button
                       type="button"
                       onclick={() => select(row.original)}
-                      class="rounded bg-indigo-500 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-600 dark:bg-indigo-600 dark:hover:bg-indigo-700"
+                      aria-label={pickerStrings.selectNamed(row.original.name)}
+                      class="rounded bg-indigo-500 px-3 py-1 text-xs font-medium text-white pointer-coarse:min-h-11 hover:bg-indigo-600 dark:bg-indigo-600 dark:hover:bg-indigo-700"
                     >
-                      Select
+                      {pickerStrings.select()}
                     </button>
                   </td>
                 </tr>

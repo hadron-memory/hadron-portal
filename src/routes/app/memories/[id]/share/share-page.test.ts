@@ -257,3 +257,9 @@ describe('#668 Sharing tab — the rows', () => {
     expect(html).not.toContain('>hrn:user:<');
   });
 });
+
+it.each(['iso', 'legacy milliseconds'])('uses the Info date style for a share grant (%s) (#1167)', async kind => {
+  const date = new Date(2026, 9, 19, 12);
+  const html = await renderShare({ shares: [share({ createdAt: kind === 'iso' ? date.toISOString() : String(date.getTime()) })] });
+  expect(html).toContain('Oct 19, 2026');
+});

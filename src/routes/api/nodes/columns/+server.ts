@@ -19,6 +19,10 @@ type BatchNode = {
   revision: number | null;
   approvalStatus: { state: string } | null;
   signatureStatus?: { state: string | null } | null;
+  embeddingPendingAt?: string | null;
+  embeddingFailedAt?: string | null;
+  embeddingError?: string | null;
+  updatedByUser: { handle: string | null; urn: string | null } | null;
   updatedByAgent: Actor;
   updatedByWorker: Actor;
 };
@@ -56,6 +60,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       revision: n.revision ?? null,
       approval: (n.approvalStatus?.state as NodeColumnRow['approval']) ?? null,
       signature: n.signatureStatus?.state ?? null,
+      // #2189: the last authored edit's human, not the content state's authorship.
+      user: n.updatedByUser ? { handle: n.updatedByUser.handle ?? null, urn: n.updatedByUser.urn ?? null } : null,
+      embedding: { pendingAt: n.embeddingPendingAt ?? null, failedAt: n.embeddingFailedAt ?? null, error: n.embeddingError ?? null },
       agent: actor(n.updatedByAgent),
       worker: actor(n.updatedByWorker),
     }));

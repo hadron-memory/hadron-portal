@@ -3,7 +3,11 @@ import type { Infer } from 'sveltekit-superforms';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { CREATE_NODE_MUTATION } from '$lib/server/queries';
+import { CREATE_NODE_MUTATION, MEMORY_ROLE_RULES_QUERY } from '$lib/server/queries';
+import { nodeRoleRefusalText } from '$lib/node-role-refusal';
+import { roleUpdate } from '$lib/node-role';
+import type { RoleRuleRow } from '$lib/node-role-rules';
+import { readChildrenPage } from '$lib/server/node-children';
 import { includeRefusalOf, includeRefusalText } from '$lib/server/include-refusal';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import {
@@ -12,7 +16,6 @@ import {
   createNodeErrorStatus,
   translateCreateNodeError,
 } from '$lib/i18n/create-node-strings';
-import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { createNodeSchema } from './schema';
 
@@ -20,16 +23,14 @@ type CreateNodeForm = Infer<typeof createNodeSchema, 'zod4'>;
 
 const createNodeFormAdapter = zod4(createNodeSchema);
 
-export const load: PageServerLoad = async ({ url, parent }) => {
+export const load: PageServerLoad = async ({ url, parent, params, locals }) => {
   // Single parent() call: reuse the layout data for the consumer-mode
-  // gate AND for existingLocs. requireNonConsumer would call parent()
-  // internally, duplicating the layout's GraphQL fan-out (org/memory/
-  // nodes/usage) — caught in PR review.
+  // gate. requireNonConsumer would call parent() internally, duplicating the
+  // layout's GraphQL fan-out (org/memory/nodes/usage) — caught in PR review.
   const layout = await parent() as unknown as {
     isConsumerMode?: boolean;
     activeOrgId?: string | null;
     graph?: { organizationId?: string | null };
-    graphNodes?: MemoryNode[];
   };
   // #627: mirror requireNonConsumer's exemption — a consumer may author nodes in
   // a memory they own directly (org-less, organizationId == null). Only bounce
@@ -52,13 +53,36 @@ export const load: PageServerLoad = async ({ url, parent }) => {
   // it through the same helper the submit path uses.
   const prefillLoc = cleanLocInput(url.searchParams.get('loc') ?? '');
 
-  // Normalize existingLocs through the same helper that runs at submit
-  // time, so collision suffixing in deriveDefaultLoc is computed against
-  // the canonical loc shape that will actually be submitted (legacy
-  // memory-prefixed locs in storage map to the same bare form here).
-  const existingLocs = (layout.graphNodes ?? [])
-    .map((n) => cleanLocInput(n.loc))
-    .filter((s) => s !== '');
+  // portal#1656: the siblings the default loc is suffixed against are the
+  // direct children of ?parent (the top level when there is none), one bounded
+  // page read with `childrenOf`. The layout's node list (portal#1524) is gone.
+  // A page that says more exist, or a failed read, makes the list PARTIAL: the
+  // page then says the suggestion may collide, rather than treating what it
+  // has as complete. The server's duplicate-loc refusal at submit stays the
+  // final word, shown as it always was.
+  let existingLocs: string[] = [];
+  let siblingsPartial = false;
+  try {
+    const page = await readChildrenPage(gqlClient(locals.token), params.id, parentLoc, 0);
+    existingLocs = page.children.map((n) => cleanLocInput(n.loc)).filter((s) => s !== '');
+    siblingsPartial = page.hasMore;
+  } catch (err) {
+    console.warn('[new-node] sibling read failed:', err);
+    siblingsPartial = true;
+  }
+
+  // #1670: a manager's declared roles. `Memory.config` is null for anyone who
+  // does not manage the memory (and then the page keeps its plain suggestions);
+  // a failed read is the same, never an error page. Read here, not in the layout.
+  let roleRules: RoleRuleRow[] | null = null;
+  try {
+    const res = await gqlClient(locals.token).request<{
+      memory: { config: { rules: RoleRuleRow[] } | null } | null;
+    }>(MEMORY_ROLE_RULES_QUERY, { ref: params.id });
+    roleRules = res?.memory?.config?.rules ?? null;
+  } catch {
+    roleRules = null;
+  }
 
   const form = await superValidate<CreateNodeForm>(
     { loc: prefillLoc },
@@ -66,7 +90,7 @@ export const load: PageServerLoad = async ({ url, parent }) => {
     { errors: false },
   );
 
-  return { parentLoc, prefillLoc, existingLocs, form };
+  return { parentLoc, prefillLoc, existingLocs, siblingsPartial, roleRules, form };
 };
 
 export const actions: Actions = {
@@ -92,6 +116,9 @@ export const actions: Actions = {
       ? (JSON.parse(propertiesTrimmed) as Record<string, unknown>)
       : undefined;
 
+    // #1670: trimmed only, omitted when empty (a create has no seed to clear).
+    const role = roleUpdate(form.data.role, '');
+
     let newId: string | undefined;
     try {
       // hadron-server#460: createNode IS create-only — it rejects with
@@ -113,6 +140,7 @@ export const actions: Actions = {
           content,
           properties,
           tags,
+          ...(role !== undefined && role !== null ? { role } : {}),
         },
       });
       newId = result.createNode.id;
@@ -121,6 +149,9 @@ export const actions: Actions = {
       // what was typed, with the server's words, the tag and the next step.
       const include = includeRefusalOf(e);
       if (include) return message(form, { type: 'error', text: includeRefusalText(include, 'create') }, { status: 400 });
+      // #1670: a role refusal changed nothing; say why, keep what was typed.
+      const roleRefusal = nodeRoleRefusalText(e);
+      if (roleRefusal) return message(form, { type: 'error', text: roleRefusal }, { status: 403 });
       const error = translateCreateNodeError(e);
       const status = createNodeErrorStatus(e);
       const code = createNodeErrorCode(e);

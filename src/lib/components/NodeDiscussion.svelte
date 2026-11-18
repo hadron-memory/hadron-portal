@@ -8,7 +8,7 @@
    * confirm must not appear to have landed.
    */
   import { onDestroy, onMount, tick, untrack } from 'svelte';
-  import { marked } from 'marked';
+  import { renderChatMarkdown } from '$lib/markdown/chat-markdown';
   import DOMPurify from 'dompurify';
   import { t } from '$lib/i18n/t';
   import Urn from '$lib/components/Urn.svelte';
@@ -110,7 +110,7 @@
     // DOMPurify needs a real DOM: emit nothing under SSR, so the {@html} sink
     // only ever holds sanitized output (the same rule as ChatThread).
     if (!isBrowser || !text) return '';
-    return DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
+    return DOMPurify.sanitize(renderChatMarkdown(text));
   }
 
   const permissions = $derived(discussion.ok ? discussion.permissions : { canWrite: false, canManage: false });

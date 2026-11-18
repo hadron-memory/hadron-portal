@@ -24,10 +24,13 @@ vi.mock('$lib/server/tickers', () => ({
   loadTicker: vi.fn(),
   loadSubscribers: vi.fn(),
   loadAppTickerSettings: vi.fn(),
+  loadTickerTask: vi.fn(),
+  loadTickerRoster: vi.fn(),
 }));
 
 const ev = (appId = 'app-1', tickerId = 'tk-1', search = '') => ({
   params: { appId, tickerId },
+  parent: async () => ({}),
   locals: { token: 't', impersonation: null, user: null },
   url: new URL(`https://x.test/app/apps/${appId}/tickers/${tickerId}${search}`),
 });
@@ -79,5 +82,40 @@ describe('ticker detail loader — null Ticker.app (#1209)', () => {
       status: 307,
       location: '/app/apps/app-2/tickers/tk-9?after=abc',
     });
+  });
+});
+
+describe('ticker detail loader — the roster read (portal#1497)', () => {
+  const TICKER_OK = {
+    id: 'tk-1', urn: 'hrn:ticker:acme.com:team:eng', name: 'Eng', slug: 'eng',
+    enabled: true, cadenceSeconds: 300, quietHours: null, channels: [], app: { id: 'app-1' },
+  };
+
+  async function loadFull() {
+    const { loadTicker, loadSubscribers, loadAppTickerSettings, loadTickerTask, loadTickerRoster } = await import('$lib/server/tickers');
+    vi.mocked(loadTicker).mockResolvedValue(TICKER_OK as never);
+    vi.mocked(loadSubscribers).mockResolvedValue({ kind: 'ok', value: { items: [], hasNextPage: false, endCursor: null } } as never);
+    vi.mocked(loadAppTickerSettings).mockResolvedValue({ kind: 'ok', value: {} as never } as never);
+    vi.mocked(loadTickerTask).mockResolvedValue({ kind: 'ok', value: null } as never);
+    const load = (await import('./+page.server')).load;
+    return { load, loadTickerRoster: vi.mocked(loadTickerRoster) };
+  }
+
+  it('reads the App’s roster exactly once per page load, for the Add-subscriber chooser', async () => {
+    const { load, loadTickerRoster } = await loadFull();
+    loadTickerRoster.mockResolvedValue({ kind: 'ok', workers: [{ id: 'w-1', name: 'Gaby', urn: 'hrn:worker:acme.com:team:gaby' }] });
+    const data = (await load(ev() as never)) as Record<string, unknown>;
+    expect(loadTickerRoster).toHaveBeenCalledTimes(1);
+    expect(loadTickerRoster).toHaveBeenCalledWith(expect.anything(), 'app-1');
+    expect(data.roster).toEqual({ kind: 'ok', workers: [{ id: 'w-1', name: 'Gaby', urn: 'hrn:worker:acme.com:team:gaby' }] });
+  });
+
+  it('a refused or failed roster read reaches the page as its own state, never as an empty list', async () => {
+    for (const read of [{ kind: 'hidden' }, { kind: 'failed' }] as const) {
+      const { load, loadTickerRoster } = await loadFull();
+      loadTickerRoster.mockResolvedValue(read as never);
+      const data = (await load(ev() as never)) as Record<string, unknown>;
+      expect(data.roster).toEqual(read);
+    }
   });
 });

@@ -1,9 +1,21 @@
 import type { GraphQLClient } from 'graphql-request';
+import { ORGANIZATIONS_QUERY } from './queries';
 
 // hadron-server#473: the uniform find-many queries return { items, total }
 // and hard-cap `limit` at 200 (default 50). The old queries returned
 // unbounded arrays, so callers that expect a COMPLETE list must page.
 export const PAGE_LIMIT = 200;
+
+/**
+ * hadron-server#2381 — `ORGANIZATIONS_QUERY` selects four unpaged lists (members, memories, agents, apps) under each
+ * organization row, so the server's request-cost estimate grows with the page: about 4002 per row, 200111 at 50 rows
+ * against the default admission budget of 200000 (80045 at 20, 800441 at 200). 40 rows is about 160000, with headroom.
+ * `fetchAllItems` pages to completion either way, so the caller gets the same list in more requests. Add a document here
+ * only with the cost measured by the server's estimator; do not raise a number to make a refusal go away.
+ */
+export const ORGANIZATIONS_PAGE_LIMIT = 40;
+
+const PAGE_LIMIT_OF = new Map<string, number>([[ORGANIZATIONS_QUERY, ORGANIZATIONS_PAGE_LIMIT]]);
 
 type Page<T> = { items: T[]; total: number };
 
@@ -24,7 +36,7 @@ export async function fetchAllItems<T>(
   for (let offset = 0; ; ) {
     const data = await client.request<Record<string, Page<T>>>(document, {
       ...variables,
-      limit: PAGE_LIMIT,
+      limit: PAGE_LIMIT_OF.get(document) ?? PAGE_LIMIT,
       offset,
     });
     const page = data?.[field];

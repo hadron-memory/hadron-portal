@@ -14,17 +14,18 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { updateBriefingSchema } from './schema';
+import { updateSignatureSchema } from './schema';
 import Page from './+page.svelte';
 
 const VIEWER = 'u1';
 
 function worker(id: string, heldByUserId: string | null) {
   return {
+    hasLiveSession: false,
     id, appId: 'app-1', agentId: 'agent-1', name: `Worker ${id}`, slug: id, urn: `hrn:worker:a.com:team:${id}`,
-    role: 'engineer', promptOverride: null, prompt: 'P', memoryId: null, retiredAt: null,
+    role: 'engineer', prompt: 'P', memoryId: null, retiredAt: null,
     heldByUserId, heldAt: heldByUserId ? '2026-10-21T00:00:00Z' : null, createdAt: '1789430400000',
-    agent: { id: 'agent-1', name: 'Engineer', urn: 'hrn:agent:a.com:engineer', systemPrompt: null },
+    agent: { id: 'agent-1', name: 'Engineer', urn: 'hrn:agent:a.com:engineer', },
     app: { id: 'app-1', name: 'Team', urn: 'hrn:app:a.com:team', organizationId: 'org-1' },
   };
 }
@@ -33,7 +34,8 @@ async function dataFor(w: ReturnType<typeof worker>, canManageWorkerApp: boolean
   return {
     worker: w,
     user: { id: VIEWER },
-    briefingForm: await superValidate({ promptOverride: '' }, zod4(updateBriefingSchema), { errors: false }),
+
+    signatureForm: await superValidate({}, zod4(updateSignatureSchema), { errors: false }),
     initialTab: 'briefing', initialView: null,
     workerSessions: [], sessionsTruncated: false, worklog: [], worklogTotal: 0,
     bootPointer: { ok: true, ref: null, deleted: null },
@@ -74,7 +76,7 @@ describe('Worker Boot briefing: boot-prompt pointer (portal#1142 S8)', () => {
   ])('an explicit non-manager gets no form when %s: holding grants nothing', async (_label, holder) => {
     const root = await mountWorker({ data: await dataFor(worker('w-a', holder), false), form: null });
     expect(pointerForm(root)).toBeNull();
-    expect(root.textContent).toContain('Pointers are recorded but not used to start agents yet.');
+    expect(root.textContent).toContain('Agents start with the newest approved revision of the compiled prompt named by the highest set pointer: the worker’s, else the App’s, else the Agent’s.');
   });
 
   it('the form carries the Boot briefing tab, so a no-JS result lands where it shows', async () => {

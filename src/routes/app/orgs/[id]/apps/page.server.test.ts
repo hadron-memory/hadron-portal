@@ -29,7 +29,7 @@ function route() {
       return { organization: { id: 'org-1', name: 'Org' } };
     }
     if (query === APP_KEYS_QUERY) {
-      return { appKeys: [{ id: 'k1' }, { id: 'k2' }] };
+      return { appKeysPage: { items: [{ id: 'k1' }, { id: 'k2' }], total: 2, hasMore: false } };
     }
     if (query === APPS_QUERY) {
       return {

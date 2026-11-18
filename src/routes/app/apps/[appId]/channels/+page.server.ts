@@ -81,7 +81,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   if (!data.app) throw error(404, 'App not found');
 
   // Keyed by memory id (what the page looks up); audited by URN.
-  const hosts = new Map<string, string>(data.channels.items.map((c) => [c.memory.id, c.memory.urn]));
+  // #2509: a concealed host memory (`memory: null`) has no record to audit —
+  // its channels skip the map, so their write access stays unknown (null) and
+  // the server's write gate still decides any submit.
+  const hosts = new Map<string, string>(
+    data.channels.items.flatMap((c) => (c.memory ? [[c.memory.id, c.memory.urn] as const] : [])),
+  );
   if (data.app.sharedMemory) hosts.set(data.app.sharedMemory.id, data.app.sharedMemory.urn);
   const canWrite: Record<string, boolean | null> = {};
   await Promise.all(
@@ -112,9 +117,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     total: data.channels.total,
     defaultChannelId: data.app.defaultChannel?.id ?? null,
     canWrite,
-    createForm: await superValidate(zod4(createChannelSchema), { errors: false }),
-    renameForm: await superValidate(zod4(renameChannelSchema), { errors: false }),
-    deleteForm: await superValidate(zod4(deleteChannelSchema), { errors: false }),
+    createForm: await superValidate(zod4(createChannelSchema), { errors: false, id: 'createChannel' }),
+    renameForm: await superValidate(zod4(renameChannelSchema), { errors: false, id: 'renameChannel' }),
+    deleteForm: await superValidate(zod4(deleteChannelSchema), { errors: false, id: 'deleteChannel' }),
     ...(await registerForms()),
   };
 };
@@ -213,7 +218,7 @@ function channelErrorText(e: unknown, fallback: string): string {
       // Missing and unreadable answer the same on purpose (hrn:node:hadronmemory.com:specs:cor:api:140:03).
       return t('app.channels.error.not-found', 'That channel or its memory is not available to you.');
     default:
-      return extractGqlError(e, fallback);
+      return extractGqlError(e, fallback, [], { transport: 'fallback' });
   }
 }
 
@@ -222,7 +227,7 @@ export const actions: Actions = {
   ...attendanceActions((params) => params.appId),
 
   createChannel: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), zod4(createChannelSchema));
+    const form = await superValidate(await request.formData(), zod4(createChannelSchema), { id: 'createChannel' });
     if (!form.valid) return fail(400, { form });
     const client = gqlClient(locals.token);
     try {
@@ -248,7 +253,7 @@ export const actions: Actions = {
   },
 
   renameChannel: async ({ request, locals }) => {
-    const form = await superValidate(await request.formData(), zod4(renameChannelSchema));
+    const form = await superValidate(await request.formData(), zod4(renameChannelSchema), { id: 'renameChannel' });
     if (!form.valid) return fail(400, { form });
     try {
       await gqlClient(locals.token).request(UPDATE_CHANNEL_MUTATION, {
@@ -263,7 +268,7 @@ export const actions: Actions = {
   },
 
   deleteChannel: async ({ request, locals }) => {
-    const form = await superValidate(await request.formData(), zod4(deleteChannelSchema));
+    const form = await superValidate(await request.formData(), zod4(deleteChannelSchema), { id: 'deleteChannel' });
     if (!form.valid) return fail(400, { form });
     try {
       await gqlClient(locals.token).request(DELETE_CHANNEL_MUTATION, { ref: form.data.ref });

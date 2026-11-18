@@ -13,6 +13,7 @@ import { runAppFlowSchema } from './schema';
 vi.mock('$app/forms', () => ({ enhance: () => ({}) }));
 vi.mock('$app/navigation', () => ({
   beforeNavigate: () => {},
+  afterNavigate: () => {},
   goto: vi.fn(),
   invalidateAll: vi.fn(),
 }));
@@ -32,7 +33,7 @@ vi.mock('$app/stores', async () => {
   };
 });
 
-import Page from './+page.svelte';
+import Page from './AppRunsPanel.svelte';
 
 const app = { id: 'app-1', name: 'Digest', organizationId: 'org-1' };
 
@@ -77,7 +78,7 @@ async function renderPage(runs: unknown[], status: string | null = null, flows: 
   const runForm = await superValidate(zod4(runAppFlowSchema));
   return render(Page, {
     props: {
-      data: { app, runs, total: runs.length, page: 1, pageSize: 25, status, flows, runForm, ...extra } as never,
+      data: { app, runs, total: runs.length, page: 1, pageSize: 20, statuses: status ? [status] : [], sort: 'createdAt', dir: 'desc', failed: false, status, flows, flowsPage: { offset: 0, count: flows.length, total: flows.length, previousHref: null, nextHref: null }, runForm, ...extra } as never,
       form: null,
     },
   }).body;
@@ -123,7 +124,7 @@ describe('runs list (#478)', () => {
     expect(body).toContain('Flow One');
     expect(body).toContain('3 steps');
     expect(body).toContain('2 branches');
-    expect(body).toContain('action="?/run"');
+    expect(body).toContain('action="?tab=runs&amp;/run"');
     expect(body).toContain('value="hrn:node:acme.com::flows::flows:flow1"');
     expect(body).toContain('/app/memories/m1/nodes/n1');
     // The empty state points at the Run button when flows exist.
@@ -132,29 +133,72 @@ describe('runs list (#478)', () => {
 
   it('hides the Flows section when none are derivable', async () => {
     const body = await renderPage([]);
-    expect(body).not.toContain('action="?/run"');
+    expect(body).not.toContain('action="?tab=runs&amp;/run"');
   });
 
-  it('#1226: says some flows may be missing when the node window came back full', async () => {
-    const body = await renderPage([], null, [flow], { flowsCapped: true, flowsScanned: 500 });
-    expect(body).toContain('Showing the first 500 app nodes');
-    expect(body).toContain('some may be missing');
+  it('#1881: offers a user-initiated next page instead of a capped notice', async () => {
+    const body = await renderPage([], null, [flow], { flowsPage: { offset: 0, count: 20, total: 45, previousHref: null, nextHref: '/app/apps/app-1?tab=runs&flowsOffset=20' } });
+    expect(body).not.toContain('Showing the first');
+    expect(body).toContain('aria-label="Flow pages"');
+    expect(body).toContain('href="/app/apps/app-1?tab=runs&amp;flowsOffset=20"');
   });
 
-  it('#1226: zero derived flows from a FULL window still shows the notice (Chip, browser QA)', async () => {
-    const body = await renderPage([], null, [], { flowsCapped: true, flowsScanned: 500 });
-    expect(body).toContain('Showing the first 500 app nodes');
-    expect(body).not.toContain('action="?/run"');
+  it('#1881: Run actions retain a later Flow page on native and enhanced reloads', async () => {
+    const body = await renderPage([], null, [flow], { flowsPage: { offset: 20, count: 20, total: 45, previousHref: '/app/apps/app-1?tab=runs', nextHref: '/app/apps/app-1?tab=runs&flowsOffset=40' } });
+    expect(body).toContain('action="?tab=runs&amp;flowsOffset=20&amp;/run"');
   });
 
-  it('#1226: zero flows from a short window shows nothing', async () => {
-    const body = await renderPage([], null, [], { flowsCapped: false, flowsScanned: 3 });
+  it('#1881: zero derived flows on a populated page keeps the section and continuation reachable', async () => {
+    const body = await renderPage([], null, [], { flowsPage: { offset: 0, count: 20, total: 45, previousHref: null, nextHref: '/app/apps/app-1?tab=runs&flowsOffset=20' } });
+    expect(body).toContain('No flows on this page');
+    expect(body).toContain('aria-label="Flow pages"');
+    expect(body).not.toContain('action="?tab=runs&amp;/run"');
+  });
+
+  it('#1881: a now-empty later page keeps Previous reachable', async () => {
+    const body = await renderPage([], null, [], { flowsPage: { offset: 40, count: 0, total: 45, previousHref: '/app/apps/app-1?tab=runs&flowsOffset=20', nextHref: null } });
+    expect(body).toContain('No flows on this page');
+    expect(body).toContain('aria-label="Flow pages"');
+    expect(body).toContain('rel="prev"');
+    expect(body).toContain('href="/app/apps/app-1?tab=runs&amp;flowsOffset=20"');
+  });
+
+  it('#1881: an actually empty App has no Flows section', async () => {
+    const body = await renderPage([], null, [], { flowsPage: { offset: 0, count: 0, total: 0, previousHref: null, nextHref: null } });
     expect(body).not.toContain('Showing the first');
     expect(body).not.toContain('Flows');
   });
 
-  it('#1226: no cue when the window was not full', async () => {
-    const body = await renderPage([], null, [flow], { flowsCapped: false, flowsScanned: 12 });
+  it('#1881: a one-page list has no continuation or capped notice', async () => {
+    const body = await renderPage([], null, [flow], { flowsPage: { offset: 0, count: 12, total: 12, previousHref: null, nextHref: null } });
     expect(body).not.toContain('Showing the first');
+    // #2170 F8: one page has nothing to link, so no navigation landmark; the
+    // count still shows.
+    expect(body).not.toContain('aria-label="Flow pages"');
+    expect(body).toContain('1–12');
+    expect(body).not.toContain('rel="next"');
+  });
+});
+
+// portal#1444 (hadron-server#2849): the Agent picker, only where the server would ask for one.
+describe('runs list: the Agent picker (#1444)', () => {
+  const agents = [
+    { id: 'ag-1', name: 'Writer', urn: 'hrn:agent:x:writer' },
+    { id: 'ag-2', name: 'Editor', urn: 'hrn:agent:x:editor' },
+  ];
+
+  it('several installed Agents: a labelled picker lists them by name, and each Run form carries agentRef', async () => {
+    const body = await renderPage([], null, [flow], { runAgents: agents });
+    expect(body).toMatch(/<label[^>]*for="runAgent"[^>]*>Run as Agent<\/label>/);
+    expect(body).toContain('>Writer</option>');
+    expect(body).toContain('>Editor</option>');
+    expect(body).not.toContain('RUN_AGENT_REQUIRED');
+    expect(body).toMatch(/<input type="hidden" name="agentRef"/);
+  });
+
+  it('one or no installed Agent: nothing new on the page', async () => {
+    const body = await renderPage([], null, [flow], { runAgents: null });
+    expect(body).not.toContain('id="runAgent"');
+    expect(body).not.toContain('Run as Agent');
   });
 });

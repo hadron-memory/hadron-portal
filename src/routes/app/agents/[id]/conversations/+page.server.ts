@@ -1,3 +1,4 @@
+import { extractGqlError } from '$lib/server/gqlError';
 import { fail, error } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
@@ -6,7 +7,7 @@ import { gqlClient } from '$lib/server/api';
 import { drainFindNodes, fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
 import { ORGANIZATIONS_QUERY, CREATE_EDGE_MUTATION, UPDATE_EDGE_MUTATION, DELETE_EDGE_MUTATION } from '$lib/server/queries';
-import { userFacingErrorMessage } from '$lib/edge-conditions/error-messages';
+import { entryConditionErrorMessage, userFacingErrorMessage } from '$lib/edge-conditions/error-messages';
 // #870: the chooser picks each write's mutation from the node's kind. Called
 // INLINE at every `.request()` — hoisting it into a local makes the call
 // opaque to check-graphql-callers, which then stops checking its variables.
@@ -23,6 +24,12 @@ import {
   conversationEdgePanelSchema,
   parseValidatedConversationEdgeData,
 } from '$lib/flow/conversation-edge-panel-form';
+import {
+  conversationEntryConditionDefaults,
+  conversationEntryConditionSchema,
+} from '$lib/flow/conversation-entry-condition-form';
+import { conversationMoveDefaults, conversationMoveSchema } from '$lib/flow/conversation-move-form';
+import { planStartOrderMove } from '$lib/flow/conversation-order';
 import {
   conversationGoalsDefaults,
   conversationGoalsSchema,
@@ -52,6 +59,8 @@ type AddEdgeForm = Infer<typeof addEdgeSchema, 'zod4'>;
 type AddStageForm = Infer<typeof addStageSchema, 'zod4'>;
 type ConversationEdgePanelForm = Infer<typeof conversationEdgePanelSchema, 'zod4'>;
 type ConversationGoalsForm = Infer<typeof conversationGoalsSchema, 'zod4'>;
+type ConversationEntryConditionForm = Infer<typeof conversationEntryConditionSchema, 'zod4'>;
+type ConversationMoveForm = Infer<typeof conversationMoveSchema, 'zod4'>;
 type ConversationPromptForm = Infer<typeof conversationPromptSchema, 'zod4'>;
 type ConversationStageExtractionForm = Infer<typeof conversationStageExtractionSchema, 'zod4'>;
 
@@ -60,6 +69,8 @@ const addEdgeFormAdapter = zod4(addEdgeSchema);
 const addStageFormAdapter = zod4(addStageSchema);
 const conversationEdgePanelFormAdapter = zod4(conversationEdgePanelSchema);
 const conversationGoalsFormAdapter = zod4(conversationGoalsSchema);
+const conversationEntryConditionFormAdapter = zod4(conversationEntryConditionSchema);
+const conversationMoveFormAdapter = zod4(conversationMoveSchema);
 const conversationPromptFormAdapter = zod4(conversationPromptSchema);
 const conversationStageExtractionFormAdapter = zod4(conversationStageExtractionSchema);
 
@@ -75,10 +86,20 @@ const CONVERSATION_NODES_QUERY = /* GraphQL */ `
     findNodes(filter: { memoryIds: $memoryIds, nodeType: $nodeType }, limit: $limit, offset: $offset) {
       hits {
         node {
-          id memoryId nodeType loc name description content tags seq data
+          id memoryId urn nodeType loc name description content tags seq data
           outgoingEdges { id name loc isRunnable condition priority data target { id loc name } }
         }
       }
+    }
+  }
+`;
+
+// S7: what the start-order move needs to plan its writes — each conversation's
+// seq and its setup/fallback flags, nothing else.
+const CONVERSATION_ORDER_QUERY = /* GraphQL */ `
+  query ConversationOrder($limit: Int, $offset: Int, $memoryIds: [ID!], $nodeType: String) {
+    findNodes(filter: { memoryIds: $memoryIds, nodeType: $nodeType }, limit: $limit, offset: $offset) {
+      hits { node { id memoryId loc seq data } }
     }
   }
 `;
@@ -247,6 +268,36 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     ),
   );
 
+  // S7: the Start section's two forms per ordinary conversation — the entry
+  // condition (seeded from data.entryCondition) and the order move.
+  const conversationStartForms = Object.fromEntries(
+    await Promise.all(
+      systemNodes
+        .filter((n) => isConversationLoc(n.loc))
+        .map(async (conversation) => {
+          const data = (conversation.data as Record<string, unknown>) ?? {};
+          return [
+            conversation.id,
+            {
+              condition: await superValidate<ConversationEntryConditionForm>(
+                conversationEntryConditionDefaults(
+                  { loc: conversation.loc, entryCondition: data.entryCondition ?? null },
+                  systemMemoryId,
+                ),
+                conversationEntryConditionFormAdapter,
+                { errors: false, id: 'conversationEntryCondition' },
+              ),
+              move: await superValidate<ConversationMoveForm>(
+                conversationMoveDefaults({ loc: conversation.loc }, systemMemoryId),
+                conversationMoveFormAdapter,
+                { errors: false, id: 'conversationMove' },
+              ),
+            },
+          ];
+        }),
+    ),
+  );
+
   return {
     agent,
     org,
@@ -260,6 +311,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     edgeForms,
     stageExtractionForms,
     conversationGoalForms,
+    conversationStartForms,
   };
 };
 
@@ -565,6 +617,127 @@ export const actions: Actions = {
     }
   },
 
+  // S7 (B4): one click moves one conversation a step in the start order. It
+  // reads the stored order fresh, so a stale page cannot plan from old numbers,
+  // then writes only `seq`, one conversation at a time. A refused write stops
+  // the sequence and the writes already made stay; the page reloads the stored
+  // order and the error says the order was only partly saved.
+  moveConversation: async ({ request, locals }) => {
+    const form = await superValidate<ConversationMoveForm>(
+      await request.formData(),
+      conversationMoveFormAdapter,
+      { id: 'conversationMove' },
+    );
+    if (!form.valid) return fail(400, { form });
+
+    const client = gqlClient(locals.token);
+    const systemMemoryId = form.data.systemMemoryId;
+    let written = 0;
+
+    try {
+      const [defaultNodes, typedNodes] = await Promise.all([
+        drainFindNodes<{ node: MemoryNode }>(client, CONVERSATION_ORDER_QUERY, { memoryIds: [systemMemoryId] }),
+        drainFindNodes<{ node: MemoryNode }>(client, CONVERSATION_ORDER_QUERY, { memoryIds: [systemMemoryId], nodeType: 'system' }),
+      ]);
+      const conversations = Array.from(new Map(
+        [...defaultNodes.findNodes.hits, ...typedNodes.findNodes.hits]
+          .map((h) => h.node)
+          .filter((n) => n.memoryId === systemMemoryId && isConversationLoc(n.loc))
+          .map((n) => [n.id, n]),
+      ).values());
+
+      for (const write of planStartOrderMove(conversations, form.data.convLoc, form.data.direction)) {
+        const prior = await client.request<{ node: ConversationNodeRow | null }>(
+          NODE_DATA_BY_LOC_QUERY,
+          { ref: write.loc, memoryRef: systemMemoryId },
+        );
+        // seq only: no `data` field, so a reorder cannot touch goals, stageOrder,
+        // position or the entry condition.
+        const input = { memoryId: systemMemoryId, loc: write.loc, seq: write.seq };
+        await client.request(nodeUpdateDocument(prior.node, input), { input });
+        written++;
+      }
+      return message(form, {
+        type: 'success',
+        text: t('conversation.infoPanel.start.orderSaved', 'Start order saved.'),
+      });
+    } catch {
+      // Never the raw server message: say what state the order is in.
+      return message(
+        form,
+        {
+          type: 'error',
+          text: written > 0
+            ? t('conversation.infoPanel.start.orderPartial', 'Start order was only partly saved, so the order shown may be out of date. Reload it, then try again.')
+            : t('conversation.infoPanel.start.orderFailed', 'Could not change the start order. Try again.'),
+        },
+        { status: 500 },
+      );
+    }
+  },
+
+  // S7: save or clear a conversation's entry condition. Spreads the stored data
+  // (updateGoals pattern) so goals, stageOrder, position and any key this editor
+  // does not know survive; Clear removes only `entryCondition`.
+  updateEntryCondition: async ({ request, locals }) => {
+    const form = await superValidate<ConversationEntryConditionForm>(
+      await request.formData(),
+      conversationEntryConditionFormAdapter,
+      { id: 'conversationEntryCondition' },
+    );
+    if (!form.valid) return fail(400, { form });
+
+    const client = gqlClient(locals.token);
+    const systemMemoryId = form.data.systemMemoryId;
+    const convLoc = form.data.convLoc;
+    const condition = parseValidatedPanelCondition(form.data.condition);
+    const clearing = form.data.intent === 'clear' || condition === null;
+
+    try {
+      const convNode = await client.request<{ node: ConversationNodeRow | null }>(
+        NODE_DATA_BY_LOC_QUERY,
+        { ref: convLoc, memoryRef: systemMemoryId },
+      );
+      const convData = (convNode.node?.data as Record<string, unknown>) ?? {};
+      // Setup and fallback never start by condition (Q13).
+      if (convData.isSetup === true || convData.isFallback === true) {
+        return message(
+          form,
+          {
+            type: 'error',
+            text: t('conversation.infoPanel.start.notOrdinary', 'Setup and fallback conversations have no start condition.'),
+          },
+          { status: 400 },
+        );
+      }
+      const { entryCondition: _previous, ...rest } = convData;
+      const input = {
+        memoryId: systemMemoryId,
+        loc: convLoc,
+        data: clearing ? rest : { ...rest, entryCondition: condition },
+      };
+      await client.request(nodeUpdateDocument(convNode.node, input), { input });
+      return message(form, {
+        type: 'success',
+        text: clearing
+          ? t('conversation.infoPanel.start.cleared', 'Cleared. This conversation now always starts.')
+          : t('conversation.infoPanel.start.saved', 'Start condition saved.'),
+      });
+    } catch (e: unknown) {
+      return message(
+        form,
+        {
+          type: 'error',
+          text: entryConditionErrorMessage(
+            e,
+            t('conversation.infoPanel.start.saveFailed', 'Failed to save the start condition.'),
+          ),
+        },
+        { status: 500 },
+      );
+    }
+  },
+
   addEdge: async ({ request, locals }) => {
     const form = await superValidate<AddEdgeForm>(
       await request.formData(),
@@ -670,7 +843,7 @@ export const actions: Actions = {
       };
       await client.request(nodeUpdateDocument(node.node, input), { input });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to save position' });
+      return fail(500, { error: extractGqlError(e, 'Failed to save position', ['NODE_WRITE_CONFLICT']) });
     }
   },
 
@@ -682,7 +855,7 @@ export const actions: Actions = {
     try {
       await client.request(DELETE_EDGE_MUTATION, { edgeRef: edgeId });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to delete edge' });
+      return fail(500, { error: extractGqlError(e, 'Failed to delete edge') });
     }
   },
 };

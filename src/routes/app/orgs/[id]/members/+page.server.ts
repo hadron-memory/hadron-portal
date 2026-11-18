@@ -12,6 +12,7 @@ import {
   START_IMPERSONATION_MUTATION,
   ORG_MEMBERS_TAB_QUERY,
 } from '$lib/server/queries';
+import { INVITE_EXPIRES_IN_DAYS, INVITE_MAX_ACTIVATIONS } from '$lib/invite-limits';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import {
@@ -30,6 +31,9 @@ const leaveOrgFormAdapter = zod4(leaveOrgSchema);
 const inviteMemberFormAdapter = zod4(inviteMemberSchema);
 const impersonateMemberFormAdapter = zod4(impersonateMemberSchema);
 
+// #1297: each form carries an explicit Superforms id (its _kind). The default id hashes the
+// schema's SHAPE, so same-shaped forms (Remove/Impersonate, Add/Update) shared one client
+// store. The actions answer under the same id, or the client would ignore their result.
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
@@ -41,12 +45,12 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   });
   const [addForm, updateForm, removeForm, inviteForm, leaveForm, impersonateForm] =
     await Promise.all([
-      superValidate({}, addOrgMemberFormAdapter, { errors: false }),
-      superValidate({}, updateOrgMemberFormAdapter, { errors: false }),
-      superValidate({}, removeOrgMemberFormAdapter, { errors: false }),
-      superValidate({}, inviteMemberFormAdapter, { errors: false }),
-      superValidate({}, leaveOrgFormAdapter, { errors: false }),
-      superValidate({}, impersonateMemberFormAdapter, { errors: false }),
+      superValidate({}, addOrgMemberFormAdapter, { errors: false, id: 'addOrgMember' }),
+      superValidate({}, updateOrgMemberFormAdapter, { errors: false, id: 'updateOrgMember' }),
+      superValidate({}, removeOrgMemberFormAdapter, { errors: false, id: 'removeOrgMember' }),
+      superValidate({}, inviteMemberFormAdapter, { errors: false, id: 'inviteOrgMember' }),
+      superValidate({}, leaveOrgFormAdapter, { errors: false, id: 'leaveOrg' }),
+      superValidate({}, impersonateMemberFormAdapter, { errors: false, id: 'impersonateMember' }),
     ]);
   return {
     org: orgData.organization,
@@ -63,7 +67,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 
 export const actions: Actions = {
   add: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), addOrgMemberFormAdapter);
+    const form = await superValidate(await request.formData(), addOrgMemberFormAdapter, { id: 'addOrgMember' });
     if (!form.valid) return fail(400, { form });
 
     try {
@@ -79,7 +83,7 @@ export const actions: Actions = {
   },
 
   update: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), updateOrgMemberFormAdapter);
+    const form = await superValidate(await request.formData(), updateOrgMemberFormAdapter, { id: 'updateOrgMember' });
     if (!form.valid) return fail(400, { form });
 
     try {
@@ -95,7 +99,7 @@ export const actions: Actions = {
   },
 
   remove: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), removeOrgMemberFormAdapter);
+    const form = await superValidate(await request.formData(), removeOrgMemberFormAdapter, { id: 'removeOrgMember' });
     if (!form.valid) return fail(400, { form });
 
     try {
@@ -110,7 +114,7 @@ export const actions: Actions = {
   },
 
   invite: async ({ request, params, locals, url }) => {
-    const form = await superValidate(await request.formData(), inviteMemberFormAdapter);
+    const form = await superValidate(await request.formData(), inviteMemberFormAdapter, { id: 'inviteOrgMember' });
     if (!form.valid) return fail(400, { form });
 
     const name = form.data.name || null;
@@ -125,8 +129,8 @@ export const actions: Actions = {
         memberRole,
         name,
         email,
-        maxActivations: 1,
-        expiresInDays: 30,
+        maxActivations: INVITE_MAX_ACTIVATIONS,
+        expiresInDays: INVITE_EXPIRES_IN_DAYS,
       });
       const inviteUrl = `${url.origin}/invite/${data.createUserInvitation.slug}`;
       // Surface who the link is for so the success message can name them
@@ -144,7 +148,7 @@ export const actions: Actions = {
   // every gate (org role, peer-or-below, liveness) — a failed start surfaces
   // as a form error.
   impersonate: async ({ request, params, locals, cookies }) => {
-    const form = await superValidate(await request.formData(), impersonateMemberFormAdapter);
+    const form = await superValidate(await request.formData(), impersonateMemberFormAdapter, { id: 'impersonateMember' });
     if (!form.valid) return fail(400, { form });
     if (locals.impersonation) {
       return message(
@@ -186,7 +190,7 @@ export const actions: Actions = {
   },
 
   leave: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), leaveOrgFormAdapter);
+    const form = await superValidate(await request.formData(), leaveOrgFormAdapter, { id: 'leaveOrg' });
     if (!locals.user?.id) return message(form, { type: 'error', text: 'Not authenticated' }, { status: 401 });
     if (!form.valid) return fail(400, { form });
 

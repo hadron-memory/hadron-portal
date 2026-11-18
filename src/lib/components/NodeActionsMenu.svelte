@@ -156,7 +156,12 @@
 
 <svelte:window onkeydown={handleKey} onclick={handleOutside} />
 
-<div bind:this={rootEl} class="relative" data-node-actions>
+<!-- data-menu-open carries the open state to CSS without keying any caller's
+     stacking on this component's ARIA roles (#1954): a sticky table cell
+     promotes the row whose menu is open via :has([data-menu-open]), so the
+     menu can be re-rolled as role="listbox" or a custom widget without
+     silently changing paint order. -->
+<div bind:this={rootEl} class="relative" data-node-actions data-menu-open={open ? '' : undefined}>
   <button
     bind:this={triggerEl}
     type="button"

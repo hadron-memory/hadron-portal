@@ -1,6 +1,6 @@
-import type { GraphQLClient } from 'graphql-request';
+import { ClientError, type GraphQLClient } from 'graphql-request';
 import type { AgentBaseRead, DefinitionEntry, DefinitionRead } from '$lib/agent-inheritance';
-import { extractGqlError } from './gqlError';
+import { extractGqlError, extractGqlErrorCode } from './gqlError';
 import { t } from '$lib/i18n/t';
 
 export const AGENT_BASE_QUERY = /* GraphQL */ `
@@ -34,7 +34,14 @@ export async function loadAgentInheritance(client: GraphQLClient, ref: string) {
       const result = await client.request<Record<typeof key, DefinitionEntry[]>>(query, { ref });
       return { items: result[key], error: null };
     } catch (e) {
-      return { items: null, error: extractGqlError(e, t('agent.definitions.failed', 'Could not load definitions')) };
+      // AGENT_NOT_FOUND also conceals a refused list read. Do not infer a
+      // role requirement, Agent existence, or an empty list from that code.
+      const code = e instanceof ClientError ? extractGqlErrorCode(e) : null;
+      const refused = code === 'AGENT_NOT_FOUND' || code === 'FORBIDDEN';
+      const message = key === 'agentTaskList'
+        ? t('agent.tasks.unavailable', 'Tasks are unavailable. The Agent may be unavailable or you may not have access to its task list.')
+        : t('agent.processes.unavailable', 'Processes are unavailable. The Agent may be unavailable or you may not have access to its process list.');
+      return { items: null, error: refused ? message : extractGqlError(e, t('agent.definitions.failed', 'Could not load definitions')) };
     }
   }
   const tasksPromise = list(AGENT_TASK_LIST_QUERY, 'agentTaskList');

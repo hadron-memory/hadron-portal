@@ -151,6 +151,21 @@ describe('renderWikilink', () => {
     );
   });
 
+  it('escapes a quote in the resolved href so it cannot leave the attribute (#1512)', () => {
+    const html = renderWikilink(
+      { target: 'a:b', label: 'x' },
+      { href: '/app/u/q"onmouseover="alert(1)', label: 'N' },
+      strings,
+    );
+    expect(html).toContain('href="/app/u/q&quot;onmouseover=&quot;alert(1)"');
+    expect(html).not.toMatch(/href="[^"]*"onmouseover=/);
+  });
+
+  it('escapes & in the resolved href so an entity cannot decode to a separator (#1512)', () => {
+    const html = renderWikilink({ target: 'a:b', label: 'x' }, { href: '/app/u/x&sol;y', label: 'N' }, strings);
+    expect(html).toContain('href="/app/u/x&amp;sol;y"');
+  });
+
   it('prefers explicit display text over the node name', () => {
     const html = renderWikilink(
       { target: 'glossary:ns1', label: 'NS1' },

@@ -27,25 +27,20 @@ You have access to these tools via the Hadron MCP server:
 
 | Tool | Description |
 |------|-------------|
-| `hadron_start_session` | Start a new session: `description` (required) says what it is about; pass `workerRef` (a worker's name, URN or id) to work as that named teammate |
+| `hadron_start_session` | Start a new session: `description` (required) says what it is about. Team workers use the hadron CLI for their worker session, the supported path for team work. A new binding: `hadron team session start --as <worker>`. Recovering an existing stint: check it with `hadron team session whoami --check` and `hadron team worker get <worker>`, then, only if it is unbound, `hadron team session start` with no `--as` (it resumes your one live worker session or redeems your one resume claim; if it lists several, ask the person which one, never pick; otherwise it refuses). If the CLI started your session, pass its id as `session` so your writes are credited to it |
 | `hadron_whoami` | Show your open session id and the worker it is bound to |
-| `hadron_get_worker` | Re-read a worker's boot briefing |
-| `hadron_create_resume_claim` | Before a deliberate context reset that keeps your session open, write a resume claim as the last step: single use, 60 seconds, and only you can redeem it |
-| `hadron_resume_session` | After a context reset, call it first, with no arguments: your resume claim rebinds your worker and returns its briefing and handoff. Several are listed for you to pick from, never guessed; with nothing to resume it answers `NOTHING_TO_RESUME` and binds nothing |
-| `hadron_end_session` | End session with summary and outcome; pass `resumeClaim: true` to leave a resume claim for the session that follows |
+| `hadron_end_session` | End session with summary and outcome |
 
 **Recovering after a context reset.** If your conversation loses its context
 (a compaction, or a new chat window), don't start a new session: the open one
 is still yours, and starting another leaves it behind. Call `hadron_whoami` to
-get your open session id (and, if you work as a named worker, which one), and
-`hadron_get_worker` to re-read that worker's briefing. Then carry on with the
-same session id.
+get your open session id, then carry on with the same session id. A team
+worker recovers with `hadron team session whoami` and
+`hadron team worker get <name>`.
 
 ### Team Chat
 
-| Tool | Description |
-|------|-------------|
-| `hadron_team_chat_post` | Post to your team's chat. Authorship is explicit, the same rule as `hadron_channel_post`: pass `session` (your worker session id) to post as your worker; on a connection bound to one worker session you can omit it, but on a shared one an omitted `session` is refused `SESSION_AMBIGUOUS`. Pass `asMe: true` to post as yourself. With neither, the post is refused `[authorship_required]`, never silently recorded under your name, and `session` with `asMe` is refused `[bad_user_input]`. If refused, `hadron_whoami` gives your session id |
+Team workers post with `hadron team chat post <message>`.
 
 ### Reading & Searching
 

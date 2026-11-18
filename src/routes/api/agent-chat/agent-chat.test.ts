@@ -31,6 +31,19 @@ vi.mock('$lib/server/llm/agentChatTurn.js', () => ({
   runChatTurn: mockRunChatTurn,
 }));
 
+// portal#1611: /start resolves the AI config before startChat. These thin-wrapper
+// tests feed mockRequest in call order and don't exercise resolution (the real
+// one is pinned in llm-model-1611.test.ts), so it is a fixed, resolved config.
+const mockResolveChatAi = vi.fn();
+vi.mock('$lib/server/llm/chatAi', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('$lib/server/llm/chatAi')>()),
+  resolveChatAi: (...a: unknown[]) => mockResolveChatAi(...a),
+}));
+vi.mock('$lib/server/llm/chatAi.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('$lib/server/llm/chatAi.js')>()),
+  resolveChatAi: (...a: unknown[]) => mockResolveChatAi(...a),
+}));
+
 const mockCallAgentChatLlm = vi.fn();
 vi.mock('$lib/server/llm/agentChatLlm', () => ({
   callAgentChatLlm: mockCallAgentChatLlm,
@@ -82,6 +95,8 @@ beforeEach(() => {
   mockRequest.mockReset();
   mockRunChatTurn.mockReset();
   mockCallAgentChatLlm.mockReset();
+  mockResolveChatAi.mockReset();
+  mockResolveChatAi.mockResolvedValue({ ok: true, ai: { provider: 'anthropic', apiKey: 'sk-test', model: 'model-X' } });
 });
 
 // ── /api/agent-chat/start ──────────────────────────────────────────────────
@@ -133,6 +148,10 @@ describe('POST /api/agent-chat/start', () => {
       stageName: 'intro',
       welcomeMessage: 'Welcome! What are we researching today?',
       welcomeError: null,
+      welcomePartial: false,
+      conversationCompleted: null,
+      detourReturned: false,
+      rejectedNextStage: null,
       stageTransitioned: false,
       // Spec 017 — scope echoed back to the client. Default = private.
       scope: 'private',
@@ -142,7 +161,7 @@ describe('POST /api/agent-chat/start', () => {
     // scope defaults to 'private' per FR-003)
     expect(mockRequest).toHaveBeenCalledTimes(1);
     const [, vars] = mockRequest.mock.calls[0];
-    expect(vars).toEqual({ agentId: 'a1', conversationName: 'deep-dive', scope: 'private' });
+    expect(vars).toEqual({ agentId: 'a1', conversationName: 'deep-dive', scope: 'private', llmModel: 'model-X' });
 
     // runChatTurn called with startPayload for the welcome path
     expect(mockRunChatTurn).toHaveBeenCalledTimes(1);
@@ -190,7 +209,7 @@ describe('POST /api/agent-chat/start', () => {
     });
     const { POST } = await import('./start/+server');
     await POST(ev({ body: { agentId: 'a1' } }));
-    expect(mockRequest.mock.calls[0][1]).toEqual({ agentId: 'a1', conversationName: null, scope: 'private' });
+    expect(mockRequest.mock.calls[0][1]).toEqual({ agentId: 'a1', conversationName: null, scope: 'private', llmModel: 'model-X' });
   });
 
   it('forwards scope=shared when provided in the request body', async () => {
@@ -218,6 +237,7 @@ describe('POST /api/agent-chat/start', () => {
       agentId: 'a1',
       conversationName: null,
       scope: 'shared',
+      llmModel: 'model-X',
     });
   });
 

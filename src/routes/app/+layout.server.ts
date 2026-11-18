@@ -1,3 +1,4 @@
+import { takeNodeAdvice } from '$lib/server/node-advice';
 import { redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
@@ -84,14 +85,16 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies, par
   // Rendering signed-in App content under that nav, or a target's
   // impersonation banner, made one response claim two identities (Atilla and
   // Colin on #1119). So defer to it, in one of two ways:
-  //  - The root DROPPED a cookie (`sessionCleared`: an auth refusal).
+  //  - The root DROPPED a cookie (`sessionCleared`: an auth refusal, or a
+  //    null `me` whose authenticationStatus is REFUSED, #1091).
   //    Redirect to this same URL; the next request, without that cookie, takes the
   //    existing path: the guard above sends a user to /signin, and an admin
   //    whose impersonation was dropped comes back as themselves.
-  //  - Anything else (its `me` answered null: no auth, or a revoked
-  //    impersonation). Nothing was dropped, so a reload would carry the same
-  //    credential and get the same answer, a loop (Atilla's P2-2). Go where
-  //    the guard sends a signed-out visitor.
+  //  - Anything else (its `me` answered null and the credential was not
+  //    answered REFUSED, e.g. an older server or a failed check). Nothing
+  //    was dropped, so a reload would carry the same credential and get the
+  //    same answer, a loop (Atilla's P2-2). Go where the guard sends a
+  //    signed-out visitor.
   // #1120: transient root Me failures instead throw 503 through parent(),
   // preserving the cookie and bypassing these auth redirects entirely.
   const root = rootData as { user?: unknown; sessionCleared?: boolean };
@@ -200,7 +203,9 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies, par
     redirect(302, segments.join('/') + url.search);
   }
 
+  const nodeAdvice = takeNodeAdvice(cookies, sessionUser.id);
   return {
+    ...(nodeAdvice.length ? { nodeAdvice } : {}),
     user,
     // Admin impersonation: the acting-as facts for the banner (null normally).
     // `user` above already IS the target under impersonation — hooks.server

@@ -22,7 +22,12 @@ import { readTaskWarnings, type TaskWarnings } from '$lib/agent-tasks/warnings';
  */
 export const WRITE_REFUSAL_CODES = new Set([
   'TASK_NOT_FOUND',
+  'TASK_BLOCKER_CYCLE',
   'TASK_NOT_OWNER',
+  'TASK_NOT_ASSIGNEE',
+  // portal#1643 (hrn:node:hadronmemory.com:specs:cor:agt:050:30): disposing a finding of an unfinished task, or one that is not on it.
+  'TASK_NOT_FINISHED',
+  'TASK_FINDING_NOT_FOUND',
   'TASK_ENDED',
   'TASK_INVALID_TRANSITION',
   'TASK_ASSIGNEE_INVALID',
@@ -54,15 +59,28 @@ export function writeRefusalStatus(r: WriteRefusal): number {
   if (r.kind === 'invalid') return 400;
   switch (r.code) {
     case 'TASK_NOT_OWNER':
+    case 'TASK_NOT_ASSIGNEE':
     case 'FORBIDDEN':
+    case 'SUBSCRIBE_FORBIDDEN':
       return 403;
     case 'TASK_NOT_FOUND':
+    case 'TASK_FINDING_NOT_FOUND':
+    case 'TICKER_NOT_FOUND':
     case 'APP_NOT_FOUND':
+    case 'WORKER_NOT_FOUND':
+    case 'SUBSCRIPTION_NOT_FOUND':
       return 404;
     case 'TASK_ENDED':
+    case 'TASK_NOT_FINISHED':
     case 'TASK_INVALID_TRANSITION':
     case 'APP_UNINSTALLED':
+    case 'TICKER_NAME_TAKEN':
+    case 'TICKER_LIMIT_REACHED':
+    case 'TICKER_CADENCE_NEEDS_CONSENT':
+    case 'WORKER_RETIRED':
       return 409;
+    case 'INTERNAL_SERVER_ERROR':
+      return 500;
     default:
       return 400;
   }
@@ -93,6 +111,8 @@ export async function taskWrite<D>(
   doc: string,
   vars: Record<string, unknown>,
   path: string,
+  // portal#1384: another write family's refusals (the ticker writes) classify with their own table.
+  classify: (e: unknown) => WriteRefusal = classifyWriteError,
 ): Promise<TaskWriteOutcome<D>> {
   try {
     const r = await client.rawRequest<D>(doc, vars);
@@ -104,7 +124,7 @@ export async function taskWrite<D>(
       const data = response?.data && typeof response.data === 'object' ? (response.data as Partial<D>) : null;
       return { kind: 'committed-error', data, ...w };
     }
-    return { kind: 'refused', refusal: classifyWriteError(e) };
+    return { kind: 'refused', refusal: classify(e) };
   }
 }
 

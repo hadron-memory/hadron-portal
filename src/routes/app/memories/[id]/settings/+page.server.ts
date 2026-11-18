@@ -1,3 +1,4 @@
+import { rulebookAvailable } from '$lib/server/memory-config/service';
 import { fail, redirect, isRedirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms/adapters';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
@@ -11,12 +12,14 @@ import {
   UPDATE_MEMORY_MUTATION,
   DELETE_MEMORY_MUTATION,
   RETRY_FAILED_EMBEDDINGS_MUTATION,
+  VALIDATE_MEMORY_QUERY,
   ORGANIZATIONS_QUERY,
   RESOLVE_URN_QUERY,
   TRANSFER_MEMORY_OWNERSHIP_MUTATION,
   MEMORY_TRANSFER_ACCESS_QUERY,
   USER_PROFILE_QUERY,
 } from '$lib/server/queries';
+import { VECTOR_HEALTH_LIMIT, embedFailedView, type ValidateMemoryResult } from '$lib/vector-health';
 import { toBareMemorySlugInput } from '$lib/urn/form-validation';
 import type { Memory, Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -158,7 +161,10 @@ export const load: PageServerLoad = async ({ locals, parent, params }) => {
       })
     : false;
   const [form, vectorForm, marketplaceForm, schemaForm, deleteForm, retryEmbedsForm] = await Promise.all([
-    superValidate<MemorySettingsForm>(settingsFormDefaults(graph), memorySettingsFormAdapter, { errors: false }),
+    // #1909: memory-bound id, stamped here and in `?/update` from the SAME
+    // route param, so a late result from memory A cannot match memory B's
+    // live form (hrn:node:hadronmemory.com:hadron-portal:review:superforms-late-result-crosses-entity-navigation).
+    superValidate<MemorySettingsForm>(settingsFormDefaults(graph), memorySettingsFormAdapter, { errors: false, id: `updateMemorySettings:${params.id}` }),
     superValidate<VectorIndexSettingsForm>(
       {
         vectorIndexEnabled: graph.vectorIndexEnabled ?? false,
@@ -169,7 +175,17 @@ export const load: PageServerLoad = async ({ locals, parent, params }) => {
         acknowledgeVectorInversionRisk: false,
       },
       vectorIndexSettingsFormAdapter,
-      { errors: false },
+      // #1255: a STABLE, memory-bound id on both sides (load and action).
+      // Without one, superValidate defaults the id to '' and this form
+      // matches EVERY unstamped form's data and results — a sibling save's
+      // invalidateAll rebinds it from page.data (discarding an unsaved
+      // draft, taint notwithstanding) and a sibling's ActionResult rebinds
+      // it with the sibling's form data. Paired with applyAction:'never' on
+      // the client (see +page.svelte): own results still match and apply;
+      // nothing else touches the form. Same recipe as the marketplace card
+      // (#1248), arrived at from the opposite direction — the card had a
+      // stable id and no opt-out; this form had neither.
+      { errors: false, id: `updateVectorIndex:${params.id}` },
     ),
     superValidate<MarketplaceListingForm>(
       { listedOnMarketplace: graph.listedOnMarketplace ?? false },
@@ -189,7 +205,8 @@ export const load: PageServerLoad = async ({ locals, parent, params }) => {
     superValidate<MemorySchemaSettingsForm>(
       { schemaJson: graph.schema != null ? JSON.stringify(graph.schema, null, 2) : '' },
       memorySchemaSettingsFormAdapter,
-      { errors: false },
+      // #1255: same memory-bound id discipline as the vector form above.
+      { errors: false, id: `updateSchema:${params.id}` },
     ),
     superValidate<DeleteMemoryForm>(
       { organizationId: graph.organizationId ?? '' },
@@ -198,14 +215,15 @@ export const load: PageServerLoad = async ({ locals, parent, params }) => {
     ),
     superValidate<RetryFailedEmbeddingsForm>({}, retryFailedEmbeddingsFormAdapter, { errors: false }),
   ]);
-  return { allOrgs, owner, ownerUserId, transferCanDelete, form, vectorForm, marketplaceForm, schemaForm, deleteForm, retryEmbedsForm };
+  const roleConfigAvailable = await rulebookAvailable(gqlClient(locals.token), params.id).catch(() => false);
+  return { roleConfigAvailable, allOrgs, owner, ownerUserId, transferCanDelete, form, vectorForm, marketplaceForm, schemaForm, deleteForm, retryEmbedsForm };
 };
 
 export const actions: Actions = {
   update: async ({ request, params, locals }) => {
     const fd = await request.formData();
     if (fd.has('urnSlug') && !fd.has('urnSlugPresent')) fd.set('urnSlugPresent', 'true');
-    const form = await superValidate(fd, memorySettingsFormAdapter);
+    const form = await superValidate(fd, memorySettingsFormAdapter, { id: `updateMemorySettings:${params.id}` });
     if (!form.valid) return fail(400, { form });
 
     const displayName = form.data.displayName || undefined;
@@ -294,7 +312,7 @@ export const actions: Actions = {
       });
       return message(form, { type: 'success', text: 'Changes saved.' });
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: e instanceof Error ? e.message : 'Failed to update' }, { status: 500 });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to update') }, { status: 500 });
     }
   },
 
@@ -335,7 +353,7 @@ export const actions: Actions = {
       // and variables into ClientError.message (#468's leak class).
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, t('memory-settings.marketplace.failed', 'Failed to update marketplace listing.')) },
+        { type: 'error', text: extractGqlError(e, t('memory-settings.marketplace.failed', 'Failed to update marketplace listing.'), ["BAD_USER_INPUT"]) },
         { status: 500 },
       );
     }
@@ -359,7 +377,7 @@ export const actions: Actions = {
       );
       return { _kind: 'previewTransfer' as const, transferSelection: selection, transferPreview: response.transferMemoryOwnership };
     } catch (e: unknown) {
-      return fail(400, { _kind: 'previewTransfer' as const, transferSelection: selection, transferError: extractGqlError(e, t('memory-transfer.preview-failed', 'Could not preview ownership transfer.')) });
+      return fail(400, { _kind: 'previewTransfer' as const, transferSelection: selection, transferError: extractGqlError(e, t('memory-transfer.preview-failed', 'Could not preview ownership transfer.'), ["BAD_USER_INPUT"]) });
     }
   },
 
@@ -394,7 +412,7 @@ export const actions: Actions = {
         transferSelection: selection,
         transferError: stale
           ? t('memory-transfer.stale', 'The destination URN changed since this preview. Preview again before applying.')
-          : extractGqlError(e, t('memory-transfer.apply-failed', 'Could not transfer ownership.')),
+          : extractGqlError(e, t('memory-transfer.apply-failed', 'Could not transfer ownership.'), ["BAD_USER_INPUT"]),
       });
     }
     redirect(303, `/app/memories/${encodeURIComponent(params.id)}/settings?transferred=1`);
@@ -409,6 +427,7 @@ export const actions: Actions = {
     const form = await superValidate<VectorIndexSettingsForm>(
       fd,
       vectorIndexSettingsFormAdapter,
+      { id: `updateVectorIndex:${params.id}` },
     );
     if (!form.valid) return fail(400, { form });
 
@@ -459,7 +478,7 @@ export const actions: Actions = {
       }
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to update vector index') },
+        { type: 'error', text: extractGqlError(e, 'Failed to update vector index', ["BAD_USER_INPUT"]) },
         { status: 500 },
       );
     }
@@ -514,11 +533,45 @@ export const actions: Actions = {
           // hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee forbids.
           text: extractGqlError(
             e,
-            t('memory-settings.retry-embeds.failed', 'Failed to re-drive embeddings'),
+            t('memory-settings.retry-embeds.failed', 'Failed to re-drive embeddings'), ["BAD_USER_INPUT"],
           ),
         },
         { status: 500 },
       );
+    }
+  },
+
+  // portal#1346: the "Vector index health" panel. On demand only (a button), never
+  // from the loader: validateMemory scans the whole memory on every call. The
+  // server has no check filter, so this asks for the most findings it allows and
+  // keeps EMBED_FAILED; the view says when the cap may have hidden some. The ref
+  // is the route's, never the form's. No form input, so no superforms: the
+  // result is plain data and a refusal a plain error.
+  checkVectorIndexHealth: async ({ params, locals }) => {
+    try {
+      const res = await gqlClient(locals.token).request<{ validateMemory: ValidateMemoryResult }>(
+        VALIDATE_MEMORY_QUERY,
+        { memoryRef: params.id, limit: VECTOR_HEALTH_LIMIT },
+      );
+      return { vectorHealth: embedFailedView(res.validateMemory) };
+    } catch (e: unknown) {
+      // #1465 (hrn:node:hadronmemory.com:specs:cor:api:140:03): validateMemory answers a memory the
+      // caller cannot read with the same MEMORY_NOT_FOUND as a missing one. One fixed message and a
+      // 404, never the server's text, so the page cannot say which of the two it was.
+      if (extractGqlErrorCode(e) === 'MEMORY_NOT_FOUND') {
+        return fail(404, {
+          vectorHealthError: t('memory-settings.vector-health.not-found', 'This memory could not be found.'),
+        });
+      }
+      return fail(500, {
+        vectorHealthError: extractGqlError(
+          e,
+          t('memory-settings.vector-health.failed', 'Could not check the vector index'),
+          ['BAD_USER_INPUT'],
+          // #1465: a transport Error's own message (socket text, a URL) is not reader copy.
+          { transport: 'fallback' },
+        ),
+      });
     }
   },
 
@@ -531,6 +584,7 @@ export const actions: Actions = {
     const form = await superValidate<MemorySchemaSettingsForm>(
       await request.formData(),
       memorySchemaSettingsFormAdapter,
+      { id: `updateSchema:${params.id}` },
     );
     if (!form.valid) return fail(400, { form });
 
@@ -549,7 +603,7 @@ export const actions: Actions = {
         text: schema ? 'Schema saved.' : 'Schema removed.',
       });
     } catch (e: unknown) {
-      const text = extractGqlError(e, 'Failed to update schema');
+      const text = extractGqlError(e, 'Failed to update schema', ["BAD_USER_INPUT"]);
       if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') {
         return setError(form, 'schemaJson', text, { status: 400 });
       }
@@ -579,7 +633,7 @@ export const actions: Actions = {
       if (isRedirect(e)) throw e;
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to delete memory') },
+        { type: 'error', text: extractGqlError(e, 'Failed to delete memory', ["BAD_USER_INPUT"]) },
         { status: 500 },
       );
     }

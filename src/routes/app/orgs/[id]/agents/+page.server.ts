@@ -134,12 +134,12 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     superValidate<OrgAgentSubscribeForm>(
       { agentId: '' },
       orgAgentSubscribeFormAdapter,
-      { errors: false },
+      { errors: false, id: 'subscribeAgent' },
     ),
     superValidate<OrgAgentUnsubscribeForm>(
       { agentId: '' },
       orgAgentUnsubscribeFormAdapter,
-      { errors: false },
+      { errors: false, id: 'unsubscribeAgent' },
     ),
   ]);
 
@@ -158,6 +158,7 @@ export const actions: Actions = {
     const form = await superValidate<OrgAgentSubscribeForm>(
       await request.formData(),
       orgAgentSubscribeFormAdapter,
+      { id: 'subscribeAgent' },
     );
     if (!form.valid) return fail(400, { form });
 
@@ -188,6 +189,7 @@ export const actions: Actions = {
     const form = await superValidate<OrgAgentUnsubscribeForm>(
       await request.formData(),
       orgAgentUnsubscribeFormAdapter,
+      { id: 'unsubscribeAgent' },
     );
     if (!form.valid) return fail(400, { form });
 

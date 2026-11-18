@@ -3,8 +3,8 @@ import { buildSubtaskTree } from './tree';
 import type { AgentTaskRow } from './types';
 
 const row = (id: string, parentTaskId: string | null): AgentTaskRow => ({
-  id, parentTaskId, title: id, status: 'PENDING', queued: false, waitingOnChildren: false, source: null,
-  owner: { id: 'u', kind: 'USER', name: 'U', urn: null }, assignee: null, startBy: null,
+  id, handle: `AT${id.length}`, parentTaskId, title: id, status: 'PENDING', queued: false, waitingOnChildren: false, source: null,
+  owner: { id: 'u', kind: 'USER', name: 'U', urn: null }, assignee: null, startBy: null, finishBy: null, overdue: false,
   createdAt: '2026-10-01T00:00:00Z', updatedAt: null, tags: [],
 });
 

@@ -8,6 +8,8 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
+  import NodeEmbeddingBadges from './NodeEmbeddingBadges.svelte';
+  import { nodeListHref } from '$lib/node-list-links';
   import ViewTabs from './table/ViewTabs.svelte';
   import TableFrame from './table/TableFrame.svelte';
   import ColumnToggle from './table/ColumnToggle.svelte';
@@ -24,16 +26,19 @@
     onreorder,
     listKey,
     hideSearch = false,
+    viewMemoryId = '',
     snippets = {},
     meta = {},
     deletedIds = [],
     showColumns = false,
+    embeddingEnabled = false,
     columnData = {},
     columnsLoading = 0,
     columnsFailed = 0,
     signingOffered = true,
     onretrycolumns,
     onvisiblenodes,
+    serverPaged = false,
   }: {
     nodes: MemoryNode[];
     basePath?: string;
@@ -44,6 +49,8 @@
     listKey?: string;
     /** Hide the built-in search box (the owner provides search — issue #355). */
     hideSearch?: boolean;
+    /** The memory this list is shown for: a row from another memory is marked inherited. */
+    viewMemoryId?: string;
     /**
      * #430: nodeId → best matching-passage snippet, from a semantic search.
      * When present for a row, rendered under the node name. Empty in browse.
@@ -62,6 +69,11 @@
      * their three columns. Fixed at mount, like the rest of the column set.
      */
     showColumns?: boolean;
+    /**
+     * portal#1346: the browsed memory is vector-indexed, so a row may carry the
+     * pending/failed embedding badge from its (lazily loaded) columns.
+     */
+    embeddingEnabled?: boolean;
     /** nodeId → that node's extra columns, as they load. A node absent here has not loaded. */
     columnData?: Record<string, NodeColumnRow>;
     /** How many nodes' columns are still being read. */
@@ -77,6 +89,8 @@
      * rows only and never for the whole memory.
      */
     onvisiblenodes?: (ids: string[]) => void;
+    /** The owner fetched and ordered this complete window; its pager is the only one. */
+    serverPaged?: boolean;
   } = $props();
   const deletedSet = $derived(new Set(deletedIds));
 
@@ -104,26 +118,10 @@
     return lines.join(' · ');
   }
 
-  function nodeHref(node: MemoryNode): string {
-    if (basePath) return `${basePath}/nodes/${node.id}`;
-    // #260: memory pages are org-less, so the fallback needs only the memory id.
-    const memId = node.memory?.id;
-    if (memId) return `/app/memories/${memId}/nodes/${node.id}`;
-    return '';
-  }
-
-  // portal#1015: a comment hit links back to the DISCUSSION on its target
-  // (hrn:node:hadronmemory.com:specs:cor:dmo:110:08), in the same memory (110:01), not to the comment node.
-  function discussionHref(node: MemoryNode): string {
-    const target = node.comment?.target;
-    if (!target) return '';
-    const base = basePath ? `${basePath}/nodes/${target.id}` : node.memory?.id ? `/app/memories/${node.memory.id}/nodes/${target.id}` : '';
-    return base ? `${base}?tab=discussion` : '';
-  }
-
   function nodeUrn(node: MemoryNode): string {
-    // Some queries don't populate node.memory. Render bare loc rather than throw
-    // and take down the whole list (data-shape concern, fixed at the loader).
+    // The node's own authorized identity survives a withheld Memory record.
+    if (node.urn) return node.urn;
+    // Older/slim reads may not select it; preserve their existing fallback.
     const u = memoryUrn || node.memory?.urn || '';
     return u && node.loc ? composeNodeUrn(u, node.loc) : node.loc;
   }
@@ -186,10 +184,15 @@
       return nodes;
     },
     columns,
+    // A server-owned window is already paged, sorted and filtered. TanStack
+    // must not add a second, page-local implementation of any of them.
+    get manualPagination() { return serverPaged; },
+    get manualSorting() { return serverPaged; },
+    get manualFiltering() { return serverPaged; },
     enableMultiSort: false,
     // In the orderable (children) list, manual drag order is the source of
     // truth — sorting would fight it, so it's disabled there (PR #277 review).
-    enableSorting: tableCanSortAndResize,
+    get enableSorting() { return tableCanSortAndResize && !serverPaged; },
     // Resizing only in the browse list; the orderable children list uses a drag
     // handle and a narrow, fixed column set.
     enableColumnResizing: tableCanSortAndResize,
@@ -214,6 +217,7 @@
     // synchronous seed and overrides the page size from the active view if one
     // exists — and leaves this seed in place when no view is active (spec D7).
     try {
+      if (serverPaged) return;
       const v = Number(window.localStorage.getItem(PAGE_SIZE_KEY));
       if (PAGE_SIZES.includes(v)) table.setPageSize(v);
     } catch {
@@ -230,10 +234,10 @@
     }
   }
 
-  // Orderable (children) list shows every row so drag indices stay stable;
-  // the browse list shows the current page.
+  // Orderable and server-paged lists show every supplied row so drag indices
+  // and the outer server window stay stable; only a client-owned browse list pages.
   const displayRows = $derived(
-    orderable ? table.getPrePaginatedRowModel().rows : table.getRowModel().rows,
+    orderable || serverPaged ? table.getPrePaginatedRowModel().rows : table.getRowModel().rows,
   );
   // portal#1174: tell the owner which rows are on screen so it reads their
   // extra columns, and only theirs. Reads displayRows alone; the owner's
@@ -311,6 +315,9 @@
     <p class="text-sm text-zinc-500">No nodes.</p>
   {:else}
     {#if showColumns}
+      <p class="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+        {t('node-list.last-changed-explanation', 'Last changed is when the node was last updated. Revisions show when snapshots were saved; these times can differ.')}
+      </p>
       <!-- portal#1174: the extra columns arrive after the list; say so, and say when a batch failed, rather than leaving blanks unexplained. Always mounted so a screen reader announces a change. -->
       <p role="status" data-testid="node-columns-status" class="mb-2 min-h-4 text-xs text-zinc-500 dark:text-zinc-400">
         {#if columnsLoading > 0}{t('node-list.columns-loading', 'Loading details…')}{/if}
@@ -374,7 +381,7 @@
             {@const n = row.original}
             {@const c = colsOf(n)}
             {@const hit = n.comment ? commentHitView(n.comment) : null}
-            {@const href = hit ? discussionHref(n) || nodeHref(n) : nodeHref(n)}
+            {@const href = nodeListHref(n, basePath)}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <tr
               class="bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900
@@ -403,6 +410,9 @@
                           <span class="ml-1 text-xs tabular-nums text-zinc-400">#{n.seq}</span>
                         {/if}
                       </span>
+                      {#if viewMemoryId && n.memoryId && n.memoryId !== viewMemoryId}
+                        <span data-testid="node-inherited" class="shrink-0 rounded bg-zinc-100 px-1.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{t('nodes-tab.inherited', 'inherited')}</span>
+                      {/if}
                       {#if deletedSet.has(n.id)}
                         <span data-testid="node-deleted" class="shrink-0 rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{t('node.deleted.badge', 'Deleted')}</span>
                       {/if}
@@ -457,6 +467,9 @@
                       {/if}
                     </div>
                     <div class="mt-0.5 truncate"><Urn value={nodeUrn(n)} type="node" size={8} /></div>
+                    {#if c?.embedding}
+                      <NodeEmbeddingBadges enabled={embeddingEnabled} pendingAt={c.embedding.pendingAt} failedAt={c.embedding.failedAt} error={c.embedding.error} />
+                    {/if}
                     {#if hit && n.comment}
                       <!-- portal#1015: feedback, never content of its target: its author, the
                            node it concerns, and the revision it was written against
@@ -497,6 +510,12 @@
                 {:else if cell.column.id === 'changedBy'}
                   {@const by = changedByView(c)}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs dark:border-zinc-800">
+                    {#if by.user}
+                      <div data-testid="changed-by-user" class="min-w-0">
+                        <div class="truncate text-zinc-700 dark:text-zinc-300">{by.user.handle ? `@${by.user.handle}` : t('node-list.changed-by.user', 'User')}</div>
+                        {#if by.user.urn}<Urn value={by.user.urn} type="user" size={8} />{/if}
+                      </div>
+                    {/if}
                     {#if by.worker}
                       <div data-testid="changed-by-worker" class="min-w-0">
                         <div class="truncate text-zinc-700 dark:text-zinc-300">{by.worker.name}</div>
@@ -509,7 +528,7 @@
                         {#if by.agent.urn}<Urn value={by.agent.urn} type="agent" linked size={8} />{/if}
                       </div>
                     {/if}
-                    {#if c && !by.worker && !by.agent}<span class="text-zinc-400">—</span>{/if}
+                    {#if c && !by.user && !by.worker && !by.agent}<span class="text-zinc-400">—</span>{/if}
                   </td>
                 {:else if cell.column.id === 'revision'}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs tabular-nums text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
@@ -535,11 +554,15 @@
       </table>
     </div>
 
-    {#if !orderable}
-      <!-- Footer: page size (left of Prev/Next) + pagination; always visible -->
-      <div class="flex items-center justify-between gap-3">
+    {#if !orderable && !serverPaged}
+      <!-- Footer: page size (left of Prev/Next) + pagination; always visible.
+           Both rows wrap (#1270): this is the same footer DataTable carries —
+           the select is sized by its longest option label and cannot shrink
+           beside Previous/Next, so a no-wrap footer pushed the document wide
+           on a 390px phone. -->
+      <div data-testid="table-footer" class="flex flex-wrap items-center justify-between gap-3">
         <span class="text-sm text-zinc-500">{pageCount > 1 ? `Page ${pageIndex + 1} of ${pageCount}` : ''}</span>
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
           <select value={pageSize} onchange={(e) => changePageSize(Number((e.target as HTMLSelectElement).value))}
             aria-label="Nodes per page"
             class="rounded-lg border border-zinc-300 !bg-zinc-100 px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:!bg-zinc-800 dark:text-white">

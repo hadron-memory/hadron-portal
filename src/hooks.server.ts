@@ -1,8 +1,11 @@
-import type { Handle } from '@sveltejs/kit';
+import { ClientError } from 'graphql-request';
+import { nodeAdviceHandle } from '$lib/server/node-advice';
+import { classifyGqlError, gqlErrorBody, internalErrorText } from '$lib/server/gqlError';
+import type { HandleServerError, Handle } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
 import { building, dev } from '$app/environment';
 import { env as publicEnv } from '$env/dynamic/public';
-import { appendConnectSrc, resolveAssetStorageOrigin } from '$lib/server/csp';
+import { appendConnectSrc, resolveAssetStorageOrigin, appendPublicServerFormAction } from '$lib/server/csp';
 import { sessionActionGuard } from '$lib/server/session-action-guard';
 
 /** Decode the JWT payload without verifying the signature.
@@ -103,13 +106,19 @@ const assetStorageOrigin = building
   ? null
   : resolveAssetStorageOrigin(publicEnv.PUBLIC_ASSET_STORAGE_ORIGIN);
 
-const cspAssetStorage: Handle = async ({ event, resolve }) => {
+const runtimeCsp: Handle = async ({ event, resolve }) => {
   const response = await resolve(event);
-  if (assetStorageOrigin) {
-    const csp = response.headers.get('content-security-policy');
-    if (csp) {
-      response.headers.set('content-security-policy', appendConnectSrc(csp, assetStorageOrigin));
-    }
+  const csp = response.headers.get('content-security-policy');
+  if (csp) {
+    const withAssets = assetStorageOrigin
+      ? appendConnectSrc(csp, assetStorageOrigin)
+      : csp;
+    // This policy follows a document across SPA navigation. Apply it to all
+    // documents, not only a Grants data response that cannot change its CSP.
+    const withCeremony = building
+      ? withAssets
+      : appendPublicServerFormAction(withAssets, publicEnv.PUBLIC_SERVER_URL);
+    response.headers.set('content-security-policy', withCeremony);
   }
   return response;
 };
@@ -133,4 +142,24 @@ const securityHeaders: Handle = async ({ event, resolve }) => {
 };
 
 // #974: sessionActionGuard reads what authHandle decided, so it runs right after.
-export const handle: Handle = sequence(authHandle, sessionActionGuard, cspAssetStorage, securityHeaders);
+export const handle: Handle = sequence(authHandle, sessionActionGuard, nodeAdviceHandle, runtimeCsp, securityHeaders);
+
+export const handleError: HandleServerError = ({ error, status, message }) => {
+  // Defining this hook replaces SvelteKit's default error logger. Keep the
+  // original exception server-side; never attach request URLs, cookies or form data.
+  const failure = classifyGqlError(error);
+  if (error instanceof ClientError || failure.kind !== 'transport') {
+    // ClientError.message and .stack also embed query/variables. Log neither.
+    console.error('[portal] unexpected GraphQL error', {
+      status,
+      code: failure.kind === 'transport' ? null : failure.code,
+      ...(failure.kind === 'internal' && failure.requestId ? { requestId: failure.requestId } : {}),
+    });
+  } else {
+    const details = error instanceof Error
+      ? { name: error.name, message: error.message, stack: error.stack }
+      : { type: typeof error };
+    console.error('[portal] unexpected request error', { status, error: details });
+  }
+  return status < 500 ? { message } : gqlErrorBody(error, internalErrorText());
+};

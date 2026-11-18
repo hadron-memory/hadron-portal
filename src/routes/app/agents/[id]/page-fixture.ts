@@ -6,18 +6,23 @@
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import {
+  bootCompileSchema,
+  bootApproveSchema,
   addAgentMemorySchema,
   agentRegisterDefaultsSchema,
+  agentResetContextSchema,
   agentSettingsSchema,
   deleteAgentSchema,
   removeAgentMemorySchema,
   updateAgentMemoryRoleSchema,
+  updateAgentMemberRolesSchema,
 } from './schema';
+import { memberRolesFormId } from './member-roles-form-id';
 
 export function agent(id: string) {
   return {
     id, organizationId: null, urn: `hrn:agent:ada:${id}`, name: `Agent ${id}`, description: null,
-    systemPrompt: null, systemMemoryId: null, visibility: 'PERSONAL', type: 'ASSISTANT', surfaces: [],
+    systemMemoryId: null, visibility: 'PERSONAL', type: 'ASSISTANT', surfaces: [],
     personaRole: null, properties: null, hasAiApiKey: false, memoryItems: [], imports: [],
     memoryProvisioning: null, installationPolicy: null, createdAt: '2026-09-01T00:00:00Z',
   };
@@ -27,6 +32,7 @@ export async function pageData(
   id: string,
   registerDefaults: { mentionOnly: boolean } | null,
   agentOverride: Record<string, unknown> = {},
+  resetContext: { kind: 'ok'; value: boolean } | { kind: 'absent' } | { kind: 'failed' } = { kind: 'absent' },
 ) {
   return {
     agent: { ...agent(id), ...agentOverride },
@@ -40,14 +46,31 @@ export async function pageData(
     agentConfigs: [],
     configsError: false,
     currentUserId: 'user-1',
+    // portal#1609: the Ticker templates tab's read; a test of the tab supplies its own.
+    tickerTemplates: { kind: 'ok' as const, value: { viewerMayEdit: null, templates: [] } },
+    impersonating: null,
     form: await superValidate(
-      { name: `Agent ${id}`, urnSlug: id, description: '', systemPrompt: '', visibility: 'PERSONAL', systemMemoryId: '', personaRole: '' },
+      { name: `Agent ${id}`, urnSlug: id, description: '', visibility: 'PERSONAL', systemMemoryId: '', personaRole: '' },
       zod4(agentSettingsSchema), { errors: false },
     ),
+    // portal#1377: no pointer; tests may supply a source explicitly.
+    bootSource: { mode: 'legacy' } as import('$lib/server/boot-source').BootSourceView,
+    bootCompileForm: await superValidate({}, zod4(bootCompileSchema), { id: `bootCompile:${id}`, errors: false }),
+    bootApproveForm: await superValidate({ nodeId: '', revision: 1 }, zod4(bootApproveSchema), { id: `bootApprove:${id}`, errors: false }),
     registerDefaults,
     registerDefaultsForm: await superValidate(
       { mentionOnly: registerDefaults?.mentionOnly ?? false },
       zod4(agentRegisterDefaultsSchema), { errors: false },
+    ),
+    resetContext,
+    resetContextForm: await superValidate(
+      { resetContextAfterTask: resetContext.kind === 'ok' ? resetContext.value : false },
+      zod4(agentResetContextSchema), { id: `resetContext:${id}`, errors: false },
+    ),
+    // portal#2068: scoped to the Agent, as the loader stamps it.
+    memberRolesForm: await superValidate(
+      { roles: ((agentOverride.installationPolicy as { memberRoles?: string[] } | null | undefined)?.memberRoles) ?? [] },
+      zod4(updateAgentMemberRolesSchema), { id: memberRolesFormId(id), errors: false },
     ),
     addMemoryForm: await superValidate(zod4(addAgentMemorySchema), { errors: false }),
     updateMemoryRoleForm: await superValidate(zod4(updateAgentMemoryRoleSchema), { errors: false }),

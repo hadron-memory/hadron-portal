@@ -146,3 +146,31 @@ export function integrityProblemsText(n: number): string {
     ? t('node.signatures.integrity-one', '1 signature record failed verification and is not shown.')
     : t('node.signatures.integrity-many', '{n} signature records failed verification and are not shown.', { n });
 }
+
+/**
+ * Reader copy for a refused `requestNodeSignature` (portal#1022 links half).
+ * The server's typed refusals are the contract
+ * (hrn:node:hadronmemory.com:specs:cor:dmo:130:02/:03); each gets portal copy
+ * rather than the server's prose, because the reader here just clicked a
+ * button and needs to know what to do next, not the wire's wording. An unknown
+ * code — including one a newer server added — falls back to the generic line:
+ * never claim a reason the map cannot vouch for.
+ */
+export function signatureRequestRefusalText(code: string | null): string | null {
+  switch (code) {
+    case 'NODE_NOT_FOUND': return t('node.signatures.request.refused.not-found', 'This node is no longer available.');
+    case 'ENCRYPTED_MEMORY_NOT_APPLICABLE': return t('node.signatures.request.refused.encrypted', 'Signing does not apply: this memory is encrypted.');
+    case 'COMMENT_NOT_SIGNABLE': return t('node.signatures.request.refused.comment', 'Comments cannot be signed.');
+    case 'NODE_IS_PLACEHOLDER': return t('node.signatures.request.refused.placeholder', 'A placeholder node cannot be signed yet.');
+    case 'REVISION_MISMATCH': return t('node.signatures.request.refused.revision', 'The node changed since you loaded it. Reload the page and try again.');
+    case 'SIGNER_NOT_FOUND': return t('node.signatures.request.refused.signer-not-found', 'The person asked to sign could not be found.');
+    case 'SIGNER_NOT_A_WRITER': return t('node.signatures.request.refused.signer-not-writer', 'The person asked to sign may not write this memory.');
+    // hrn:node:hadronmemory.com:specs:cor:dmo:130:03 S18: an impersonation
+    // session may read requests but never
+    // ask for a signature on someone's behalf. FORBIDDEN is otherwise a
+    // framework code whose server prose would pass through verbatim — on this
+    // surface it is a typed refusal, so it gets portal copy like the rest.
+    case 'FORBIDDEN': return t('node.signatures.request.refused.support-session', 'A support session cannot request signatures.');
+    default: return null;
+  }
+}

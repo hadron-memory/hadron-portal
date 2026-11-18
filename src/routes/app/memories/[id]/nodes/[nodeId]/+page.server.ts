@@ -1,18 +1,22 @@
-import { error, fail, redirect } from '@sveltejs/kit';
+import { nodeWriteErrorText } from '$lib/node-role-refusal';
+import { error, fail, isRedirect, redirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
+import { classifyGqlError, extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
+import { runStartError, runStartStatus } from '$lib/server/run-start-error';
+import { runAgentChoice } from '$lib/run-agent';
+import type { InstalledAgent } from '$lib/app-installed-agents';
 import { includeRefusalOf, includeRefusalText } from '$lib/server/include-refusal';
 import { fetchAllItems } from '$lib/server/paginate';
 import { deletedEdgeEndpoints } from '$lib/server/deleted-edge-endpoints';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
-import { RECOVERY_NODE_QUERY, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
+import { RECOVERY_NODE_QUERY, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APPS_RUNNABLE_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_PAGE_QUERY, NODE_EDGE_REMOVALS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_PAGE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, REQUEST_SIGNATURE_MUTATION, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
 import { bindToRevision, type NodeProvenance, type ProvenanceResult } from '$lib/node-provenance';
 import { bindMintToRevision, type NodeMintStatus } from '$lib/node-mint';
-import { bindSignaturesToRevision, type NodeSignatureRead, type NodeSignatureStatus } from '$lib/node-signatures';
+import { bindSignaturesToRevision, signatureRequestRefusalText, type NodeSignatureRead, type NodeSignatureStatus } from '$lib/node-signatures';
 import { deploymentOffersSigning } from '$lib/server/signing-capability';
 import { approvalRefusalStatus, approveRefusalText, bindApprovalToRevision, integrityText, verifyFailureText, type NodeApprovalRead, type NodeApprovalStatus, type NodeIntegrityCheck } from '$lib/node-approval';
 // #868: every node write on this page goes through the door chooser. The
@@ -20,28 +24,31 @@ import { approvalRefusalStatus, approveRefusalText, bindApprovalToRevision, inte
 // is what `scripts/check-node-write-doors.mjs` fails.
 import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/server/nodeKindDoor';
 import { roleUpdate } from '$lib/node-role';
-import { nodeMetaSeed } from '$lib/node-meta-seed';
+import { nodeMetaBaseline, nodeMetaSeed, withoutTrailingPunctuation } from '$lib/node-meta-seed';
 import { parseExpectedRevision } from '$lib/node-revision';
 import { canonicalJson, isFingerprint, jsonFingerprint, parseDataSource, parsePropertiesSource, propertiesFingerprint, sameProperties } from '$lib/properties-source';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
+import { loadAncestors } from '$lib/server/breadcrumb-ancestors';
 import { loadCommentSummary, loadDiscussion, sendCommentWrite } from '$lib/server/comments';
 import { COMMENT_NODE_TYPE, commentMoveRefusedText, type CommentSummary, type Discussion } from '$lib/comments';
-import { chatAuthorName, chatPostTarget, chatRootLocForMessage, chatSortKey, isChatMessageNode, isChatNode, legacyThreadEvidence, loadChatMessages, postChatMessage, type ChatMessage, type ChatPage } from '$lib/server/team-chat';
+import { chatAuthorName, chatPostTarget, chatRootLocForMessage, chatSortKey, chatMessageNodeTypes, isChatMessageNode, isChatNode, isTeamChannelChat, legacyThreadEvidence, loadChatMessages, postChatMessage, type ChatMessage, type ChatPage } from '$lib/server/team-chat';
 import { isCanonicalNodeType } from '$lib/node-types';
 import { outputFromNodeData, rowsFromNodeData, rowsToSpec } from '$lib/flow/extraction';
 import { t } from '$lib/i18n/t';
-import type { MemoryNode, NodeRevision } from '$lib/types';
+import type { MemoryNode, NodeEdgeRemoval, NodeRevision } from '$lib/types';
+import { readChildrenPage, type ChildRow } from '$lib/server/node-children';
 import { isCapped } from '$lib/server/capped';
+import { APP_DISPLAY_PAGE_SIZE, appListNavigation, appListOffset } from '../../../../apps/[appId]/app-list-pages';
 
-// nodeRevisions has no offset or cursor (hadron-server#2212): the history is one
-// window of the newest revisions, and the History tab says when it came back full.
-const REVISIONS_LIMIT = 100;
+// nodeEdgeRemovals is a one-window shape (server#2562), so it keeps the
+// full-window cue. Revision history itself uses nodeRevisionsPage below.
+const REMOVALS_LIMIT = 100;
 import type { Actions, PageServerLoad } from './$types';
 import { loadSkillCheck } from '$lib/server/skill-check';
 import { nodeStorageSeed, noWriteDoor, runnableBlockedBy, updateStorage } from './storage-action';
-import { sendChatMessageSchema } from '$lib/forms/chat-message-schema';
+import { sendChatMessageFormId, sendChatMessageSchema } from '$lib/forms/chat-message-schema';
 import {
   nodeApproveSchema,
   nodeConvertToTaskSchema,
@@ -56,6 +63,7 @@ import {
   nodeVerifySchema,
   parseValidatedEdges,
   parseValidatedFlowRows,
+  isFullyQualifiedNodeUrnInput,
 } from './schema';
 
 type NodeMoveForm = Infer<typeof nodeMoveSchema, 'zod4'>;
@@ -176,17 +184,27 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // memory only. Resolving by loc alone (via NODE_QUERY) would cross-pollinate
   // with any other memory the caller can access that happens to share the loc,
   // producing breadcrumb links like memories/A/nodes/<B's PK>. See #234.
-  const memoryNodes = parentData.graphNodes ?? [];
   // Read here rather than at the wikilink call below: the breadcrumb needs
   // `graph.urn` too, to qualify an ancestor's loc into a real node URN.
-  const { graph, nodesFailed } = parentData as {
+  const { graph } = parentData as {
     graph?: { urn?: string | null } | null;
-    nodesFailed?: boolean;
   };
-  const ancestorByLoc = new Map<string, { id: string; name: string | null }>();
-  for (const n of memoryNodes) {
-    if (n.memoryId === params.id) ancestorByLoc.set(n.loc, { id: n.id, name: n.name ?? null });
-  }
+  // portal#1433: the layout loads no node list (`nodesOff`, portal#1524), so
+  // the ancestors come from one bounded `nodeBatch` of their URNs and the
+  // wikilink targets from their own bounded read. Both start here so they run
+  // in parallel; the wikilinks are awaited further down.
+  const ancestorsPromise = loadAncestors(gqlClient(locals.token), { id: params.id, urn: graph?.urn }, node.loc);
+  // #374 / spec hrn:node:hadronmemory.com:specs:cor:urn:020:01 — resolve the `[[loc]]` wikilinks in the body
+  // and abstract so the renderer can make them clickable (and mark the dangling
+  // ones visibly broken). Nothing is read for a node with no links, which is
+  // the overwhelming majority. A target that could not be checked renders as
+  // an unchecked link, never as "no node" (the old `nodesFailed` degrade).
+  const wikilinksPromise = resolveWikilinks(
+    gqlClient(locals.token),
+    [node.content, node.abstract],
+    { memoryId: params.id, memoryUrn: graph?.urn ?? null },
+  );
+  const { byLoc: ancestorByLoc, known: ancestorsKnown } = await ancestorsPromise;
 
   // A memory whose URN the layout could not supply (a failed graph read) falls
   // back to the bare loc rather than rendering nothing — "couldn't qualify it"
@@ -221,9 +239,8 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     // "Form: FBAR (FinCEN Form 114)" on its own page became `form-fbar` the
     // moment you clicked into a child.
     //
-    // The name is free: `graphNodes` already carries it and the layout has
-    // already paged it to completion, so this is the same map lookup with a
-    // second field.
+    // The name is free: the ancestor lookup (`loadAncestors`) already returns
+    // it, so this is the same map lookup with a second field.
     let label = parts[i];
     let title: string | undefined;
     if (i < parts.length - 1) {
@@ -258,34 +275,21 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     breadcrumb.push({ label, path: ancestorLoc, nodeId, title });
   }
 
-  // #374 / spec hrn:node:hadronmemory.com:specs:cor:urn:020:01 — resolve the `[[loc]]` wikilinks in the body
-  // and abstract so the renderer can make them clickable (and mark the dangling
-  // ones visibly broken). Bare locs resolve against `memoryNodes` above at zero
-  // cost; only a cross-memory `[[org::memory::loc]]` costs a round-trip, so
-  // this is free for the overwhelming majority of nodes. Started here and
-  // awaited below so it overlaps the remaining fetches.
-  // `nodesFailed` matters as much as the node list: the layout returns an empty
-  // `graphNodes` for BOTH an empty memory and a failed graph fetch, and without
-  // the flag an outage would repaint every valid link as corpus rot.
-  const wikilinksPromise = resolveWikilinks(
-    gqlClient(locals.token),
-    [node.content, node.abstract],
-    { memoryId: params.id, memoryUrn: graph?.urn ?? null, nodes: memoryNodes, nodesFailed },
-  );
-
   // "Test flow" (#478 phase 3): a runnable node can be executed as a MANUAL
   // headless run via runTask(appRef:) — the button needs the org's Apps to
   // run as. Best-effort: only offered to org members (org present) on
   // runnable nodes; a fetch failure just hides the button (auxiliary UI,
   // not the page's core load — hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
   const org = (parentData as { org?: { id: string } | null }).org;
-  let testFlowApps: Array<{ id: string; name: string }> = [];
+  // `agents` is the picker's options (#1444): null unless the App has several
+  // installed Agents, where the server would refuse a run that names none.
+  let testFlowApps: Array<{ id: string; name: string; agents: InstalledAgent[] | null }> = [];
   if (node.isRunnable && org?.id) {
     try {
-      const apps = await fetchAllItems<{ id: string; name: string }>(
-        gqlClient(locals.token), ORG_APP_INSTALLS_QUERY, 'apps', { orgId: org.id },
+      const apps = await fetchAllItems<{ id: string; name: string; appAgents: Array<{ agent: InstalledAgent | null }> | null }>(
+        gqlClient(locals.token), ORG_APPS_RUNNABLE_QUERY, 'apps', { orgId: org.id },
       );
-      testFlowApps = apps.map((a) => ({ id: a.id, name: a.name }));
+      testFlowApps = apps.map((a) => ({ id: a.id, name: a.name, agents: runAgentChoice(a.appAgents) }));
     } catch (e) {
       console.warn('[node-detail] test-flow app list failed:', e);
     }
@@ -304,24 +308,60 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
       return [] as PickMemory[];
     });
 
-  // #529: the node's revision history for the History tab (#623 rename).
-  // STREAMED (the tab may never be opened) and best-effort. An async IIFE keeps
-  // it unawaited (streamed) while capturing BOTH a synchronous throw and an
-  // async rejection (PR #530 review). Resolves to a discriminated result so the
-  // tab can tell "no revisions" from "couldn't load" — a silent [] on failure
-  // masks real errors (schema drift, a down server) as an empty history.
+  // #529/#1881: the node's revision history for the History tab, one explicit
+  // page at a time. STREAMED (the tab may never be opened) and best-effort.
+  // The matching provenance read below is display-only too: it decorates these
+  // exact rows and is not a complete-context consumer.
   const isComment = node.nodeType === COMMENT_NODE_TYPE;
-  const revisions = (async (): Promise<{ ok: boolean; items: NodeRevision[]; capped?: boolean; nodeId?: string }> => {
-    if (isComment) return { ok: true, items: [] };
+  const revisionsOffset = appListOffset(url.searchParams, 'revisionsOffset');
+  const revisions = (async (): Promise<{
+    ok: boolean;
+    items: NodeRevision[];
+    total: number;
+    hasMore: boolean;
+    nodeId?: string;
+    page?: ReturnType<typeof appListNavigation>;
+  }> => {
+    if (isComment) return { ok: true, items: [], total: 0, hasMore: false };
     try {
-      const r = await gqlClient(locals.token).request<{ nodeRevisions: NodeRevision[] }>(
-        NODE_REVISIONS_QUERY,
-        { nodeRef: node.id, limit: REVISIONS_LIMIT },
+      const r = await gqlClient(locals.token).request<{
+        nodeRevisionsPage: { items: NodeRevision[]; total: number; hasMore: boolean };
+      }>(
+        NODE_REVISIONS_PAGE_QUERY,
+        { nodeRef: node.id, limit: APP_DISPLAY_PAGE_SIZE, offset: revisionsOffset },
       );
-      const items = r?.nodeRevisions ?? [];
-      return { ok: true, items, capped: isCapped(items.length, REVISIONS_LIMIT), nodeId: node.id };
+      const page = r.nodeRevisionsPage;
+      return {
+        ok: true,
+        items: page.items,
+        total: page.total,
+        hasMore: page.hasMore,
+        nodeId: node.id,
+        page: appListNavigation(url, 'revisionsOffset', 'history', revisionsOffset, page.items.length, page.total, { hasMore: page.hasMore }),
+      };
     } catch (e) {
       console.warn('[node-detail] revision history failed:', e);
+      return { ok: false, items: [], total: 0, hasMore: false };
+    }
+  })();
+
+  // portal#1355: edge-removal audit entries (server#2562, hrn:node:hadronmemory.com:specs:cor:dmo:010:04) for
+  // the History tab. STREAMED and best-effort like the revision history, with
+  // the same discriminated result so the tab can tell "none recorded" from
+  // "couldn't load" — a silent [] on failure would mask a real error as an
+  // absent audit trail. A comment never held edges of its own, so its page
+  // asks for none (mirroring the revisions read above).
+  const edgeRemovals = (async (): Promise<{ ok: boolean; items: NodeEdgeRemoval[]; capped?: boolean }> => {
+    if (isComment) return { ok: true, items: [] };
+    try {
+      const r = await gqlClient(locals.token).request<{ nodeEdgeRemovals: NodeEdgeRemoval[] }>(
+        NODE_EDGE_REMOVALS_QUERY,
+        { nodeRef: node.id, limit: REMOVALS_LIMIT },
+      );
+      const items = r?.nodeEdgeRemovals ?? [];
+      return { ok: true, items, capped: isCapped(items.length, REMOVALS_LIMIT) };
+    } catch (e) {
+      console.warn('[node-detail] edge-removal audit failed:', e);
       return { ok: false, items: [] };
     }
   })();
@@ -370,9 +410,13 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // a request of their own, so a refusal or a failure only leaves the
   // signatures unshown. The field exists only while the deployment offers
   // signing (hadron-server#1895/#1918); with signing off, selecting it fails
-  // validation, so no signature query goes out at all.
+  // validation, so no signature query goes out at all. The same answer gates
+  // the Sign affordance (returned as signingOffered, read by the
+  // requestSignature action), so the button and the query can never disagree
+  // about whether the deployment offers signing.
+  const signingOffered = deploymentOffersSigning(locals.token);
   const signatures: Promise<ProvenanceResult<NodeSignatureStatus>> = (async () => {
-    if (!(await deploymentOffersSigning(locals.token))) return { ok: false } as const;
+    if (!(await signingOffered)) return { ok: false } as const;
     try {
       const r = await gqlClient(locals.token).request<{ node: NodeSignatureRead | null }>(NODE_SIGNATURES_QUERY, { ref: node.id });
       return bindSignaturesToRevision(r?.node, node.revision);
@@ -396,11 +440,13 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   const revisionProvenance = (async (): Promise<ProvenanceResult<NodeProvenance[]>> => {
     if (isComment) return { ok: true, value: [] };
     try {
-      const r = await gqlClient(locals.token).request<{ nodeRevisions: NodeProvenance[] }>(
-        NODE_REVISIONS_PROVENANCE_QUERY,
-        { nodeRef: node.id, limit: REVISIONS_LIMIT },
+      const r = await gqlClient(locals.token).request<{
+        nodeRevisionsPage: { items: NodeProvenance[] };
+      }>(
+        NODE_REVISIONS_PROVENANCE_PAGE_QUERY,
+        { nodeRef: node.id, limit: APP_DISPLAY_PAGE_SIZE, offset: revisionsOffset },
       );
-      return { ok: true, value: r?.nodeRevisions ?? [] };
+      return { ok: true, value: r.nodeRevisionsPage.items };
     } catch (e) {
       console.warn('[node-detail] revision provenance failed:', e);
       return { ok: false };
@@ -421,12 +467,18 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // input the action re-derives it from), not from the parent layout's memory —
   // a partial/streamed layout must not be able to hide a composer the action
   // would happily accept, or offer one it would reject.
-  const canPostChat = chatPostTarget(node, chatEvidence).kind !== 'none';
+  const chatTarget = chatPostTarget(node, chatEvidence);
+  const canPostChat = chatTarget.kind !== 'none';
+  // portal#1525: is this the App's team CHANNEL? The entry button branches on
+  // it (icon-only full-screen entry vs the text button every other chat
+  // keeps), on the same predicate the composer trusts — the entry can never
+  // disagree with where a post would land.
+  const isTeamChannel = isTeamChannelChat(node, chatEvidence);
   // #793: a bounded WINDOW (the newest CHAT_PAGE_SIZE), not the whole thread.
   // The page also carries `hasOlder` so the Chat tab can offer scrollback
   // instead of silently presenting a window as the complete transcript.
   const chatMessagesPromise: Promise<ChatPage | null> = isChat
-    ? loadChatMessages(gqlClient(locals.token), params.id, node.loc, { sort: chatSortKey(node) }).catch((e) => {
+    ? loadChatMessages(gqlClient(locals.token), params.id, node.loc, { sort: chatSortKey(node), messageNodeTypes: chatMessageNodeTypes(node) }).catch((e) => {
         console.warn('[node-detail] chat messages failed:', e);
         return { messages: [], total: 0, hasOlder: false, offset: 0 };
       })
@@ -437,22 +489,21 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // the context a single bubble is missing, and nothing else on this page
   // links to it.
   const isChatMessage = isChatMessageNode(node);
-  // The chat ROOT's node id, resolved from the shared layout payload the
-  // breadcrumb already walks — so this costs no round trip. Two things are
+  // The chat ROOT's node id, resolved from the ancestor lookup the breadcrumb
+  // already made (the root is one of the message's ancestors), so this costs
+  // no extra round trip. Two things are
   // deliberately checked rather than assumed:
   //   - the ancestor must actually BE a chat. A `<x>:messages:<y>` address does
   //     not make `<x>` a chat node, and an "Open chat" landing on an ordinary
   //     node would be a link that lies about where it goes.
   //   - `memoryId === params.id`, the same scoping the breadcrumb applies (#234)
   //     — a loc is unique per memory, not globally.
-  // When `graphNodes` is empty because the graph read FAILED (`nodesFailed`),
-  // the root cannot be resolved and the action is not offered. That withholds
-  // an affordance rather than asserting the message has no chat, and it is the
-  // same degradation the breadcrumb already accepts on the same input.
+  // When the ancestor lookup FAILED, the root cannot be resolved and the action
+  // is not offered. That withholds an affordance rather than asserting the
+  // message has no chat, and it is the same degradation the breadcrumb already
+  // accepts on the same input.
   const chatRootLoc = isChatMessage ? chatRootLocForMessage(node.loc) : null;
-  const chatRoot = chatRootLoc
-    ? memoryNodes.find((n) => n.memoryId === params.id && n.loc === chatRootLoc)
-    : undefined;
+  const chatRoot = chatRootLoc ? ancestorByLoc.get(chatRootLoc) : undefined;
   // A legacy `message` under the root IS the root's thread evidence (#926).
   const openChat = chatRoot && isChatNode(chatRoot, { legacyThread: node.nodeType === 'message' })
     ? { nodeId: chatRoot.id, loc: chatRoot.loc, name: chatRoot.name ?? chatRoot.loc }
@@ -490,7 +541,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   const [moveForm, testFlowForm, deleteForm, createParentForm, updateMetaForm, duplicateForm, convertToTaskForm, flowForm, edgesForm, sendChatMessageForm, approveForm, verifyForm] = await Promise.all([
     superValidate<NodeMoveForm>({ target: '' }, nodeMoveFormAdapter, { errors: false }),
     superValidate<NodeTestFlowForm>(
-      { appId: '', orgId: org?.id ?? '', payload: '' },
+      { appId: '', orgId: org?.id ?? '', agentRef: '', payload: '' },
       nodeTestFlowFormAdapter,
       { errors: false },
     ),
@@ -507,7 +558,16 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     superValidate<NodeUpdateEdgesForm>({
       edges: JSON.stringify(outgoingEdges),
     }, nodeUpdateEdgesFormAdapter, { errors: false }),
-    superValidate<SendChatMessageForm>({}, sendChatMessageFormAdapter, { errors: false }),
+    // #1522: node-scoped id (`bootStart:<agentId>` pattern) — the same schema
+    // also backs the standalone /chat page's composer, and both surfaces
+    // defaulting to the shape hash made the two ChatThreads share one Superforms
+    // id (duplicate-id warning, shared action data). Scoped to the node so a
+    // late result from ANOTHER node's composer can never be consumed by this
+    // one either; ChatThread is keyed by it and seeds only on an id match (see
+    // hrn:node:hadronmemory.com:hadron-portal:findings:superforms-teardown-clears-result-guards). The id helper is
+    // shared with the action — the two MUST agree, or results stop reaching
+    // the form with no error.
+    superValidate<SendChatMessageForm>({}, sendChatMessageFormAdapter, { errors: false, id: sendChatMessageFormId(params.nodeId) }),
     superValidate<NodeApproveForm>({ revision: node.revision }, nodeApproveFormAdapter, { errors: false, id: APPROVE_FORM_ID }),
     superValidate<NodeVerifyForm>({}, nodeVerifyFormAdapter, { errors: false, id: VERIFY_FORM_ID }),
   ]);
@@ -539,10 +599,14 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     chatHasOlder: chatMessages?.hasOlder ?? false,
     chatOffset: chatMessages?.offset ?? 0,
     canPostChat,
+    // portal#1525: the header's full-screen entry branch. See `chatTarget`.
+    isTeamChannel,
     sendChatMessageForm,
     // `?tab=` deep-links a specific tab (the page falls back to its own default
-    // for an unknown value). Used by the full-screen chat's "View node details"
-    // link, which must land on Content — a chat node opens on Chat otherwise.
+    // for an unknown value). Used by the full-screen chat's way back — "View
+    // node details" on agent/other chats (which must land on Content), the
+    // Collapse button on a team Channel (which lands on Chat) — a chat node
+    // opens on Chat otherwise.
     initialTab: url.searchParams.get('tab'),
     breadcrumb,
     wikilinks,
@@ -550,10 +614,12 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     testFlowApps,
     memories,
     revisions,
+    edgeRemovals,
     provenance,
     revisionProvenance,
     approval,
     signatures,
+    signingOffered,
     mint,
     discussion,
     commentSummary,
@@ -572,8 +638,46 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     skillCheck,
     runnableBlockedBy: runnableBlockedBy(node),
     noWriteDoor: noWriteDoor(node),
+    // portal#1524: what the page may and may not say about this node's
+    // neighbours now that the layout carries no node list. `ancestorsKnown`
+    // false means a crumb without a node id is "not looked up", so the page
+    // must not offer to create it (portal#1433: true once the bounded ancestor
+    // read answered for every segment); `children` is the first page of direct
+    // children (portal#1656), `childrenHasMore` whether more exist, or null with
+    // `childrenUnavailable` when the read failed.
+    ancestorsKnown,
+    ...(await loadChildren(gqlClient(locals.token), params.id, node.loc)),
   };
 };
+
+// portal#1656: the first page of direct children, read with `childrenOf`
+// ($lib/server/node-children). The rest come from ./children/+server.ts when
+// the user asks. `children` is null only when the read failed: a large subtree
+// no longer withholds the section, and a full page says more exist rather than
+// passing for the whole list.
+async function loadChildren(
+  client: ReturnType<typeof gqlClient>,
+  memoryId: string,
+  loc: string,
+): Promise<{ children: ChildRow[] | null; childrenHasMore: boolean; childrenUnavailable: boolean }> {
+  try {
+    const page = await readChildrenPage(client, memoryId, loc, 0);
+    return { children: page.children, childrenHasMore: page.hasMore, childrenUnavailable: false };
+  } catch (err) {
+    console.warn('[node-detail] children read failed:', err);
+    return { children: null, childrenHasMore: false, childrenUnavailable: true };
+  }
+}
+
+/** portal#1899: the only error-code text a save log may carry: a bounded wire code, else a fixed marker. */
+function boundedLogCode(code: string | null): string {
+  if (!code) return 'no-code';
+  return /^[A-Z][A-Z0-9_]{0,63}$/.test(code) ? code : 'unrecognized';
+}
+/** User-facing text for a failed save read/write. A plain (non-GraphQL) Error's message is never shown: it can carry anything. */
+function saveFailureDetail(e: unknown, fallback: string): string {
+  return classifyGqlError(e).kind === 'transport' ? fallback : nodeWriteErrorText(e, fallback, NODE_WRITE_REFUSALS);
+}
 
 /**
  * #927 — the inline Content and Abstract saves.
@@ -593,6 +697,8 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
  * Failures are CODES under `<field>Failed`, which the page localizes; the old
  * version returned prose the page never showed.
  */
+const NODE_WRITE_REFUSALS = ['BAD_USER_INPUT', 'NODE_WRITE_CONFLICT', 'ROLE_GOVERNED', 'NODE_ALREADY_EXISTS', 'CONFLICT', 'SESSION_EXPIRED', 'FORBIDDEN'] as const;
+
 async function saveNodeText(
   field: 'content' | 'abstract',
   value: string,
@@ -609,7 +715,8 @@ async function saveNodeText(
   try {
     ({ node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: nodeRef }));
   } catch (e: unknown) {
-    return fail(500, { [failed]: { code: 'failed', detail: extractGqlError(e, 'Failed to read the node') } });
+    console.error('[node-detail] save failed:', { op: `update-${field}`, stage: 'read', code: boundedLogCode(extractGqlErrorCode(e)) });
+    return fail(500, { [failed]: { code: 'failed', detail: saveFailureDetail(e, 'Failed to read the node') } });
   }
   if (!node) return fail(404, { [failed]: { code: 'not-found', detail: null } });
 
@@ -655,19 +762,51 @@ async function saveNodeText(
     // mismatch (a concurrent move answers with it too), so the page words the
     // conflict generically unless the reload shows THIS field moved.
     if (extractGqlErrorCode(e) === 'NODE_WRITE_CONFLICT') {
-      return fail(409, { [failed]: { code: 'changed', detail: extractGqlError(e, '') || null } });
+      return fail(409, { [failed]: { code: 'changed', detail: nodeWriteErrorText(e, '', NODE_WRITE_REFUSALS) || null } });
     }
     // portal#1142 P0a: an include refusal (hadron-server#2040) wrote nothing;
     // say so with the server's words, the tag and the next step.
     const include = includeRefusalOf(e);
     if (include) return fail(400, { [failed]: { code: 'include', detail: includeRefusalText(include) } });
-    const detail = extractGqlError(e, 'Save failed');
-    if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') return fail(400, { [failed]: { code: 'rejected', detail } });
+    const detail = saveFailureDetail(e, 'Save failed');
+    // portal#1899: the server's typed boot-prompt refusals (a compiled prompt is written only by a
+    // compile; a worker session never edits a boot prompt) wrote nothing and are the user's to act on,
+    // so they are a typed 4xx rejection, not an internal failure. The wire text is never forwarded:
+    // the page words each fixed code itself (localized).
+    const code = extractGqlErrorCode(e);
+    if (code === 'BOOT_PROMPT_COMPILED_WRITE') return fail(400, { [failed]: { code: 'compiled-prompt', detail: null } });
+    if (code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED') return fail(400, { [failed]: { code: 'boot-prompt-governed', detail: null } });
+    if (code === 'BAD_USER_INPUT') return fail(400, { [failed]: { code: 'rejected', detail } });
+    // The unclassified path keeps a bounded log: operation, stage and error code only, never the wire text, variables or content.
+    console.error('[node-detail] save failed:', { op: `update-${field}`, stage: 'write', code: boundedLogCode(code) });
     return fail(500, { [failed]: { code: 'failed', detail } });
   }
   return { [`${field}Saved`]: true };
 }
 
+
+/**
+ * A node address with its prefix and grammar normalized, so two spellings of
+ * the same node compare equal: the `hrn:node:` / `urn:node:` prefix may be
+ * absent, and a URN from an older screen may be v1 (`::`) where composeNodeUrn
+ * emits v2 (single colon, hrn:node:hadronmemory.com:specs:cor:urn:010:01).
+ */
+function bareNodeAddress(u: string): string {
+  return u.replace(/^(?:hrn|urn):node:/, '').split('::').join(':');
+}
+
+/**
+ * Whether a pasted destination is, spelling aside, the node's own address.
+ * Only the `hrn:`/`urn:` prefix is ignored: the grammar is NOT normalized,
+ * because a legacy ownership chain (`org::app::agent::system::loc`) has no
+ * string-derivable v2 form and may name another memory through the server's
+ * alias map. Anything but the same string is forwarded for the server to
+ * resolve (#1879 local review).
+ */
+function isSameNodeAddress(a: string, b: string): boolean {
+  const strip = (u: string) => u.trim().replace(/^(?:hrn|urn):node:/, '');
+  return strip(a) === strip(b);
+}
 
 export const actions: Actions = {
   // #237 review follow-up: every mutating action below derives `memoryId`
@@ -705,22 +844,49 @@ export const actions: Actions = {
         ...message(form, { type: 'success', text: t('node.create-parent.saved', 'Parent node created.') }),
       };
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to create parent node') }, { status: 500 });
+      return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to create parent node', NODE_WRITE_REFUSALS) }, { status: 500 });
     }
   },
 
   updateMeta: async ({ request, params, locals }) => {
-    const form = await superValidate<NodeUpdateMetaForm>(
-      await request.formData(),
-      nodeUpdateMetaFormAdapter,
-    );
-    if (!form.valid) return fail(400, { form });
+    const fd = await request.formData();
+    const form = await superValidate<NodeUpdateMetaForm>(fd, nodeUpdateMetaFormAdapter);
+    // portal#2023: the baseline the editor opened on. Every refusal that wrote nothing echoes it back
+    // beside the form: a full-page response (no JS, or a remount) restores the kept draft from the
+    // form, and the draft must keep the baseline it was typed against, or a retry would compare it
+    // with the fresh node and write it over the other editor's change. A failure AFTER the update
+    // committed does not echo it: the page advances the name itself (see onResult).
+    const baseline = fd.get('baseline');
+    // No baseline posted: echo the empty string, which no node state produces (nodeMetaBaseline is JSON),
+    // so the restored draft cannot be saved against the fresh node either until the editor is reloaded.
+    const metaBaseline = { metaBaseline: typeof baseline === 'string' ? baseline : '' };
+    const refuse = (status: number, text: string) => {
+      message(form, { type: 'error', text });
+      return fail(status, { form, ...metaBaseline });
+    };
+    if (!form.valid) return fail(400, { form, ...metaBaseline });
     const client = gqlClient(locals.token);
 
     const { node: currentNode } = await client.request<{ node: MemoryNode | null }>(
       NODE_BY_ID_QUERY, { ref: params.nodeId },
     );
     if (!currentNode) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
+
+    // portal#2023: the editor keeps an unsaved draft across a loader refresh, so
+    // the draft can be older than the node. This save writes every metadata
+    // field whole and moves the node whenever `loc` differs from the node's
+    // CURRENT loc, so an older draft would overwrite another editor's change and
+    // move a node they had moved back. The form therefore carries a token for
+    // the node state it was typed against (`nodeMetaBaseline`), like the Data and
+    // Properties editors carry `baseline`: a mismatch with the node as read just
+    // now refuses before any write, with no update and no moveNode. A missing
+    // baseline is refused too, never treated as "no conflict".
+    if (typeof baseline !== 'string') {
+      return refuse(400, t('node.meta.no-baseline', 'This editor is out of date, so nothing was saved. Reload the page and try again.'));
+    }
+    if (baseline !== nodeMetaBaseline(currentNode)) {
+      return refuse(409, t('node.meta.conflict', 'This node was changed since you opened the editor, so nothing was saved. Cancel to load the current values, then make your edit again.'));
+    }
 
     const name = form.data.name;
     // Accept only a canonical type or the node's existing one — otherwise keep
@@ -767,13 +933,13 @@ export const actions: Actions = {
     try {
       assertNodeUpdateDoor(currentNode, input);
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to save') }, { status: 500 });
+      return refuse(500, nodeWriteErrorText(e, 'Failed to save', NODE_WRITE_REFUSALS));
     }
 
     try {
       await client.request(nodeUpdateDocument(currentNode, input), { input });
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to save') }, { status: 500 });
+      return refuse(500, nodeWriteErrorText(e, 'Failed to save', NODE_WRITE_REFUSALS));
     }
 
     // Move if loc changed. #237: route the move through the node's OWN
@@ -782,8 +948,19 @@ export const actions: Actions = {
     // redirect it. An occupied destination fails loudly with
     // NODE_ALREADY_EXISTS (#501). The other edits are already SAVED by then,
     // so a failed move says so rather than implying nothing happened.
+    //
+    // #1876: a pasted FULL node URN is the destination as written (same
+    // detection as the Move dialog): another memory moves across, this memory
+    // renames in place, the node's own address is no change. It is never
+    // composed as a loc beneath the source memory. A bare loc composes as before.
+    const locIsFullUrn = isFullyQualifiedNodeUrnInput(newLoc);
     const loc = newLoc && newLoc !== currentNode.loc ? newLoc : currentNode.loc;
-    if (loc !== currentNode.loc) {
+    const unchanged =
+      loc === currentNode.loc ||
+      (locIsFullUrn &&
+        !!currentNode.memory?.urn &&
+        isSameNodeAddress(loc, composeNodeUrn(currentNode.memory.urn, currentNode.loc)));
+    if (!unchanged) {
       // `metaSaved` on every failure below: the edits ARE saved, and a failed
       // action does not rerun the page load, so the client reloads the node
       // itself on this flag rather than keep showing the pre-save metadata
@@ -795,14 +972,21 @@ export const actions: Actions = {
       try {
         await client.request(MOVE_NODE_MUTATION, {
           sourceRef: currentNode.id,
-          targetUrn: composeNodeUrn(currentNode.memory.urn, loc),
+          targetUrn: locIsFullUrn ? loc : composeNodeUrn(currentNode.memory.urn, loc),
         });
       } catch (e: unknown) {
         // An occupied destination is a 409 Conflict, not a 500 — matches the
         // /api/nodes/move endpoint and keeps it out of error monitoring.
         const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
-        const detail = extractGqlError(e, 'Failed to move node');
-        const text = t('node.meta.saved-not-moved', 'Saved, but the node was not moved: {detail}', { detail });
+        const detail = nodeWriteErrorText(e, 'Failed to move node', NODE_WRITE_REFUSALS);
+        // #1989: say what is true now: the edits are saved, nothing moved, and
+        // the node is still at its old address (a refused move writes nothing,
+        // hrn:node:hadronmemory.com:specs:cor:api:190:01). The page keeps this
+        // text and the typed loc across its reload, so the refusal is not
+        // reverted out from under the user.
+        const text = t('node.meta.saved-not-moved-at', 'Saved, but the node was not moved: {detail}. It is still at {urn}.', {
+          detail: withoutTrailingPunctuation(detail), urn: composeNodeUrn(currentNode.memory.urn, currentNode.loc),
+        });
         if (status === 409) setError(form, 'loc', text);
         else message(form, { type: 'error', text });
         return fail(status, { form, metaSaved: true });
@@ -850,7 +1034,7 @@ export const actions: Actions = {
         });
         return fail(409, { form, deleteRefusedDescendants: count });
       }
-      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to delete') }, { status: 500 });
+      return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to delete', NODE_WRITE_REFUSALS) }, { status: 500 });
     }
     // Redirect to the *actual* memory's list — not the URL's gid, which
     // may have been stale.
@@ -861,7 +1045,12 @@ export const actions: Actions = {
   // (same schema, same `_kind`) and goes through the same team-chat module, so
   // a message sent from either surface lands identically.
   sendChatMessage: async ({ request, params, locals }) => {
-    const form = await superValidate<SendChatMessageForm>(await request.formData(), sendChatMessageFormAdapter);
+    // Same node-scoped id as the load above (#1522): the result — enhanced,
+    // no-JS, or a late answer — comes back under the id this node's live form
+    // holds, and no other form's.
+    const form = await superValidate<SendChatMessageForm>(await request.formData(), sendChatMessageFormAdapter, {
+      id: sendChatMessageFormId(params.nodeId),
+    });
     if (!form.valid) return fail(400, { form });
 
     const client = gqlClient(locals.token);
@@ -897,7 +1086,7 @@ export const actions: Actions = {
       console.error('[node-detail] send chat message failed:', e);
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to send message') },
+        { type: 'error', text: nodeWriteErrorText(e, 'Failed to send message', NODE_WRITE_REFUSALS) },
         { status: 500 },
       );
     }
@@ -950,7 +1139,7 @@ export const actions: Actions = {
     try {
       ({ node } = await client.request<{ node: MemoryNode | null }>(NODE_DATA_READ_QUERY, { ref: params.nodeId }));
     } catch (e: unknown) {
-      return fail(500, { dataFailed: { code: 'failed', detail: extractGqlError(e, 'Failed to read the node') } });
+      return fail(500, { dataFailed: { code: 'failed', detail: nodeWriteErrorText(e, 'Failed to read the node', NODE_WRITE_REFUSALS) } });
     }
     if (!node) return fail(404, { dataFailed: { code: 'not-found', detail: null } });
 
@@ -972,7 +1161,7 @@ export const actions: Actions = {
       await client.request(nodeUpdateDocument(node, input), { input });
     } catch (e: unknown) {
       if (e instanceof NoNodeDoorError) return fail(409, { dataFailed: { code: 'no-door', detail: e.message } });
-      const detail = extractGqlError(e, 'Failed to save');
+      const detail = nodeWriteErrorText(e, 'Failed to save', NODE_WRITE_REFUSALS);
       if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') return fail(400, { dataFailed: { code: 'rejected', detail } });
       return fail(500, { dataFailed: { code: 'failed', detail } });
     }
@@ -1018,7 +1207,7 @@ export const actions: Actions = {
     try {
       ({ node } = await client.request<{ node: MemoryNode | null }>(NODE_PROPERTIES_READ_QUERY, { ref: params.nodeId }));
     } catch (e: unknown) {
-      return fail(500, { propertiesFailed: { code: 'failed', detail: extractGqlError(e, 'Failed to read the node') } });
+      return fail(500, { propertiesFailed: { code: 'failed', detail: nodeWriteErrorText(e, 'Failed to read the node', NODE_WRITE_REFUSALS) } });
     }
     if (!node) return fail(404, { propertiesFailed: { code: 'not-found', detail: null } });
 
@@ -1037,7 +1226,7 @@ export const actions: Actions = {
       if (e instanceof NoNodeDoorError) {
         return fail(409, { propertiesFailed: { code: 'no-door', detail: e.message } });
       }
-      const detail = extractGqlError(e, 'Failed to save');
+      const detail = nodeWriteErrorText(e, 'Failed to save', NODE_WRITE_REFUSALS);
       // #588: a memory-schema verdict (strict collection, wrong type, missing
       // required field) — the server's words, verbatim.
       if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') {
@@ -1090,7 +1279,7 @@ export const actions: Actions = {
       await client.request(nodeUpdateDocument(node, input), { input });
       return message(form, { type: 'success', text: t('node.flow.saved', 'Flow settings saved.') });
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: extractGqlError(e, 'Save failed') }, { status: 500 });
+      return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Save failed', NODE_WRITE_REFUSALS) }, { status: 500 });
     }
   },
 
@@ -1125,10 +1314,11 @@ export const actions: Actions = {
         args,
         appRef: appId,
         runAsSelf: false,
+        ...(form.data.agentRef ? { agentRef: form.data.agentRef } : {}),
       });
       runId = res.runTask;
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to start the run') }, { status: 500 });
+      return message(form, { type: 'error', text: runStartError(e, 'Failed to start the run', NODE_WRITE_REFUSALS) }, { status: runStartStatus(e) });
     }
     // #648: run detail is the canonical org-optional /app/apps/[appId]/runs/[runId].
     redirect(303, `/app/apps/${appId}/runs/${runId}`);
@@ -1169,7 +1359,7 @@ export const actions: Actions = {
         // An occupied -copy slot just means "try the next suffix"; anything
         // else surfaces as-is.
         if (extractGqlErrorCode(e) !== 'NODE_ALREADY_EXISTS') {
-          return message(form, { type: 'error', text: extractGqlError(e, 'Failed to duplicate node') }, { status: 500 });
+          return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to duplicate node', NODE_WRITE_REFUSALS) }, { status: 500 });
         }
       }
     }
@@ -1215,9 +1405,7 @@ export const actions: Actions = {
     //     hrn:node:hadronmemory.com:specs:cor:urn:010:01, while a URN pasted from an older screen or another
     //     tool may still be v1 (`::`). Both spellings denote the same node, so
     //     comparing them raw would miss the no-op and fire a pointless move.
-    const bare = (u: string) =>
-      u.replace(/^(?:hrn|urn):node:/, '').split('::').join(':');
-    if (bare(targetUrn) === bare(composeNodeUrn(node.memory.urn, node.loc))) {
+    if (bareNodeAddress(targetUrn) === bareNodeAddress(composeNodeUrn(node.memory.urn, node.loc))) {
       return message(form, { type: 'success', text: t('node-actions.move.noop', 'Node is already at that destination.') });
     }
 
@@ -1239,7 +1427,7 @@ export const actions: Actions = {
       if (code === 'COMMENT_MOVE_UNCOMMENTABLE') {
         return setError(form, 'target', commentMoveRefusedText(), { status: 409 });
       }
-      const error = extractGqlError(e, 'Failed to move node');
+      const error = nodeWriteErrorText(e, 'Failed to move node', NODE_WRITE_REFUSALS);
       const fieldStatus =
         code === 'NODE_ALREADY_EXISTS' ? 409
         : code === 'CONFLICT' ? 409
@@ -1291,7 +1479,7 @@ export const actions: Actions = {
         ...message(form, { type: 'success', text: t('node-actions.convert-to-task.saved', 'Node converted to a task.') }),
       };
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to convert node to a task') }, { status: 500 });
+      return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to convert node to a task', NODE_WRITE_REFUSALS) }, { status: 500 });
     }
   },
 
@@ -1336,6 +1524,71 @@ export const actions: Actions = {
       const code = extractGqlErrorCode(e);
       return message(form, { type: 'error', text: verifyFailureText(code) }, { status: approvalRefusalStatus(code) });
     }
+  },
+
+  // portal#1022 links half — the portal's leg of
+  // hrn:node:hadronmemory.com:specs:cor:dmo:130:08: create a
+  // signing request and hand over the ceremony page's link. NOT the ceremony:
+  // no assertion, no key material, nothing but the request and a redirect, so
+  // the signer always proves who they are on the page that shows what is
+  // signed. Plain form (no superforms): the only input is the revision the
+  // reader saw, pinned like an approval so an edit in between answers
+  // REVISION_MISMATCH instead of requesting a signature for text never
+  // reviewed. `redirect()` throws, so the catch rethrows it — the hand-over
+  // must never be swallowed into a refusal message.
+  requestSignature: async ({ request, params, locals }) => {
+    // A stale tab after signing out: the token is gone, and the capability
+    // gate below would fold that into "not offered" — a wrong reason for a
+    // reader whose actual problem is the dead session. Distinguish it first;
+    // the other actions on this page surface their auth failures from the
+    // server's UNAUTHENTICATED, and this one gets its own honest line.
+    if (!locals.token) {
+      return fail(400, {
+        requestSignatureError: t('node.signatures.request.signed-out', 'Your session has ended. Sign in again, then request the signature from the node page.'),
+      });
+    }
+    // The mutation exists in the SDL only while the deployment offers signing
+    // (hadron-server#1895/#1918); asking first keeps a switched-off server
+    // from answering every click with a validation error.
+    if (!(await deploymentOffersSigning(locals.token))) {
+      return fail(400, {
+        requestSignatureError: t('node.signatures.request.not-offered', 'This deployment does not offer node signing.'),
+      });
+    }
+    // Dorian's BLIND P2 on #1860: a missing or malformed revision must never
+    // degrade to `undefined` — the server would then pin its CURRENT revision,
+    // and the request could be for text the reader never saw. The page's other
+    // revision-pinned writes agree: saveNodeText answers no-baseline, the
+    // approve forms fail superforms validation. The portal always renders a
+    // revision, so the only way here is a tampered or broken form — refuse it
+    // and send nothing.
+    const revision = parseExpectedRevision((await request.formData()).get('revision'));
+    if (revision === null) {
+      return fail(400, {
+        requestSignatureError: t('node.signatures.request.stale-form', 'Reload the page — this form no longer matches the node on screen.'),
+      });
+    }
+    let failure: string | null = null;
+    try {
+      const r = await gqlClient(locals.token).request<{ requestNodeSignature: { ceremonyUrl: string } }>(
+        REQUEST_SIGNATURE_MUTATION,
+        { nodeRef: params.nodeId, expectedRevision: revision },
+      );
+      // ceremonyUrl is String! on SigningRequest! — the contract guarantees a
+      // URL, and any GraphQL-level failure threw into the catch below, so
+      // there is no lying-server branch here to pin with an illegal fixture
+      // (hrn:node:hadronmemory.com:hadron-portal:review:a-response-fixture-must-be-legal-under-the-schema).
+      // The SDL says copy it verbatim, never compose it.
+      redirect(303, r.requestNodeSignature.ceremonyUrl);
+    } catch (e: unknown) {
+      if (isRedirect(e)) throw e;
+      // A typed refusal gets portal copy; anything else — an internal error,
+      // an unknown code a newer server added, a transport failure — keeps the
+      // generic line, never a borrowed reason (the gql-error convention).
+      failure = signatureRequestRefusalText(extractGqlErrorCode(e))
+        ?? extractGqlError(e, t('node.signatures.request.failed', 'Could not start a signing request.'), [], { transport: 'fallback' });
+    }
+    return fail(400, { requestSignatureError: failure });
   },
 
   updateEdges: async ({ request, params, locals }) => {
@@ -1392,7 +1645,7 @@ export const actions: Actions = {
       await client.request(nodeUpdateDocument(node, input), { input });
       return message(form, { type: 'success', text: t('node.edges.saved', 'Edges saved.') });
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to update edges') }, { status: 500 });
+      return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to update edges', NODE_WRITE_REFUSALS) }, { status: 500 });
     }
   },
 
@@ -1451,7 +1704,7 @@ export const actions: Actions = {
         await client.request(nodeUpdateDocument(node, input), { input });
       }
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Reorder failed' });
+      return fail(500, { error: nodeWriteErrorText(e, 'Reorder failed', NODE_WRITE_REFUSALS) });
     }
   },
 };

@@ -18,6 +18,12 @@ export interface ColumnActor {
   urn: string | null;
 }
 
+/** Only the server's public revision-editor projection; no email or display name. */
+export interface ColumnUser {
+  handle: string | null;
+  urn: string | null;
+}
+
 export interface NodeColumnRow {
   id: string;
   role: string | null;
@@ -27,8 +33,12 @@ export interface NodeColumnRow {
   approval: NodeApprovalState | null;
   /** The best signature state, null when the node carries none. */
   signature: string | null;
+  /** Absent/null for older responses or no readable recorded human; never inferred from authorship. */
+  user?: ColumnUser | null;
   agent: ColumnActor | null;
   worker: ColumnActor | null;
+  /** portal#1346: the node's embedding state, shown only when the memory is vector-indexed. */
+  embedding?: { pendingAt: string | null; failedAt: string | null; error: string | null };
 }
 
 export function chunkIds(ids: readonly string[], size: number = COLUMN_BATCH): string[][] {
@@ -97,6 +107,7 @@ export function signedCellText(row: NodeColumnRow | undefined): string {
 }
 
 export interface ChangedByView {
+  user: ColumnUser | null;
   worker: ColumnActor | null;
   agent: ColumnActor | null;
   /** Everything the cell shows, so the table filter finds it. */
@@ -104,8 +115,9 @@ export interface ChangedByView {
 }
 
 export function changedByView(row: NodeColumnRow | undefined): ChangedByView {
+  const user = row?.user ?? null;
   const worker = row?.worker ?? null;
   const agent = row?.agent ?? null;
-  const searchText = [worker?.name, worker?.urn, agent?.name, agent?.urn].filter(Boolean).join(' ');
-  return { worker, agent, searchText };
+  const searchText = [user?.handle, user?.urn, worker?.name, worker?.urn, agent?.name, agent?.urn].filter(Boolean).join(' ');
+  return { user, worker, agent, searchText };
 }

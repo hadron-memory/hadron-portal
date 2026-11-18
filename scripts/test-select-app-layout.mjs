@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
+// The probe owns its document: a fulfilled inert page, not a dev-server path
+// (/@vite/client falls through to SvelteKit's 404 document and logs a server
+// error). Asserting 200 makes a regression to a Kit-404 URL fail loudly.
+async function gotoFixtureDocument(page, origin) {
+  await page.route('**/__select_app_layout_fixture*', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>test-select-app-layout</title>' }));
+  const response = await page.goto(new URL('/__select_app_layout_fixture', origin).href);
+  assert.equal(response?.status(), 200, `fixture document was not served inert (HTTP ${response?.status()})`);
+}
+
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 } });
 let browser;
 try {
@@ -11,7 +20,7 @@ try {
   for (const width of [375, 390, 1280]) {
     for (const dark of [false, true]) {
       const page = await browser.newPage({ viewport: { width, height: 844 } });
-      await page.goto(new URL('/@vite/client', origin).href);
+      await gotoFixtureDocument(page, origin);
       await page.evaluate(({ css, dark }) => {
         document.head.innerHTML = '';
         document.body.innerHTML = `<style>${css}</style><main id="app"></main>`;
@@ -21,7 +30,8 @@ try {
         const { mountSelectApp } = await import('/src/lib/test/fixtures/select-app-harness.ts');
         mountSelectApp(document.getElementById('app'));
       });
-      const select = page.getByRole('button', { name: 'Select', exact: true });
+      // #1605: the row's Select is named after its App.
+      const select = page.getByRole('button', { name: 'Select A long existing App name for a narrow viewport', exact: true });
       await select.waitFor();
       const measure = () => select.evaluate((button) => {
         const rect = button.getBoundingClientRect();

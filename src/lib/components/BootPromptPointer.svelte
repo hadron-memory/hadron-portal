@@ -11,13 +11,14 @@
     `canManage === false`, offered otherwise. The server's setter decides.
   - Set sends the typed text; Clear sends an explicit null. A refusal keeps
     the typed value and shows the server's message whole, after a fixed lead.
-  - Every control says pointers are not used to start agents yet (S10).
+  - Every control says what agents start with: the highest pointer's
+    compiled prompt, newest approved revision (portal#1399).
 -->
 <script lang="ts">
   import { enhance } from '$app/forms';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
-  import { POINTER_NOT_SERVED, pointerView, type PointerRead, type PointerResult } from '$lib/boot-prompt-pointer';
+  import { POINTER_SERVED, pointerView, type PointerRead, type PointerResult } from '$lib/boot-prompt-pointer';
 
   let {
     read,
@@ -65,7 +66,7 @@
   {#if view.kind === 'deleted'}
     <p class="text-amber-800 dark:text-amber-300" data-pointer-state="deleted">{t('boot-pointer.deleted', 'The target was deleted; clear or repoint it.')}</p>
   {/if}
-  <p class="text-xs text-zinc-500 dark:text-zinc-400">{POINTER_NOT_SERVED()}</p>
+  <p class="text-xs text-zinc-500 dark:text-zinc-400">{POINTER_SERVED()}</p>
 
   {#if canManage !== false}
     <form method="POST" {action} use:enhance={submit} class="space-y-2">

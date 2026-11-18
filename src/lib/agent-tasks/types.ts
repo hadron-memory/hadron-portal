@@ -1,6 +1,7 @@
+import type { TaskReference } from './references';
 /**
  * portal#1052 — the agent-task read shapes the Tasks views select, mirroring
- * the server SDL (schema/schema.graphql, hadron-server 4c55560a). Only the
+ * the server SDL (schema/schema.graphql, hadron-server 8cccdcbb). Only the
  * fields a view renders are here; each query selects exactly these.
  */
 
@@ -19,6 +20,8 @@ export interface AgentTaskRequirements {
   familyIn: string[] | null;
   familyNotIn: string[] | null;
   excludeWorkerIds: string[] | null;
+  /** portal#1523: the lowest model tier the matcher may assign (low < mid < high); null = no minimum. */
+  minTier?: string | null;
 }
 
 export interface AgentTaskResult {
@@ -34,9 +37,20 @@ export interface AgentTaskSessionEndRequest {
   resolvedAt: string | null;
 }
 
+export interface AgentTaskHandBack {
+  code: string;
+  text: string | null;
+  handedBackAt: string;
+}
+
 /** A board or tree row. */
 export interface AgentTaskRow {
+  /** Missing data stays unknown; the blocked flag is never reconstructed from relations. */
+  priority?: number | null;
+  blocked?: boolean | null;
   id: string;
+  /** The immutable short handle (`AT3.405`), from server#2579. */
+  handle: string;
   parentTaskId: string | null;
   title: string;
   status: AgentTaskStatus;
@@ -46,6 +60,15 @@ export interface AgentTaskRow {
   owner: AgentTaskParty;
   assignee: AgentTaskParty | null;
   startBy: string | null;
+  finishBy: string | null;
+  /**
+   * portal#2244 (hadron-server#4220, implementing #2654): the server's own
+   * overdue verdict — a pending, not-started task past its start-by, or a
+   * pending-or-started task past its finish-by and not ended; backlog never —
+   * all on the server clock. The portal computes no overdue rule of its own;
+   * a row shows the mark exactly when this is true.
+   */
+  overdue: boolean;
   createdAt: string;
   updatedAt: string | null;
   tags: string[];
@@ -53,7 +76,14 @@ export interface AgentTaskRow {
 
 /** The detail page's task: every field §5.1 shows. */
 export interface AgentTaskDetail extends AgentTaskRow {
+  /** portal#1607: the outside item the task claimed (hrn:node:hadronmemory.com:specs:cor:agt:120:02); set once at create. */
+  externalId?: string | null;
   appId: string;
+  /**
+   * portal#1575 (hadron-server#3112, hrn:node:hadronmemory.com:specs:cor:agt:050:01): the task's typed references, in order, empty when
+   * none. Untrusted stored strings: draw them only through `$lib/agent-tasks/references`.
+   */
+  references?: TaskReference[];
   description: string | null;
   requirements: AgentTaskRequirements | null;
   createdBy: AgentTaskParty | null;
@@ -66,6 +96,21 @@ export interface AgentTaskDetail extends AgentTaskRow {
   closeSessionWhenDone: boolean;
   result: AgentTaskResult | null;
   sessionEndRequest: AgentTaskSessionEndRequest | null;
+  /** portal#1571: the latest hand-back (hadron-server#2651); null when the task was never handed back. */
+  handBack?: AgentTaskHandBack | null;
+  /**
+   * portal#1340 (hadron-server#2420): the task's OWN optional JSON object, opaque to the platform.
+   * Never inherited from a parent; null when unset. The detail query selects it, so it needs a server that has the field
+   * (hadron-server#2877); a server without it rejects the read rather than omitting the field.
+   */
+  properties?: unknown;
+  /**
+   * portal#2161 (hadron-server#3244, hrn:node:hadronmemory.com:specs:cor:agt:050:02): the task this
+   * one was cloned from, or null when it was not made by a clone or the source is not readable to
+   * this caller — both render as nothing (no placeholder). The link reads "Replaces …" when the
+   * source has ended (FINISHED or CANCELLED), "Cloned from …" otherwise.
+   */
+  clonedFrom: { id: string; handle: string; title: string; status: AgentTaskStatus } | null;
 }
 
 export interface AgentTeamAlarmWake {
@@ -120,6 +165,38 @@ export interface TeamRoster {
   workers: TeamRosterEntry[];
 }
 
+/**
+ * portal#1316 (hadron-server#2061 / #2475) — `teamComposition`: the roster's
+ * workers grouped by their direct `reportsTo` coordinator, with the server's
+ * own headcounts. Lanes arrive ordered by coordinator name, the unassigned
+ * (null-coordinator) lane last; roles and families arrive null-last. The page
+ * keeps that order and recounts nothing.
+ */
+export interface TeamCompositionWorker {
+  worker: AgentTaskParty;
+  role: string | null;
+  family: string | null;
+  /** A session is bound, and a live session is another fact: neither alone is availability or permission. */
+  bound: boolean;
+  liveSession: boolean;
+  state: string;
+}
+
+export interface TeamCompositionLane {
+  /** Null for the single unassigned lane. */
+  coordinator: AgentTaskParty | null;
+  coordinatorRetired: boolean;
+  workers: TeamCompositionWorker[];
+  countsByRole: { role: string | null; count: number }[];
+  countsByRoleFamily: { role: string | null; family: string | null; count: number }[];
+}
+
+export interface TeamComposition {
+  appId: string;
+  asOf: string;
+  lanes: TeamCompositionLane[];
+}
+
 /** An alarm as the Alarms list reads it: `AgentTeamEvent` with `alarmsOnly`. */
 export interface AgentAlarm {
   id: string;
@@ -148,3 +225,24 @@ export type WriteCandidates = {
   /** The members read FAILED (a reload can fix it): `people` is unknown, not empty, and not withheld. */
   peopleFailed?: boolean;
 };
+
+/**
+ * portal#1349 — what a bare task id resolved to for display: its title and
+ * immutable handle, read through the server's readable-task gate. `null` in a
+ * refs map means unavailable (missing, unreadable, another App, or the read
+ * failed); callers render a neutral label and never a stale title or handle.
+ */
+export interface TaskRefInfo {
+  id: string;
+  handle: string;
+  title: string;
+}
+export type TaskRefs = Record<string, TaskRefInfo | null>;
+
+export interface TaskChoice { id: string; appId: string; title: string; handle: string; status: string }
+export interface TaskDependencyPage { items: TaskChoice[]; hasMore: boolean }
+/**
+ * portal#2161: a page of a task's clones. Same shape as a dependency page plus
+ * `total`, so the list can say how many there are, not just that more exist.
+ */
+export interface TaskClonesPage { items: TaskChoice[]; total: number; hasMore: boolean }

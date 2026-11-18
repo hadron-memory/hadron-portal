@@ -45,4 +45,25 @@ describe('NodeActionsMenu actions', () => {
     [...target.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent?.trim() === 'Delete')!.click();
     expect(onselect).toHaveBeenCalledWith('delete');
   });
+
+  it('exposes its open state as data-menu-open so stacking keys on state, not on role="menu"', () => {
+    // #1954: a sticky table cell promotes a row whose menu is OPEN (a touch
+    // tap does not focus the trigger, so focus-within alone is not enough).
+    // The hook must be the component's own state flag — keying paint order on
+    // a descendant's ARIA role breaks the moment a menu is re-rolled as
+    // role="listbox" or a custom widget.
+    const closed = mountComponent(NodeActionsMenu as never, { actions: [{ id: 'edit', label: 'Edit' }], label: 'Row actions' } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(closed);
+    flushSync();
+    const root = closed.target.querySelector<HTMLElement>('[data-node-actions]')!;
+    expect(root.hasAttribute('data-menu-open')).toBe(false);
+
+    closed.target.querySelector<HTMLButtonElement>('button[aria-label="Row actions"]')!.click();
+    flushSync();
+    expect(root.hasAttribute('data-menu-open')).toBe(true);
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    flushSync();
+    expect(root.hasAttribute('data-menu-open')).toBe(false);
+  });
 });

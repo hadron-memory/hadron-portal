@@ -21,6 +21,7 @@ function asset(over: Partial<AssetSummary> = {}): AssetSummary {
     filename: 'notes.md', mimeType: 'text/markdown', sizeBytes: 2048,
     uploadedAt: '2026-08-01T10:00:00.000Z', uploadedBy: 'user-1',
     scanStatus: 'CLEAN', scanSignature: null, description: null, publicUrl: null,
+    publicLinkEnabled: false, canManagePublicLink: false, publicLinkAvailable: false,
     ...over,
   };
 }

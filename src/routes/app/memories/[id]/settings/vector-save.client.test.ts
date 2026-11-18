@@ -68,11 +68,11 @@ async function renderSettings(opts: {
         user: opts.user ?? OWNER,
         ownerUserId: opts.ownerUserId === undefined ? OWNER_ID : opts.ownerUserId,
         owner: opts.ownerUserId === null ? null : { id: OWNER_ID, handle: 'holger', name: 'Holger' },
-        org: opts.orgRole
-          ? { id: 'org-1', members: [{ user: { id: (opts.user ?? OWNER).id }, role: opts.orgRole }] }
-          : null,
+        org: { id: 'org-1', members: [{ user: { id: (opts.user ?? OWNER).id }, role: opts.orgRole ?? 'ADMIN' }] },
         allOrgs: [],
         transferCanDelete: opts.transferCanDelete ?? false,
+        canWriteMemory: true,
+        canManageMemory: true,
         form,
         vectorForm,
         marketplaceForm,
@@ -98,7 +98,7 @@ function toggle(target: HTMLElement, enabled: boolean) {
   const box = checkbox(target); box.checked = enabled; box.dispatchEvent(new Event('change', {bubbles: true})); flushSync();
 }
 async function result(target: HTMLElement, props: Record<string, unknown>, enabled: boolean, success: boolean) {
-  const validated = await superValidate({vectorIndexEnabled: enabled, embeddingSource: 'abstract', chunkTokens: '', chunkOverlap: '', forceFixedSize: false, acknowledgeVectorInversionRisk: false}, zod4(vectorIndexSettingsSchema));
+  const validated = await superValidate({vectorIndexEnabled: enabled, embeddingSource: 'abstract', chunkTokens: '', chunkOverlap: '', forceFixedSize: false, acknowledgeVectorInversionRisk: false}, zod4(vectorIndexSettingsSchema), { id: 'updateVectorIndex:mem-1' });
   validated.message = {type: success ? 'success' : 'error', text: success ? 'Changes saved.' : 'Save failed.'};
   const outcome = {type: success ? 'success' as const : 'failure' as const, status: success ? 200 : 500, data: {form: validated}};
   const sent = await submitEnhancedWithResult(target.querySelector<HTMLFormElement>('form[action="?/updateVectorIndex"]')!, outcome);

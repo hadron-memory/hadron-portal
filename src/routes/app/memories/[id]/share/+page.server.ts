@@ -115,7 +115,7 @@ export const actions: Actions = {
       // refused (wrong class, unknown grantee, not the principal), and inventing
       // a reason here is what hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee
       // forbids. The fallback names the operation, not a cause.
-      return message(form, { type: 'error', text: extractGqlError(e, 'Could not share this memory') }, { status: 500 });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Could not share this memory', ["BAD_USER_INPUT"]) }, { status: 500 });
     }
   },
 
@@ -130,7 +130,7 @@ export const actions: Actions = {
       });
       return { form, roleChangedFor: form.data.granteeRef, grantedRole: form.data.role };
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: extractGqlError(e, 'Could not change that role') }, { status: 500 });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Could not change that role', ["BAD_USER_INPUT"]) }, { status: 500 });
     }
   },
 
@@ -152,7 +152,7 @@ export const actions: Actions = {
       });
       return { form, revokedFrom: form.data.granteeRef };
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: extractGqlError(e, 'Could not revoke that share') }, { status: 500 });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Could not revoke that share', ["BAD_USER_INPUT"]) }, { status: 500 });
     }
   },
 };
