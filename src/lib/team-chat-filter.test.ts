@@ -5,6 +5,7 @@ import {
   filterQueryOf,
   filterVariablesOf,
   parseTeamParam,
+  removeTeamHead,
   teamChatReadUrl,
   toggleTeamHead,
   withTeamFilter,
@@ -91,6 +92,21 @@ describe('toggleTeamHead — a tag chip click', () => {
     const twenty: TeamChatFilter = { kind: 'teams', headRefs: Array.from({ length: 20 }, (_, i) => `h${i}`) };
     expect(toggleTeamHead(twenty, 'h20')).toBe(twenty);
     expect(toggleTeamHead(twenty, 'h0')).toEqual({ kind: 'teams', headRefs: twenty.headRefs.slice(1) });
+  });
+});
+
+describe('removeTeamHead — a chip click only ever removes (round 3, Gil N1)', () => {
+  it('removes the named head and keeps the rest in order', () => {
+    expect(removeTeamHead({ kind: 'teams', headRefs: ['h1', 'h2', 'h3'] }, 'h2')).toEqual({ kind: 'teams', headRefs: ['h1', 'h3'] });
+    expect(removeTeamHead({ kind: 'teams', headRefs: ['h1', 'h2'] }, 'h1')).toEqual({ kind: 'teams', headRefs: ['h2'] });
+  });
+
+  it('removing the last head clears the filter; a remove control never adds', () => {
+    expect(removeTeamHead({ kind: 'teams', headRefs: ['h1'] }, 'h1')).toBe(NO_TEAM_FILTER);
+    expect(removeTeamHead(NO_TEAM_FILTER, 'h1')).toBe(NO_TEAM_FILTER);
+    expect(removeTeamHead({ kind: 'untagged' }, 'h1')).toBe(NO_TEAM_FILTER);
+    // A head that is not in the set cannot be re-added by "removing" it.
+    expect(removeTeamHead({ kind: 'teams', headRefs: ['h1'] }, 'h9')).toEqual({ kind: 'teams', headRefs: ['h1'] });
   });
 });
 
