@@ -36,7 +36,7 @@ afterEach(() => {
 
 async function mountBar(over: Record<string, unknown> = {}, props: Record<string, unknown> = {}) {
   const m = mountComponent(TaskActionBar as never, {
-    task: task(over), canWrite: true, impersonating: null, candidates, openChildren: { count: 2, capped: false }, ...props,
+    task: task(over), canWrite: true, impersonating: null, loadPickers: async () => ({ kind: 'ok' as const, value: { ...candidates, roles: [], families: [] } }), loadMemories: async () => ({ kind: 'ok' as const, value: [] }), openChildren: { count: 2, capped: false }, ...props,
   } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(2);
@@ -117,7 +117,7 @@ describe('TaskActionBar', () => {
   // the TASK_ENDED refusal must stay in view rather than vanish with them.
   it('a TASK_ENDED refusal stays in view after the reload ends the task', async () => {
     const props = reactiveProps<Record<string, unknown>>({
-      task: task(), canWrite: true, impersonating: null, candidates, openChildren: { count: 0, capped: false },
+      task: task(), canWrite: true, impersonating: null, loadPickers: async () => ({ kind: 'ok' as const, value: { ...candidates, roles: [], families: [] } }), loadMemories: async () => ({ kind: 'ok' as const, value: [] }), openChildren: { count: 0, capped: false },
     });
     const m = mountComponent(TaskActionBar as never, props as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
@@ -308,7 +308,7 @@ describe('TaskActionBar', () => {
     // never shows on another.
     async function mountReactive() {
       const props = reactiveProps<Record<string, unknown>>({
-        task: task(), canWrite: true, impersonating: null, candidates, openChildren: { count: 0, capped: false },
+        task: task(), canWrite: true, impersonating: null, loadPickers: async () => ({ kind: 'ok' as const, value: { ...candidates, roles: [], families: [] } }), loadMemories: async () => ({ kind: 'ok' as const, value: [] }), openChildren: { count: 0, capped: false },
       });
       const m = mountComponent(TaskActionBar as never, props as never) as Mounted<Record<string, unknown>>;
       mounted.push(m);
@@ -438,7 +438,7 @@ describe('TaskActionBar', () => {
 
     it('after the reload (PENDING, no assignee) the bar no longer offers hand-back', async () => {
       const props = reactiveProps<Record<string, unknown>>({
-        task: task(mine), canWrite: true, impersonating: null, candidates, openChildren: { count: 0, capped: false }, viewerId: 'u1',
+        task: task(mine), canWrite: true, impersonating: null, loadPickers: async () => ({ kind: 'ok' as const, value: { ...candidates, roles: [], families: [] } }), loadMemories: async () => ({ kind: 'ok' as const, value: [] }), openChildren: { count: 0, capped: false }, viewerId: 'u1',
       });
       const m = mountComponent(TaskActionBar as never, props as never) as Mounted<Record<string, unknown>>;
       mounted.push(m);
@@ -462,7 +462,7 @@ describe('TaskActionBar', () => {
     describe('an open draft', () => {
       async function openDraft() {
         const props = reactiveProps<Record<string, unknown>>({
-          task: task(mine), canWrite: true, impersonating: null, candidates, openChildren: { count: 0, capped: false }, viewerId: 'u1',
+          task: task(mine), canWrite: true, impersonating: null, loadPickers: async () => ({ kind: 'ok' as const, value: { ...candidates, roles: [], families: [] } }), loadMemories: async () => ({ kind: 'ok' as const, value: [] }), openChildren: { count: 0, capped: false }, viewerId: 'u1',
         });
         const m = mountComponent(TaskActionBar as never, props as never) as Mounted<Record<string, unknown>>;
         mounted.push(m);
