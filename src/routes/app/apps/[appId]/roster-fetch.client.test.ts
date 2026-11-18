@@ -15,17 +15,32 @@
  *    fetch ever starts: `data.teamRoster` wins until a real navigation
  *    replaces it.
  *
+ * portal#2243 (Georgia's READ, P2 F1 / P3 F2): "once per visit" must not
+ * survive an action that declares the roster WRONG. The #825 stale-hold
+ * refusal refetches precisely because the row it drew is known stale — its
+ * own copy says "The list has been refreshed" — and a confirmed cast needs
+ * the read for the new worker's cells. After ruling 0273 the invalidation
+ * reloads everything EXCEPT the roster on a client-switched AI Team view,
+ * so those actions must ask `/roster` themselves. And a LATE earlier fetch
+ * (another App's, still in flight across an App-to-App navigation) must not
+ * clobber the newer read (F2).
+ *
  * Client lane on purpose: the fetch lives in a tab-switch effect, which a
  * server render never runs — the two-defects-per-green-suite class this
  * repo's lifecycle notes exist for (#782/#788, #789/#794, #795).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { flushSync } from 'svelte';
+import { superValidate } from 'sveltekit-superforms';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
+import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import type { TeamRosterRead } from '$lib/server/app-team-roster';
 import Page from './+page.svelte';
+import { releaseWorkerSchema } from './schema';
 import { pageData } from './app-page.fixture';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -52,17 +67,17 @@ const rosterOk: TeamRosterRead = {
   },
 };
 
-/** Stubbed fetch: `/roster` answers from `gate`; every other URL (the team
- *  chat poll among them) gets a benign degraded answer so nothing here
- *  depends on poll timing. */
-function stubFetch(gate: { read: () => TeamRosterRead | Promise<TeamRosterRead> }) {
+/** Stubbed fetch: `/roster` answers from `gate` (which sees the URL, so a
+ *  test can answer per App); every other URL (the team chat poll among them)
+ *  gets a benign degraded answer so nothing here depends on poll timing. */
+function stubFetch(gate: { read: (href: string) => TeamRosterRead | Promise<TeamRosterRead> }) {
   const calls: string[] = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string | URL) => {
       const href = String(url);
       calls.push(href);
-      if (href.endsWith('/roster')) return { ok: true, json: async () => gate.read() } as Response;
+      if (href.endsWith('/roster')) return { ok: true, json: async () => gate.read(href) } as Response;
       return { ok: true, json: async () => ({ items: [], total: 0, loadFailed: true }) } as Response;
     }),
   );
@@ -157,5 +172,117 @@ describe('AI Team roster: fetched on first show, once (portal#2238)', () => {
     await settled(3);
     expect(rosterCalls(calls)).toHaveLength(0);
     expect(target.querySelector('#panel-staff')!.textContent).toContain('Fix the login handoff');
+  });
+});
+
+describe('AI Team roster: re-asked after a roster-invalidating action (portal#2243)', () => {
+  /** A second, fresher roster read: what the re-ask must show. */
+  const rosterOkAfter: TeamRosterRead = {
+    kind: 'ok',
+    byWorker: {
+      w1: {
+        worker: { id: 'w1' },
+        checkStatus: { status: 'PENDING', pendingReason: 'NO_TASK' },
+        pausedUntil: null,
+        currentTask: { id: 't2', title: 'Ship the roster refresh', status: 'RUNNING', handle: 'AT0.9' },
+        heldBy: { id: 'u9', name: 'Bo' },
+        heldAt: '2026-11-18T14:00:00.000Z',
+      },
+    },
+  };
+
+  async function mountStaffHeld() {
+    setStubPage('https://example.test/app/apps/a1?tab=chats', { appId: 'a1' });
+    window.history.replaceState({}, '', '/app/apps/a1?tab=chats');
+    const props = reactiveProps<Record<string, unknown>>({
+      data: {
+        ...(await pageData()),
+        teamRoster: null,
+        user: { id: 'u1' },
+        staff: [{
+          id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', retiredAt: null,
+          heldByUserId: 'u1', heldAt: '2026-10-01T00:00:00.000Z',
+        }],
+      },
+      form: null,
+    });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return { props, target: m.target };
+  }
+
+  /** Open the row menu and pick one item (the page.client.test pick helper). */
+  function pick(target: HTMLElement, name: string, label: string) {
+    target.querySelector<HTMLButtonElement>(`button[aria-label="Actions for ${name}"]`)!.click();
+    flushSync();
+    [...target.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find((i) => i.textContent?.trim() === label)!.click();
+  }
+
+  it('a stale-hold release refusal re-asks /roster and shows the fresh read (F1)', async () => {
+    let read = rosterOk;
+    const calls = stubFetch({ read: () => read });
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    const { target } = await mountStaffHeld();
+
+    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await settled(3);
+    expect(rosterCalls(calls)).toHaveLength(1);
+    expect(target.querySelector('#panel-staff')!.textContent).toContain('Fix the login handoff');
+
+    // The #825 refusal: the hold this click asserted is not what the server
+    // found, so the roster it was drawn from is known wrong.
+    pick(target, 'Ada', 'Release');
+    await tick(2);
+    const form = target.querySelector<HTMLFormElement>('form[action="?/releaseWorker"]')!;
+    const result = await superValidate(
+      { _kind: 'releaseWorker', workerId: 'w1', expectedHolderUserId: 'u1' },
+      zod4(releaseWorkerSchema),
+      { errors: false },
+    );
+    result.valid = true;
+    result.message = { type: 'error', staleHold: true, text: 'Nothing was released. The hold changed after this list was drawn. The list has been refreshed.' };
+    read = rosterOkAfter;
+    await submitEnhancedWithResult(form, { type: 'failure', status: 409, data: { form: result } });
+    await settled(3);
+
+    expect(rosterCalls(calls)).toHaveLength(2);
+    expect(target.querySelector('#panel-staff')!.textContent).toContain('Ship the roster refresh');
+    expect(target.querySelector('#panel-staff')!.textContent).not.toContain('Fix the login handoff');
+    confirmSpy.mockRestore();
+    requestSubmit.mockRestore();
+  });
+
+  it('a late fetch from an earlier App cannot clobber the newer App’s read (F2)', async () => {
+    let releaseA1!: (read: TeamRosterRead) => void;
+    const gateA1 = { read: () => new Promise<TeamRosterRead>((resolve) => { releaseA1 = resolve; }) };
+    const calls = stubFetch({
+      read: (url: string) => (url.includes('/apps/a2/') ? Promise.resolve(rosterOkAfter) : gateA1.read()),
+    });
+    const { props, target } = await mountStaffHeld();
+
+    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await settled();
+    expect(rosterCalls(calls)).toEqual(['/app/apps/a1/roster']);
+
+    // App-to-App navigation while a1's ask is still in flight: the page
+    // component is reused and a2's ask starts (and lands) immediately.
+    props.data = {
+      ...props.data,
+      app: { ...(props.data as { app: Record<string, unknown> }).app, id: 'a2' },
+      staff: [{
+        id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', retiredAt: null,
+        heldByUserId: 'u1', heldAt: '2026-10-01T00:00:00.000Z',
+      }],
+    };
+    await settled(3);
+    expect(target.querySelector('#panel-staff')!.textContent).toContain('Ship the roster refresh');
+
+    // a1's answer lands LAST: it must be dropped, not written over a2's.
+    releaseA1(rosterOk);
+    await settled(3);
+    expect(target.querySelector('#panel-staff')!.textContent).toContain('Ship the roster refresh');
+    expect(target.querySelector('#panel-staff')!.textContent).not.toContain('Fix the login handoff');
   });
 });
