@@ -9,6 +9,7 @@ import { setStubPage } from '$lib/test/stubs/app-stores';
 import { submitEnhanced } from '$lib/test/stubs/app-forms';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import Page from './+page.svelte';
+import { everyTabRead } from './app-page.fixture';
 import {
   addAgentSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
   deleteAppSchema, releaseWorkerSchema, removeAppAgentSchema,
@@ -37,6 +38,8 @@ async function pageData(initialTab: 'agents' | 'keys', agents: unknown[] = [AGEN
     retireWorkerSchema, releaseWorkerSchema, postTeamChatMessageSchema,
   ].map((schema) => superValidate(zod4(schema), { errors: false })));
   return {
+    // portal#2240: every tab already read, as before the first-screen load.
+    ...everyTabRead(),
     app: {
       id: 'a1', urn: 'hrn:app:acme.com:team', name: 'Team', appType: 'WORKSTATION',
       role: 'OWNER', surfaces: [], agentId: null, agent: null,
