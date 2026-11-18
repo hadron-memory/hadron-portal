@@ -24,7 +24,12 @@ export const createNodeSchema = z.object({
   nodeType: z.enum(createNodeTypes).default('info'),
   description: z.string().trim().default(''),
   abstract: z.string().trim().default(''),
+  // #1166: comma-separated, split in the action (same shape as the edit form's Tags).
+  tags: z.string().trim().default(''),
   content: z.string().trim().default(''),
+  // #1670: an open string (hrn:node:hadronmemory.com:specs:cor:dmo:060:02), sent trimmed only; empty sends none.
+  // No grammar, case or closed-list check here: the server's governance decides.
+  role: z.string().default(''),
   // #588 (server #725): collection discriminator — a declared collection name
   // (picker) or free text on a schema-less memory. Empty = ordinary node.
   // The server validates the value; the schema's name grammar isn't mirrored

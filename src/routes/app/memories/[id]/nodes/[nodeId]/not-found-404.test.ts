@@ -95,3 +95,31 @@ describe('node routes — a node that does not resolve is a 404, not a 500 (#790
     expect(thrown.body?.message).not.toContain('script');
   });
 });
+
+// #1159: a node that does not resolve MAY still be a retained tombstone the
+// viewer can recover (recoveryNode is writer-only and answers null otherwise,
+// so existence stays hidden). Only then does the detail page hand over.
+describe('detail page — a recoverable deleted node (#1159)', () => {
+  it('redirects to the deleted-node page when recoveryNode finds the tombstone', async () => {
+    mockRequest.mockResolvedValue({ node: null, recoveryNode: { id: 'no-such-node', memoryId: 'mem-1' } });
+    const { load } = await import('./+page.server');
+    const thrown = (await expectThrow(load as never, event())) as { status?: number; location?: string };
+    expect(thrown.status).toBe(303);
+    expect(thrown.location).toBe('/app/memories/mem-1/nodes/no-such-node/deleted');
+  });
+
+  it('still 404s when there is no tombstone', async () => {
+    mockRequest.mockResolvedValue({ node: null, recoveryNode: null });
+    const { load } = await import('./+page.server');
+    expect((await expectThrow(load as never, event())).status).toBe(404);
+  });
+
+  it('still 404s when the recovery read itself fails', async () => {
+    mockRequest.mockImplementation(async (q: string) => {
+      if (String(q).includes('recoveryNode')) throw new Error('boom');
+      return { node: null };
+    });
+    const { load } = await import('./+page.server');
+    expect((await expectThrow(load as never, event())).status).toBe(404);
+  });
+});

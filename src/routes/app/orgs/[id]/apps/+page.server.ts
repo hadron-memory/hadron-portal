@@ -9,6 +9,7 @@ import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
+import { loadActiveKeyCounts } from '$lib/server/app-keys';
 import { t } from '$lib/i18n/t';
 import {
   APPS_QUERY,
@@ -37,9 +38,14 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const { org } = await parent();
   const appsData = await fetchAllItems<App>(client, APPS_QUERY, 'apps', { orgId: params.id })
     .catch(() => [] as App[]);
+  // portal#1068: the Active keys column's counts. App.keys is manager-only and
+  // non-null, so it can't ride the Apps list (it would empty the list for a
+  // non-manager); each count is its own classified read, bounded.
+  const keyCounts = await loadActiveKeyCounts(client, appsData);
   return {
     org,
     apps: appsData,
+    keyCounts,
     deleteForm: await superValidate<DeleteOrgAppForm>(
       { id: '' },
       deleteOrgAppFormAdapter,

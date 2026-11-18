@@ -8,10 +8,13 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
+  import NodeEmbeddingBadges from './NodeEmbeddingBadges.svelte';
+  import { nodeListHref } from '$lib/node-list-links';
   import ViewTabs from './table/ViewTabs.svelte';
   import TableFrame from './table/TableFrame.svelte';
   import ColumnToggle from './table/ColumnToggle.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+  import { approvedCellText, changedByView, signedCellText, type NodeColumnRow } from '$lib/node-columns';
   import { t } from '$lib/i18n/t';
   import type { MemoryNode, SearchHitMeta } from '$lib/types';
 
@@ -23,8 +26,19 @@
     onreorder,
     listKey,
     hideSearch = false,
+    viewMemoryId = '',
     snippets = {},
     meta = {},
+    deletedIds = [],
+    showColumns = false,
+    embeddingEnabled = false,
+    columnData = {},
+    columnsLoading = 0,
+    columnsFailed = 0,
+    signingOffered = true,
+    onretrycolumns,
+    onvisiblenodes,
+    serverPaged = false,
   }: {
     nodes: MemoryNode[];
     basePath?: string;
@@ -35,6 +49,8 @@
     listKey?: string;
     /** Hide the built-in search box (the owner provides search — issue #355). */
     hideSearch?: boolean;
+    /** The memory this list is shown for: a row from another memory is marked inherited. */
+    viewMemoryId?: string;
     /**
      * #430: nodeId → best matching-passage snippet, from a semantic search.
      * When present for a row, rendered under the node name. Empty in browse.
@@ -45,7 +61,51 @@
      * a relevance % and a stale-abstract badge on the row. Empty in browse.
      */
     meta?: Record<string, SearchHitMeta>;
+    /** #1161: ids the SERVER reports as deleted (recoveryNodes); rows outside it carry no mark. */
+    deletedIds?: string[];
+    /**
+     * portal#1174: add Role, Last changed, Changed by, Revision, Approved and
+     * Signed. Off by default so the children list and every other consumer keep
+     * their three columns. Fixed at mount, like the rest of the column set.
+     */
+    showColumns?: boolean;
+    /**
+     * portal#1346: the browsed memory is vector-indexed, so a row may carry the
+     * pending/failed embedding badge from its (lazily loaded) columns.
+     */
+    embeddingEnabled?: boolean;
+    /** nodeId → that node's extra columns, as they load. A node absent here has not loaded. */
+    columnData?: Record<string, NodeColumnRow>;
+    /** How many nodes' columns are still being read. */
+    columnsLoading?: number;
+    /** How many nodes' columns could not be read. */
+    columnsFailed?: number;
+    /** False when the deployment has signing off: the Signed column then says so rather than staying blank. */
+    signingOffered?: boolean;
+    onretrycolumns?: () => void;
+    /**
+     * portal#1174: the ids of the rows on screen now (the current page after
+     * sort, filter and paging), so the owner reads the extra columns for those
+     * rows only and never for the whole memory.
+     */
+    onvisiblenodes?: (ids: string[]) => void;
+    /** The owner fetched and ordered this complete window; its pager is the only one. */
+    serverPaged?: boolean;
   } = $props();
+  const deletedSet = $derived(new Set(deletedIds));
+
+  // portal#1174: the extra columns are read from `columnData` at render time,
+  // NOT merged into the table's data. Rebuilding the data array whenever a page's
+  // columns land would change its identity, and TanStack resets the page index
+  // when the data reference changes, bouncing the reader back to page 1
+  // (Gemma on #1181). The columns are not sortable or filterable, so nothing in
+  // the row model needs them.
+  const colsOf = (n: MemoryNode): NodeColumnRow | undefined => (showColumns ? columnData[n.id] : undefined);
+  const instantMs = (v: string | null | undefined): number | null => {
+    if (!v) return null;
+    const ms = new Date(v).getTime();
+    return Number.isNaN(ms) ? null : ms;
+  };
 
   // #432: relevance tooltip — explain the relative % and add the vector "why did
   // this match" lineage when the hit came from the vector index.
@@ -58,26 +118,10 @@
     return lines.join(' · ');
   }
 
-  function nodeHref(node: MemoryNode): string {
-    if (basePath) return `${basePath}/nodes/${node.id}`;
-    // #260: memory pages are org-less, so the fallback needs only the memory id.
-    const memId = node.memory?.id;
-    if (memId) return `/app/memories/${memId}/nodes/${node.id}`;
-    return '';
-  }
-
-  // portal#1015: a comment hit links back to the DISCUSSION on its target
-  // (hrn:node:hadronmemory.com:specs:cor:dmo:110:08), in the same memory (110:01), not to the comment node.
-  function discussionHref(node: MemoryNode): string {
-    const target = node.comment?.target;
-    if (!target) return '';
-    const base = basePath ? `${basePath}/nodes/${target.id}` : node.memory?.id ? `/app/memories/${node.memory.id}/nodes/${target.id}` : '';
-    return base ? `${base}?tab=discussion` : '';
-  }
-
   function nodeUrn(node: MemoryNode): string {
-    // Some queries don't populate node.memory. Render bare loc rather than throw
-    // and take down the whole list (data-shape concern, fixed at the loader).
+    // The node's own authorized identity survives a withheld Memory record.
+    if (node.urn) return node.urn;
+    // Older/slim reads may not select it; preserve their existing fallback.
     const u = memoryUrn || node.memory?.urn || '';
     return u && node.loc ? composeNodeUrn(u, node.loc) : node.loc;
   }
@@ -102,6 +146,13 @@
     ].join(' ');
   }
 
+  // portal#1174: these columns are read for the displayed page only, so a sort
+  // or a text filter over them would be over the pages that happen to have
+  // loaded, not over the memory, and must not pretend otherwise. The server
+  // filters (approval, minted) and sorts (updatedAt) stay the whole-memory way
+  // to ask those questions.
+  const PAGE_ONLY = { enableSorting: false, enableGlobalFilter: false } as const;
+
   const columns: PortalColumnDef<MemoryNode>[] = [
     {
       // portal#1015: a comment hit's row also renders its author and target, so
@@ -115,6 +166,17 @@
     }, // identity column — always shown
     { accessorKey: 'nodeType', header: 'Type', size: 120 },
     { accessorFn: (n) => n.description ?? '', id: 'description', header: 'Description', size: 400 },
+    ...(untrack(() => showColumns)
+      ? ([
+          { ...PAGE_ONLY, accessorFn: (n) => colsOf(n)?.role ?? '', id: 'role', header: t('node-list.col.role', 'Role'), size: 140 },
+          // Sorts by instant, not by the wire string (hrn:node:hadronmemory.com:hadron-portal:review:date-column-sorts-by-instant).
+          { ...PAGE_ONLY, accessorFn: (n) => instantMs(colsOf(n)?.updatedAt), id: 'updatedAt', header: t('node-list.col.last-changed', 'Last changed'), size: 180 },
+          { ...PAGE_ONLY, accessorFn: (n) => changedByView(colsOf(n)).searchText, id: 'changedBy', header: t('node-list.col.changed-by', 'Changed by'), size: 220 },
+          { ...PAGE_ONLY, accessorFn: (n) => colsOf(n)?.revision ?? null, id: 'revision', header: t('node-list.col.revision', 'Revision'), size: 100 },
+          { ...PAGE_ONLY, accessorFn: (n) => approvedCellText(colsOf(n)), id: 'approved', header: t('node-list.col.approved', 'Approved'), size: 200 },
+          { ...PAGE_ONLY, accessorFn: (n) => signedCellText(colsOf(n)), id: 'signed', header: t('node-list.col.signed', 'Signed'), size: 180 },
+        ] as PortalColumnDef<MemoryNode>[])
+      : []),
   ];
 
   const table = createSvelteTable<MemoryNode>({
@@ -122,10 +184,15 @@
       return nodes;
     },
     columns,
+    // A server-owned window is already paged, sorted and filtered. TanStack
+    // must not add a second, page-local implementation of any of them.
+    get manualPagination() { return serverPaged; },
+    get manualSorting() { return serverPaged; },
+    get manualFiltering() { return serverPaged; },
     enableMultiSort: false,
     // In the orderable (children) list, manual drag order is the source of
     // truth — sorting would fight it, so it's disabled there (PR #277 review).
-    enableSorting: tableCanSortAndResize,
+    get enableSorting() { return tableCanSortAndResize && !serverPaged; },
     // Resizing only in the browse list; the orderable children list uses a drag
     // handle and a narrow, fixed column set.
     enableColumnResizing: tableCanSortAndResize,
@@ -150,6 +217,7 @@
     // synchronous seed and overrides the page size from the active view if one
     // exists — and leaves this seed in place when no view is active (spec D7).
     try {
+      if (serverPaged) return;
       const v = Number(window.localStorage.getItem(PAGE_SIZE_KEY));
       if (PAGE_SIZES.includes(v)) table.setPageSize(v);
     } catch {
@@ -166,11 +234,20 @@
     }
   }
 
-  // Orderable (children) list shows every row so drag indices stay stable;
-  // the browse list shows the current page.
+  // Orderable and server-paged lists show every supplied row so drag indices
+  // and the outer server window stay stable; only a client-owned browse list pages.
   const displayRows = $derived(
-    orderable ? table.getPrePaginatedRowModel().rows : table.getRowModel().rows,
+    orderable || serverPaged ? table.getPrePaginatedRowModel().rows : table.getRowModel().rows,
   );
+  // portal#1174: tell the owner which rows are on screen so it reads their
+  // extra columns, and only theirs. Reads displayRows alone; the owner's
+  // `ensure` skips ids it already asked about, so a late-arriving column that
+  // rebuilds the rows does not ask again.
+  $effect(() => {
+    if (!showColumns || !onvisiblenodes) return;
+    const ids = displayRows.map((r) => r.original.id);
+    untrack(() => onvisiblenodes(ids));
+  });
   const pageSize = $derived(table.atoms.pagination.get().pageSize);
   const pageIndex = $derived(table.atoms.pagination.get().pageIndex);
   const pageCount = $derived(table.getPageCount());
@@ -237,6 +314,19 @@
   {#if nodes.length === 0}
     <p class="text-sm text-zinc-500">No nodes.</p>
   {:else}
+    {#if showColumns}
+      <p class="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+        {t('node-list.last-changed-explanation', 'Last changed is when the node was last updated. Revisions show when snapshots were saved; these times can differ.')}
+      </p>
+      <!-- portal#1174: the extra columns arrive after the list; say so, and say when a batch failed, rather than leaving blanks unexplained. Always mounted so a screen reader announces a change. -->
+      <p role="status" data-testid="node-columns-status" class="mb-2 min-h-4 text-xs text-zinc-500 dark:text-zinc-400">
+        {#if columnsLoading > 0}{t('node-list.columns-loading', 'Loading details…')}{/if}
+        {#if columnsFailed > 0}
+          {t('node-list.columns-failed', "Details for {n} nodes couldn't be loaded.", { n: columnsFailed })}
+          {#if onretrycolumns}<button type="button" class="ml-1 font-medium text-indigo-600 hover:underline dark:text-indigo-300" onclick={onretrycolumns}>{t('node-list.columns-retry', 'Retry')}</button>{/if}
+        {/if}
+      </p>
+    {/if}
     <!-- Browse list scrolls inside a bounded container; the orderable children
          list keeps its natural height. Height = the area available to NodeList
          minus this list's own controls/footer chrome (the `10rem`).
@@ -289,8 +379,9 @@
         <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
           {#each displayRows as row (row.id)}
             {@const n = row.original}
+            {@const c = colsOf(n)}
             {@const hit = n.comment ? commentHitView(n.comment) : null}
-            {@const href = hit ? discussionHref(n) || nodeHref(n) : nodeHref(n)}
+            {@const href = nodeListHref(n, basePath)}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <tr
               class="bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900
@@ -319,6 +410,12 @@
                           <span class="ml-1 text-xs tabular-nums text-zinc-400">#{n.seq}</span>
                         {/if}
                       </span>
+                      {#if viewMemoryId && n.memoryId && n.memoryId !== viewMemoryId}
+                        <span data-testid="node-inherited" class="shrink-0 rounded bg-zinc-100 px-1.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{t('nodes-tab.inherited', 'inherited')}</span>
+                      {/if}
+                      {#if deletedSet.has(n.id)}
+                        <span data-testid="node-deleted" class="shrink-0 rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{t('node.deleted.badge', 'Deleted')}</span>
+                      {/if}
                       {#if meta?.[n.id]?.scorePct !== null && meta?.[n.id]?.scorePct !== undefined}
                         <!-- #432: relevance relative to the top hit (scores aren't
                              comparable across modes, so % of top, not the raw score). -->
@@ -370,6 +467,9 @@
                       {/if}
                     </div>
                     <div class="mt-0.5 truncate"><Urn value={nodeUrn(n)} type="node" size={8} /></div>
+                    {#if c?.embedding}
+                      <NodeEmbeddingBadges enabled={embeddingEnabled} pendingAt={c.embedding.pendingAt} failedAt={c.embedding.failedAt} error={c.embedding.error} />
+                    {/if}
                     {#if hit && n.comment}
                       <!-- portal#1015: feedback, never content of its target: its author, the
                            node it concerns, and the revision it was written against
@@ -399,6 +499,45 @@
                       >…{snippets[n.id]}…</div>
                     {/if}
                   </td>
+                {:else if cell.column.id === 'role'}
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
+                    {#if c?.role}<span class="break-words font-mono text-xs text-zinc-700 dark:text-zinc-300">{c.role}</span>{:else if c}<span class="text-zinc-400">—</span>{/if}
+                  </td>
+                {:else if cell.column.id === 'updatedAt'}
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs tabular-nums text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
+                    {#if instantMs(c?.updatedAt) !== null}{new Date(c!.updatedAt!).toLocaleString()}{:else if c}<span class="text-zinc-400">—</span>{/if}
+                  </td>
+                {:else if cell.column.id === 'changedBy'}
+                  {@const by = changedByView(c)}
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs dark:border-zinc-800">
+                    {#if by.user}
+                      <div data-testid="changed-by-user" class="min-w-0">
+                        <div class="truncate text-zinc-700 dark:text-zinc-300">{by.user.handle ? `@${by.user.handle}` : t('node-list.changed-by.user', 'User')}</div>
+                        {#if by.user.urn}<Urn value={by.user.urn} type="user" size={8} />{/if}
+                      </div>
+                    {/if}
+                    {#if by.worker}
+                      <div data-testid="changed-by-worker" class="min-w-0">
+                        <div class="truncate text-zinc-700 dark:text-zinc-300">{by.worker.name}</div>
+                        {#if by.worker.urn}<Urn value={by.worker.urn} type="worker" linked size={8} />{/if}
+                      </div>
+                    {/if}
+                    {#if by.agent}
+                      <div data-testid="changed-by-agent" class="mt-1 min-w-0">
+                        <div class="truncate text-zinc-600 dark:text-zinc-400">{by.agent.name}</div>
+                        {#if by.agent.urn}<Urn value={by.agent.urn} type="agent" linked size={8} />{/if}
+                      </div>
+                    {/if}
+                    {#if c && !by.user && !by.worker && !by.agent}<span class="text-zinc-400">—</span>{/if}
+                  </td>
+                {:else if cell.column.id === 'revision'}
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs tabular-nums text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
+                    {c ? (c.revision ?? '—') : ''}
+                  </td>
+                {:else if cell.column.id === 'approved'}
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">{approvedCellText(c) || (c ? '—' : '')}</td>
+                {:else if cell.column.id === 'signed'}
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">{#if !signingOffered}<span class="text-zinc-400" title={t('node-list.signing-off-title', 'Signing is not enabled on this server')}>{t('node-list.signing-off', 'Off')}</span>{:else}{signedCellText(c) || (c ? '—' : '')}{/if}</td>
                 {:else if cell.column.id === 'nodeType'}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
                     <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{n.nodeType}</span>
@@ -415,11 +554,15 @@
       </table>
     </div>
 
-    {#if !orderable}
-      <!-- Footer: page size (left of Prev/Next) + pagination; always visible -->
-      <div class="flex items-center justify-between gap-3">
+    {#if !orderable && !serverPaged}
+      <!-- Footer: page size (left of Prev/Next) + pagination; always visible.
+           Both rows wrap (#1270): this is the same footer DataTable carries —
+           the select is sized by its longest option label and cannot shrink
+           beside Previous/Next, so a no-wrap footer pushed the document wide
+           on a 390px phone. -->
+      <div data-testid="table-footer" class="flex flex-wrap items-center justify-between gap-3">
         <span class="text-sm text-zinc-500">{pageCount > 1 ? `Page ${pageIndex + 1} of ${pageCount}` : ''}</span>
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
           <select value={pageSize} onchange={(e) => changePageSize(Number((e.target as HTMLSelectElement).value))}
             aria-label="Nodes per page"
             class="rounded-lg border border-zinc-300 !bg-zinc-100 px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:!bg-zinc-800 dark:text-white">

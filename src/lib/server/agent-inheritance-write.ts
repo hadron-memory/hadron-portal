@@ -1,5 +1,8 @@
 import type { GraphQLClient } from 'graphql-request';
 import { extractGqlError } from './gqlError';
+import { fetchOwnedAgents } from './personal-agents';
+import { APP_ORG_AGENTS_QUERY, APP_ORG_AGENT_GRANTS_QUERY } from './queries';
+import { mergeInstallableAgents, type OrgAgentPool } from './installable-agents';
 import { t } from '$lib/i18n/t';
 
 export const SELF_AGENT_MANAGE_QUERY = /* GraphQL */ `
@@ -38,6 +41,45 @@ export function indexVariables(ref: string, form: IndexWrite) {
     ...(form.processesOperation === 'keep' ? {} : { processesIndexRef: form.processesOperation === 'clear' ? null : form.processesIndexRef }),
   };
 }
+/** One row the parent-agent SelectAgent modal offers. */
+export interface BaseCandidate {
+  id: string;
+  name: string;
+  urn: string;
+  description?: string | null;
+}
+
+/**
+ * #1108/#1278: offer org-owned agents and readable agents with an active org
+ * grant, or the caller's own agents for a personal child. Grant reads are
+ * independent: their failure drops only that pool, never owned candidates.
+ * The shared grant filter excludes revoked/expired/unreadable rows and dedupes
+ * owned first. setAgentBase remains the authoritative eligibility gate.
+ * Null means the primary candidate read failed, not an empty legal pool.
+ */
+export async function loadBaseCandidates(
+  client: GraphQLClient,
+  token: string | null,
+  organizationId: string | null,
+  selfId: string,
+): Promise<BaseCandidate[] | null> {
+  try {
+    let agents: BaseCandidate[];
+    if (organizationId) {
+      const [owned, grants] = await Promise.all([
+        client.request<{ organization: { agents: BaseCandidate[] } | null }>(APP_ORG_AGENTS_QUERY, { ref: organizationId }),
+        client.request<{ organization: Pick<OrgAgentPool, 'agentOrgGrants'> | null }>(APP_ORG_AGENT_GRANTS_QUERY, { ref: organizationId }).catch(() => null),
+      ]);
+      agents = mergeInstallableAgents({ agents: owned.organization?.agents ?? [], agentOrgGrants: grants?.organization?.agentOrgGrants });
+    } else {
+      agents = await fetchOwnedAgents(token);
+    }
+    return agents.filter((a) => a.id !== selfId);
+  } catch {
+    return null;
+  }
+}
+
 export interface InheritanceManagement {
   canManage: boolean;
   refs: { extendsAgentId: string | null; tasksIndexRef: string | null; processesIndexRef: string | null } | null;

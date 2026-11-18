@@ -1,3 +1,4 @@
+import { extractGqlError } from '$lib/server/gqlError';
 import { json } from '@sveltejs/kit';
 import { ClientError } from 'graphql-request';
 import { gqlClient } from '$lib/server/api';
@@ -60,7 +61,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
       }
     }
     return json(
-      { code: 'INTERNAL', message: err instanceof Error ? err.message : String(err) },
+      { code: 'INTERNAL', message: extractGqlError(err, 'resolve failed') },
       { status: 500 },
     );
   }

@@ -1,0 +1,106 @@
+{
+  "light": {
+    "crumbs": [
+      [
+        "Specifications",
+        "/app/memories/aab21337f9a31d96acd7765200481108/nodes/01a1953676b578abad686b0bd6b3b69a"
+      ],
+      [
+        "Authentication",
+        "/app/memories/aab21337f9a31d96acd7765200481108/nodes/01a1953676e6747fa21e96cb247dae52"
+      ]
+    ],
+    "wikilinks": [
+      [
+        "Authentication",
+        "A",
+        "/app/memories/aab21337f9a31d96acd7765200481108/nodes/01a1953676e6747fa21e96cb247dae52",
+        "wikilink"
+      ],
+      [
+        "the OAuth spec",
+        "A",
+        "/app/memories/aab21337f9a31d96acd7765200481108/nodes/01a1953677077b2b96a7f475e28a1fbf",
+        "wikilink"
+      ],
+      [
+        "welcome",
+        "A",
+        "/app/memories/aab21337f9a31d96acd7765200481108/nodes/9c80f0b4686f7a8042c5ad2c407fa7c3",
+        "wikilink"
+      ],
+      [
+        "[[specs:never-written]]",
+        "SPAN",
+        null,
+        "wikilink wikilink-unresolved"
+      ]
+    ],
+    "createParentOffered": 0,
+    "openChat": [
+      "Open chat"
+    ],
+    "edgeOptions": [
+      [
+        "specs:auth",
+        "Authentication"
+      ],
+      [
+        "specs:auth:oauth",
+        "OAuth 2.0 flows"
+      ]
+    ]
+  },
+  "dark": {
+    "crumbs": [
+      [
+        "Specifications",
+        "/app/memories/aab21337f9a31d96acd7765200481108/nodes/01a1953676b578abad686b0bd6b3b69a"
+      ],
+      [
+        "Authentication",
+        "/app/memories/aab21337f9a31d96acd7765200481108/nodes/01a1953676e6747fa21e96cb247dae52"
+      ]
+    ],
+    "wikilinks": [
+      [
+        "Authentication",
+        "A",
+        "/app/memories/aab21337f9a31d96acd7765200481108/nodes/01a1953676e6747fa21e96cb247dae52",
+        "wikilink"
+      ],
+      [
+        "the OAuth spec",
+        "A",
+        "/app/memories/aab21337f9a31d96acd7765200481108/nodes/01a1953677077b2b96a7f475e28a1fbf",
+        "wikilink"
+      ],
+      [
+        "welcome",
+        "A",
+        "/app/memories/aab21337f9a31d96acd7765200481108/nodes/9c80f0b4686f7a8042c5ad2c407fa7c3",
+        "wikilink"
+      ],
+      [
+        "[[specs:never-written]]",
+        "SPAN",
+        null,
+        "wikilink wikilink-unresolved"
+      ]
+    ],
+    "createParentOffered": 0,
+    "openChat": [
+      "Open chat"
+    ],
+    "edgeOptions": [
+      [
+        "specs:auth",
+        "Authentication"
+      ],
+      [
+        "specs:auth:oauth",
+        "OAuth 2.0 flows"
+      ]
+    ]
+  }
+}

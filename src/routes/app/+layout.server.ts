@@ -1,3 +1,4 @@
+import { takeNodeAdvice } from '$lib/server/node-advice';
 import { redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
@@ -23,7 +24,7 @@ function activeOrgCookieName(userId: string): string {
   return `${ACTIVE_ORG_COOKIE_PREFIX}_${userId}`;
 }
 
-export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) => {
+export const load: LayoutServerLoad = async ({ locals, url, params, cookies, parent }) => {
   if (!locals.user) {
     // #761: `url.search`, not `url.pathname` alone. This is the redirect a
     // SIGNED-OUT visitor hits, which makes it the common case for a shared deep
@@ -35,13 +36,24 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
     // /app/* deep link, not just the URN resolver.
     redirect(303, `/signin?redirect=${encodeURIComponent(withQuery(url.pathname, url.search))}`);
   }
+  // #1117: read the shared `locals` ONCE, here at the guard, and use only the
+  // snapshot below. Every load of the request shares `locals` and runs in
+  // parallel; the root layout used to null `locals.user` / `.impersonation`
+  // when its `me` failed (it no longer writes them), which landed while this
+  // load awaited and made `locals.user.id` throw. Reading once keeps this load
+  // coherent whatever another load does; it finishes as it began, with the
+  // me-failed fallback below.
+  const sessionUser = locals.user;
+  const impersonation = locals.impersonation;
   const apiClient = gqlClient(locals.token);
   // Fetch orgs AND the full `me` profile in parallel. The JWT only carries
   // id/roles/githubUsername, so the avatar URL and name live server-side and
   // we must fetch them to render the sidebar avatar correctly.
   let meThrew = false;
   let orgsThrew = false;
-  const [orgs, meData] = await Promise.all([
+  // `parent()` (the root layout's data) is awaited ALONGSIDE this layout's own
+  // requests, so it costs no extra round trip; see the identity check below.
+  const [orgs, meData, rootData] = await Promise.all([
     fetchAllItems<Organization>(apiClient, ORGANIZATIONS_NAV_QUERY, 'organizations')
       // Keep the app up if the org list fails, but REMEMBER it failed: an empty
       // list must not be read as "zero memberships" and flip a real org member
@@ -65,7 +77,35 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
         console.error('[app-layout] `me` query threw — user handle will be blank (name/avatar fall back to the JWT):', e);
         return { me: null as UserSummary | null };
       }),
+    parent(),
   ]);
+  // #1117: one response, one identity decision, and it's the root layout's.
+  // When its own `me` receives an auth refusal it returns
+  // `user: null` (the nav renders "Sign in") and drops the active cookie.
+  // Rendering signed-in App content under that nav, or a target's
+  // impersonation banner, made one response claim two identities (Atilla and
+  // Colin on #1119). So defer to it, in one of two ways:
+  //  - The root DROPPED a cookie (`sessionCleared`: an auth refusal, or a
+  //    null `me` whose authenticationStatus is REFUSED, #1091).
+  //    Redirect to this same URL; the next request, without that cookie, takes the
+  //    existing path: the guard above sends a user to /signin, and an admin
+  //    whose impersonation was dropped comes back as themselves.
+  //  - Anything else (its `me` answered null and the credential was not
+  //    answered REFUSED, e.g. an older server or a failed check). Nothing
+  //    was dropped, so a reload would carry the same credential and get the
+  //    same answer, a loop (Atilla's P2-2). Go where the guard sends a
+  //    signed-out visitor.
+  // #1120: transient root Me failures instead throw 503 through parent(),
+  // preserving the cookie and bypassing these auth redirects entirely.
+  const root = rootData as { user?: unknown; sessionCleared?: boolean };
+  if (!root.user) {
+    redirect(
+      303,
+      root.sessionCleared
+        ? withQuery(url.pathname, url.search)
+        : `/signin?redirect=${encodeURIComponent(withQuery(url.pathname, url.search))}`,
+    );
+  }
   // A `me` of null WITHOUT an error is the more common cause of a blank handle:
   // the `me` resolver returns null when `ctx.userId` is unset, i.e. the server
   // did not accept the session token even though the portal decoded it locally
@@ -74,7 +114,7 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
   // change — re-authenticating fixes it. Log it distinctly so it's diagnosable.
   // Deliberately NO user id in the message: `sub` comes from an unverified JWT,
   // so it's attacker-controllable and must never reach the logs (log-injection,
-  // #637 review). `locals.user` is guaranteed set here (the load redirects
+  // #637 review). `sessionUser` is guaranteed set here (the load redirects
   // unauthenticated requests above).
   if (!meThrew && meData.me === null) {
     console.warn(
@@ -89,7 +129,7 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
   // which fetches its own list). filterToMemberOrgs stays as cheap
   // defense-in-depth for consumer-mode detection and active-/personal-org
   // resolution.
-  const memberOrgs = filterToMemberOrgs(orgs, locals.user.id);
+  const memberOrgs = filterToMemberOrgs(orgs, sessionUser.id);
   // Consumer (individual) mode = the user belongs to NO organization. Since
   // #627 removed the per-user "personal org" (and its `isVisible` marker),
   // an individual simply has zero orgs and works out of org-less, user-owned
@@ -102,8 +142,8 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
   // Merge fresh server-side fields (name, avatarUrl, email) over the JWT
   // payload, so the layout always has current user metadata.
   const user: UserSummary & { roles: string[] } = meData.me
-    ? { ...locals.user, ...meData.me, roles: locals.user.roles }
-    : { ...locals.user, handle: null };
+    ? { ...sessionUser, ...meData.me, roles: sessionUser.roles }
+    : { ...sessionUser, handle: null };
 
   // Spec 014: resolve the active organization (URL → lastActiveOrgId →
   // first membership). #232 fix: feed the persisted cookie as the lastActiveOrgId
@@ -114,7 +154,7 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
   // it over the cookie for cross-device persistence — the cookie remains
   // the same-device fast path.
   const paramsId = typeof params.id === 'string' ? params.id : undefined;
-  const cookieName = activeOrgCookieName(locals.user.id);
+  const cookieName = activeOrgCookieName(sessionUser.id);
   const cookieOrgId = cookies.get(cookieName) ?? null;
   const resolution = resolveActiveOrg({
     paramsId,
@@ -163,12 +203,14 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
     redirect(302, segments.join('/') + url.search);
   }
 
+  const nodeAdvice = takeNodeAdvice(cookies, sessionUser.id);
   return {
+    ...(nodeAdvice.length ? { nodeAdvice } : {}),
     user,
     // Admin impersonation: the acting-as facts for the banner (null normally).
     // `user` above already IS the target under impersonation — hooks.server
     // swapped locals.token/user, and `me` resolves as the target.
-    impersonation: locals.impersonation,
+    impersonation,
     // The nav/OrgSwitcher list — memberships only (an admin reaches the
     // all-orgs view on /app/orgs). memberOrgs, not the raw fetch, so the
     // client-side defense-in-depth applies to what the UI renders too.

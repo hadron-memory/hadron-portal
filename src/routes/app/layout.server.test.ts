@@ -1,3 +1,4 @@
+import { ClientError } from 'graphql-request';
 /**
  * Spec 014-single-active-org — tests for the `+layout.server.ts` load
  * function. Verifies the active-org resolution is wired into layout data
@@ -87,6 +88,8 @@ function ev(opts: {
         },
     url: new URL(`http://localhost${opts.pathname ?? '/app/dashboard'}`),
     params: opts.paramsId ? { id: opts.paramsId } : {},
+    // The root layout's data: signed in unless a test wires the real root load.
+    parent: async () => ({ user: { id: 'user-1' } }),
     cookies: {
       get: (name: string) => cookieJar.get(name),
       set: (name: string, value: string, o: unknown) => {
@@ -156,6 +159,14 @@ describe('+layout.server.ts — the signin bounce preserves deep-link state (#76
     );
   });
 
+  it('redirects a signed-out ticker deep link without issuing layout API reads (#1213)', async () => {
+    const path = '/app/u/hrn:ticker:acme.com:team:engineering?after=s1';
+    const r = await expectSigninRedirect(path);
+    expect(r).toMatchObject({ status: 303, location: `/signin?redirect=${encodeURIComponent(path)}` });
+    expect(mockMyOrgsRequest).not.toHaveBeenCalled();
+    expect(mockMeRequest).not.toHaveBeenCalled();
+  });
+
   it('round-trips through the #439 open-redirect guard', async () => {
     // A query string must not make the destination look non-local, or the
     // guard would silently swap it for the dashboard fallback.
@@ -169,6 +180,15 @@ describe('+layout.server.ts — the signin bounce preserves deep-link state (#76
     const r = await expectSigninRedirect('/app/dashboard');
     expect(r.location).toBe(`/signin?redirect=${encodeURIComponent('/app/dashboard')}`);
     expect(r.location).not.toContain('%3F'); // no encoded bare '?'
+  });
+
+  it('keeps the signed-out public-organization boundary on the existing signin redirect (#1846 slice B)', async () => {
+    const path = '/app/org/org-public?from=memory';
+    const r = await expectSigninRedirect(path);
+    expect(r.status).toBe(303);
+    expect(r.location).toBe(`/signin?redirect=${encodeURIComponent(path)}`);
+    expect(mockMyOrgsRequest).not.toHaveBeenCalled();
+    expect(mockMeRequest).not.toHaveBeenCalled();
   });
 });
 
@@ -370,6 +390,35 @@ describe('+layout.server.ts — #232 active-org cookie persistence', () => {
     );
   });
 
+  // #1394: the memory index page now awaits this load before it redirects, which
+  // only helps while the cookie write stays inside the load. Pin the order: no
+  // write before the delayed org fetch settles, and the write is done by the
+  // time the load itself resolves.
+  it('writes the cookie only after its delayed org fetch, and before the load resolves (#1394)', async () => {
+    const orgA = makeOrg({ id: 'org-a' });
+    const orgB = makeOrg({ id: 'org-b' });
+    let release!: () => void;
+    mockMyOrgsRequest.mockImplementationOnce(
+      () => new Promise((resolve) => { release = () => resolve({ organizations: [orgA, orgB] }); }),
+    );
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const event = ev({ paramsId: 'org-b', pathname: '/app/orgs/org-b/agents' });
+    const cookieWrites = (event as unknown as { _cookieSetCalls: Array<{ name: string; value: string }> })._cookieSetCalls;
+    let resolved = false;
+    const run = loadAuthed(event).then((d) => { resolved = true; return d; });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(release).toBeTypeOf('function'); // the org fetch really is in flight
+    expect(resolved).toBe(false);
+    expect(cookieWrites).toHaveLength(0);
+
+    release();
+    await run;
+    expect(cookieWrites).toContainEqual(
+      expect.objectContaining({ name: ACTIVE_ORG_COOKIE_NAME, value: 'org-b' }),
+    );
+  });
+
   it('uses the cookie as lastActiveOrgId on routes without an org URL hint (repro for #232)', async () => {
     // Repro shape: user clicks an agent from /app/orgs/org-b/agents, lands
     // on /app/agents/<id>. Without the cookie, the layout would fall back to
@@ -547,5 +596,230 @@ describe('+layout.server.ts — hadron-server#473 admin/non-member org handling'
     // the resolved (member) org and redirects.
     expect(redirected?.status).toBe(302);
     expect(redirected?.location).toBe('/app/orgs/org-own/agents');
+  });
+});
+
+/**
+ * #1117 (Colin, QA on #1115): the root layout and this one load in PARALLEL and
+ * share `locals`. When `me` fails, the root layout's catch sets `locals.user`
+ * (and `locals.impersonation`) to null, which can land after this layout has
+ * passed its guard and while it awaits its own requests. Reading `locals.user`
+ * after that await threw `Cannot read properties of null (reading 'id')`, and
+ * the signed-in page answered a bare 500. The shared value is read once, at
+ * the guard; the load must finish on that snapshot with the existing
+ * me-failed fallback.
+ */
+describe('#1117: the root layout clears locals.user mid-load', () => {
+  function raceEvent() {
+    const event = ev({});
+    (event.locals as { impersonation?: unknown }).impersonation = { adminId: 'admin-1' };
+    // `me` fails, and the root layout's catch clears the shared locals while
+    // this layout is still awaiting: both happen inside the in-flight request.
+    mockMeRequest.mockImplementation(async () => {
+      await Promise.resolve();
+      const locals = event.locals as { user: unknown; token: unknown; impersonation: unknown };
+      locals.user = null;
+      locals.token = null;
+      locals.impersonation = null;
+      throw new Error('HTTP 500');
+    });
+    mockMyOrgsRequest.mockResolvedValue({ organizations: [makeOrg({ id: 'org-a' })] });
+    return event;
+  }
+
+  it('finishes on the snapshot taken at the guard: no TypeError', async () => {
+    const load = await importLoad();
+    await expect(load(raceEvent())).resolves.toBeTruthy();
+  });
+
+  it('answers the existing me-failed fallback for the user who passed the guard', async () => {
+    const load = await importLoad();
+    const data = (await load(raceEvent())) as {
+      user: { id: string; handle: string | null; roles: string[] };
+      navOrgs: Array<{ id: string }>;
+      impersonation: unknown;
+    };
+    expect(data.user).toMatchObject({ id: 'user-1', handle: null, roles: ['user'] });
+    // Membership filtering and the cookie scope used the same user.
+    expect(data.navOrgs.map((o) => o.id)).toEqual(['org-a']);
+    // The impersonation banner reports what this load started with, not a
+    // half-cleared mix.
+    expect(data.impersonation).toEqual({ adminId: 'admin-1' });
+  });
+});
+
+/**
+ * #1117, Atilla's and Colin's WAIT FIX at afba05df (Eden's ruling, #12446): one
+ * response, one identity decision. With `me` explicitly refusing authentication, the root layout decides
+ * this response is signed out (`user: null`, and drops the session cookie), so
+ * the root nav says "Sign in". The App layout must not render signed-in
+ * content beneath it. It now defers to the root: it redirects to the same URL,
+ * and the next request (without the dropped cookie) takes the existing path.
+ * That's /signin for a user; for an admin whose impersonation was dropped,
+ * their own session. These pins run the REAL root load and the REAL App load
+ * together, joined by `parent()` as SvelteKit joins them.
+ */
+describe('#1117: the root and App layouts answer one identity decision', () => {
+  async function composed(opts: { impersonating?: boolean; meFails: boolean; pathname?: string }) {
+    const event = ev({ pathname: opts.pathname ?? '/app/account' });
+    const locals = event.locals as { impersonation?: unknown };
+    locals.impersonation = opts.impersonating ? { adminId: 'admin-1' } : null;
+    const deleted: string[] = [];
+    (event.cookies as unknown as { delete: (n: string) => void }).delete = (n: string) => { deleted.push(n); };
+    if (opts.meFails) mockMeRequest.mockRejectedValue(new ClientError({ status: 401, headers: new Headers(), body: '' }, { query: 'query Me' }));
+    else mockMeRequest.mockResolvedValue({ me: { id: 'user-1', handle: 'ada', roles: ['user'] } });
+    mockMyOrgsRequest.mockResolvedValue({ organizations: [makeOrg({ id: 'org-a' })] });
+
+    const root = await import('../+layout.server');
+    const rootData = Promise.resolve(root.load(event as never));
+    (event as unknown as { parent: () => Promise<unknown> }).parent = () => rootData;
+    const app = await importLoad();
+    const outcome = await Promise.resolve(app(event)).then(
+      (data: unknown) => ({ data, redirect: null as null | { status: number; location: string } }),
+      (e: { status?: number; location?: string }) => {
+        if (e?.status && e.location) return { data: null, redirect: { status: e.status, location: e.location } };
+        throw e;
+      },
+    );
+    return { root: await rootData, ...outcome, deleted };
+  }
+
+  it('signed out by the root: no signed-in App content, a redirect to the same URL', async () => {
+    const r = await composed({ meFails: true, pathname: '/app/account?tab=x' });
+    expect(r.root).toEqual({ user: null, sessionCleared: true });
+    expect(r.data).toBeNull();
+    expect(r.redirect).toEqual({ status: 303, location: '/app/account?tab=x' });
+    expect(r.deleted).toEqual(['hadron_token']);
+  });
+
+  it('impersonating, signed out by the root: no target content or banner either', async () => {
+    const r = await composed({ impersonating: true, meFails: true });
+    expect(r.root).toEqual({ user: null, sessionCleared: true });
+    expect(r.data).toBeNull();
+    expect(r.redirect).toEqual({ status: 303, location: '/app/account' });
+    // Only the impersonation cookie goes: the next request is the admin's own.
+    expect(r.deleted).toEqual(['hadron_impersonation']);
+  });
+
+  it('signed in by the root: the App layout renders as before (control)', async () => {
+    const r = await composed({ meFails: false });
+    expect(r.root).toMatchObject({ user: { id: 'user-1' } });
+    expect(r.redirect).toBeNull();
+    expect((r.data as { user: { id: string } }).user.id).toBe('user-1');
+  });
+});
+
+/**
+ * #1117, Atilla's P2-2 at f4d112ad: the 303-to-self is safe only when the root
+ * actually dropped a cookie. When `me` SUCCEEDS with null (no auth, or a
+ * revoked impersonation), the root answers `user: null` without touching a
+ * cookie, so the next request carried the same credential and the 303 repeated
+ * forever. These pins follow the redirects hop by hop, building each request's
+ * credential from the cookie jar as hooks.server.ts does, and require every
+ * path to come to rest within two hops: /signin, or a rendered page.
+ */
+describe('#1117: every signed-out path terminates (no redirect loop)', () => {
+  type Me = 'throws' | 'null' | 'ok';
+  /** One request through the real root + App loads, from this cookie jar. */
+  async function hop(jar: Map<string, string>, me: Me, path: string) {
+    const imp = jar.get('hadron_impersonation');
+    const tok = jar.get('hadron_token');
+    const event = ev({ pathname: path, authed: !!(imp || tok) });
+    const locals = event.locals as { token: unknown; user: unknown; impersonation?: unknown };
+    locals.impersonation = imp ? { adminId: 'admin-1' } : null;
+    locals.token = imp ?? tok ?? null;
+    (event.cookies as unknown as { delete: (n: string) => void }).delete = (n: string) => { jar.delete(n); };
+    mockMeRequest.mockReset();
+    if (me === 'throws') mockMeRequest.mockRejectedValue(new ClientError({ status: 401, headers: new Headers(), body: '' }, { query: 'query Me' }));
+    else if (me === 'null') mockMeRequest.mockResolvedValue({ me: null });
+    else mockMeRequest.mockResolvedValue({ me: { id: 'user-1', handle: 'ada', roles: ['user'] } });
+    mockMyOrgsRequest.mockResolvedValue({ organizations: [makeOrg({ id: 'org-a' })] });
+
+    const root = await import('../+layout.server');
+    const rootData = Promise.resolve(root.load(event as never));
+    (event as unknown as { parent: () => Promise<unknown> }).parent = () => rootData;
+    const app = await importLoad();
+    return Promise.resolve(app(event)).then(
+      () => ({ rendered: true, location: null as string | null }),
+      (e: { status?: number; location?: string }) => {
+        if (e?.status === 303 && e.location) return { rendered: false, location: e.location };
+        throw e;
+      },
+    );
+  }
+
+  /** Follow redirects until a page renders or we leave /app; return the hops. */
+  async function follow(start: { imp?: boolean }, me: Me) {
+    const jar = new Map<string, string>([['hadron_token', 'tok']]);
+    if (start.imp) jar.set('hadron_impersonation', 'imp');
+    const trail: string[] = [];
+    let path = '/app/account?tab=x';
+    for (let i = 0; i < 5; i++) {
+      const r = await hop(jar, me, path);
+      if (r.rendered) return { trail, end: `rendered ${path}`, jar };
+      trail.push(r.location!);
+      if (!r.location!.startsWith('/app')) return { trail, end: r.location!, jar };
+      path = r.location!;
+    }
+    return { trail, end: 'LOOP', jar };
+  }
+
+  const toSignin = '/signin?redirect=%2Fapp%2Faccount%3Ftab%3Dx';
+
+  it('me succeeds with null, ordinary: straight to /signin, one hop', async () => {
+    const r = await follow({}, 'null');
+    expect(r.end).toBe(toSignin);
+    expect(r.trail).toEqual([toSignin]);
+  });
+
+  it('me succeeds with null, revoked impersonation: straight to /signin, one hop', async () => {
+    const r = await follow({ imp: true }, 'null');
+    expect(r.end).toBe(toSignin);
+    expect(r.trail).toEqual([toSignin]);
+  });
+
+  it('me refuses auth, ordinary: the cookie drops, then /signin, two hops', async () => {
+    const r = await follow({}, 'throws');
+    expect(r.trail).toEqual(['/app/account?tab=x', toSignin]);
+    expect(r.jar.has('hadron_token')).toBe(false);
+  });
+
+  it('me refuses auth while impersonating: the impersonation cookie drops, and the admin comes back', async () => {
+    // Only the first hop fails; the admin's own session then answers.
+    const jar = new Map<string, string>([['hadron_token', 'tok'], ['hadron_impersonation', 'imp']]);
+    const first = await hop(jar, 'throws', '/app/account?tab=x');
+    expect(first.location).toBe('/app/account?tab=x');
+    expect(jar.has('hadron_impersonation')).toBe(false);
+    const second = await hop(jar, 'ok', first.location!);
+    expect(second.rendered).toBe(true);
+  });
+});
+
+// #1120: a root outage must propagate through parent(), with no auth redirect
+// or signed-in fallback. Both loaders are real; only the API boundary is mocked.
+describe('#1120: root transient failure stops the composed App response', () => {
+  it.each([false, true])('preserves cookies and shared identity (impersonating=%s)', async (impersonating) => {
+    const event = ev({ pathname: '/app/account?tab=x' });
+    const locals = event.locals as { impersonation?: unknown };
+    locals.impersonation = impersonating ? { adminId: 'admin-1' } : null;
+    const snapshot = structuredClone(event.locals);
+    const deleted: string[] = [];
+    (event.cookies as unknown as { delete: (name: string) => void }).delete = (name) => { deleted.push(name); };
+    mockMeRequest.mockRejectedValue(new TypeError('fetch failed'));
+    mockMyOrgsRequest.mockResolvedValue({ organizations: [] });
+    const root = await import('../+layout.server');
+    const app = await importLoad();
+    const rootData = Promise.resolve(root.load(event as never));
+    (event as unknown as { parent: () => Promise<unknown> }).parent = () => rootData;
+    const outcomes = await Promise.allSettled([rootData, app(event)]);
+    for (const outcome of outcomes) {
+      expect(outcome.status).toBe('rejected');
+      if (outcome.status === 'rejected') {
+        expect(outcome.reason).toMatchObject({ status: 503 });
+        expect(outcome.reason).not.toHaveProperty('location');
+      }
+    }
+    expect(deleted).toEqual([]);
+    expect(event.locals).toEqual(snapshot);
   });
 });

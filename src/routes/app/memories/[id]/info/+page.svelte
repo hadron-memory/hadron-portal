@@ -1,16 +1,16 @@
 <script lang="ts">
   // #266: Info tab — read-only overview of the memory (owner, class, visibility,
-  // description, tags, integration status, dates) + stats. Edge count, last use,
+  // description, tags, dates) + stats. Edge count, last use,
   // and "agents/apps that include this memory" need new server queries and are
   // deferred (flagged below).
+  import { formatPortalDate } from '$lib/format-portal-date';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
-  import SyncErrorDetail from '$lib/components/SyncErrorDetail.svelte';
+  import Urn from '$lib/components/Urn.svelte';
 
   let { data }: { data: PageData } = $props();
   const g = $derived(data.graph);
-  const org = $derived(data.org);
-  const nodeCount = $derived(data.graphNodes?.length ?? 0);
+  const ownerAttribution = $derived(data.ownerAttribution);
 
   const isAgentSystem = $derived(g.class === 'system');
   const isOwnerOnly = $derived(g.class === 'personal' || g.class === 'private');
@@ -20,14 +20,6 @@
     GROUP: t('memory-info.visibility.group', 'Group'),
   };
 
-  // Pin the locale so SSR and client format identically (no hydration mismatch).
-  function fmtDate(s: string | null | undefined): string {
-    if (!s) return '—';
-    const d = new Date(s);
-    return isNaN(d.getTime())
-      ? '—'
-      : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-  }
 
   const card = 'rounded-xl border border-zinc-200 bg-white divide-y divide-zinc-200 overflow-hidden dark:border-zinc-800 dark:bg-zinc-900 dark:divide-zinc-800';
   const rowLabel = 'text-sm text-zinc-500';
@@ -43,13 +35,32 @@
     <div class={card}>
       <div class="flex items-center justify-between px-5 py-3">
         <span class={rowLabel}>{t('memory-info.owner', 'Owner')}</span>
-        <span class={rowValue}>
+        <span class={`${rowValue} min-w-0`}>
           {#if isAgentSystem && g.agent}
-            <a href={`/app/agents/${g.agent.id}`} class="text-indigo-600 hover:underline dark:text-indigo-300">{g.agent.name}</a>
-          {:else if isOwnerOnly}
+            <span class="min-w-0 text-right">
+              <a href={`/app/agents/${g.agent.id}`} class="text-indigo-600 hover:underline dark:text-indigo-300">{g.agent.name}</a>
+              <span class="mt-1 flex justify-end">
+                <Urn value={g.agent.urn} type="agent" compact linked label={g.agent.name} />
+              </span>
+            </span>
+          {:else if ownerAttribution}
+            <span class="min-w-0 text-right">
+              {#if ownerAttribution.source !== 'memory-urn'}
+                <span class="block break-words">{ownerAttribution.name}</span>
+              {/if}
+              <span class="flex justify-end" class:mt-1={ownerAttribution.source !== 'memory-urn'}>
+                <Urn
+                  value={ownerAttribution.urn}
+                  type="org"
+                  compact={ownerAttribution.source !== 'memory-urn'}
+                  linked={ownerAttribution.source !== 'memory-urn'}
+                  copyUrl={ownerAttribution.source !== 'memory-urn'}
+                  label={t('memory-info.organization', 'organization')}
+                />
+              </span>
+            </span>
+          {:else if isOwnerOnly && !g.organizationId}
             {t('memory-info.only-you', 'Only you')}
-          {:else if org}
-            {org.name}
           {:else}
             —
           {/if}
@@ -88,48 +99,21 @@
       {/if}
       <div class="flex items-center justify-between px-5 py-3">
         <span class={rowLabel}>{t('memory-info.created', 'Created')}</span>
-        <span class={rowValue}>{fmtDate(g.createdAt)}</span>
+        <span class={rowValue}>{formatPortalDate(g.createdAt)}</span>
       </div>
       <div class="flex items-center justify-between px-5 py-3">
         <span class={rowLabel}>{t('memory-info.updated', 'Updated')}</span>
-        <span class={rowValue}>{fmtDate(g.updatedAt)}</span>
+        <span class={rowValue}>{formatPortalDate(g.updatedAt)}</span>
       </div>
-    </div>
-  </section>
-
-  <!-- Integration status -->
-  <section>
-    <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">{t('memory-info.integration', 'Integration')}</h2>
-    <div class={card}>
-      <div class="flex items-center justify-between px-5 py-3">
-        <span class={rowLabel}>{t('memory-info.github', 'GitHub')}</span>
-        <span class={rowValue}>{g.source ? t('memory-info.connected', 'Connected') : t('memory-info.not-connected', 'Not connected')}</span>
-      </div>
-      {#if g.source}
-        <div class="flex items-center justify-between px-5 py-3">
-          <span class={rowLabel}>{t('memory-info.repository', 'Repository')}</span>
-          <span class="font-mono text-xs text-zinc-900 dark:text-white">{g.source}</span>
-        </div>
-        <div class="flex items-center justify-between px-5 py-3">
-          <span class={rowLabel}>{t('memory-info.sync-status', 'Sync status')}</span>
-          <span class={rowValue}>{g.syncStatus ?? '—'}{#if g.lastSyncedAt} &middot; {fmtDate(g.lastSyncedAt)}{/if}</span>
-        </div>
-        {#if g.syncStatus === 'ERROR'}
-          <SyncErrorDetail syncError={g.syncError} />
-        {/if}
-      {/if}
     </div>
   </section>
 
   <!-- Stats -->
   <section>
     <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">{t('memory-info.stats', 'Stats')}</h2>
-    <div class={card}>
-      <div class="flex items-center justify-between px-5 py-3">
-        <span class={rowLabel}>{t('memory-info.nodes', 'Nodes')}</span>
-        <span class={rowValue}>{nodeCount.toLocaleString('en-US')}</span>
-      </div>
-    </div>
+    <!-- portal#1524: the node count is hidden, not shown as 0. The memory
+         layout no longer loads the node list, and the server's own total is not
+         a count while the list is off, so no number here would be true. -->
     <p class="mt-2 text-xs text-zinc-400">
       {t('memory-info.deferred-stats', 'Edge count, last use, and the agents/apps that include this memory are coming soon.')}
     </p>

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import { Kind, parse, type SelectionSetNode } from 'graphql';
 import { ACCEPT_INVITATION_MUTATION, INVITATION_QUERY } from '$lib/server/queries';
 
@@ -81,6 +82,7 @@ describe('invite load()', () => {
     const { load } = await importMod();
     const result = await load(loadEvent({ user: { id: 'user-1' }, authToken: 'test-token' }));
 
+    expectDistinctFormIds(result, 2);
     expect(mockRequest).toHaveBeenCalledWith(INVITATION_QUERY, { slug: 'invite-token' });
     expect(result).toMatchObject({ invitation: fakeInvitation, isSignedIn: true, slug: 'invite-token' });
     expect((result as { form: { data: Record<string, string>; errors: Record<string, string[]> } }).form.data).toEqual({
@@ -101,6 +103,28 @@ describe('invite load()', () => {
     const result = await load(loadEvent());
 
     expect(result).toMatchObject({ invitation: null, isSignedIn: false, slug: 'invite-token' });
+  });
+});
+
+describe('invite sendEmail action Turnstile token (#1470)', () => {
+  it('forwards the widget token from the raw form data', async () => {
+    mockStartBoundMagicLink.mockResolvedValueOnce({ ok: true });
+    await runSendEmail({ email: 'ada@example.test', 'cf-turnstile-response': 'tok-1' });
+    expect(mockStartBoundMagicLink).toHaveBeenCalledWith(
+      expect.anything(), 'ada@example.test', '/invite/invite-token', 'tok-1',
+    );
+  });
+
+  it('sends no token when the field is absent', async () => {
+    mockStartBoundMagicLink.mockResolvedValueOnce({ ok: true });
+    await runSendEmail({ email: 'ada@example.test' });
+    expect(mockStartBoundMagicLink.mock.calls[0][3]).toBeUndefined();
+  });
+
+  it('returns a refused bot check as a message with the server status', async () => {
+    mockStartBoundMagicLink.mockResolvedValueOnce({ ok: false, status: 503, error: 'Sign-in is temporarily unavailable. Please try again later.' });
+    const result = await runSendEmail({ email: 'ada@example.test', 'cf-turnstile-response': 't' });
+    expect(result).toMatchObject({ status: 503 });
   });
 });
 
@@ -139,7 +163,7 @@ describe('invite sendEmail action', () => {
       type: 'success',
       text: 'Check your inbox — we sent you a sign-in link.',
     });
-    expect(mockStartBoundMagicLink).toHaveBeenCalledWith(expect.anything(), 'ada@example.test', '/invite/invite-token');
+    expect(mockStartBoundMagicLink).toHaveBeenCalledWith(expect.anything(), 'ada@example.test', '/invite/invite-token', undefined);
   });
 
   it('returns magic-link failures as Superforms messages', async () => {

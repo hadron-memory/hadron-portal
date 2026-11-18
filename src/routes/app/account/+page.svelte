@@ -2,7 +2,10 @@
   import { untrack } from 'svelte';
   import { browser } from '$app/environment';
   import { enhance } from '$app/forms';
+  import { accountProfileStrings } from '$lib/i18n/account-profile-strings';
   import { deleteAccountStrings, DELETE_CONFIRMATION_TOKEN } from '$lib/i18n/delete-account-strings';
+  import { t } from '$lib/i18n/t';
+  import Urn from '$lib/components/Urn.svelte';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PageData, ActionData } from './$types';
@@ -48,11 +51,14 @@
   }
 
   const handleError = $derived($profileErrors.handle?.[0] ?? null);
-  const emailError = $derived($profileErrors.email?.[0] ?? null);
+  // #1080: the email field's errors render on the field only. The banner takes
+  // everything else, so a refused change isn't shown twice.
+  const emailErrors = $derived($profileErrors.email ?? []);
+  const emailError = $derived(emailErrors[0] ?? null);
   const profileActionError = $derived(
     $profileMessage?.type === 'error'
       ? $profileMessage.text
-      : ($profileAllErrors[0]?.messages[0] ?? null),
+      : ($profileAllErrors.find((e) => e.path !== 'email')?.messages[0] ?? null),
   );
 
   // Danger zone (#662): single-button → expanded confirmation form (the portal
@@ -139,9 +145,11 @@
             {...$profileConstraints.email}
             class="{inputClass} read-only:cursor-not-allowed read-only:bg-zinc-100 read-only:text-zinc-600 dark:read-only:bg-zinc-800 dark:read-only:text-zinc-400" />
           {#if emailError}
-            <p id="editEmailError" class="mt-1 text-xs text-red-600 dark:text-red-400">{emailError}</p>
+            <div id="editEmailError" class="mt-1 text-xs text-red-600 dark:text-red-400">
+              {#each emailErrors as line, i (i)}<p>{line}</p>{/each}
+            </div>
           {:else}
-            <p id="editEmailHelp" class="mt-1 text-xs text-zinc-500">Changing your email address is not supported here.</p>
+            <p id="editEmailHelp" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{accountProfileStrings.emailNotChangeable()}</p>
           {/if}
         </div>
 
@@ -162,8 +170,10 @@
           {/if}
           <div>
             <p class="font-medium text-zinc-900 dark:text-white">{user?.name ?? 'No name set'}</p>
-            {#if user?.handle}
-              <p class="text-sm text-zinc-500">@{user.handle}</p>
+            <!-- #998: the URN, not the bare handle, which the Handle row below
+                 still shows. A handle-less user has no URN: nothing renders. -->
+            {#if user?.urn}
+              <Urn value={user.urn} type="user" />
             {/if}
           </div>
         </div>
@@ -193,6 +203,37 @@
       </div>
     {/if}
   </section>
+
+  <!-- Passkeys (portal#1022 links half): a link to the server-hosted
+       registration page — the portal runs no ceremony and holds no key
+       material (hrn:node:hadronmemory.com:specs:cor:dmo:130:08). Renders
+       nothing while the deployment keeps registration switched off. The URL
+       arrives as a streamed promise (a cold capabilities endpoint never
+       blocks the page), so the section mounts when the answer lands. -->
+  {#await data.passkeysUrl then url}
+    {#if url}
+      <section data-testid="passkeys-section">
+        <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">{t('account.passkeys.heading', 'Passkeys')}</h2>
+        <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+          <p class="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+            {t('account.passkeys.lede', 'A passkey signs node changes with your fingerprint, face or device PIN. Signing always happens on a page the server hosts, never in this portal.')}
+          </p>
+          <!-- A new tab: the passkey page is its own flow with no way back, and
+               the reader should not lose their account settings to it. -->
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener"
+            data-testid="passkeys-register-link"
+            class="mt-3 inline-block rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            {t('account.passkeys.manage', 'Add or manage passkeys')}
+            <span class="sr-only"> {t('account.passkeys.opens-new-tab', '(opens on the server in a new tab)')}</span>
+          </a>
+        </div>
+      </section>
+    {/if}
+  {/await}
 
   <!-- Sign out -->
   <section>

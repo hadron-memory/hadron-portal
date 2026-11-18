@@ -30,12 +30,19 @@
  * No component-level test ships in this PR.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
 const mockRequest = vi.fn();
+// Records the token each client is built with (#1632): the action's identity is the
+// token it hands here, so a mock that ignores the argument pins nothing about it.
+const mockGqlClient = vi.fn();
 vi.mock('$lib/server/api', () => ({
-  gqlClient: () => ({ request: mockRequest }),
+  gqlClient: (token?: unknown) => {
+    mockGqlClient(token);
+    return { request: mockRequest };
+  },
 }));
 
 // `$lib/server/guards.requireNonConsumer` is invoked by the `load`
@@ -55,6 +62,7 @@ vi.mock('$lib/server/paginate', () => ({
 
 beforeEach(() => {
   mockRequest.mockReset();
+  mockGqlClient.mockReset();
 });
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -125,7 +133,7 @@ describe("memory-detail `delete` action (spec 013)", () => {
     expect((thrown as { location: string }).location).toBe('/app/orgs/org%2Fwith%20space/memories');
   });
 
-  it('GraphQL transport error — returns fail(500) with the extracted error message', async () => {
+  it('uncoded GraphQL error returns fail(500) with generic copy', async () => {
     // Shape: graphql-request style error with response.errors[0].message
     const gqlError = Object.assign(new Error('outer'), {
       response: { errors: [{ message: 'Forbidden: only the owner can delete a personal memory' }] },
@@ -141,7 +149,7 @@ describe("memory-detail `delete` action (spec 013)", () => {
     expect(result!.status).toBe(500);
     expect(result!.data.form?.message).toEqual({
       type: 'error',
-      text: 'Forbidden: only the owner can delete a personal memory',
+      text: 'Something went wrong on our side.',
     });
   });
 
@@ -214,6 +222,13 @@ function vectorEv(form: Record<string, string>) {
   } as unknown as Parameters<Awaited<ReturnType<typeof importActions>>['updateVectorIndex']>[0];
 }
 
+it('#1163 returns canonical persisted settings rather than the submitted defaults', async () => {
+  mockRequest.mockResolvedValueOnce({updateMemory: {id: 'mem-id-abc', vectorIndexEnabled: true, embeddingSource: 'contentChunks', chunkTokens: 512, chunkOverlap: 64, forceFixedSize: true}});
+  const actions = await importActions();
+  const response = await actions.updateVectorIndex(vectorEv({vectorIndexEnabled: 'true', embeddingSource: 'abstract', chunkTokens: '', chunkOverlap: '', forceFixedSize: 'false'}));
+  expect(superFormFrom(response)?.data).toMatchObject({vectorIndexEnabled: true, embeddingSource: 'contentChunks', chunkTokens: '512', chunkOverlap: '64', forceFixedSize: true, acknowledgeVectorInversionRisk: false});
+});
+
 describe('memory-detail `updateVectorIndex` action (spec 033)', () => {
   it('sends parsed config through updateMemory and returns success', async () => {
     mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
@@ -237,6 +252,9 @@ describe('memory-detail `updateVectorIndex` action (spec 033)', () => {
       chunkOverlap: 32,
       forceFixedSize: true,
     });
+    // #1255: the action stamps the load's memory-bound id, so its result
+    // finds THIS form's store and nothing else's.
+    expect((superFormFrom(result) as { id?: string })?.id).toBe('updateVectorIndex:mem-id-abc');
   });
 
   it('parses booleans from strings and omits acknowledgement unless explicitly accepted', async () => {
@@ -366,7 +384,7 @@ describe('memory-detail `updateVectorIndex` action (spec 033)', () => {
     }))) as { status: number; data: { form?: { message?: App.Superforms.Message }; needsEncryptedAck?: boolean } } | undefined;
 
     expect(result!.status).toBe(500);
-    expect(result!.data.form?.message).toEqual({ type: 'error', text: 'Forbidden' });
+    expect(result!.data.form?.message).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
     expect(result!.data.needsEncryptedAck).toBeUndefined();
   });
 
@@ -400,10 +418,10 @@ function updateEv(form: Record<string, string>) {
 
 function superFormFrom(result: unknown) {
   return (result as {
-    data?: { form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean } };
-    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+    data?: { form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean; data?: Record<string, unknown> } };
+    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean; data?: Record<string, unknown> };
   } | undefined)?.data?.form ?? (result as {
-    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean; data?: Record<string, unknown> };
   } | undefined)?.form;
 }
 
@@ -696,6 +714,9 @@ describe('memory-detail `updateSchema` action (#588)', () => {
     const result = await actions.updateSchema(schemaEv({ schemaJson: VALID_SCHEMA }));
 
     expect(successMessage(result)).toEqual({ type: 'success', text: 'Schema saved.' });
+    // #1255: the action stamps the load's memory-bound id, so its result
+    // finds THIS form's store and nothing else's.
+    expect((superFormFrom(result) as { id?: string })?.id).toBe('updateSchema:mem-id-abc');
     const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
     expect(vars).toEqual({
       id: 'mem-id-abc',
@@ -764,7 +785,7 @@ describe('memory-detail `updateSchema` action (#588)', () => {
     const result = await actions.updateSchema(schemaEv({ schemaJson: VALID_SCHEMA }));
 
     expect(result).toMatchObject({ status: 500 });
-    expect(successMessage(result)).toEqual({ type: 'error', text: 'boom' });
+    expect(successMessage(result)).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
   });
 });
 
@@ -787,6 +808,7 @@ describe('memory settings load — the owner (#652)', () => {
   function ev(graph: Record<string, unknown>) {
     return {
       locals: { token: 'tok', user: { id: 'viewer-1' } },
+      params: { id: graph.id as string },
       parent: async () => ({ graph, user: { id: 'viewer-1' } }),
     } as never;
   }
@@ -832,8 +854,11 @@ describe('memory settings load — the owner (#652)', () => {
     const res = await runLoad(personal({ class: 'knowledge', organizationId: 'org-1', userId: null }));
     expect(res.ownerUserId).toBeNull();
     expect(res.owner).toBeNull();
-    expect(mockRequest).toHaveBeenCalledTimes(1);
+    expect(mockRequest).toHaveBeenCalledTimes(2);
     expect(mockRequest.mock.calls[0]![1]).toEqual({ user: 'viewer-1', resource: 'mem-1' });
+    expect(mockRequest.mock.calls[1]![0]).toContain('MemoryRoleConfigAvailable');
+    expect(mockRequest.mock.calls[1]![1]).toEqual({ ref: 'mem-1' });
+    expect(mockRequest.mock.calls.some(([query]) => /query UserProfile/.test(String(query)))).toBe(false);
   });
 
   it('uses the effective memory.delete capability for a granted contributor', async () => {
@@ -958,5 +983,278 @@ describe('memory-detail `retryFailedEmbeddings` action (#695 / server #882)', ()
     const result = await actions.retryFailedEmbeddings(retryEv());
 
     expect(retriedCountOf(result)).toBe(1);
+  });
+});
+
+// ── Tests for the `updateMarketplaceListing` action (#841) ─────────────
+// hrn:node:hadronmemory.com:specs:cor:acl:080:04: the marketplace catalogue is listedOnMarketplace AND
+// publicly accessible. Nothing could set the flag from any product surface —
+// this action is the portal half.
+
+/** RequestEvent-shaped object carrying form data for the marketplace toggle. */
+function marketplaceEv(form: Record<string, string>) {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(form)) fd.append(k, v);
+  return {
+    params: { id: 'mem-id-abc' },
+    locals: { token: 'test-token' },
+    request: { formData: async () => fd },
+  } as unknown as Parameters<Awaited<ReturnType<typeof importActions>>['updateMarketplaceListing']>[0];
+}
+
+describe('memory-detail `updateMarketplaceListing` action (#841)', () => {
+  it('lists a memory on the marketplace through updateMemory', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc', listedOnMarketplace: true } });
+    const actions = await importActions();
+
+    const result = await actions.updateMarketplaceListing(marketplaceEv({
+      listedOnMarketplace: 'true',
+    }));
+
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Changes saved.' });
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    // toEqual, not toMatchObject: the evidence map claims the variables
+    // carry id + the flag ONLY (Rook's P3 on #1244) — a subset match would
+    // let a smuggled extra field pass unnoticed.
+    expect(vars).toEqual({ id: 'mem-id-abc', listedOnMarketplace: true });
+  });
+
+  it('unlists explicitly — false is sent, not omitted', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc', listedOnMarketplace: false } });
+    const actions = await importActions();
+
+    await actions.updateMarketplaceListing(marketplaceEv({
+      listedOnMarketplace: 'false',
+    }));
+
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars.listedOnMarketplace).toBe(false);
+  });
+
+  it('rejects a marketplace submission with the wrong form discriminator before calling the API', async () => {
+    const actions = await importActions();
+
+    const result = await actions.updateMarketplaceListing(marketplaceEv({
+      _kind: 'updateVectorIndex',
+      listedOnMarketplace: 'true',
+    }));
+
+    expect((result as { status: number }).status).toBe(400);
+    expect(superFormFrom(result)?.errors?._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns the scoped error message on a failure', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('marketplace refused'));
+    const actions = await importActions();
+
+    const result = await actions.updateMarketplaceListing(marketplaceEv({
+      listedOnMarketplace: 'true',
+    }));
+
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'marketplace refused' });
+  });
+
+  it('stamps the action form with the load form’s MEMORY-BOUND id — results must find their store, and only THIS memory’s', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc', listedOnMarketplace: true } });
+    const actions = await importActions();
+
+    const result = await actions.updateMarketplaceListing(marketplaceEv({ listedOnMarketplace: 'true' }));
+
+    expect((superFormFrom(result) as { id?: string })?.id).toBe('updateMarketplaceListing:mem-id-abc');
+  });
+
+  it('an uncoded denied write suppresses server prose and request payload (#468 leak class)', async () => {
+    // graphql-request packs the whole query and variables into a
+    // ClientError's message; extractGqlError must surface the server's
+    // errors[0].message instead.
+    const refusal = { message: 'FORBIDDEN: you cannot update this memory', response: { errors: [{ message: 'You do not have write access to this memory.' }] } };
+    mockRequest.mockRejectedValueOnce(refusal);
+    const actions = await importActions();
+
+    const result = await actions.updateMarketplaceListing(marketplaceEv({ listedOnMarketplace: 'true' }));
+
+    const text = (superFormFrom(result)?.message as { text: string }).text;
+    expect(text).toBe('Something went wrong on our side.');
+    expect(text).not.toContain('updateMemory');
+    expect(text).not.toContain('listedOnMarketplace');
+  });
+
+  // Gil's P2 and Gene's P2-2 on #1244, found independently: a missing or
+  // malformed mutation result must never read as success. `updateMemory: null`
+  // used to show "Changes saved." with the local intent as the saved fact,
+  // and a flagless row "confirmed" the listing as false.
+  describe('missing or malformed results are refused, never confirmed (#1244)', () => {
+    it.each([
+      ['a null result', { updateMemory: null }],
+      ['a flagless row', { updateMemory: { id: 'mem-id-abc' } }],
+      ['another memory’s row', { updateMemory: { id: 'some-other-memory', listedOnMarketplace: true } }],
+    ])('returns a safe failure for %s', async (_label, updateMemory) => {
+      mockRequest.mockResolvedValueOnce({ updateMemory });
+      const actions = await importActions();
+
+      const result = await actions.updateMarketplaceListing(marketplaceEv({ listedOnMarketplace: 'true' }));
+
+      const outcome = superFormFrom(result);
+      const msg = outcome?.message as { type?: string; text?: string } | undefined;
+      expect(msg?.type).toBe('error');
+      expect(msg?.text).not.toBe('Changes saved.');
+      // No resync either: a refused confirmation must not touch the form's
+      // data — the user's tick stays as an unsaved intent, not a "fact".
+      expect(outcome?.data?.listedOnMarketplace).toBe(true);
+    });
+  });
+});
+
+// ── Load: the six-form set and the form-id contract (#841) ───────────
+// hrn:node:hadronmemory.com:hadron-portal:review:superforms-distinct-form-ids:
+// a route with several superValidate calls must return distinct form ids,
+// and an explicit id on the new form must match between load and action.
+describe('memory-settings load: form ids (#841)', () => {
+  it('returns six distinct form ids; the marketplace form’s id is exact', async () => {
+    const mod = await import('./+page.server');
+    const graph = {
+      id: 'mem-1', urn: 'hrn:mem:acme.com:docs', name: 'Docs', class: 'knowledge',
+      isEncrypted: false, organizationId: 'org-1', userId: null,
+      shortDescription: null, description: null, tags: [], license: null,
+      category0: null, category1: null, category2: null, iconUrl: null, heroUrl: null,
+      homeUrl: null, source: null, readBranch: null, writeBranch: null,
+      visibility: 'PUBLIC', listedOnMarketplace: true, vectorIndexEnabled: false,
+      embeddingSource: 'abstract', chunkTokens: null, chunkOverlap: null,
+      forceFixedSize: false, vectorIndexEncryptedAckAt: null, schema: null,
+      syncStatus: 'OK', syncError: null, pendingEdgeCount: 0, lastSyncedAt: null,
+      createdAt: '1789430400000', updatedAt: '1789430400000',
+    };
+    // user null + graph.userId null: no owner lookup and no transfer-access
+    // read, so the mocked gql request list stays empty of side queries.
+    const parent = vi.fn().mockResolvedValue({ graph, user: null });
+    const data = (await mod.load({
+      parent, locals: { token: 't' }, params: { id: 'mem-1' },
+    } as unknown as Parameters<typeof mod.load>[0])) as Exclude<Awaited<ReturnType<typeof mod.load>>, void>;
+
+    expectDistinctFormIds(data, 6);
+    // Memory-bound (`…:${params.id}`, stamped from the route param on both
+    // sides): distinct from every sibling AND from the same form on another
+    // memory, so a late result can only match its own card (Gene's P2-1).
+    expect(data.marketplaceForm.id).toBe('updateMarketplaceListing:mem-1');
+    // Same discipline for the vector and schema forms (#1255): unstamped
+    // ids matched sibling data/results and a sibling save's invalidateAll
+    // rebound these forms, discarding an unsaved draft.
+    expect(data.vectorForm.id).toBe('updateVectorIndex:mem-1');
+    expect(data.schemaForm.id).toBe('updateSchema:mem-1');
+    // The persisted flag seeds the form (the checkbox starts from the fact).
+    expect(data.marketplaceForm.data.listedOnMarketplace).toBe(true);
+  });
+});
+
+// ── `checkVectorIndexHealth` (#1346) ────────────────────────────────────────
+
+function healthEv(memId = 'mem-real', token = 'test-token') {
+  return { params: { id: memId }, locals: { token }, request: { formData: async () => new FormData() } } as unknown as Parameters<
+    Awaited<ReturnType<typeof importActions>>['checkVectorIndexHealth']
+  >[0];
+}
+const ef = (n: number, detail = 'dimension mismatch') => ({ kind: 'EMBED_FAILED', nodeId: `id${n}`, nodeLoc: `l${n}`, nodeUrn: `hrn:node:a.com:m:l${n}`, detail });
+
+describe('memory-detail `checkVectorIndexHealth` action (#1346)', () => {
+  it('issues one validateMemory call for the page memory with limit 1000, and no check filter', async () => {
+    mockRequest.mockResolvedValueOnce({ validateMemory: { findings: [], totalFindings: 0, totalInformational: 0, truncated: false, nodesChecked: 3, skippedChecks: [] } });
+    const actions = await importActions();
+    await actions.checkVectorIndexHealth(healthEv());
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    const [doc, vars] = mockRequest.mock.calls[0]! as [string, Record<string, unknown>];
+    expect(doc).toContain('validateMemory');
+    // #1533: the total sums this field; a query that drops it renders "of NaN"
+    // with every test green (READ finding on c61e9c3e), so pin the selection.
+    expect(doc).toContain('totalInformational');
+    expect(vars).toEqual({ memoryRef: 'mem-real', limit: 1000 });
+  });
+
+  it('returns only the EMBED_FAILED findings', async () => {
+    mockRequest.mockResolvedValueOnce({ validateMemory: { findings: [{ ...ef(1), kind: 'SPARSE' }, ef(2)], totalFindings: 2, totalInformational: 200, truncated: false, nodesChecked: 9, skippedChecks: [] } });
+    const actions = await importActions();
+    const result = (await actions.checkVectorIndexHealth(healthEv())) as { vectorHealth?: { failed: Array<{ nodeId: string }> } };
+    expect(result.vectorHealth?.failed.map((f) => f.nodeId)).toEqual(['id2']);
+  });
+
+  it('a refusal is a plain error state with no health result', async () => {
+    mockRequest.mockRejectedValueOnce({ response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] } });
+    const actions = await importActions();
+    const result = (await actions.checkVectorIndexHealth(healthEv())) as { data?: { vectorHealthError?: string; vectorHealth?: unknown }; status?: number };
+    expect(result.status).toBe(500);
+    expect(result.data?.vectorHealthError).toBeTruthy();
+    expect(result.data?.vectorHealth).toBeUndefined();
+  });
+
+  // #1465 (hrn:node:hadronmemory.com:specs:cor:api:140:03): validateMemory answers a memory the caller cannot read with the SAME
+  // MEMORY_NOT_FOUND as a missing one, so this one branch is the whole read refusal. A 500 told
+  // the reader the server broke; one safe 4xx message must not say which of the two it was.
+  it('MEMORY_NOT_FOUND is a 404 with one safe message, never a 500 or the server reason (#1465)', async () => {
+    mockRequest.mockRejectedValueOnce({ response: { errors: [{ message: 'Memory mem-secret not found for user u9', extensions: { code: 'MEMORY_NOT_FOUND' } }] } });
+    const actions = await importActions();
+    const result = (await actions.checkVectorIndexHealth(healthEv())) as { data?: { vectorHealthError?: string; vectorHealth?: unknown }; status?: number };
+    expect(result.status).toBe(404);
+    expect(result.data?.vectorHealthError).toBeTruthy();
+    expect(result.data?.vectorHealth).toBeUndefined();
+    expect(result.data?.vectorHealthError).not.toContain('mem-secret');
+    expect(result.data?.vectorHealthError).not.toContain('u9');
+  });
+
+  it('a missing and an unreadable memory render byte-identical output (#1465, hrn:node:hadronmemory.com:specs:cor:api:140:03)', async () => {
+    // The server's two refusals differ only in free text; whatever it says must not reach the reader.
+    const run = async (message: string) => {
+      mockRequest.mockRejectedValueOnce({ response: { errors: [{ message, extensions: { code: 'MEMORY_NOT_FOUND' } }] } });
+      const actions = await importActions();
+      return JSON.stringify(await actions.checkVectorIndexHealth(healthEv()));
+    };
+    expect(await run('Memory not found')).toBe(await run('You may not read this memory'));
+  });
+
+  it('an uncoded or transport failure stays a 500 with the generic copy (#1465)', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('socket hang up'));
+    const actions = await importActions();
+    const result = (await actions.checkVectorIndexHealth(healthEv())) as { data?: { vectorHealthError?: string }; status?: number };
+    expect(result.status).toBe(500);
+    expect(result.data?.vectorHealthError).toBeTruthy();
+    // #1465 delta (Andi, LOCAL P2): a raw Error.message is not generic copy.
+    expect(result.data?.vectorHealthError).not.toContain('socket hang up');
+  });
+
+  // #1632 (§10 P3 on #1621; hrn:node:hadronmemory.com:specs:cor:api:140:03): a coded error that is neither
+  // MEMORY_NOT_FOUND nor a framework/access code carries no free text to the reader. The six
+  // pass-through codes (BAD_USER_INPUT, FORBIDDEN, ...) keep their message by design and are not this pin.
+  it.each(['INTERNAL_SERVER_ERROR', 'SOME_DOMAIN_REFUSAL'])('an unlisted code %s is a 500 with the generic copy, never the server reason (#1632)', async (code) => {
+    mockRequest.mockRejectedValueOnce({ response: { errors: [{ message: 'Memory mem-secret failed for user u9', extensions: { code } }] } });
+    const actions = await importActions();
+    const result = (await actions.checkVectorIndexHealth(healthEv())) as { data?: { vectorHealthError?: string; vectorHealth?: unknown }; status?: number };
+    expect(result.status).toBe(500);
+    expect(result.data?.vectorHealthError).toBe('Something went wrong on our side.');
+    expect(result.data?.vectorHealth).toBeUndefined();
+    expect(result.data?.vectorHealthError).not.toContain('mem-secret');
+    expect(result.data?.vectorHealthError).not.toContain('u9');
+  });
+
+  // #1632: the action's one call is made as the viewer. The token is the event's
+  // locals.token, and a distinct value proves identity, not merely that a client was built.
+  it('builds its one client from the viewer token on the event, not another identity (#1632)', async () => {
+    mockRequest.mockResolvedValueOnce({ validateMemory: { findings: [], totalFindings: 0, totalInformational: 0, truncated: false, nodesChecked: 1, skippedChecks: [] } });
+    const actions = await importActions();
+    await actions.checkVectorIndexHealth(healthEv('mem-real', 'viewer-token-xyz'));
+    expect(mockGqlClient).toHaveBeenCalledTimes(1);
+    expect(mockGqlClient).toHaveBeenCalledWith('viewer-token-xyz');
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('the settings loader never runs validateMemory: the scan is on demand only', async () => {
+    mockRequest.mockResolvedValue({ user: null, organizations: { items: [], total: 0 } });
+    const { load } = await import('./+page.server');
+    const graph = { id: 'mem-1', name: 'Notes', urn: 'hrn:mem:acme.com:notes', class: 'personal', organizationId: null, userId: 'u1', visibility: null, vectorIndexEnabled: true };
+    await load({
+      locals: { token: 'tok', user: { id: 'u1' } },
+      params: { id: 'mem-1' },
+      parent: async () => ({ graph, user: { id: 'u1' } }),
+    } as never);
+    expect(mockRequest.mock.calls.length).toBeGreaterThan(0);
+    expect(JSON.stringify(mockRequest.mock.calls)).not.toContain('validateMemory');
   });
 });

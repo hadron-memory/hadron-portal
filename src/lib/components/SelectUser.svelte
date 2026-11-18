@@ -9,7 +9,12 @@
   // substring) are being tightened separately — see hadron-server#384.
 
   import Urn from '$lib/components/Urn.svelte';
-  import { type SearchUser, userLabel } from '$lib/users/search-user';
+
+  import { pickerStrings } from '$lib/i18n/picker-strings';
+  import { focusTrap } from '$lib/a11y/focus-trap';
+  import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
+  import { t } from '$lib/i18n/t';
+  import { type SearchUser, type SearchUserPage, userLabel } from '$lib/users/search-user';
 
   export type { SearchUser };
 
@@ -19,7 +24,7 @@
     onselect,
     open = $bindable(false),
   }: {
-    search: (query: string) => Promise<SearchUser[]>;
+    search: (query: string) => Promise<SearchUserPage>;
     placeholder?: string;
     onselect: (user: SearchUser) => void;
     open?: boolean;
@@ -27,15 +32,10 @@
 
   let query = $state('');
   let results = $state<SearchUser[]>([]);
+  let truncated = $state(false);
   let loading = $state(false);
   let searched = $state(false);
   let error = $state<string | null>(null);
-
-  // Focus the search box when the modal opens. The input is (re)created each
-  // time {#if open} renders, so this fires on every open.
-  function focusOnMount(node: HTMLInputElement) {
-    node.focus();
-  }
 
   // Avatar fallback: first two letters/digits of the best identifier. Strip
   // non-alphanumerics first so a masked email ("j•••@x.com") yields "J", not "J•".
@@ -63,12 +63,14 @@
     try {
       const r = await search(q);
       if (seq !== searchSeq) return; // superseded by a newer search or a reset
-      results = r;
+      results = r.users;
+      truncated = r.truncated;
       searched = true;
     } catch {
       if (seq !== searchSeq) return;
       error = 'Search failed. Please try again.';
       results = [];
+      truncated = false;
       searched = true;
     } finally {
       if (seq === searchSeq) loading = false;
@@ -84,9 +86,9 @@
     close();
   }
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (open && e.key === 'Escape') close();
-  }
+  // Escape: consumed at this dialog's own layer — the shared helper owns the
+  // layering contract and the guards (src/lib/a11y/dialog-escape.ts).
+  const escapeFallback = { close: () => close() };
 
   // Reset search state whenever the modal is closed — including a close driven
   // externally by the parent (navigation, parent state reset), which close()
@@ -99,18 +101,17 @@
     searchSeq++;
     query = '';
     results = [];
+    truncated = false;
     searched = false;
     error = null;
     loading = false;
   });
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-50 flex items-start justify-center pt-[10vh]" onclick={() => close()}>
+  <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-3 dark:bg-black/60 pt-[10vh]" onclick={() => close()}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
@@ -120,9 +121,30 @@
       tabindex="-1"
       class="w-full max-w-lg rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 flex flex-col"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => consumeEscapeAtDialog(e, escapeFallback)}
+      use:focusTrap
+      use:dialogEscapeFallback={escapeFallback}
       style="max-height: 70vh;"
     >
-      <!-- Header: search + Find. Submitting (Enter or the button) runs the search. -->
+      <!-- #1169: a visible way out, not only Esc and the backdrop. -->
+      <div class="flex items-center justify-between px-4 pt-3">
+        <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('select-user.title', 'Find a user')}</h2>
+        <button
+          type="button"
+          onclick={() => close()}
+          class="rounded-md px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >{t('select-user.close', 'Close')}</button>
+      </div>
+
+      <!-- Header: search + Find. Submitting (Enter or the button) runs the search.
+           The input must NOT focus itself via an action: child actions run
+           before the parent focusTrap captures document.activeElement, so a
+           self-focusing input gets recorded as the opener and focus is never
+           restored on close (portal#1305). The trap owns initial focus after
+           capturing the real opener: the input carries data-initial-focus so
+           it wins the landing over the Close button above it in the DOM
+           (which stays the first stop of the Tab cycle) — a search picker
+           opens ready to type (portal#1599, both seats' P2). -->
       <form
         class="flex gap-2 border-b border-zinc-200 p-4 dark:border-zinc-700"
         onsubmit={(e) => { e.preventDefault(); runSearch(); }}
@@ -132,7 +154,7 @@
           bind:value={query}
           {placeholder}
           aria-label={placeholder}
-          use:focusOnMount
+          data-initial-focus
           class="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
         />
         <button
@@ -169,12 +191,33 @@
                   {:else}
                     <span class="truncate text-sm font-medium text-zinc-900 dark:text-white">{userLabel(user)}</span>
                   {/if}
+                  {#if user.sharedOrganizations === null}
+                    <p class="mt-1 text-xs text-zinc-500">{t('select-user.orgs.withheld', 'Not shown to you')}</p>
+                  {:else if user.sharedOrganizations}
+                    {#if user.sharedOrganizations.items.length === 0}
+                      <p class="mt-1 text-xs text-zinc-500">{t('select-user.orgs.none', 'No organizations in common')}</p>
+                    {:else}
+                      <div class="mt-1 space-y-1">
+                        <p class="text-xs text-zinc-500">{t('select-user.orgs.title', 'Organizations in common')}</p>
+                        {#each user.sharedOrganizations.items as org (org.id)}
+                          <div class="flex min-w-0 items-center gap-2">
+                            <span class="truncate text-xs text-zinc-700 dark:text-zinc-300">{org.name}</span>
+                            <Urn value={org.urn} type="org" size={9} />
+                          </div>
+                        {/each}
+                        {#if user.sharedOrganizations.total > user.sharedOrganizations.items.length}
+                          <p class="text-xs text-zinc-500">{t('select-user.orgs.more', 'and {count} more', { count: user.sharedOrganizations.total - user.sharedOrganizations.items.length })}</p>
+                        {/if}
+                      </div>
+                    {/if}
+                  {/if}
                 </div>
                 <button
                   type="button"
                   onclick={() => select(user)}
-                  class="shrink-0 rounded bg-indigo-500 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-600 dark:bg-indigo-600 dark:hover:bg-indigo-700"
-                >Select</button>
+                  aria-label={pickerStrings.selectNamed(userLabel(user))}
+                  class="shrink-0 rounded bg-indigo-500 px-3 py-1 text-xs font-medium text-white pointer-coarse:min-h-11 hover:bg-indigo-600 dark:bg-indigo-600 dark:hover:bg-indigo-700"
+                >{pickerStrings.select()}</button>
               </li>
             {/each}
           </ul>
@@ -183,7 +226,7 @@
 
       <!-- Footer -->
       <div class="flex items-center justify-between border-t border-zinc-200 px-4 py-3 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
-        <div>{searched && !loading ? `${results.length} result${results.length !== 1 ? 's' : ''}` : ''}</div>
+        <div>{searched && !loading ? `${results.length} result${results.length !== 1 ? 's' : ''}${truncated ? ' shown; more match. Narrow your search.' : ''}` : ''}</div>
         <div>Esc to close</div>
       </div>
     </div>

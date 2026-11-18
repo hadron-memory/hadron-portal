@@ -10,8 +10,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
 import { isLocalPath } from '$lib/safeRedirect';
+import { PUBLIC_ORGANIZATION_ROUTE_QUERY, RESOLVE_URN_QUERY } from '$lib/server/queries';
 
-type UrnKind = 'memory' | 'node' | 'agent' | 'org' | 'app' | 'user' | 'worker';
+type UrnKind = 'memory' | 'node' | 'agent' | 'org' | 'app' | 'user' | 'worker' | 'action';
 
 const mockRequest = vi.fn();
 
@@ -36,6 +37,7 @@ async function importLoad() {
 function ev(urn: string, search = '') {
   return {
     params: { urn },
+    parent: async () => ({}),
     url: new URL(`http://localhost/app/u/${urn}${search}`),
     locals: { user: { id: 'u1', roles: ['user'], githubUsername: 'gh' }, token: 'tok' },
   } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
@@ -55,12 +57,12 @@ async function expectRedirect(
   throw new Error('Expected load to throw a redirect, but it returned normally');
 }
 
-async function expectError(urn: string, search = ''): Promise<{ status: number }> {
+async function expectError(urn: string, search = ''): Promise<{ status: number; body?: { message?: string } }> {
   const load = await importLoad();
   try {
     await load(ev(urn, search));
   } catch (e) {
-    return e as { status: number };
+    return e as { status: number; body?: { message?: string } };
   }
   throw new Error('Expected load to throw an error, but it returned normally');
 }
@@ -84,12 +86,13 @@ describe('/app/u/[urn] — redirects each kind to its canonical page', () => {
     expect(r.location).toBe('/app/memories/mem-9/nodes/node-1');
   });
 
-  it('redirects an org URN to /app/orgs/{id}', async () => {
+  it('redirects a member org URN to the unchanged member page without a public fallback read', async () => {
     mockRequest.mockResolvedValueOnce({
       resolveUrn: { kind: 'org', id: 'org-1', memoryId: null, organizationId: null },
     });
     const r = await expectRedirect('urn:org:acme.com');
     expect(r.location).toBe('/app/orgs/org-1');
+    expect(mockRequest).toHaveBeenCalledExactlyOnceWith(RESOLVE_URN_QUERY, { urn: 'urn:org:acme.com' });
   });
 
   it('redirects an agent URN to /app/agents/{id}', async () => {
@@ -161,6 +164,87 @@ describe('/app/u/[urn] — redirects each kind to its canonical page', () => {
     const r = await expectRedirect('hrn:worker:alice:solo-app:iris');
     expect(r.location).toBe('/app/workers/w-2');
   });
+
+  // #1360 / hadron-server#2610. resolveUrn answers kind 'action' for
+  // `hrn:action:<root>:<agent-slug>:<code>`, with `id` the register entry's node
+  // and `memoryId` the Agent's system memory. Without a case here a copied
+  // action link landed on "No canonical portal page for "action" URNs".
+  it('redirects an action URN to its register entry node page (same as a node)', async () => {
+    mockRequest.mockResolvedValueOnce({
+      resolveUrn: { kind: 'action', id: 'reg-1', memoryId: 'sys-9', organizationId: null },
+    });
+    const r = await expectRedirect('hrn:action:hadronmemory.com:hadron-dev-team:gate-an-issue');
+    expect(r.status).toBe(307);
+    expect(r.location).toBe('/app/memories/sys-9/nodes/reg-1');
+  });
+});
+
+describe('/app/u/[urn] — sanitized non-member organization routing (#1846 slice B)', () => {
+  it('falls back from a null member resolution to the discoverable public page, preserving query state', async () => {
+    mockRequest.mockResolvedValueOnce({ resolveUrn: null });
+    mockRequest.mockResolvedValueOnce({ publicOrganization: { id: 'org-public' } });
+    const urn = 'hrn:org:public.test';
+    const r = await expectRedirect(urn, '?from=memory');
+    expect(r.status).toBe(307);
+    expect(r.location).toBe('/app/org/org-public?from=memory');
+    expect(mockRequest).toHaveBeenNthCalledWith(1, RESOLVE_URN_QUERY, { urn });
+    expect(mockRequest).toHaveBeenNthCalledWith(2, PUBLIC_ORGANIZATION_ROUTE_QUERY, { ref: urn });
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it('supports the legacy urn:org scheme through the same public fallback', async () => {
+    mockRequest.mockResolvedValueOnce({ resolveUrn: null });
+    mockRequest.mockResolvedValueOnce({ publicOrganization: { id: 'org-public' } });
+    const urn = 'urn:org:public.test';
+    const r = await expectRedirect(urn);
+    expect(r.status).toBe(307);
+    expect(r.location).toBe('/app/org/org-public');
+    expect(mockRequest).toHaveBeenNthCalledWith(2, PUBLIC_ORGANIZATION_ROUTE_QUERY, { ref: urn });
+  });
+
+  it('uses the same public fallback when member resolution rejects with FORBIDDEN', async () => {
+    mockRequest.mockRejectedValueOnce(new ClientError(
+      { errors: [{ message: 'denied', extensions: { code: 'FORBIDDEN' } }], status: 200 } as unknown as ClientError['response'],
+      { query: 'query', variables: {} },
+    ));
+    mockRequest.mockResolvedValueOnce({ publicOrganization: { id: 'org-public' } });
+    const r = await expectRedirect('hrn:org:public.test');
+    expect(r.status).toBe(307);
+    expect(r.location).toBe('/app/org/org-public');
+  });
+
+  it('returns the identical neutral 404 for missing and non-discoverable organizations', async () => {
+    const outcomes: Array<{ status: number; body?: { message?: string } }> = [];
+    const urn = 'hrn:org:target.test';
+    for (const _case of ['missing', 'non-discoverable']) {
+      mockRequest.mockResolvedValueOnce({ resolveUrn: null });
+      mockRequest.mockResolvedValueOnce({ publicOrganization: null });
+      outcomes.push(await expectError(urn));
+    }
+    expect(outcomes.map((o) => o.status)).toEqual([404, 404]);
+    expect(outcomes[0].body?.message).toBe(outcomes[1].body?.message);
+    expect(outcomes[0].body?.message).toContain(`No resource found for "${urn}"`);
+  });
+
+  it('never issues a public-organization fallback for another resource kind', async () => {
+    mockRequest.mockResolvedValueOnce({ resolveUrn: null });
+    const r = await expectError('hrn:mem:public.test:docs');
+    expect(r.status).toBe(404);
+    expect(mockRequest).toHaveBeenCalledExactlyOnceWith(RESOLVE_URN_QUERY, { urn: 'hrn:mem:public.test:docs' });
+  });
+
+  it('keeps a transient public fallback failure a 500, not a false 404', async () => {
+    mockRequest.mockResolvedValueOnce({ resolveUrn: null });
+    mockRequest.mockRejectedValueOnce(new Error('public lookup unavailable'));
+    const load = await importLoad();
+    await expect(load(ev('hrn:org:public.test'))).rejects.toThrow('public lookup unavailable');
+  });
+
+  it('selects only the id needed for the redirect, not profile lists the route never renders', () => {
+    expect(PUBLIC_ORGANIZATION_ROUTE_QUERY.replace(/\s+/g, ' ').trim()).toBe(
+      'query PublicOrganizationRoute($ref: ID!) { publicOrganization(ref: $ref) { id } }',
+    );
+  });
 });
 
 // #761 — the resolver rewrites the PATH; it must not also discard the caller's
@@ -191,8 +275,8 @@ describe('/app/u/[urn] — the redirect carries the query string', () => {
   });
 
   it('preserves the query for EVERY resolved kind, not just the App', async () => {
-    // All seven kinds funnel through one redirect, so this asserts the property
-    // where it actually lives rather than trusting one kind to speak for six.
+    // All eight kinds funnel through one redirect, so this asserts the property
+    // where it actually lives rather than trusting one kind to speak for seven.
     const cases: Array<[UrnKind, Record<string, string | null>, string]> = [
       ['memory', { id: 'mem-1' }, '/app/memories/mem-1'],
       ['node', { id: 'node-1', memoryId: 'mem-9' }, '/app/memories/mem-9/nodes/node-1'],
@@ -201,6 +285,7 @@ describe('/app/u/[urn] — the redirect carries the query string', () => {
       ['user', { id: 'user-1' }, '/app/user/user-1'],
       ['app', { id: 'app-1' }, '/app/apps/app-1'],
       ['worker', { id: 'w-1' }, '/app/workers/w-1'],
+      ['action', { id: 'reg-1', memoryId: 'sys-9' }, '/app/memories/sys-9/nodes/reg-1'],
     ];
     for (const [kind, ids, path] of cases) {
       mockRequest.mockResolvedValueOnce({
@@ -222,6 +307,35 @@ describe('/app/u/[urn] — the redirect carries the query string', () => {
     expect(r.location).toBe(
       '/app/apps/app-1?tab=worklog&worklogKind=pr&worklogRef=owner%2Frepo%23371',
     );
+  });
+
+  it('resolves the decoded form of an encoded chat-wikilink URN (#1512)', async () => {
+    // SvelteKit hands the loader the DECODED param; the chat href carries it as
+    // one encoded segment (`..%2F..%2F`), so the resolver sees the original URN.
+    const urn = 'hrn:node:a.com:m:../../../settings/tokens';
+    mockRequest.mockResolvedValueOnce({
+      resolveUrn: { kind: 'node', id: 'n1', memoryId: 'm1', organizationId: null },
+    });
+    const r = await expectRedirect(urn);
+    expect(r.status).toBe(307);
+    expect(mockRequest.mock.calls[0][1]).toEqual({ urn });
+  });
+
+  it('keeps the signin redirect inside /app/u/ for a URN containing a slash (#1512)', async () => {
+    mockRequest.mockRejectedValueOnce(
+      new ClientError(
+        {
+          errors: [{ message: 'rejected', extensions: { code: 'UNAUTHENTICATED' } }],
+          status: 200,
+        } as unknown as ClientError['response'],
+        { query: 'query', variables: {} },
+      ),
+    );
+    const r = await expectRedirect('hrn:node:a.com:m:../../../settings/tokens');
+    const dest = new URL(`http://localhost${r.location}`).searchParams.get('redirect')!;
+    const u = new URL(dest, 'http://localhost/app/team-chat');
+    expect(u.pathname.startsWith('/app/u/')).toBe(true);
+    expect(u.pathname.slice('/app/u/'.length)).not.toContain('/');
   });
 
   it('carries the query through the signin round-trip, encoded once', async () => {
@@ -262,6 +376,40 @@ describe('/app/u/[urn] — unresolvable and inaccessible URNs 404', () => {
       resolveUrn: { kind: 'node', id: 'node-1', memoryId: null, organizationId: null },
     });
     const r = await expectError('urn:node:acme.com::dev::x');
+    expect(r.status).toBe(500);
+  });
+
+  // #1360: an unknown, foreign-tenant, unreadable or malformed action URN is
+  // the server's null — the SAME neutral answer as any other unknown URN. The
+  // page draws no finer distinction, so none of these may leak "action" or a
+  // kind-specific sentence, and each message must differ only by the URN echoed.
+  it.each([
+    ['unknown code', 'hrn:action:hadronmemory.com:hadron-dev-team:no-such-code'],
+    ['foreign tenant', 'hrn:action:other-tenant.example:their-team:secret-code'],
+    ['malformed (missing code segment)', 'hrn:action:hadronmemory.com:hadron-dev-team'],
+  ])('404s a %s action URN with the neutral not-found text', async (_n, urn) => {
+    mockRequest.mockResolvedValueOnce({ resolveUrn: null });
+    const load = await importLoad();
+    let e: { status?: number; body?: { message?: string } } = {};
+    try {
+      await load(ev(urn));
+    } catch (err) {
+      e = err as typeof e;
+    }
+    expect(e.status).toBe(404);
+    expect(e.body?.message).toBe(
+      `No resource found for "${urn}", or you do not have access to it. ` +
+        `Possible causes: a typo in the identifier, a resource that was deleted or renamed, ` +
+        `one that is not visible to you, or a URN spelling this deployment does not resolve.`,
+    );
+    expect(e.body?.message).not.toContain('No canonical portal page');
+  });
+
+  it('500s (not a broken redirect) when an action resolves without a memoryId', async () => {
+    mockRequest.mockResolvedValueOnce({
+      resolveUrn: { kind: 'action', id: 'reg-1', memoryId: null, organizationId: null },
+    });
+    const r = await expectError('hrn:action:hadronmemory.com:hadron-dev-team:gate-an-issue');
     expect(r.status).toBe(500);
   });
 
@@ -540,5 +688,96 @@ describe('/app/u/[urn] — GraphQL rejections do not surface as 500s (#567)', ()
     mockRequest.mockRejectedValueOnce(new Error('ECONNREFUSED'));
     const load = await importLoad();
     await expect(load(ev('urn:memory:acme.com::dev'))).rejects.toThrow('ECONNREFUSED');
+  });
+});
+
+// portal#1099 — `resolveUrn` doesn't resolve ticker URNs yet (hrn:node:hadronmemory.com:specs:cor:agt:080:01),
+// so the route asks `ticker(ref:)`, which runs the ticker's own read gate.
+describe('hrn:ticker: URNs (portal#1099)', () => {
+  const urn = 'hrn:ticker:acme.com:team:engineering';
+
+  it('redirects to the ticker page in its App, 307, keeping the query', async () => {
+    const { TICKER_QUERY } = await import('$lib/server/tickers');
+    mockRequest.mockResolvedValueOnce({ ticker: { id: 'tk-1', app: { id: 'app-1' } } });
+    const load = await importLoad();
+    await expect(load(ev(urn, '?after=s1') as never)).rejects.toMatchObject({ status: 307, location: '/app/apps/app-1/tickers/tk-1?after=s1' });
+    expect(mockRequest).toHaveBeenCalledWith(TICKER_QUERY, { ref: urn });
+  });
+
+  it('a missing or unreachable ticker (null for both) is the same no-oracle 404', async () => {
+    mockRequest.mockResolvedValueOnce({ ticker: null });
+    const load = await importLoad();
+    await expect(load(ev(urn) as never)).rejects.toMatchObject({ status: 404 });
+  });
+
+  // #1209: Ticker.app becomes nullable (null when the reader can't read the
+  // App directly). For the resolver that is the ordinary not-found — the same
+  // 404 as a missing ticker, never a redirect to /app/apps/null/....
+  it('a ticker whose App the reader cannot read (app null) is the same no-oracle 404 (#1209)', async () => {
+    mockRequest.mockResolvedValueOnce({ ticker: { id: 'tk-1', app: null } });
+    const load = await importLoad();
+    await expect(load(ev(urn) as never)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('never asks resolveUrn for a ticker', async () => {
+    const { RESOLVE_URN_QUERY } = await import('$lib/server/queries');
+    mockRequest.mockResolvedValueOnce({ ticker: null });
+    const load = await importLoad();
+    await Promise.resolve(load(ev(urn) as never)).catch(() => {});
+    expect(mockRequest).not.toHaveBeenCalledWith(RESOLVE_URN_QUERY, expect.anything());
+  });
+});
+
+// #1213: provider refusals must use the same mapping for ticker deep links.
+describe('ticker URN provider-error mapping (#1213)', () => {
+  const urn = 'hrn:ticker:acme.com:team:engineering';
+  function rejection(code?: string) {
+    return new ClientError({
+      status: 200,
+      errors: [{ message: 'provider detail must not become the page message', extensions: code ? { code } : {} }],
+    } as unknown as ClientError['response'], { query: 'query', variables: {} });
+  }
+
+  it.each(['BAD_USER_INPUT', 'GRAPHQL_VALIDATION_FAILED'])('maps %s to input 400', async (code) => {
+    mockRequest.mockRejectedValueOnce(rejection(code));
+    const load = await importLoad();
+    await expect(load(ev(urn))).rejects.toMatchObject({ status: 400, body: { message: expect.stringContaining('is not a valid Hadron URN') } });
+  });
+
+  it.each(['UNAUTHENTICATED', 'SESSION_EXPIRED'])('maps %s to signin with the whole deep link', async (code) => {
+    mockRequest.mockRejectedValueOnce(rejection(code));
+    const load = await importLoad();
+    await expect(load(ev(urn, '?after=s1&tab=subscribers'))).rejects.toMatchObject({
+      status: 303,
+      location: `/signin?redirect=${encodeURIComponent(`/app/u/${urn}?after=s1&tab=subscribers`)}`,
+    });
+  });
+
+  it.each(['NOT_FOUND', 'NODE_NOT_FOUND', 'FORBIDDEN', 'PERMISSION_DENIED'])('maps %s identically to a null ticker or withheld App', async (code) => {
+    const load = await importLoad();
+    mockRequest.mockResolvedValueOnce({ ticker: null });
+    const absent = await expectError(urn) as { status: number; body: { message: string } };
+    mockRequest.mockResolvedValueOnce({ ticker: { id: 'tk-1', app: null } });
+    await expect(load(ev(urn))).rejects.toMatchObject({ status: absent.status, body: absent.body });
+    mockRequest.mockRejectedValueOnce(rejection(code));
+    await expect(load(ev(urn))).rejects.toMatchObject({ status: absent.status, body: absent.body });
+  });
+
+  it.each(['INTERNAL_SERVER_ERROR', 'UNRECOGNIZED', undefined])('preserves unknown/internal code %s', async (code) => {
+    const failure = rejection(code);
+    mockRequest.mockRejectedValueOnce(failure);
+    const load = await importLoad();
+    await expect(load(ev(urn))).rejects.toBe(failure);
+  });
+
+  it('preserves payload-less transport and non-GraphQL failures', async () => {
+    const load = await importLoad();
+    for (const failure of [
+      new ClientError({ status: 502 } as ClientError['response'], { query: 'query', variables: {} }),
+      new Error('synthetic transport failure'),
+    ]) {
+      mockRequest.mockRejectedValueOnce(failure);
+      await expect(load(ev(urn))).rejects.toBe(failure);
+    }
   });
 });

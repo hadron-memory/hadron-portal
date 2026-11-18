@@ -135,6 +135,12 @@ describe('blankComments', () => {
  * `.replace('{x}', v)` fails locally, before the push.
  */
 describe('the repository as it stands', () => {
+  // #862's audit: the same hole as check-grid-filters. A walk that returns []
+  // leaves the assertion below green, so the floor is what proves it looked.
+  it('scans a plausible number of files, so a broken walk cannot read as clean', () => {
+    expect(sourceFilesUnder('src').length).toBeGreaterThan(100);
+  });
+
   it('has no unsafe placeholder interpolation', () => {
     const offenders = sourceFilesUnder('src').flatMap((file) =>
       findUnsafeInterpolation(readFileSync(file, 'utf8')).map((hit) => `${file}:${hit.line}`),

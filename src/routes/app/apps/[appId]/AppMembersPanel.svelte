@@ -3,7 +3,7 @@
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import SelectUser from '$lib/components/SelectUser.svelte';
-  import { type SearchUser, userLabel as searchUserLabel } from '$lib/users/search-user';
+  import { type SearchUser, searchUsersPage, userLabel as searchUserLabel } from '$lib/users/search-user';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import type { App, AppMember } from '$lib/types';
@@ -21,10 +21,12 @@
    * page, hosted in place. `form` is the page's action result, so a no-JS submit
    * that lands back here re-seeds these forms the way it did on the old page.
    */
-  let { app, members, membersError, addMemberForm, ensureMemberForm, removeMemberForm, form }: {
+  let { app, members, membersError, membersWithheld = false, addMemberForm, ensureMemberForm, removeMemberForm, form }: {
     app: App;
     members: AppMember[];
     membersError: boolean;
+    /** portal#1148: the server WITHHOLDS the roster from this viewer — not an empty roster, not a failed fetch. */
+    membersWithheld?: boolean;
     addMemberForm: AddAppMemberSuperform;
     ensureMemberForm: EnsureAppMemberSuperform;
     removeMemberForm: RemoveAppMemberSuperform;
@@ -39,31 +41,24 @@
   const selectedUserLabel = $derived(selectedUser ? searchUserLabel(selectedUser) : '');
   const memberIdSet = $derived(new Set(members.map((m) => m.userId)));
 
-  async function searchUsers(query: string): Promise<SearchUser[]> {
-    const res = await fetch('/api/users/search', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ query }),
-    });
-    if (!res.ok) throw new Error('Search failed');
-    const data = (await res.json()) as { users?: SearchUser[] };
-    // Hide users already on this app — they can't be added again.
-    return (data.users ?? []).filter((u) => !memberIdSet.has(u.id));
-  }
+  const searchUsers = (query: string) => searchUsersPage(query, memberIdSet);
 
   function selectAddUser(user: SearchUser) {
     selectedUser = user;
     addForm.update((current) => ({ ...current, userId: user.id }), { taint: false });
   }
 
-  // Roles offered by the linked Agent's installation policy. The server
-  // validates against this same list (InvalidRoleError if the role isn't
-  // present), so the dropdown is the canonical source of truth.
-  const memberRoles = $derived<string[]>(app.agent?.installationPolicy?.memberRoles ?? []);
+  // Roles the App offers: the server's union over every installed Agent,
+  // primary first (R211, hrn:node:hadronmemory.com:specs:cor:dmo:050:04). The server validates against this
+  // same list, so the dropdown is the canonical source of truth. Not the
+  // deprecated single `app.agent` policy: on a multi-Agent App that list is
+  // incomplete (#1405). `maxMembers` below keeps its existing read.
+  const memberRoles = $derived<string[]>(app.availableMemberRoles ?? []);
   const maxMembers = $derived<string>(app.agent?.installationPolicy?.maxMembers ?? 'unlimited');
   const memberLimit = $derived<number | null>(
     maxMembers === 'unlimited' ? null : Number.parseInt(maxMembers, 10),
   );
+  const agentsWithheld = $derived(app.agents === null);
   const atLimit = $derived(memberLimit !== null && members.length >= memberLimit);
 
   // After a successful add, clear the picked user and keep a sensible role so the
@@ -175,12 +170,19 @@
   <div>
     <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">
       {t('app.members.title', 'Human Team')}
-      <span class="ml-2 text-sm font-normal text-zinc-500">({members.length}{memberLimit !== null ? ` / ${memberLimit}` : ''})</span>
+      {#if !membersWithheld && !membersError}
+        <span class="ml-2 text-sm font-normal text-zinc-500">({members.length}{memberLimit !== null ? ` / ${memberLimit}` : ''})</span>
+      {/if}
     </h2>
     {#if app.agent}
       <p class="mt-1 text-sm text-zinc-500">
         Roles below are defined by the linked Agent
         <a href="/app/agents/{app.agent.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{app.agent.name}</a>.
+      </p>
+    {:else if agentsWithheld}
+      <!-- portal#1148: a null agent says nothing when the install roster is withheld. -->
+      <p role="status" class="mt-1 text-sm text-zinc-500">
+        {t('app.members.agent-withheld', 'Which Agent is linked to this App isn’t visible to you.')}
       </p>
     {:else}
       <p class="mt-1 text-sm text-amber-600 dark:text-amber-400">
@@ -188,6 +190,12 @@
       </p>
     {/if}
   </div>
+
+  {#if membersWithheld}
+    <p role="status" class="rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+      {t('app.members.withheld', 'The members of this App aren’t visible to you. This is not an empty list.')}
+    </p>
+  {/if}
 
   {#if membersError}
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
@@ -247,14 +255,14 @@
         </div>
       {/each}
     </section>
-  {:else if !membersError}
+  {:else if !membersError && !membersWithheld}
     <p class="text-sm text-zinc-500">No members yet.</p>
   {/if}
 
   <!-- Add member — on-demand user search (#653): no longer gated on a
        bulk-loaded user list, so a personal-app owner / non-admin can add the
        first member. -->
-  {#if app.agent && memberRoles.length > 0}
+  {#if app.agent && !membersWithheld}
     <section>
       <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Add member</h2>
       {#if atLimit}
@@ -265,6 +273,13 @@
         <form method="POST" action="?/addMember" use:addEnhance class="flex flex-wrap items-start gap-3" novalidate>
           <input type="hidden" name="_kind" value="addAppMember" />
           <input type="hidden" name="userId" bind:value={$addForm.userId} />
+          {#if memberRoles.length === 0}
+            <p role="status" class="basis-full text-sm text-amber-700 dark:text-amber-400">
+              {t('app-members.add.no-roles', 'This App offers no member roles yet.')}
+              {t('app-members.add.no-roles-next', 'An owner or admin of the Agent can add roles on')}
+              <a href="/app/agents/{app.agent.id}" class="underline">{app.agent.name}</a>.
+            </p>
+          {/if}
           {#if addActionError}
             <div class="basis-full rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{addActionError}</div>
           {/if}
@@ -302,7 +317,7 @@
               <p id="addRoleError" class="mt-1 text-xs text-red-600 dark:text-red-400">{addRoleError}</p>
             {/if}
           </div>
-          <button type="submit" disabled={$addSubmitting || !selectedUser || !$addForm.role} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="submit" disabled={$addSubmitting || memberRoles.length === 0 || !selectedUser || !$addForm.role} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
             {$addSubmitting ? 'Adding...' : 'Add member'}
           </button>
         </form>

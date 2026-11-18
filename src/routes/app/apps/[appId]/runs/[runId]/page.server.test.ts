@@ -4,7 +4,7 @@
  * hadron-server#534 (where selecting AppRun.data errors the whole query).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { APP_QUERY, APP_RUN_QUERY, APP_RUN_ENVELOPE_QUERY, CANCEL_APP_RUN_MUTATION } from '$lib/server/queries';
+import { AGENT_TASKS_APP_QUERY, APP_QUERY, APP_RUN_QUERY, APP_RUN_ENVELOPE_QUERY, CANCEL_APP_RUN_MUTATION } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -61,7 +61,7 @@ const run = {
 
 function routeByQuery(opts: { envelope?: unknown; envelopeError?: boolean; run?: unknown }) {
   mockRequest.mockImplementation(async (query: string) => {
-    if (query === APP_QUERY) return { app };
+    if (query === APP_QUERY || query === AGENT_TASKS_APP_QUERY) return { app };
     if (query === APP_RUN_QUERY) return { appRun: 'run' in opts ? opts.run : run };
     if (query === APP_RUN_ENVELOPE_QUERY) {
       if (opts.envelopeError) throw new Error('Cannot query field "data" on type "AppRun".');
@@ -138,6 +138,39 @@ describe('run detail load', () => {
   });
 });
 
+// portal#1130: the run page gives a no-access viewer the App page's 404, not a
+// 500. Only the access and missing codes map; anything else stays a failure.
+describe('run detail load: a no-access viewer (#1130)', () => {
+  const gqlError = (code: string) => ({ response: { errors: [{ message: code, extensions: { code } }] } });
+  const answer = (fn: (q: string) => unknown) => mockRequest.mockImplementation(async (q: string) => fn(q));
+
+  it('a refused App read (FORBIDDEN) is a 404', async () => {
+    answer((q) => {
+      if (q === APP_QUERY || q === AGENT_TASKS_APP_QUERY) throw gqlError('FORBIDDEN');
+      throw gqlError('NOT_FOUND');
+    });
+    await expect(runLoad()).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('a concealed run (NOT_FOUND or FORBIDDEN on appRun) is a 404', async () => {
+    for (const code of ['NOT_FOUND', 'FORBIDDEN']) {
+      answer((q) => {
+        if (q === APP_QUERY || q === AGENT_TASKS_APP_QUERY) return { app };
+        throw gqlError(code);
+      });
+      await expect(runLoad()).rejects.toMatchObject({ status: 404 });
+    }
+  });
+
+  it('a server fault on the run read stays a failure, not a 404', async () => {
+    answer((q) => {
+      if (q === APP_QUERY || q === AGENT_TASKS_APP_QUERY) return { app };
+      throw gqlError('INTERNAL_SERVER_ERROR');
+    });
+    await expect(runLoad()).rejects.not.toMatchObject({ status: 404 });
+  });
+});
+
 describe('run detail cancel action', () => {
   it('cancels a run and returns a typed success', async () => {
     mockRequest.mockResolvedValueOnce(true);
@@ -165,7 +198,7 @@ describe('run detail cancel action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns a typed error when cancellation fails', async () => {
+  it('returns the fallback copy, not the raw text, when cancellation fails in transport', async () => {
     mockRequest.mockRejectedValueOnce(new Error('already completed'));
     const { actions } = await import('./+page.server');
 
@@ -174,7 +207,7 @@ describe('run detail cancel action', () => {
     expect((result as { status: number }).status).toBe(500);
     expect(superFormFrom(result)?.message).toEqual({
       type: 'error',
-      text: 'already completed',
+      text: 'Failed to cancel run',
     });
   });
 });

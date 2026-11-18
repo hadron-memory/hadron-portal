@@ -151,6 +151,21 @@ describe('renderWikilink', () => {
     );
   });
 
+  it('escapes a quote in the resolved href so it cannot leave the attribute (#1512)', () => {
+    const html = renderWikilink(
+      { target: 'a:b', label: 'x' },
+      { href: '/app/u/q"onmouseover="alert(1)', label: 'N' },
+      strings,
+    );
+    expect(html).toContain('href="/app/u/q&quot;onmouseover=&quot;alert(1)"');
+    expect(html).not.toMatch(/href="[^"]*"onmouseover=/);
+  });
+
+  it('escapes & in the resolved href so an entity cannot decode to a separator (#1512)', () => {
+    const html = renderWikilink({ target: 'a:b', label: 'x' }, { href: '/app/u/x&sol;y', label: 'N' }, strings);
+    expect(html).toContain('href="/app/u/x&amp;sol;y"');
+  });
+
   it('prefers explicit display text over the node name', () => {
     const html = renderWikilink(
       { target: 'glossary:ns1', label: 'NS1' },
@@ -228,5 +243,63 @@ describe('wikilinkExtension (marked integration)', () => {
     });
     expect(html).toContain('href="https://example.com"');
     expect(html).toContain('class="wikilink" href="/x"');
+  });
+});
+
+// #1053 — an author (usually an LLM) writes `[label](hrn:node:…)`, which is a
+// markdown link whose href no browser can follow. It must be treated as the
+// reference it is, exactly like `[[hrn:node:…|label]]`.
+describe('markdown links to an hrn:node: URN (#1053)', () => {
+  const urn = 'hrn:node:hadronmemory.com:hadron-dev-team-hugo:tools:team-containers';
+  const md = `[tools:team-containers](${urn})`;
+
+  it('extracts the URN as a wikilink target', () => {
+    expect(extractWikilinks(`see ${md} here`).map((r) => r.target)).toEqual([urn]);
+  });
+
+  it('extracts the same target once when written both ways', () => {
+    expect(extractWikilinks(`${md} and [[${urn}]]`)).toHaveLength(1);
+  });
+
+  it('renders a resolved URN link as an anchor with the authored label', () => {
+    const html = render(`before ${md} after`, {
+      [urn]: { href: '/app/memories/m1/nodes/n1', label: 'Team containers' },
+    });
+    expect(html).toContain('<a class="wikilink" href="/app/memories/m1/nodes/n1"');
+    expect(html).toContain('>tools:team-containers</a>');
+    expect(html).not.toContain('href="hrn:');
+  });
+
+  it('renders an unresolved URN link visibly, never as an inert anchor', () => {
+    const html = render(md, {});
+    expect(html).toContain('wikilink-unresolved');
+    expect(html).toContain(urn);
+    expect(html).not.toContain('href="hrn:');
+  });
+
+  it('leaves an ordinary https link alone', () => {
+    expect(render('[x](https://example.com/a)')).toContain('<a href="https://example.com/a">x</a>');
+  });
+
+  it('leaves a URN link inside a code span alone', () => {
+    expect(render(`\`${md}\``)).toContain(`<code>${md}</code>`);
+  });
+});
+
+describe('markdown links to an hrn:node: URN — edges (#1053)', () => {
+  it('does not turn an image with a URN src into a node link', () => {
+    const html = render('![alt](hrn:node:a.com:m:x)');
+    expect(html).not.toContain('wikilink');
+  });
+
+  it('resolves several URN links in one paragraph independently', () => {
+    const a = 'hrn:node:a.com:m:x';
+    const b = 'hrn:node:a.com:m:y';
+    const html = render(`[A](${a}) and [B](${b})`, {
+      [a]: { href: '/a', label: 'A' },
+      [b]: null,
+    });
+    expect(html).toContain('<a class="wikilink" href="/a"');
+    expect(html).toContain('wikilink-unresolved');
   });
 });

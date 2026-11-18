@@ -136,7 +136,7 @@
     <div role="dialog" aria-labelledby="mint-heading" data-testid="mint-dialog" class="absolute right-4 top-24 w-[44rem] max-w-[calc(100vw-2rem)] rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
       <h3 id="mint-heading" class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{t('memory-actions.mint.heading', 'Mint nodes')}</h3>
       <p class="text-sm text-zinc-600 dark:text-zinc-400">
-        {t('memory-actions.mint.explain', 'Minting stamps every unminted node with its current, approved revision. Every node must be approved and free of blockers first. Nodes minted earlier aren’t checked again.')}
+        {t('memory-actions.mint.explain', 'Minting stamps every unminted node with its current revision and approved content. Each node’s content must be approved and free of blockers first. Nodes minted earlier aren’t checked again.')}
       </p>
 
       {#if busy === 'checking'}

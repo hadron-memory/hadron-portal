@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatPortalDate } from '$lib/format-portal-date';
   // #668 — the PRINCIPAL side of memory sharing (spec 023 US3). The grantee
   // side already existed: "Memories shared with me" (#778) and self-removal
   // (#649). This is the owner's half — see who has access, grant, change a
@@ -17,7 +18,7 @@
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import { canEditShares, canSeeShares as maySeeShares } from '$lib/memory/can-manage-shares';
-  import { type SearchUser, userLabel } from '$lib/users/search-user';
+  import { type SearchUser, searchUsersPage, userLabel } from '$lib/users/search-user';
   import type { PageData, ActionData } from './$types';
   import { createShareSchema, revokeShareSchema, updateShareRoleSchema } from './schema';
 
@@ -91,7 +92,7 @@
   const formatGranted = (value: string | number) => {
     const ms = Number(value);
     const d = new Date(Number.isFinite(ms) && value !== '' ? ms : value);
-    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
+    return Number.isNaN(d.getTime()) ? '—' : formatPortalDate(d.toISOString());
   };
 
   let globalFilter = $state('');
@@ -202,16 +203,7 @@
   // never the handle — the same reason the table rows are.
   const sharedIds = $derived(new Set(rows.map((r) => r.granteeId)));
 
-  async function searchUsers(query: string): Promise<SearchUser[]> {
-    const res = await fetch('/api/users/search', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ query }),
-    });
-    if (!res.ok) throw new Error('Search failed');
-    const data = (await res.json()) as { users?: SearchUser[] };
-    return (data.users ?? []).filter((u) => !sharedIds.has(u.id));
-  }
+  const searchUsers = (query: string) => searchUsersPage(query, sharedIds);
   function onPick(user: SearchUser) {
     picked = user;
     // The stable id, never the handle — the mutation must not depend on a
@@ -247,12 +239,16 @@
       <!-- Shown rather than hiding the tab, so the reason has somewhere to
            live. `shareable` is the server's derived signal (#766) — the portal
            does not re-derive it from `class`, which would go stale the moment
-           the server widened the rule. -->
+           the server widened the rule. `class` only picks the wording. -->
       <div role="status" class="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-        {t(
-          'memory-share.not-shareable',
-          'This memory cannot be shared with individual people. Direct sharing is available for personal memories; memories owned by an organization are reached through org membership and subscriptions instead.',
-        )}
+        {#if memory.class === 'private'}
+          {t('memory-share.not-shareable-private', 'Private memories cannot be shared.')}
+        {:else}
+          {t(
+            'memory-share.not-shareable',
+            'This memory cannot be shared with individual people. Direct sharing is available for personal memories; memories owned by an organization are reached through org membership and subscriptions instead.',
+          )}
+        {/if}
       </div>
     {/if}
 
@@ -339,7 +335,7 @@
               <NodeActionsMenu
                 actions={[{ id: 'revoke', label: t('memory-share.revoke', 'Remove access'), danger: true }]}
                 onselect={() => (confirmRevokeFor = row.granteeId)}
-                label={`${t('memory-share.actions.label', 'Actions for')} ${row.grantee}`}
+                label={t('memory-share.actions.label', 'Actions for {name}', { name: row.grantee })}
                 fixed
                 compact
               />

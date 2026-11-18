@@ -38,3 +38,20 @@ describe('resolveActiveChatFromUrl', () => {
     expect(resolveActiveChatFromUrl(url, [])).toBeNull();
   });
 });
+
+describe('constrained App legacy resolution', () => {
+  const legacy = new URL('https://example.test/app/apps/app?chat=chat-1');
+  it('recovers only when the App proves its selector is unresolved', () => {
+    expect(resolveActiveChatFromUrl(legacy, [chat('chat-1')], { appChat: true, allowLegacyAppChat: true })).toBe('chat-1');
+    expect(resolveActiveChatFromUrl(legacy, [chat('chat-1')], { appChat: true })).toBeNull();
+  });
+  it('never looks beyond the filtered personal list', () => {
+    expect(resolveActiveChatFromUrl(legacy, [chat('other')], { appChat: true, allowLegacyAppChat: true })).toBeNull();
+  });
+  it('does not reinterpret an explicit personal parameter, including an empty one', () => {
+    for (const value of ['other', '']) {
+      const url = new URL(legacy); url.searchParams.set('agentChat', value);
+      expect(resolveActiveChatFromUrl(url, [chat('chat-1')], { appChat: true, allowLegacyAppChat: true })).toBeNull();
+    }
+  });
+});

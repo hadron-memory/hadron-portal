@@ -1,6 +1,6 @@
 /** #921 / @codex on #929 — the metadata form's single seed list. */
 import { describe, expect, it } from 'vitest';
-import { metaSavedDespiteFailure, nodeMetaReseed, nodeMetaSeed, nodeMetaSeedKey } from './node-meta-seed';
+import { metaSavedDespiteFailure, nodeMetaReseed, nodeMetaSeed, nodeMetaSeedKey, savedButNotMoved, withoutTrailingPunctuation } from './node-meta-seed';
 import { nodeUpdateMetaSchema } from '../routes/app/memories/[id]/nodes/[nodeId]/schema';
 
 const node = {
@@ -63,5 +63,54 @@ describe('nodeMetaReseed — what a node change writes into the form (@codex on 
   it('writes nothing when neither the node nor its role changed', () => {
     expect(nodeMetaReseed({ id: 'n1', role: 'spec.feature' }, node)).toBeNull();
     expect(nodeMetaReseed({ id: 'n1', role: null }, { ...node, role: '' })).toBeNull();
+  });
+});
+
+describe('savedButNotMoved (#1989)', () => {
+  const failure = (form: unknown, metaSaved = true) => ({ type: 'failure', data: { form, metaSaved } });
+
+  it('keeps a 409 collision from its loc field error, with the loc the user typed', () => {
+    expect(savedButNotMoved(failure({ errors: { loc: ['Saved, but not moved.'] }, data: { loc: 'taken' } })))
+      .toEqual({ text: 'Saved, but not moved.', loc: 'taken' });
+  });
+
+  it('keeps any other refused move from the form message', () => {
+    expect(savedButNotMoved(failure({ message: { type: 'error', text: 'Saved, but refused.' }, errors: {}, data: { loc: 'x' } })))
+      .toEqual({ text: 'Saved, but refused.', loc: 'x' });
+  });
+
+  it('keeps a loc field error that is a plain string, not only the array form (portal#2005 F6)', () => {
+    expect(savedButNotMoved(failure({ errors: { loc: 'Saved, but not moved.' }, data: { loc: 'taken' } })))
+      .toEqual({ text: 'Saved, but not moved.', loc: 'taken' });
+  });
+
+  it('is null when there is text but the typed loc is not a string, or is empty (portal#2005 F6)', () => {
+    expect(savedButNotMoved(failure({ message: { type: 'error', text: 'Refused.' }, errors: {}, data: { loc: 7 } }))).toBe(null);
+    expect(savedButNotMoved(failure({ message: { type: 'error', text: 'Refused.' }, errors: {}, data: {} }))).toBe(null);
+    expect(savedButNotMoved(failure({ message: { type: 'error', text: 'Refused.' }, errors: {}, data: { loc: '' } }))).toBe(null);
+  });
+
+  it('is null when nothing was saved, when the action succeeded, or when there is no text', () => {
+    expect(savedButNotMoved(failure({ errors: { loc: ['no'] }, data: { loc: 'x' } }, false))).toBe(null);
+    expect(savedButNotMoved({ type: 'success', data: { form: {} } })).toBe(null);
+    expect(savedButNotMoved(failure({ errors: {}, data: { loc: 'x' } }))).toBe(null);
+  });
+});
+
+describe('withoutTrailingPunctuation (portal#2005 F4)', () => {
+  it.each([
+    ['Target is taken.', 'Target is taken'],
+    ['Target is taken!', 'Target is taken'],
+    ['Target is taken?!  ', 'Target is taken'],
+    ['Target is taken:', 'Target is taken'],
+    ['Target is taken; ', 'Target is taken'],
+    ['Target is taken', 'Target is taken'],
+    ['', ''],
+  ])('%j becomes %j', (input, expected) => {
+    expect(withoutTrailingPunctuation(input)).toBe(expected);
+  });
+
+  it('keeps punctuation inside the text', () => {
+    expect(withoutTrailingPunctuation('Loc "a:b" is taken.')).toBe('Loc "a:b" is taken');
   });
 });

@@ -1,20 +1,28 @@
 <script lang="ts">
+  import ServedPrompt from '$lib/components/ServedPrompt.svelte';
   import { onDestroy, onMount, tick } from 'svelte';
   import { replaceState } from '$app/navigation';
-  import { marked } from 'marked';
+  import { renderChatMarkdown } from '$lib/markdown/chat-markdown';
   import DOMPurify from 'dompurify';
   import type { Chat, ChatMessage } from '$lib/types';
   import AssetUploadButton from '$lib/components/assets/AssetUploadButton.svelte';
   import AssetChip from '$lib/components/assets/AssetChip.svelte';
   import type { AssetSummary } from '$lib/api/assetUpload';
   import { olderCursorFrom } from '$lib/agent-chat-window';
+  import { AGENT_CHAT_KEY } from '$lib/app-chats';
   import { resolveActiveChatFromUrl } from '$lib/components/agent-chat-helpers.js';
   import { scrollTopAfterPrepend } from '$lib/team-chat-refresh';
   import { t } from '$lib/i18n/t.js';
   import { chatScopeStrings } from '$lib/i18n/chat-scope-strings.js';
+  import { agentChatRowStrings } from '$lib/i18n/agent-chat-row-strings.js';
+  import {
+    chatAiChoiceLabel,
+    initialChatAiChoice,
+    type ChatAiChoiceOption,
+  } from '$lib/chat-ai-choice';
 
   function renderMarkdown(text: string): string {
-    const raw = marked.parse(text, { async: false }) as string;
+    const raw = renderChatMarkdown(text);
     return DOMPurify.sanitize(raw);
   }
 
@@ -22,15 +30,48 @@
   // asset uploads. The parent page picks the destination memory (for now,
   // the agent's first writable memory). Multi-writable memory-picker UX
   // is a follow-up; the dominant single-writable case auto-picks.
-  // 036-ai-service-config: the App chat tab passes appId + the picked
-  // configName so turns resolve in app-context against the chosen config.
-  // The agent-builder chat omits both (agent-context, `default`).
+  // 036-ai-service-config: the App chat tab passes appId so turns resolve in
+  // app-context. portal#1963 (hadron-server#3957): it also passes the server's
+  // list of AI config choices, and the chat shows a dropdown over them. The
+  // agent-builder chat omits both (agent-context, `default`, no dropdown).
   let {
     agentId,
     uploadMemoryId,
     appId,
-    configName,
-  }: { agentId: string; uploadMemoryId?: string; appId?: string; configName?: string } = $props();
+    aiChoices = null,
+    allowLegacyAppChat = false,
+    onLegacyChatResolved,
+  }: {
+    agentId: string;
+    uploadMemoryId?: string;
+    appId?: string;
+    aiChoices?: ChatAiChoiceOption[] | null;
+    /** The App has proved the requested selector missing, without a read failure. */
+    allowLegacyAppChat?: boolean;
+    /** A successful legacy resume can dismiss the page's old missing banner. */
+    onLegacyChatResolved?: (appId: string) => void;
+  } = $props();
+
+  // portal#1963: the choice stored with the open chat (null for a new chat, or none stored), and the one the
+  // user picked in the dropdown. A pick is what gets SENT, so the server stores it; until the user picks, the
+  // chat runs the shown config by name and sends no choice, exactly as before. The shown value mirrors the
+  // server's order: the stored choice while the list still has it, else the App's chatbot config, else default.
+  let storedAiChoice = $state<string | null>(null);
+  let pickedAiChoice = $state<string | null>(null);
+  const hasAiChoices = $derived(Array.isArray(aiChoices) && aiChoices.length > 0);
+  // A pick counts only while the list still has it: the list drops a config deleted or disabled on the AI
+  // tab, and config ids are per App, so a pick made in one App never carries into another's list.
+  const livePickedAiChoice = $derived(
+    pickedAiChoice !== null && hasAiChoices && aiChoices!.some((o) => o.value === pickedAiChoice) ? pickedAiChoice : null,
+  );
+  const shownAiChoice = $derived(
+    hasAiChoices ? (livePickedAiChoice ?? initialChatAiChoice(aiChoices!, storedAiChoice)) : null,
+  );
+  /** The body fields a start or a turn carries for the AI config: the pick only. No config name is ever sent;
+   *  the portal server resolves from the choice, else the chat's stored one (portal#1963, Juliet's BLIND F1). */
+  function aiConfigFields(): { aiConfigChoice?: string } {
+    return hasAiChoices && livePickedAiChoice !== null ? { aiConfigChoice: livePickedAiChoice } : {};
+  }
 
   let pendingAttachments = $state<AssetSummary[]>([]);
 
@@ -53,7 +94,13 @@
     stageName: string | null;
     /** Spec 017 — chosen at creation, immutable per FR-002. */
     scope: 'private' | 'shared';
+    /** portal#2065: conversations this chat has completed, first completion first. */
+    completed: string[];
   } | null>(null);
+  // portal#2065: one quiet line about the last turn's routing (completed / returned / stage refused). The region below is
+  // mounted empty and its text replaced, so the change is announced. Scoped to its chat.
+  type ProgressNote = { tone: 'good' | 'neutral'; text: string };
+  let progressNotice = $state<{ chatId: string; notes: ProgressNote[] } | null>(null);
 
   // Spec 017 — composer-header scope picker. The user's pending choice
   // for the NEXT chat they start. Defaults to 'private' per FR-003.
@@ -64,13 +111,89 @@
   let input = $state('');
   let sending = $state(false);
   let turnError = $state<string | null>(null);
+  // portal#916: set only for a turn the server half-saved (see handlePartialTurn). Carries the chat it belongs to
+  // so it can never show in, or reload, another chat.
+  let partialTurnNotice = $state<{ chatId: string; text: string; refreshFailed: boolean } | null>(null);
+
+  // ── portal#2088: one pane at a time while the PANEL is narrow ──────────
+  // The breakpoint is the chat panel's own width (`@container`, `@2xl` =
+  // 42rem), not the viewport's: on the App page the app nav shows from `sm`,
+  // so a 640-900px window leaves a phone-sized panel (#2090 QA: a 26px
+  // composer at 640). Which pane shows is CSS (`hidden @2xl:flex`), never
+  // script, so the server-rendered first paint is already right (#747's
+  // pattern). From `@2xl` up both panes always show and none of this changes
+  // anything.
+  // `showList` is only the phone's view choice: Back sets it and leaves the
+  // selected chat, its transcript and its draft exactly as they were.
+  let showList = $state(false);
+  const phonePane = $derived(activeChatId !== null && !showList ? 'chat' : 'list');
+  let rootEl = $state<HTMLDivElement | null>(null);
+  let listEl = $state<HTMLElement | null>(null);
+  let headingEl = $state<HTMLHeadingElement | null>(null);
+  let newChatButton = $state<HTMLButtonElement | null>(null);
+  // Focus follows the view only where the view changed; on a desktop the list
+  // row the person clicked keeps focus, as before. Read at event time, not to
+  // decide what renders.
+  // One pane showing means the list is display:none once a chat is open.
+  const onePaneShowing = () => !!listEl && getComputedStyle(listEl).display === 'none';
+  async function focusConversation() {
+    await tick();
+    // The heading, not the textarea: focusing the textarea raises the phone
+    // keyboard over a chat the person has not read yet.
+    if (!destroyed && onePaneShowing()) headingEl?.focus();
+  }
+  async function backToChats() {
+    showList = true;
+    syncChatIdToUrl(null);
+    await tick();
+    if (destroyed) return;
+    const row = activeChatId
+      ? rootEl?.querySelector<HTMLElement>(`[data-chat-row="${CSS.escape(activeChatId)}"]`)
+      : null;
+    (row ?? newChatButton)?.focus();
+  }
 
   // Inline rename state
   let renamingChatId = $state<string | null>(null);
   let renameValue = $state('');
+  // Enter or Escape in the rename field hands focus back to the row's Rename
+  // (portal#2098); a blur by clicking elsewhere leaves focus where it went.
+  let renameReturnsFocus = false;
+
+  /** Focus one of a row's controls after the next render, if it is still there. */
+  async function focusRowControl(attribute: 'data-chat-row' | 'data-chat-rename' | 'data-chat-delete', chatId: string) {
+    await tick();
+    if (destroyed) return;
+    rootEl?.querySelector<HTMLElement>(`[${attribute}="${CSS.escape(chatId)}"]`)?.focus();
+  }
+
+  // The row actions' shared look: 44px targets, neutral text that reaches
+  // 4.5:1 on selected and unselected rows, and a visible focus ring. Hover
+  // colours are per action: in one class string with Delete's red, the neutral
+  // hover utilities sort later in the stylesheet and win. The label
+  // sits at the top of its target, on the meta line's text; the rest of the
+  // 44px falls below it.
+  const rowActionClass =
+    'inline-flex min-h-11 min-w-11 items-start justify-center pt-0.5 rounded px-1.5 text-[11px] font-medium text-zinc-600 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-indigo-500 dark:text-zinc-300';
 
   // Delete confirm state
   let pendingDeleteChatId = $state<string | null>(null);
+  // Whether the current turn error was raised from the list (a failed
+  // delete). On one pane after Back the chat stays selected, so this is what
+  // lets the list show it (#2110). Set with every turn error, never by text.
+  let turnErrorFromList = $state(false);
+  function setTurnError(message: string | null, { fromList = false }: { fromList?: boolean } = {}) {
+    turnError = message;
+    turnErrorFromList = message !== null && fromList;
+  }
+
+  /** One place for the stage toast's words: the visible line and its `title` read the same string (portal#2184). */
+  function stageToastText(toast: { from: string; to: string }): string {
+    return t('agent-chat.stage-toast', 'Stage transitioned: {from} → {to}', {
+      from: toast.from || t('agent-chat.stage-toast.start', '(start)'),
+      to: toast.to
+    });
+  }
 
   // Recent stage-transition toast
   let stageToast = $state<{ from: string; to: string } | null>(null);
@@ -204,19 +327,37 @@
 
   // ── Initial list fetch ───────────────────────────────────────────────
   // After loading the chat list, auto-resume the chat referenced by
-  // `?chat=<id>` so a reload restores the open conversation. Without
+  // `?chat=agent chat&agentChat=<loc>` on an App (legacy `?chat=<loc>`
+  // elsewhere) so a reload restores the open conversation. Without
   // this, every reload silently emptied the transcript pane — to the
   // user that looked like "chats are not saving."
   onMount(async () => {
+    const issuedAppId = appId;
+    const issuedAgentId = agentId;
+    const issuedSelector = new URL(window.location.href).searchParams.get('chat');
+    const issuedLegacyProof = allowLegacyAppChat;
     await refreshChatList();
-    const target = resolveActiveChatFromUrl(new URL(window.location.href), chats);
+    const url = new URL(window.location.href);
+    const legacyAllowed = issuedLegacyProof && allowLegacyAppChat && url.searchParams.get('chat') === issuedSelector && issuedAppId === appId && issuedAgentId === agentId;
+    // The unresolved-selector proof still holds while the page shows its not-found banner. That includes Back/Forward
+    // into an already-recovered entry, where Kit serves the cached `chatNotFound: true` but the URL is canonical, so
+    // this is gated on the proof, not on the URL looking legacy (BLIND P2 on #2148). A fresh canonical load has
+    // chatNotFound false, so the proof is absent and nothing fires.
+    const legacy = !!appId && legacyAllowed;
+    const target = resolveActiveChatFromUrl(url, chats, { appChat: !!appId, allowLegacyAppChat: legacyAllowed });
     if (target) {
-      await resumeChat(target);
+      // A page load is not the person choosing a chat: show it, don't move focus.
+      const resumed = await resumeChat(target, { focus: false });
+      if (legacy && resumed && !destroyed && issuedAppId && appId === issuedAppId && agentId === issuedAgentId) onLegacyChatResolved?.(issuedAppId);
     } else if (
       listError === null &&
-      new URL(window.location.href).searchParams.has('chat')
+      (!appId || url.searchParams.get('chat') === AGENT_CHAT_KEY) &&
+      url.searchParams.has(appId ? 'agentChat' : 'chat')
     ) {
-      // Stale ?chat=<id> (e.g. chat deleted in another tab) — clear it.
+      if (appId) {
+        setTurnError(t('agent-chat.not-found', 'That chat isn’t available — it may have been deleted, or you may not have access.'));
+      }
+      // Stale personal chat id (e.g. deleted in another tab) — clear it.
       // Gated on a successful list fetch: a transient list failure
       // leaves `chats` empty too, but we MUST NOT throw away a valid
       // ?chat param in that case — the next list reload should still
@@ -271,12 +412,18 @@
     // hrn:node:hadronmemory.com:hadron-portal:review:async-onmount-runs-after-teardown.
     if (destroyed) return;
     const url = new URL(window.location.href);
+    const param = appId ? 'agentChat' : 'chat';
     if (chatId) {
-      if (url.searchParams.get('chat') === chatId) return;
-      url.searchParams.set('chat', chatId);
+      if (url.searchParams.get(param) === chatId &&
+        (!appId || (url.searchParams.get('chat') === AGENT_CHAT_KEY && url.searchParams.get('tab') === 'chats'))) return;
+      if (appId) {
+        url.searchParams.set('tab', 'chats');
+        url.searchParams.set('chat', AGENT_CHAT_KEY);
+      }
+      url.searchParams.set(param, chatId);
     } else {
-      if (!url.searchParams.has('chat')) return;
-      url.searchParams.delete('chat');
+      if (!url.searchParams.has(param)) return;
+      url.searchParams.delete(param);
     }
     replaceState(url, {});
   }
@@ -299,17 +446,23 @@
   // ── Starting / resuming chats ────────────────────────────────────────
   async function startNewChat() {
     loadingChat = true;
-    turnError = null;
+    setTurnError(null);
+    partialTurnNotice = null;
+    progressNotice = null;
     messages = [];
     // A chat that does not exist yet has no history behind it.
     resetScrollback();
+    // portal#1963: leaving an open chat for a new one starts from the preselection, never from the old chat's
+    // choice. A pick made while no chat was open is meant for this new chat and is kept.
+    if (activeChatId !== null) pickedAiChoice = null;
+    storedAiChoice = null;
     activeChatId = null;
     activeChatMeta = null;
     try {
       const res = await fetch('/api/agent-chat/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId, scope: nextChatScope, appId, configName }),
+        body: JSON.stringify({ agentId, scope: nextChatScope, appId, ...aiConfigFields() }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -326,7 +479,9 @@
         throw new Error(body.error ?? 'Failed to start chat');
       }
       activeChatId = body.chatId;
+      showList = false;
       syncChatIdToUrl(activeChatId);
+      void focusConversation();
       activeChatMeta = {
         title: t('agent-chat.new-chat-title', 'New chat'),
         conversationName: body.conversationName,
@@ -334,6 +489,7 @@
         // Spec 017 — record the scope used at creation; immutable from
         // here on.
         scope: body.scope === 'shared' ? 'shared' : 'private',
+        completed: [],
       };
       // Spec 017 D3 (safety > collaboration): reset the picker to
       // 'private' after a successful chat creation so the user makes a
@@ -358,26 +514,44 @@
       // translators see complete prose. Our t() doesn't interpolate,
       // so we substitute the {error} placeholder after lookup. This
       // is the only call site for this key.
-      welcomeNotice = body.welcomeError
+      welcomeNotice = body.welcomeError && body.welcomePartial !== true
         ? t(
             'agent-chat.welcome-error-hint',
             "Couldn't generate a welcome message — type below to start the chat. (Underlying error: {error})",
             { error: body.welcomeError },
           )
         : null;
+      applyRouting(body.chatId, body);
+      if (body.welcomePartial === true && typeof body.welcomeError === 'string') {
+        // portal#2065 B3 on the welcome turn: the reply was saved, so show it and say so (no "couldn't generate" hint).
+        welcomeNotice = null;
+        await handlePartialTurn(body.chatId, windowGeneration, body.welcomeError);
+      }
       await refreshChatList();
       scrollMessagesToBottom();
     } catch (e) {
-      turnError = e instanceof Error ? e.message : 'Failed to start chat';
+      setTurnError(e instanceof Error ? e.message : 'Failed to start chat');
     } finally {
       loadingChat = false;
     }
   }
 
-  async function resumeChat(chatId: string) {
-    if (activeChatId === chatId) return;
+  async function resumeChat(chatId: string, { focus = true }: { focus?: boolean } = {}) {
+    if (activeChatId === chatId) {
+      // portal#2088: after Back on a phone the chat is still selected and loaded;
+      // choosing it again only shows it again. No refetch, nothing reset.
+      if (showList) {
+        showList = false;
+        syncChatIdToUrl(chatId);
+        if (focus) void focusConversation();
+      }
+      return true;
+    }
+    showList = false;
     loadingChat = true;
-    turnError = null;
+    setTurnError(null);
+    partialTurnNotice = null;
+    progressNotice = null;
     welcomeNotice = null;
     messages = [];
     // Cleared BEFORE the fetch, not only on success: an in-flight scroll-up
@@ -385,7 +559,11 @@
     resetScrollback();
     activeChatId = chatId;
     syncChatIdToUrl(chatId);
+    if (focus) void focusConversation();
     activeChatMeta = null;
+    // portal#1963: the reopened chat shows its own stored choice, not the previous chat's pick.
+    pickedAiChoice = null;
+    storedAiChoice = chats.find((c) => c.loc === chatId || c.id === chatId)?.aiConfigChoice ?? null;
     try {
       const res = await fetch('/api/agent-chat/resume', {
         method: 'POST',
@@ -394,6 +572,8 @@
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? 'Failed to resume chat');
+      // The fresh read wins over the list row, unless the user picked while it was in flight.
+      if (activeChatId === chatId) storedAiChoice = body.chat?.aiConfigChoice ?? null;
       activeChatMeta = {
         title: body.chat.title,
         conversationName: body.chat.conversationName,
@@ -401,30 +581,64 @@
         // Spec 017 — scope is part of the chat metadata; pulled through
         // from MY_CHATS_QUERY which now selects it.
         scope: body.chat.scope === 'shared' ? 'shared' : 'private',
+        completed: [...new Set<string>(body.chat.completedConversations ?? [])],
       };
+      // Chat switch stays tolerant, as before #916: a missing list opens an empty
+      // transcript. The strict check lives in the partial-turn reload only, where
+      // the transcript on screen must not be replaced by nothing.
       messages = body.messages ?? [];
       // #793: the tail page plus the server's word on whether anything precedes
       // it. `hasOlder` comes from the endpoint, never from `messages.length` —
       // a full last page is indistinguishable from a middle one.
       resetScrollback({ messages, hasOlder: body.hasOlder });
       scrollMessagesToBottom();
+      return true;
     } catch (e) {
-      turnError = e instanceof Error ? e.message : 'Failed to resume chat';
+      setTurnError(e instanceof Error ? e.message : 'Failed to resume chat');
       activeChatId = null;
       syncChatIdToUrl(null);
+      return false;
     } finally {
       loadingChat = false;
     }
   }
 
   // ── Sending a message ────────────────────────────────────────────────
+  /**
+   * portal#2065: completion, detour return, refused stage, from a turn or the welcome turn. Strings are ours (t()), never
+   * server text; names are the author's own, shown as the header already shows them. routingSkipped shows nothing (B5).
+   * The done list never holds a name twice.
+   */
+  function applyRouting(chatId: string, body: Record<string, unknown>) {
+    if (!activeChatMeta || activeChatId !== chatId) return;
+    const done = typeof body.conversationCompleted === 'string' && body.conversationCompleted ? body.conversationCompleted : null;
+    if (done && !activeChatMeta.completed.includes(done)) {
+      activeChatMeta = { ...activeChatMeta, completed: [...activeChatMeta.completed, done] };
+    }
+    const notes: ProgressNote[] = [];
+    if (done) notes.push({ tone: 'good', text: t('agent-chat.progress.completed', 'Done: {name}', { name: done }) });
+    if (body.detourReturned === true) {
+      const stage = typeof body.newStageName === 'string' && body.newStageName ? body.newStageName : '';
+      notes.push({ tone: 'good', text: stage ? t('agent-chat.progress.detour-returned', 'Back to {where}', { where: stage }) : t('agent-chat.progress.detour-returned-plain', 'Back to where we were') });
+    }
+    if (typeof body.rejectedNextStage === 'string' && body.rejectedNextStage) {
+      notes.push({ tone: 'neutral', text: t('agent-chat.progress.stage-refused', 'Staying on this step, and your message is saved. Couldn\'t move to "{name}".', { name: body.rejectedNextStage }) });
+    }
+    progressNotice = notes.length ? { chatId, notes } : null;
+  }
+
   async function sendMessage() {
     const text = input.trim();
     if (!text || !activeChatId || sending) return;
     const chatId = activeChatId;
+    // portal#916: the window this turn was issued in. A chat id is not unique over time (leave and reopen the same
+    // chat and it is a new window), so the fence is captured HERE, when the turn is issued, never after its response.
+    const issuedWindow = windowGeneration;
     input = '';
     sending = true;
-    turnError = null;
+    setTurnError(null);
+    partialTurnNotice = null;
+    progressNotice = null;
     welcomeNotice = null;
 
     // Optimistic user bubble
@@ -443,10 +657,19 @@
       const res = await fetch('/api/agent-chat/turn', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId, chatId, userMessage: text, appId, configName }),
+        body: JSON.stringify({ agentId, chatId, userMessage: text, appId, ...aiConfigFields() }),
       });
       const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? 'Turn failed');
+      if (!res.ok) {
+        // portal#916: the server saved both messages before refusing the extraction. A rollback plus refill would
+        // invite a resend that duplicates the turn, so reload instead. The route sets the flag only for a
+        // recognised structured marker; without it this is today's failure path, unchanged.
+        if (res.status === 409 && body.partialTurn === true) {
+          await handlePartialTurn(chatId, issuedWindow, typeof body.error === 'string' && body.error.trim() !== '' ? body.error : t('agent-chat.partial-turn.generic', "Your message was sent and the reply was saved. You don't need to send it again."));
+          return;
+        }
+        throw new Error(body.error ?? 'Turn failed');
+      }
 
       // Assistant bubble
       messages = [
@@ -477,16 +700,53 @@
         }, 4000);
       }
 
+      applyRouting(chatId, body);
+
       // Refresh the list so lastMessageAt + derived title update
       refreshChatList();
     } catch (e) {
-      turnError = e instanceof Error ? e.message : 'Turn failed';
+      setTurnError(e instanceof Error ? e.message : 'Turn failed');
       // Rollback the optimistic user bubble
       messages = messages.slice(0, -1);
       input = text;
     } finally {
       sending = false;
     }
+  }
+
+  /**
+   * portal#916: a turn the server half-saved (reply and counter saved, extraction refused, stage not run).
+   * Reloads the conversation through the same resume read, shows the route's fixed message as a notice, keeps the
+   * current stage (no toast), and NEVER touches `input`: the sent text is not put back, and a draft the user typed
+   * since stays. Applies only to the chat the turn belonged to, and to the window it was sent in.
+   */
+  async function handlePartialTurn(chatId: string, generation: number, notice: string) {
+    // An old turn belongs to the window it was issued in: if the user left and reopened the chat since, the fresh
+    // window already loaded the saved messages and this turn must neither reload it again nor explain itself there.
+    if (destroyed || activeChatId !== chatId || windowGeneration !== generation) return;
+    let reloaded = false;
+    try {
+      const res = await fetch('/api/agent-chat/resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, chatId }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error('reload failed');
+      // The user may have switched chats, or reopened this one, while the read was in flight.
+      if (destroyed || activeChatId !== chatId || windowGeneration !== generation) return;
+      // A 200 without a messages list is not a reload: keep what is shown and say so.
+      if (!Array.isArray(body.messages)) throw new Error('reload returned no messages');
+      messages = body.messages;
+      resetScrollback({ messages, hasOlder: body.hasOlder });
+      reloaded = true;
+      scrollMessagesToBottom();
+    } catch {
+      if (destroyed || activeChatId !== chatId || windowGeneration !== generation) return;
+    }
+    // Truthful when the reload failed: the reply is saved, but this screen may not show it.
+    partialTurnNotice = { chatId, text: notice, refreshFailed: !reloaded };
+    refreshChatList();
   }
 
   function onInputKeydown(e: KeyboardEvent) {
@@ -511,6 +771,10 @@
   async function commitRename(chatId: string) {
     const title = renameValue.trim();
     renamingChatId = null;
+    if (renameReturnsFocus) {
+      renameReturnsFocus = false;
+      void focusRowControl('data-chat-rename', chatId);
+    }
     if (!title) return;
     try {
       const res = await fetch('/api/agent-chat/title', {
@@ -527,16 +791,35 @@
       }
       await refreshChatList();
     } catch (e) {
-      turnError = e instanceof Error ? e.message : 'Rename failed';
+      setTurnError(e instanceof Error ? e.message : 'Rename failed');
     }
   }
   function cancelRename() {
+    const chatId = renamingChatId;
     renamingChatId = null;
     renameValue = '';
+    if (chatId) void focusRowControl('data-chat-rename', chatId);
+  }
+  function cancelDelete() {
+    const chatId = pendingDeleteChatId;
+    pendingDeleteChatId = null;
+    if (chatId) void focusRowControl('data-chat-delete', chatId);
   }
 
   async function confirmDelete(chatId: string) {
     pendingDeleteChatId = null;
+    // Where focus goes once the row is gone: the next row, else the previous
+    // one, else "+ New chat" (portal#2098).
+    const at = chats.findIndex((c) => c.loc === chatId);
+    const neighbour = chats[at + 1] ?? chats[at - 1] ?? null;
+    // The delete and the list refresh are network round trips. If the person
+    // moves on meanwhile (focuses or presses anything, anywhere), the focus is
+    // theirs: don't pull it back to the list when the answer lands.
+    let movedOn = false;
+    const moveOn = () => (movedOn = true);
+    document.addEventListener('focusin', moveOn, true);
+    document.addEventListener('pointerdown', moveOn, true);
+    document.addEventListener('keydown', moveOn, true);
     try {
       const res = await fetch('/api/agent-chat/delete', {
         method: 'POST',
@@ -554,10 +837,32 @@
         messages = [];
         resetScrollback();
         welcomeNotice = null;
+        partialTurnNotice = null;
       }
       await refreshChatList();
+      await tick();
+      if (destroyed || movedOn) return;
+      const next = neighbour && chats.some((c) => c.loc === neighbour.loc)
+        ? rootEl?.querySelector<HTMLElement>(`[data-chat-row="${CSS.escape(neighbour.loc)}"]`)
+        : null;
+      (next ?? newChatButton)?.focus();
     } catch (e) {
-      turnError = e instanceof Error ? e.message : 'Delete failed';
+      setTurnError(e instanceof Error ? e.message : 'Delete failed', { fromList: true });
+      // The dialog has closed, so a failed delete hands focus back to that
+      // row's Delete, under the same ownership rule as a success: not once
+      // the person has moved on (portal#2104). If the row went away
+      // meanwhile, the neighbour rule above applies.
+      await tick();
+      if (destroyed || movedOn) return;
+      const find = (attribute: string, loc: string) =>
+        chats.some((c) => c.loc === loc)
+          ? rootEl?.querySelector<HTMLElement>(`[${attribute}="${CSS.escape(loc)}"]`)
+          : null;
+      (find('data-chat-delete', chatId) ?? (neighbour && find('data-chat-row', neighbour.loc)) ?? newChatButton)?.focus();
+    } finally {
+      document.removeEventListener('focusin', moveOn, true);
+      document.removeEventListener('pointerdown', moveOn, true);
+      document.removeEventListener('keydown', moveOn, true);
     }
   }
 
@@ -575,9 +880,15 @@
 
 <!-- Full-height layout: left chat list + right active chat.
      The parent container gives us all available vertical space. -->
-<div class="flex h-full min-h-0 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+<div bind:this={rootEl} class="@container flex h-full min-h-0 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
   <!-- ── Chat list sidebar ───────────────────────────────────────────── -->
-  <aside class="flex w-64 shrink-0 flex-col border-r border-zinc-200 dark:border-zinc-800">
+  <!-- portal#2088: below `@2xl` (panel width) the list is the whole panel while it is the
+       phone's pane, and display:none (out of the tab order too) otherwise. -->
+  <aside
+    bind:this={listEl}
+    class="w-full min-w-0 flex-col border-zinc-200 @2xl:w-64 @2xl:shrink-0 @2xl:border-r dark:border-zinc-800
+      {phonePane === 'list' ? 'flex' : 'hidden @2xl:flex'}"
+  >
     <div class="border-b border-zinc-200 p-3 dark:border-zinc-800">
       <!-- Spec 017 — segmented scope picker. The user's choice here
            dictates the next chat's tier when they click "+ New chat".
@@ -617,6 +928,7 @@
         </button>
       </div>
       <button
+        bind:this={newChatButton}
         type="button"
         onclick={startNewChat}
         class="w-full rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
@@ -626,6 +938,16 @@
         + New chat
       </button>
     </div>
+    <!-- portal#2088: on a phone a refused or failed start leaves the person on
+         the list, so its message shows here. From `@2xl` (panel width) up the conversation
+         pane's copy below shows instead; only one is ever displayed. After Back
+         the chat stays selected behind the list; an error raised from the list
+         (a failed delete, #2110) still shows here, a chat's own error does not. -->
+    {#if turnError && !loadingChat && (!activeChatId || (phonePane === 'list' && turnErrorFromList))}
+      <div role="alert" class="m-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 [overflow-wrap:anywhere] @2xl:hidden dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+        {turnError}
+      </div>
+    {/if}
     <div class="min-h-0 flex-1 overflow-y-auto">
       {#if loadingList && chats.length === 0}
         <p class="p-3 text-xs text-zinc-500">Loading chats…</p>
@@ -636,28 +958,51 @@
       {:else}
         <ul class="divide-y divide-zinc-100 dark:divide-zinc-800">
           {#each chats as chat (chat.loc)}
-            <li class="group relative">
+            <!-- portal#2098: Rename and Delete are always in the DOM and the
+                 tab order, revealed by opacity, never display:none. Mouse on
+                 a wide panel: quiet at rest, shown on hover, focus and the
+                 selected row. Narrow panel (below @2xl) or touch: always
+                 shown. At every width and pointer they sit on the meta line,
+                 in flow, so the title keeps the row's width and they never
+                 cover the title or scope badge (#2095). -->
+            <li
+              class="group relative grid grid-cols-[minmax(0,1fr)_auto] items-center transition
+                {activeChatId === chat.loc
+                  ? 'bg-indigo-50 dark:bg-indigo-950/40'
+                  : 'hover:bg-zinc-50 dark:hover:bg-zinc-800'}"
+            >
               {#if renamingChatId === chat.loc}
                 <!-- svelte-ignore a11y_autofocus -->
                 <input
                   type="text"
                   bind:value={renameValue}
+                  aria-label={agentChatRowStrings.renameInput(chat.title)}
                   onblur={() => commitRename(chat.loc)}
                   onkeydown={(e) => {
-                    if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur();
-                    if (e.key === 'Escape') cancelRename();
+                    // preventDefault: focus returns to Rename before this key's
+                    // keypress, which would otherwise press Rename again.
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      renameReturnsFocus = true;
+                      (e.currentTarget as HTMLInputElement).blur();
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      cancelRename();
+                    }
                   }}
                   autofocus
-                  class="w-full border-0 bg-white px-3 py-2 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-zinc-900 dark:text-white"
+                  class="col-span-2 w-full border-0 bg-white px-3 py-2 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-zinc-900 dark:text-white"
                 />
               {:else}
                 <button
                   type="button"
+                  data-chat-row={chat.loc}
                   onclick={() => resumeChat(chat.loc)}
-                  class="block w-full px-3 py-2 text-left text-sm transition
+                  class="col-span-2 row-start-1 block min-w-0 px-3 pb-0.5 pt-2 text-left text-sm pointer-coarse:min-h-11 after:absolute after:inset-0 after:content-['']
                     {activeChatId === chat.loc
-                      ? 'bg-indigo-50 text-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200'
-                      : 'text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
+                      ? 'text-indigo-900 dark:text-indigo-200'
+                      : 'text-zinc-700 dark:text-zinc-300'}"
                 >
                   <div class="flex items-center gap-1.5">
                     <span class="truncate font-medium">{chat.title}</span>
@@ -676,27 +1021,43 @@
                         : chatScopeStrings.badgePrivate()}
                     </span>
                   </div>
-                  <div class="mt-0.5 flex items-center gap-2 text-[10px] text-zinc-400">
-                    <span>{chat.messageCount} msg{chat.messageCount === 1 ? '' : 's'}</span>
-                    {#if chat.lastMessageAt}
-                      <span>·</span>
-                      <span>{formatRelativeTime(chat.lastMessageAt)}</span>
-                    {/if}
-                  </div>
                 </button>
-                <div class="absolute right-1 top-1 hidden gap-0.5 group-hover:flex">
+                <!-- The existing row button's transparent pseudo-element
+                     stretches across the row. Actions sit above it in their
+                     own grid cell; meta text passes pointer hits through. No
+                     extra opener or keyboard stop is introduced (#2105). -->
+                <div
+                  data-chat-meta={chat.loc}
+                  class="pointer-events-none col-start-1 row-start-2 flex items-start gap-2 self-stretch px-3 pt-0.5 text-[10px] text-zinc-400"
+                >
+                  <span>{agentChatRowStrings.messages(chat.messageCount)}</span>
+                  {#if chat.lastMessageAt}
+                    <span>{agentChatRowStrings.separator()}</span>
+                    <span>{formatRelativeTime(chat.lastMessageAt)}</span>
+                  {/if}
+                </div>
+                <div
+                  class="relative z-10 col-start-2 row-start-2 flex gap-0.5 pb-1 pr-1
+                    {activeChatId === chat.loc
+                      ? 'opacity-100'
+                      : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 @max-2xl:opacity-100 pointer-coarse:opacity-100'}"
+                >
                   <button
                     type="button"
-                    title="Rename"
+                    data-chat-rename={chat.loc}
+                    aria-label={agentChatRowStrings.rename(chat.title)}
+                    title={agentChatRowStrings.rename(chat.title)}
                     onclick={(e) => { e.stopPropagation(); startRename(chat); }}
-                    class="rounded bg-white/90 px-1.5 text-[10px] text-zinc-500 hover:text-zinc-900 dark:bg-zinc-900/90 dark:hover:text-white"
-                  >rename</button>
+                    class="{rowActionClass} hover:text-zinc-900 dark:hover:text-white"
+                  >{agentChatRowStrings.renameShort()}</button>
                   <button
                     type="button"
-                    title="Delete"
+                    data-chat-delete={chat.loc}
+                    aria-label={agentChatRowStrings.delete(chat.title)}
+                    title={agentChatRowStrings.delete(chat.title)}
                     onclick={(e) => { e.stopPropagation(); pendingDeleteChatId = chat.loc; }}
-                    class="rounded bg-white/90 px-1.5 text-[10px] text-red-500 hover:text-red-700 dark:bg-zinc-900/90"
-                  >delete</button>
+                    class="{rowActionClass} hover:text-red-700 focus-visible:text-red-700 active:text-red-700 dark:hover:text-red-400 dark:focus-visible:text-red-400 dark:active:text-red-400"
+                  >{agentChatRowStrings.deleteShort()}</button>
                 </div>
               {/if}
             </li>
@@ -707,17 +1068,42 @@
   </aside>
 
   <!-- ── Active chat ─────────────────────────────────────────────────── -->
-  <main class="flex min-h-0 min-w-0 flex-1 flex-col">
+  <main class="min-h-0 min-w-0 flex-1 flex-col {phonePane === 'chat' ? 'flex' : 'hidden @2xl:flex'}">
     {#if !activeChatId && !loadingChat}
-      <div class="flex min-h-0 flex-1 items-center justify-center p-8 text-center text-sm text-zinc-500">
-        Select a chat from the list or click <span class="mx-1 font-semibold text-zinc-700 dark:text-zinc-300">+ New chat</span> to start a new one.
+      <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-8 text-center text-sm text-zinc-500">
+        <p>Select a chat from the list or click <span class="mx-1 font-semibold text-zinc-700 dark:text-zinc-300">+ New chat</span> to start a new one.</p>
+        <!-- portal#1611: a refused or failed start has no chat pane to show its
+             error in; without this the user saw nothing at all. -->
+        {#if turnError}
+          <div role="alert" class="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 [overflow-wrap:anywhere] dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+            {turnError}
+          </div>
+        {/if}
       </div>
     {:else}
       <!-- Header -->
-      <header class="flex items-center gap-3 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+      <header class="flex items-center gap-2 border-b border-zinc-200 px-4 py-3 @2xl:gap-3 dark:border-zinc-800">
+        <!-- portal#2088: phone-only view navigation back to the list. Neutral
+             chrome (never the warm accent); it changes no chat.
+             portal#2094: reads as a control at rest — a drawn zinc outline
+             strong enough to see against the header surface (>= 3:1 both
+             themes, one ramp step for both), a 20px chevron and the label,
+             inside the 44px target. Back is navigation; the warm accent is
+             never the primary navigation color. -->
+        <button
+          type="button"
+          onclick={backToChats}
+          aria-label={t('agent-chat.back.aria', 'Back to chats')}
+          class="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-lg border border-zinc-500 bg-white px-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 @2xl:hidden dark:border-zinc-500 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" class="h-5 w-5">
+            <path fill-rule="evenodd" d="M12.79 5.23a.75.75 0 0 1-.02 1.06L8.832 10l3.938 3.71a.75.75 0 1 1-1.04 1.08l-4.5-4.25a.75.75 0 0 1 0-1.08l4.5-4.25a.75.75 0 0 1 1.06.02Z" clip-rule="evenodd" />
+          </svg>
+          {t('agent-chat.back.label', 'Chats')}
+        </button>
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2">
-            <h3 class="truncate text-sm font-semibold text-zinc-900 dark:text-white">
+            <h3 bind:this={headingEl} tabindex="-1" class="truncate text-sm font-semibold text-zinc-900 dark:text-white">
               {activeChatMeta?.title ?? t('agent-chat.new-chat-title', 'New chat')}
             </h3>
             {#if activeChatMeta}
@@ -738,7 +1124,7 @@
               </span>
             {/if}
           </div>
-          <div class="mt-0.5 flex items-center gap-2 text-[10px] text-zinc-400">
+          <div class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-zinc-400 [overflow-wrap:anywhere]">
             {#if activeChatMeta?.conversationName}
               <span class="rounded bg-zinc-100 px-1.5 py-0.5 font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
                 {activeChatMeta.conversationName}
@@ -748,18 +1134,48 @@
               <span>Stage: <span class="font-semibold text-zinc-600 dark:text-zinc-300">{activeChatMeta.stageName}</span></span>
             {/if}
           </div>
+          {#if activeChatMeta && activeChatMeta.completed.length > 0}
+            <div class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400" data-testid="completed-conversations-row">
+              <span>{t('agent-chat.progress.done-label', 'Done')}:</span>
+              <ul class="flex min-w-0 flex-wrap gap-1.5" data-testid="completed-conversations">
+                {#each activeChatMeta.completed as name (name)}
+                  <li title={name} class="max-w-full truncate rounded bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{name}</li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
         </div>
       </header>
 
       {#if stageToast}
-        <div class="mx-4 mt-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
-          Stage transitioned: <strong>{stageToast.from || '(start)'}</strong> → <strong>{stageToast.to}</strong>
+        <!-- The clamp sits on an inner element: line-clamp on a box that has vertical padding lets the next line show through the padding. -->
+        <div class="mx-4 mt-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
+          <span data-testid="stage-toast" title={stageToastText(stageToast)} class="line-clamp-2 break-words">{stageToastText(stageToast)}</span>
         </div>
       {/if}
+
+      <div role="status" data-testid="chat-progress-notice" class={progressNotice && progressNotice.chatId === activeChatId ? 'mx-4 mt-1.5 space-y-1' : 'sr-only'}>
+        {#if progressNotice && progressNotice.chatId === activeChatId}
+          {#each progressNotice.notes as note}
+            <p class="rounded-md border px-3 py-1 text-xs {note.tone === 'good' ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200' : 'border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300'}"><span data-testid="chat-progress-item" title={note.text} class="line-clamp-2 break-words">{note.text}</span></p>
+          {/each}
+        {/if}
+      </div>
 
       {#if welcomeNotice}
         <div class="mx-4 mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
           {welcomeNotice}
+        </div>
+      {/if}
+
+      <!-- portal#1665: what this chat was given (hrn:node:hadronmemory.com:specs:cor:agt:040:03), for the chat OPEN here. Asked by
+           {agentId, chatId} and found in the viewer's own list server-side; an end user who does not
+           manage the App gets an empty answer and sees nothing (no "no records" text). -->
+      {#if activeChatId && !loadingChat}
+        <div class="mx-4 mt-2">
+          {#key activeChatId}
+            <ServedPrompt collapsible source="chat" {agentId} chatId={activeChatId} />
+          {/key}
         </div>
       {/if}
 
@@ -793,9 +1209,9 @@
         {#each messages as msg, idx (msg.seq ?? `legacy-${idx}`)}
           <div class="flex {msg.role === 'user' ? 'justify-end' : 'justify-start'}">
             {#if msg.role === 'user'}
-              <div class="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-indigo-500 px-3 py-2 text-sm text-white">{msg.content}</div>
+              <div class="min-w-0 max-w-[85%] whitespace-pre-wrap rounded-2xl bg-indigo-500 [overflow-wrap:anywhere] px-3 py-2 text-sm text-white">{msg.content}</div>
             {:else}
-              <div class="max-w-[85%] rounded-2xl bg-zinc-100 px-3 py-2 text-sm text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100">
+              <div class="min-w-0 max-w-[85%] rounded-2xl bg-zinc-100 px-3 py-2 text-sm text-zinc-900 [overflow-wrap:anywhere] dark:bg-zinc-800 dark:text-zinc-100">
                 <div class="prose prose-sm dark:prose-invert max-w-none">
                   {@html renderMarkdown(msg.content)}
                 </div>
@@ -812,6 +1228,19 @@
                 <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-current" style="animation-delay: 300ms"></span>
               </span>
             </div>
+          </div>
+        {/if}
+      </div>
+
+      <!-- The status region stays mounted (empty) so the notice that arrives later is announced; a live region that is
+           mounted already populated is not reliably read. Margins live on the notice, not the region. -->
+      <div role="status" data-testid="partial-turn-notice">
+        {#if partialTurnNotice && partialTurnNotice.chatId === activeChatId}
+          <div class="mx-4 mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            <p>{partialTurnNotice.text}</p>
+            {#if partialTurnNotice.refreshFailed}
+              <p class="mt-1">{t('agent-chat.partial-turn.refresh-failed', "The conversation couldn't be refreshed, so the saved messages may not be shown here. Reload the page to see them.")}</p>
+            {/if}
           </div>
         {/if}
       </div>
@@ -839,7 +1268,14 @@
             {/each}
           </div>
         {/if}
-        <div class="flex items-end gap-2">
+        <!-- portal#2088: below `@2xl` (panel width) the textarea keeps at least 200px and Send
+             wraps under it when the row is too narrow (DOM and Tab order
+             unchanged); from `@2xl` up, one row as before.
+             portal#2094: the placeholder stays short (one word) so the
+             natural rows="2" box shows it whole at every width and locale;
+             no height is sized around a sentence. The Enter/Shift+Enter hint
+             lives in the helper line below, shown for fine pointers only. -->
+        <div class="flex flex-wrap items-end gap-2 @2xl:flex-nowrap">
           {#if uploadMemoryId}
             <AssetUploadButton
               memoryId={uploadMemoryId}
@@ -850,21 +1286,62 @@
           <textarea
             bind:value={input}
             onkeydown={onInputKeydown}
-            placeholder={activeChatId ? 'Type your message… (Enter to send, Shift+Enter for a new line)' : 'Start a chat first'}
+            placeholder={activeChatId
+              ? t('agent-chat.composer.placeholder', 'Message…')
+              : t('agent-chat.composer.placeholder-disabled', 'Start a chat first')}
+            aria-describedby={activeChatId ? 'agent-chat-composer-hint' : undefined}
             rows="2"
             disabled={!activeChatId || sending}
-            class="min-h-[42px] w-full resize-none rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
+            class="min-h-[42px] w-full min-w-[12.5rem] flex-1 resize-none rounded-lg @2xl:min-w-0 border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
           ></textarea>
           <button
             type="button"
             onclick={sendMessage}
             disabled={!activeChatId || sending || input.trim().length === 0}
-            class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            class="ml-auto rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 @2xl:ml-0"
             style="background: #fb8500;"
           >
             Send
           </button>
         </div>
+        <!-- portal#2094: the keyboard hint the placeholder used to carry.
+             Helper text, not placeholder text, so the composer box is never
+             sized around a sentence, and tied to the field by
+             aria-describedby so it is announced on focus. It is real copy,
+             not a placeholder ghost, so it carries full text contrast
+             (>= 4.5:1, zinc-600/zinc-400). Hidden on touch pointers, where
+             an Enter-to-send hint rarely applies and every pixel of the
+             composer column is scarce, and hidden with no chat open, where
+             there is nothing to send. -->
+        {#if activeChatId}
+          <p
+            id="agent-chat-composer-hint"
+            data-testid="composer-hint"
+            class="pointer-coarse:hidden mt-1.5 text-xs text-zinc-600 dark:text-zinc-400"
+          >
+            {t('agent-chat.composer.hint', 'Enter to send · Shift+Enter for a new line')}
+          </p>
+        {/if}
+      </div>
+    {/if}
+    {#if hasAiChoices}
+      <!-- portal#1963: the AI config for this chat (or, with none open, the next one). Below the chat, where
+           model pickers sit in most chat apps. A config the portal can't run yet stays listed, disabled, with
+           its reason in the label: the server's list never carries a config's own disabled state.
+           `min-w-0` lets a long label give way on a phone (#740). -->
+      <div class="flex items-center gap-2 border-t border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800">
+        <label for="agent-chat-ai-config" class="shrink-0 text-zinc-500 dark:text-zinc-400">{t('agent-chat.ai-config.label', 'AI config')}</label>
+        <select
+          id="agent-chat-ai-config"
+          value={shownAiChoice ?? ''}
+          disabled={sending || loadingChat}
+          onchange={(e) => (pickedAiChoice = e.currentTarget.value)}
+          class="min-w-0 truncate rounded-lg border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+        >
+          {#each aiChoices ?? [] as choice (choice.value)}
+            <option value={choice.value} disabled={choice.unavailableReason !== null}>{chatAiChoiceLabel(choice)}</option>
+          {/each}
+        </select>
       </div>
     {/if}
   </main>
@@ -885,7 +1362,7 @@
       <div class="flex justify-end gap-2">
         <button
           type="button"
-          onclick={() => (pendingDeleteChatId = null)}
+          onclick={cancelDelete}
           class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
         >Cancel</button>
         <button

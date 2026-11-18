@@ -45,16 +45,61 @@ async function runSignin(fields: Record<string, string>, search = '') {
   return actions.default(actionEvent(fields, search));
 }
 
+async function runLoad(search = '') {
+  const { load } = await importMod();
+  return load({ url: new URL(`http://localhost/signin${search}`) } as Parameters<typeof load>[0]);
+}
+
+describe('Turnstile token (#1470)', () => {
+  it('forwards the widget token from the raw form data, which the schema strips', async () => {
+    mockStartBoundMagicLink.mockResolvedValueOnce({ ok: true });
+    await runSignin({ email: 'ada@example.test', 'cf-turnstile-response': 'tok-1' });
+    expect(mockStartBoundMagicLink).toHaveBeenCalledWith(expect.anything(), 'ada@example.test', undefined, 'tok-1');
+  });
+
+  it('sends no token when the field is absent or blank', async () => {
+    mockStartBoundMagicLink.mockResolvedValue({ ok: true });
+    await runSignin({ email: 'ada@example.test' });
+    await runSignin({ email: 'ada@example.test', 'cf-turnstile-response': '' });
+    for (const call of mockStartBoundMagicLink.mock.calls) expect(call[3]).toBeUndefined();
+  });
+
+  it('surfaces a refused bot check as a form message with the server status', async () => {
+    mockStartBoundMagicLink.mockResolvedValueOnce({ ok: false, status: 403, error: 'Complete the check and try again.' });
+    const result = await runSignin({ email: 'ada@example.test', 'cf-turnstile-response': 'bad' });
+    expect(result).toMatchObject({ status: 403 });
+  });
+});
+
 describe('signin load()', () => {
   it('seeds the email form without initial errors', async () => {
-    const { load } = await importMod();
-    const result = await load({} as Parameters<typeof load>[0]);
+    const result = await runLoad();
 
     expect((result as { form: { data: Record<string, string>; errors: Record<string, string[]> } }).form.data).toEqual({
       email: '',
     });
     expect((result as { form: { errors: Record<string, string[]> } }).form.errors).toEqual({});
   });
+
+  // portal#1091: /auth/callback sends a refused session exchange (a missing,
+  // mismatched or expired browser nonce, a used code) to `/signin?error=auth`.
+  // The page used to render nothing for it, so a reader who followed a magic
+  // link from another browser landed on a bare form with no idea why. The flag
+  // is a fixed boolean: the query value is never reflected, and no other value
+  // turns it on, so the page cannot be made to show a reason the server did not
+  // give.
+  it('flags a refused sign-in for ?error=auth', async () => {
+    const result = (await runLoad('?error=auth')) as { authFailed: boolean };
+    expect(result.authFailed).toBe(true);
+  });
+
+  it.each(['', '?error=', '?error=AUTH', '?error=passkey', '?error=%3Cscript%3E', '?error=auth-x'])(
+    'does not flag a refused sign-in for %s',
+    async (search) => {
+      const result = (await runLoad(search)) as { authFailed: boolean };
+      expect(result.authFailed).toBe(false);
+    },
+  );
 });
 
 describe('signin action', () => {
@@ -90,9 +135,9 @@ describe('signin action', () => {
     expect(superFormFrom(result)?.valid).toBe(true);
     expect(superFormFrom(result)?.message).toEqual({
       type: 'success',
-      text: 'Check your email for a sign-in link. You can close this page.',
+      text: 'Check your email for a sign-in link and open it in this browser. Depending on how this server is set up, you may then be asked to confirm with a passkey. You can close this page.',
     });
-    expect(mockStartBoundMagicLink).toHaveBeenCalledWith(expect.anything(), 'ada@example.test', '/app/dashboard');
+    expect(mockStartBoundMagicLink).toHaveBeenCalledWith(expect.anything(), 'ada@example.test', '/app/dashboard', undefined);
   });
 
   it('drops unsafe redirects before starting the magic-link flow', async () => {
@@ -100,7 +145,7 @@ describe('signin action', () => {
 
     await runSignin({ email: 'ada@example.test' }, '?redirect=https%3A%2F%2Fevil.test');
 
-    expect(mockStartBoundMagicLink).toHaveBeenCalledWith(expect.anything(), 'ada@example.test', undefined);
+    expect(mockStartBoundMagicLink).toHaveBeenCalledWith(expect.anything(), 'ada@example.test', undefined, undefined);
   });
 
   it('starts a bound magic-link flow without a redirect when none is provided', async () => {
@@ -108,7 +153,7 @@ describe('signin action', () => {
 
     await runSignin({ email: 'ada@example.test' });
 
-    expect(mockStartBoundMagicLink).toHaveBeenCalledWith(expect.anything(), 'ada@example.test', undefined);
+    expect(mockStartBoundMagicLink).toHaveBeenCalledWith(expect.anything(), 'ada@example.test', undefined, undefined);
   });
 
   // #686: this used to be titled "passes through the MARKETPLACE redirect
@@ -128,6 +173,7 @@ describe('signin action', () => {
       expect.anything(),
       'ada@example.test',
       '/app/memories',
+      undefined,
     );
   });
 
@@ -136,7 +182,7 @@ describe('signin action', () => {
 
     await runSignin({ email: 'ada@example.test', redirect: 'https://evil.test' });
 
-    expect(mockStartBoundMagicLink).toHaveBeenCalledWith(expect.anything(), 'ada@example.test', undefined);
+    expect(mockStartBoundMagicLink).toHaveBeenCalledWith(expect.anything(), 'ada@example.test', undefined, undefined);
   });
 
 
@@ -155,6 +201,7 @@ describe('signin action', () => {
       expect(mockStartBoundMagicLink).toHaveBeenCalledWith(
         expect.anything(),
         'ada@example.test',
+        undefined,
         undefined,
       );
     },

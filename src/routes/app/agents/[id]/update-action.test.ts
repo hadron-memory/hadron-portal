@@ -84,25 +84,25 @@ describe('agent update action — shared prompt and persona role (#1241)', () =>
       name: 'Agent', urnSlug: 'agent', personaRole: 'staff-assistant',
       systemPrompt: migratedPrompt,
     });
-    expect(updateAgentVariables().systemPrompt).toBe(migratedPrompt);
+    expect(updateAgentVariables()).not.toHaveProperty('systemPrompt');
   });
 
-  it('sends the shared prompt and role through', async () => {
+  it('sends only role when the old settings form carries a prompt', async () => {
     await runUpdate({
       name: 'Backend Engineer', urnSlug: 'backend-engineer',
-      personaRole: 'backend-engineer', systemPrompt: 'You are {{name}}, a {{role}}.',
+      personaRole: 'backend-engineer', systemPrompt: 'You are {{worker.name}}, a {{worker.role}}.',
     });
     expect(updateAgentVariables()).toMatchObject({
       personaRole: 'backend-engineer',
-      systemPrompt: 'You are {{name}}, a {{role}}.',
     });
+    expect(updateAgentVariables()).not.toHaveProperty('systemPrompt');
   });
 
-  it('sends an empty role to clear it and null for an empty shared prompt', async () => {
+  it('clears an empty role without clearing the separately edited prompt', async () => {
     await runUpdate({ name: 'Agent', urnSlug: 'agent', personaRole: '', systemPrompt: '' });
     const vars = updateAgentVariables();
     expect(vars.personaRole).toBe('');
-    expect(vars.systemPrompt).toBeNull();
+    expect(vars).not.toHaveProperty('systemPrompt');
   });
 
   it('never sends the removed personaPrompt field', async () => {

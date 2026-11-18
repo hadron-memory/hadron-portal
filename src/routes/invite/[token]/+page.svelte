@@ -1,4 +1,7 @@
 <script lang="ts">
+  import TurnstileWidget from '$lib/components/TurnstileWidget.svelte';
+  import { emailSubmitFailure, submitFailure as submitFailureState } from '$lib/forms/email-submit-failure.svelte';
+  import { inviteStrings } from '$lib/i18n/invite-strings';
   import GoogleLoginButton from '$lib/components/GoogleLoginButton.svelte';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -27,6 +30,10 @@
   const expired = $derived(inv?.expiresAt ? new Date(inv.expiresAt) < new Date() : false);
   const maxedOut = $derived(inv?.maxActivations ? inv.activationCount >= inv.maxActivations : false);
 
+  // portal#1532 item 4: superforms' default onError rethrows, which left a
+  // failed Accept with nothing on screen; say so, as the email forms do.
+  const acceptFailure = submitFailureState({ text: inviteStrings.acceptFailure });
+
   const initialAcceptForm = untrack(() => submittedForm<AcceptInvitationForm>(form, 'acceptInvitation') as AcceptInvitationSuperform | null ?? data.acceptForm);
   const {
     message: acceptMessage,
@@ -38,7 +45,12 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    onSubmit: acceptFailure.onSubmit,
+    onError: acceptFailure.onError,
   });
+
+  let turnstile: TurnstileWidget | undefined = $state();
+  const emailFailure = emailSubmitFailure({ providers: ['Google', 'GitHub'], resetCheck: () => turnstile?.reset() });
 
   const initialEmailForm = untrack(() => submittedForm<InviteEmailForm>(form, 'sendEmail') as InviteEmailSuperform | null ?? data.form);
   const {
@@ -54,10 +66,17 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    // #1470 + portal#1528: reset Turnstile after any submit, and SAY when the
+    // submit failed before an ActionResult came back (edge page, network, CSRF).
+    onSubmit: emailFailure.onSubmit,
+    onUpdated: emailFailure.onUpdated,
+    onError: emailFailure.onError,
   });
   const emailError = $derived($emailErrors.email?.[0] ?? null);
-  const acceptActionError = $derived(scopedActionError<AcceptInvitationForm>(form, 'acceptInvitation', $acceptMessage));
-  const emailActionError = $derived(scopedActionError<InviteEmailForm>(form, 'sendEmail', $emailMessage, $emailErrors, ['email']));
+  const acceptActionError = $derived(acceptFailure.text ?? scopedActionError<AcceptInvitationForm>(form, 'acceptInvitation', $acceptMessage));
+  const emailActionError = $derived(
+    emailFailure.text ?? scopedActionError<InviteEmailForm>(form, 'sendEmail', $emailMessage, $emailErrors, ['email']),
+  );
   const emailSentMessage = $derived(scopedActionSuccess<InviteEmailForm>(form, 'sendEmail', $emailMessage));
 </script>
 
@@ -132,6 +151,7 @@
                   <p id="inviteEmailError" class="mt-1 text-xs text-red-400">{emailError}</p>
                 {/if}
               </div>
+              <TurnstileWidget bind:this={turnstile} />
               <button type="submit" disabled={$emailSubmitting} class="w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
                 {$emailSubmitting ? 'Sending...' : 'Continue with email'}
               </button>

@@ -34,6 +34,14 @@ hadron_set_active_memory hrn:mem:hadronmemory.com:hadron-portal
 hadron_find_nodes "*"
 ```
 
+`hadron_set_active_memory` is the **MCP tool** — its scope lasts for your MCP session
+only. On the CLI, do **not** translate it to `hadron memory use` / `set-active`,
+`spec use`, `org use`, `scope use`, `app set-active`, or `config set`: on a
+shared host like orca1 all of those write `~/.config/hadron/config.toml`, one
+file every worker on the host shares, and you would change every other
+session's defaults — default memory *and* default App alike. Pass
+`-m <memory-urn>` (or fully-qualified node URNs) per command instead.
+
 For a one-time orientation, read `hrn:node:hadronmemory.com:hadron-portal:hadron-portal` (overview).
 
 ## Hadron memory organization
@@ -276,6 +284,8 @@ the criteria is to read the review parent and scan its incoming edges in the
 applies to.
 
 ```bash
+# MCP tool, session-scoped — on the CLI keep passing -m / full URNs instead
+# (see the caveat above: never memory use/set-active on a shared host).
 hadron_set_active_memory hrn:mem:hadronmemory.com:hadron-portal
 # `hadron_set_active_memory` takes a memory URN. Review-node reads below use
 # the explicit hrn:node form.

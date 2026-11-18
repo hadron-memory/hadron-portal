@@ -6,7 +6,10 @@ import {
   NODES_BY_LOC_PREFIX_QUERY,
   NODE_BY_ID_QUERY,
 } from '$lib/server/queries';
+import { serveMemoryReads } from '$lib/test/serveMemoryReads';
 
+// portal#1433: the node reads that replaced the layout's graphNodes.
+let reads = serveMemoryReads([], { id: 'mem-1', urn: 'hrn:mem:acme.com:notes' });
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
 vi.mock('$lib/server/guards', () => ({ requireNonConsumer: vi.fn().mockResolvedValue(undefined) }));
@@ -37,7 +40,8 @@ function legacyThreadOf(loc: string) {
 // includes streamed, best-effort calls) doesn't make these tests brittle.
 function routeRequests(over: { messages?: unknown; node?: Record<string, unknown> } = {}) {
   const node = over.node ?? nodeRow();
-  mockRequest.mockImplementation(async (doc: string) => {
+  mockRequest.mockImplementation(async (doc: string, vars?: Record<string, unknown>) => {
+    { const served = reads(doc, vars); if (served !== undefined) return served; }
     if (doc === NODE_BY_ID_QUERY) return { node };
     // #926: a tag-only root is a chat only with a legacy message under it.
     if (doc === LEGACY_THREAD_PROBE_QUERY) return legacyThreadOf(node.loc as string);
@@ -65,6 +69,7 @@ async function runLoad(tab?: string) {
   return (await load(event)) as unknown as {
     isChat: boolean;
     canPostChat: boolean;
+    isTeamChannel: boolean;
     chatMessages: Array<{ id: string; content: string }> | null;
     initialTab: string | null;
   };
@@ -130,6 +135,32 @@ describe('node-detail load — Chat tab', () => {
     routeRequests();
     expect((await runLoad('content')).initialTab).toBe('content');
     expect((await runLoad()).initialTab).toBeNull();
+  });
+});
+
+describe('node-detail load — team-Channel classification (portal#1525)', () => {
+  // The entry button branches on this: a team Channel gets the icon-only
+  // full-screen entry, every other chat keeps the text button. The loader
+  // decides, from `chatPostTarget`'s platform kind alone — never a name
+  // heuristic (Xylon's binding scope on #1525).
+  it("marks the App's canonical team chat", async () => {
+    routeRequests();
+    expect((await runLoad()).isTeamChannel).toBe(true);
+  });
+
+  it('a platform chat at another loc is not one', async () => {
+    routeRequests({ node: nodeRow({ loc: 'chats:design-review' }) });
+    expect((await runLoad()).isTeamChannel).toBe(false);
+  });
+
+  it('a legacy team-chat-tagged thread is not one', async () => {
+    routeRequests({ node: nodeRow({ nodeType: 'info', loc: 'chats:standup', tags: ['team-chat'] }) });
+    expect((await runLoad()).isTeamChannel).toBe(false);
+  });
+
+  it('an ordinary node is not one', async () => {
+    routeRequests({ node: nodeRow({ nodeType: 'info', tags: [] }) });
+    expect((await runLoad()).isTeamChannel).toBe(false);
   });
 });
 
@@ -241,6 +272,6 @@ describe('node-detail sendChatMessage action', () => {
     const result = (await send({ _kind: 'sendChatMessage', content: 'hello' })) as { status: number };
 
     expect(result.status).toBe(500);
-    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Cannot create message' });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
   });
 });

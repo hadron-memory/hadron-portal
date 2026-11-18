@@ -21,3 +21,14 @@ export const revokeUserApiKeySchema = z.object({
 });
 
 export type RevokeUserApiKeySchema = typeof revokeUserApiKeySchema;
+
+// Boolean strings are explicit: omitted, blank and arbitrary truthy values are invalid.
+export const keyVisibilitySchema = z.object({
+  id: z.string().trim().min(1),
+  hidden: z.enum(['true', 'false']).transform(value => value === 'true'),
+});
+
+// portal#1011 P2: an explicit, non-blank key id; nothing else is read from the form.
+export const deleteUserApiKeySchema = z.object({
+  id: z.string().trim().min(1),
+});

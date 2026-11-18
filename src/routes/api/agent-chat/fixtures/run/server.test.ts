@@ -8,18 +8,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ORGANIZATIONS_QUERY,
   MY_AGENTS_QUERY,
-  GRAPH_NODES_QUERY,
+  FIXTURE_NODES_QUERY,
   START_CHAT_MUTATION,
   UPDATE_NODE_MUTATION,
 } from '$lib/server/queries';
 import { __resetRateLimit } from '$lib/server/rate-limit';
+import { asTesterManager } from '$lib/test/tester-manage';
 
 const mockRequest = vi.fn();
 const mockRunChatTurn = vi.fn();
 const mockJudgeAgentReply = vi.fn();
 
 vi.mock('$lib/server/api', () => ({
-  gqlClient: () => ({ request: mockRequest }),
+  gqlClient: () => ({ request: (q: string, v?: unknown) => asTesterManager(mockRequest)(q, v) }),
 }));
 
 vi.mock('$lib/server/llm/agentChatTurn.js', () => ({
@@ -27,6 +28,15 @@ vi.mock('$lib/server/llm/agentChatTurn.js', () => ({
   fetchAgentAIConfig: vi.fn().mockResolvedValue({
     provider: 'anthropic', apiKey: 'sk-test', model: 'claude-sonnet-4-6',
   }),
+}));
+
+// portal#1611: one config resolution per fixture chat, before startChat. The
+// real resolution is pinned in ../llm-model-1611.test.ts; here it is fixed so the
+// fixture runner's WIRING (start variables, reuse across both turns) is what is tested.
+const mockResolveChatAi = vi.fn();
+vi.mock('$lib/server/llm/chatAi.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('$lib/server/llm/chatAi.js')>()),
+  resolveChatAi: (...args: unknown[]) => mockResolveChatAi(...args),
 }));
 
 vi.mock('$lib/server/agent-tester/llm-judge', async () => {
@@ -42,6 +52,8 @@ vi.mock('$lib/server/agent-tester/llm-judge', async () => {
 beforeEach(() => {
   mockRequest.mockReset();
   mockRunChatTurn.mockReset();
+  mockResolveChatAi.mockReset();
+  mockResolveChatAi.mockResolvedValue({ ok: true, ai: { provider: 'anthropic', apiKey: 'sk-test', model: 'model-X' } });
   mockJudgeAgentReply.mockReset();
   // #441's limiter is a process-local Map keyed on the caller's token, and
   // every case here uses the same one — so its budget (10/min) was being spent
@@ -63,7 +75,7 @@ function ev(opts: { body: unknown; token?: string | null }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(opts.body),
     }),
-    locals: { token: opts.token === undefined ? 'test-token' : opts.token },
+    locals: { token: opts.token === undefined ? 'test-token' : opts.token, user: { id: 'u1' } },
   } as Parameters<Awaited<ReturnType<typeof importPOST>>>[0];
 }
 
@@ -100,7 +112,7 @@ function setupChat(opts: {
   replyText?: string;
   agentScope?: 'org' | 'personal';
 }) {
-  mockRequest.mockImplementation(async (query: string) => {
+  mockRequest.mockImplementation(async (query: string, vars?: unknown) => {
     if (query === ORGANIZATIONS_QUERY) {
       const items = opts.agentScope === 'personal' ? [] : [
         { id: 'org-a', name: 'A', urn: 'u', agents: [
@@ -115,7 +127,7 @@ function setupChat(opts: {
         : [];
       return { agents: { items, total: items.length } };
     }
-    if (query === GRAPH_NODES_QUERY) return { findNodes: { hits: opts.nodes.map((node) => ({ node })) } };
+    if (query === FIXTURE_NODES_QUERY) return { findNodes: { hits: (vars as { offset?: number } | undefined)?.offset ? [] : opts.nodes.map((node) => ({ node })) } };
     if (query === START_CHAT_MUTATION) {
       return { startChat: {
         chatId: 'c1', systemMessage: 'sys', tools: null,
@@ -140,6 +152,28 @@ function setupChat(opts: {
 }
 
 describe('POST /api/agent-chat/fixtures/run', () => {
+  it('portal#1611 A5: startChat carries the model; both turns reuse the one resolution made before it', async () => {
+    setupChat({ nodes: [fixtureNode('fixtures:abc')] });
+    const POST = await importPOST();
+    const res = await POST(ev({ body: { agentId: 'agent-aaa', fixtureLoc: 'fixtures:abc' } }));
+    expect(res.status).toBe(200);
+    expect(mockResolveChatAi).toHaveBeenCalledTimes(1);
+    const startVars = mockRequest.mock.calls.find((c) => c[0] === START_CHAT_MUTATION)![1];
+    expect(startVars).toEqual({ agentId: 'agent-aaa', conversationName: null, scope: 'private', isTestRun: true, llmModel: 'model-X' });
+    const resolution = await mockResolveChatAi.mock.results[0].value;
+    expect(mockRunChatTurn).toHaveBeenCalledTimes(2);
+    expect(mockRunChatTurn.mock.calls.map((c) => c[0].ai)).toEqual([resolution, resolution]);
+  });
+
+  it('portal#1611 A4: with no resolved config the chat still starts and the key is omitted', async () => {
+    mockResolveChatAi.mockResolvedValue({ ok: false, error: new Error('none') });
+    setupChat({ nodes: [fixtureNode('fixtures:abc')] });
+    const POST = await importPOST();
+    await POST(ev({ body: { agentId: 'agent-aaa', fixtureLoc: 'fixtures:abc' } }));
+    const startVars = mockRequest.mock.calls.find((c) => c[0] === START_CHAT_MUTATION)![1];
+    expect('llmModel' in startVars).toBe(false);
+  });
+
   it('keeps provider text out of per-fixture failures', async () => {
     setupChat({ nodes: [fixtureNode('fixtures:abc')] });
     mockRunChatTurn.mockReset().mockRejectedValueOnce(new Error('Authorization: Bearer sk-synthetic-966'));
@@ -166,6 +200,7 @@ describe('POST /api/agent-chat/fixtures/run', () => {
     const res = await POST(ev({ body: { agentId: 'agent-personal', fixtureLoc: 'fixtures:abc' } }));
     expect(res.status).toBe(200);
     expect((await res.json()).summary.totalRuns).toBe(1);
+    expect(mockRequest).toHaveBeenCalledWith(FIXTURE_NODES_QUERY, { limit: 500, offset: 0, memoryIds: ['sys-mem-a'] });
     expect(mockRequest).toHaveBeenCalledWith(START_CHAT_MUTATION, expect.objectContaining({ agentId: 'agent-personal' }));
   });
 
@@ -388,7 +423,7 @@ describe('POST /api/agent-chat/fixtures/run', () => {
   });
 
   it('404 when the agent is outside both caller scopes', async () => {
-    mockRequest.mockImplementation(async (query: string) => {
+    mockRequest.mockImplementation(async (query: string, vars?: unknown) => {
       if (query === ORGANIZATIONS_QUERY) return { organizations: { items: [], total: 0 } };
       if (query === MY_AGENTS_QUERY) return { agents: { items: [], total: 0 } };
       throw new Error('unexpected');

@@ -1,0 +1,44 @@
+{
+  "server": "c5265d936326a52612ef8d5cd021b8fc1eab8ba8",
+  "chromium": "145.0.7632.6",
+  "results": [
+    {
+      "theme": "light",
+      "width": 1280,
+      "defaultHide": "PASS",
+      "showHiddenRepeatedHideUnhide": "PASS",
+      "finalFocus": "includeHidden",
+      "observedKitBodyReset": true
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "defaultHide": "PASS",
+      "showHiddenRepeatedHideUnhide": "PASS",
+      "finalFocus": "includeHidden",
+      "observedKitBodyReset": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "defaultHide": "PASS",
+      "showHiddenRepeatedHideUnhide": "PASS",
+      "finalFocus": "includeHidden",
+      "observedKitBodyReset": true
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "defaultHide": "PASS",
+      "showHiddenRepeatedHideUnhide": "PASS",
+      "finalFocus": "includeHidden",
+      "observedKitBodyReset": true
+    }
+  ],
+  "noJS": "PASS",
+  "limits": [
+    "Author check, independent QA still required",
+    "No spoken AT verification",
+    "Refusal and deliberate-navigation behavior mounted-tested; not native-driven here"
+  ]
+}

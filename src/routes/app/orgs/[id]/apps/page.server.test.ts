@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   APPS_QUERY,
+  APP_KEYS_QUERY,
   DELETE_APP_MUTATION,
   ORGANIZATION_QUERY,
 } from '$lib/server/queries';
@@ -27,10 +28,13 @@ function route() {
     if (query === ORGANIZATION_QUERY) {
       return { organization: { id: 'org-1', name: 'Org' } };
     }
+    if (query === APP_KEYS_QUERY) {
+      return { appKeysPage: { items: [{ id: 'k1' }, { id: 'k2' }], total: 2, hasMore: false } };
+    }
     if (query === APPS_QUERY) {
       return {
         apps: {
-          items: [{ id: 'app-1', name: 'Demo App', keys: [] }],
+          items: [{ id: 'app-1', name: 'Demo App' }],
           total: 1,
         },
       };
@@ -77,6 +81,8 @@ describe('org apps load()', () => {
     };
 
     expect(result.apps).toHaveLength(1);
+    // portal#1068: the Active keys column's counts are classified reads of their own.
+    expect((result as unknown as { keyCounts: unknown }).keyCounts).toEqual({ 'app-1': { kind: 'ok', count: 2 } });
     // #382: `org` comes from the layout. Asserting it is what makes the
     // parent stub load-bearing — with `parent: async () => ({})` this loader
     // returns `org: undefined` and every other assertion here still passes.
@@ -85,6 +91,25 @@ describe('org apps load()', () => {
       _kind: 'deleteApp',
       id: '',
     });
+  });
+});
+
+describe('org apps load(): key counts for a non-manager (portal#1068)', () => {
+  it('a refused count does not empty the App list, and is hidden, not 0', async () => {
+    route();
+    const base = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation(async (query: string, vars: unknown) => {
+      if (query === APP_KEYS_QUERY) throw { response: { errors: [{ message: 'no', extensions: { code: 'FORBIDDEN' } }] } };
+      return base(query, vars);
+    });
+    const { load } = await importServer();
+    const result = await load({
+      params: { id: 'org-1' },
+      locals: { token: 'tok' },
+      parent: async () => ({ org: PARENT_ORG }),
+    } as unknown as Parameters<typeof load>[0]) as { apps: unknown[]; keyCounts: Record<string, unknown> };
+    expect(result.apps).toHaveLength(1);
+    expect(result.keyCounts['app-1']).toEqual({ kind: 'hidden' });
   });
 });
 

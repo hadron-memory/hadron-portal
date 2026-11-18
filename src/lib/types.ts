@@ -5,13 +5,12 @@ import type { AssetSummary } from '$lib/api/assetUpload';
 export interface Memory {
   id: string;
   /**
-   * Owning org — NULL for a user-owned (org-less) memory (spec 047: personal /
-   * private memories created with no orgId, `ownerUserId` = caller). The
-   * `chk_memory_owner_xor` constraint makes org and user ownership mutually
-   * exclusive, so this is null exactly when the memory belongs to a user.
+   * Tenant organization, or null for an org-less memory. Personal/private
+   * memories may still be org-anchored while ALSO carrying the strict principal
+   * in `userId`; organizationId and userId are not mutually exclusive.
    */
   organizationId: string | null;
-  organization?: OrgSummary;
+  organization?: OrgSummary | null;
   urn: string;
   name: string;
   shortDescription: string | null;
@@ -32,6 +31,9 @@ export interface Memory {
   // null for owner-only (personal/private) and the app/system classes. The old
   // PERSONAL/PRIVATE values are removed (privacy is now the class, not visibility).
   visibility: 'PUBLIC' | 'ORGANIZATION' | 'GROUP' | null;
+  // #841 / hrn:node:hadronmemory.com:specs:cor:acl:080:04 — the marketplace catalogue flag: a memory shows in
+  // the marketplace when it is listed AND publicly accessible.
+  listedOnMarketplace?: boolean | null;
   // Spec 005-agent-subscription introduced the four-way memory class
   // typology. Spec 013-soft-delete-memory reads `class` and `userId` to
   // gate the detail-page Danger-zone affordance: personal-class memories
@@ -63,6 +65,7 @@ export interface Memory {
   // selects it — treat `undefined` as "unknown", not as "refuses uploads", or a
   // slim projection would silently hide the affordance everywhere.
   acceptsUploads?: boolean;
+  /** Strict user principal for personal/private memories; independent of tenant organizationId. */
   userId?: string | null;
   userMemoryOfAgentId?: string | null;
   anonymousExpiresAt?: string | null;
@@ -71,6 +74,7 @@ export interface Memory {
   syncError: string | null;
   pendingEdgeCount: number;
   lastSyncedAt: string | null;
+  lastSyncReport?: string | null;
   createdAt: string;
   updatedAt: string;
   subscriptions?: MemorySubscription[];
@@ -87,11 +91,14 @@ export interface MemorySubscription {
 
 export interface Agent {
   id: string;
+  /** #1335: the source's CURRENT URN; only the detail query selects it (absent elsewhere), null for a non-clone or an unreadable source. */
+  clonedFromAgentRef?: string | null;
+  /** portal#2194: how long the Agent's workers run; only the detail query selects it. */
+  lifecycle?: 'LONG_LIVED' | 'SHORT_LIVED';
   organizationId: string;
   urn: string;
   name: string;
   description: string | null;
-  systemPrompt: string | null;
   systemMemoryId: string | null;
   // Spec 035: Agent.visibility is its own AgentVisibility enum (decoupled from
   // MemoryVisibility). PERSONAL = creator-only draft (named PERSONAL, not
@@ -99,8 +106,8 @@ export interface Agent {
   visibility: 'PUBLIC' | 'ORGANIZATION' | 'PERSONAL';
   type?: 'ASSISTANT' | 'CHATBOT';
   surfaces?: string[];
-  // The role is dressing on the reusable Agent; systemPrompt supplies the
-  // shared template for chats and bound Worker briefings (#1241).
+  // The role is dressing on the reusable Agent; the compiled boot prompt supplies the
+  // shared instructions for chats and bound Worker briefings.
   personaRole?: string | null;
   // 036-ai-service-config: server shim — true when the agent's `default`
   // config has a key. Used by the Chat-tab readiness gate.
@@ -112,7 +119,47 @@ export interface Agent {
   installationPolicy?: InstallationPolicy;
   imports?: AgentImport[];
   appCount?: number;
+  // portal#1850 (hrn:node:hadronmemory.com:specs:cor:dmo:050:19): manager-only; null for every other caller
+  // (PUBLIC readers included) and absent in projections that do not select it —
+  // the page renders nothing without it. Optional for the same reason as
+  // hasAiApiKey: treat undefined as "not selected", never as "not ready".
+  offerReadiness?: AgentOfferReadiness | null;
   createdAt: string;
+}
+
+// portal#1850: one blocking subject, named only because the manager may read
+// it. Name-only BY CONTRACT (hadron-server#2280): the server exposes no id and
+// no URN through this field — "nothing else about it is reachable" — so the
+// portal can render neither a link nor a Urn chip for a subject.
+export interface AgentOfferSubject {
+  name: string;
+}
+
+/** Every code the server emits today. Unknown codes stay possible at runtime — the UI renders them raw — so the union is open, not closed. */
+export type AgentOfferReasonCode =
+  | 'AGENT_NOT_PUBLIC'
+  | 'AGENT_RETIRED'
+  | 'CLONE_LINKED_MEMORY_ENCRYPTED'
+  | 'CLONE_LINKED_MEMORY_UNREADABLE'
+  | 'CLONE_BASE_UNUSABLE'
+  | 'CLONE_IMPORT_UNUSABLE'
+  | (string & {});
+
+export interface AgentOfferReason {
+  code: AgentOfferReasonCode;
+  /** Every blocked subject. subjects + omittedByCap + hiddenByAccess === count. */
+  count: number;
+  subjects: AgentOfferSubject[];
+  /** Readable subjects past the server's 20-name cap: counts only. */
+  omittedByCap: number;
+  /** Subjects the manager may not read: counts only, never named. */
+  hiddenByAccess: number;
+}
+
+export interface AgentOfferReadiness {
+  ready: boolean;
+  /** Every reason that holds, in the clone refusal's order. Empty exactly when ready. */
+  reasons: AgentOfferReason[];
 }
 
 export interface MemoryProvisioning {
@@ -158,6 +205,10 @@ export interface Chat {
   scope: 'private' | 'shared';
   /** Spec 017 — chat author (chat-root createdBy). Null on legacy chats. */
   createdBy: string | null;
+  /** portal#1963 (hadron-server#3957): `default`, a config id, or null when the chat stored no choice. */
+  aiConfigChoice?: string | null;
+  /** portal#2065 (hadron-server S3): conversations this chat has completed, in first-completion order. Always selected: the portal needs a server with the field (lockstep release); optional only so hand-built Chat values need not carry it. */
+  completedConversations?: string[];
 }
 
 /** One message in a chat history. */
@@ -207,6 +258,19 @@ export interface TeamChatMessage {
    * the thread then shows nothing, never a guessed address.
    */
   urn: string | null;
+  /**
+   * Immutable head identity/display pairs stamped when the message was posted
+   * (S3, server#2019). `label` is a post-time display snapshot, never identity:
+   * chips key and filter by `headId`. `[]` is a known no-team post; NULL is a
+   * historical absence OR a withheld value, indistinguishable by design — render
+   * no chip and make no claim, never "untagged" or "private".
+   */
+  teamTags: TeamTagSnapshot[] | null;
+}
+
+export interface TeamTagSnapshot {
+  headId: string;
+  label: string;
 }
 
 /**
@@ -270,6 +334,8 @@ export interface TeamWorkItem {
 }
 
 export interface App {
+  /** portal#2194: the host-sweep switch; only the App detail query selects it. */
+  sweepMode?: 'OFF' | 'OBSERVE' | 'APPLY';
   id: string;
   name: string;
   urn: string;
@@ -277,7 +343,6 @@ export interface App {
   appType: AppType;
   role: AppMembershipRole;
   description: string | null;
-  systemPrompt: string | null;
   agentTools: string[];
   expiresAt: string | null;
   // App-original fields
@@ -288,6 +353,12 @@ export interface App {
   // 008-agent-installation: direct FK to Agent (replaces the AppAgent join).
   agentId: string | null;
   agent: AppAgentSummary | null;
+  /**
+   * #1405 (R211, hrn:node:hadronmemory.com:specs:cor:dmo:050:04): the member roles the App offers, the union
+   * over its installed Agents, primary first. Optional because only the
+   * AppFields fragment selects it.
+   */
+  availableMemberRoles?: string[];
   // Spec 021 US1: server-computed R2 canonical install URN
   // (hrn:agent:<installing-org>::<app-slug>::<author-org>:<agent-slug>).
   // Optional because not every query that returns App fetches this
@@ -297,17 +368,20 @@ export interface App {
   // the App has no agent attached.
   installedAgentUrn?: string | null;
   surfaces: string[];
-  memberCount: number;
+  /**
+   * portal#1148: `null` = WITHHELD (an owner-role member of a user-owned App, hadron-server#2089),
+   * never 0. Same for `members` and `agents` below. See lib/withheld.ts.
+   */
+  memberCount: number | null;
   trainingMode: boolean;
-  members?: AppMember[];
+  members?: AppMember[] | null;
   /**
    * The App's install ROSTER — every Agent installed via the AppAgent join.
    * These are reusable ROLE-ACTORS, i.e. which agents are available to cast;
    * the App's STAFF are its {@link Worker}s (the named castings). Do not read
    * this list as "who works here".
    */
-  agents: Array<{ id: string; urn: string; name: string; personaRole?: string | null }>;
-  keys: AppKey[];
+  agents: Array<{ id: string; urn: string; name: string; personaRole?: string | null }> | null;
   createdAt: string;
   updatedAt: string | null;
 }
@@ -333,6 +407,18 @@ export type AppMembershipRole = 'OWNER' | 'ADMIN' | 'CONTRIBUTOR' | 'READER';
  * absence as "this App's URN predates the flat grammar", never as an error.
  */
 export interface Worker {
+  /** portal#2194: the sweep leave-alone marker. null = not shown to this caller (profile tier), never "not marked". */
+  leaveAlone?: boolean | null;
+  leaveAloneReason?: string | null;
+  leaveAloneBy?: string | null;
+  leaveAloneAt?: string | null;
+  /** portal#1492: the latest terminal report; null when none or masked, absent on the Profile tier. */
+  terminal?: import('$lib/workers/terminal').TerminalRead | null;
+  /** Profile scalars supplied by server#1149; never reconstructed from App. */
+  portalUrl?: string | null;
+  appUrn?: string | null;
+  appName?: string | null;
+  ownerName?: string | null;
   id: string;
   appId: string;
   agentId: string;
@@ -351,11 +437,12 @@ export interface Worker {
   app?: { id: string; name: string; urn: string; organizationId?: string | null } | null;
   /** The cast-list role this filling answers ("backend-engineer"). */
   role: string | null;
-  /** Per-worker individuality layered over the agent's template prompt. */
-  promptOverride: string | null;
+  /** portal#1142 P4: the signature template; null when masked. Only WORKER_QUERY selects it. */
+  signature?: string | null;
+  /** portal#1142 P4: the commit-trailer template; null when masked. */
+  trailer?: string | null;
   /**
-   * The RESOLVED boot briefing — the agent's template with {{name}}/{{role}}
-   * bound, then `promptOverride` appended. Multi-KB.
+   * The resolved, served boot briefing. Multi-KB; read-only.
    *
    * Optional because only the single-worker read selects it: the roster
    * projection deliberately does not, since shipping every worker's briefing on
@@ -371,18 +458,9 @@ export interface Worker {
     name: string;
     urn: string;
     personaRole?: string | null;
-    /**
-     * #1010/#1241 — the agent's RAW shared prompt template, selected only by
-     * WORKER_QUERY and never by WorkerFields (which feeds the Staff
-     * roster, where a template per row is the hadron-cli#459 mistake).
-     *
-     * Optional because the roster does not ask for it, and nullable for
-     * TWO different reasons a consumer must tell apart: the agent carries
-     * no template, or the AGENT read gate denied it — which is a
-     * different gate from the one guarding the composed `prompt`, so a
-     * caller can legitimately have one and not the other.
-     */
-    systemPrompt?: string | null;
+    /** portal#1168 — the role agent's system memory, selected by the roster
+     *  only. Null when the agent has none or the read is withheld. */
+    systemMemoryId?: string | null;
   } | null;
   /**
    * Retirement instant — a retired worker stops authoring and takes no new
@@ -400,7 +478,7 @@ export interface Worker {
    *
    * THREE-VALUED, and the third value is the one that bites. This is a
    * WORKING-STATE field behind the worker read gate, MASKED TO NULL ON DENY
-   * (like `promptOverride` and `memoryId`, unlike `name`/`role`/`urn`). So
+   * (like `prompt` and `memoryId`, unlike `name`/`role`/`urn`). So
    * `null` means EITHER "nobody holds it" OR "you may not see who does", and a
    * UI that renders those the same is asserting something the data does not
    * support. `undefined` additionally means "not selected".
@@ -416,12 +494,19 @@ export interface Worker {
    * `$lib/worker-reports-to`. `undefined` means "not selected".
    */
   reportsToWorkerId?: string | null;
+  /** hadron-portal#1149 — access-masked; null/absent is WITHHELD, never UNSET or NO_TEAM. */
+  teamPlacement?: 'UNSET' | 'NO_TEAM' | 'REPORTS_TO' | null;
   reportsToRetired?: boolean;
   /** The target, selected only by the single-worker read. */
   reportsTo?: { id: string; name: string; urn: string | null; retiredAt: string | null } | null;
   /** hadron-cli#487 — when this worker was last driven. Null when never bound,
    *  and masked to null on deny. Selected by the roster only. */
   lastActiveAt?: string | null;
+  /** portal#1168 — the model family of the worker's newest open session, and
+   *  whether one is live. Both are working-state fields masked to null on deny,
+   *  so null is "none" OR "not shown to you". Selected by the roster only. */
+  family?: string | null;
+  hasLiveSession?: boolean | null;
   createdAt: string;
 }
 
@@ -489,7 +574,6 @@ export interface AppAgentSummary {
   urn: string;
   name: string;
   description: string | null;
-  systemPrompt?: string | null;
   surfaces?: string[];
   memoryItems?: AgentMemoryItem[];
   installationPolicy?: InstallationPolicy;
@@ -509,6 +593,31 @@ export interface OrgSummary {
   id: string;
   name: string;
   urn: string;
+}
+
+/** hrn:node:hadronmemory.com:specs:cor:acl:080:02 — the only resource shape exposed by a public organization. */
+export interface PublicResourceRef {
+  id: string;
+  name: string;
+  urn: string;
+  description: string | null;
+}
+
+/** A bounded page of the same closed public-resource projection. */
+export interface PublicResourceRefsPage {
+  items: PublicResourceRef[];
+  total: number;
+  hasMore: boolean;
+}
+
+/** A closed, non-member-safe projection; deliberately not an Organization. */
+export interface PublicOrganization {
+  id: string;
+  name: string;
+  urn: string;
+  listedOnMarketplace: boolean;
+  publicMemoriesPage: PublicResourceRefsPage;
+  publicAgentsPage: PublicResourceRefsPage;
 }
 
 export interface Organization {
@@ -539,6 +648,8 @@ export interface OrgMember {
 export interface UserSummary {
   id: string;
   handle: string | null;
+  /** `hrn:user:<handle>`; null for a handle-less user, who has no URN (#998). */
+  urn?: string | null;
   githubUsername: string | null;
   name: string | null;
   avatarUrl: string | null;
@@ -605,6 +716,10 @@ export interface NodeRevision {
   // revLabel is the edit reason/label.
   editedByInfo?: string | null;
   editedByUser?: { handle: string | null; urn: string | null } | null;
+  // #1171 (server #1610): the Worker and Agent behind the edit. Null on
+  // revisions captured before #1610 or with no agent behind them.
+  editedByWorker?: { id: string; name: string; urn: string | null } | null;
+  editedByAgent?: { id: string; name: string; urn: string | null } | null;
   revLabel?: string | null;
   // #620: node fields the edit changed, e.g. ["abstract","tags"]; empty on
   // legacy rows captured before the column existed.
@@ -612,7 +727,27 @@ export interface NodeRevision {
   createdAt: string;
 }
 
+// portal#1355 (server#2562, #2517): one audit entry a HARD delete left on this
+// node when it removed an edge the node held to the deleted target
+// (hrn:node:hadronmemory.com:specs:cor:dmo:010:04). Deliberately not a NodeRevision — revisions stay snapshots
+// of the node's own fields. edgeLoc/targetLoc are null when the deleted
+// target's memory is not one the viewer can read (the locs derive from the
+// target's address); render that as absent, never as an empty value.
+export interface NodeEdgeRemoval {
+  id: string;
+  edgeLoc: string | null;
+  edgeName: string | null;
+  targetId: string;
+  targetLoc: string | null;
+  reason: string;
+  // The same actor a soft delete records as deletedBy; null when unattributed.
+  removedBy: string | null;
+  createdAt: string;
+}
+
 export interface MemoryNode {
+  /** Canonical identity where selected, independent of nested Memory admission. */
+  urn?: string;
   id: string;
   memoryId: string;
   nodeType: string;
@@ -627,6 +762,19 @@ export interface MemoryNode {
    * All scope (`Node.asComment`). Absent for content.
    */
   comment?: import('$lib/comments').CommentHit;
+  /**
+   * portal#1175: this node AS a comment, on the node-detail read only
+   * (`Node.asComment`): its target and whether the viewer is its author. Null
+   * for content, and absent where the detail read was not used.
+   */
+  asComment?: {
+    id: string;
+    deleted: boolean;
+    viewerIsAuthor: boolean;
+    /** The comment's write counter, the precondition editComment takes. */
+    revSeq: number;
+    target: { id: string; name: string; nodeType: string; urn: string };
+  } | null;
   // #588 (server #725): collection discriminator (which domain object this
   // node is, e.g. "competitor"). Null for an ordinary node; orthogonal to
   // nodeType.
@@ -636,6 +784,10 @@ export interface MemoryNode {
   alias: string | null;
   description: string | null;
   abstract: string | null;
+  /** #257: optional because only the node-detail query selects embedding state. */
+  embeddingPendingAt?: string | null;
+  embeddingFailedAt?: string | null;
+  embeddingError?: string | null;
   content: string | null;
   tokens: number | null;
   tags: string[];
@@ -752,6 +904,8 @@ export interface TreeEntry {
   nodeType: string;
   hasActions: boolean;
   isVirtual: boolean;
+  /** #1161: the server reported this node deleted (recoveryNodes). Absent = no claim. */
+  deleted?: boolean;
 }
 
 export interface TopicNode {
@@ -836,10 +990,12 @@ export type AiConfigOwnerType = 'HADRON_SERVER' | 'ORGANIZATION' | 'APP' | 'AGEN
  * `openai-compatible` (server#1389), which the portal's LLM client can't
  * speak. Kept apart so nothing that calls that client can be handed one.
  */
-export type AiConfigProvider = AIProvider | 'openai-compatible';
+export type AiConfigProvider = AIProvider | 'openai-compatible' | 'kimi';
 
 export interface AiServiceConfig {
   id: string;
+  /** Nullable server-computed address; omitted by older masked fixtures. */
+  urn?: string | null;
   name: string;
   ownerType: AiConfigOwnerType;
   ownerId: string;
@@ -869,6 +1025,7 @@ export interface AiServiceConfig {
 // ---------------------------------------------------------------------------
 
 export interface UserApiKey {
+  hiddenAt: string | null;
   id: string;
   keyPreview: string;
   label: string | null;
@@ -932,7 +1089,10 @@ export interface Channel {
   lastSeq: number;
   lastMessageAt: string | null;
   createdAt: string;
-  memory: { id: string; urn: string; name: string };
+  /** The host memory's id — always present; use it for links when `memory` is concealed. */
+  memoryId: string;
+  /** #2509: null when the caller may see the Channel but not its memory's record. */
+  memory: { id: string; urn: string; name: string } | null;
 }
 
 /** #942 — a register row (spec 049): "this attendee takes part in this Channel". Intent, never permission. */
@@ -955,3 +1115,6 @@ export interface RegisterEntry {
   description: string | null;
   createdAt: string;
 }
+
+/** The server's typed refusal of a team head (#1137), shown verbatim. */
+export type TeamChatRefusal = { code: string; message: string };

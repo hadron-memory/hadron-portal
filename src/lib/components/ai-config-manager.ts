@@ -5,6 +5,10 @@
 import type { AiConfigProvider } from '$lib/types';
 import { aiConfigStrings as s } from '$lib/i18n/ai-config-strings';
 
+export type AiConfigCommitted = { ownerKey: string; mutationId?: number; noticeGeneration: number; successText: string; refreshFailedText: string; uncertainText?: string };
+export type AiConfigUncertain = { ownerKey: string; mutationId?: number; text: string; reconcileOnly?: boolean };
+export type AiConfigMutationPending = { ownerKey: string; mutationId: number; pending: boolean };
+
 /** Server contract: config name is 1–64 chars of [a-z0-9_-], unique per owner. */
 export function isValidConfigName(name: string): boolean {
   return /^[a-z0-9_-]{1,64}$/.test(name);
@@ -98,7 +102,7 @@ export function parseParamsText(
 export type AiApiStyle = 'CHAT_COMPLETIONS' | 'RESPONSES';
 
 /** Providers that speak an OpenAI-style protocol, where apiStyle applies at all. */
-const API_STYLE_PROVIDERS = new Set(['openai', 'glm', 'openai-compatible']);
+const API_STYLE_PROVIDERS = new Set(['openai', 'glm', 'openai-compatible', 'kimi']);
 export function apiStyleApplies(provider: string): boolean {
   return API_STYLE_PROVIDERS.has(provider);
 }

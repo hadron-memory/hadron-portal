@@ -10,7 +10,10 @@
  */
 import { t } from '$lib/i18n/t';
 
+export type ChatProbeStatus = 'PASS' | 'FAIL_TEXT_ONLY' | 'FAIL_OTHER_TOOL' | 'FAIL_MULTIPLE_CALLS' | 'FAIL_MALFORMED' | 'FAIL_PROVIDER_UNAVAILABLE' | 'UNSUPPORTED_PROVIDER';
+
 export interface AiConfigTestResult {
+  chat?: { status: ChatProbeStatus } | null;
   ok: boolean;
   provider: string;
   model: string;
@@ -23,6 +26,9 @@ export interface AiConfigTestResult {
 }
 
 export interface AiConfigTestView {
+  /** Saved Test has distinct run/chat legs; inline Test retains its existing single outcome. */
+  saved?: true;
+  chat?: { ok: boolean; headline: string } | null;
   ok: boolean;
   /** One line: works / why not. */
   headline: string;
@@ -61,12 +67,27 @@ function errorHeadline(e: NonNullable<AiConfigTestResult['error']>): string {
   }
 }
 
+/** Closed, localized vocabulary: never display arbitrary status/provider text. */
+export function chatProbeView(status: unknown): { ok: boolean; headline: string } {
+  switch (status) {
+    case 'PASS': return { ok: true, headline: t('ai-config.test.chat.pass', 'Passed: the model returned one valid response.') };
+    case 'FAIL_TEXT_ONLY': return { ok: false, headline: t('ai-config.test.chat.text-only', 'Failed: the model answered in text instead of using its response tool.') };
+    case 'FAIL_OTHER_TOOL': return { ok: false, headline: t('ai-config.test.chat.other-tool', 'Failed: the model called a different tool.') };
+    case 'FAIL_MULTIPLE_CALLS': return { ok: false, headline: t('ai-config.test.chat.multiple-calls', 'Failed: the model called more than one tool.') };
+    case 'FAIL_MALFORMED': return { ok: false, headline: t('ai-config.test.chat.malformed', 'Failed: the model returned an invalid response.') };
+    case 'FAIL_PROVIDER_UNAVAILABLE': return { ok: false, headline: t('ai-config.test.chat.unavailable', 'The chat test could not complete. Check the provider settings and try again.') };
+    case 'UNSUPPORTED_PROVIDER': return { ok: false, headline: t('ai-config.test.chat.unsupported', 'Chat testing is not supported by this provider.') };
+    default: return { ok: false, headline: t('ai-config.test.chat.unknown', 'Chat test result unavailable.') };
+  }
+}
+
 export function testResultView(r: AiConfigTestResult): AiConfigTestView {
   // "Called" only when a provider call is known to have run: a success, or
   // the provider itself failing (LLM_CALL_FAILED). Every other failure
   // (NO_API_KEY, KEY_UNREADABLE, CONFIG_INVALID, QUOTA_EXCEEDED, or any
   // unrecognised code) stops before the call, and must not read as evidence
   // that the endpoint was reached.
+  const legs = { saved: true as const, chat: r.chat == null ? null : chatProbeView(r.chat.status) };
   const called = r.ok || r.error?.code === 'LLM_CALL_FAILED';
   const where = !r.endpoint
     ? t('ai-config.test.endpoint.unknown', 'The endpoint can’t be known for this provider setup')
@@ -83,6 +104,7 @@ export function testResultView(r: AiConfigTestResult): AiConfigTestView {
   }
   if (r.ok) {
     return {
+      ...legs,
       ok: true,
       headline: t('ai-config.test.ok', '✓ Works: {provider} / {model} answered in {ms} ms.', {
         provider: r.provider,
@@ -93,6 +115,7 @@ export function testResultView(r: AiConfigTestResult): AiConfigTestView {
     };
   }
   return {
+    ...legs,
     ok: false,
     headline: r.error ? errorHeadline(r.error) : t('ai-config.test.error.unknown', 'The test failed.'),
     details,

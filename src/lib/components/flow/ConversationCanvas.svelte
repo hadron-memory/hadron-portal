@@ -89,6 +89,8 @@
         kind: n.kind,
         isSetup: n.isSetup,
         isFallback: n.isFallback,
+        startOrder: n.startOrder,
+        startTotal: n.startTotal,
         goalCount: n.goalCount,
         stageIndex: n.stageIndex,
         extractionFields: n.extractionFields,

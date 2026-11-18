@@ -1,6 +1,8 @@
 import { gqlClient } from '$lib/server/api';
+import { requireTesterAgent } from '$lib/server/agent-tester/resolve-agent';
 import { START_CHAT_MUTATION } from '$lib/server/queries';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
+import { llmModelVariable, resolveChatAi } from '$lib/server/llm/chatAi.js';
 import { publicChatError } from '$lib/server/llm/chatError.js';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
 import { judgeAgentReply, judgeVerdict } from '$lib/server/agent-tester/llm-judge';
@@ -76,6 +78,17 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   try {
     const client = gqlClient(locals.token);
 
+    // portal#2083: the Tester is manager-only. Same resolve as every other
+    // Tester surface, BEFORE any AI resolution or startChat; a miss is the
+    // existing not-found, a failed read lands in the catch below.
+    if (!(await requireTesterAgent(client, locals.user?.id, body.agentId))) {
+      return json({ error: 'Agent not found or no longer available' }, 404);
+    }
+
+    // portal#1611: resolve the AI config once, before startChat; the same
+    // resolution serves the welcome turn and the user-message turn.
+    const ai = await resolveChatAi(locals.token, body.agentId);
+
     // Spec 019: scope hardcoded to 'private' — no user-facing knob.
     // Sharing a test run to every AppMember would be a privacy/audit
     // hazard that the Tester is supposed to avoid. isTestRun=true skips
@@ -93,6 +106,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       conversationName: null,
       scope: 'private',
       isTestRun: true,
+      ...llmModelVariable(ai),
     });
 
     const { chatId, conversationName, stageName } = startResult.startChat;
@@ -106,6 +120,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       agentId: body.agentId,
       chatId,
       userMessage: null,
+      ai,
       startPayload: {
         systemMessage: startResult.startChat.systemMessage,
         tools: startResult.startChat.tools,
@@ -117,6 +132,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       agentId: body.agentId,
       chatId,
       userMessage: body.message,
+      ai,
     });
 
     // Resolve conversation + stage with welcome-turn results as the

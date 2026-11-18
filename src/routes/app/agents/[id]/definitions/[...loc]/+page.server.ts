@@ -4,6 +4,7 @@ import { error, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { AGENT_DEFINITION_QUERY } from '$lib/server/agent-inheritance';
 import type { AgentOrigin } from '$lib/agent-inheritance';
+import { loadDefinitionRegister } from '$lib/server/definition-register';
 import type { PageServerLoad } from './$types';
 
 const DEFINITION_AGENT_QUERY = /* GraphQL */ `
@@ -19,7 +20,9 @@ export const load: PageServerLoad = async ({ locals, params, url }) => {
     if (!agent?.systemMemoryId) error(404, t('agent.definitions.node-missing', 'Node not found'));
     const { node } = await client.request<{ node: { id: string; loc: string; name: string; urn: string; content: string | null; inheritedFrom: AgentOrigin | null } | null }>(AGENT_DEFINITION_QUERY, { ref: params.loc, memoryRef: agent.systemMemoryId });
     if (!node) error(404, t('agent.definitions.node-missing', 'Node not found'));
-    return { agent, node };
+    // The section's own state: its refusals never invalidate the definition above.
+    const register = await loadDefinitionRegister(client, { agentId: agent.id, node, params: url.searchParams });
+    return { agent, node, register };
   } catch (err) {
     if (err instanceof ClientError && err.response?.errors?.length) {
       const code = err.response.errors[0].extensions?.code;

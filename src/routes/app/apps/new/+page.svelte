@@ -82,7 +82,7 @@
   <div>
     <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{t('my-apps.new.heading', 'New app')}</h1>
     <p class="mt-1 text-sm text-zinc-500">
-      {t('my-apps.new.subhead', 'Install one of your personal agents or a public agent as an app you own.')}
+      {t('my-apps.new.subhead', 'Install one of your personal agents, a public agent, or an agent your organization shares with its members, as an app you own.')}
     </p>
   </div>
 

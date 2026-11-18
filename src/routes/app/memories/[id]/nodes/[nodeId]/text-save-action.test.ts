@@ -219,14 +219,14 @@ describe.each([
     }
   });
 
-  it('reports any other failure as `failed` with the server\'s words', async () => {
+  it('reports an internal failure as `failed` with generic copy', async () => {
     mockRequest.mockImplementation(async (query: unknown) => {
       if (query === NODE_BY_ID_QUERY) return { node: { ...stored, role: null, isRunnable: null } };
       throw gqlError('INTERNAL_SERVER_ERROR', 'database unavailable');
     });
     const out = (await save(action, { [field]: 'x', expectedRevision: '1' })) as { status: number; data: Record<string, unknown> };
     expect(out.status).toBe(500);
-    expect(out.data).toEqual({ [`${field}Failed`]: { code: 'failed', detail: 'database unavailable' } });
+    expect(out.data).toEqual({ [`${field}Failed`]: { code: 'failed', detail: 'Something went wrong on our side.' } });
   });
 
   it('a node that is gone is `not-found`', async () => {
@@ -234,6 +234,39 @@ describe.each([
     const out = (await save(action, { [field]: 'x', expectedRevision: '1' })) as { status: number; data: Record<string, unknown> };
     expect(out.status).toBe(404);
     expect(out.data).toEqual({ [`${field}Failed`]: { code: 'not-found', detail: null } });
+  });
+});
+
+// portal#1142 P0a — a save the server refuses for an include tag
+// (hadron-server#2040) comes back as `include`: a 400 whose detail is the
+// server's message, the tag and the next step. Nothing is written, and the page
+// keeps the draft (it never reseeds on a failure). Before, it was a 500 `failed`.
+describe.each([
+  ['updateContent', 'content'],
+  ['updateAbstract', 'abstract'],
+] as const)('%s: include refusals', (action, field) => {
+  it.each([
+    ['INVALID_INCLUDE', 'Malformed include tag {{> }}.', '{{> }}'],
+    ['INCLUDE_CYCLE', 'Include {{> a}} would make this node include itself.', '{{> a}}'],
+    ['INCLUDE_TOO_DEEP', 'Includes nest too deep.', '{{> deep}}'],
+    // portal#1142 S2b (hadron-server#2226).
+    ['INCLUDE_TARGET_UNAVAILABLE', 'Include {{> gone}} names a node you cannot read.', '{{> gone}}'],
+  ])('%s is a 400 `include` with the server message and the tag', async (code, message, tag) => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === NODE_BY_ID_QUERY) return { node: { ...stored, role: null, isRunnable: null } };
+      throw Object.assign(gqlError(code, message), {
+        response: { errors: [{ message, extensions: { code, tag } }] },
+      });
+    });
+    const out = (await save(action, { [field]: `see ${tag}`, expectedRevision: '1' })) as {
+      status: number;
+      data: Record<string, { code: string; detail: string }>;
+    };
+    expect(out.status).toBe(400);
+    expect(out.data[`${field}Failed`].code).toBe('include');
+    expect(out.data[`${field}Failed`].detail).toContain(message);
+    expect(out.data[`${field}Failed`].detail).toContain(`Tag: ${tag}`);
+    expect(stored[field]).not.toBe(`see ${tag}`);
   });
 });
 

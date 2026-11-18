@@ -10,16 +10,27 @@
  * `graphNodes` instead of issuing a memory-blind GraphQL lookup.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { nodeMetaBaseline } from '$lib/node-meta-seed';
 import { jsonFingerprint } from '$lib/properties-source';
-import { MOVE_NODE_MUTATION, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import { MOVE_NODE_MUTATION, NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_PAGE_QUERY, UPDATE_NODE_MUTATION } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
-  gqlClient: () => ({ request: mockRequest }),
+  // portal#1433: the breadcrumb/children/wikilink reads are answered from the
+  // seeded nodes WITHOUT touching `mockRequest`, so the ordered
+  // `mockResolvedValueOnce` queue below still lines up with the node read.
+  gqlClient: () => ({
+    request: (doc: string, vars?: Record<string, unknown>) => {
+      const served = reads(doc, vars);
+      return served !== undefined ? Promise.resolve(served) : mockRequest(doc, vars);
+    },
+  }),
 }));
 vi.mock('$lib/server/guards', () => ({
   requireNonConsumer: vi.fn().mockResolvedValue(undefined),
 }));
+
+let reads = serveMemoryReads([], { id: 'mem-A', urn: 'hrn:mem:acme.com:mem-a' });
 
 beforeEach(() => {
   mockRequest.mockReset();
@@ -51,6 +62,10 @@ function loadEvent(opts: {
   /** #853 — the memory URN the crumb qualifies ancestor locs against. */
   memoryUrn?: string | null;
 }) {
+  reads = serveMemoryReads(opts.parentGraphNodes as SeedNode[], {
+    id: opts.gid,
+    urn: opts.memoryUrn ?? 'hrn:mem:acme.com:mem-a',
+  });
   return {
     params: { id: opts.gid, nodeId: opts.nodeId },
     locals: { token: 'tok' },
@@ -58,7 +73,6 @@ function loadEvent(opts: {
       `http://localhost/app/memories/${opts.gid}/nodes/${opts.nodeId}${opts.search ?? ''}`,
     ),
     parent: vi.fn().mockResolvedValue({
-      graphNodes: opts.parentGraphNodes,
       // #853: the breadcrumb qualifies an ancestor loc into a full node URN
       // from this, exactly as the wikilink resolver already does.
       // `'memoryUrn' in opts`, not `??` — an explicit null is the "the layout
@@ -259,7 +273,7 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
     expect(await result.memories).toEqual([]); // streamed; degrades to empty
   });
 
-  it('#529 — streams the node revision history (nodeRevisions), forwarding the node id', async () => {
+  it('#529/#1881 — streams a nodeRevisionsPage page, forwarding the node id', async () => {
     const memA = 'mem-A';
     mockRequest.mockResolvedValueOnce({
       node: {
@@ -272,10 +286,14 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
     });
     mockRequest.mockResolvedValueOnce({ memories: { items: [], total: 0 } });
     mockRequest.mockResolvedValueOnce({
-      nodeRevisions: [
-        { id: 'r2', createdAt: '2026-07-02T00:00:00Z', name: 'foo', editedBy: 'u1' },
-        { id: 'r1', createdAt: '2026-07-01T00:00:00Z', name: 'foo', editedBy: 'u1' },
-      ],
+      nodeRevisionsPage: {
+        items: [
+          { id: 'r2', createdAt: '2026-07-02T00:00:00Z', name: 'foo', editedBy: 'u1' },
+          { id: 'r1', createdAt: '2026-07-01T00:00:00Z', name: 'foo', editedBy: 'u1' },
+        ],
+        total: 2,
+        hasMore: false,
+      },
     });
 
     const result = (await runLoad(loadEvent({
@@ -287,7 +305,7 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
     const res = await result.revisions;
     expect(res.ok).toBe(true);
     expect(res.items.map((v) => v.id)).toEqual(['r2', 'r1']); // most recent first
-    const call = mockRequest.mock.calls.find(([doc]) => doc === NODE_REVISIONS_QUERY);
+    const call = mockRequest.mock.calls.find(([doc]) => doc === NODE_REVISIONS_PAGE_QUERY);
     expect(call?.[1]).toMatchObject({ nodeRef: 'leaf-pk' });
   });
 
@@ -424,6 +442,8 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
  * the contract per action so a future refactor can't silently regress.
  */
 import type { Actions } from './$types';
+import { MEMORY_NODES_QUERY, MEMORY_EDGES_QUERY } from '$lib/server/queries';
+import { serveMemoryReads, type SeedNode } from '$lib/test/serveMemoryReads';
 
 async function importActions() {
   const mod = await import('./+page.server');
@@ -444,6 +464,10 @@ function actionEvent(opts: {
     request: { formData: async () => formData },
   } as unknown as Parameters<Actions[keyof Actions]>[0];
 }
+
+/** The baseline token a Save from an editor opened on this node carries (portal#2023). */
+const baselineOf = (over: Record<string, unknown>) =>
+  nodeMetaBaseline({ name: '', loc: '', nodeType: 'info', alias: null, description: null, seq: null, tags: [], isRunnable: false, role: null, ...over } as never);
 
 function superFormFrom(result: unknown) {
   return (result as {
@@ -758,7 +782,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
       gid: 'mem-A',
       nodeId: 'pk-r',
       // Loc unchanged → no MOVE_NODE_MUTATION, so the update is call index 1.
-      form: { name: 'r', loc: 'r', isRunnable: 'true' },
+      form: { name: 'r', loc: 'r', isRunnable: 'true', baseline: baselineOf({ name: 'r', loc: 'r', nodeType: 'task', isRunnable: null }) },
     }));
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { isRunnable?: unknown } }];
@@ -784,7 +808,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     await actions.updateMeta(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk-r2',
-      form: { name: 'r2', loc: 'r2' },
+      form: { name: 'r2', loc: 'r2', baseline: baselineOf({ name: 'r2', loc: 'r2', nodeType: 'task', isRunnable: true }) },
     }));
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { isRunnable?: unknown } }];
@@ -815,6 +839,78 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     expect(result.status).toBe(400);
     expect(superFormFrom(result)?.errors?._kind?.[0]).toBeTruthy();
     expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  describe('updateMeta: a draft older than the node is refused before any write (portal#2023)', () => {
+    const stored = (over: Record<string, unknown> = {}) => ({
+      node: {
+        id: 'pk-c', memoryId: 'mem-A', loc: 'moved:by:other', name: 'Other editor name',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: false, createdAt: '', updatedAt: '',
+        memory: { urn: 'hrn:mem:hadronmemory.com:portal-test' },
+        outgoingEdges: [], incomingEdges: [],
+        ...over,
+      },
+    });
+    const sent = () => mockRequest.mock.calls.map(([q]) => q);
+
+    it('refuses with 409 and writes nothing when another editor moved the node, so saving the draft cannot move it back', async () => {
+      mockRequest.mockResolvedValueOnce(stored());
+      const actions = await importActions();
+      const result = (await actions.updateMeta(actionEvent({
+        gid: 'mem-A', nodeId: 'pk-c',
+        // The draft was opened on the OLD name and loc and still carries the old loc.
+        form: { name: 'My draft', loc: 'old:loc', baseline: baselineOf({ name: 'Old name', loc: 'old:loc' }) },
+      }))) as { status: number };
+      expect(result.status).toBe(409);
+      expect((superFormFrom(result)?.message as { text?: string } | undefined)?.text).toMatch(/changed.*nothing was saved/i);
+      // Only the read happened: no update, and above all no moveNode.
+      expect(sent()).toEqual([NODE_BY_ID_QUERY]);
+    });
+
+    it('refuses when only the name changed under the draft', async () => {
+      mockRequest.mockResolvedValueOnce(stored({ loc: 'same' }));
+      const actions = await importActions();
+      const result = (await actions.updateMeta(actionEvent({
+        gid: 'mem-A', nodeId: 'pk-c',
+        form: { name: 'My draft', loc: 'same', baseline: baselineOf({ name: 'Old name', loc: 'same' }) },
+      }))) as { status: number };
+      expect(result.status).toBe(409);
+      expect(sent()).toEqual([NODE_BY_ID_QUERY]);
+    });
+
+    it('refuses when ANOTHER field changed under the draft (description), not only name and loc (Glen on #2027)', async () => {
+      mockRequest.mockResolvedValueOnce(stored({ loc: 'same', name: 'Same', description: 'changed by the other editor' }));
+      const actions = await importActions();
+      const result = (await actions.updateMeta(actionEvent({
+        gid: 'mem-A', nodeId: 'pk-c',
+        form: { name: 'Same', loc: 'same', description: 'my stale draft', baseline: baselineOf({ name: 'Same', loc: 'same' }) },
+      }))) as { status: number };
+      expect(result.status).toBe(409);
+      expect(sent()).toEqual([NODE_BY_ID_QUERY]);
+    });
+
+    it('refuses a save that carries no baseline rather than treating it as no conflict', async () => {
+      mockRequest.mockResolvedValueOnce(stored());
+      const actions = await importActions();
+      const result = (await actions.updateMeta(actionEvent({
+        gid: 'mem-A', nodeId: 'pk-c', form: { name: 'My draft', loc: 'moved:by:other' },
+      }))) as { status: number };
+      expect(result.status).toBe(400);
+      expect(sent()).toEqual([NODE_BY_ID_QUERY]);
+    });
+
+    it('control: a save whose baseline matches the node still writes', async () => {
+      mockRequest.mockResolvedValueOnce(stored());
+      mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk-c' } });
+      const actions = await importActions();
+      await actions.updateMeta(actionEvent({
+        gid: 'mem-A', nodeId: 'pk-c',
+        form: { name: 'Renamed', loc: 'moved:by:other', baseline: baselineOf({ name: 'Other editor name', loc: 'moved:by:other' }) },
+      }));
+      expect(sent()).toEqual([NODE_BY_ID_QUERY, UPDATE_NODE_MUTATION]);
+    });
   });
 
   it('updateMeta: surfaces a loc move conflict as a field error', async () => {
@@ -851,12 +947,15 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     const result = (await actions.updateMeta(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk-r5',
-      form: { name: 'source', loc: 'target' },
+      form: { name: 'source', loc: 'target', baseline: baselineOf({ name: 'source', loc: 'source' }) },
     }))) as { status: number };
 
     expect(result.status).toBe(409);
-    // The other edits are already saved by then, and the error says so.
-    expect(superFormFrom(result)?.errors?.loc?.[0]).toBe('Saved, but the node was not moved: Target loc is already occupied');
+    // The other edits are already saved by then, and the error says so, and
+    // where the node still is (#1989).
+    expect(superFormFrom(result)?.errors?.loc?.[0]).toBe(
+      'Saved, but the node was not moved: Target loc is already occupied. It is still at hrn:node:hadronmemory.com:portal-test:source.',
+    );
     expect(mockRequest).toHaveBeenCalledTimes(3);
     // …and it flags the partial save, so the page reloads the node (@codex on #929).
     expect((result as unknown as { data: { metaSaved?: boolean } }).data.metaSaved).toBe(true);
@@ -1453,29 +1552,56 @@ describe('node-detail load — an ancestor crumb carries a qualified URN', () =>
     );
   });
 
-  it('falls back to the bare loc when the memory URN is unavailable', async () => {
-    // The layout returns no `graph` when the memory read failed. "Couldn't
-    // qualify it" is not "there is no address" — the loc still beats nothing,
-    // and the crumb must not render a broken or empty title.
+  it('keeps the slug crumb, and the page loads, when the memory URN is unavailable', async () => {
+    // The layout returns no `graph` when the memory read failed. portal#1433: an
+    // ancestor is looked up by its node URN, so with no memory URN there is
+    // nothing to look up. "Couldn't qualify it" must not take the page down or
+    // render a broken crumb: each segment keeps its slug.
     mockRequest.mockResolvedValueOnce({ node: nodeAt('form-fbar:penalties', 'pen-pk') });
     const result = await runLoad(loadEvent({
       gid: MEM, nodeId: 'pen-pk', parentGraphNodes: ancestors, memoryUrn: null,
     }));
-    expect(result.breadcrumb.find((s) => s.path === 'form-fbar')?.title).toBe(
-      'Form: FBAR — form-fbar',
-    );
+    const seg = result.breadcrumb.find((s) => s.path === 'form-fbar');
+    expect(seg?.label).toBe('form-fbar');
+    expect(seg?.nodeId).toBeNull();
   });
 
-  it('falls back to the bare loc when the memory URN is malformed', async () => {
+  it('keeps the slug crumb, and the page loads, when the memory URN is malformed', async () => {
     // composeNodeUrn throws on a wrong-type prefix. A throw here would take out
-    // the whole node page over a hover string.
+    // the whole node page over a breadcrumb.
     mockRequest.mockResolvedValueOnce({ node: nodeAt('form-fbar:penalties', 'pen-pk') });
     const result = await runLoad(loadEvent({
       gid: MEM, nodeId: 'pen-pk', parentGraphNodes: ancestors,
       memoryUrn: 'hrn:node:not-a-memory:at-all',
     }));
-    expect(result.breadcrumb.find((s) => s.path === 'form-fbar')?.title).toBe(
-      'Form: FBAR — form-fbar',
-    );
+    const seg = result.breadcrumb.find((s) => s.path === 'form-fbar');
+    expect(seg?.label).toBe('form-fbar');
+    expect(seg?.nodeId).toBeNull();
+  });
+});
+
+describe('node-detail load drains no graph (portal#1433)', () => {
+  it('issues no memoryNodes or memoryEdges request, and returns children from the server read', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'n1', memoryId: 'mem-A', loc: 'specs:x', name: 'x', nodeType: 'info', alias: null,
+        description: null, content: null, tokens: null, tags: [], seq: null, data: null,
+        ownerRepo: null, isRunnable: null, createdAt: '', updatedAt: '', outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    const result = (await runLoad(loadEvent({
+      gid: 'mem-A', nodeId: 'n1',
+      parentGraphNodes: [
+        { id: 'c2', memoryId: 'mem-A', loc: 'specs:x:b', name: 'B' },
+        { id: 'c1', memoryId: 'mem-A', loc: 'specs:x:a', name: 'A' },
+        { id: 'g1', memoryId: 'mem-A', loc: 'specs:x:a:deep', name: 'Deep' },
+      ],
+    }))) as unknown as { children: Array<{ id: string }>; childrenUnavailable: boolean };
+    // Children are the server's childrenOf read (portal#1656): direct only.
+    expect(result.childrenUnavailable).toBe(false);
+    expect(result.children.map((c) => c.id).sort()).toEqual(['c1', 'c2']);
+    const docs = mockRequest.mock.calls.map(([d]) => d);
+    expect(docs).not.toContain(MEMORY_NODES_QUERY);
+    expect(docs).not.toContain(MEMORY_EDGES_QUERY);
   });
 });

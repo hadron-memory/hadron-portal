@@ -1,15 +1,14 @@
 <!--
-  #992 — whether the revision on screen is approved (hadron-server#1591).
-  "Changed since approval" is attention, not an error: the node was edited
-  after an approval, which is ordinary, and the old approval still stands for
-  the revision it named.
+  #1129 — the server says whether the content on screen is still approved.
+  The record names the revision at approval; metadata-only revisions can be newer.
+  A content change is attention; a tamper finding belongs to verify, not this badge.
 -->
 <script lang="ts">
   import { t } from '$lib/i18n/t';
   import { approvalText, approverLabel, shortHash, type ApprovalView } from '$lib/node-approval';
   import Urn from './Urn.svelte';
 
-  let { view }: { view: ApprovalView } = $props();
+  let { view, currentRevision }: { view: ApprovalView; currentRevision?: number | null } = $props();
 
   const toneClass = $derived(
     view.tone === 'approved'
@@ -29,16 +28,19 @@
   {#if view.approval}
     <span data-testid="approval-detail" class="text-zinc-500 dark:text-zinc-400">
       {#if approver}
-        {t('node.approval.detail-by', 'Revision {rev} approved by {who} on {when}', {
+        {t('node.approval.detail-by', 'Content approved at revision {rev} by {who} on {when}', {
           rev: view.approval.revision,
           who: approver,
           when: new Date(view.approval.approvedAt).toLocaleString(),
         })}
       {:else}
-        {t('node.approval.detail', 'Revision {rev} approved on {when}', {
+        {t('node.approval.detail', 'Content approved at revision {rev} on {when}', {
           rev: view.approval.revision,
           when: new Date(view.approval.approvedAt).toLocaleString(),
         })}
+      {/if}
+      {#if view.state === 'APPROVED' && currentRevision != null && currentRevision > view.approval.revision}
+        <span data-testid="approval-current-revision">{t('node.approval.current-content', 'Current revision {rev}; its title, abstract and content are unchanged.', { rev: currentRevision })}</span>
       {/if}
       {#if approverUrn}
         <Urn value={approverUrn} size={9} />

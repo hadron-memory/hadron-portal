@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { resolve } from 'path';
+import { testMaxWorkers } from './scripts/test-max-workers.mjs';
 
 const $lib = resolve(__dirname, 'src/lib');
 
@@ -35,6 +36,9 @@ const $lib = resolve(__dirname, 'src/lib');
 // impossible rather than merely unconfigured.
 export default defineConfig({
   test: {
+    // Hugo's #28704: a host can cap the worker pool with HADRON_TEST_MAX_WORKERS
+    // (a positive integer); unset, vitest's default is unchanged.
+    maxWorkers: testMaxWorkers(process.env.HADRON_TEST_MAX_WORKERS),
     projects: [
       {
         plugins: [svelte()],
@@ -47,13 +51,29 @@ export default defineConfig({
           exclude: ['**/node_modules/**', 'src/**/*.client.test.ts'],
           environment: 'node',
         },
-        resolve: { alias: { $lib } },
+        resolve: { alias: {
+          $lib,
+          // SSR task-page rendering now includes the native reload URL. Share
+          // the same page-store fixture as mounted tests, rather than per-test mocks.
+          '$app/stores': resolve(__dirname, 'src/lib/test/stubs/app-stores.ts'),
+          // portal#1649: server-rendered pages whose children navigate or read the URL.
+          '$app/navigation': resolve(__dirname, 'src/lib/test/stubs/app-navigation.ts'),
+          '$app/state': resolve(__dirname, 'src/lib/test/stubs/app-state.ts'),
+          // Grants SSR includes the same enhanced form used by the mounted lane.
+          '$app/forms': resolve(__dirname, 'src/lib/test/stubs/app-forms.ts'),
+          // portal#1022: the account loader (node lane, via page.server tests)
+          // builds the passkey-registration link from the public server base.
+          // Same stub the client lane resolves it to — a plain record tests
+          // can set per case.
+          '$env/dynamic/public': resolve(__dirname, 'src/lib/test/stubs/env-dynamic-public.ts'),
+        } },
       },
       {
         plugins: [svelte()],
         test: {
           name: 'client',
           include: ['src/**/*.client.test.ts'],
+          setupFiles: ['src/lib/test/setup-write-recovery.ts'],
           environment: 'jsdom',
         },
         resolve: {
@@ -72,6 +92,7 @@ export default defineConfig({
             '$app/navigation': resolve(__dirname, 'src/lib/test/stubs/app-navigation.ts'),
             '$app/environment': resolve(__dirname, 'src/lib/test/stubs/app-environment.ts'),
             '$app/stores': resolve(__dirname, 'src/lib/test/stubs/app-stores.ts'),
+            '$app/state': resolve(__dirname, 'src/lib/test/stubs/app-state.ts'),
             '$app/forms': resolve(__dirname, 'src/lib/test/stubs/app-forms.ts'),
             '$env/dynamic/public': resolve(__dirname, 'src/lib/test/stubs/env-dynamic-public.ts'),
           },

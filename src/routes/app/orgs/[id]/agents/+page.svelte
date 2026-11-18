@@ -8,6 +8,7 @@
   cells, so neither wraps the other.
 -->
 <script lang="ts">
+  import TabRow from '$lib/components/TabRow.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
   import { goto } from '$app/navigation';
   import { tick, untrack } from 'svelte';
@@ -388,27 +389,11 @@
 
   <!-- Own vs Subscribed (#486). Subscribed = the org's AgentOrgGrants for
        agents owned by OTHER orgs. -->
-  <!-- #858 — `overflow-x-auto` while this strip still FITS: measured at a 390px
-       viewport it is 308px in a 308px column, exactly at the edge. The count
-       badge below rides INSIDE its button in normal inline flow, so the
-       `overflow-y: auto` that a non-visible `overflow-x` forces has nothing
-       vertical to clip here. -->
-  <div class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
-    <button
-      type="button"
-      class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'own' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-      onclick={() => (activeTab = 'own')}
-    >{t('org-agents.tab.own', 'Organization agents')}</button>
-    <button
-      type="button"
-      class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'subscribed' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-      onclick={() => (activeTab = 'subscribed')}
-    >{t('org-agents.tab.subscribed', 'Subscribed')}
-      {#if subscribedGrants && subscribedGrants.length > 0}
-        <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{subscribedGrants.length}</span>
-      {/if}
-    </button>
-  </div>
+  <TabRow items={[
+    { id: 'own', label: t('org-agents.tab.own', 'Organization agents') },
+    { id: 'subscribed', label: t('org-agents.tab.subscribed', 'Subscribed'), badge: subscribedGrants?.length ? subscribedGrants.length : undefined }
+  ]} active={activeTab} label={t('org-agents.tabs-label', 'Agent lists')} onselect={(id) => activeTab = id as typeof activeTab} />
+  <div class="space-y-4" role="tabpanel" id="panel-{activeTab}" aria-labelledby="tab-{activeTab}" tabindex="0">
 
   {#if activeTab === 'subscribed'}
     {#if subscribedGrants === null}
@@ -455,7 +440,7 @@
               <NodeActionsMenu
                 actions={activeGrantActions}
                 onselect={(actionId) => onGrantAction(actionId, grant)}
-                label={`${t('org-agents.subscribed.actions.label', 'Actions for')} ${grant.agent?.name ?? grant.agentId}`}
+                label={t('org-agents.subscribed.actions.label', 'Actions for {name}', { name: grant.agent?.name ?? grant.agentId })}
                 disabled={unsubscribePendingAgentId === grant.agentId || $unsubscribeSubmitting}
                 fixed
                 compact
@@ -499,7 +484,7 @@
                stays one text line tall and matches the Subscribed tab. -->
           <NodeActionsMenu
             actions={ownAgentActions(agent)}
-            label={`${t('org-agents.actions.label', 'Actions for')} ${agent.name}`}
+            label={t('org-agents.actions.label', 'Actions for {name}', { name: agent.name })}
             fixed
             compact
           />
@@ -510,4 +495,6 @@
       {/snippet}
     </DataTable>
   {/if}
+
+  </div>
 </div>

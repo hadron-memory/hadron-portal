@@ -19,8 +19,12 @@ import { lookupOwn } from '$lib/lookup';
  *  their own tabs now, so each is linkable on its own. #1005/#1006: so are
  *  `members` (the former /members page) and `agents` (Settings' Agent section). */
 export const APP_TAB_IDS = [
+  // portal#2241: the App's own identity, read-only. Left-most; the page's DEFAULT stays `chats`
+  // (Profile-as-default is a Proposed item pending Holger, not built).
+  'profile',
   'chats',
   'worklog',
+  'runs',
   'staff',
   'members',
   'agents',
@@ -28,6 +32,7 @@ export const APP_TAB_IDS = [
   'keys',
   'ai-configs',
   'settings',
+  'node-role-templates',
   'client',
 ] as const;
 
@@ -79,4 +84,21 @@ export function resolveTabIntent(searchParams: URLSearchParams): TabIntent {
   // carrying both is not silently overridden by the alias.
   const requestedChat = searchParams.get('chat') ?? alias?.chat ?? null;
   return { initialTab, requestedChat };
+}
+
+/**
+ * portal#2238 (ruling 0273: an App page loads only what its first screen
+ * renders) — does this INITIAL tab's first screen draw the roster?
+ *
+ * The AI Team grid is the roster's only consumer, so the loader reads the
+ * roster for `staff` and for nothing else. `null` (no `?tab=`, the default
+ * tab) is not the AI Team: the default tab must not pay for a list it never
+ * shows. A reader who switches to AI Team afterwards gets the roster from
+ * the page's own first-show fetch (`roster/+server.ts`), not from a request
+ * this open already started — which is why the loader must not fire one
+ * "just in case" (a streamed promise would: it starts the call on every
+ * open, the exact defect this rule closes).
+ */
+export function shouldLoadTeamRoster(initialTab: string | null): boolean {
+  return initialTab === 'staff';
 }

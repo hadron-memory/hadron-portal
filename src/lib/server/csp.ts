@@ -54,3 +54,41 @@ export function appendConnectSrc(header: string, origin: string): string {
     })
     .join('; ');
 }
+
+/** #1716: Chrome applies form-action to a native POST's ceremony redirect.
+ * The API origin is runtime PUBLIC configuration, never LOCAL_SERVER_URL or
+ * a URL supplied by a form. Keep an explicit restrictive policy otherwise.
+ */
+export function appendPublicServerFormAction(
+  header: string,
+  raw: string | undefined,
+): string {
+  if (!raw) return header;
+  let origin: string;
+  try {
+    const url = new URL(raw);
+    if (
+      !["http:", "https:"].includes(url.protocol) ||
+      url.username ||
+      url.password ||
+      url.hostname.includes("*")
+    )
+      return header;
+    origin = url.origin;
+  } catch {
+    return header;
+  }
+  return header
+    .split(";")
+    .map((part) => {
+      const tokens = part.trim().split(/\s+/);
+      if (
+        tokens[0] !== "form-action" ||
+        !tokens.includes("'self'") ||
+        tokens.includes(origin)
+      )
+        return part.trim();
+      return part.trim() + " " + origin;
+    })
+    .join("; ");
+}

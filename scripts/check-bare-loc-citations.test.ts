@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { EXEMPT_FILES, findBareCitations, isCitationContext, scanAddedWithContext, scanDiff } from './check-bare-loc-citations.mjs';
 
 /**
@@ -415,5 +419,71 @@ describe('spec citations (#816)', () => {
 
   it('honours the bare-loc-ok escape hatch, same as a branch-word citation', () => {
     expect(findBareCitations('// cor:dmo:060:12 as a shape — bare-loc-ok', 'src/x.ts')).toEqual([]);
+  });
+});
+
+/**
+ * #876: the CLI decided what to scan from `git diff <base>...HEAD`, COMMITTED
+ * state only. Run before committing (as every other gate here is), it saw an
+ * empty diff and printed the same "OK" as a genuinely clean run, which is how
+ * a bare citation reached CI on #875. These run the real CLI in a throwaway
+ * repository: an uncommitted citation must fail, the committed case must
+ * still fail, and the OK line must say what it compared.
+ */
+describe('the CLI scans what the author has, and says what it compared (#876)', () => {
+  const CLI = join(process.cwd(), 'scripts/check-bare-loc-citations.mjs');
+  const CITED = 'See `review:a-floor-must-not-count-the-gates-own-tests` for why.\n';
+  let repo = '';
+
+  const git = (...args: string[]) =>
+    execFileSync('git', args, {
+      cwd: repo,
+      encoding: 'utf8',
+      env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' },
+    });
+  const run = () => spawnSync('node', [CLI, 'base'], { cwd: repo, encoding: 'utf8' });
+
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), 'bare-loc-'));
+    git('init', '-q', '-b', 'work');
+    writeFileSync(join(repo, 'README.md'), '# repo\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'init');
+    git('branch', 'base');
+  });
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('fails on a citation in an UNCOMMITTED change to a tracked file', () => {
+    writeFileSync(join(repo, 'README.md'), `# repo\n${CITED}`);
+    const r = run();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('review:a-floor-must-not-count-the-gates-own-tests');
+  });
+
+  it('fails on a citation in a new, untracked file', () => {
+    writeFileSync(join(repo, 'NOTES.md'), CITED);
+    const r = run();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('NOTES.md');
+  });
+
+  it('still fails on a COMMITTED citation, as before', () => {
+    writeFileSync(join(repo, 'README.md'), `# repo\n${CITED}`);
+    git('commit', '-q', '-am', 'cite');
+    expect(run().status).toBe(1);
+  });
+
+  it('names what it compared, so an empty comparison cannot pass for a clean one', () => {
+    const r = run();
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/OK — no newly added bare-loc citations \(0 files changed vs base, working tree included\)/);
+  });
+
+  it('counts the files it compared on a clean change', () => {
+    writeFileSync(join(repo, 'README.md'), '# repo\nplain prose\n');
+    writeFileSync(join(repo, 'NEW.md'), 'more prose\n');
+    expect(run().stdout).toMatch(/\(2 files changed vs base, working tree included\)/);
   });
 });

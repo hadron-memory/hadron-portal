@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TabRow from '$lib/components/TabRow.svelte';
   // "My memories" — the caller's own (org-less, user-owned) memories — plus a
   // "Memories shared with me" tab listing memories other users shared with the
   // caller via MemoryShare (#778). Both lists use the shared TanStack DataTable.
@@ -55,30 +56,8 @@
     { id: 'mine', label: t('my-memories.tab.mine', 'My memories') },
     { id: 'shared', label: t('my-memories.tab.shared', 'Memories shared with me') },
   ];
-  async function focusTab(id: TabId) {
-    activeTab = id;
-    await tick();
-    document.getElementById(`tab-${id}`)?.focus();
-  }
-  function onTabKeydown(e: KeyboardEvent) {
-    const order = tabs.map((tt) => tt.id);
-    // Index from the tab RECEIVING the key, not from `activeTab` (#768). A
-    // `tabindex="-1"` button is still POINTER-focusable, so pressing on an
-    // unselected tab and dragging away before release leaves focus and
-    // selection diverged — and arrows computed from `activeTab` then move
-    // relative to a tab the user is not on.
-    const focusedId = (e.currentTarget as HTMLElement | null)?.id?.replace(/^tab-/, '');
-    const from = focusedId && order.includes(focusedId as TabId) ? (focusedId as TabId) : activeTab;
-    const i = order.indexOf(from);
-    // Left/Right ONLY: this tablist is HORIZONTAL (no aria-orientation),
-    // so Up/Down must keep their normal page-scrolling behaviour rather
-    // than changing section under a keyboard user who is just scrolling
-    // (@codex on #769).
-    if (e.key === 'ArrowRight') { e.preventDefault(); focusTab(order[(i + 1) % order.length]); }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); focusTab(order[(i - 1 + order.length) % order.length]); }
-    else if (e.key === 'Home') { e.preventDefault(); focusTab(order[0]); }
-    else if (e.key === 'End') { e.preventDefault(); focusTab(order[order.length - 1]); }
-  }
+
+
 
   const roleLabel = (role: 'reader' | 'writer'): string =>
     role === 'writer'
@@ -166,33 +145,12 @@
   </div>
 
   <!-- Tabs (ARIA tab pattern) -->
-  <!-- #858 — `overflow-x-auto` while this strip still FITS. Measured at 390px
-       it is 308px in a 308px column: exactly at the edge, so one added tab or
-       one longer translated label puts it over, and nobody would be watching
-       when that happens. -->
-  <div role="tablist" aria-label={t('my-memories.tabs-label', 'Memories')} class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
-    {#each tabs as tab (tab.id)}
-      <button
-        type="button"
-        role="tab"
-        id="tab-{tab.id}"
-        aria-selected={activeTab === tab.id}
-        aria-controls="panel-{tab.id}"
-        tabindex={activeTab === tab.id ? 0 : -1}
-        onclick={() => (activeTab = tab.id)}
-        onkeydown={onTabKeydown}
-        class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
-          {activeTab === tab.id
-            ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-            : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
-      >
-        {tab.label}
-        {#if tab.id === 'shared' && sharedRows.length > 0}
-          <span class="ml-1 rounded-full bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">{sharedRows.length}</span>
-        {/if}
-      </button>
-    {/each}
-  </div>
+  <TabRow items={tabs} active={activeTab} label={t('my-memories.tabs-label', 'Memories')} onselect={(id) => activeTab = id as typeof activeTab}>
+    {#snippet itemLabel(tab)}
+      {tab.label}
+      {#if tab.id === 'shared' && sharedRows.length > 0}<span class="ml-1 rounded-full bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">{sharedRows.length}</span>{/if}
+    {/snippet}
+  </TabRow>
 
   <!-- My memories panel -->
   {#if activeTab === 'mine'}
@@ -311,7 +269,7 @@
                   danger: true,
                 }]}
                 onselect={() => leave(row)}
-                label={`${t('my-memories.shared.actions.label', 'Actions for')} ${row.name}`}
+                label={t('my-memories.shared.actions.label', 'Actions for {name}', { name: row.name })}
                 disabled={leavingId === row.id}
                 fixed
                 compact

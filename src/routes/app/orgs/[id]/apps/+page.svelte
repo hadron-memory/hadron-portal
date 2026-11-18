@@ -47,9 +47,18 @@
   const deleteActionError = $derived(scopedActionError<DeleteOrgAppForm>(form, 'deleteApp', $deleteMessage, $deleteErrors, ['id', '_kind']));
   const deleteActionSuccess = $derived(scopedActionSuccess<DeleteOrgAppForm>(form, 'deleteApp', $deleteMessage));
 
-  function activeKeyCount(app: HadronApp): number {
-    return app.keys.filter((k) => !k.revokedAt).length;
+  // portal#1068: a count only from an `ok` read. Hidden (not a manager), failed
+  // and unknown are `undefined`, never 0: they sort last and render a dash.
+  const keyCountRead = (app: HadronApp) => data.keyCounts?.[app.id];
+  function activeKeyCount(app: HadronApp): number | undefined {
+    const r = keyCountRead(app);
+    return r?.kind === 'ok' ? r.count : undefined;
   }
+  const keyCountWhy: Record<string, string> = {
+    hidden: t('org-apps.active-keys.hidden', 'Only the App’s managers can see its keys.'),
+    failed: t('org-apps.active-keys.failed', 'Couldn’t load this App’s keys.'),
+    unknown: t('org-apps.active-keys.unknown', 'Not loaded.'),
+  };
 
   // #1020: Manage and Delete live in the row's ⋯ menu. Rows no longer hold
   // their own delete form; one hidden form below the table is submitted for
@@ -75,7 +84,7 @@
     { accessorFn: (row) => row.agent?.name ?? null, id: 'agent', header: t('org-apps.column.agent', 'Agent'), size: 150 },
     { accessorKey: 'identifyUserMethod', header: t('org-apps.column.identify-users', 'Identify users'), size: 120 },
     { accessorKey: 'createUserPermission', header: t('org-apps.column.create-users', 'Create users'), size: 120 },
-    { accessorFn: (row) => activeKeyCount(row), id: 'activeKeys', header: t('org-apps.column.active-keys', 'Active keys'), size: 100 },
+    { accessorFn: (row) => activeKeyCount(row), id: 'activeKeys', header: t('org-apps.column.active-keys', 'Active keys'), sortUndefined: 'last', size: 100 },
     { accessorKey: 'sessionTimeoutSeconds', header: t('org-apps.column.session-timeout', 'Session timeout'), size: 130 },
     { accessorKey: 'anonymousTtlDays', header: t('org-apps.column.anon-ttl', 'Anon TTL'), size: 90 },
     { id: 'actions', header: t('org-apps.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
@@ -153,6 +162,13 @@
           <Urn value={app.urn} type="app" size={8} />
         {:else if cell.column.id === 'identifyUserMethod' || cell.column.id === 'createUserPermission'}
           <span class="inline-block rounded bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{cell.getValue()}</span>
+        {:else if cell.column.id === 'activeKeys'}
+          {@const count = activeKeyCount(app)}
+          {#if count !== undefined}
+            <div class="truncate">{count}</div>
+          {:else}
+            <div class="truncate text-zinc-400" title={keyCountWhy[keyCountRead(app)?.kind ?? 'unknown']}>—</div>
+          {/if}
         {:else if cell.column.id === 'actions'}
           <NodeActionsMenu
             actions={[
@@ -160,7 +176,7 @@
               { id: 'delete', label: t('org-apps.action.delete', 'Delete'), danger: true },
             ]}
             onselect={(id) => { if (id === 'delete') deleteApp(app); }}
-            label={`${t('org-apps.actions.label', 'Actions for')} ${app.name}`}
+            label={t('org-apps.actions.label', 'Actions for {name}', { name: app.name })}
             disabled={$deleteSubmitting}
             fixed
             compact

@@ -7,6 +7,7 @@
  * lib/register.ts emits.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import { ClientError } from 'graphql-request';
 import {
   APP_INSTALLED_AGENTS_QUERY,
@@ -40,7 +41,7 @@ function channel(over: Record<string, unknown> = {}) {
   return {
     id: 'ch-1', name: 'All hands', description: null, kind: 'CHAT', loc: 'chats:all-hands',
     chatRootUrn: 'hrn:node:acme.com:shared:chats:all-hands', chatRootNodeId: 'root-1',
-    lastSeq: 3, lastMessageAt: null, createdAt: '', memory: MEM, ...over,
+    lastSeq: 3, lastMessageAt: null, createdAt: '', memoryId: 'mem-org', memory: MEM, ...over,
   };
 }
 function row(over: Record<string, unknown> = {}) {
@@ -58,6 +59,8 @@ function route(opts: {
   workers?: Record<string, unknown[]>;
   /** `null` is an installed Agent the caller may not read (hadron-server#1526). */
   agents?: Record<string, Array<{ id: string; name: string; urn: string } | null>>;
+  /** portal#1148: Apps whose install roster the server withholds (appAgents: null). */
+  withheldAgents?: string[];
   members?: Array<{ role: string; user: { id: string } }> | Error;
   registerFails?: boolean;
   /** The org's App list itself fails. */
@@ -102,6 +105,7 @@ function route(opts: {
         await new Promise((r) => setTimeout(r, 5));
         opts.trackAgents.inFlight--;
       }
+      if (opts.withheldAgents?.includes(vars.ref as string)) return { app: { id: vars.ref, appAgents: null } };
       return { app: { id: vars.ref, appAgents: (opts.agents?.[vars.ref as string] ?? []).map((agent) => ({ agent })) } };
     }
     if (doc === ORG_MEMBER_ROLES_QUERY) {
@@ -137,6 +141,13 @@ async function act(name: 'addAttendance' | 'editAttendance' | 'removeAttendance'
 }
 const msg = (r: Awaited<ReturnType<typeof act>>) => (r.data?.form ?? r.form)?.message;
 const sent = (doc: string) => mockRequest.mock.calls.filter(([d]) => d === doc).map(([, v]) => v);
+
+describe('load: form ids (#1320)', () => {
+  it('gives the register forms the page mounts their own Superforms ids', async () => {
+    route({});
+    expectDistinctFormIds(await load(), 3);
+  });
+});
 
 describe('load', () => {
   it('lists the org’s Channels by orgId (not an App), paged past 200', async () => {
@@ -225,6 +236,24 @@ describe('load', () => {
     warn.mockRestore();
   });
 
+  it('an App whose install roster is WITHHELD (null) is counted as withheld, not as an App with no agents (portal#1148)', async () => {
+    route({
+      apps: [{ id: 'app-a', name: 'Team A' }, { id: 'app-b', name: 'Team B' }],
+      agents: { 'app-a': [{ id: 'ag-1', name: 'Coordinator', urn: 'hrn:agent:acme.com:coordinator' }] },
+      withheldAgents: ['app-b'],
+    });
+    const data = (await load()) as Loaded & { rosterUnreadApps: number; rosterWithheldApps: number };
+    expect(data.rosterWithheldApps).toBe(1);
+    expect(data.rosterUnreadApps).toBe(0);
+    expect(data.attendees.filter((a) => a.kind === 'agent').map((a) => a.id)).toEqual(['ag-1']);
+  });
+
+  it('known-empty control: a real [] install roster is not withheld', async () => {
+    route({ apps: [{ id: 'app-a', name: 'Team A' }] });
+    const data = (await load()) as Loaded & { rosterWithheldApps: number };
+    expect(data.rosterWithheldApps).toBe(0);
+  });
+
   it('an App whose roster can’t be read is counted, not fatal: the rows still show', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     route({
@@ -309,11 +338,11 @@ describe('org-owned register writes', () => {
     expect(sent(CREATE_REGISTER_ENTRY_MUTATION)[0]).toMatchObject({ input: { ownerRef: 'org-1', attendeeRef: null } });
   });
 
-  it('a READER’s refused write shows the server’s words and changes nothing', async () => {
+  it('an uncoded READER write fault uses generic copy and changes nothing', async () => {
     route({ create: refusal('Forbidden', 'INTERNAL_SERVER_ERROR') });
     const r = await act('addAttendance', { _kind: 'addAttendance', channelId: 'ch-1', attendee: '', role: 'BOTH', description: '' });
     expect(r.status).toBe(400);
-    expect(msg(r)).toEqual({ type: 'error', text: 'Forbidden' });
+    expect(msg(r)).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
   });
 
   it('a revoked or foreign Channel/attendee is "not available", never "does not exist"', async () => {

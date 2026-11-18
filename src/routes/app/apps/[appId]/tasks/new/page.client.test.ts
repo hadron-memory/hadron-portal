@@ -1,0 +1,339 @@
+/**
+ * portal#1090, Diego's P2-1 on #1135: a browser-to-portal failure on create
+ * (a lost response, a fetch error: an ActionResult of type "error") shows the
+ * fixed uncertainty line and keeps the form, instead of falling through to
+ * the error page. The task may already exist, so it never says "failed".
+ */
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import Page from './+page.svelte';
+
+const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
+const mounted: Array<Mounted<Record<string, unknown>>> = [];
+afterEach(() => {
+  while (mounted.length) mounted.pop()!.unmount();
+  vi.restoreAllMocks();
+});
+
+describe('create page: a transport error', () => {
+  it('shows the uncertainty line and keeps what was typed', async () => {
+    const m = mountComponent(Page as never, {
+      data: { app, candidates: { workers: [], people: [] }, roles: [], families: [], canWrite: true, impersonating: null },
+      form: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const title = m.target.querySelector<HTMLInputElement>('#new-title')!;
+    title.value = 'Keep me';
+    const form = m.target.querySelector<HTMLFormElement>('form')!;
+    await submitEnhancedWithResult(form, { type: 'error', status: 500, data: {} } as never);
+    await tick(2);
+    expect(m.target.textContent).toContain('The change may or may not have gone through. Reload to check.');
+    expect(m.target.querySelector<HTMLInputElement>('#new-title')?.value).toBe('Keep me');
+    expect(m.target.querySelector('form')).not.toBeNull();
+  });
+});
+
+// Clark's browser P2 on #1135: switching where the task starts must keep
+// what was typed. Only the assignee and requirements hide.
+//
+// The cause shows only after HYDRATION, as in the browser. Every text field's
+// `value` sits in one template effect that also reads the start radios.
+// Hydration's remove_input_defaults strips the SSR `value` attribute through
+// set_attribute(input, 'value', null), which leaves Svelte's cached value at
+// null; the radio's re-run then sees null !== '' and writes '' over the typed
+// text. A plain mount caches '' and skips that write. This test applies the
+// same set_attribute step hydration does, then switches the radio.
+// @ts-expect-error -- svelte/internal/client ships no types; it's used here only to apply hydration's exact step.
+import { set_attribute } from 'svelte/internal/client';
+
+describe('create page: switching to the backlog keeps the typed fields', () => {
+  it('keeps title, source and tags across a start-mode change, after hydration strips the value defaults', async () => {
+    const m = mountComponent(Page as never, {
+      data: { app, candidates: { workers: [{ id: 'w1', name: 'Dara', role: 'eng', urn: null }], people: [] }, roles: [], families: [], canWrite: true, impersonating: null },
+      form: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    for (const sel of ['#new-title', '#new-source', '#new-tags']) set_attribute(m.target.querySelector(sel)!, 'value', null);
+    const type = (sel: string, value: string) => {
+      const el = m.target.querySelector<HTMLInputElement | HTMLTextAreaElement>(sel)!;
+      el.value = value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    type('#new-title', 'Inspect backlog');
+    type('#new-description', 'Look closely');
+    type('#new-source', 'https://x.test/1');
+    type('#new-tags', 'a, b');
+    m.target.querySelector<HTMLInputElement>('input[name="start"][value="backlog"]')!.click();
+    await tick(3);
+    expect(m.target.querySelector<HTMLInputElement>('#new-title')?.value).toBe('Inspect backlog');
+    expect(m.target.querySelector<HTMLTextAreaElement>('#new-description')?.value).toBe('Look closely');
+    expect(m.target.querySelector<HTMLInputElement>('#new-source')?.value).toBe('https://x.test/1');
+    expect(m.target.querySelector<HTMLInputElement>('#new-tags')?.value).toBe('a, b');
+    expect(m.target.querySelector('#new-assignee')).toBeNull();
+    m.target.querySelector<HTMLInputElement>('input[name="start"][value="now"]')!.click();
+    await tick(3);
+    expect(m.target.querySelector<HTMLInputElement>('#new-title')?.value).toBe('Inspect backlog');
+  });
+});
+
+// Clark's trigger B (same P2): after a browser-to-portal error the fixed line
+// shows, and the typed fields must survive the re-render it causes.
+describe('create page: a transport error keeps the typed fields', () => {
+  it('keeps title, source and tags after an error result, after hydration strips the value defaults', async () => {
+    const m = mountComponent(Page as never, {
+      data: { app, candidates: { workers: [], people: [] }, roles: [], families: [], canWrite: true, impersonating: null },
+      form: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    for (const sel of ['#new-title', '#new-source', '#new-tags']) set_attribute(m.target.querySelector(sel)!, 'value', null);
+    for (const [sel, value] of [['#new-title', 'Transport retained'], ['#new-source', 'note'], ['#new-tags', 'x']] as const) {
+      const el = m.target.querySelector<HTMLInputElement>(sel)!;
+      el.value = value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    await submitEnhancedWithResult(m.target.querySelector<HTMLFormElement>('form')!, { type: 'error', status: 500, data: {} } as never);
+    await tick(3);
+    expect(m.target.textContent).toContain('The change may or may not have gone through. Reload to check.');
+    expect(m.target.querySelector<HTMLInputElement>('#new-title')?.value).toBe('Transport retained');
+    expect(m.target.querySelector<HTMLInputElement>('#new-source')?.value).toBe('note');
+    expect(m.target.querySelector<HTMLInputElement>('#new-tags')?.value).toBe('x');
+  });
+});
+
+// portal#1214: a create whose response carried warnings is answered in place.
+// The page is MOUNTED with the form showing, then given the action's result the
+// way kit's applyAction does, so the test sees the form go and the panel come.
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+
+describe('create page: a warned create replaces the form', () => {
+  const data = { app, candidates: { workers: [], people: [] }, roles: [], families: [], canWrite: true, impersonating: null };
+  async function warned(result: Record<string, unknown>) {
+    const props = reactiveProps<Record<string, unknown>>({ data, form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    expect(m.target.querySelector('form')).not.toBeNull();
+    const form = m.target.querySelector<HTMLFormElement>('form')!;
+    // The submit callback runs (as kit would) before the result lands.
+    await submitEnhancedWithResult(form, { type: 'success', status: 200, data: result } as never);
+    props.form = result;
+    await tick(3);
+    return m.target;
+  }
+
+  it('removes the form, says created, lists the warnings and links to the new task', async () => {
+    const root = await warned({
+      created: { id: 't9' }, committedWithError: false, more: 0,
+      warnings: [{ code: 'task.create.no-source', text: 'This task has no source.' }],
+    });
+    expect(root.querySelector('form')).toBeNull();
+    expect(root.querySelector('button[type="submit"]')).toBeNull();
+    const panel = root.querySelector('[data-testid="task-created"]')!;
+    expect(panel.querySelector('h2')?.textContent?.trim()).toBe('Task created. 1 warning below.');
+    expect(panel.querySelector('h2')?.getAttribute('role')).toBeNull();
+    expect(panel.querySelector('[data-testid="task-warnings"]')?.textContent).toContain('This task has no source.');
+    expect(panel.querySelector('a')?.getAttribute('href')).toBe('/app/apps/app-1/tasks/t9');
+  });
+
+  it('without an id, a committed-with-error create says so and links to the Tasks list', async () => {
+    const root = await warned({ created: { id: null }, committedWithError: true, more: 0, warnings: [{ code: 'c', text: 't' }] });
+    expect(root.querySelector('form')).toBeNull();
+    const panel = root.querySelector('[data-testid="task-created"]')!;
+    expect(panel.querySelector('h2')?.textContent?.trim()).toBe('Task created, but the server’s response also reported an error. 1 warning below.');
+    expect(panel.textContent).not.toContain('Not changed');
+    expect(panel.querySelector('a')?.getAttribute('href')).toBe('/app/apps/app-1/tasks');
+  });
+
+  it('a refusal still keeps the form (the panel is only for a created task)', async () => {
+    const props = reactiveProps<Record<string, unknown>>({ data, form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    props.form = { refusal: { kind: 'uncertain' }, values: { title: 'Keep me' } };
+    await tick(3);
+    expect(m.target.querySelector('form')).not.toBeNull();
+    expect(m.target.querySelector('[data-testid="task-created"]')).toBeNull();
+  });
+});
+
+// portal#1530 — the create page's min-tier help must carry the same qualified
+// sentence as the Edit panel (one key, one default), and the minTier control
+// must serialize unchanged: '' for "Any", the tier once selected.
+import { MIN_TIER_HELP } from '$lib/test/minTierHelp';
+
+describe('create page: min-tier help (portal#1530)', () => {
+  async function mountCreatePage() {
+    const m = mountComponent(Page as never, {
+      data: { app, candidates: { workers: [], people: [] }, roles: [], families: [], canWrite: true, impersonating: null },
+      form: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return m.target as HTMLElement;
+  }
+
+  it('with "Any" selected, qualifies the exclusion to a selected minimum and serializes no minimum', async () => {
+    const root = await mountCreatePage();
+    expect(root.querySelector('#new-min-tier-help')!.textContent).toBe(MIN_TIER_HELP);
+    const select = root.querySelector<HTMLSelectElement>('#new-min-tier')!;
+    expect(select.value).toBe('');
+    const form = root.querySelector<HTMLFormElement>('form')!;
+    expect(new FormData(form).get('minTier')).toBe('');
+  });
+
+  it('with a minimum picked, shows the same sentence and serializes the tier', async () => {
+    const root = await mountCreatePage();
+    expect(root.querySelector('#new-min-tier-help')!.textContent).toBe(MIN_TIER_HELP);
+    const select = root.querySelector<HTMLSelectElement>('#new-min-tier')!;
+    select.value = 'mid';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(2);
+    const form = root.querySelector<HTMLFormElement>('form')!;
+    expect(new FormData(form).get('minTier')).toBe('mid');
+  });
+});
+
+// portal#2161 review: the clone form's bound family lists must re-seed from the INCOMING clone's
+// requirements on a same-route App change — the loader's cross-App redirect lands on this same
+// route component, so the re-seed effect runs without a remount, and [] would read as "emptied"
+// against the new requirementsBase and silently drop the copy on save.
+describe('clone form: a same-route App change re-seeds the family pre-fill (portal#2161)', () => {
+  const cloneOf = (appId: string, familyIn: string[]) => ({
+    source: { id: `${appId}-src`, handle: 'AT1.x', title: 'Source' },
+    parent: { choice: 'none', task: null },
+    values: {
+      title: 'T', description: '', source: '', tags: '', closeSessionWhenDone: false, priority: null, references: '[]',
+      requirements: JSON.stringify({ role: null, familyIn, familyNotIn: [], excludeWorkers: [], minTier: null }),
+    },
+  });
+  const dataWith = (appId: string, clone: ReturnType<typeof cloneOf>) => ({
+    app: appId === 'app-1' ? app : { ...app, id: appId },
+    clone,
+    candidates: { workers: [], people: [] }, roles: [], families: [], canWrite: true, impersonating: null,
+  });
+
+  it('keeps the incoming clone’s families selected, so the copy survives the save', async () => {
+    const props = reactiveProps<Record<string, unknown>>({ data: dataWith('app-1', cloneOf('app-1', ['claude'])), form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const selected = () => [...m.target.querySelectorAll<HTMLOptionElement>('#new-family-in option')].filter((o) => o.selected).map((o) => o.value);
+    expect(selected()).toEqual(['claude']);
+    // The cross-App redirect resolves to the SAME route: data updates without a remount.
+    props.data = dataWith('app-2', cloneOf('app-2', ['glm']));
+    await tick(3);
+    expect(selected()).toEqual(['glm']);
+    // What the save would post: the families beside the NEW base, not emptied against it.
+    const fd = new FormData(m.target.querySelector<HTMLFormElement>('form')!);
+    expect(fd.getAll('familyIn')).toEqual(['glm']);
+    expect(String(fd.get('requirementsBase'))).toContain('glm');
+  });
+});
+
+// George's residual F2 on portal#2161: the requirements-visibility predicate must follow the
+// POSTED radios, not snapshot at mount. An enhanced refusal lands on the SAME component with
+// no excludeWorkers key (an emptied multiple select posts nothing); with a mount-time const
+// predicate the one-way exclude-workers read re-seeds the source's list, and an option the
+// person never touched re-selects — quietly putting the copy's excluded workers back into the
+// next save. The person cleared w1 only; w2 must clear with the response, because the
+// submission posted NEITHER. (The hidden opposite control is pinned in page.test.ts: a named
+// assignee renders no lists at all.)
+describe('clone form: a refused rerender keeps a cleared exclusion (portal#2161)', () => {
+  const cloneWithExclusions = {
+    source: { id: 'src-1', handle: 'AT1.x', title: 'Source' },
+    parent: { choice: 'none', task: null },
+    values: {
+      title: 'T', description: '', source: '', tags: '', closeSessionWhenDone: false, priority: null, references: '[]',
+      requirements: JSON.stringify({ role: null, familyIn: [], familyNotIn: [], excludeWorkers: ['w1', 'w2'], minTier: null }),
+    },
+  };
+
+  it('an untouched source exclusion clears with the response — the submit posted neither', async () => {
+    const props = reactiveProps<Record<string, unknown>>({
+      data: {
+        app,
+        candidates: { workers: [{ id: 'w1', name: 'Dara', role: 'eng', urn: null }], people: [] },
+        roles: [], families: [], canWrite: true, impersonating: null,
+        clone: cloneWithExclusions,
+      },
+      form: null,
+    });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const sel = m.target.querySelector<HTMLSelectElement>('#new-exclude')!;
+    const opt = (v: string) => [...sel.options].find((o) => o.value === v)!;
+    expect(opt('w1').selected).toBe(true);
+    expect(opt('w2').selected).toBe(true);
+    // The person clears only w1; w2 stays untouched in the DOM.
+    opt('w1').selected = false;
+    // The enhanced refusal lands on the SAME component: values appear, the radios name visible
+    // controls, and the emptied multiple select posts no excludeWorkers key.
+    props.form = { refusal: { kind: 'refused', code: 'TASK_ENDED', message: 'The parent you chose has ended.' }, values: { title: 'T', start: 'now', owner: 'me', assignee: 'nobody', cloneParent: 'none' } };
+    await tick(3);
+    expect(opt('w1').selected).toBe(false);
+    expect(opt('w2').selected).toBe(false);
+    const fd = new FormData(m.target.querySelector<HTMLFormElement>('form')!);
+    expect(fd.getAll('excludeWorkers')).toEqual([]);
+  });
+});
+
+// Cedar's QA P2 on portal#2161 (bb9cca602): pick an open parent, let it end while the form is
+// open, submit — the TASK_ENDED refusal keeps every posted value, but the visible parent summary
+// reverted to the BASE ("A project of its own") while the hidden cloneParent still named the
+// ended parent. The summary must never claim a base the form isn't posting: it keeps naming the
+// picked parent (state the person set), or the neutral chosen line — never the base.
+describe('clone form: a TASK_ENDED refusal keeps the picked parent visible (portal#2161 QA)', () => {
+  const rootClone = {
+    source: { id: 'src-1', handle: 'AT1.x', title: 'Source' },
+    parent: { choice: 'project', task: null },
+    values: {
+      title: 'T', description: '', source: '', tags: '', closeSessionWhenDone: false, priority: null, references: '[]',
+      requirements: JSON.stringify({ role: null, familyIn: [], familyNotIn: [], excludeWorkers: [], minTier: null }),
+    },
+  };
+
+  it('the summary does not revert to the base while cloneParent still names the ended pick', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ kind: 'ok', value: { items: [{ id: 'p1', appId: 'app-1', handle: 'AT1.1', title: 'Picked parent', status: 'RUNNING' }], hasMore: false } }),
+    }) as unknown as Response));
+    const props = reactiveProps<Record<string, unknown>>({
+      data: {
+        app,
+        candidates: { workers: [], people: [] }, roles: [], families: [], canWrite: true, impersonating: null,
+        clone: rootClone,
+      },
+      form: null,
+    });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const summary = () => m.target.querySelector('[data-testid="clone-parent"] > p')!;
+    // A root source opens as a project of its own.
+    expect(summary().textContent).toContain('A project of its own');
+    // The person picks an open parent through the Change… picker.
+    const change = [...m.target.querySelectorAll<HTMLButtonElement>('[data-testid="clone-parent"] button')].find((b) => b.textContent?.includes('Change'))!;
+    change.click();
+    await tick(8);
+    const select = [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Select')!;
+    select.click();
+    await tick(4);
+    expect(summary().textContent).toContain('Picked parent');
+    // The parent ends; the submit is refused. The refusal lands on the SAME component and the
+    // loader's invalidation rebuilds data.clone (the root source still pre-fills as a project).
+    props.form = { refusal: { kind: 'refused', code: 'TASK_ENDED', message: 'The parent you chose has ended. Choose another parent, or none.' }, values: { title: 'T', start: 'now', owner: 'me', assignee: 'nobody', cloneParent: 'parent:p1', cloneParentBase: 'project' } };
+    await tick(4);
+    props.data = { ...(props.data as Record<string, unknown>), clone: rootClone };
+    await tick(4);
+    // The hidden input still names the ended pick, so the summary must not claim the base.
+    expect(m.target.querySelector<HTMLInputElement>('input[name="cloneParent"]')!.value).toBe('parent:p1');
+    const text = summary().textContent ?? '';
+    expect(text).not.toContain('A project of its own');
+    expect(text.includes('Picked parent') || text.includes('A task you chose')).toBe(true);
+  });
+});

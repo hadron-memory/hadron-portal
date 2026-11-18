@@ -2,6 +2,9 @@ import { fail, redirect } from '@sveltejs/kit';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { publicServerBaseUrl } from '$lib/public-server-base-url';
+import { deploymentCapabilities } from '$lib/server/signing-capability';
+import { accountProfileStrings } from '$lib/i18n/account-profile-strings';
 import { DELETE_CONFIRMATION_TOKEN, deleteAccountStrings } from '$lib/i18n/delete-account-strings';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { DELETE_USER_MUTATION, ME_QUERY, UPDATE_MY_PROFILE_MUTATION } from '$lib/server/queries';
@@ -53,6 +56,17 @@ function profileFormDefaults(user: UserSummary) {
 }
 
 export const load: PageServerLoad = async ({ locals }) => {
+  // #1117: snapshot before the await. The root layout, loading in parallel,
+  // used to null `locals.user` when its own `me` failed (it no longer does),
+  // and reading it after the await built a fallback user with no id.
+  const sessionUser = locals.user;
+  // portal#1022: the capability answer is fetched in parallel with `me` — and
+  // unlike every other value on this page it is returned as a STREAMED
+  // promise, never awaited here, so a cold or hung capabilities endpoint (up
+  // to CAPABILITIES_DEADLINE_MS before it fails closed) cannot hold the
+  // profile hostage: the page renders, and the Passkeys section appears when
+  // the answer lands. The node view streams the same answer the same way.
+  const capabilities = deploymentCapabilities();
   const data = await gqlClient(locals.token)
     .request<{ me: UserSummary | null }>(ME_QUERY)
     // Surface a failed `me` instead of silently blanking the profile. The
@@ -63,9 +77,24 @@ export const load: PageServerLoad = async ({ locals }) => {
       console.error('[account] `me` query failed — handle will be blank (name/email fall back to the JWT):', e);
       return { me: null as UserSummary | null };
     });
-  const user: UserSummary = data.me ?? { ...locals.user!, handle: null };
+  const user: UserSummary = data.me ?? { ...sessionUser!, handle: null };
   const form = await superValidate(profileFormDefaults(user), accountProfileFormAdapter, { errors: false });
-  return { user, form };
+  // portal#1022 links half: the passkey-registration link. The same
+  // per-process capability answer the node view uses, so the section appears
+  // only while the deployment actually serves the server-hosted page — a
+  // switched-off surface must not show that the feature exists (the
+  // signature-status rule, applied to this link too). The promise resolves to
+  // null then, and the section renders nothing.
+  const passkeysUrl = capabilities.then(
+    // The path is the server's own registration route (hadron-server
+    // src/api/ceremonyClientPages.ts) — the portal links to it, it does not
+    // own it. A configured base may legitimately end in a slash, so join with
+    // exactly one separator (Dorian's BLIND P3 on #1860).
+    (caps) => caps.has('passkey-registration')
+      ? `${publicServerBaseUrl().replace(/\/+$/, '')}/passkeys/register`
+      : null,
+  );
+  return { user, form, passkeysUrl };
 };
 
 export const actions: Actions = {
@@ -78,14 +107,22 @@ export const actions: Actions = {
     const email = form.data.email || null;
     try {
       await gqlClient(locals.token).request(UPDATE_MY_PROFILE_MUTATION, { name, handle, email });
-      return message(form, { type: 'success', text: 'Profile updated.' });
+      return message(form, { type: 'success', text: accountProfileStrings.updated() });
     } catch (e: unknown) {
-      const text = extractGqlError(e, 'Failed to update profile');
+      const text = extractGqlError(e, accountProfileStrings.updateFailed(), ['BAD_USER_INPUT', 'FORBIDDEN']);
       // hadron-server#1801: a changed address is refused (BAD_USER_INPUT, nothing
       // written). The page keeps the field read-only, so this only arrives from a
       // stale or hand-built form; say so on the field rather than in a banner.
+      // #1080: the server's own words go beside the fixed copy, so a different
+      // BAD_USER_INPUT that mentions email (a format check) isn't mislabelled.
+      // Any other code stays a banner error, whatever it mentions.
       if (extractGqlErrorCode(e) === 'BAD_USER_INPUT' && /email/i.test(text)) {
-        return setError(form, 'email', 'Changing your email address is not supported here.', { status: 400 });
+        return setError(
+          form,
+          'email',
+          [accountProfileStrings.emailNotChangeable(), accountProfileStrings.serverSaid(text)],
+          { status: 400 },
+        );
       }
       return message(form, { type: 'error', text }, { status: 500 });
     }

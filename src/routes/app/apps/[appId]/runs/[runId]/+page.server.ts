@@ -4,36 +4,44 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import {
-  APP_QUERY,
   APP_RUN_QUERY,
   APP_RUN_ENVELOPE_QUERY,
   CANCEL_APP_RUN_MUTATION,
 } from '$lib/server/queries';
 import type { AppRun } from '$lib/flow/runs';
-import type { App } from '$lib/types';
+import { isAccessRefusal, loadTasksApp } from '$lib/server/agent-tasks';
 import type { Actions, PageServerLoad } from './$types';
 import { cancelAppRunSchema } from './schema';
 
 // Run detail (#478 phase 3): the full audit record — who/what/why, budgets,
 // live position (curNodeUrn while RUNNING), the envelope, failure payload —
 // plus the kill switch.
-export const load: PageServerLoad = async ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // #648: canonical org-optional run detail. No requireNonConsumer — a run of a
   // user-owned (org-less) app is reachable here too; the app(ref:) gate is the
   // auth.
   const client = gqlClient(locals.token);
 
-  const [appData, runData] = await Promise.all([
-    client.request<{ app: App | null }>(APP_QUERY, { ref: params.appId }),
-    client.request<{ appRun: AppRun | null }>(APP_RUN_QUERY, { ref: params.runId }),
-  ]);
-  if (!appData.app) throw error(404, 'App not found');
+  // portal#1130: the App first and alone. A viewer the server conceals it
+  // from gets the App page's 404, not a 500; any other failure stays one.
+  const app = await loadTasksApp(client, params.appId);
+  if (!app) throw error(404, 'App not found');
+
+  const runData = await client
+    .request<{ appRun: AppRun | null }>(APP_RUN_QUERY, { ref: params.runId })
+    .catch((e) => {
+      // A run concealed from this viewer reads as missing, the same 404.
+      if (isAccessRefusal(e)) throw error(404, 'Run not found');
+      throw e;
+    });
   const run = runData.appRun;
   if (!run) throw error(404, 'Run not found');
 
   // URL correction (#237 pattern): the run resolves by PK alone — a run reached
   // under the wrong app URL redirects to its canonical (org-independent) page.
   if (run.appId !== params.appId) {
+    // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
+    await parent();
     redirect(303, `/app/apps/${run.appId}/runs/${run.id}`);
   }
 
@@ -57,7 +65,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
   const cancelForm = await superValidate(zod4(cancelAppRunSchema), { errors: false });
 
-  return { app: appData.app, run, envelope, envelopeSupported, cancelForm };
+  return { app, run, envelope, envelopeSupported, cancelForm };
 };
 
 export const actions: Actions = {
@@ -72,7 +80,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(CANCEL_APP_RUN_MUTATION, { id: params.runId });
       return message(form, { type: 'success' as const, text: 'Run cancellation requested.' });
     } catch (e: unknown) {
-      return message(form, { type: 'error' as const, text: extractGqlError(e, 'Failed to cancel run') }, { status: 500 });
+      return message(form, { type: 'error' as const, text: extractGqlError(e, 'Failed to cancel run', [], { transport: 'fallback' }) }, { status: 500 });
     }
   },
 };

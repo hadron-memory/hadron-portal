@@ -61,6 +61,19 @@ export type WikilinkMap = Record<string, WikilinkResolution | null>;
 const WIKILINK = /\[\[([^[\]\n|]+?)(?:\|([^[\]\n]*))?\]\]/;
 const WIKILINK_GLOBAL = new RegExp(WIKILINK.source, 'g');
 
+/**
+ * `[label](hrn:node:…)` — a markdown link whose href is a node URN (#1053).
+ *
+ * Authors (mostly LLMs) write these as if a URN were a URL. No browser can
+ * follow one, so the portal reads it as the cross-reference it means and
+ * renders it exactly like `[[hrn:node:…|label]]`: same resolution, same
+ * visibly-unresolved fallback. Only the `node` type is claimed — other URN
+ * types have no node page to land on. The URN may not contain whitespace or
+ * parentheses, which keeps the match inside its own `(…)`.
+ */
+const URN_LINK = /\[([^[\]\n]*)\]\(((?:hrn|urn):node:[^()\s]+)\)/i;
+const URN_LINK_GLOBAL = new RegExp(URN_LINK.source, 'gi');
+
 /** Strip an explicit node-URN prefix — `[[hrn:node:org::mem::loc]]` is legal. */
 const NODE_URN_PREFIX = /^(?:hrn|urn):node:/i;
 
@@ -152,6 +165,10 @@ export function extractWikilinks(...sources: Array<string | null | undefined>): 
       const ref = parseWikilinkTarget(match[1]);
       if (ref && !byTarget.has(ref.target)) byTarget.set(ref.target, ref);
     }
+    for (const match of src.matchAll(URN_LINK_GLOBAL)) {
+      const ref = parseWikilinkTarget(match[2]);
+      if (ref && !byTarget.has(ref.target)) byTarget.set(ref.target, ref);
+    }
   }
   return [...byTarget.values()];
 }
@@ -219,23 +236,45 @@ type WikilinkToken = {
  * `` `[[DOPPLER_TOKEN]]` `` and a bash `if [[ … ]]` inside a fence stay verbatim
  * without any special-casing here.
  */
-export function wikilinkExtension(links: WikilinkMap, strings: WikilinkStrings) {
+export function wikilinkExtension(
+  links: WikilinkMap,
+  strings: WikilinkStrings,
+  options: { qualifiedOnly?: boolean } = {},
+) {
+  // `qualifiedOnly` (#1493): surfaces with no containing memory claim only a
+  // node-prefixed target (`hrn:node:…`, v1 or v2). A bare `[[loc]]` has nothing
+  // to resolve against there, and an unprefixed `org::memory::loc` is not a
+  // citation the issue promises, so the tokenizer declines both and marked
+  // leaves them as written.
+  const claims = (ref: WikilinkRef) =>
+    !options.qualifiedOnly || (ref.memoryUrn !== null && NODE_URN_PREFIX.test(ref.target));
   return {
     name: 'wikilink',
     level: 'inline' as const,
     // Lets marked cut an inline text run short at the next `[[` instead of
     // absorbing it — without this the tokenizer is never offered the match.
     start(src: string) {
-      const at = src.indexOf('[[');
-      return at === -1 ? undefined : at;
+      const at = Math.min(
+        ...[src.indexOf('[['), src.search(URN_LINK)].filter((i) => i !== -1),
+      );
+      return Number.isFinite(at) ? at : undefined;
     },
     tokenizer(src: string): WikilinkToken | undefined {
       const match = WIKILINK.exec(src);
-      if (!match || match.index !== 0) return undefined;
-      const ref = parseWikilinkTarget(match[1]);
-      if (!ref) return undefined;
-      const label = match[2]?.trim();
-      return { type: 'wikilink', raw: match[0], target: ref.target, label: label || null };
+      if (match && match.index === 0) {
+        const ref = parseWikilinkTarget(match[1]);
+        if (!ref || !claims(ref)) return undefined;
+        const label = match[2]?.trim();
+        return { type: 'wikilink', raw: match[0], target: ref.target, label: label || null };
+      }
+      // #1053 — `[label](hrn:node:…)`. An image (`![x](hrn:…)`) is not a
+      // reference to a node page, so it is left to marked.
+      const urnLink = URN_LINK.exec(src);
+      if (!urnLink || urnLink.index !== 0) return undefined;
+      const ref = parseWikilinkTarget(urnLink[2]);
+      if (!ref || !claims(ref)) return undefined;
+      const label = urnLink[1].trim();
+      return { type: 'wikilink', raw: urnLink[0], target: ref.target, label: label || null };
     },
     renderer(token: WikilinkToken): string {
       return renderWikilink(token, links[token.target], strings);

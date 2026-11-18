@@ -95,7 +95,8 @@ describe('MintDialog (#992 slice C)', () => {
     await settle();
     expect(q(target, 'mint-summary')!.textContent).toBe('2 items block minting. Fix them, then try again.');
     expect(target.querySelector('table')).not.toBeNull();
-    expect(target.textContent).toContain('Current revision not approved');
+    expect(target.textContent).toContain('Current content not approved');
+    expect(target.textContent).toContain('current revision and approved content');
     const hrefs = [...target.querySelectorAll('a')].map((a) => a.getAttribute('href') ?? '');
     expect(hrefs.some((h) => h.includes('hrn:node:acme.com:specs-a:cor:x:010'))).toBe(true);
     expect(q(target, 'mint-submit')).toBeNull();

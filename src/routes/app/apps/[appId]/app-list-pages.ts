@@ -1,0 +1,61 @@
+import type { ListPageNavigation } from '$lib/list-page';
+
+export const APP_DISPLAY_PAGE_SIZE = 20;
+const MAX_OFFSET = 2147483647;
+
+/** Invalid optional URL state falls back to the first page, never an oversized request. */
+export function appListOffset(params: URLSearchParams, key: string): number {
+  const raw = params.get(key) ?? '0';
+  if (!/^\d+$/.test(raw)) return 0;
+  const offset = Number(raw);
+  return Number.isSafeInteger(offset) && offset <= MAX_OFFSET ? offset : 0;
+}
+
+/** Both queries return an ordered { items, total } page; never auto-drain a display list. */
+export function appListNavigation(
+  url: URL, key: string, tab: 'worklog' | 'ai-configs' | 'memory' | 'runs' | 'chats' | 'history', offset: number, count: number, total: number,
+  options: { hasMore?: boolean } = {},
+): ListPageNavigation {
+  function href(next: number) {
+    const params = new URLSearchParams(url.searchParams);
+    params.set('tab', tab);
+    dropNamedActions(params);
+    if (next === 0) params.delete(key); else params.set(key, String(next));
+    return `${url.pathname}?${params}`;
+  }
+  // Advance by the page actually served, not the requested size. A short page
+  // with a larger total is not the end (hrn:node:hadronmemory.com:specs:cor:api:120:04).
+  const next = offset + count;
+  // An envelope's explicit answer wins over a raced total in BOTH directions.
+  // Only legacy envelopes without hasMore infer continuation from the count and
+  // retain the full-page probe for a lagging total.
+  const hasNext = options.hasMore ?? (next < total || count === APP_DISPLAY_PAGE_SIZE);
+  return {
+    offset, count, total: count > 0 ? Math.max(total, offset + count) : total,
+    firstHref: offset > 0 ? href(0) : null,
+    // #1868: step BACK by the page size, never by the count served on the
+    // current page. Served-count stepping is a Next-side survival trait (it
+    // keeps the window glued to the data when counts race); applied to
+    // Previous it makes a short last page creep back by its own length
+    // (41 records: offset 40 -> 39 -> 37 …), landing on overlapping,
+    // misaligned pages and hiding the page the reader came from. The full
+    // window before this one always starts at offset - PAGE_SIZE, whatever
+    // this page served — or nothing, if this page is empty after deletes.
+    previousHref: offset > 0 ? href(Math.max(0, offset - APP_DISPLAY_PAGE_SIZE)) : null,
+    // Stop on no progress or an oversized next offset. `hasNext` above already
+    // honors the server's explicit continuation answer or the legacy race probe.
+    nextHref: count > 0 && hasNext && next <= MAX_OFFSET ? href(next) : null,
+  };
+}
+
+/**
+ * A failed native form POST leaves its named action (`?…&/postChannelMessage`)
+ * in the page URL as a `/`-prefixed query key. Anything that copies the current
+ * query into a link or a form action drops those first: a link must not carry
+ * an action, and a second action name lets SvelteKit dispatch the stale one
+ * (#1929 BLIND P2).
+ */
+export function dropNamedActions(params: URLSearchParams): URLSearchParams {
+  for (const key of [...params.keys()]) if (key.startsWith('/')) params.delete(key);
+  return params;
+}

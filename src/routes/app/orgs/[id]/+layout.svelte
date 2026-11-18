@@ -11,6 +11,7 @@
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import { t } from '$lib/i18n/t';
+  import { scrollHint } from '$lib/scroll-hint';
   import type { LayoutData } from './$types';
 
   let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
@@ -31,6 +32,7 @@
           { id: 'integrations', label: t('org-detail.tab.integrations', 'Integrations'), href: `${basePath}/integrations` },
           // #942: the org's Channels and its own register rows.
           { id: 'channels', label: t('org-detail.tab.channels', 'Channels'), href: `${basePath}/channels` },
+          { id: 'node-role-templates', label: t('config.templates', 'Node-role templates'), href: `${basePath}/node-role-templates` },
           { id: 'usage', label: t('org-detail.tab.usage', 'Usage'), href: `${basePath}/sessions` },
         ],
   );
@@ -111,10 +113,11 @@
            tab put 76px of the page off the right of a phone screen; with this
            fix the same five tabs scroll by 92px and document overflow is 0. -->
       <nav aria-label={t('org-detail.nav.aria-label', 'Organization sections')} class="mb-4 flex items-end justify-between border-b border-zinc-200 dark:border-zinc-800">
-        <div class="flex min-w-0 gap-0 overflow-x-auto">
+        <!-- #1086: edge fade + active tab kept in view (src/lib/scroll-hint.ts). -->
+        <div class="scroll-hint flex min-w-0 gap-0 overflow-x-auto" use:scrollHint={activeTab?.id}>
           {#each tabs as tab (tab.id)}
             <a
-              href={tab.href}
+              href={tab.href} data-sveltekit-preload-data={tab.id === 'node-role-templates' ? 'off' : undefined}
               aria-current={activeTab?.id === tab.id ? 'page' : undefined}
               class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
                 {activeTab?.id === tab.id

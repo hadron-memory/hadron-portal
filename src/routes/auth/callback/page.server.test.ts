@@ -71,7 +71,10 @@ describe('/auth/callback', () => {
     const tokenCookie = event._ops.find((o) => o.name === 'hadron_token');
     expect(tokenCookie?.value).toBe('jwt.a.b');
     expect(tokenCookie?.opts.httpOnly).toBe(true);
-    expect(event._ops.find((o) => o.name === 'hadron_login_state' && o.value === undefined)).toBeDefined();
+    // §10 on #1663: the nonce is DELETED with the same path it was set under —
+    // a delete with any other path leaves the cookie seated in the browser.
+    const nonceClear = event._ops.find((o) => o.name === 'hadron_login_state' && o.value === undefined);
+    expect(nonceClear?.opts).toEqual({ path: '/auth' });
 
     // Honors the server-provided destination.
     expect(thrown.status).toBe(303);

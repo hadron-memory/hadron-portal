@@ -13,6 +13,7 @@
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { parse } from 'svelte/compiler';
 import { analyse, offences, svelteFilesUnder } from './check-tab-strips.mjs';
 
 /** A strip with everything right — the shape the repo now has everywhere. */
@@ -752,21 +753,50 @@ describe('the repository as it stands', () => {
    */
   const SEEN_AS_STRIPS = [
     'src/lib/components/table/ViewTabs.svelte',
+    'src/routes/app/agents/[id]/+page.svelte', // the separate chatbot sub-tab row
+    'src/routes/app/assets/+page.svelte',
+    'src/routes/app/memories/[id]/+layout.svelte',
+    'src/routes/app/orgs/[id]/+layout.svelte',
+  ];
+
+  // #1408: these nine rows move to the measured shared component. They are
+  // not exemptions: a separate AST census pins the calls, while the component's
+  // mounted tests and test:tab-row-layout cover its runtime geometry in CI.
+  const SHARED_ROWS = [
     'src/routes/app/account/+layout.svelte',
     'src/routes/app/agents/[id]/+page.svelte',
     'src/routes/app/apps/[appId]/+page.svelte',
-    'src/routes/app/assets/+page.svelte',
+    'src/routes/app/apps/[appId]/tasks/+page.svelte',
     'src/routes/app/memories/+page.svelte',
-    'src/routes/app/memories/[id]/+layout.svelte',
     'src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte',
-    'src/routes/app/orgs/[id]/+layout.svelte',
     'src/routes/app/orgs/[id]/agents/+page.svelte',
     'src/routes/app/orgs/[id]/memories/+page.svelte',
     'src/routes/app/workers/[id]/+page.svelte',
   ];
+  function sharedCalls(source: string): number {
+    let count = 0;
+    function walk(value: unknown) {
+      if (!value || typeof value !== 'object') return;
+      const node = value as Record<string, unknown>;
+      if (node.type === 'Component' && node.name === 'TabRow') count++;
+      for (const child of Object.values(node)) {
+        if (Array.isArray(child)) child.forEach(walk);
+        else if (child && typeof child === 'object') walk(child);
+      }
+    }
+    walk(parse(source, { modern: true }).fragment);
+    return count;
+  }
+  it('pins every shared-row adoption by parsed invocation, not a comment or import', () => {
+    const adopted = scan().filter(row => row.file.startsWith('src/routes/') && sharedCalls(readFileSync(row.file, 'utf8')) > 0).map(row => row.file).sort();
+    expect(adopted).toEqual(SHARED_ROWS);
+    for (const file of SHARED_ROWS) expect(sharedCalls(readFileSync(file, 'utf8'))).toBe(1);
+    expect(sharedCalls('<!-- <TabRow /> -->')).toBe(0);
+    expect(sharedCalls('<TabRow />')).toBe(1);
+  });
 
-  /** Thirteen strips across twelve files — the agent detail page carries two. */
-  const STRIPS_TOTAL = 13;
+  /** Five legacy strips remain; the other nine use TabRow (#1408). */
+  const STRIPS_TOTAL = 5;
 
   /**
    * The rails that resolve to NO tabs — pinned by name, because the CI line
@@ -833,7 +863,7 @@ describe('the repository as it stands', () => {
     expect(strips).toBe(STRIPS_TOTAL);
     // A floor, not an equality: an unrelated PR adding a `flex border-b` row
     // should not fail this suite, but the walk collapsing should.
-    expect(rails).toBeGreaterThanOrEqual(20);
+    expect(rails).toBeGreaterThanOrEqual(13);
     // Stated as an assertion so it reads as a defect under repair rather than a
     // property of the design. Delete it when the gap closes.
     expect(rails).toBeGreaterThan(strips);
@@ -845,7 +875,7 @@ describe('the repository as it stands', () => {
     // covered file fails. #859's mutation check missed its bug by mutating one
     // case; this mutates EVERY instance and asserts the mutation applied, since
     // a no-op edit reads as a passing guard.
-    const file = 'src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte';
+    const file = 'src/routes/app/assets/+page.svelte';
     const original = readFileSync(file, 'utf8');
     const mutated = original.replaceAll('overflow-x-auto', '');
 

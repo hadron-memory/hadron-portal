@@ -13,7 +13,7 @@ import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_PAGE_QUERY } from '$lib/server/queries';
 import { COMMENT_THREADS_QUERY, NODE_COMMENT_SUMMARY_QUERY, SELF_MEMORY_ACCESS_QUERY } from '$lib/server/comments';
 // Static imports: the page is large (see form-ids.client.test.ts).
 import Page from './+page.svelte';
@@ -46,7 +46,7 @@ beforeEach(() => {
   setStubPage('http://localhost/app/memories/mem-A/nodes/leaf-pk', { id: 'mem-A', nodeId: 'leaf-pk' });
   mockRequest.mockImplementation(async (doc: string) => {
     if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: NODE };
-    if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+    if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
     if (doc === COMMENT_THREADS_QUERY) return { commentThreads: { total: 0, items: [] } };
     if (doc === NODE_COMMENT_SUMMARY_QUERY) {
       return { node: { id: 'leaf-pk', revision: 4, memory: { id: 'mem-A', urn: PARENT.graph.urn }, commentSummary: { openThreads: 0, resolvedThreads: 0, comments: 0, viewerOpenThreadId: null } } };
@@ -65,14 +65,14 @@ async function settle() {
   flushSync();
 }
 
-async function mountPage(search = '') {
+async function mountPage(search = '', parent: typeof PARENT = PARENT) {
   const loaded = (await load({
     params: { id: 'mem-A', nodeId: 'leaf-pk' },
     locals: { token: 'tok', user: { id: 'u1' }, impersonation: null },
     url: new URL(`http://localhost/app/memories/mem-A/nodes/leaf-pk${search}`),
-    parent: vi.fn().mockResolvedValue(PARENT),
+    parent: vi.fn().mockResolvedValue(parent),
   } as never)) as Record<string, unknown>;
-  const props = reactiveProps<Record<string, unknown>>({ data: { ...PARENT, ...loaded }, form: null });
+  const props = reactiveProps<Record<string, unknown>>({ data: { ...parent, ...loaded }, form: null });
   const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await settle();
@@ -95,7 +95,7 @@ describe('Discussion tab on the node page (portal#1014)', () => {
     expect(target.querySelector('.prose')?.textContent).toContain('body');
     expect(tabButton(target, 'Revisions')).toBeUndefined();
     expect(target.textContent).not.toContain('A snapshot is saved each time');
-    expect(mockRequest.mock.calls.filter(([doc]) => doc === NODE_REVISIONS_QUERY)).toHaveLength(0);
+    expect(mockRequest.mock.calls.filter(([doc]) => doc === NODE_REVISIONS_PAGE_QUERY)).toHaveLength(0);
   });
 
   it("Cloe's QA on #1024: a cold load with ?tab=discussion opens the tab", async () => {
@@ -128,5 +128,19 @@ describe('Discussion tab on the node page (portal#1014)', () => {
     await settle();
     expect(panel(target)!.hidden).toBe(false);
     expect(target.querySelector<HTMLTextAreaElement>('#new-comment')!.value).toBe('Half-written');
+  });
+
+  // portal#1101 (hadron-server#1935, Holger #11565): system memories take
+  // comments too (hrn:node:hadronmemory.com:specs:cor:dmo:110:02); only
+  // private memories stay out.
+  it('a system-memory node offers the Discussion tab', async () => {
+    const { target } = await mountPage('', { ...PARENT, graph: { ...PARENT.graph, class: 'system' } });
+    expect(tabButton(target, 'Discussion')).toBeDefined();
+  });
+
+  it('a private-memory node still offers none', async () => {
+    const { target } = await mountPage('', { ...PARENT, graph: { ...PARENT.graph, class: 'private' } });
+    expect(tabButton(target, 'Discussion')).toBeUndefined();
+    expect(tabButton(target, 'Content')).toBeDefined();
   });
 });

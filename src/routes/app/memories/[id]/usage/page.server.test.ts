@@ -40,9 +40,18 @@ describe('memory-detail Usage tab loader (#266)', () => {
 
     const result = await load(ev('mem-xyz'));
 
-    expect(result).toEqual({ events });
+    expect(result).toEqual({ events, eventsCapped: false });
     const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
     expect(vars.memoryId).toBe('mem-xyz');
     expect(vars.limit).toBeGreaterThan(0);
+  });
+
+  it('#1226: says so when the window came back full, and not before', async () => {
+    const load = await importLoad();
+    const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `ue-${i}` }));
+    mockRequest.mockResolvedValueOnce({ usageEvents: rows(200) });
+    expect(((await load(ev('m'))) as { eventsCapped: boolean }).eventsCapped).toBe(true);
+    mockRequest.mockResolvedValueOnce({ usageEvents: rows(199) });
+    expect(((await load(ev('m'))) as { eventsCapped: boolean }).eventsCapped).toBe(false);
   });
 });

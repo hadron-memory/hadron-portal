@@ -1,0 +1,251 @@
+/**
+ * portal#1380 Slice 1 (diagnostic, no behaviour change): where does a memory's
+ * first entry spend its cost?
+ *
+ * Runs the REAL `/app/memories/[id]` layout `load` against a synthetic memory
+ * of N nodes served by a stub GraphQL client, then reports what the portal
+ * itself pays for it: how many graph pages the layout drains, how long the
+ * projection builds take, and how many bytes each returned key serializes to
+ * (devalue `uneval` is what SvelteKit inlines into the HTML; JSON is the
+ * independent cross-check).
+ *
+ *   HADRON_PROFILE_MEMORY_ENTRY=1 pnpm vitest run --project node scripts/profile-memory-entry-layout
+ *   HADRON_PROFILE_NODES=32920 sets the size (default: 1000, 8000, 32920)
+ *
+ * Without the env var only the positive control below runs, so a plain
+ * `pnpm test` stays fast. WHAT THIS CANNOT SEE: hadron-server's database and
+ * resolver time per page, and network transfer. The stub answers instantly, so
+ * "fetch" here is the portal's own paging loop and nothing else. The response
+ * bytes per query are reported as the input to that cost, not as a timing.
+ */
+import { realpathSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { join, resolve } from 'node:path';
+import { brotliCompressSync, constants as zc, gzipSync } from 'node:zlib';
+import { performance } from 'node:perf_hooks';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  MEMORY_BY_ID_QUERY,
+  SELF_CAN_WRITE_QUERY,
+  MEMORY_NODES_QUERY,
+  MEMORY_EDGES_QUERY,
+  MEMORY_LAYOUT_ORG_QUERY,
+} from '$lib/server/queries';
+import { buildGraphViewData, buildTreeEntries } from '$lib/graph-utils';
+import { DEFAULT_SHAPE, synthMemory } from './synth-memory';
+
+const mockRequest = vi.fn();
+vi.mock('$lib/server/api', () => ({
+  gqlClient: () => ({ request: mockRequest }),
+}));
+
+// SvelteKit's own serializer, resolved from SvelteKit so a strict pnpm layout
+// does not hide it.
+const requireFromKit = createRequire(join(realpathSync(resolve(process.cwd(), 'node_modules/@sveltejs/kit')), 'package.json'));
+const devalue = requireFromKit('devalue') as { uneval: (v: unknown) => string; stringify: (v: unknown) => string };
+
+// The server clamps a page to 2000 rows, like production (GRAPH_PAGE).
+const SERVER_PAGE = 2000;
+
+type QueryStat = { calls: number; responseBytes: number };
+
+// `countBytes` is off during the timed loads: JSON.stringify per response is
+// instrumentation the real client's returned-object path does not pay, so it
+// runs only in a separate, untimed load.
+function serve(world: ReturnType<typeof synthMemory>, stats: Map<string, QueryStat>, opts: { countBytes: boolean }) {
+  const note = (name: string, payload: unknown) => {
+    const s = stats.get(name) ?? { calls: 0, responseBytes: 0 };
+    s.calls += 1;
+    if (opts.countBytes) s.responseBytes += JSON.stringify(payload).length;
+    stats.set(name, s);
+    return payload;
+  };
+  mockRequest.mockImplementation(async (query: string, vars: Record<string, unknown>) => {
+    const limit = Math.min(Number(vars?.limit ?? 1000), SERVER_PAGE);
+    const offset = Number(vars?.offset ?? 0);
+    if (query === MEMORY_BY_ID_QUERY) return note('memory', { memory: world.memory });
+    if (query === SELF_CAN_WRITE_QUERY) return note('canWrite', { effectiveAccess: { canWrite: true, canManage: true } });
+    if (query === MEMORY_LAYOUT_ORG_QUERY) return note('organization', { organization: null });
+    if (query === MEMORY_NODES_QUERY) {
+      return note('memoryNodes', { memoryNodes: { nodes: world.nodes.slice(offset, offset + limit), total: world.nodes.length } });
+    }
+    if (query === MEMORY_EDGES_QUERY) {
+      return note('memoryEdges', { memoryEdges: { edges: world.edges.slice(offset, offset + limit), total: world.edges.length } });
+    }
+    throw new Error(`unexpected query in profile stub: ${String(query).slice(0, 60)}`);
+  });
+}
+
+const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+// portal#1429 (S2a) removed treeEntries, graphViewData and usageByNode from the
+// layout return, so they are no longer keys of it. The Slice 1 profile node
+// holds their sizes; the builders are still timed below on the same input.
+// portal#1524 then took graphNodes out too (the Nodes tree and Graph are off), so
+// the layout no longer drains the node list: pages are 0 and the payload does not
+// grow with the memory. `nodesOff` replaces the list.
+const KEYS = ['org', 'orgReadFailed', 'graph', 'canWriteMemory', 'canManageMemory', 'nodesOff', 'nodesTotal', 'nodesFailed'] as const;
+
+export async function profile(nodeCount: number, runs = 3) {
+  const world = synthMemory(nodeCount);
+  const stats = new Map<string, QueryStat>();
+  const opts = { countBytes: false };
+  serve(world, stats, opts);
+  const { load } = await import('../src/routes/app/memories/[id]/+layout.server');
+  const event = { params: { id: world.memory.id }, locals: { token: 't', user: { id: 'u' } } } as never;
+
+  await load(event); // warm-up: JIT and module init are not the cost being measured
+  stats.clear();
+  mockRequest.mockClear();
+
+  const loadMs: number[] = [];
+  let result: Record<string, unknown> = {};
+  for (let i = 0; i < runs; i++) {
+    const t0 = performance.now();
+    result = (await load(event)) as Record<string, unknown>;
+    loadMs.push(performance.now() - t0);
+  }
+  // Page counts accumulated over the `runs` timed loads (no byte counting).
+  const pages = { nodes: (stats.get('memoryNodes')?.calls ?? 0) / runs, edges: (stats.get('memoryEdges')?.calls ?? 0) / runs };
+  // One extra, untimed load measures response bytes.
+  stats.clear();
+  opts.countBytes = true;
+  await load(event);
+
+  // The builders again, on the same input, to split their share out of the load.
+  // No graphNodes since portal#1524: the builders are timed on the synthetic
+  // world's own rows, as the measurement of what a restored tree would cost.
+  const { reconstructNodes } = await import('../src/lib/server/memory-graph-drain');
+  const nodes = reconstructNodes(world.nodes as never, world.edges as never, world.memory as never) as Parameters<typeof buildTreeEntries>[0];
+  const treeMs: number[] = [];
+  const graphMs: number[] = [];
+  for (let i = 0; i < runs; i++) {
+    let t = performance.now();
+    buildTreeEntries(nodes, world.memory.urn);
+    treeMs.push(performance.now() - t);
+    t = performance.now();
+    buildGraphViewData(nodes, world.memory.urn);
+    graphMs.push(performance.now() - t);
+  }
+
+  const keyRows = KEYS.map((key) => {
+    const value = result[key];
+    const html = devalue.uneval(value);
+    const unevalSamples: number[] = [];
+    const jsonSamples: number[] = [];
+    let json = '';
+    for (let i = 0; i < runs; i++) {
+      let t = performance.now();
+      devalue.uneval(value);
+      unevalSamples.push(performance.now() - t);
+      t = performance.now();
+      json = JSON.stringify(value) ?? '';
+      jsonSamples.push(performance.now() - t);
+    }
+    const unevalMs = median(unevalSamples);
+    const jsonMs = median(jsonSamples);
+    return {
+      key,
+      unevalBytes: Buffer.byteLength(html),
+      jsonBytes: Buffer.byteLength(json),
+      unevalMs,
+      jsonMs,
+      gzipBytes: gzipSync(html).length,
+      brotliBytes: brotliCompressSync(html, { params: { [zc.BROTLI_PARAM_QUALITY]: 5 } }).length,
+    };
+  });
+  const whole = devalue.uneval(result);
+  const wholeSamples: number[] = [];
+  for (let i = 0; i < runs; i++) {
+    const t = performance.now();
+    devalue.uneval(result);
+    wholeSamples.push(performance.now() - t);
+  }
+  const wholeUnevalMs = median(wholeSamples);
+
+  return {
+    nodeCount,
+    edgeCount: world.edges.length,
+    usageEntries: world.usage.length,
+    runs,
+    loadMsMedian: median(loadMs),
+    treeMsMedian: median(treeMs),
+    graphMsMedian: median(graphMs),
+    pages,
+    responseBytes: Object.fromEntries([...stats].map(([k, v]) => [k, v.responseBytes])),
+    keyRows,
+    wholeBytes: Buffer.byteLength(whole),
+    wholeUnevalMs,
+    wholeGzip: gzipSync(whole).length,
+    wholeBrotli: brotliCompressSync(whole, { params: { [zc.BROTLI_PARAM_QUALITY]: 5 } }).length,
+  };
+}
+
+const mib = (n: number) => (n / 1048576).toFixed(2);
+const kb = (n: number) => (n / 1024).toFixed(1);
+
+// graphNodes left the layout in portal#1524; the calibration table below is
+// kept for the before/after record and is empty by design.
+const PRODUCTION_REPORTED_MB_AT_32920: Record<string, number> = {};
+
+export function renderProfile(p: Awaited<ReturnType<typeof profile>>): string {
+  const lines: string[] = [];
+  lines.push(`### ${p.nodeCount} nodes, ${p.edgeCount} edges, ${p.usageEntries} usage entries (median of ${p.runs} samples per timing)`);
+  lines.push('');
+  lines.push(`- layout \`load\` elapsed wall time (portal side, stub server answers instantly; byte accounting off): **${p.loadMsMedian.toFixed(0)} ms**`);
+  lines.push(`  - \`buildTreeEntries\` ${p.treeMsMedian.toFixed(0)} ms and \`buildGraphViewData\` ${p.graphMsMedian.toFixed(0)} ms, timed separately on the same input (wall time). Since #1429 the layout \`load\` no longer runs them, so they are NOT part of the load figure above; they show what a client-side derivation costs.`);
+  lines.push(`- graph pages per load: ${p.pages.nodes} node pages + ${p.pages.edges} edge pages, ${SERVER_PAGE} rows each, issued as two sequential chains`);
+  lines.push(`- server response bytes per load (JSON, measured in one extra untimed load): ` +
+    Object.entries(p.responseBytes).map(([k, v]) => `${k} ${mib(v)} MiB`).join(', '));
+  lines.push('');
+  lines.push('| key | devalue uneval (HTML) | JSON | gzip | brotli | uneval wall ms (median of samples) |');
+  lines.push('|---|---:|---:|---:|---:|---:|');
+  for (const r of [...p.keyRows].sort((a, b) => b.unevalBytes - a.unevalBytes)) {
+    lines.push(`| ${r.key} | ${mib(r.unevalBytes)} MiB | ${mib(r.jsonBytes)} MiB | ${kb(r.gzipBytes)} KB | ${kb(r.brotliBytes)} KB | ${r.unevalMs.toFixed(0)} |`);
+  }
+  lines.push(`| **whole layout** | **${mib(p.wholeBytes)} MiB** | | **${kb(p.wholeGzip)} KB** | **${kb(p.wholeBrotli)} KB** | ${p.wholeUnevalMs.toFixed(0)} |`);
+  lines.push('');
+  lines.push(`Calibration: bytes per node against the production sizes Cloe reported at 32,920 nodes (graphNodes 18.8; graphViewData 9.3, usageByNode 4.0 and treeEntries 3.7 left the layout in #1429, so they are no longer measured here; the report's unit is unspecified, so this assumes its MB meant MiB). The fixture is a stand-in, not that memory.`);
+  lines.push('');
+  lines.push('| key | this fixture B/node | production B/node (assuming MB = MiB) | ratio |');
+  lines.push('|---|---:|---:|---:|');
+  for (const [key, mbReported] of Object.entries(PRODUCTION_REPORTED_MB_AT_32920)) {
+    const row = p.keyRows.find((r) => r.key === key)!;
+    const mine = row.unevalBytes / p.nodeCount;
+    const prod = (mbReported * 1048576) / 32920;
+    lines.push(`| ${key} | ${mine.toFixed(0)} | ${prod.toFixed(0)} | ${(mine / prod).toFixed(2)} |`);
+  }
+  return lines.join('\n');
+}
+
+// Braces: a returned vi.fn would be run by vitest as the teardown hook.
+beforeEach(() => {
+  mockRequest.mockReset();
+});
+
+describe('portal#1380 memory-entry profile harness', () => {
+  // Positive control: the harness must be able to see the thing it measures.
+  it('sees the page count and the payload size, and both are flat in the memory size (no drain)', async () => {
+    const small = await profile(300, 1);
+    const big = await profile(4500, 1);
+    expect(small.pages).toEqual({ nodes: 0, edges: 0 });
+    expect(big.pages).toEqual({ nodes: 0, edges: 0 });
+    expect(small.keyRows.map((r) => r.key).sort()).toEqual([...KEYS].sort());
+    // Same payload at 15x the nodes: it does not grow with the memory.
+    expect(big.wholeBytes).toBe(small.wholeBytes);
+    // The control can still see a drain: the helper kept for the lazy tree
+    // issues paged reads, so a layout that called it would show pages here.
+    const { fetchGraph } = await import('../src/lib/server/memory-graph-drain');
+    const world = synthMemory(4500);
+    serve(world, new Map(), { countBytes: false });
+    await fetchGraph({ request: mockRequest } as never, world.memory.id);
+    const nodeReads = mockRequest.mock.calls.filter(([q]) => q === MEMORY_NODES_QUERY).length;
+    expect(nodeReads).toBe(Math.ceil(4500 / SERVER_PAGE));
+  }, 120_000);
+
+  it.skipIf(!process.env.HADRON_PROFILE_MEMORY_ENTRY)('prints the profile', async () => {
+    const sizes = (process.env.HADRON_PROFILE_NODES ?? '1000,8000,32920').split(',').map(Number);
+    const out: string[] = [];
+    for (const n of sizes) out.push(renderProfile(await profile(n)));
+    process.stdout.write(`\n${out.join('\n\n')}\n`);
+  }, 600_000);
+});
