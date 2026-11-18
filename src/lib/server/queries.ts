@@ -4679,6 +4679,18 @@ export const APP_RUN_ENVELOPE_QUERY = /* GraphQL */ `
   }
 `;
 
+// The per-hop trail (hadron-server#538, #482). Its own query for the same reason
+// as the envelope: on a server without AppRun.hops the selection is invalid and
+// would error the whole run query, so the loader degrades it to "unavailable".
+export const APP_RUN_HOPS_QUERY = /* GraphQL */ `
+  query AppRunHops($ref: ID!) {
+    appRun(ref: $ref) {
+      id
+      hops
+    }
+  }
+`;
+
 // The kill switch (guarded server-side: only a still-RUNNING/PENDING row
 // transitions; a raced terminal state survives in the audit log).
 export const CANCEL_APP_RUN_MUTATION = /* GraphQL */ `
