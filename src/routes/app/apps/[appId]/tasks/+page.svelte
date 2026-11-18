@@ -56,6 +56,7 @@
     ownerText: string;
     assigneeText: string;
     startByMs: number;
+    finishByMs: number;
     updatedMs: number;
     createdMs: number;
     tagsText: string;
@@ -78,6 +79,7 @@
             ownerText: partySearchText(task.owner),
             assigneeText: partySearchText(task.assignee),
             startByMs: ms(task.startBy),
+            finishByMs: ms(task.finishBy),
             updatedMs: ms(task.updatedAt ?? task.createdAt),
             createdMs: ms(task.createdAt),
             tagsText: task.tags.join(' '),
@@ -115,6 +117,7 @@
     { id: 'assignee', accessorFn: (r) => r.assigneeText, header: t('app.tasks.col.assignee', 'Assignee'), size: 200 },
     { id: 'subtasks', accessorFn: () => '', header: t('app.tasks.col.subtasks', 'Subtasks'), enableSorting: false, enableGlobalFilter: false, size: 120 },
     { id: 'startBy', accessorFn: (r) => r.startByMs, header: t('app.tasks.col.start-by', 'Start by'), size: 170 },
+    { id: 'finishBy', accessorFn: (r) => r.finishByMs, header: t('app.tasks.col.finish-by', 'Finish by'), size: 170 },
     { id: 'updated', accessorFn: (r) => r.updatedMs, header: t('app.tasks.col.updated', 'Updated'), size: 170 },
     { id: 'created', accessorFn: (r) => r.createdMs, header: t('app.tasks.col.created', 'Created'), size: 170 },
     { id: 'tags', accessorFn: (r) => r.tagsText, header: t('app.tasks.col.tags', 'Tags'), size: 180 },
@@ -193,9 +196,6 @@
     // Blank native GETs are canonicalized by the loader; keep the input usable
     // when a browser restores this document from its back/forward cache.
   }
-
-  const overdue = (task: AgentTaskRow) =>
-    task.status === 'PENDING' && task.startBy !== null && ms(task.startBy) > 0 && ms(task.startBy) < Date.now();
 
   let refreshing = $state(false);
   async function refresh() {
@@ -317,7 +317,7 @@
       {:else}
         <p id="task-overdue-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">
           {overdueOffered
-            ? t('app.tasks.narrow.overdue.guidance', 'Overdue: the start-by time has passed and the task has not started.')
+            ? t('app.tasks.narrow.overdue.guidance', 'Overdue: the server clock says the start-by or finish-by time has passed and the task has not ended. The server decides.')
             : t('app.tasks.narrow.overdue.unavailable', 'Overdue applies to Active, Queued and All tasks.')}
         </p>
       {/if}
@@ -424,7 +424,15 @@
           {:else if cell.column.id === 'startBy'}
             {#if row.task.startBy}
               <span class="whitespace-nowrap">{fmtRunTime(row.task.startBy)}</span>
-              {#if overdue(row.task)}<span class="ml-1 text-xs font-medium text-amber-700 dark:text-amber-300">{t('app.tasks.overdue', 'overdue')}</span>{/if}
+            {:else}
+              <span class="text-zinc-400">—</span>
+            {/if}
+            <!-- portal#2244: the server's verdict, shown even when start-by is null
+                 (a finish-by-only overdue) and never computed from the browser clock. -->
+            {#if row.task.overdue}<span class="ml-1 text-xs font-medium text-amber-700 dark:text-amber-300">{t('app.tasks.overdue', 'overdue')}</span>{/if}
+          {:else if cell.column.id === 'finishBy'}
+            {#if row.task.finishBy}
+              <span class="whitespace-nowrap">{fmtRunTime(row.task.finishBy)}</span>
             {:else}
               <span class="text-zinc-400">—</span>
             {/if}
