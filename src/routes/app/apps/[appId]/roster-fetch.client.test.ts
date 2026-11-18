@@ -71,6 +71,14 @@ function stubFetch(gate: { read: () => TeamRosterRead | Promise<TeamRosterRead> 
 
 const rosterCalls = (calls: string[]) => calls.filter((c) => c.endsWith('/roster'));
 
+/** The fetch → json → validate → assign chain is several microtask hops past
+ *  the click's render; a macrotask boundary lets them all land before the
+ *  final Svelte flush. `tick` alone stops mid-chain. */
+const settled = async (flushes = 2) => {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await tick(flushes);
+};
+
 async function mountPage(data: Record<string, unknown>) {
   setStubPage('https://example.test/app/apps/a1?tab=chats', { appId: 'a1' });
   window.history.replaceState({}, '', '/app/apps/a1?tab=chats');
@@ -91,14 +99,14 @@ describe('AI Team roster: fetched on first show, once (portal#2238)', () => {
     const target = await mountPage({ teamRoster: null });
 
     target.querySelector<HTMLElement>('#tab-staff')!.click();
-    await tick(2);
+    await settled();
     expect(rosterCalls(calls)).toEqual(['/app/apps/a1/roster']);
     // Loading, not the failure text: the UX line in the #2238 body.
     expect(target.querySelector('#panel-staff')!.textContent).toContain('Loading');
     expect(target.querySelector('#panel-staff')!.textContent).not.toContain('Not available');
 
     release(rosterOk);
-    await tick(3);
+    await settled(3);
     expect(target.querySelector('#panel-staff')!.textContent).toContain('Fix the login handoff');
     expect(rosterCalls(calls)).toHaveLength(1);
   });
@@ -108,13 +116,13 @@ describe('AI Team roster: fetched on first show, once (portal#2238)', () => {
     const target = await mountPage({ teamRoster: null });
 
     target.querySelector<HTMLElement>('#tab-staff')!.click();
-    await tick(3);
+    await settled(3);
     expect(target.querySelector('#panel-staff')!.textContent).toContain('Fix the login handoff');
 
     target.querySelector<HTMLElement>('#tab-chats')!.click();
-    await tick(2);
+    await settled();
     target.querySelector<HTMLElement>('#tab-staff')!.click();
-    await tick(3);
+    await settled(3);
     expect(rosterCalls(calls)).toHaveLength(1);
     expect(target.querySelector('#panel-staff')!.textContent).toContain('Fix the login handoff');
   });
@@ -124,16 +132,16 @@ describe('AI Team roster: fetched on first show, once (portal#2238)', () => {
     const target = await mountPage({ teamRoster: null });
 
     target.querySelector<HTMLElement>('#tab-staff')!.click();
-    await tick(3);
+    await settled(3);
     const panel = target.querySelector('#panel-staff')!;
     expect(rosterCalls(calls)).toHaveLength(1);
     expect(panel.textContent).toContain('Task and pause state could not be loaded');
     expect(panel.textContent).toContain('Not available');
     // No re-ask after the failure either: one fetch per visit.
     target.querySelector<HTMLElement>('#tab-chats')!.click();
-    await tick(2);
+    await settled();
     target.querySelector<HTMLElement>('#tab-staff')!.click();
-    await tick(3);
+    await settled(3);
     expect(rosterCalls(calls)).toHaveLength(1);
   });
 
@@ -142,11 +150,11 @@ describe('AI Team roster: fetched on first show, once (portal#2238)', () => {
     const target = await mountPage({ teamRoster: rosterOk });
 
     target.querySelector<HTMLElement>('#tab-staff')!.click();
-    await tick(3);
+    await settled(3);
     target.querySelector<HTMLElement>('#tab-chats')!.click();
-    await tick(2);
+    await settled();
     target.querySelector<HTMLElement>('#tab-staff')!.click();
-    await tick(3);
+    await settled(3);
     expect(rosterCalls(calls)).toHaveLength(0);
     expect(target.querySelector('#panel-staff')!.textContent).toContain('Fix the login handoff');
   });

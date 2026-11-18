@@ -18,6 +18,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { APP_TEAM_ROSTER_QUERY } from '$lib/server/queries';
+import type { TeamRosterRead } from '$lib/server/app-team-roster';
 import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 
 const h = vi.hoisted(() => {
@@ -107,14 +108,16 @@ afterEach(() => vi.useRealTimers());
 
 const rosterRequests = () => h.requests.filter((r) => r.document === APP_TEAM_ROSTER_QUERY);
 
-async function loadPage(search: string) {
+async function loadPage(search: string): Promise<{ teamRoster: TeamRosterRead | null }> {
   const { load } = await import('./+page.server');
-  return load({
+  // The load's Kit-inferred return union includes `void` for the 404 path;
+  // this test only drives the success path, so narrow to the data shape.
+  return (await load({
     params: { appId: 'a1' },
     locals: { token: 'tok', user: { id: 'u1' } },
     url: new URL(`http://localhost/app/apps/a1${search}`),
     setHeaders: () => {},
-  } as unknown as Parameters<typeof load>[0]);
+  } as unknown as Parameters<typeof load>[0])) as { teamRoster: TeamRosterRead | null };
 }
 
 describe('App page loader: the roster is off the critical path (portal#2238)', () => {

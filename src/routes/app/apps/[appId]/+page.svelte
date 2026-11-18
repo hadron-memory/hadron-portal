@@ -218,8 +218,29 @@
   // null = the fetch failed, which is NOT the same as "no staff" — the empty
   // state must not claim an App has no workers when we simply couldn't ask.
   const staff = $derived(data.staff);
-  // portal#1168: Task and Paused, one bulk read joined by worker id.
-  const teamRoster = $derived(data.teamRoster);
+  // portal#1168 / portal#2238: Task and Paused, one bulk read joined by
+  // worker id. The loader brings it only for an initial ?tab=staff open —
+  // ruling 0273: an App page loads only what its first screen renders, so
+  // every other open starts NO roster request. On a client-side switch to
+  // AI Team the page fetches it itself, once per visit, from
+  // `roster/+server.ts` (the effect by `activeTab` below). `loading` exists
+  // only on that path: while the fetch runs the grid shows a neutral loading
+  // state, and 'Not available' only once the read failed or timed out (the
+  // #2238 body's UX line). The loader's half of the union is taken from
+  // PageData rather than re-declared (or imported from $lib/server, which
+  // components do not reach into even for types): the entry shape stays the
+  // server's RosterEntry, exactly what `rosterEntry` below hands the grid.
+  type PageRosterRead = NonNullable<PageData['teamRoster']> | { kind: 'loading' };
+  // `$state.raw`: plain fetched JSON, and a deep proxy here would break the
+  // identity discipline the roster-refresh state below depends on
+  // (hrn:node:hadronmemory.com:hadron-portal:findings:svelte-state-proxy-breaks-roster-generation-identity).
+  let rosterFetch = $state.raw<{ appId: string; read: PageRosterRead } | null>(null);
+  // Which App this visit already asked for: switching tabs back and forth
+  // must not re-ask, and a real navigation to another App starts fresh.
+  let rosterFetchedForApp = $state.raw<string | null>(null);
+  const teamRoster = $derived<PageRosterRead | null>(
+    data.teamRoster ?? (rosterFetch && rosterFetch.appId === app.id ? rosterFetch.read : null),
+  );
   // portal#1492: the loader's one clock, so server render and hydration agree on every age.
   // portal#1495 P3: that instant seeds a display clock that advances every 30 s
   // in the browser (server-relative offset, cleared on destroy, no requests) —
@@ -1001,6 +1022,43 @@
       return tabForActionResult(form, initial) ?? initial ?? 'chats';
     }),
   );
+  // portal#2238: the AI Team tab's first show fetches the roster ONCE per
+  // visit, and only when the page load did not already bring it (an initial
+  // ?tab=staff open did — its loader read is `data.teamRoster`, which this
+  // guard prefers over anything fetched here). Tab switches are client state
+  // (`activeTab = id`, no navigation), so this effect is the only thing that
+  // moves the roster onto a non-initial AI Team view. `data.teamRoster`, not
+  // a local flag, is the "already have it" test: a load that re-runs with the
+  // roster on the URL wins, and one that re-runs without it keeps the answer
+  // this visit already fetched instead of re-asking the exhausted pool.
+  $effect(() => {
+    if (activeTab !== 'staff') return;
+    const appId = app.id;
+    if (data.teamRoster || rosterFetchedForApp === appId) return;
+    rosterFetchedForApp = appId;
+    rosterFetch = { appId, read: { kind: 'loading' } };
+    void (async () => {
+      // The endpoint already degrades every failure and timeout to
+      // { kind: 'failed' }; the catches here are for the transport not
+      // reaching it. Anything that is not a readable roster (say an HTML
+      // error page) is a failure too, so the grid falls back rather than
+      // rendering a phantom state.
+      let read: PageRosterRead = { kind: 'failed' };
+      try {
+        const res = await fetch(`/app/apps/${appId}/roster`);
+        const body: unknown = res.ok ? await res.json().catch(() => null) : null;
+        const kind = (body as { kind?: unknown } | null)?.kind;
+        if (kind === 'ok' && body && typeof (body as { byWorker?: unknown }).byWorker === 'object') {
+          read = body as PageRosterRead;
+        } else if (kind === 'hidden' || kind === 'failed') {
+          read = { kind };
+        }
+      } catch {
+        // transport failure: keep the failed read
+      }
+      rosterFetch = { appId, read };
+    })();
+  });
   // #1795: an action's invalidateAll can use Kit's pre-navigation URL and
   // answer AFTER a ?tab=runs navigation supplied this section. Retain that
   // fresh payload through an old-URL refresh which has no Runs section at all.
@@ -3119,7 +3177,14 @@
               <TerminalStatus badge={terminalBadgeOf(worker)} now={terminalNow} compact />
             {:else if cell.column.id === 'task'}
               {@const task = rosterEntry(worker.id)?.currentTask}
-              {#if !rosterEntry(worker.id)}
+              {#if teamRoster?.kind === 'loading'}
+                <!-- portal#2238: the first-show roster fetch is running. Neutral
+                     loading, not the failure text — 'Not available' below is
+                     earned by a read that failed, timed out, or came back
+                     without this worker, and showing it here would call a
+                     two-second fetch a failure. -->
+                <span class="text-xs text-zinc-500">{t('app.staff.roster.loading', 'Loading…')}</span>
+              {:else if !rosterEntry(worker.id)}
                 <!-- Failed, withheld, or a worker the read did not return: never the "no task" dash. -->
                 <span class="text-xs text-zinc-500">{t('app.staff.na', 'Not available')}</span>
               {:else if rosterEntry(worker.id)?.currentTaskUnavailable}
