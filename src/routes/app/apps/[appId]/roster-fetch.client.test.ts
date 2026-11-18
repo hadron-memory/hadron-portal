@@ -39,8 +39,9 @@ import { setStubPage } from '$lib/test/stubs/app-stores';
 import { resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import type { TeamRosterRead } from '$lib/server/app-team-roster';
+import type { z } from 'zod';
 import Page from './+page.svelte';
-import { releaseWorkerSchema } from './schema';
+import { releaseWorkerSchema, type ReleaseWorkerMessage } from './schema';
 import { pageData } from './app-page.fixture';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -185,7 +186,7 @@ describe('AI Team roster: re-asked after a roster-invalidating action (portal#22
         checkStatus: { status: 'PENDING', pendingReason: 'NO_TASK' },
         pausedUntil: null,
         currentTask: { id: 't2', title: 'Ship the roster refresh', status: 'RUNNING', handle: 'AT0.9' },
-        heldBy: { id: 'u9', name: 'Bo' },
+        heldBy: { id: 'u9', handle: 'bo', urn: 'hrn:user:acme.com:bo', name: 'Bo' },
         heldAt: '2026-11-18T14:00:00.000Z',
       },
     },
@@ -194,22 +195,20 @@ describe('AI Team roster: re-asked after a roster-invalidating action (portal#22
   async function mountStaffHeld() {
     setStubPage('https://example.test/app/apps/a1?tab=chats', { appId: 'a1' });
     window.history.replaceState({}, '', '/app/apps/a1?tab=chats');
-    const props = reactiveProps<Record<string, unknown>>({
-      data: {
-        ...(await pageData()),
-        teamRoster: null,
-        user: { id: 'u1' },
-        staff: [{
-          id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', retiredAt: null,
-          heldByUserId: 'u1', heldAt: '2026-10-01T00:00:00.000Z',
-        }],
-      },
-      form: null,
-    });
+    const base: Record<string, unknown> = {
+      ...(await pageData()),
+      teamRoster: null,
+      user: { id: 'u1' },
+      staff: [{
+        id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', retiredAt: null,
+        heldByUserId: 'u1', heldAt: '2026-10-01T00:00:00.000Z',
+      }],
+    };
+    const props = reactiveProps<Record<string, unknown>>({ data: base, form: null });
     const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
-    return { props, target: m.target };
+    return { props, base, target: m.target };
   }
 
   /** Open the row menu and pick one item (the page.client.test pick helper). */
@@ -236,7 +235,7 @@ describe('AI Team roster: re-asked after a roster-invalidating action (portal#22
     pick(target, 'Ada', 'Release');
     await tick(2);
     const form = target.querySelector<HTMLFormElement>('form[action="?/releaseWorker"]')!;
-    const result = await superValidate(
+    const result = await superValidate<z.infer<typeof releaseWorkerSchema>, ReleaseWorkerMessage>(
       { _kind: 'releaseWorker', workerId: 'w1', expectedHolderUserId: 'u1' },
       zod4(releaseWorkerSchema),
       { errors: false },
@@ -260,7 +259,7 @@ describe('AI Team roster: re-asked after a roster-invalidating action (portal#22
     const calls = stubFetch({
       read: (url: string) => (url.includes('/apps/a2/') ? Promise.resolve(rosterOkAfter) : gateA1.read()),
     });
-    const { props, target } = await mountStaffHeld();
+    const { props, base, target } = await mountStaffHeld();
 
     target.querySelector<HTMLElement>('#tab-staff')!.click();
     await settled();
@@ -269,12 +268,8 @@ describe('AI Team roster: re-asked after a roster-invalidating action (portal#22
     // App-to-App navigation while a1's ask is still in flight: the page
     // component is reused and a2's ask starts (and lands) immediately.
     props.data = {
-      ...props.data,
-      app: { ...(props.data as { app: Record<string, unknown> }).app, id: 'a2' },
-      staff: [{
-        id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', retiredAt: null,
-        heldByUserId: 'u1', heldAt: '2026-10-01T00:00:00.000Z',
-      }],
+      ...base,
+      app: { ...(base.app as Record<string, unknown>), id: 'a2' },
     };
     await settled(3);
     expect(target.querySelector('#panel-staff')!.textContent).toContain('Ship the roster refresh');

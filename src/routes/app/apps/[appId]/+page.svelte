@@ -238,8 +238,18 @@
   // Which App this visit already asked for: switching tabs back and forth
   // must not re-ask, and a real navigation to another App starts fresh.
   let rosterFetchedForApp = $state.raw<string | null>(null);
+  // portal#2243 F1: when an action's refresh (a stale-hold refusal, a
+  // confirmed cast) re-asks the roster, the `data` object current at that
+  // moment is the loader snapshot the answer supersedes. While `data` is
+  // still that object — the invalidation failed and left it in place — the
+  // fetch's read outranks `data.teamRoster`, which is exactly the stale read
+  // being replaced. Any load that replaces `data` ends the supersession:
+  // a roster that load brings is at least as fresh as the fetch's.
+  let rosterSupersedesData = $state.raw<unknown>(null);
   const teamRoster = $derived<PageRosterRead | null>(
-    data.teamRoster ?? (rosterFetch && rosterFetch.appId === app.id ? rosterFetch.read : null),
+    rosterFetch && rosterFetch.appId === app.id && data === rosterSupersedesData
+      ? rosterFetch.read
+      : data.teamRoster ?? (rosterFetch && rosterFetch.appId === app.id ? rosterFetch.read : null),
   );
   // portal#1492: the loader's one clock, so server render and hydration agree on every age.
   // portal#1495 P3: that instant seeds a display clock that advances every 30 s
@@ -1031,10 +1041,19 @@
   // a local flag, is the "already have it" test: a load that re-runs with the
   // roster on the URL wins, and one that re-runs without it keeps the answer
   // this visit already fetched instead of re-asking the exhausted pool.
-  $effect(() => {
-    if (activeTab !== 'staff') return;
-    const appId = app.id;
-    if (data.teamRoster || rosterFetchedForApp === appId) return;
+  // portal#2238 / portal#2243 F1+F2 — one primitive for every roster ask: the
+  // first-show fetch this effect starts, and the post-action re-asks below (a
+  // stale-hold refusal, a confirmed cast). `supersedeData` marks the answer as
+  // fresher than the loader snapshot current when it started (see
+  // `rosterSupersedesData` above). A monotonic epoch guards the write: a fetch
+  // that finishes after a newer ask started — a re-ask after an action, or
+  // another App's ask after an App-to-App navigation reused this component —
+  // is dropped, so an older answer can never clobber the page state a newer
+  // one was fetched for (F2).
+  let rosterFetchEpoch = 0;
+  function startRosterFetch(appId: string, opts: { supersedeData?: boolean } = {}) {
+    const epoch = ++rosterFetchEpoch;
+    rosterSupersedesData = opts.supersedeData ? data : null;
     rosterFetchedForApp = appId;
     rosterFetch = { appId, read: { kind: 'loading' } };
     void (async () => {
@@ -1056,8 +1075,15 @@
       } catch {
         // transport failure: keep the failed read
       }
+      if (epoch !== rosterFetchEpoch) return;
       rosterFetch = { appId, read };
     })();
+  }
+  $effect(() => {
+    if (activeTab !== 'staff') return;
+    const appId = app.id;
+    if (data.teamRoster || rosterFetchedForApp === appId) return;
+    startRosterFetch(appId);
   });
   // #1795: an action's invalidateAll can use Kit's pre-navigation URL and
   // answer AFTER a ?tab=runs navigation supplied this section. Retain that
@@ -1692,6 +1718,12 @@
         castOpen = false;
         try {
           await invalidateAll();
+          // portal#2243 F1: after ruling 0273 the reload carries the roster
+          // only for a ?tab=staff URL, so on a client-switched AI Team view
+          // the newly cast worker's cells would read "Not available" until a
+          // full page load. When the reload did bring one it is fresh — ask
+          // only when it did not.
+          if (!data.teamRoster) startRosterFetch(app.id, { supersedeData: true });
         } catch {
           // The worker WAS cast; only the roster read failed. Never retry the mint.
           if (attempt === castGeneration) castRefreshFailed = true;
@@ -1752,8 +1784,25 @@
     // row, clicks again, and asserts the same dead holder — a refusal that
     // cannot be satisfied by doing what it says. Refetch so the next click is
     // made against what is actually there.
+    //
+    // portal#2243 F1: the invalidation alone stopped being enough — after
+    // ruling 0273 the loader brings the roster only for an initial ?tab=staff,
+    // so on a client-switched AI Team view it reloads everything EXCEPT the
+    // row the refusal was about. The invalidation still runs (a ?tab=staff
+    // URL's load re-reads the roster fresh); when it did not bring one — or
+    // it rejected, leaving the pre-refusal snapshot in place — the page asks
+    // the roster endpoint itself, superseding that snapshot.
     onUpdated: ({ form: updated }) => {
-      if (rosterIsStale(updated.message)) void invalidateAll();
+      if (!rosterIsStale(updated.message)) return;
+      void (async () => {
+        const dataBefore = data;
+        try {
+          await invalidateAll();
+        } catch {
+          // The reload failed; the roster fetch below is the fallback.
+        }
+        if (data === dataBefore || !data.teamRoster) startRosterFetch(app.id, { supersedeData: true });
+      })();
     },
   });
 
