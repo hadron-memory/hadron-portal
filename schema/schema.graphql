@@ -1,4 +1,4 @@
-# Exported from hadron-server fe4607783c8fb802afdfa9aed075c2b5ee63f7d9 (fe4607783c8fb802afdfa9aed075c2b5ee63f7d9, 2026-11-18T05:35:23Z) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 289ecdc66a347435ee2460de48317e8c34af40e4 (289ecdc66a347435ee2460de48317e8c34af40e4, 2026-11-18T06:42:27Z) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -20657,7 +20657,7 @@ type TeamRosterEntry {
 #1707 — a worker's derived state on the team roster, as defined by
 hrn:node:hadronmemory.com:specs:cor:agt:050:22 (Definition: A worker's roster state;
 the states are Proposed). A worker can be in several at once; it is shown in the
-first that holds, in this order. NO_FAMILY is served but not yet defined in the spec.
+first that holds, in this order.
 """
 enum TeamRosterState {
   """The assignee of a pending task."""
