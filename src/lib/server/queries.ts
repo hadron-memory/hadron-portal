@@ -5556,9 +5556,10 @@ const AGENT_TASK_ROW_FIELDS = /* GraphQL */ `
     assignee { id kind name urn }
     startBy
     finishBy
-    # portal#2244 (hadron-server#4220): the server's overdue verdict, start-by or
-    # finish-by passed, judged on the server clock. The page renders this and
-    # computes no overdue predicate of its own.
+    # portal#2244 (hadron-server#4220, implementing #2654): the server's overdue
+    # verdict — a pending, not-started task past its start-by, or a pending-or-
+    # started task past its finish-by and not ended; backlog never — on the server
+    # clock. The page renders this and computes no overdue predicate of its own.
     overdue
     createdAt
     updatedAt

@@ -15,8 +15,11 @@
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-const OUT = new URL('../docs/proofs/tasks-overdue-2244/', import.meta.url).pathname;
+// fileURLToPath, not .pathname: paths with spaces or a Windows host break on
+// the raw pathname (portal#2248 review, Gil P3 5).
+const OUT = fileURLToPath(new URL('../docs/proofs/tasks-overdue-2244/', import.meta.url));
 mkdirSync(OUT, { recursive: true });
 
 const STUBS = {
@@ -103,30 +106,69 @@ async function shoot(name, { dark }) {
   await page.evaluate(async () => { await import('/src/lib/test/fixtures/task-board-mount.ts'); });
   await page.evaluate(async (initial) => {
     window.__h = await window.__mountBoard(initial);
-    for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 25));
   }, initial);
+  // Not a fixed sleep loop (portal#2248 review, Gil P3 5): wait for the table.
+  await page.waitForSelector('tbody tr');
 
-  const rows = await page.$$eval('tbody tr', (trs) => trs.map((tr) => tr.textContent || ''));
-  if (rows.length !== 4) throw new Error(`${name}: expected 4 rows, got ${rows.length}`);
-  const marked = rows.filter((t) => t.includes('overdue'));
-  if (marked.length !== 2) throw new Error(`${name}: expected exactly 2 overdue marks, got ${marked.length}: ${JSON.stringify(rows)}`);
-  if (!marked[0].includes('Draft the changelog') || !marked[1].includes('Index the docs')) {
-    throw new Error(`${name}: the marks are not on the two server-marked rows: ${JSON.stringify(marked)}`);
-  }
-  if (marked.some((t) => t.includes('Plan next week') || t.includes('Rotate the keys'))) {
-    throw new Error(`${name}: a healthy row carries a mark`);
-  }
   const headers = await page.$$eval('th', (ths) => ths.map((th) => (th.textContent || '').trim()));
   if (!headers.some((h) => h.startsWith('Finish by'))) throw new Error(`${name}: no Finish by column: ${JSON.stringify(headers)}`);
-  await page.screenshot({ path: `${OUT}/${name}.png`, fullPage: false });
+  // portal#2248 review (Uma P3 1, Jonas P3): both deadline columns fully inside
+  // the 1440 viewport — a date cut mid-value at the table edge fails the ask
+  // ("a reader can tell which time passed").
+  const fold = await page.$$eval('th', (ths) => ths.map((th) => {
+    const r = th.getBoundingClientRect();
+    return { text: (th.textContent || '').trim(), right: r.right };
+  }));
+  for (const prefix of ['Start by', 'Finish by']) {
+    const h = fold.find((x) => x.text.startsWith(prefix));
+    if (!h) throw new Error(`${name}: "${prefix}" column missing`);
+    if (h.right > 1440) throw new Error(`${name}: "${prefix}" column is cut by the 1440 viewport edge (right=${Math.round(h.right)})`);
+  }
+  // portal#2248 review: the mark is task-level, in the Status cell — never
+  // under Start by ("— overdue" pointed at the one arm a started task can
+  // never be on) and never under Finish by alone. Asserted on the mark hook
+  // (data-testid="overdue-mark"), not row text, so a title can never fake a
+  // mark or hide a missing one.
+  const statusIdx = headers.findIndex((h) => h.startsWith('Status'));
+  const startByIdx = headers.findIndex((h) => h.startsWith('Start by'));
+  const titleIdx = headers.findIndex((h) => h.startsWith('Task'));
+  if (statusIdx < 0 || startByIdx < 0 || titleIdx < 0) throw new Error(`${name}: Status, Task or Start by column missing: ${JSON.stringify(headers)}`);
+  const rows = await page.$$eval('tbody tr',
+    (trs, ti) => trs.map((tr) => {
+      const tds = [...tr.querySelectorAll('td')];
+      const mark = tr.querySelector('[data-testid=overdue-mark]');
+      return {
+        title: ((tds[ti]?.textContent) || '').trim(),
+        // -1 when the row carries no mark; the index of the td that carries it
+        markCell: mark ? tds.indexOf(mark.closest('td')) : -1,
+      };
+    }), titleIdx);
+  if (rows.length !== 4) throw new Error(`${name}: expected 4 rows, got ${rows.length}`);
+  const marked = rows.filter((r) => r.markCell >= 0);
+  if (marked.length !== 2) throw new Error(`${name}: expected exactly 2 overdue marks, got ${marked.length}: ${JSON.stringify(rows)}`);
+  // The board sorts by Updated desc, so align by title, not by row index.
+  for (const t of tasks) {
+    const key = t.title.split(' — ')[0];
+    const row = rows.find((r) => r.title.startsWith(key));
+    if (!row) throw new Error(`${name}: fixture row "${key}" not found on the board: ${JSON.stringify(rows.map((r) => r.title))}`);
+    if (row.markCell === startByIdx) throw new Error(`${name}: "${t.title}" carries the mark under Start by (cell ${row.markCell}): ${JSON.stringify(rows)}`);
+    if (t.overdue !== (row.markCell === statusIdx)) {
+      throw new Error(`${name}: "${t.title}" mark is not in the Status cell (cell ${row.markCell}, status col ${statusIdx}): ${JSON.stringify(rows)}`);
+    }
+  }
+  await page.screenshot({ path: `${OUT}${name}.png`, fullPage: false });
   results.push({ name, rows: rows.length, overdueMarks: marked.length, finishByColumn: true });
   await page.evaluate(() => window.__h.unmount());
   await context.close();
 }
 
-await shoot('1440-light-board', { dark: false });
-await shoot('1440-dark-board', { dark: true });
-
-console.log(JSON.stringify(results, null, 1));
-await browser.close();
-await server.close();
+// try/finally (portal#2248 review, Gil P3 5): a failed assertion must not
+// leave the vite server and the browser to process-exit cleanup.
+try {
+  await shoot('1440-light-board', { dark: false });
+  await shoot('1440-dark-board', { dark: true });
+  console.log(JSON.stringify(results, null, 1));
+} finally {
+  await browser.close();
+  await server.close();
+}
