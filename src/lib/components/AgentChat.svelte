@@ -12,7 +12,7 @@
   import { AGENT_CHAT_KEY } from '$lib/app-chats';
   import { resolveActiveChatFromUrl } from '$lib/components/agent-chat-helpers.js';
   import { scrollTopAfterPrepend } from '$lib/team-chat-refresh';
-  import { t } from '$lib/i18n/t.js';
+  import { fillMarked, t, type MarkedSegment } from '$lib/i18n/t.js';
   import { chatScopeStrings } from '$lib/i18n/chat-scope-strings.js';
   import { agentChatRowStrings } from '$lib/i18n/agent-chat-row-strings.js';
   import {
@@ -193,6 +193,20 @@
       from: toast.from || t('agent-chat.stage-toast.start', '(start)'),
       to: toast.to
     });
+  }
+
+  /**
+   * The same message as stageToastText, split so the two stage names carry the
+   * pre-#2208 <strong> (portal#2226). One message, markup where the translator
+   * put the values (fillMarked, the splitAt rule of #1415): joining the
+   * segments' text is byte-identical to stageToastText, so the visible line and
+   * its `title` cannot drift apart.
+   */
+  function stageToastSegments(toast: { from: string; to: string }): MarkedSegment[] {
+    return fillMarked(t('agent-chat.stage-toast', 'Stage transitioned: {from} → {to}'), {
+      from: toast.from || t('agent-chat.stage-toast.start', '(start)'),
+      to: toast.to
+    }, ['from', 'to']);
   }
 
   // Recent stage-transition toast
@@ -1150,7 +1164,7 @@
       {#if stageToast}
         <!-- The clamp sits on an inner element: line-clamp on a box that has vertical padding lets the next line show through the padding. -->
         <div class="mx-4 mt-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
-          <span data-testid="stage-toast" title={stageToastText(stageToast)} class="line-clamp-2 break-words">{stageToastText(stageToast)}</span>
+          <span data-testid="stage-toast" title={stageToastText(stageToast)} class="line-clamp-2 break-words">{#each stageToastSegments(stageToast) as segment}{#if segment.marked}<strong>{segment.text}</strong>{:else}{segment.text}{/if}{/each}</span>
         </div>
       {/if}
 
