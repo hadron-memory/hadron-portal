@@ -47,8 +47,8 @@ const HEAD_REF_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
  * Duplicates collapse (the set is the selection); first-seen order is kept
  * for display.
  */
-export function parseTeamParam(raws: readonly string[] | null): { ok: true; filter: TeamChatFilter } | { ok: false } {
-  if (raws === null || raws.length === 0) return { ok: true, filter: NO_TEAM_FILTER };
+export function parseTeamParam(raws: readonly string[]): { ok: true; filter: TeamChatFilter } | { ok: false } {
+  if (raws.length === 0) return { ok: true, filter: NO_TEAM_FILTER };
   // The set is the selection, so duplicates collapse FIRST — a doubled
   // `untagged` stays the untagged view exactly as the single-value read
   // served it, and only a genuine `untagged`-with-heads mix is refused as

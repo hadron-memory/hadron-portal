@@ -87,8 +87,10 @@ describe('TeamChatThread team filter — chips', () => {
 
   it('toggles further heads into the selection and out of it (#1482)', async () => {
     // The parent answers onSelectTeam with a fresh read that lands as new
-    // filter props; the second click only means "remove" once that read
-    // arrived, so wire the write-back the way a real parent would.
+    // filter props. Since the #2250 fix round a second click computes
+    // against the PENDING request, so "remove" needs the read only to land,
+    // not to be awaited before the next click; wire the write-back the way
+    // a real parent would.
     const onSelectTeam = vi.fn((next: TeamChatFilter) => { props.filter = next; });
     const props = reactiveProps<Record<string, unknown>>({
       messages: [
@@ -178,17 +180,22 @@ describe('TeamChatThread team filter — the control', () => {
     });
     const chips = qa(m, 'team-chat-filter-active');
     // One chip per selected head, labelled from loaded tags. The × is
-    // decorative; each chip carries its own sr-only remove words, so a full
-    // textContent equality would restate the i18n string — assert the parts.
+    // decorative; each chip is a plain remove button whose accessible name
+    // names ITS OWN head (#2250 fix round), so assert the parts.
     expect(chips).toHaveLength(2);
     expect(chips[0].textContent).toContain('team.ada');
     expect(chips[1].textContent).toContain('team.bo');
-    expect(chips.every((el) => el.textContent?.includes('Remove this team from the filter'))).toBe(true);
+    expect(chips[0].getAttribute('aria-label')).toBe('Remove team.ada from the filter');
+    expect(chips[1].getAttribute('aria-label')).toBe('Remove team.bo from the filter');
+    expect(chips.every((el) => el.hasAttribute('aria-pressed'))).toBe(false);
     // Removing one chip keeps the other (the parent re-reads under the smaller
     // set; onSelectTeam is the contract for it).
     (chips[0] as HTMLButtonElement).click();
     expect(onSelectTeam).toHaveBeenCalledWith({ kind: 'teams', headRefs: ['head-bo'] });
-    // A selected head with no loaded row still gets its chip, under the generic name.
+    // A selected head with no loaded row still gets its chip. #2250 fix
+    // round: the fallback is the head ref itself — several sparse heads used
+    // to render identical "Selected team" chips with one accessible name
+    // (Georgia's LOCAL P3); the live region keeps its generic name.
     const sparse = await mountThread({
       messages: [message(1, { teamTags: [ADA] })], total: 1,
       filter: { kind: 'teams', headRefs: ['head-ada', 'head-zoe'] }, onSelectTeam: vi.fn(),
@@ -196,7 +203,8 @@ describe('TeamChatThread team filter — the control', () => {
     const sparseChips = qa(sparse, 'team-chat-filter-active');
     expect(sparseChips).toHaveLength(2);
     expect(sparseChips[0].textContent).toContain('team.ada');
-    expect(sparseChips[1].textContent).toContain('Selected team');
+    expect(sparseChips[1].textContent).toContain('head-zoe');
+    expect(sparseChips[1].getAttribute('aria-label')).toBe('Remove head-zoe from the filter');
   });
 
   it('says "no team tag recorded" for the untagged view, never absent-vs-empty', async () => {

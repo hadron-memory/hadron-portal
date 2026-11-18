@@ -33,7 +33,7 @@
     type TranscriptView,
     scrollTopAfterPrepend,
   } from '$lib/team-chat-refresh';
-  import { NO_TEAM_FILTER, filterKeyOf, toggleTeamHead, type TeamChatFilter } from '$lib/team-chat-filter';
+  import { NO_TEAM_FILTER, TEAM_HEAD_REFS_MAX, filterKeyOf, toggleTeamHead, type TeamChatFilter } from '$lib/team-chat-filter';
   import type { TeamChatMessage, TeamChatRefusal } from '$lib/types';
 
   type PostTeamChatMessageForm = Infer<typeof postTeamChatMessageSchema, 'zod4'>;
@@ -400,6 +400,15 @@
   // `teamTags` is null everywhere, and a control promising a result would lie).
   const tagsObserved = $derived(shownMessages.some((m) => (m.teamTags?.length ?? 0) > 0));
   const showFilterBar = $derived(!!onSelectTeam && (filter.kind !== 'none' || filterInvalid || tagsObserved));
+  // #2250 fix round: while a filter request is pending (the route's read has
+  // not landed as new props), a further toggle computes against the REQUESTED
+  // selection. The stale `filter` prop still shows the pre-click set, so
+  // toggling against it silently dropped every head chosen since the read
+  // started — and read a second fast click on one chip as add-add.
+  const toggleBase = $derived(filterFocusRequest?.pendingFilter ?? filter);
+  // The cap is judged on the same pending base: a full requested selection
+  // refuses further adds locally, exactly as the server would.
+  const capReached = $derived(toggleBase.kind === 'teams' && toggleBase.headRefs.length >= TEAM_HEAD_REFS_MAX);
   // A head's label is a post-time DISPLAY snapshot: it can collide and go
   // stale, so it is looked up for display only, never used as identity. With a
   // multi-head selection (#1482) each selected head is labelled from the first
@@ -408,9 +417,10 @@
   const activeTeamLabels = $derived.by(() => {
     const labels = new Map<string, string>();
     if (filter.kind !== 'teams') return labels;
+    const heads = new Set(filter.headRefs);
     for (const m of shownMessages) {
       for (const tag of m.teamTags ?? []) {
-        if (filter.headRefs.includes(tag.headId) && !labels.has(tag.headId)) labels.set(tag.headId, tag.label);
+        if (heads.has(tag.headId) && !labels.has(tag.headId)) labels.set(tag.headId, tag.label);
       }
     }
     return labels;
@@ -421,22 +431,68 @@
   let filterBarEl: HTMLDivElement | undefined = $state();
   let composerEl: HTMLTextAreaElement | undefined = $state();
   let filterAnnouncement = $state('');
-  function selectTeam(next: TeamChatFilter, label?: string) {
+  function selectTeam(next: TeamChatFilter, label?: string, base: TeamChatFilter = filter) {
     if (!onSelectTeam) return;
     // The clicked tag's label is an announcement fallback for the head this
     // click ADDS (its filtered read may have no row on screen). On a removal
     // it is the departing head's label and must not announce as the filter.
-    const addedHead = next.kind === 'teams'
-      ? next.headRefs.find((h) => filter.kind !== 'teams' || !filter.headRefs.includes(h))
+    // `base` is the selection the caller's toggle computed against — the
+    // pending request while a route read is in flight (#2250 fix round), the
+    // applied prop otherwise; added/removed are judged against THAT, never
+    // against a stale prop.
+    const baseHeads = base.kind === 'teams' ? base.headRefs : [];
+    const nextHeads = next.kind === 'teams' ? next.headRefs : [];
+    const addedHead = nextHeads.find((h) => !baseHeads.includes(h));
+    const removedHead = baseHeads.length > nextHeads.length
+      ? baseHeads.find((h) => !nextHeads.includes(h))
       : undefined;
-    filterFocusRequest = { key: filterKeyOf(next), label, addedHead, opener: document.activeElement };
+    filterFocusRequest = {
+      key: filterKeyOf(next), label, addedHead, removedHead,
+      baseHeadRefs: baseHeads, pendingFilter: next,
+      opener: document.activeElement,
+    };
     onSelectTeam(next);
+  }
+  // #2250 fix round: at the cap an unselected head cannot join (the server
+  // would refuse the read). The row control is disabled; this guard covers
+  // every other entry. Say the limit in the live region rather than
+  // navigating to an unchanged filter and announcing a change that never
+  // happened.
+  function announceCapReached() {
+    filterAnnouncement = t('app.team-chat.filter.cap-reached', 'At most {max} teams can be selected.', {
+      max: TEAM_HEAD_REFS_MAX,
+    });
+    onFilterAnnouncement?.(filterAnnouncement);
   }
   function rememberFilterFocus(event: FocusEvent) {
     const request = filterFocusRequest;
     if (!request) return;
     request.movedFocus = event.target === request.opener ? undefined
       : event.target === composerEl ? 'composer' : 'elsewhere';
+  }
+  // #2250 fix round: with several chips, focus lands on the chip the request
+  // NAMED — the added head's own chip, or the removed chip's neighbour — and
+  // never defaults to chip 1. Head refs are HEAD_REF_PATTERN-constrained (no
+  // quotes or backslashes), so the quoted attribute selector is safe.
+  function focusTargetFor(requested: TeamChatFilterFocusRequest): HTMLElement | null {
+    const bar = filterBarEl;
+    if (!bar) return null;
+    const chipOf = (head: string | undefined) =>
+      head ? bar.querySelector<HTMLElement>(`[data-head="${head.replace(/["\\]/g, '\\$&')}"]`) : null;
+    if (requested.addedHead) {
+      const own = chipOf(requested.addedHead);
+      if (own) return own;
+    }
+    if (requested.removedHead) {
+      const idx = requested.baseHeadRefs.indexOf(requested.removedHead);
+      for (const neighbour of [requested.baseHeadRefs[idx + 1], requested.baseHeadRefs[idx - 1]]) {
+        const el = chipOf(neighbour);
+        if (el) return el;
+      }
+      // No neighbour remains: the set emptied (or its chips are gone) — the
+      // pressed All-messages control is the fallback below.
+    }
+    return bar.querySelector<HTMLElement>('[aria-pressed="true"]');
   }
   $effect(() => {
     const requested = filterFocusRequest;
@@ -462,8 +518,7 @@
         filterFocusRequest = null;
         return;
       }
-      const selected = filterBarEl?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')
-        ?? composerEl;
+      const selected = focusTargetFor(requested) ?? composerEl;
       if (document.activeElement === requested.opener || document.activeElement === document.body) {
         if (requested.movedFocus === 'composer') composerEl?.focus();
         else if (requested.movedFocus !== 'elsewhere') selected?.focus();
@@ -498,6 +553,11 @@
   function uniqueTags(tags: readonly { headId: string; label: string }[]) {
     const seen = new Set<string>();
     return tags.filter((tag) => (seen.has(tag.headId) ? false : (seen.add(tag.headId), true)));
+  }
+  // The parse and toggle paths dedupe, but `filter` is a route-owned prop: a
+  // duplicate key would throw inside Svelte 5's keyed each — dedupe defensively.
+  function uniqueHeads(heads: readonly string[]): string[] {
+    return [...new Set(heads)];
   }
 
   function renderMarkdown(text: string): string {
@@ -837,19 +897,25 @@
         </button>
         {#if filter.kind === 'teams'}
           <!-- #1482: one chip per selected head, each removable on its own —
-               removing the last one is the same as choosing All messages. -->
-          {#each filter.headRefs as headRef (headRef)}
+               removing the last one is the same as choosing All messages.
+               #2250 fix round: a chip is a plain REMOVE button named for its
+               own head (aria-pressed on a remove-only control mixed two
+               models), and a head with no loaded label falls back to its head
+               ref — several sparse heads used to render identical
+               "Selected team" chips with one shared accessible name. -->
+          {#each uniqueHeads(filter.headRefs) as headRef (headRef)}
+            {@const chipLabel = activeTeamLabels.get(headRef) ?? headRef}
             <button
               type="button"
-              aria-pressed="true"
               data-testid="team-chat-filter-active"
-              onclick={() => selectTeam(toggleTeamHead(filter, headRef))}
+              data-head={headRef}
+              aria-label={t('app.team-chat.filter.remove-named', 'Remove {team} from the filter', { team: chipLabel })}
+              onclick={() => selectTeam(toggleTeamHead(toggleBase, headRef), undefined, toggleBase)}
               class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border border-indigo-500 bg-indigo-50 px-2 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-200"
             >
               <Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />
-              {activeTeamLabels.get(headRef) ?? t('app.team-chat.filter.selected-team', 'Selected team')}
+              {chipLabel}
               <span aria-hidden="true">×</span>
-              <span class="sr-only">{t('app.team-chat.filter.remove', 'Remove this team from the filter')}</span>
             </button>
           {/each}
         {/if}
@@ -1076,12 +1142,22 @@
                     <button
                       type="button"
                       data-testid="team-chat-tag"
+                      data-head={tag.headId}
                       aria-pressed={pressed}
-                      disabled={!onSelectTeam}
-                      onclick={() => selectTeam(toggleTeamHead(filter, tag.headId), tag.label)}
+                      disabled={!onSelectTeam || (!pressed && capReached)}
+                      onclick={() => {
+                        // #2250 fix round: a full selection refuses a further
+                        // add locally — disabled above; this guard is the
+                        // belt — and says the limit rather than navigating to
+                        // an unchanged filter.
+                        if (!pressed && capReached) { announceCapReached(); return; }
+                        selectTeam(toggleTeamHead(toggleBase, tag.headId), tag.label, toggleBase);
+                      }}
                       title={pressed
                         ? t('app.team-chat.tag.unfilter', 'Remove this team from the filter')
-                        : t('app.team-chat.tag.filter', 'Show messages with this team tag')}
+                        : capReached
+                          ? t('app.team-chat.filter.cap-reached', 'At most {max} teams can be selected.', { max: TEAM_HEAD_REFS_MAX })
+                          : t('app.team-chat.tag.filter', 'Show messages with this team tag')}
                       class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 text-zinc-600 enabled:hover:bg-zinc-200 aria-pressed:border-indigo-500 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:enabled:hover:bg-zinc-700 dark:aria-pressed:border-indigo-400 dark:aria-pressed:bg-indigo-950 dark:aria-pressed:text-indigo-200"
                     >{#if pressed}<Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />{/if}{tag.label}</button>
                   {/each}

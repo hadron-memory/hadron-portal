@@ -19,8 +19,10 @@ import type { TeamChatMessage } from '$lib/types';
 // team (a human has none).
 describe('parseTeamParam', () => {
   it('reads no parameter as the unfiltered thread', () => {
+    // `null` left the signature with the single-value `get()` era (#2250 fix
+    // round): every caller passes `searchParams.getAll('team')`, which is
+    // never null — an absent parameter is the empty list.
     expect(parseTeamParam([])).toEqual({ ok: true, filter: NO_TEAM_FILTER });
-    expect(parseTeamParam(null)).toEqual({ ok: true, filter: NO_TEAM_FILTER });
   });
 
   it('reads `untagged` as the untagged view, and head ids as the selection', () => {

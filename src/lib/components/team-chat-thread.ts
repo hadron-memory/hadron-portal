@@ -1,3 +1,4 @@
+import type { TeamChatFilter } from '$lib/team-chat-filter';
 import type { TeamChatMessage } from '$lib/types';
 
 /** Ephemeral user intent, owned outside a route-keyed thread mount. Never persisted. */
@@ -10,6 +11,24 @@ export interface TeamChatFilterFocusRequest {
    * departing head's label and must never announce as the active filter.
    */
   addedHead?: string;
+  /**
+   * #2250 fix round: the head id this request REMOVED, when it removed exactly
+   * one (a chip or row-tag toggle-out). With several chips, focus must land on
+   * the removed chip's neighbour, not on chip 1.
+   */
+  removedHead?: string;
+  /**
+   * The selection order the removal's neighbour is picked from — the base the
+   * toggle computed against, not the (possibly stale) applied prop.
+   */
+  baseHeadRefs: readonly string[];
+  /**
+   * #2250 fix round: the selection this request asked for. While the route's
+   * read is still pending, a FURTHER toggle computes against this requested
+   * set — the applied `filter` prop still shows the pre-click selection and
+   * would silently drop every head chosen since the read started.
+   */
+  pendingFilter: TeamChatFilter;
   opener: Element | null;
   /** The route owner marks its own goto; absent for synchronous component consumers. */
   navigation?: 'pending' | 'complete';

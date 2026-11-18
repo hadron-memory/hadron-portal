@@ -923,6 +923,8 @@ export function teamChatRefusalOf(e: unknown): { code: string; message: string }
     ?.response?.errors;
   const first = Array.isArray(errors) ? errors[0] : undefined;
   if (first?.extensions?.code !== TEAM_CHAT_HEAD_REFUSAL_CODE) return null;
-  if (!first || typeof first.message !== 'string' || first.message === '') return null;
+  // `!first` is unreachable here: a falsy `first` makes the optional chain
+  // above `undefined !== CODE` and has already returned.
+  if (typeof first.message !== 'string' || first.message === '') return null;
   return { code: TEAM_CHAT_HEAD_REFUSAL_CODE, message: first.message };
 }

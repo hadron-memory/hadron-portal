@@ -2580,10 +2580,16 @@ describe('portal#1624 BLIND refused and abandoned filter navigation', () => {
     const second=m.target.querySelectorAll<HTMLButtonElement>('[data-testid="team-chat-tag"]')[1];
     second.focus();second.click();await tick(2);
     pending[0].reject(new Error('old navigation cancelled'));await tick(3);
-    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'teams',headRefs:['head-bo']},teamChatMessages:[bo]};
+    // #2250 fix round: the second click SUPERSEDED the first, so it computed
+    // from the pending request's set ({ada} + bo) — its navigation targets
+    // BOTH heads and the applied URL carries both. The #1624 property this
+    // pin guards is untouched: the old navigation's rejection consumed none
+    // of the newer choice, which completes and announces.
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'teams',headRefs:['head-ada','head-bo']},teamChatMessages:[bo]};
     await tick(3);pending[1].resolve();await tick(5);
     expect(status(m).textContent).toContain('team.bo');
-    expect(document.activeElement).toBe(m.target.querySelector('[data-testid="team-chat-filter-active"]'));
+    // Focus lands on the chip the click ADDED (head-bo's), not chip 1.
+    expect(document.activeElement).toBe(m.target.querySelector('[data-testid="team-chat-filter-active"][data-head="head-bo"]'));
   });
   it('clearing an initially invalid view still focuses and announces the healthy explicit All choice',async()=>{
     const {m,props,release}=await setup(true);
