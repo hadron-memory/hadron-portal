@@ -19,6 +19,9 @@ import { lookupOwn } from '$lib/lookup';
  *  their own tabs now, so each is linkable on its own. #1005/#1006: so are
  *  `members` (the former /members page) and `agents` (Settings' Agent section). */
 export const APP_TAB_IDS = [
+  // portal#2241: the App's own identity, read-only. Left-most; the page's DEFAULT stays `chats`
+  // (Profile-as-default is a Proposed item pending Holger, not built).
+  'profile',
   'chats',
   'worklog',
   'runs',

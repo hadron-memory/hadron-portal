@@ -22,6 +22,13 @@ describe('resolveTabIntent', () => {
     expect(intent(`tab=${tab}`).initialTab).toBe(tab);
   });
 
+  // portal#2241: Profile is addressable, and a tab-less URL still falls back to the page default
+  // (Chats): making Profile the default is the gate's Proposed-pending-Holger item, not built here.
+  it('accepts ?tab=profile, and ids it first in the list', () => {
+    expect(intent('tab=profile').initialTab).toBe('profile');
+    expect(APP_TAB_IDS[0]).toBe('profile');
+  });
+
   it('is null with no ?tab=', () => {
     expect(intent('')).toEqual({ initialTab: null, requestedChat: null });
   });
