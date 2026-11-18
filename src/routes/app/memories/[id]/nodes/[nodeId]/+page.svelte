@@ -46,6 +46,8 @@
   import ApproveRevisionButton from '$lib/components/ApproveRevisionButton.svelte';
   import NodeMintLabel from '$lib/components/NodeMintLabel.svelte';
   import NodeDiscussion from '$lib/components/NodeDiscussion.svelte';
+  import QuestionCard from '$lib/components/questions/QuestionCard.svelte';
+  import { QUESTION_ACTION_KINDS } from '$lib/questions/action-kinds';
   import { COMMENT_NODE_TYPE, discussionCount, isCommentableClass, openFeedbackCue, type CommentSummary, type Discussion } from '$lib/comments';
   import { mintView, type NodeMintStatus } from '$lib/node-mint';
   import { approvalView, type NodeApprovalStatus, type NodeIntegrityCheck } from '$lib/node-approval';
@@ -2179,6 +2181,9 @@
     });
   });
   const isComment = $derived(node.nodeType === COMMENT_NODE_TYPE);
+  // portal#2234: a node whose role is `question` gets the question card.
+  const isQuestion = $derived(node.role === 'question');
+  const questionResult = $derived(form && typeof form === 'object' && 'kind' in form && QUESTION_ACTION_KINDS.includes(String(form.kind)) ? (form as { kind: string; ok?: boolean; error?: string; message?: string }) : null);
   // portal#1175: what the server says about this comment (`Node.asComment`).
   // Null when it was not returned; then the viewer is not treated as the author
   // and there is no target to link, never a guess. The server stays the
@@ -2661,8 +2666,9 @@
       <Urn value={fullUrn} type="node" />
       <NodeEmbeddingBadges enabled={data.graph.vectorIndexEnabled === true}
         pendingAt={node.embeddingPendingAt} failedAt={node.embeddingFailedAt} error={node.embeddingError} />
-      {#if isComment}
-        <!-- portal#1014: a comment is feedback, never approved or minted (hrn:node:hadronmemory.com:specs:cor:dmo:110:06),
+      {#if isComment || isQuestion}
+        <!-- portal#2234: a question is approved one question at a time by a decider (portal slice P3), never by the generic row; the server refuses it until then.
+             portal#1014: a comment is feedback, never approved or minted (hrn:node:hadronmemory.com:specs:cor:dmo:110:06),
              so its page offers no approval row at all. portal#1175: and needs no note saying so. -->
       {:else}
       <!-- #1129: content approval, bound to the revision on screen, with Approve / Verify. -->
@@ -2754,6 +2760,16 @@
       {/if}
       {#if node.description}
         <p class="mt-1 text-sm text-zinc-700 dark:text-zinc-300">{node.description}</p>
+      {/if}
+      {#if isQuestion}
+        <!-- portal#2234: the question card, above the node's content. A failed read is said so, never an empty card. -->
+        <div class="mt-3">
+          {#if data.question?.kind === 'ok'}
+            <QuestionCard question={data.question.value} canAct={data.question.value.viewerMayAnswer} result={questionResult} />
+          {:else}
+            <p role="alert" data-testid="question-read-failed" class="rounded border border-red-300 p-2 text-sm text-red-800 dark:border-red-800 dark:text-red-200">{t('question.card.read-failed', 'This question could not be loaded. Reload the page to try again.')}</p>
+          {/if}
+        </div>
       {/if}
       <!--
         #489 part 4: the App a chat belongs to. A reader arriving from a shared

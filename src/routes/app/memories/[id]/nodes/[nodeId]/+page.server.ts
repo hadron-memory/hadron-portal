@@ -37,6 +37,7 @@ import { chatAuthorName, chatPostTarget, chatRootLocForMessage, chatSortKey, cha
 import { isCanonicalNodeType } from '$lib/node-types';
 import { outputFromNodeData, rowsFromNodeData, rowsToSpec } from '$lib/flow/extraction';
 import { t } from '$lib/i18n/t';
+import { answerQuestionAction, loadQuestion, retractQuestionAnswerAction, withdrawQuestionAction } from '$lib/server/questions';
 import type { MemoryNode, NodeEdgeRemoval, NodeRevision } from '$lib/types';
 import { readChildrenPage, type ChildRow } from '$lib/server/node-children';
 import { isCapped } from '$lib/server/capped';
@@ -588,9 +589,13 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     gqlClient(locals.token), node.memoryId, [...(node.outgoingEdges ?? []), ...(node.incomingEdges ?? [])],
   );
   const chatMessages = await chatMessagesPromise;
+  // portal#2234: a question node's card is read from its structured fields; a
+  // failed read is reported as such, never as an empty card.
+  const question = node.role === 'question' ? await loadQuestion(gqlClient(locals.token), node.id) : null;
 
   return {
     node,
+    question,
     isChat,
     isChatMessage,
     openChat,
@@ -809,6 +814,12 @@ function isSameNodeAddress(a: string, b: string): boolean {
 }
 
 export const actions: Actions = {
+  // portal#2234 (Questions P1): answer, take back, withdraw. Each is bound to
+  // the revision the card rendered and refuses by known code only.
+  answerQuestion: (ev) => answerQuestionAction(ev, gqlClient),
+  retractQuestionAnswer: (ev) => retractQuestionAnswerAction(ev, gqlClient),
+  withdrawQuestion: (ev) => withdrawQuestionAction(ev, gqlClient),
+
   // #237 review follow-up: every mutating action below derives `memoryId`
   // from the node fetched by PK rather than from `params.gid`. The load
   // guard above only protects GETs — form actions run BEFORE `load`, so
