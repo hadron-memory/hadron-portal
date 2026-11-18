@@ -95,7 +95,7 @@ describe('parseHops (#482)', () => {
   });
 
   it('absent, non-array and malformed trails are unavailable, never invented as zero hops', () => {
-    for (const raw of [null, undefined, {}, 'x', 7, [null], [1], [hop({ node: '' })], [hop({ node: 3 })], [hop({ tokensSpent: -1 })], [hop({ tokensSpent: 'many' })], [hop({ startedAt: 'nope' }), hop({ finishedAt: Number.NaN }), hop({ startedAt: -5 }), hop({ startedAt: Infinity })], [hop({ edgeOut: 4 })]]) {
+    for (const raw of [null, undefined, {}, 'x', 7, [null], [1], [hop({ node: '' })], [hop({ node: 3 })], [hop({ tokensSpent: -1 })], [hop({ tokensSpent: 'many' })], [hop({ startedAt: 'nope' })], [hop({ finishedAt: Number.NaN })], [hop({ startedAt: -5 })], [hop({ startedAt: Infinity })], [hop({ finishedAt: -1 })], [hop(), hop({ startedAt: 'nope' })], [hop(), hop({ finishedAt: Number.NaN })], [hop({ edgeOut: 4 })]]) {
       expect(parseHops(raw)).toEqual({ state: 'unavailable' });
     }
   });
