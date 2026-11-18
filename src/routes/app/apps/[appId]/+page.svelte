@@ -75,7 +75,7 @@
   // the 8s clock kept resetting. A prop that changes identity every render is
   // not a callback, it is a dependency.
   // #1137: every read carries the team filter this page was loaded with
-  // (`data.teamFilter`, from `?team=`), so the filter and the transcript it
+  // (`tabData.teamFilter`, from `?team=`), so the filter and the transcript it
   // produced always travel together. A read that lands after the page moved to
   // another filter or App is dropped by the thread's generation guard: `data`
   // changes only together with the transcript props that guard watches.
@@ -83,22 +83,22 @@
   // next to `teamFilterInvalid`, so a read here would broaden the request behind
   // the alert. Leaving it takes an explicit All messages navigation.
   const refreshTeamChat = async (sinceSeq?: number) => {
-    if (data.teamFilterInvalid) return null;
-    const res = await fetch(teamChatReadUrl(app.id, { sinceSeq }, data.teamFilter));
+    if (tabData.teamFilterInvalid) return null;
+    const res = await fetch(teamChatReadUrl(app.id, { sinceSeq }, tabData.teamFilter));
     if (!res.ok) return null; // treated as a degraded tick, not an empty thread
     const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean; refusal?: TeamChatRefusal };
     // The initial page can contain workers whose roster lookup failed. Later
     // forward pages may be empty, so keep seeding those bounded first-page
     // authors while the refresher retries its pending IDs.
-    void refreshRosterFor([...(data.teamChatMessages ?? []), ...body.items]);
+    void refreshRosterFor([...(tabData.teamChatMessages ?? []), ...body.items]);
     return body;
   };
   // #793: the page BEFORE a seq. Same endpoint, same degraded-read contract —
   // null means "the fetch failed, retry on the next scroll", which the thread
   // keeps distinct from an empty page meaning "start of the conversation".
   const loadOlderTeamChat = async (beforeSeq: number) => {
-    if (data.teamFilterInvalid) return null;
-    const res = await fetch(teamChatReadUrl(app.id, { beforeSeq }, data.teamFilter));
+    if (tabData.teamFilterInvalid) return null;
+    const res = await fetch(teamChatReadUrl(app.id, { beforeSeq }, tabData.teamFilter));
     if (!res.ok) return null;
     const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean; refusal?: TeamChatRefusal };
     // A typed head refusal is an answer the thread must show; any other failure
@@ -145,6 +145,7 @@
   import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker, AiServiceConfig } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import { resolveTabIntent, type AppTabId } from './tab-intent';
+  import { READ_GROUP_KEYS, TAB_READS } from './first-screen';
   import AppNodeRoleTemplates from './AppNodeRoleTemplates.svelte';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
@@ -201,6 +202,26 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const app = $derived(data.app);
+  // ── portal#2240 (ruling 0273): the first screen only ──────────────────────
+  // The load brings the frame and ONE tab's reads: the tab the URL opened on
+  // (`data.initialTab`, Chats by default). Every other tab's reads arrive from
+  // `tab/+server.ts` on that tab's first show and are kept for the visit.
+  // `tabData` is what the page renders from: the loader's data over every tab
+  // payload fetched so far. Runs and Templates are not here: they navigate
+  // to `?tab=`, so their data always arrives as loader data.
+  type TabEntry = { payload?: Record<string, unknown>; state: 'loading' | 'ok' | 'failed'; stale: boolean };
+  // One cache per App and principal: SvelteKit reuses this component between
+  // Apps and accounts, and one App's tab must never render under another's.
+  const tabCacheKey = $derived(`${data.app.id}\u0000${data.currentUserId ?? ''}`);
+  let tabCache = $state.raw<{ key: string; byTab: Partial<Record<AppTabId, TabEntry>> }>({ key: '', byTab: {} });
+  const tabData = $derived.by(() => {
+    const merged: Record<string, unknown> = {};
+    if (tabCache.key === tabCacheKey) {
+      for (const entry of Object.values(tabCache.byTab)) if (entry?.payload) Object.assign(merged, entry.payload);
+    }
+    // Loader data wins: it is the newest read of whatever it carries.
+    return { ...merged, ...data } as typeof data;
+  });
   let legacyChatResolvedForApp = $state<string | null>(null);
   // Survives the filter-keyed thread, but never follows a navigation to another App.
   let teamFilterFocusRequest = $state<import('$lib/components/team-chat-thread').TeamChatFilterFocusRequest | null>(null);
@@ -208,7 +229,7 @@
   const teamFilterAppId = $derived(app.id);
   $effect(() => { void teamFilterAppId; untrack(() => { teamFilterFocusRequest = null; teamFilterAnnouncement = ''; }); });
   const org = $derived(data.org);
-  const availableAgents = $derived(data.availableAgents);
+  const availableAgents = $derived(tabData.availableAgents);
 
   // ── Staff (#974) ─────────────────────────────────────────────────────
   // The App's STAFF are its Workers — the named castings. `App.agents` is only
@@ -217,7 +238,7 @@
   //
   // null = the fetch failed, which is NOT the same as "no staff" — the empty
   // state must not claim an App has no workers when we simply couldn't ask.
-  const staff = $derived(data.staff);
+  const staff = $derived(tabData.staff);
   // portal#1168 / portal#2238: Task and Paused, one bulk read joined by
   // worker id. The loader brings it only for an initial ?tab=staff open —
   // ruling 0273: an App page loads only what its first screen renders, so
@@ -260,7 +281,7 @@
   // seed, and the offset (loader clock vs browser clock at first paint) is a
   // property of the viewer, unchanged by later data for this same instance.
   // svelte-ignore state_referenced_locally
-  const terminalClock = createDisplayClock(data.terminalNow);
+  const terminalClock = createDisplayClock(tabData.terminalNow);
   $effect(() => {
     terminalClock.start();
     return terminalClock.stop;
@@ -273,7 +294,7 @@
   // @codex on #908: a worker cast AFTER this page loaded posts, and its message
   // arrives through the transcript poll, so the page-load roster has never seen
   // it. `refreshRosterFor` re-reads the roster (team-chat/authors) only then. The
-  // refreshed roster is kept with the `data.staff` it superseded and used only
+  // refreshed roster is kept with the `tabData.staff` it superseded and used only
   // while that is still the page's roster, so a later page load wins.
   // `basedOn` is an identity token for the loader's staff array. Deep `$state`
   // proxies it, so the comparison below would reject every successful refresh.
@@ -304,7 +325,7 @@
     const workers = await forApp(basedOn).refreshFor(items, knownWorkerIds);
     if (workers && app.id === appId && staff === basedOn) rosterRefresh = { basedOn, workers };
   }
-  const staffError = $derived(data.staffError);
+  const staffError = $derived(tabData.staffError);
   // Active first, then retired (a retired worker still holds its name forever,
   // so it belongs in the list — just not at the top).
   const sortedStaff = $derived(
@@ -323,7 +344,7 @@
   const installedAgents = $derived(app.agents ?? []);
   const castableAgents = $derived(castableAgentOptions(installedAgents));
   // #1684: how the App installs each agent, as the server states it (see app-install-marks.ts).
-  const installMarks = $derived<InstallMarks>(data.installMarks ?? {});
+  const installMarks = $derived<InstallMarks>(tabData.installMarks ?? {});
   const castAgentGroups = $derived(castGroups(castableAgents, installMarks));
   // R222: role is a fact, never a cast-time input. Preserve a restored
   // selection's identity even if that Agent no longer has a castable role.
@@ -371,12 +392,12 @@
   // dead branches into the grid would have made a column that always reads
   // "active".
   let appKeyFilter = $state('');
-  const keyScopesOf = (id: string) => (data.keyScopes?.kind === 'ok' ? (data.keyScopes.byKey[id] ?? []) : []);
+  const keyScopesOf = (id: string) => (tabData.keyScopes?.kind === 'ok' ? (tabData.keyScopes.byKey[id] ?? []) : []);
   const scopeLabel = (s: { scope: string; hostId: string | null }) => (s.hostId ? `${s.scope} · ${s.hostId}` : s.scope);
   const keyScopesText = (id: string) => keyScopesOf(id).map(scopeLabel).join(' ');
-  const appKeys = $derived(data.appKeys?.kind === 'ok' ? data.appKeys.keys : []);
+  const appKeys = $derived(tabData.appKeys?.kind === 'ok' ? tabData.appKeys.keys : []);
   // portal#1068: hidden (not a manager) and failed are states of their own, never "no keys".
-  const keysState = $derived(data.appKeys?.kind ?? 'ok');
+  const keysState = $derived(tabData.appKeys?.kind ?? 'ok');
   // portal#1153 — App.viewerManages hides the key-create/revoke/setup controls
   // and nothing else. `withheld`: a real `false`, or the key list already
   // refused (the server said non-manager there, the stronger fact). `unknown`
@@ -415,7 +436,7 @@
     // readable only by whoever manages the App, so the column exists only when
     // the server answered the scopes read; for anyone else it isn't there at
     // all, never an empty chip. Read-only: giving and taking back scopes is S7b.
-    ...(untrack(() => data.keyScopes?.kind === 'ok')
+    ...(untrack(() => tabData.keyScopes?.kind === 'ok')
       ? [{ id: 'scopes', accessorFn: (row: AppKey) => keyScopesText(row.id), header: t('app.keys.column.scopes', 'Scopes'), enableSorting: false, size: 220 } satisfies PortalColumnDef<AppKey>]
       : []),
     { id: 'actions', header: t('app.keys.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
@@ -788,7 +809,7 @@
     { accessorFn: (row) => [row.name, row.urn ?? '', installMarkSearchText(row.id)].join(' '), id: 'name', header: t('app.agents.column.name', 'Name'), enableHiding: false, size: 320 },
     { accessorFn: (row) => row.personaRole ?? '', id: 'role', header: t('app.agents.column.role', 'Role'), size: 180 },
     // portal#1142 S8: this install's boot-prompt pointer, joined by agent id.
-    { accessorFn: (row) => pointerText(appRowPointer(data.bootPointers, row.id)), id: 'bootPrompt', header: t('app.agents.column.boot-prompt', 'Boot prompt'), size: 280 },
+    { accessorFn: (row) => pointerText(appRowPointer(tabData.bootPointers, row.id)), id: 'bootPrompt', header: t('app.agents.column.boot-prompt', 'Boot prompt'), size: 280 },
     { id: 'actions', header: t('app.agents.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
   ];
   // portal#1142 S8: which row's pointer panel is open, for WHICH App. The page
@@ -828,9 +849,9 @@
     // own way off the roster is removing the import; Install writes the row.
     const derived = installMarks[agent.id]?.kind === 'derived';
     return [
-      ...(data.canManageApp === true && !impersonating ? [{ id: 'compile-prompt', label: t('app.agents.compile', 'Update the prompt…') }] : []),
+      ...(tabData.canManageApp === true && !impersonating ? [{ id: 'compile-prompt', label: t('app.agents.compile', 'Update the prompt…') }] : []),
       { id: 'customisation', label: t('app.agents.customisation', 'Customisation…') },
-      ...(data.canManageApp !== false
+      ...(tabData.canManageApp !== false
         ? [{
             id: 'set-boot-prompt',
             label: t('app.agents.set-boot-prompt', 'Set boot prompt…'),
@@ -839,7 +860,7 @@
         : []),
       ...(!derived
         ? [{ id: 'unlink', label: t('app.agents.unlink', 'Unlink'), danger: true }]
-        : data.canManageApp !== false
+        : tabData.canManageApp !== false
           ? [{ id: 'install', label: t('app.agents.install', 'Install') }]
           : []),
     ];
@@ -933,7 +954,7 @@
     chatConfigReread.appRef === app.id &&
     chatConfigReread.agentRef === app.agentId,
   );
-  const chatConfigs = $derived(chatConfigRereadActive ? chatConfigReread!.configs : data.chatConfigs);
+  const chatConfigs = $derived(chatConfigRereadActive ? chatConfigReread!.configs : tabData.chatConfigs);
   async function refreshChatConfigs(signal?: AbortSignal): Promise<boolean> {
     const agentRef = app.agentId;
     if (!agentRef) return true;
@@ -967,7 +988,7 @@
   // its entry without a reload (liveChatAiChoices).
   const liveAiChoices = $derived(
     liveChatAiChoices(
-      data.aiChoices ?? null,
+      tabData.aiChoices ?? null,
       chatConfigs,
       chatConfigRereadActive && chatConfigs === null,
     ),
@@ -1099,7 +1120,7 @@
   } | null>(null);
   $effect(() => {
     const principalId = data.currentUserId;
-    const panel = data.runsPanel;
+    const panel = tabData.runsPanel;
     const appId = app.id;
     untrack(() => {
       if (retainedRuns && retainedRuns.principalId !== principalId) retainedRuns = null;
@@ -1107,12 +1128,86 @@
     });
   });
   const currentRunsPanel = $derived(
-    data.runsPanel ?? (
+    tabData.runsPanel ?? (
       retainedRuns !== null && retainedRuns.appId === app.id && retainedRuns.principalId === data.currentUserId
         ? retainedRuns.panel
         : null
     ),
   );
+  // portal#2240 — can a tab render? When the loader data carries each of its
+  // read groups (the tab the URL opened on; a load returns a group's keys
+  // together, so one key present means the group was read), or when its own
+  // read has arrived. The banner's worker names alone do not cover AI Team:
+  // its install marks are a group of their own.
+  const NAVIGATING_TABS: readonly AppTabId[] = ['runs', 'node-role-templates'];
+  function coveredByData(id: AppTabId): boolean {
+    return TAB_READS[id].every((group) => READ_GROUP_KEYS[group].length === 0 || READ_GROUP_KEYS[group].some((key) => key in data));
+  }
+  function tabShown(id: AppTabId): boolean {
+    if (NAVIGATING_TABS.includes(id) || coveredByData(id)) return true;
+    return tabCache.key === tabCacheKey && !!tabCache.byTab[id]?.payload;
+  }
+  const tabFailed = $derived(tabCache.key === tabCacheKey && tabCache.byTab[activeTab as AppTabId]?.state === 'failed');
+  // New loader data (a navigation, or an action's refresh) supersedes every
+  // cached tab: each keeps rendering what it has, and is read again on its
+  // next show. Another App or principal starts an empty cache.
+  let dataGeneration = 0;
+  $effect(() => {
+    const key = tabCacheKey;
+    void data;
+    untrack(() => {
+      dataGeneration++;
+      if (tabCache.key !== key) { tabCache = { key, byTab: {} }; return; }
+      const byTab: Partial<Record<AppTabId, TabEntry>> = {};
+      for (const [id, entry] of Object.entries(tabCache.byTab) as [AppTabId, TabEntry][]) {
+        if (entry.payload) byTab[id] = { ...entry, stale: true };
+      }
+      tabCache = { key, byTab };
+    });
+  });
+  function setTabEntry(key: string, id: AppTabId, entry: TabEntry | undefined) {
+    if (tabCache.key !== key) return;
+    const byTab = { ...tabCache.byTab };
+    if (entry) byTab[id] = entry; else delete byTab[id];
+    tabCache = { key, byTab };
+  }
+  // The shown tab, when the loader data does not cover it: read it once, or
+  // again when it went stale. A read in flight is not repeated, and a failed
+  // one waits for the reader's retry (no loop against a failing server).
+  $effect(() => {
+    const id = activeTab as AppTabId;
+    const key = tabCacheKey;
+    if (tabCache.key !== key || NAVIGATING_TABS.includes(id) || coveredByData(id)) return;
+    const entry = tabCache.byTab[id];
+    if (entry && (entry.state !== 'ok' || !entry.stale)) return;
+    untrack(() => void fetchTab(id, key, entry?.payload));
+  });
+  async function fetchTab(id: AppTabId, key: string, held: Record<string, unknown> | undefined) {
+    const generation = dataGeneration;
+    setTabEntry(key, id, { payload: held, state: 'loading', stale: false });
+    let next: TabEntry;
+    try {
+      // The page's own query (a chat, a worklog filter, a list offset) with
+      // this tab, so URL-driven reads see what a page load of the URL would.
+      const search = new URLSearchParams(window.location.search);
+      search.set('tab', id);
+      const res = await fetch(`/app/apps/${encodeURIComponent(app.id)}/tab?${search}`);
+      if (!res.ok) throw new Error(`tab ${id}: ${res.status}`);
+      const payload = (await res.json()) as Record<string, unknown>;
+      // Read before newer loader data landed: show it, and read again.
+      next = { payload, state: 'ok', stale: generation !== dataGeneration };
+    } catch {
+      // A refresh that fails keeps what the tab already shows; a first read
+      // that fails is the tab's "couldn't load" state, with a retry.
+      next = held ? { payload: held, state: 'ok', stale: false } : { state: 'failed', stale: false };
+    }
+    // The page may be gone, or now another App's or person's: drop the answer.
+    if (!tabAlive) return;
+    setTabEntry(key, id, next);
+  }
+  function retryTab(id: AppTabId) {
+    setTabEntry(tabCacheKey, id, undefined);
+  }
   const tabs = $derived<{ id: TabId; label: string }[]>([
     // #744: ONE "Chats" tab over every conversation the App has — the team
     // chat, any 1:1 chats, and the agent conversation — with a selector inside.
@@ -1209,7 +1304,7 @@
   });
   function dropStaleAgentChat() {
     const url = new URL(window.location.href);
-    if (data.selectedChatKey && data.selectedChatKey !== AGENT_CHAT_KEY && !data.chatNotFound && url.searchParams.has('agentChat')) {
+    if (tabData.selectedChatKey && tabData.selectedChatKey !== AGENT_CHAT_KEY && !tabData.chatNotFound && url.searchParams.has('agentChat')) {
       url.searchParams.delete('agentChat');
       // A throw here would escape queueMicrotask unhandled; a leftover parameter is harmless, so leave it for the next navigation.
       try { replaceState(url, {}); } catch { /* router not ready: the parameter stays until the next selection */ }
@@ -1240,7 +1335,7 @@
   // link opened on a non-chats tab) must not lock the page scroll behind a
   // panel that is not on screen — so everything the overlay does keys on
   // THIS, not on the flag alone.
-  const teamChatShown = $derived(activeTab === 'chats' && data.selectedChatKey === TEAM_CHAT_LOC);
+  const teamChatShown = $derived(activeTab === 'chats' && tabData.selectedChatKey === TEAM_CHAT_LOC);
   const chatFullView = $derived(chatMaximized && teamChatShown);
   function setChatMaximized(full: boolean) {
     chatMaximized = full;
@@ -1269,14 +1364,14 @@
     const params = dropNamedActions(new URLSearchParams($page.url.searchParams));
     params.set('tab', 'chats');
     params.set('chat', chatKey);
-    if (data.chatRootsPage?.offset > 0 && !params.has('chatRootsOffset')) {
-      params.set('chatRootsOffset', String(data.chatRootsPage.offset));
+    if (tabData.chatRootsPage?.offset > 0 && !params.has('chatRootsOffset')) {
+      params.set('chatRootsOffset', String(tabData.chatRootsPage.offset));
     }
     if (full) params.set('view', 'full'); else params.delete('view');
     return `?${params.toString()}&/${action}`;
   }
   const teamChatAction = $derived(chatActionUrl('postTeamChatMessage', TEAM_CHAT_LOC, chatMaximized));
-  const channelChatAction = $derived(chatActionUrl('postChannelMessage', data.selectedChatKey ?? ''));
+  const channelChatAction = $derived(chatActionUrl('postChannelMessage', tabData.selectedChatKey ?? ''));
 
   // #768 — roving focus for the tab strip. Only the selected tab is in the
   // sequential tab order, so the strip is ONE stop rather than one per tab, and
@@ -1986,7 +2081,7 @@
   }
 
   // The server projection, not an Agent link role, owns this caller's scope.
-  const memoryScope = $derived(data.appMemoryScope ?? null);
+  const memoryScope = $derived(tabData.appMemoryScope ?? null);
   const writableMemoryIds = $derived(appMemoryTargets(memoryScope ?? []));
 
   const newRawKey = $derived(form && 'rawKey' in form ? form.rawKey : undefined);
@@ -2049,7 +2144,7 @@
   // a viewer the server says cannot manage the App gets it read-only. Only an
   // explicit `false` locks it: `null` is "the self-audit didn't answer", and
   // the server stays the gate for that case (its refusal is a 403 with copy).
-  const pluginsReadOnly = $derived(data.canManageApp === false);
+  const pluginsReadOnly = $derived(tabData.canManageApp === false);
 
   function toggleTool(value: string) {
     if (pluginsReadOnly) return;
@@ -2380,7 +2475,7 @@
     </div>
   {/if}
   <!-- portal#1139: the stops in effect, prominent above the sections. -->
-  <StopBanner live={data.liveStops} workers={(data.staff ?? []).map((w) => ({ id: w.id, name: w.name, urn: w.urn ?? null }))} href="/app/apps/{app.id}/stops" />
+  <StopBanner live={data.liveStops} workers={(tabData.staff ?? []).map((w) => ({ id: w.id, name: w.name, urn: w.urn ?? null }))} href="/app/apps/{app.id}/stops" />
 
   <TabRow items={[
     ...tabs,
@@ -2407,12 +2502,32 @@
        state, so a chat can be linked to. Same reasoning as the worklog filters:
        an answer you cannot link to is half an answer. It also means switching
        chats re-runs the loader, which is what fetches a 1:1 transcript. -->
-  {#if activeTab === 'chats'}
+  <!-- portal#2240: a tab the loader did not bring is read on its first show.
+       Until it arrives the panel says so; a failed first read says that, with
+       a retry. Runs and Templates navigate and bring their own states. -->
+  {#snippet tabArriving()}
+    {#if tabFailed}
+      <div role="alert" class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+        <p>{t('app.tab.load-failed', 'This tab could not be loaded. Try again in a moment.')}</p>
+        <button type="button" onclick={() => retryTab(activeTab as AppTabId)} class="mt-2 font-medium underline">{t('app.tab.retry', 'Try again')}</button>
+      </div>
+    {:else}
+      <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.tab.loading', 'Loading…')}</p>
+    {/if}
+  {/snippet}
+  <!-- The AI Service Configs panel is always mounted (below) and says this itself. -->
+  {#if !tabShown(activeTab as AppTabId) && activeTab !== 'ai-configs'}
+    <div id="panel-{activeTab}" role="tabpanel" aria-labelledby="tab-{activeTab}" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+      {@render tabArriving()}
+    </div>
+  {/if}
+
+  {#if activeTab === 'chats' && tabShown('chats')}
     {#if chatSwitchBusy}<p role="status">{t('app.chats.opening', 'Opening chat…')}</p>{/if}
     {#if chatSwitchFailed}<p role="status">{t('app.chats.open-failed', 'Could not open that chat. Your current conversation is still here.')}</p>{/if}
     <div inert={chatSwitchBusy} aria-busy={chatSwitchBusy} id="panel-chats" role="tabpanel" aria-labelledby="tab-chats" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="mb-3 flex flex-wrap items-center gap-2">
-      {#if data.chatsError}
+      {#if tabData.chatsError}
         <!-- Discovery failed. NOT the same as "this App has one chat", so the
              selector says so rather than quietly showing a shorter list. -->
         <span
@@ -2424,7 +2539,7 @@
             'Could not load this App’s chat list — others may exist beyond the ones shown.',
           )}
         </span>
-      {:else if data.chatDeepLinkUnresolved}
+      {:else if tabData.chatDeepLinkUnresolved}
         <!-- #2170 F6: the list loaded; only the linked chat could not be found
              for certain. Saying the list failed would overstate it. -->
         <span
@@ -2436,21 +2551,21 @@
       {/if}
       <label for="app-chat-select" class="text-sm text-zinc-500">{t('app.chats.select', 'Chat')}</label>
       <select id="app-chat-select" class="min-w-0 max-w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-        disabled={channelPostBusy} value={data.selectedChatKey ?? ''} onchange={(e) => { const key = e.currentTarget.value; e.currentTarget.value = data.selectedChatKey ?? ''; void selectChat(key); }}>
-        {#each data.appChats ?? [] as entry (entry.key)}
+        disabled={channelPostBusy} value={tabData.selectedChatKey ?? ''} onchange={(e) => { const key = e.currentTarget.value; e.currentTarget.value = tabData.selectedChatKey ?? ''; void selectChat(key); }}>
+        {#each tabData.appChats ?? [] as entry (entry.key)}
           <option value={entry.key}>{entry.labelKey ? t(entry.labelKey, entry.label) : entry.label}</option>
         {/each}
       </select>
-      {#if data.selectedChannelId && data.selectedChatKey?.startsWith('hrn:')}
-        <Urn value={data.selectedChatKey} type="node" />
+      {#if tabData.selectedChannelId && tabData.selectedChatKey?.startsWith('hrn:')}
+        <Urn value={tabData.selectedChatKey} type="node" />
       {/if}
     </div>
-    {#if data.chatRootsPage && !data.chatRootsError}
+    {#if tabData.chatRootsPage && !tabData.chatRootsError}
       <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.chats.page-window', 'Registered Channels stay available on every page. Pagination covers legacy chat roots only.')}</p>
-      <ListPageNav page={data.chatRootsPage} label={t('app.chats.pages', 'Legacy chat-root pages')} />
+      <ListPageNav page={tabData.chatRootsPage} label={t('app.chats.pages', 'Legacy chat-root pages')} />
     {/if}
 
-    {#if data.chatNotFound && legacyChatResolvedForApp !== app.id}
+    {#if tabData.chatNotFound && legacyChatResolvedForApp !== app.id}
       <!-- The reader followed a link to a SPECIFIC chat. Substituting the
            default silently would let them read one conversation believing it
            is another. -->
@@ -2465,7 +2580,7 @@
       </p>
     {/if}
 
-    {#if data.selectedChatKey === AGENT_CHAT_KEY}
+    {#if tabData.selectedChatKey === AGENT_CHAT_KEY}
     <!-- #740: `dvh` tracks the VISIBLE viewport, so the panel doesn't run
          under a phone browser's address bar; the `vh` line before it is the
          fallback for browsers without `dvh`. Same pattern, same reason as the
@@ -2483,7 +2598,7 @@
           <AgentChat
             agentId={app.agentId}
             appId={app.id}
-            allowLegacyAppChat={!!data.chatNotFound && !data.chatsError}
+            allowLegacyAppChat={!!tabData.chatNotFound && !tabData.chatsError}
             onLegacyChatResolved={(appId) => { legacyChatResolvedForApp = appId; }}
             aiChoices={liveAiChoices}
             uploadMemoryId={writableMemoryIds[0]}
@@ -2554,7 +2669,7 @@
        reach the App's shared memory at all (hadron-server#1031).
 
        No LLM composer, no delete, no rename — see #732 and the component. -->
-    {:else if data.selectedChatKey === TEAM_CHAT_LOC}
+    {:else if tabData.selectedChatKey === TEAM_CHAT_LOC}
     <!-- #740: `dvh` tracks the VISIBLE viewport, so the panel doesn't run
          under a phone browser's address bar; the `vh` line before it is the
          fallback for browsers without `dvh`. Same pattern, same reason as the
@@ -2661,25 +2776,25 @@
         {/if}
         <span data-testid="team-chat-filter-status" class="sr-only" aria-live="polite" aria-atomic="true">{teamFilterAnnouncement}</span>
         <div class={teamSearchOpen ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
-        {#key `${app.id}:${data.postTeamChatMessageForm.id}:${data.teamFilterInvalid ? 'invalid' : filterKeyOf(data.teamFilter ?? NO_TEAM_FILTER)}`}
+        {#key `${app.id}:${data.postTeamChatMessageForm.id}:${tabData.teamFilterInvalid ? 'invalid' : filterKeyOf(tabData.teamFilter ?? NO_TEAM_FILTER)}`}
           {@const teamStateKey = `${app.id}:team`}
-          {@const teamViewKey = `${teamStateKey}:${data.teamFilterInvalid ? 'invalid' : filterKeyOf(data.teamFilter ?? NO_TEAM_FILTER)}`}
+          {@const teamViewKey = `${teamStateKey}:${tabData.teamFilterInvalid ? 'invalid' : filterKeyOf(tabData.teamFilter ?? NO_TEAM_FILTER)}`}
         <TeamChatThread
           draft={channelDrafts[teamStateKey]} onDraftChange={(draft) => { channelDrafts[teamStateKey] = draft; }}
           viewState={channelViews[teamViewKey]} onViewStateChange={(view) => { channelViews[teamViewKey] = view; }}
           onSubmittingChange={(submitting) => { channelPostBusy = submitting; }}
-          messages={data.teamChatMessages ?? []}
-          total={data.teamChatTotal ?? 0}
-          loadError={data.teamChatError ?? false}
+          messages={tabData.teamChatMessages ?? []}
+          total={tabData.teamChatTotal ?? 0}
+          loadError={tabData.teamChatError ?? false}
           postForm={data.postTeamChatMessageForm}
           {form}
           action={teamChatAction}
           onRefresh={refreshTeamChat}
           onLoadOlder={loadOlderTeamChat}
           {workerUrns}
-          filter={data.teamFilter}
-          filterInvalid={data.teamFilterInvalid}
-          refusal={data.teamChatRefusal}
+          filter={tabData.teamFilter}
+          filterInvalid={tabData.teamFilterInvalid}
+          refusal={tabData.teamChatRefusal}
           onSelectTeam={selectTeamFilter}
           bind:filterFocusRequest={teamFilterFocusRequest}
           onFilterAnnouncement={(text) => { teamFilterAnnouncement = text; }}
@@ -2688,35 +2803,35 @@
         </div>
       </div>
     </div>
-    {:else if data.selectedChannelId && data.postChannelMessageForm}
-      {#key `${app.id}:${data.selectedChannelId}`}
-        {@const channelId = data.selectedChannelId}
+    {:else if tabData.selectedChannelId && tabData.postChannelMessageForm}
+      {#key `${app.id}:${tabData.selectedChannelId}`}
+        {@const channelId = tabData.selectedChannelId}
         {@const channelStateKey = `${app.id}:${channelId}`}
         <div class="flex flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
-          <ChannelChatThread appId={app.id} {channelId} messages={data.selectedChannelMessages}
-            total={data.selectedChannelTotal} loadError={data.selectedChannelError}
-            postForm={data.postChannelMessageForm} {form} {workerUrns}
+          <ChannelChatThread appId={app.id} {channelId} messages={tabData.selectedChannelMessages}
+            total={tabData.selectedChannelTotal} loadError={tabData.selectedChannelError}
+            postForm={tabData.postChannelMessageForm} {form} {workerUrns}
             action={channelChatAction}
             onSubmittingChange={(submitting) => { channelPostBusy = submitting; }}
             viewState={channelViews[channelStateKey]} onViewStateChange={(view) => { channelViews[channelStateKey] = view; }}
             draft={channelDrafts[channelStateKey]} onDraftChange={(draft) => { channelDrafts[channelStateKey] = draft; }} />
         </div>
       {/key}
-    {:else if data.selectedChatKey}
+    {:else if tabData.selectedChatKey}
       <!-- An old, unregistered chat root has no Channel identity. Keep its
            existing readable transcript without inventing a post target. -->
       <div class="flex flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
-        {#if data.selectedChatError}
+        {#if tabData.selectedChatError}
           <p role="status" class="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
             {t('app.chats.messages-error', 'Couldn’t load this chat — that is a read failure, not an empty chat.')}
           </p>
-        {:else if (data.selectedChatMessages ?? []).length === 0}
+        {:else if (tabData.selectedChatMessages ?? []).length === 0}
           <p class="text-sm text-zinc-500">
             {t('app.chats.empty', 'No messages in this chat yet.')}
           </p>
         {:else}
           <div class="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-            {#each data.selectedChatMessages ?? [] as msg (msg.id)}
+            {#each tabData.selectedChatMessages ?? [] as msg (msg.id)}
               <div>
                 <div class="flex flex-wrap items-baseline gap-2">
                   <!-- `author` is resolved by the shared loader, which already
@@ -2730,7 +2845,7 @@
             {/each}
           </div>
         {/if}
-        {#if data.selectedChatTruncated}
+        {#if tabData.selectedChatTruncated}
           <p class="mt-2 text-xs text-amber-700 dark:text-amber-400">
             <!-- #793 (@codex on PR #797): the window MOVED, so this sentence
                  had to. `loadChatMessages` used to return the first page and
@@ -2769,11 +2884,11 @@
 
   {#if activeTab === 'node-role-templates'}
     <div id="panel-node-role-templates" role="tabpanel" aria-labelledby="tab-node-role-templates" tabindex="0" class="min-w-0 focus-visible:outline-2 focus-visible:outline-indigo-500">
-      {#if data.templatesPanel}<AppNodeRoleTemplates data={data.templatesPanel} bind:leaveMessage={templatesLeaveMessage} />{:else}<p role="status">{t('config.templates-loading', 'Loading templates…')}</p>{/if}
+      {#if tabData.templatesPanel}<AppNodeRoleTemplates data={tabData.templatesPanel} bind:leaveMessage={templatesLeaveMessage} />{:else}<p role="status">{t('config.templates-loading', 'Loading templates…')}</p>{/if}
     </div>
   {/if}
 
-  {#if activeTab === 'worklog'}
+  {#if activeTab === 'worklog' && tabShown('worklog')}
     <div id="panel-worklog" role="tabpanel" aria-labelledby="tab-worklog" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-4">
       <div>
@@ -2788,11 +2903,11 @@
         </p>
       </div>
       <WorklogTable
-        serverPage={data.worklogPage}
-        items={data.worklog ?? []}
-        total={data.worklogTotal ?? 0}
-        loadError={data.worklogError ?? false}
-        filters={data.worklogFilters ?? { ref: '', kind: '', tool: '' }}
+        serverPage={tabData.worklogPage}
+        items={tabData.worklog ?? []}
+        total={tabData.worklogTotal ?? 0}
+        loadError={tabData.worklogError ?? false}
+        filters={tabData.worklogFilters ?? { ref: '', kind: '', tool: '' }}
         listKey="apps:worklog"
       />
     </div>
@@ -2804,7 +2919,7 @@
        App context, so names render BARE (`hrn:node:hadronmemory.com:specs:cor:agt:020:02` — per-App uniqueness
        makes them unambiguous here). The app-qualified compound belongs on
        org-wide surfaces, never here. -->
-  {#if activeTab === 'staff'}
+  {#if activeTab === 'staff' && tabShown('staff')}
     <div id="panel-staff" role="tabpanel" aria-labelledby="tab-staff" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-4">
       <div class="flex items-start justify-between gap-4">
@@ -3358,13 +3473,13 @@
 
   <!-- ───────────── MEMORY TAB ───────────── -->
   <!-- ───────────── HUMAN TEAM TAB (#1005) ───────────── -->
-  {#if activeTab === 'members'}
+  {#if activeTab === 'members' && tabShown('members')}
     <div id="panel-members" role="tabpanel" aria-labelledby="tab-members" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
       <AppMembersPanel
         {app}
-        members={data.members}
-        membersError={data.membersError}
-        membersWithheld={data.membersWithheld}
+        members={tabData.members}
+        membersError={tabData.membersError}
+        membersWithheld={tabData.membersWithheld}
         addMemberForm={data.addMemberForm}
         ensureMemberForm={data.ensureMemberForm}
         removeMemberForm={data.removeMemberForm}
@@ -3374,7 +3489,7 @@
   {/if}
 
   <!-- ───────────── AGENTS TAB (#1006) ───────────── -->
-  {#if activeTab === 'agents'}
+  {#if activeTab === 'agents' && tabShown('agents')}
     <div id="panel-agents" role="tabpanel" aria-labelledby="tab-agents" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-4">
       <div>
@@ -3437,12 +3552,12 @@
                 <span class="text-zinc-500">{t('app.agents.no-role', 'No role')}</span>
               {/if}
             {:else if cell.column.id === 'bootPrompt'}
-              {@const view = pointerView(appRowPointer(data.bootPointers, agent.id))}
+              {@const view = pointerView(appRowPointer(tabData.bootPointers, agent.id))}
               {#if view.kind === 'set' || view.kind === 'deleted'}
                 <div class="min-w-0"><Urn value={view.ref} type="node" compact /></div>
                 {#if view.kind === 'deleted'}<div class="text-xs text-amber-800 dark:text-amber-300">{t('boot-pointer.deleted-short', 'target deleted')}</div>{/if}
               {:else}
-                <span class="text-xs text-zinc-500">{pointerText(appRowPointer(data.bootPointers, agent.id))}</span>
+                <span class="text-xs text-zinc-500">{pointerText(appRowPointer(tabData.bootPointers, agent.id))}</span>
               {/if}
             {:else if cell.column.id === 'actions'}
               <!-- #1020: Set boot prompt (#1142 S8) and Unlink live in the
@@ -3464,7 +3579,7 @@
         </DataTable>
         {#if compileAgent}
           {#key `${data.bootPointerAppKey}:${compileAgent.id}`}
-            <BootInstallCompile bind:this={compilePanel} title={t('app.agents.compile-title', 'Boot prompt for {name} in this App', { name: compileAgent.name })} owner={{ level: 'app', app: data.app.id, agent: compileAgent.id }} canManage={data.canManageApp} {impersonating} onClose={async () => {
+            <BootInstallCompile bind:this={compilePanel} title={t('app.agents.compile-title', 'Boot prompt for {name} in this App', { name: compileAgent.name })} owner={{ level: 'app', app: data.app.id, agent: compileAgent.id }} canManage={tabData.canManageApp} {impersonating} onClose={async () => {
               const label = t('app.agents.actions.label', 'Actions for {name}', { name: compileAgent.name });
               compileChoice = null;
               await tick();
@@ -3474,7 +3589,7 @@
         {/if}
         {#if customisationAgent}
           {#key `${data.bootPointerAppKey}\u0000${customisationAgent.id}`}
-            <InstallCustomisation bind:this={customisationPanel} appRef={data.bootPointerAppKey} agent={customisationAgent} canManage={data.canManageApp ?? null} onClose={async () => {
+            <InstallCustomisation bind:this={customisationPanel} appRef={data.bootPointerAppKey} agent={customisationAgent} canManage={tabData.canManageApp ?? null} onClose={async () => {
               const label = t('app.agents.actions.label', 'Actions for {name}', { name: customisationAgent.name });
               customisationChoice = null;
               await tick();
@@ -3499,8 +3614,8 @@
             </div>
             {#key `${data.bootPointerAppKey}\u0000${pointerAgent.id}`}
               <BootPromptPointer
-                read={appRowPointer(data.bootPointers, pointerAgent.id)}
-                canManage={data.canManageApp}
+                read={appRowPointer(tabData.bootPointers, pointerAgent.id)}
+                canManage={tabData.canManageApp}
                 action="?tab=agents&/setAppAgentBootPrompt"
                 hidden={{ agentRef: pointerAgent.id }}
                 result={pointerResultFor(formPointer, appAgentPointerKey(data.bootPointerAppKey, pointerAgent.id))}
@@ -3528,7 +3643,7 @@
              option count, or "no other agent to add" would read as complete
              after a failed grants read (portal#1188 review). Not shown when the
              whole list is already an error or unknown. -->
-        {#if data.subscribedAgentsError && !agentsWithheld && !data.availableAgentsError}
+        {#if tabData.subscribedAgentsError && !agentsWithheld && !tabData.availableAgentsError}
           <p role="status" class="mb-2 text-xs text-zinc-500">
             {t('app.agents.add.subscribed-unavailable', 'The agents your organization subscribes to could not be loaded, so only its own agents are listed. Reload to try again.')}
           </p>
@@ -3536,7 +3651,7 @@
         {#if agentsWithheld}
           <!-- The installed set is unknown, so what is still addable is unknown too. -->
           <p role="status" class="text-sm text-zinc-500">{t('app.agents.add.withheld', 'Which agents can be added isn’t known, because the installed agents aren’t visible to you.')}</p>
-        {:else if data.availableAgentsError}
+        {:else if tabData.availableAgentsError}
           <p role="alert" class="text-sm text-red-600 dark:text-red-400">
             {t('app.agents.add.unavailable', 'The list of agents you can add could not be loaded. Reload to try again.')}
           </p>
@@ -3595,11 +3710,11 @@
     </div>
   {/if}
 
-  {#if activeTab === 'memory'}
+  {#if activeTab === 'memory' && tabShown('memory')}
     <div id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     {#if data.createMemoryForm}
       {#key app.id}
-        <AppMemories memories={data.appMemories ?? null} canCreate={data.canCreateMemory === true} showDescription={!!app.organizationId} initial={data.createMemoryForm} result={form} />
+        <AppMemories memories={tabData.appMemories ?? null} canCreate={tabData.canCreateMemory === true} showDescription={!!app.organizationId} initial={data.createMemoryForm} result={form} />
       {/key}
     {/if}
     <!-- #1043 interim: primary-agent links cannot establish the viewer's
@@ -3610,18 +3725,18 @@
       <p role="alert" class="mb-3 text-sm text-red-600 dark:text-red-400">{t('app.memory-scope.failed', 'Could not load accessible memories. Reload to try again.')}</p>
     {/if}
     <MemoryBrowser
-      nodes={data.appNodes ?? []}
+      nodes={tabData.appNodes ?? []}
       multiMemory={true}
       scopeMemoryIds={(memoryScope ?? []).map((m) => m.memoryId)}
       scopeMemories={memoryScope ?? []}
-      serverPage={data.appNodesPage ?? null}
+      serverPage={tabData.appNodesPage ?? null}
       pageLabel={t('app.memory-node.pages', 'Memory node pages')}
     />
     </div>
   {/if}
 
   <!-- ───────────── APP KEYS TAB (#1007) ───────────── -->
-  {#if activeTab === 'keys'}
+  {#if activeTab === 'keys' && tabShown('keys')}
     <div id="panel-keys" role="tabpanel" aria-labelledby="tab-keys" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-8">
       <!-- App Keys (the richer download flow lives on the Client tab for non-CHATBOT apps).
@@ -3666,7 +3781,7 @@
         {/if}
         </div>
 
-        {#if data.keyScopes?.kind === 'failed'}
+        {#if tabData.keyScopes?.kind === 'failed'}
           <p role="status" class="text-xs text-amber-700 dark:text-amber-300">{t('app.keys.scopes.failed', 'Couldn’t load what these keys may do, so the Scopes column isn’t shown.')}</p>
         {/if}
         {#if keysState === 'hidden'}
@@ -3741,25 +3856,30 @@
   <div id="panel-ai-configs" role="tabpanel" aria-labelledby="tab-ai-configs" tabindex="0" hidden={activeTab !== 'ai-configs'} class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-8">
       <!-- AI providers (registry; consumers resolve a config by name) -->
+      <!-- portal#2240: mounted once its rows have arrived, then kept mounted while hidden. -->
+      {#if tabShown('ai-configs')}
       <section class="max-w-2xl">
         <AiServiceConfigSection
           ownerType="APP"
           ownerId={app.id}
           ownerLabel={app.name}
           ownerUrn={app.urn}
-          pagination={data.configsPage}
-          configs={data.appConfigs ?? []}
+          pagination={tabData.configsPage}
+          configs={tabData.appConfigs ?? []}
           members={org?.members ?? []}
           currentUserId={data.currentUserId}
-          configsError={data.configsError}
+          configsError={tabData.configsError}
           onRefreshed={refreshChatConfigs}
         />
       </section>
+      {:else}
+        {@render tabArriving()}
+      {/if}
     </div>
   </div>
 
   <!-- ───────────── SETTINGS TAB ───────────── -->
-  {#if activeTab === 'settings'}
+  {#if activeTab === 'settings' && tabShown('settings')}
     <div id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-8">
       <!-- App settings (form-driven; mirrors the legacy fields, including the org-original ones) -->
@@ -3953,14 +4073,14 @@
 
       <!-- portal#2194: the host-sweep switch. Everyone who can read it sees the mode;
            only an App manager acting as themselves gets the controls. -->
-      <AppSweepMode ownerId={app.id} mode={data.app.sweepMode ?? null} canManage={data.canManageApp === true && !impersonating} />
+      <AppSweepMode ownerId={app.id} mode={data.app.sweepMode ?? null} canManage={tabData.canManageApp === true && !impersonating} />
 
       <!-- portal#1963: the App's chatbot AI config. Keyed on the App, so a pick never follows the person to another App. -->
       {#if app.agentId}
         {#key app.id}
           <ChatbotAiConfigSetting
-            choices={data.aiChoices ?? null}
-            current={data.chatbotAiConfig ?? { ok: false }}
+            choices={tabData.aiChoices ?? null}
+            current={tabData.chatbotAiConfig ?? { ok: false }}
             manages={data.viewerManages?.kind === 'known' ? data.viewerManages.manages : null}
           />
         {/key}
@@ -3971,9 +4091,9 @@
       <!-- Keyed on the App: SvelteKit reuses this page between Apps, and an open draft must not follow the person to another App. -->
       {#key app.id}
         <TaskIntegrations
-          read={data.appProperties ?? { kind: 'hidden' }}
+          read={tabData.appProperties ?? { kind: 'hidden' }}
           manages={data.viewerManages?.kind === 'known' ? data.viewerManages.manages : null}
-          workers={data.staff}
+          workers={tabData.staff}
         />
       {/key}
 
@@ -4005,7 +4125,7 @@
   {/if}
 
   <!-- ───────────── CLIENT TAB (non-CHATBOT) ───────────── -->
-  {#if activeTab === 'client'}
+  {#if activeTab === 'client' && tabShown('client')}
     <div id="panel-client" role="tabpanel" aria-labelledby="tab-client" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="max-w-2xl space-y-8">
       <!-- Active client keys -->

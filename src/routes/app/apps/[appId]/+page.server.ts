@@ -963,7 +963,7 @@ export async function _loadAppPage(
         )
       : Promise.resolve(null),
     // portal#1142 S8: the installs' boot-prompt pointers, for the Agents tab.
-    wants('bootPointers') ? readAppPointers(client, app.id) : Promise.resolve(null),
+    wants('bootPointers') ? readAppPointers(client, app.id) : Promise.resolve(undefined),
     wants('installMarks') ? readAppInstallMarks(client, app.id) : Promise.resolve(null),
     // portal#1139: the stops in effect, for the banner, in its OWN classified request
     // (never throws): a stop read that fails must not take the App page with it.
