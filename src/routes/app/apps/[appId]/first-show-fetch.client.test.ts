@@ -171,6 +171,42 @@ describe('portal#2240: a tab the first screen did not read', () => {
     await wait(0); await tick(3);
     expect(keyShown(target, 'def456')).toBe(true);
   });
+
+  it('Profile, read lazily, shows one tabpanel while it loads (no duplicate #panel-profile)', async () => {
+    const { target, props } = await mountPage();
+    const data = await chatsFirst();
+    delete data.canManageApp; // a Chats-first load does not carry Profile's manage gate
+    props.data = data;
+    await tick(3);
+    await show(target, 'profile');
+    expect(readsOf('profile')).toHaveLength(1);
+    expect(target.querySelectorAll('#panel-profile')).toHaveLength(1);
+    readsOf('profile')[0].resolve(json({ canManageApp: true }));
+    await wait(0); await tick(3);
+    expect(target.querySelectorAll('#panel-profile')).toHaveLength(1);
+    expect(panel(target, 'profile')?.querySelector('[data-testid="profile-edit-in-settings"]')).not.toBeNull();
+  });
+
+  it('two tabs that carry the same key: the newest read wins, not the earliest-inserted tab (Keys re-read beats Client\'s older appKeys)', async () => {
+    const { target, props } = await mountPage();
+    await show(target, 'keys');
+    readsOf('keys')[0].resolve(json(keysPayload('oldkey')));
+    await wait(0); await tick(3);
+    await show(target, 'client'); // Client also carries appKeys, read AFTER Keys
+    readsOf('client')[0].resolve(json({ canManageApp: true, appKeys: keysPayload('oldkey').appKeys }));
+    await wait(0); await tick(3);
+    await show(target, 'chats');
+
+    props.data = await chatsFirst(); // an action's refresh: every cached tab goes stale
+    await tick(3);
+    await show(target, 'keys');
+    expect(readsOf('keys')).toHaveLength(2);
+    readsOf('keys')[1].resolve(json(keysPayload('newkey'))); // e.g. a key was just created
+    await wait(0); await tick(3);
+    // Unfixed, Client's stale copy sat later in insertion order and masked this read.
+    expect(keyShown(target, 'newkey')).toBe(true);
+    expect(keyShown(target, 'oldkey')).toBe(false);
+  });
 });
 
 describe('portal#2240: a late tab answer', () => {

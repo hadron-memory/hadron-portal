@@ -209,7 +209,9 @@
   // `tabData` is what the page renders from: the loader's data over every tab
   // payload fetched so far. Runs and Templates are not here: they navigate
   // to `?tab=`, so their data always arrives as loader data.
-  type TabEntry = { payload?: Record<string, unknown>; state: 'loading' | 'ok' | 'failed'; stale: boolean };
+  // `at`: when its payload last landed (a counter). Tabs share keys (Keys and Client both carry appKeys), so the merge below lets the newest read win, not the earliest-inserted tab.
+  type TabEntry = { payload?: Record<string, unknown>; state: 'loading' | 'ok' | 'failed'; stale: boolean; at: number };
+  let tabLandSeq = 0;
   // One cache per App and principal: SvelteKit reuses this component between
   // Apps and accounts, and one App's tab must never render under another's.
   const tabCacheKey = $derived(`${data.app.id}\u0000${data.currentUserId ?? ''}`);
@@ -217,7 +219,7 @@
   const tabData = $derived.by(() => {
     const merged: Record<string, unknown> = {};
     if (tabCache.key === tabCacheKey) {
-      for (const entry of Object.values(tabCache.byTab)) if (entry?.payload) Object.assign(merged, entry.payload);
+      for (const entry of (Object.values(tabCache.byTab) as (TabEntry | undefined)[]).sort((a, b) => (a?.at ?? 0) - (b?.at ?? 0))) if (entry?.payload) Object.assign(merged, entry.payload);
     }
     // Loader data wins: it is the newest read of whatever it carries.
     return { ...merged, ...data } as typeof data;
@@ -1184,7 +1186,8 @@
   });
   async function fetchTab(id: AppTabId, key: string, held: Record<string, unknown> | undefined) {
     const generation = dataGeneration;
-    setTabEntry(key, id, { payload: held, state: 'loading', stale: false });
+    const heldAt = tabCache.byTab[id]?.at ?? 0;
+    setTabEntry(key, id, { payload: held, state: 'loading', stale: false, at: heldAt });
     let next: TabEntry;
     try {
       // The page's own query (a chat, a worklog filter, a list offset) with
@@ -1195,11 +1198,11 @@
       if (!res.ok) throw new Error(`tab ${id}: ${res.status}`);
       const payload = (await res.json()) as Record<string, unknown>;
       // Read before newer loader data landed: show it, and read again.
-      next = { payload, state: 'ok', stale: generation !== dataGeneration };
+      next = { payload, state: 'ok', stale: generation !== dataGeneration, at: ++tabLandSeq };
     } catch {
       // A refresh that fails keeps what the tab already shows; a first read
       // that fails is the tab's "couldn't load" state, with a retry.
-      next = held ? { payload: held, state: 'ok', stale: false } : { state: 'failed', stale: false };
+      next = held ? { payload: held, state: 'ok', stale: false, at: heldAt } : { state: 'failed', stale: false, at: heldAt };
     }
     // The page may be gone, or now another App's or person's: drop the answer.
     if (!tabAlive) return;
@@ -2497,7 +2500,7 @@
        The App's OWN identity (not the viewer's, not a member's), read only from the App the page
        already holds — no new query, no form, no action. Edits stay in Settings. A count the server
        WITHHOLDS (`null`, portal#1148) shows "—", never 0. -->
-  {#if activeTab === 'profile'}
+  {#if activeTab === 'profile' && tabShown('profile')}
     <div id="panel-profile" role="tabpanel" aria-labelledby="tab-profile" tabindex="0" class="min-w-0 space-y-6 focus-visible:outline-2 focus-visible:outline-indigo-500">
       <section class="max-w-lg">
         <h2 class="break-words font-semibold text-zinc-900 dark:text-white">{app.name}</h2>
