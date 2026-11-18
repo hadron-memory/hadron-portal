@@ -103,7 +103,7 @@ describe('POST /api/agent-chat/test-persona', () => {
     expect(startCalls).toHaveLength(1);
     // Exact equality: a dropped flag fails, and so does an unexpected one.
     expect(startCalls[0][1]).toEqual({
-      agentId: 'agent-1',
+      agentRef: 'agent-1',
       conversationName: 'setup',
       scope: 'private',
       isTestRun: true,

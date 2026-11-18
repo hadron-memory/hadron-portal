@@ -138,7 +138,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         stageName: string | null;
       };
     }>(START_CHAT_MUTATION, {
-      agentId: body.agentId,
+      agentRef: body.agentId,
       conversationName: body.conversationName ?? null,
       scope: 'private',
       isTestRun: true,

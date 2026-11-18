@@ -161,7 +161,7 @@ describe('POST /api/agent-chat/start', () => {
     // scope defaults to 'private' per FR-003)
     expect(mockRequest).toHaveBeenCalledTimes(1);
     const [, vars] = mockRequest.mock.calls[0];
-    expect(vars).toEqual({ agentId: 'a1', conversationName: 'deep-dive', scope: 'private', llmModel: 'model-X' });
+    expect(vars).toEqual({ agentRef: 'a1', conversationName: 'deep-dive', scope: 'private', llmModel: 'model-X' });
 
     // runChatTurn called with startPayload for the welcome path
     expect(mockRunChatTurn).toHaveBeenCalledTimes(1);
@@ -209,7 +209,7 @@ describe('POST /api/agent-chat/start', () => {
     });
     const { POST } = await import('./start/+server');
     await POST(ev({ body: { agentId: 'a1' } }));
-    expect(mockRequest.mock.calls[0][1]).toEqual({ agentId: 'a1', conversationName: null, scope: 'private', llmModel: 'model-X' });
+    expect(mockRequest.mock.calls[0][1]).toEqual({ agentRef: 'a1', conversationName: null, scope: 'private', llmModel: 'model-X' });
   });
 
   it('forwards scope=shared when provided in the request body', async () => {
@@ -234,7 +234,7 @@ describe('POST /api/agent-chat/start', () => {
     const body = await jsonOf(res);
     expect(body.scope).toBe('shared');
     expect(mockRequest.mock.calls[0][1]).toEqual({
-      agentId: 'a1',
+      agentRef: 'a1',
       conversationName: null,
       scope: 'shared',
       llmModel: 'model-X',

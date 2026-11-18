@@ -163,8 +163,8 @@ describe('org members add/update/remove/leave actions', () => {
 
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Member added.' });
     expect(mockRequest).toHaveBeenCalledWith(ADD_MEMBER_MUTATION, {
-      orgId: 'org-id-123',
-      userId: 'user-2',
+      orgRef: 'org-id-123',
+      userRef: 'user-2',
       role: 'ADMIN',
     });
   });
@@ -201,8 +201,8 @@ describe('org members add/update/remove/leave actions', () => {
 
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Member updated.' });
     expect(mockRequest).toHaveBeenCalledWith(UPDATE_MEMBER_MUTATION, {
-      orgId: 'org-id-123',
-      userId: 'user-2',
+      orgRef: 'org-id-123',
+      userRef: 'user-2',
       role: 'CONTRIBUTOR',
     });
   });
@@ -239,8 +239,8 @@ describe('org members add/update/remove/leave actions', () => {
 
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Member removed.' });
     expect(mockRequest).toHaveBeenCalledWith(REMOVE_MEMBER_MUTATION, {
-      orgId: 'org-id-123',
-      userId: 'user-2',
+      orgRef: 'org-id-123',
+      userRef: 'user-2',
     });
   });
 
@@ -260,8 +260,8 @@ describe('org members add/update/remove/leave actions', () => {
       .rejects
       .toMatchObject({ status: 303, location: '/app/orgs' });
     expect(mockRequest).toHaveBeenCalledWith(REMOVE_MEMBER_MUTATION, {
-      orgId: 'org-id-123',
-      userId: 'user-self',
+      orgRef: 'org-id-123',
+      userRef: 'user-self',
     });
   });
 
@@ -331,7 +331,7 @@ describe('org members invite action', () => {
     });
     expect(superFormFrom(result)?.valid).toBe(true);
     expect(mockRequest).toHaveBeenCalledWith(CREATE_USER_INVITATION_MUTATION, {
-      orgId: 'org-id-123',
+      orgRef: 'org-id-123',
       memberRole: 'ADMIN',
       name: 'Ada',
       email: 'ada@example.test',
