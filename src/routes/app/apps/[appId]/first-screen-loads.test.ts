@@ -118,8 +118,8 @@ const FRAME = ['App', 'AppViewerManages', 'TeamStopSignals'];
 
 /** Each tab's own reads, from what its panel renders. */
 const TAB_OPS: Record<string, string[]> = {
-  // portal#2241: renders from the frame's App read alone.
-  profile: [],
+  // portal#2241: the frame's App read, plus the manage gate on its Edit in Settings link.
+  profile: ['SelfCanManage'],
   // Team chat, chat list, author chips (staff), AI-config picker, writable memories.
   chats: ['Workers', 'TeamChatMessages', 'AppChatRootsPage', 'AppChannels', 'ChatAiConfigChoices', 'ResolveAiServiceConfigs', 'AppMemoryScope'],
   worklog: ['TeamWorkItems'],

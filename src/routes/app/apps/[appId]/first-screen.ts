@@ -20,7 +20,8 @@ import { APP_TAB_IDS, type AppTabId } from './tab-intent';
 
 /** A named read of the App page, and the payload keys it produces. */
 export const READ_GROUP_KEYS = {
-  staff: ['staff', 'staffError', 'terminalNow'],
+  // `terminalNow` is a frame key (one cheap instant): the display clock seeds from it whichever tab opens first.
+  staff: ['staff', 'staffError'],
   // portal#2238's bounded roster: read with an initial ?tab=staff only. Its key
   // is NOT owned here: `teamRoster` stays a frame key of the page load (null =
   // not loaded), the contract #2238's own first-show fetch (roster/+server.ts)
@@ -57,8 +58,8 @@ export type ReadGroup = keyof typeof READ_GROUP_KEYS;
 
 /** What each tab's first screen reads, beyond the frame. */
 export const TAB_READS: Record<AppTabId, readonly ReadGroup[]> = {
-  // portal#2241: the App's identity renders from the frame's App read alone.
-  profile: [],
+  // portal#2241: the App's identity renders from the frame's App read; the Edit in Settings link is the manage gate.
+  profile: ['canManage'],
   chats: ['staff', 'teamChat', 'chatList', 'chatConfigs', 'memoryScope'],
   worklog: ['worklog'],
   runs: ['runs'],

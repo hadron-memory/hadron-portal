@@ -2554,7 +2554,7 @@
             <span data-testid="profile-member-count" class="text-sm font-medium text-zinc-900 dark:text-white">{app.memberCount == null ? '—' : app.memberCount}</span>
           </div>
         </div>
-        {#if data.canManageApp === true}
+        {#if tabData.canManageApp === true}
           <p class="mt-4">
             <button type="button" data-testid="profile-edit-in-settings" class="text-sm text-indigo-600 hover:underline dark:text-indigo-400" onclick={() => void focusTab('settings')}>{t('app.profile.edit-in-settings', 'Edit in Settings')}</button>
           </p>
