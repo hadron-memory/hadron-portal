@@ -2312,7 +2312,10 @@
           <div class="flex items-center justify-between gap-4 px-5 py-3">
             <span class="text-sm text-zinc-500">{t('app.profile.owner', 'Owner organization')}</span>
             {#if org}
-              <a class="break-words text-sm text-indigo-600 hover:underline dark:text-indigo-400" href="/app/orgs/{encodeURIComponent(org.id)}">{org.name}</a>
+              <div class="min-w-0 text-right">
+                <a class="break-words text-sm text-indigo-600 hover:underline dark:text-indigo-400" href="/app/orgs/{encodeURIComponent(org.id)}">{org.name}</a>
+                {#if org.urn}<div class="mt-1"><Urn value={org.urn} type="org" /></div>{/if}
+              </div>
             {:else}
               <span class="text-sm text-zinc-900 dark:text-white">—</span>
             {/if}

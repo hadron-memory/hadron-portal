@@ -77,11 +77,20 @@ describe('App Profile tab (#2241)', () => {
     expect(text).toContain('Scribe');
     // The Agent's own URN (the link target), not the install-chain URN, which is a different entity.
     expect(urns).toContain('hrn:agent:acme.com:scribe');
+    // The owner organization shows its URN too, not just a linked name.
+    expect(urns).toContain('hrn:org:acme.com');
     expect(p.querySelector('a[href="/app/orgs/o1"]')).not.toBeNull();
     expect(p.querySelector('a[href="/app/agents/ag1"]')).not.toBeNull();
     // member count 4, linked agents 2, each next to its label
     expect(p.querySelector('[data-testid="profile-member-count"]')?.textContent?.trim()).toBe('4');
     expect(p.querySelector('[data-testid="profile-agent-count"]')?.textContent?.trim()).toBe('2');
+  });
+
+  it('renders the absent owner organization as a dash with no URN chip', async () => {
+    const p = panel(await mountProfile({ data: { org: null } }))!;
+    expect(p.querySelector('a[href^="/app/orgs/"]')).toBeNull();
+    const urns = [...p.querySelectorAll('[title]')].map((el) => el.getAttribute('title'));
+    expect(urns).not.toContain('hrn:org:acme.com');
   });
 
   it('shows "—" for a missing description and expiry', async () => {
