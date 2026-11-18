@@ -60,7 +60,7 @@ describe('portal#1410 chip feedback and refusal polling', () => {
  it('never polls an initial refusal, including a visible-again tick; explicit healthy filter changes resume', async () => {
   Object.defineProperty(document,'hidden',{configurable:true,value:false}); vi.useFakeTimers();
   const onRefresh=vi.fn(async()=>({items:[message(2)],total:1,loadFailed:false}));
-  const props=reactiveProps<Record<string,unknown>>({messages:[],total:0,loadError:true,refusal:refused,filter:{kind:'team',headRef:'gone'},onRefresh,pollMs:100,onSelectTeam:vi.fn()});
+  const props=reactiveProps<Record<string,unknown>>({messages:[],total:0,loadError:true,refusal:refused,filter:{kind:'teams',headRefs:['gone']},onRefresh,pollMs:100,onSelectTeam:vi.fn()});
   await mountThread(props);
   await vi.advanceTimersByTimeAsync(300);
   document.dispatchEvent(new Event('visibilitychange')); await tick(3);
@@ -81,7 +81,7 @@ describe('portal#1410 chip feedback and refusal polling', () => {
   const select=vi.fn((next:TeamChatFilter)=>{props.filter=next;});props.onSelectTeam=select;
   const m=await mountThread(props);document.body.append(m.target);
   const chip=q(m,'team-chat-tag') as HTMLButtonElement;chip.focus();chip.click();await tick(4);
-  expect(select).toHaveBeenCalledWith({kind:'team',headRef:ADA.headId});
+  expect(select).toHaveBeenCalledWith({kind:'teams',headRefs:[ADA.headId]});
   expect(document.activeElement).toBe(q(m,'team-chat-filter-active'));
   expect(q(m,'team-chat-filter-status')?.getAttribute('aria-live')).toBe('polite');
   expect(q(m,'team-chat-filter-status')?.textContent).toContain('team.ada');
@@ -89,6 +89,20 @@ describe('portal#1410 chip feedback and refusal polling', () => {
   const all=[...q(m,'team-chat-filter')!.querySelectorAll('button')].find(b=>b.textContent?.includes('All messages'))!;
   all.click();await tick(4);expect(document.activeElement).toBe(all);
   expect(q(m,'team-chat-filter-status')?.textContent).toContain('All messages');
+ });
+ it('announces the whole multi-head selection, and the remainder as heads come out (#1482)',async()=>{
+  const props=reactiveProps<Record<string,unknown>>({messages:[message(1,{teamTags:[ADA]}),message(2,{teamTags:[BO]})],total:2,filter:{kind:'none'}});
+  props.onSelectTeam=(next:TeamChatFilter)=>{props.filter=next;};
+  const m=await mountThread(props);document.body.append(m.target);
+  const chips=qa(m,'team-chat-tag');
+  (chips[0] as HTMLButtonElement).click();await tick(4);
+  (chips[1] as HTMLButtonElement).click();await tick(4);
+  expect(q(m,'team-chat-filter-status')?.textContent).toContain('team.ada, team.bo');
+  // Removing one head announces what remains, not the removed name.
+  const rowChips=qa(m,'team-chat-tag');
+  (rowChips[0] as HTMLButtonElement).click();await tick(4);
+  expect(q(m,'team-chat-filter-status')?.textContent).toContain('team.bo');
+  expect(q(m,'team-chat-filter-status')?.textContent).not.toContain('team.ada');
  });
  it('gives guidance, a non-colour selected cue, plain empty copy and a refusal next step',async()=>{
   const m=await mountThread({messages:[],filter:{kind:'untagged'},onSelectTeam:vi.fn()});
@@ -98,7 +112,7 @@ describe('portal#1410 chip feedback and refusal polling', () => {
   expect(q(m,'team-chat-filter-empty')?.textContent).toContain('No messages without a team tag.');
   const selected=q(m,'team-chat-filter')?.querySelector('[aria-pressed="true"]');
   expect(selected?.querySelector('[data-selected-cue]')).not.toBeNull();
-  const r=await mountThread({messages:[],loadError:true,refusal:refused,filter:{kind:'team',headRef:'gone'},onSelectTeam:vi.fn()});
+  const r=await mountThread({messages:[],loadError:true,refusal:refused,filter:{kind:'teams',headRefs:['gone']},onSelectTeam:vi.fn()});
   expect(q(r,'team-chat-filter-refused')?.textContent).toBe(refused.message);
   expect(q(r,'team-chat-filter-refused-help')?.textContent).toContain('Choose All messages');
  });
@@ -109,13 +123,13 @@ it('a delayed filter response does not steal focus after the reader moves to the
  const m=await mountThread(props);document.body.append(m.target);
  const chip=q(m,'team-chat-tag') as HTMLButtonElement;chip.focus();chip.click();await tick(2);
  const composer=m.target.querySelector<HTMLTextAreaElement>('[data-testid="team-chat-composer"]')!;composer.focus();
- props.filter={kind:'team',headRef:ADA.headId};await tick(4);
+ props.filter={kind:'teams',headRefs:[ADA.headId]};await tick(4);
  expect(document.activeElement).toBe(composer);
  expect(q(m,'team-chat-filter-status')?.textContent).toContain('team.ada');
 });
 
 it('clearing into an untagged history with no filter bar keeps a logical focus target', async()=>{
- const props=reactiveProps<Record<string,unknown>>({messages:[message(1,{teamTags:[ADA]})],total:1,filter:{kind:'team',headRef:ADA.headId}});
+ const props=reactiveProps<Record<string,unknown>>({messages:[message(1,{teamTags:[ADA]})],total:1,filter:{kind:'teams',headRefs:[ADA.headId]}});
  props.onSelectTeam=(next:TeamChatFilter)=>{props.filter=next;props.messages=[message(2)];};
  const m=await mountThread(props);document.body.append(m.target);
  const active=q(m,'team-chat-filter-active') as HTMLButtonElement;active.focus();active.click();await tick(4);
@@ -126,7 +140,7 @@ it('clearing into an untagged history with no filter bar keeps a logical focus t
 it('clearing only the authoritative refusal unblocks the same-filter poll',async()=>{
  Object.defineProperty(document,'hidden',{configurable:true,value:false});vi.useFakeTimers();
  const onRefresh=vi.fn(async()=>({items:[message(2)],total:1,loadFailed:false}));
- const props=reactiveProps<Record<string,unknown>>({messages:[],total:0,loadError:true,refusal:{code:'TEAM_CHAT_TEAM_HEAD_INVALID',message:'Unavailable.'},filter:{kind:'team',headRef:'head-ada'},onRefresh,pollMs:100,onSelectTeam:vi.fn()});
+ const props=reactiveProps<Record<string,unknown>>({messages:[],total:0,loadError:true,refusal:{code:'TEAM_CHAT_TEAM_HEAD_INVALID',message:'Unavailable.'},filter:{kind:'teams',headRefs:['head-ada']},onRefresh,pollMs:100,onSelectTeam:vi.fn()});
  await mountThread(props);await vi.advanceTimersByTimeAsync(100);expect(onRefresh).not.toHaveBeenCalled();
  props.refusal=null;await tick(3);await vi.advanceTimersByTimeAsync(100);expect(onRefresh).toHaveBeenCalledTimes(1);
 });

@@ -12,7 +12,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
-import type { TeamChatFilter } from '$lib/team-chat-filter';
+import { NO_TEAM_FILTER, type TeamChatFilter } from '$lib/team-chat-filter';
 import type { TeamChatMessage } from '$lib/types';
 import TeamChatThread from './TeamChatThread.svelte';
 
@@ -82,7 +82,47 @@ describe('TeamChatThread team filter — chips', () => {
       onSelectTeam,
     });
     (qa(m, 'team-chat-tag')[1] as HTMLButtonElement).click();
-    expect(onSelectTeam).toHaveBeenCalledWith({ kind: 'team', headRef: 'head-bo' });
+    expect(onSelectTeam).toHaveBeenCalledWith({ kind: 'teams', headRefs: ['head-bo'] });
+  });
+
+  it('toggles further heads into the selection and out of it (#1482)', async () => {
+    // The parent answers onSelectTeam with a fresh read that lands as new
+    // filter props; the second click only means "remove" once that read
+    // arrived, so wire the write-back the way a real parent would.
+    const onSelectTeam = vi.fn((next: TeamChatFilter) => { props.filter = next; });
+    const props = reactiveProps<Record<string, unknown>>({
+      messages: [
+        message(1, { teamTags: [ADA] }),
+        message(2, { teamTags: [BO] }),
+      ],
+      total: 2,
+      filter: { kind: 'teams', headRefs: ['head-ada'] },
+      onSelectTeam,
+    });
+    const m = await mountThread(props);
+    // Both membership states visible on the rows before any click.
+    expect(qa(m, 'team-chat-tag').map((el) => el.getAttribute('aria-pressed'))).toEqual(['true', 'false']);
+    // Adding: the set grows, the existing member stays, and once the parent's
+    // read lands both rows read as in the set.
+    (qa(m, 'team-chat-tag')[1] as HTMLButtonElement).click();
+    expect(onSelectTeam).toHaveBeenLastCalledWith({ kind: 'teams', headRefs: ['head-ada', 'head-bo'] });
+    await tick(4);
+    expect(qa(m, 'team-chat-tag').map((el) => el.getAttribute('aria-pressed'))).toEqual(['true', 'true']);
+    // Removing: that member leaves, the other stays.
+    (qa(m, 'team-chat-tag')[0] as HTMLButtonElement).click();
+    expect(onSelectTeam).toHaveBeenLastCalledWith({ kind: 'teams', headRefs: ['head-bo'] });
+  });
+
+  it('removing the last selected head by its chip asks for no filter at all', async () => {
+    const onSelectTeam = vi.fn();
+    const m = await mountThread({
+      messages: [message(1, { teamTags: [ADA] })],
+      total: 1,
+      filter: { kind: 'teams', headRefs: ['head-ada'] },
+      onSelectTeam,
+    });
+    (qa(m, 'team-chat-tag')[0] as HTMLButtonElement).click();
+    expect(onSelectTeam).toHaveBeenCalledWith(NO_TEAM_FILTER);
   });
 });
 
@@ -105,8 +145,8 @@ describe('TeamChatThread team filter — the control', () => {
 
   it('stays visible under an active filter even when the result is empty, so it can be cleared', async () => {
     const onSelectTeam = vi.fn();
-    const m = await mountThread({ messages: [], total: 0, filter: { kind: 'team', headRef: 'head-ada' }, onSelectTeam });
-    expect(q(m, 'team-chat-filter-empty')!.textContent).toContain('No messages with this team tag');
+    const m = await mountThread({ messages: [], total: 0, filter: { kind: 'teams', headRefs: ['head-ada'] }, onSelectTeam });
+    expect(q(m, 'team-chat-filter-empty')!.textContent).toContain('No messages match these tags');
     // Never the quiet-team empty state.
     expect(m.target.textContent).not.toContain('No messages in the team chat yet');
     (q(m, 'team-chat-filter-active') as HTMLButtonElement).click();
@@ -116,10 +156,41 @@ describe('TeamChatThread team filter — the control', () => {
 
   it('labels an active head from a loaded tag, for display only', async () => {
     const m = await mountThread({
-      messages: [message(1, { teamTags: [ADA] })], total: 1, filter: { kind: 'team', headRef: 'head-ada' }, onSelectTeam: vi.fn(),
+      messages: [message(1, { teamTags: [ADA] })], total: 1, filter: { kind: 'teams', headRefs: ['head-ada'] }, onSelectTeam: vi.fn(),
     });
     expect(q(m, 'team-chat-filter-active')!.textContent).toContain('team.ada');
     expect(qa(m, 'team-chat-tag')[0].getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('draws one removable chip per selected head, labelled from loaded tags, and removes just that head (#1482)', async () => {
+    const onSelectTeam = vi.fn();
+    const m = await mountThread({
+      messages: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [BO] })],
+      total: 2,
+      filter: { kind: 'teams', headRefs: ['head-ada', 'head-bo'] },
+      onSelectTeam,
+    });
+    const chips = qa(m, 'team-chat-filter-active');
+    // One chip per selected head, labelled from loaded tags. The × is
+    // decorative; each chip carries its own sr-only remove words, so a full
+    // textContent equality would restate the i18n string — assert the parts.
+    expect(chips).toHaveLength(2);
+    expect(chips[0].textContent).toContain('team.ada');
+    expect(chips[1].textContent).toContain('team.bo');
+    expect(chips.every((el) => el.textContent?.includes('Remove this team from the filter'))).toBe(true);
+    // Removing one chip keeps the other (the parent re-reads under the smaller
+    // set; onSelectTeam is the contract for it).
+    (chips[0] as HTMLButtonElement).click();
+    expect(onSelectTeam).toHaveBeenCalledWith({ kind: 'teams', headRefs: ['head-bo'] });
+    // A selected head with no loaded row still gets its chip, under the generic name.
+    const sparse = await mountThread({
+      messages: [message(1, { teamTags: [ADA] })], total: 1,
+      filter: { kind: 'teams', headRefs: ['head-ada', 'head-zoe'] }, onSelectTeam: vi.fn(),
+    });
+    const sparseChips = qa(sparse, 'team-chat-filter-active');
+    expect(sparseChips).toHaveLength(2);
+    expect(sparseChips[0].textContent).toContain('team.ada');
+    expect(sparseChips[1].textContent).toContain('Selected team');
   });
 
   it('says "no team tag recorded" for the untagged view, never absent-vs-empty', async () => {
@@ -131,11 +202,11 @@ describe('TeamChatThread team filter — the control', () => {
   it('shows the server refusal verbatim, and an invalid ?team= as nothing loaded — never the unfiltered rows', async () => {
     const text = 'Team broadcast target is unavailable in this Channel.';
     const refused = await mountThread({
-      messages: [], total: 0, loadError: true, filter: { kind: 'team', headRef: 'gone' },
+      messages: [], total: 0, loadError: true, filter: { kind: 'teams', headRefs: ['gone'] },
       refusal: { code: 'TEAM_CHAT_TEAM_HEAD_INVALID', message: text }, onSelectTeam: vi.fn(),
     });
     expect(q(refused, 'team-chat-filter-refused')!.textContent!.trim()).toBe(text);
-    expect(refused.target.textContent).not.toContain('No messages with this team tag');
+    expect(refused.target.textContent).not.toContain('No messages match these tags');
 
     const invalid = await mountThread({ messages: [], total: 0, loadError: true, filterInvalid: true, onSelectTeam: vi.fn() });
     expect(q(invalid, 'team-chat-filter-invalid')).not.toBeNull();
@@ -149,7 +220,7 @@ describe('TeamChatThread team filter — reset and stale reads', () => {
     });
     const m = await mountThread(props);
     expect(m.target.textContent).toContain('body 2');
-    props.filter = { kind: 'team', headRef: 'head-bo' };
+    props.filter = { kind: 'teams', headRefs: ['head-bo'] };
     props.messages = [];
     props.total = 0;
     await tick(3);
@@ -171,7 +242,7 @@ describe('TeamChatThread team filter — reset and stale reads', () => {
     // The reader picks a team. Only the FILTER changes here — the loader's rows
     // may well be the same (both empty, say), and a different filter is still a
     // different thread…
-    props.filter = { kind: 'team', headRef: 'head-bo' };
+    props.filter = { kind: 'teams', headRefs: ['head-bo'] };
     await tick(3);
     // …so the unfiltered poll that lands AFTER it must be dropped.
     release({ items: [message(2, { teamTags: [ADA] })], total: 2, loadFailed: false });
@@ -203,7 +274,7 @@ describe('TeamChatThread team filter — invalid and refused reads (#1137 review
     vi.useFakeTimers();
     const onRefresh = vi.fn(async () => ({ items: [], total: 0, loadFailed: true, refusal: REFUSAL }));
     const m = await mountThread({
-      messages: [], total: 0, filter: { kind: 'team', headRef: 'gone' }, onRefresh, pollMs: 100, onSelectTeam: vi.fn(),
+      messages: [], total: 0, filter: { kind: 'teams', headRefs: ['gone'] }, onRefresh, pollMs: 100, onSelectTeam: vi.fn(),
     });
     expect(q(m, 'team-chat-filter-empty')).not.toBeNull();
     await vi.advanceTimersByTimeAsync(100);
@@ -217,7 +288,7 @@ describe('TeamChatThread team filter — invalid and refused reads (#1137 review
   it('shows a typed refusal from an older page verbatim', async () => {
     const onLoadOlder = vi.fn(async () => ({ refusal: REFUSAL }));
     const m = await mountThread({
-      messages: [message(5, { teamTags: [ADA] })], total: 9, filter: { kind: 'team', headRef: 'head-ada' }, onLoadOlder, onSelectTeam: vi.fn(),
+      messages: [message(5, { teamTags: [ADA] })], total: 9, filter: { kind: 'teams', headRefs: ['head-ada'] }, onLoadOlder, onSelectTeam: vi.fn(),
     });
     const btn = Array.from(m.target.querySelectorAll('button')).find((b) => /earlier/i.test(b.textContent ?? ''));
     expect(btn).toBeTruthy();
@@ -232,7 +303,7 @@ describe('TeamChatThread team filter — invalid and refused reads (#1137 review
     vi.useFakeTimers();
     const onRefresh = vi.fn(async () => ({ items: [], total: 0, loadFailed: true, refusal: REFUSAL }));
     const props = reactiveProps<Record<string, unknown>>({
-      messages: [], total: 0, filter: { kind: 'team', headRef: 'gone' } as TeamChatFilter, onRefresh, pollMs: 100, onSelectTeam: vi.fn(),
+      messages: [], total: 0, filter: { kind: 'teams', headRefs: ['gone'] } as TeamChatFilter, onRefresh, pollMs: 100, onSelectTeam: vi.fn(),
     });
     const m = await mountThread(props);
     await vi.advanceTimersByTimeAsync(100);
@@ -247,7 +318,7 @@ describe('TeamChatThread team filter — invalid and refused reads (#1137 review
 it('cached transcript restoration never merges an old filter into a new filter', async () => {
   const props = reactiveProps({
     messages: [message(2, { teamTags: [ADA] })], total: 2,
-    filter: { kind: 'team', headRef: ADA.headId } as TeamChatFilter,
+    filter: { kind: 'teams', headRefs: [ADA.headId] } as TeamChatFilter,
     onViewStateChange: vi.fn(),
     viewState: { items: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [ADA] })], total: 2,
       pendingNewer: 0, olderRemaining: 0, olderExhausted: true, scrollTop: 0, atBottom: true },
@@ -256,7 +327,7 @@ it('cached transcript restoration never merges an old filter into a new filter',
   expect(m.target.textContent).toContain('body 1');
   props.messages = [message(3, { teamTags: [BO] })];
   props.total = 1;
-  props.filter = { kind: 'team', headRef: BO.headId };
+  props.filter = { kind: 'teams', headRefs: [BO.headId] };
   await tick(3);
   expect(m.target.textContent).toContain('body 3');
   expect(m.target.textContent).not.toContain('body 1');

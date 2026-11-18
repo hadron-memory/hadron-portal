@@ -205,9 +205,19 @@ describe('GET /app/apps/[appId]/team-chat — team filter (#1137)', () => {
     await get('app-1', '?team=h1&beforeSeq=40');
     await get('app-1', '?team=h1&sinceSeq=40');
     expect(mockRequest.mock.calls.map((c) => c[1])).toEqual([
-      { appRef: 'app-1', beforeSeq: 2147483647, limit: 20, teamHeadRef: 'h1' },
-      { appRef: 'app-1', beforeSeq: 40, limit: 20, teamHeadRef: 'h1' },
-      { appRef: 'app-1', sinceSeq: 40, limit: 20, teamHeadRef: 'h1' },
+      { appRef: 'app-1', beforeSeq: 2147483647, limit: 20, teamHeadRefs: ['h1'] },
+      { appRef: 'app-1', beforeSeq: 40, limit: 20, teamHeadRefs: ['h1'] },
+      { appRef: 'app-1', sinceSeq: 40, limit: 20, teamHeadRefs: ['h1'] },
+    ]);
+  });
+
+  it('passes a multi-select as ONE teamHeadRefs list, duplicates collapsed (#1482)', async () => {
+    ok();
+    await get('app-1', '?team=h1&team=h2');
+    await get('app-1', '?team=h2&team=h1&team=h2');
+    expect(mockRequest.mock.calls.map((c) => c[1])).toEqual([
+      { appRef: 'app-1', beforeSeq: 2147483647, limit: 20, teamHeadRefs: ['h1', 'h2'] },
+      { appRef: 'app-1', beforeSeq: 2147483647, limit: 20, teamHeadRefs: ['h2', 'h1'] },
     ]);
   });
 
@@ -222,12 +232,21 @@ describe('GET /app/apps/[appId]/team-chat — team filter (#1137)', () => {
   it('sends no filter argument at all when the parameter is absent (a default-OFF server must not see one)', async () => {
     ok();
     await get();
-    expect(mockRequest.mock.calls[0][1]).not.toHaveProperty('teamHeadRef');
+    expect(mockRequest.mock.calls[0][1]).not.toHaveProperty('teamHeadRefs');
     expect(mockRequest.mock.calls[0][1]).not.toHaveProperty('untagged');
   });
 
   it('refuses a malformed ?team= with a 400, and reads nothing (no fallback to unfiltered)', async () => {
     const { status, body } = await get('app-1', '?team=a%20b');
+    expect(status).toBe(400);
+    expect(body).toMatchObject({ items: [], total: 0, loadFailed: true, reason: 'bad-team' });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('refuses ?team=untagged mixed with heads with the same 400, never a one-sided read', async () => {
+    // The server would refuse the pair as mutually exclusive (server#3759);
+    // the endpoint must not drop either side and read the other.
+    const { status, body } = await get('app-1', '?team=untagged&team=h1');
     expect(status).toBe(400);
     expect(body).toMatchObject({ items: [], total: 0, loadFailed: true, reason: 'bad-team' });
     expect(mockRequest).not.toHaveBeenCalled();
@@ -242,7 +261,7 @@ describe('GET /app/apps/[appId]/team-chat — team filter (#1137)', () => {
       },
     });
     mockRequest.mockRejectedValue(refusal);
-    const { status, body } = await get('app-1', '?team=gone');
+    const { status, body } = await get('app-1', '?team=gone&team=h1');
     expect(status).toBe(200);
     expect(body).toMatchObject({
       items: [],
@@ -250,6 +269,25 @@ describe('GET /app/apps/[appId]/team-chat — team filter (#1137)', () => {
       refusal: { code: 'TEAM_CHAT_TEAM_HEAD_INVALID', message: 'Team broadcast target is unavailable in this Channel.' },
     });
     expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces the server’s cap refusal (BAD_USER_INPUT) as a refusal, not a phantom transport blip (#1482)', async () => {
+    // A hand-built URL past 20 heads is answered typed by the server
+    // (server#3759); the reader is told what it says.
+    const refusal = Object.assign(new Error('teamHeadRefs accepts at most 20 entries.'), {
+      response: {
+        errors: [
+          { message: 'teamHeadRefs accepts at most 20 entries.', extensions: { code: 'BAD_USER_INPUT' } },
+        ],
+      },
+    });
+    mockRequest.mockRejectedValue(refusal);
+    const { body } = await get('app-1', `?${Array.from({ length: 21 }, (_, i) => `team=h${i}`).join('&')}`);
+    expect(body).toMatchObject({
+      items: [],
+      loadFailed: true,
+      refusal: { code: 'BAD_USER_INPUT', message: 'teamHeadRefs accepts at most 20 entries.' },
+    });
   });
 
   it('keeps an ordinary failure a degraded tick: no refusal is invented', async () => {
