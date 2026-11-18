@@ -87,6 +87,10 @@ export function splitAt(message: string, name: string): [string, string] {
  * fill(message, vars) — the caller's plain-text rendering (a `title`) and its
  * marked rendering can be built from the same message and cannot drift apart
  * (portal#2226: the stage toast's visible line vs its title).
+ *
+ * Empty text never becomes a segment, wherever it would occur — a leading,
+ * trailing or inner empty literal (a message that starts or ends with a
+ * placeholder) and an empty value alike (portal#2262).
  */
 export type MarkedSegment = { text: string; marked?: boolean };
 
@@ -94,7 +98,7 @@ export function fillMarked(message: string, vars: TemplateVars, markedKeys: read
   const marked = new Set(markedKeys);
   const out: MarkedSegment[] = [];
   const push = (text: string, isMarked = false) => {
-    if (!text && out.length > 0) return;
+    if (!text) return; // no empty segments, not even a leading one (#2262)
     const last = out[out.length - 1];
     if (!isMarked && last && !last.marked) last.text += text;
     else out.push(isMarked ? { text, marked: true } : { text });
