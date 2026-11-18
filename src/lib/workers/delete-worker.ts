@@ -12,7 +12,7 @@
  * fetch); each action wraps what it returns in its own fail()/redirect().
  */
 import { z } from 'zod';
-import { extractGqlErrorCode } from '$lib/gql-error';
+import { extractGqlErrorCode, isDefiniteRefusal } from '$lib/gql-error';
 import { t } from '$lib/i18n/t';
 
 /** Requester attestation token, never a claim of server eligibility. */
@@ -22,6 +22,14 @@ export interface DeleteWorkerResult {
   workerRef: string;
   message: string;
   code?: string | null;
+  /**
+   * portal#2227 — the outcome is UNKNOWN, not failed: the delete is one-way,
+   * so a lost response or an unrecognized error can come after the server
+   * committed. A dialog reading this must not offer a plain retry (the
+   * sentence says reload-first) — retire's `retireResult.uncertain` is the
+   * shape this copies.
+   */
+  uncertain?: true;
 }
 export const deleteWorkerSchema = z.object({
   _kind: z.literal('deleteWorker'),
@@ -76,6 +84,12 @@ export interface DeleteWorkerFailureSentences {
   forbidden?: string;
   /** Non-refusal fallback when no server sentence is fit to show. Required. */
   failed: string;
+  /**
+   * portal#2227 — the UNKNOWN-OUTCOME sentence (transport loss or an
+   * unrecognized error; the delete may have committed). Optional; the shared
+   * default is retire's reload-first family.
+   */
+  uncertain?: string;
 }
 
 /**
@@ -85,6 +99,22 @@ export interface DeleteWorkerFailureSentences {
  * without a fit refusal message gets `failed`, so nothing raw leaks.
  */
 export function deleteWorkerFailureRefusal(e: unknown, workerRef: string, sentences: DeleteWorkerFailureSentences): DeleteWorkerRefusal {
+  // portal#2227 — an error that is not provably a pre-commit refusal (a lost
+  // response, a codeless or unrecognized GraphQL error) is an UNKNOWN OUTCOME
+  // on a one-way delete: the server may have committed before the answer was
+  // lost, so never "failed" — 502 + uncertain, reload-first sentence. Retire
+  // (this page's retireWorker and the roster's) is the convention this adopts;
+  // the actions, not this pure mapper, log the closed transport record
+  // (ruling 0247).
+  if (!isDefiniteRefusal(e, ['FORBIDDEN', 'WORKER_NOT_FOUND', 'WORKER_IN_USE', 'WORKER_EXTERNAL_ATTRIBUTION_UNCONFIRMED'])) {
+    return {
+      status: 502,
+      result: {
+        ok: false, workerRef, uncertain: true, code: null,
+        message: sentences.uncertain ?? t('app.staff.delete.uncertain', 'The delete may have succeeded. Reload to see the current state.'),
+      },
+    };
+  }
   const code = extractGqlErrorCode(e);
   // Only GraphQL's own errors array is a fit server sentence, and only for
   // refusals (status < 500); anything else may embed transport details.

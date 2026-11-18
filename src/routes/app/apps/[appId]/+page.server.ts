@@ -1585,8 +1585,13 @@ export const actions: Actions = {
       return { deleteWorkerResult: { ok: true, workerRef,
         message: t('app.staff.delete.done', 'Worker deleted.') } satisfies DeleteWorkerResult };
     } catch (e: unknown) {
+      // portal#2227 — the closed transport record for a lost delete (ruling
+      // 0247), same as the worker page's action: exactly three fields, never
+      // any part of the exception. The helper filters to transport failures.
+      logAppActionTransportFailure('delete', e);
       // No sentence overrides here: the roster shows the server's own refusal
-      // text (redaction and the status table live in the shared mapper).
+      // text (redaction, the status table and the unknown-outcome answer live
+      // in the shared mapper).
       return refuse(deleteWorkerFailureRefusal(e, workerRef, {
         failed: t('app.staff.delete.failed', 'Could not confirm deletion. Refresh the roster and try again.'),
       }));

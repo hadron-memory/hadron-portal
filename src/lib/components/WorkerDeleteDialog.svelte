@@ -13,6 +13,7 @@
   let confirmed = $state(false);
   let pending = $state(false);
   let deleted = $state(false);
+  let uncertain = $state(false);
   let failure = $state<string | null>(null);
   let failureHref = $state<string | null>(null);
   let generation = 0;
@@ -20,7 +21,7 @@
   $effect(() => {
     worker.id; // A new target is a new confirmation, even if a response is in flight.
     generation++;
-    confirmed = false; pending = false; deleted = false; failure = null; failureHref = null;
+    confirmed = false; pending = false; deleted = false; uncertain = false; failure = null; failureHref = null;
   });
   onMount(() => {
     const opener = document.activeElement;
@@ -31,7 +32,7 @@
   function close() { if (!pending) { confirmed = false; onclose(); } }
 
   const submit: SubmitFunction = ({ cancel, formData }) => {
-    if (!confirmed || pending || deleted || formData.get('confirmation') !== WORKER_DELETE_CONFIRMATION) { cancel(); return; }
+    if (!confirmed || pending || deleted || uncertain || formData.get('confirmation') !== WORKER_DELETE_CONFIRMATION) { cancel(); return; }
     const mine = generation, workerId = worker.id;
     const current = () => alive && generation === mine && worker.id === workerId;
     pending = true; failure = null;
@@ -74,7 +75,14 @@
         failure = t('app.staff.delete.unconfirmed', 'Deletion was not confirmed. Refresh the roster before trying again.'); pending = false; return;
       }
       if (!answer.ok) {
-        failure = answer.message; pending = false; return;
+        failure = answer.message;
+        // portal#2227 — an uncertain answer latches Submit exactly like the
+        // redirect leg above: the delete may already have committed, so a
+        // plain retry would re-post it and read WORKER_NOT_FOUND as a
+        // refusal. The sentence says reload-first; Cancel/Escape still
+        // release the dialog.
+        if (answer.uncertain) uncertain = true;
+        pending = false; return;
       }
       deleted = true;
       try {
@@ -112,7 +120,7 @@
     {#if pending}<p role="status" class="text-sm">{t('app.staff.delete.pending', 'Deleting the selected worker…')}</p>{/if}
     <div class="flex flex-wrap justify-end gap-3">
       <button bind:this={cancelButton} type="button" onclick={close} disabled={pending} class="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600">{t('app.staff.delete.cancel', 'Cancel')}</button>
-      <button type="submit" disabled={!confirmed || pending || deleted} class="rounded-md bg-red-700 px-3 py-2 text-sm text-white disabled:opacity-50">{t('app.staff.delete.submit', 'Delete verified-unused worker')}</button>
+      <button type="submit" disabled={!confirmed || pending || deleted || uncertain} class="rounded-md bg-red-700 px-3 py-2 text-sm text-white disabled:opacity-50">{t('app.staff.delete.submit', 'Delete verified-unused worker')}</button>
     </div>
   </form>
 </dialog>
