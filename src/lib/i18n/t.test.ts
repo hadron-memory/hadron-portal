@@ -136,4 +136,24 @@ describe('fillMarked', () => {
     expect(fillMarked('Etappe gewechselt.', { from: 'draft', to: 'review' }, ['from', 'to']))
       .toEqual([{ text: 'Etappe gewechselt.' }]);
   });
+  it('emits no leading empty segment when the message starts with a placeholder (#2262)', () => {
+    expect(fillMarked('{total} of {total} tasks done', { total: 3 }, ['total'])).toEqual([
+      { text: '3', marked: true },
+      { text: ' of ' },
+      { text: '3', marked: true },
+      { text: ' tasks done' },
+    ]);
+  });
+  it('degrades an empty message to no segments at all (#2262)', () => {
+    expect(fillMarked('', {}, [])).toEqual([]);
+  });
+  it('drops an empty marked value instead of keeping an empty segment for it (#2262)', () => {
+    expect(fillMarked('{name}: done', { name: '' }, ['name'])).toEqual([{ text: ': done' }]);
+  });
+  it('emits no trailing empty segment when the message ends with a placeholder (#2262)', () => {
+    expect(fillMarked('Done: {total}', { total: 3 }, ['total'])).toEqual([
+      { text: 'Done: ' },
+      { text: '3', marked: true },
+    ]);
+  });
 });
