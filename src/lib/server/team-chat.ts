@@ -894,16 +894,24 @@ export async function loadTeamChatNewer(
 }
 
 /**
- * The server's typed refusal of a team filter (#1137), or null for any other
- * failure.
+ * The server's typed refusal of a team filter (#1137, widened #1482), or null
+ * for any other failure.
  *
  * `TEAM_CHAT_TEAM_HEAD_INVALID` is the ONE shape the server answers an unknown,
  * retired-and-unavailable or foreign head with, deliberately non-oracular: its
- * fixed text does not say which. The portal shows that text as-is and never
- * retries the read unfiltered (a fallback would show more than the reader asked
- * for under a filter they believe is on), and adds no candidate list of its own.
- * Any other failure stays a degraded read, not a refusal the reader is told
- * about (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
+ * fixed text does not say which. With several heads (#1482/server#3759) one
+ * bad entry refuses the whole call with the same text. `BAD_USER_INPUT` joins
+ * it for exactly one reason: the cap refusal ("teamHeadRefs accepts at most 20
+ * entries."), which a hand-built `?team=` URL past 20 heads provokes. It is
+ * the only BAD_USER_INPUT this surface can produce — cursors are validated
+ * before the query runs (the poll endpoint 400s, the loader sends none), limit
+ * is server-clamped, and the portal never combines the filter arguments — so
+ * mapping it shows the reader the typed answer they got instead of a phantom
+ * transport blip. The portal shows the text as-is and never retries the read
+ * unfiltered (a fallback would show more than the reader asked for under a
+ * filter they believe is on), and adds no candidate list of its own. Any other
+ * failure stays a degraded read, not a refusal the reader is told about
+ * (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
  */
 export const TEAM_CHAT_HEAD_REFUSAL_CODE = 'TEAM_CHAT_TEAM_HEAD_INVALID';
 
@@ -911,7 +919,8 @@ export function teamChatRefusalOf(e: unknown): { code: string; message: string }
   const errors = (e as { response?: { errors?: Array<{ message?: unknown; extensions?: { code?: unknown } }> } })
     ?.response?.errors;
   const first = Array.isArray(errors) ? errors[0] : undefined;
-  if (first?.extensions?.code !== TEAM_CHAT_HEAD_REFUSAL_CODE) return null;
-  if (typeof first.message !== 'string' || first.message === '') return null;
-  return { code: TEAM_CHAT_HEAD_REFUSAL_CODE, message: first.message };
+  const code = first?.extensions?.code;
+  if (code !== TEAM_CHAT_HEAD_REFUSAL_CODE && code !== 'BAD_USER_INPUT') return null;
+  if (!first || typeof first.message !== 'string' || first.message === '') return null;
+  return { code, message: first.message };
 }

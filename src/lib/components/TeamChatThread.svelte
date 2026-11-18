@@ -33,7 +33,7 @@
     type TranscriptView,
     scrollTopAfterPrepend,
   } from '$lib/team-chat-refresh';
-  import { NO_TEAM_FILTER, filterKeyOf, type TeamChatFilter } from '$lib/team-chat-filter';
+  import { NO_TEAM_FILTER, filterKeyOf, toggleTeamHead, type TeamChatFilter } from '$lib/team-chat-filter';
   import type { TeamChatMessage, TeamChatRefusal } from '$lib/types';
 
   type PostTeamChatMessageForm = Infer<typeof postTeamChatMessageSchema, 'zod4'>;
@@ -401,14 +401,19 @@
   const tagsObserved = $derived(shownMessages.some((m) => (m.teamTags?.length ?? 0) > 0));
   const showFilterBar = $derived(!!onSelectTeam && (filter.kind !== 'none' || filterInvalid || tagsObserved));
   // A head's label is a post-time DISPLAY snapshot: it can collide and go
-  // stale, so it is looked up for display only, never used as identity.
-  const activeTeamLabel = $derived.by(() => {
-    if (filter.kind !== 'team') return null;
+  // stale, so it is looked up for display only, never used as identity. With a
+  // multi-head selection (#1482) each selected head is labelled from the first
+  // loaded row that stamps it; a head whose filtered read is empty has no row
+  // to label it and falls back to the generic name.
+  const activeTeamLabels = $derived.by(() => {
+    const labels = new Map<string, string>();
+    if (filter.kind !== 'teams') return labels;
     for (const m of shownMessages) {
-      const hit = m.teamTags?.find((tag) => tag.headId === filter.headRef);
-      if (hit) return hit.label;
+      for (const tag of m.teamTags ?? []) {
+        if (filter.headRefs.includes(tag.headId) && !labels.has(tag.headId)) labels.set(tag.headId, tag.label);
+      }
     }
-    return null;
+    return labels;
   });
   // Focus only an explicitly requested filter once its route-owned value is applied.
   // Polls and loader refreshes never move focus. A superseding choice/unmount
@@ -457,8 +462,19 @@
         if (requested.movedFocus === 'composer') composerEl?.focus();
         else if (requested.movedFocus !== 'elsewhere') selected?.focus();
       }
-      filterAnnouncement = filter.kind === 'team'
-        ? t('app.team-chat.filter.announcement.team', 'Team filter selected: {team}.', { team: requested.label ?? activeTeamLabel ?? t('app.team-chat.filter.selected-team', 'Selected team') })
+      filterAnnouncement = filter.kind === 'teams'
+        ? t('app.team-chat.filter.announcement.teams', 'Team filter selected: {teams}.', {
+            teams: filter.headRefs
+              .map((headRef) =>
+                // A singleton keeps the old behavior: the clicked tag's label
+                // announces even when its filtered read has no row on screen.
+                // In a set, a head with no loaded row falls back to the
+                // generic name rather than guessing from other rows' labels.
+                activeTeamLabels.get(headRef)
+                  ?? (filter.headRefs.length === 1 ? requested.label : undefined)
+                  ?? t('app.team-chat.filter.selected-team', 'Selected team'))
+              .join(', '),
+          })
         : filter.kind === 'untagged'
           ? t('app.team-chat.filter.announcement.untagged', 'Showing messages with no team tag recorded.')
           : t('app.team-chat.filter.announcement.all', 'All messages selected.');
@@ -813,19 +829,23 @@
           {#if filter.kind === 'none' && !filterInvalid}<Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />{/if}
           {t('app.team-chat.filter.all', 'All messages')}
         </button>
-        {#if filter.kind === 'team'}
-          <button
-            type="button"
-            aria-pressed="true"
-            data-testid="team-chat-filter-active"
-            onclick={() => selectTeam(NO_TEAM_FILTER)}
-            class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border border-indigo-500 bg-indigo-50 px-2 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-200"
-          >
-            <Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />
-            {activeTeamLabel ?? t('app.team-chat.filter.selected-team', 'Selected team')}
-            <span aria-hidden="true">×</span>
-            <span class="sr-only">{t('app.team-chat.filter.clear', 'Clear the team filter')}</span>
-          </button>
+        {#if filter.kind === 'teams'}
+          <!-- #1482: one chip per selected head, each removable on its own —
+               removing the last one is the same as choosing All messages. -->
+          {#each filter.headRefs as headRef (headRef)}
+            <button
+              type="button"
+              aria-pressed="true"
+              data-testid="team-chat-filter-active"
+              onclick={() => selectTeam(toggleTeamHead(filter, headRef))}
+              class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border border-indigo-500 bg-indigo-50 px-2 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-200"
+            >
+              <Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />
+              {activeTeamLabels.get(headRef) ?? t('app.team-chat.filter.selected-team', 'Selected team')}
+              <span aria-hidden="true">×</span>
+              <span class="sr-only">{t('app.team-chat.filter.remove', 'Remove this team from the filter')}</span>
+            </button>
+          {/each}
         {/if}
         <button
           type="button"
@@ -840,7 +860,7 @@
         </button>
       </div>
       {#if tagsObserved}<span class="text-zinc-500 dark:text-zinc-400">{t('app.team-chat.filter.hint', 'Choose a team by clicking a tag on a message.')}</span>{/if}
-      {#if filter.kind === 'team'}
+      {#if filter.kind === 'teams'}
         <!-- Count-free on purpose: no exact count of untagged history exists to
              state, and a guessed one would be a claim about the team. -->
         <span class="text-zinc-500 dark:text-zinc-400" data-testid="team-chat-filter-note">
@@ -904,7 +924,7 @@
         <p data-testid="team-chat-filter-empty" class="text-zinc-500 dark:text-zinc-400">
           {filter.kind === 'untagged'
             ? t('app.team-chat.filter.empty.untagged', 'No messages without a team tag.')
-            : t('app.team-chat.filter.empty.team', 'No messages with this team tag.')}
+            : t('app.team-chat.filter.empty.teams', 'No messages match these tags')}
         </p>
       </div>
     {:else if shownMessages.length === 0}
@@ -1038,23 +1058,24 @@
                 {row.time}
               </time>
 
-              <!-- #1137: stored team tags. `headId` is the identity (the click
-                   sets the filter to it); `label` is the post-time display
-                   snapshot and is never used to look a worker up or to link.
-                   null (absent or withheld) and [] draw nothing: no chip, and no
-                   "untagged"/"private" claim. -->
+              <!-- #1137/#1482: stored team tags. `headId` is the identity (the
+                   click toggles that head in the selection); `label` is the
+                   post-time display snapshot and is never used to look a worker
+                   up or to link. null (absent or withheld) and [] draw nothing:
+                   no chip, and no "untagged"/"private" claim. -->
               {#if msg.teamTags && msg.teamTags.length > 0}
                 <span data-testid="team-chat-tags" class="flex flex-wrap items-center gap-1">
                   {#each uniqueTags(msg.teamTags) as tag (tag.headId)}
+                    {@const pressed = filter.kind === 'teams' && filter.headRefs.includes(tag.headId)}
                     <button
                       type="button"
                       data-testid="team-chat-tag"
-                      aria-pressed={filter.kind === 'team' && filter.headRef === tag.headId}
+                      aria-pressed={pressed}
                       disabled={!onSelectTeam}
-                      onclick={() => selectTeam({ kind: 'team', headRef: tag.headId }, tag.label)}
-                      title={t('app.team-chat.tag.filter', 'Show only messages with this team tag')}
+                      onclick={() => selectTeam(toggleTeamHead(filter, tag.headId), tag.label)}
+                      title={t('app.team-chat.tag.filter', 'Show messages with this team tag')}
                       class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 text-zinc-600 enabled:hover:bg-zinc-200 aria-pressed:border-indigo-500 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:enabled:hover:bg-zinc-700 dark:aria-pressed:border-indigo-400 dark:aria-pressed:bg-indigo-950 dark:aria-pressed:text-indigo-200"
-                    >{#if filter.kind === 'team' && filter.headRef === tag.headId}<Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />{/if}{tag.label}</button>
+                    >{#if pressed}<Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />{/if}{tag.label}</button>
                   {/each}
                 </span>
               {/if}

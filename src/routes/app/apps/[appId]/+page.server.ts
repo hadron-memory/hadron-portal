@@ -586,11 +586,12 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
   // URL state so the page reads it once at init, like `initialTab`; toggling
   // it afterwards is `replaceState`, not a navigation.
   const initialChatFullView = chatFullViewFromParams(url.searchParams);
-  // #1137: the team chat's team filter, `?team=<headRef>` or `?team=untagged`.
-  // Read here with the other URL state and applied by the SERVER on the tail
-  // read below. A malformed value is NOT the unfiltered thread: the chat reads
-  // nothing and says the filter is invalid (`teamFilterInvalid`).
-  const teamParam = parseTeamParam(url.searchParams.get('team'));
+  // #1137/#1482: the team chat's team filter — repeated `?team=<headRef>`
+  // values (one or several heads) or `?team=untagged`. Read here with the
+  // other URL state and applied by the SERVER on the tail read below. A
+  // malformed value is NOT the unfiltered thread: the chat reads nothing and
+  // says the filter is invalid (`teamFilterInvalid`).
+  const teamParam = parseTeamParam(url.searchParams.getAll('team'));
   const teamFilter = teamParam.ok ? teamParam.filter : NO_TEAM_FILTER;
   // The server's typed refusal of the head, when it gave one. Set from the tail
   // read's catch so the chat can show the server's own text instead of the
@@ -840,7 +841,7 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
     // #1137: an invalid `?team=` reads nothing at all — never the unfiltered
     // thread under a filter the reader believes is on.
     (teamParam.ok ? loadTeamChatTail(client, params.appId, teamFilter) : Promise.resolve(null)).catch((e) => {
-      teamChatRefusal = teamFilter.kind === 'team' ? teamChatRefusalOf(e) : null;
+      teamChatRefusal = teamFilter.kind === 'teams' ? teamChatRefusalOf(e) : null;
       console.warn(`[team-chat] transcript fetch failed for ${params.appId}:`, e);
       return null;
     }),
