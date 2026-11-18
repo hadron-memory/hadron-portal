@@ -57,6 +57,8 @@ export type ReadGroup = keyof typeof READ_GROUP_KEYS;
 
 /** What each tab's first screen reads, beyond the frame. */
 export const TAB_READS: Record<AppTabId, readonly ReadGroup[]> = {
+  // portal#2241: the App's identity renders from the frame's App read alone.
+  profile: [],
   chats: ['staff', 'teamChat', 'chatList', 'chatConfigs', 'memoryScope'],
   worklog: ['worklog'],
   runs: ['runs'],
