@@ -2111,7 +2111,8 @@ describe('registered Channel chat switching (#1033)', () => {
     const base = await pageData();
     const room = async (id: string) => ({ ...base,
       appChats: [{ key: 'room-a', label: 'A' }, { key: 'room-b', label: 'B' }],
-      selectedChatKey: id, selectedChannelId: id, chatsCapped: id === 'room-a', chatRootsShown: 200,
+      selectedChatKey: id, selectedChannelId: id,
+      chatRootsPage: { offset: 20, count: 5, total: 25, firstHref: null, previousHref: '/app/apps/a1?tab=chats', nextHref: null },
       selectedChannelMessages: [{ ...message(1, 'w1'), body: `message ${id}` }], selectedChannelTotal: 1, selectedChannelError: false,
       postChannelMessageForm: await superValidate({ channelRef: id }, zod4(postTeamChatMessageSchema), { id: `channel:${id}`, errors: false }),
     });
@@ -2122,7 +2123,8 @@ describe('registered Channel chat switching (#1033)', () => {
     mounted.push(m);
     await tick(2);
     expect(m.target.querySelectorAll('#app-chat-select option')).toHaveLength(2);
-    expect(m.target.textContent).toContain('Showing the first 200 chats');
+    expect(m.target.querySelector('form[action*="postChannelMessage"]')?.getAttribute('action')).toContain('chatRootsOffset=20');
+    expect(m.target.textContent).not.toContain('Showing the first 200 chats');
     const body = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
     body.value = 'draft for A';
     body.dispatchEvent(new Event('input', { bubbles: true }));
@@ -4421,4 +4423,33 @@ describe('Link and Unlink answers belong to their App visit (#1776)', () => {
       else expect(m.target.textContent).toContain(`B ${kind} ${outcome}`);
     });
   }
+});
+
+// #2170 F6: an inconclusive deep-link lookup is not a failed chat list.
+describe('App chats: deep-link uncertainty vs chat-list failure', () => {
+  async function mountChats(overrides: Record<string, unknown>) {
+    setStubPage('https://example.test/app/apps/a1?tab=chats', { appId: 'a1' });
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true, json: async () => ({ items: [], total: 0, workers: [], loadFailed: false }),
+    }) as Response));
+    const data = { ...(await pageData()), ...overrides };
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return m.target;
+  }
+  const DEEP_LINK = 'Couldn’t find the linked chat in this App — pick it from the list.';
+  const DISCOVERY = 'Could not load this App’s chat list';
+
+  it('says the linked chat could not be found, not that the list failed', async () => {
+    const t = await mountChats({ chatsError: false, chatDeepLinkUnresolved: true });
+    expect(t.textContent).toContain(DEEP_LINK);
+    expect(t.textContent).not.toContain(DISCOVERY);
+  });
+
+  it('a real chat-list failure keeps the discovery message (control)', async () => {
+    const t = await mountChats({ chatsError: true, chatDeepLinkUnresolved: false });
+    expect(t.textContent).toContain(DISCOVERY);
+    expect(t.textContent).not.toContain(DEEP_LINK);
+  });
 });

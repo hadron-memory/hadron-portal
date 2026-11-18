@@ -42,6 +42,7 @@ let PROCESSED_NOW: Record<string, unknown>;
 
 function setup() {
   mockRequest.mockImplementation(async (doc: string) => {
+    if (doc.includes('chatEffectiveToolChoice(')) return { chatEffectiveToolChoice: 'FORCED' };
     if (doc === RESOLVE_AI_CONFIG_QUERY) return { resolveAIConfig: { provider: 'anthropic', apiKey: 'sk-synthetic-2065', model: 'm', params: null, effectiveEndpoint: 'https://api.anthropic.com/v1' } };
     if (doc === SEND_CHAT_MESSAGE_MUTATION) return { sendChatMessage: { systemMessage: 'sys', tools: null, messageHistory: [{ role: 'user', content: 'hi' }], summarizationNeeded: null } };
     if (doc === PROCESS_CHAT_RESPONSE_MUTATION) return { processChatResponse: PROCESSED_NOW };
@@ -122,6 +123,7 @@ describe('portal#2065 4e / B3: EDGE_CONDITION_FAILED partial turn keeps the save
   });
   const run = async (err: unknown) => {
     mockRequest.mockImplementation(async (doc: string) => {
+    if (doc.includes('chatEffectiveToolChoice(')) return { chatEffectiveToolChoice: 'FORCED' };
       if (doc === RESOLVE_AI_CONFIG_QUERY) return { resolveAIConfig: { provider: 'anthropic', apiKey: 'k', model: 'm', params: null, effectiveEndpoint: 'https://api.anthropic.com/v1' } };
       if (doc === SEND_CHAT_MESSAGE_MUTATION) return { sendChatMessage: { systemMessage: 's', tools: null, messageHistory: [], summarizationNeeded: null } };
       throw err;
@@ -172,6 +174,7 @@ describe('portal#2065 B4: ENTRY_CONDITION_FAILED at start', () => {
   });
   async function start(err: unknown) {
     mockRequest.mockImplementation(async (doc: string) => {
+    if (doc.includes('chatEffectiveToolChoice(')) return { chatEffectiveToolChoice: 'FORCED' };
       if (doc === RESOLVE_AI_CONFIG_QUERY) return { resolveAIConfig: { provider: 'anthropic', apiKey: 'k', model: 'm', params: null, effectiveEndpoint: 'https://api.anthropic.com/v1' } };
       if (doc === START_CHAT_MUTATION) throw err;
       throw new Error('unexpected');
@@ -216,6 +219,7 @@ describe('portal#2065 B4: ENTRY_CONDITION_FAILED at start', () => {
 describe('portal#2065 LOCAL F1/F2: the welcome turn on /start', () => {
   const welcome = async (processed: Record<string, unknown> | { throws: unknown }) => {
     mockRequest.mockImplementation(async (doc: string) => {
+    if (doc.includes('chatEffectiveToolChoice(')) return { chatEffectiveToolChoice: 'FORCED' };
       if (doc === RESOLVE_AI_CONFIG_QUERY) return { resolveAIConfig: { provider: 'anthropic', apiKey: 'k', model: 'm', params: null, effectiveEndpoint: 'https://api.anthropic.com/v1' } };
       if (doc === START_CHAT_MUTATION) return { startChat: { chatId: 'chat-1', systemMessage: 'sys', tools: null, conversationName: 'intro', stageName: 's' } };
       if (doc === CHAT_AI_CONFIG_CHOICES_QUERY) return { chatAiConfigChoices: [{ value: 'default', name: 'default', provider: 'anthropic', model: null, isDefault: true, isAppChatbotConfig: false }] };

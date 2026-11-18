@@ -1,4 +1,5 @@
 <script lang="ts">
+  import WorkerLeaveAlone from './WorkerLeaveAlone.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import WorkerProfile from '$lib/components/WorkerProfile.svelte';
@@ -30,6 +31,8 @@
   import { pointerResultFor, type PointerResult } from '$lib/boot-prompt-pointer';
   import { isHeld, workerHold } from '$lib/worker-hold';
   import { reportsToOf, teamPlacementOf } from '$lib/worker-reports-to';
+  import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
+  import WorkerDeleteDialog from '$lib/components/WorkerDeleteDialog.svelte';
   import type { PageData } from './$types';
 
   let { data, form }: { data: PageData; form: unknown } = $props();
@@ -170,6 +173,68 @@
     const d = new Date(s);
     return Number.isNaN(d.getTime()) ? s : d.toLocaleString();
   }
+
+  // ───────── portal#2205 — header actions (Retire, Delete) ─────────
+  //
+  // Offered ONLY to an App manager acting as themselves — the same gate the
+  // loader applies to "Change agent" (canChangeAgent, #1538), checked here
+  // against the loader's two facts rather than re-derived. Hiding the menu is
+  // display only: the actions keep their own `_kind`/attestation guards and
+  // the server's staffing gate stays the real gate (FIT point 4 on #2205).
+  const canManageHere = $derived(data.canManageWorkerApp === true && !data.impersonation);
+
+  // Delete is offered on a retired worker too — the law admits deleting a
+  // just-retired, never-used worker
+  // (hrn:node:hadronmemory.com:specs:cor:dmo:050:11) — but Retire is not:
+  // retiring an already-retired worker is a no-op the menu need not offer.
+  const headerActions = $derived<NodeMenuAction[]>([
+    ...(!retired ? [{ id: 'retire', label: t('worker.menu.retire', 'Retire'), danger: true }] : []),
+    { id: 'delete', label: t('worker.menu.delete', 'Delete verified-unused worker'), danger: true },
+  ]);
+
+  // The retire outcome is keyed to the ROUTE's worker by the action, and the
+  // key the action uses is params.id (data.retireKey) — NOT worker.id, because
+  // the route may spell the worker as its URN while worker.id is its canonical
+  // id (the same rule as changeAgentKey/applyKey in the loader; matching
+  // worker.id here would silently drop the banner on every URN-spelled visit).
+  // The page component is reused across /workers/A → B (#251), so a reply that
+  // arrives after a move to another worker must not render as this worker's
+  // banner either.
+  const retireNotice = $derived.by(() => {
+    const r = (form as { retireResult?: { key: string; ok: boolean; uncertain?: boolean; message: string } } | null)?.retireResult;
+    return r && r.key === data.retireKey ? r : null;
+  });
+
+  // Retire is one-way in the sense that matters
+  // (hrn:node:hadronmemory.com:specs:cor:agt:020:02): the casting
+  // ends and the name stays reserved FOREVER, and retirement also ends the
+  // worker's tickers, subscriptions and held grants
+  // (hrn:node:hadronmemory.com:specs:cor:acl:140:03). The
+  // roster's confirm (app.staff.retire.confirm) states the permanence; this
+  // page's confirm extends it with the two consequences a manager cannot
+  // undo or see coming. Native confirm() — focus-trapping and Escape-safe
+  // for free — exactly as the App roster's Retire does.
+  let retireForm = $state<HTMLFormElement | undefined>();
+  function retireFromMenu() {
+    const prompt = t(
+      'worker.retire.confirm',
+      'Retire this worker? There is no undo: its name stays reserved in this App permanently, and its tickers, subscriptions and held grants end:',
+    );
+    if (!confirm(`${prompt} ${worker.name}`)) return;
+    retireForm?.requestSubmit();
+  }
+
+  // The delete dialog, shared with the App roster's staff tab. Re-keyed per
+  // worker like every control on this page, so a dialog opened for A closes
+  // (never re-targets) when the route moves to B.
+  let deleteTarget = $state(false);
+  const deleteTargetKey = $derived(worker.id);
+  $effect(() => { deleteTargetKey; deleteTarget = false; });
+
+  function onHeaderAction(id: string) {
+    if (id === 'retire') retireFromMenu();
+    else if (id === 'delete') deleteTarget = true;
+  }
 </script>
 
 <svelte:head><title>{worker.name} · Worker · Hadron</title></svelte:head>
@@ -194,7 +259,35 @@
     <div class="mt-2 flex flex-wrap items-center gap-3">
       <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{worker.name}</h1>
       <WorkerBadge {retired} />
+      {#if canManageHere}
+        <!-- portal#2205 — Retire/Delete, in the header so they are reachable from
+             every tab. The retire form posts with the CURRENT tab in its action
+             URL, so a plain POST (authoritative re-read: only the loader's fresh
+             answer flips the page to retired) returns the reader where they
+             were. -->
+        <div class="ml-auto">
+          <NodeActionsMenu
+            actions={headerActions}
+            onselect={onHeaderAction}
+            label={t('worker.menu.label', 'Actions for {name}', { name: worker.name })}
+          />
+        </div>
+        <form method="POST" action="?tab={activeTab}&/retireWorker" bind:this={retireForm} class="hidden">
+          <input type="hidden" name="_kind" value="retireWorker" />
+        </form>
+      {/if}
     </div>
+
+    {#if retireNotice}
+      <div
+        role={retireNotice.ok ? 'status' : 'alert'}
+        class="mt-3 rounded-lg border px-4 py-3 text-sm {retireNotice.ok
+          ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
+          : 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200'}"
+      >
+        {retireNotice.message}
+      </div>
+    {/if}
 
     <!-- The URN below the name, per hrn:node:hadronmemory.com:hadron-portal:review:render-urn. Nullable by contract
          (#991) — an App whose URN predates the flat grammar has no worker URN,
@@ -418,6 +511,16 @@
         />
       {/key}
     {/if}
+
+    <!-- portal#2194: the sweep leave-alone marker. Null = withheld (profile tier), so nothing renders. -->
+    {#key data.worker.id}
+      <WorkerLeaveAlone
+        ownerId={data.worker.id}
+        marker={worker.leaveAlone == null ? null : { on: worker.leaveAlone, reason: worker.leaveAloneReason ?? null, by: data.leaveAloneByHandle ? `@${data.leaveAloneByHandle}` : (worker.leaveAloneBy ?? null), at: worker.leaveAloneAt ?? null }}
+        canManage={data.canManageWorkerApp === true && !data.impersonation}
+        {retired}
+      />
+    {/key}
 
     {#if isHeld(hold)}
       <!-- The consequence a reader cannot infer from "held": a name is a person's
@@ -699,6 +802,19 @@
         applyResult={(form as { applyTickers?: ApplyResult } | null)?.applyTickers ?? null}
       />
     </div>
+  {/if}
+
+  {#if canManageHere && deleteTarget}
+    {#key worker.id}
+      <!-- portal#2205 — the roster's own delete dialog, posting to this page's
+           ?/deleteWorker action. On success the action redirects to the App's
+           staff roster: this page's URL stops resolving, so there is nothing
+           here to invalidate back to. -->
+      <WorkerDeleteDialog
+        worker={{ id: worker.id, name: worker.name, urn: worker.urn ?? null }}
+        onclose={() => { deleteTarget = false; }}
+      />
+    {/key}
   {/if}
 </div>
 

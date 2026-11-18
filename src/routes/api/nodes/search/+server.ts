@@ -69,8 +69,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
 
   const body = await request.json();
-  const { query, mode, memoryIds, filter, sort, sortProperty, fields, limit: requestedLimit } = body as {
+  const { query, mode, memoryIds, filter, sort, sortProperty, fields, limit: requestedLimit, scopedBrowse } = body as {
     query?: unknown;
+    scopedBrowse?: unknown;
     limit?: unknown;
     mode?: unknown;
     memoryIds?: unknown;
@@ -84,6 +85,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       approvalState?: unknown;
       minted?: unknown;
       contentScope?: unknown;
+      nodeTypes?: unknown;
+      tags?: unknown;
     };
     sort?: unknown;
     sortProperty?: unknown;
@@ -134,6 +137,21 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     ? (filter!.contentScope as ContentScope)
     : null;
   const contentScope = requestedScope === 'COMMENTS' || requestedScope === 'ALL' ? requestedScope : null;
+  const nodeTypes = Array.isArray(filter?.nodeTypes)
+    ? [...new Set(filter.nodeTypes.filter((v): v is string => typeof v === 'string' && v.length > 0))]
+    : null;
+  if (nodeTypes && nodeTypes.length > 20) {
+    return json({ error: 'At most 20 node types can be filtered.' }, { status: 400 });
+  }
+  const tags = Array.isArray(filter?.tags)
+    ? [...new Set(filter.tags.filter((v): v is string => typeof v === 'string' && v.length > 0))]
+    : null;
+  // #2170 F5: the same bound as nodeTypes, counted after dedupe.
+  if (tags && tags.length > 20) {
+    return json({ error: 'At most 20 tags can be filtered.' }, { status: 400 });
+  }
+  const nodeTypeFilter = nodeTypes?.length ? nodeTypes : null;
+  const tagFilter = tags?.length ? tags : null;
   const sortProp = parseSortProperty(sortProperty);
   if (sortProp === 'invalid') {
     return json({ error: 'Invalid sort.' }, { status: 400 });
@@ -150,11 +168,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const lexical = findMode === 'keyword' || findMode === 'regex';
   const searchFields = lexical && fieldSet.length > 0 ? fieldSet : null;
 
-  const hasFilter = !!(createdBy || updatedAfter || updatedBefore || includeDeleted || objectType || where || approvalState || minted !== null || contentScope);
+  const hasFilter = !!(createdBy || updatedAfter || updatedBefore || includeDeleted || objectType || where || approvalState || minted !== null || contentScope || nodeTypeFilter || tagFilter);
   // Nothing to do → let the client browse the already-loaded set. (A bare
   // loc/seq sort with no query/filter is also a client-side reorder; a
   // property sort is server-only — the slim loaded set has no properties.)
-  if (!q && !hasFilter && !sortProp && (!sortMode || sortMode === 'loc' || sortMode === 'seq')) {
+  // #1881/#1929 BLIND P2: a server-paged browser that narrowed memoryIds to a
+  // chosen memory has no rows of that memory loaded to browse; `scopedBrowse`
+  // says the scope itself is the request. Strictly `true`, never truthy.
+  const scoped = scopedBrowse === true;
+  if (!scoped && !q && !hasFilter && !sortProp && (!sortMode || sortMode === 'loc' || sortMode === 'seq')) {
     return json({ nodes: [], total: null });
   }
 
@@ -204,6 +226,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       approvalState,
       minted,
       contentScope,
+      nodeTypes: nodeTypeFilter,
+      tags: tagFilter,
       limit: resultLimit,
     });
 

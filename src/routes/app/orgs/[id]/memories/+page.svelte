@@ -267,7 +267,8 @@
       name: g.name,
       urn: g.urn,
       section: 'personal' as const,
-      badge: g.class === 'private' ? 'Private' : 'Personal',
+      // #2140: the caller's own org-less system memory lands here too.
+      badge: g.class === 'private' ? 'Private' : g.class === 'system' ? 'System' : 'Personal',
       storage: null,
       branch: null,
       lastSyncedAt: null,
@@ -438,7 +439,7 @@
     {:else if cell.column.id === 'urn'}
       <Urn value={m.urn} type="memory" size={10} />
     {:else if cell.column.id === 'type'}
-      <span class="inline-block rounded px-1.5 py-0.5 text-xs {badgeClass(m)}">{m.badge}</span>
+      <span data-testid="row-type-badge" class="inline-block rounded px-1.5 py-0.5 text-xs {badgeClass(m)}">{m.badge}</span>
     {:else if cell.column.id === 'vectorIndex'}
       {#if m.vectorIndexEnabled}
         <div class="flex flex-col gap-0.5">
@@ -471,11 +472,20 @@
     <!-- #555: Personal Memories — the caller's own personal memories (the
          personal + private classes) in this org. The create link preselects the
          personal class so the "new" page defaults to it. -->
-    {#if personalRows.length === 0}
+    <!-- portal#2175 (FIT 6884373873 c): a failed feed read hides its rows
+         (fail-closed) but must not read as "no memories" — the degraded flag
+         trades the empty-state copy for truthful unavailable copy, and the
+         alert also sits above rows that survived another read's failure. -->
+    {#if data.personalMemoriesDegraded}
+      <div role="alert" class="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+        {t('org-memories.personal.load-failed', "Couldn't load your personal memories just now — this is a temporary error, not an empty list. Try refreshing the page.")}
+      </div>
+    {:else if personalRows.length === 0}
       <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
         {t('org-memories.personal.empty', 'No personal memories yet.')} <a href="/app/orgs/{org.id}/memories/new?class=personal" class="text-indigo-600 hover:underline dark:text-indigo-400">{t('org-memories.add-one', 'Add one →')}</a>
       </div>
-    {:else}
+    {/if}
+    {#if personalRows.length > 0}
       <DataTable
         table={personalTable}
         listKey="orgs:memories:personal"
@@ -495,11 +505,20 @@
       </a>
     </div>
   {:else if subTab === 'org'}
-    {#if orgRows.length === 0}
+    <!-- portal#2175 (FIT 6884373873 c): same trade as the personal tab — a
+         failed system-rows read hides its rows but never reads as "no
+         memories", and the alert sits above whatever rows the org read did
+         return. -->
+    {#if data.systemMemoriesDegraded}
+      <div role="alert" class="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+        {t('org-memories.load-failed', "Couldn't load this organization's memories just now — this is a temporary error, not an empty list. Try refreshing the page.")}
+      </div>
+    {:else if orgRows.length === 0}
       <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
         {t('org-memories.empty', 'No memories yet.')} <a href="/app/orgs/{org.id}/memories/new" class="text-indigo-600 hover:underline dark:text-indigo-400">{t('org-memories.add-one', 'Add one →')}</a>
       </div>
-    {:else}
+    {/if}
+    {#if orgRows.length > 0}
       <!-- 26rem offset tuned to this page's chrome height (sub-tabs above,
            action buttons below) — per-page convention. -->
       <DataTable
@@ -575,7 +594,13 @@
     <!-- Subscribe to external memories (moved here from the page footer) -->
     <div class="pt-2">
       <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">Subscribe to a memory</h2>
-      {#if data.availableMemories.length === 0}
+      <!-- portal#2175: a failed public-memories read empties the whole picker
+           feed, so a degraded flag here means the catalogue is missing, not
+           absent — the picker is withheld rather than offered over an
+           incomplete catalogue. -->
+      {#if data.availableMemoriesDegraded}
+        <p role="alert" class="text-sm text-amber-700 dark:text-amber-300">{t('org-memories.available.load-failed', "Couldn't load the public memories list just now — this is a temporary error, not an empty catalogue. Try refreshing the page.")}</p>
+      {:else if data.availableMemories.length === 0}
         <p class="text-sm text-zinc-500">No public memories available to subscribe to.</p>
       {:else}
         <form method="POST" action="?/subscribe" use:subscribeEnhance class="flex items-start gap-3 max-w-lg" novalidate>

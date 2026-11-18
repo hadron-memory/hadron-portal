@@ -250,7 +250,7 @@ describe('views (slice 2)', () => {
 describe('task loader', () => {
   it('a null task is a 404 that doesn’t say which of missing or unreadable', async () => {
     request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { agentTask: null }));
-    await expect(loadDetail()).rejects.toMatchObject({ status: 404, body: { message: 'Task not found, or you can’t see it' } });
+    await expect(loadDetail()).rejects.toMatchObject({ status: 404, body: { message: 'Task not found' } });
   });
 
   it('a refused App read is a 404 on the task page too', async () => {
@@ -335,7 +335,7 @@ describe('task loader: handles', () => {
 
   it('another App’s qualified handle is a 404 BEFORE any task read — no redirect, same words as unknown', async () => {
     request.mockImplementation(async (q: string) => asked(q, detail({ appId: 'app-2' })));
-    await expect(loadDetail('hrn:agenttask:acme.com:other:AT3')).rejects.toMatchObject({ status: 404, body: { message: 'Task not found, or you can’t see it' } });
+    await expect(loadDetail('hrn:agenttask:acme.com:other:AT3')).rejects.toMatchObject({ status: 404, body: { message: 'Task not found' } });
     expect(request.mock.calls.map((c) => c[0])).not.toContain(AGENT_TASK_DETAIL_QUERY);
   });
 
@@ -352,7 +352,7 @@ describe('task loader: handles', () => {
       answers.push(await loadDetail(seg).then(() => null, (e) => ({ status: e.status, body: e.body })));
     }
     expect(new Set(answers.map((a) => JSON.stringify(a))).size).toBe(1);
-    expect(answers[0]).toEqual({ status: 404, body: { message: 'Task not found, or you can’t see it' } });
+    expect(answers[0]).toEqual({ status: 404, body: { message: 'Task not found' } });
   });
 
   it('a raw id of another App keeps its authorized redirect, and the URL segment is encoded', async () => {

@@ -9,6 +9,7 @@
   import AssetChip from '$lib/components/assets/AssetChip.svelte';
   import type { AssetSummary } from '$lib/api/assetUpload';
   import { olderCursorFrom } from '$lib/agent-chat-window';
+  import { AGENT_CHAT_KEY } from '$lib/app-chats';
   import { resolveActiveChatFromUrl } from '$lib/components/agent-chat-helpers.js';
   import { scrollTopAfterPrepend } from '$lib/team-chat-refresh';
   import { t } from '$lib/i18n/t.js';
@@ -38,7 +39,18 @@
     uploadMemoryId,
     appId,
     aiChoices = null,
-  }: { agentId: string; uploadMemoryId?: string; appId?: string; aiChoices?: ChatAiChoiceOption[] | null } = $props();
+    allowLegacyAppChat = false,
+    onLegacyChatResolved,
+  }: {
+    agentId: string;
+    uploadMemoryId?: string;
+    appId?: string;
+    aiChoices?: ChatAiChoiceOption[] | null;
+    /** The App has proved the requested selector missing, without a read failure. */
+    allowLegacyAppChat?: boolean;
+    /** A successful legacy resume can dismiss the page's old missing banner. */
+    onLegacyChatResolved?: (appId: string) => void;
+  } = $props();
 
   // portal#1963: the choice stored with the open chat (null for a new chat, or none stored), and the one the
   // user picked in the dropdown. A pick is what gets SENT, so the server stores it; until the user picks, the
@@ -175,6 +187,14 @@
     turnErrorFromList = message !== null && fromList;
   }
 
+  /** One place for the stage toast's words: the visible line and its `title` read the same string (portal#2184). */
+  function stageToastText(toast: { from: string; to: string }): string {
+    return t('agent-chat.stage-toast', 'Stage transitioned: {from} → {to}', {
+      from: toast.from || t('agent-chat.stage-toast.start', '(start)'),
+      to: toast.to
+    });
+  }
+
   // Recent stage-transition toast
   let stageToast = $state<{ from: string; to: string } | null>(null);
 
@@ -307,20 +327,37 @@
 
   // ── Initial list fetch ───────────────────────────────────────────────
   // After loading the chat list, auto-resume the chat referenced by
-  // `?chat=<id>` so a reload restores the open conversation. Without
+  // `?chat=agent chat&agentChat=<loc>` on an App (legacy `?chat=<loc>`
+  // elsewhere) so a reload restores the open conversation. Without
   // this, every reload silently emptied the transcript pane — to the
   // user that looked like "chats are not saving."
   onMount(async () => {
+    const issuedAppId = appId;
+    const issuedAgentId = agentId;
+    const issuedSelector = new URL(window.location.href).searchParams.get('chat');
+    const issuedLegacyProof = allowLegacyAppChat;
     await refreshChatList();
-    const target = resolveActiveChatFromUrl(new URL(window.location.href), chats);
+    const url = new URL(window.location.href);
+    const legacyAllowed = issuedLegacyProof && allowLegacyAppChat && url.searchParams.get('chat') === issuedSelector && issuedAppId === appId && issuedAgentId === agentId;
+    // The unresolved-selector proof still holds while the page shows its not-found banner. That includes Back/Forward
+    // into an already-recovered entry, where Kit serves the cached `chatNotFound: true` but the URL is canonical, so
+    // this is gated on the proof, not on the URL looking legacy (BLIND P2 on #2148). A fresh canonical load has
+    // chatNotFound false, so the proof is absent and nothing fires.
+    const legacy = !!appId && legacyAllowed;
+    const target = resolveActiveChatFromUrl(url, chats, { appChat: !!appId, allowLegacyAppChat: legacyAllowed });
     if (target) {
       // A page load is not the person choosing a chat: show it, don't move focus.
-      await resumeChat(target, { focus: false });
+      const resumed = await resumeChat(target, { focus: false });
+      if (legacy && resumed && !destroyed && issuedAppId && appId === issuedAppId && agentId === issuedAgentId) onLegacyChatResolved?.(issuedAppId);
     } else if (
       listError === null &&
-      new URL(window.location.href).searchParams.has('chat')
+      (!appId || url.searchParams.get('chat') === AGENT_CHAT_KEY) &&
+      url.searchParams.has(appId ? 'agentChat' : 'chat')
     ) {
-      // Stale ?chat=<id> (e.g. chat deleted in another tab) — clear it.
+      if (appId) {
+        setTurnError(t('agent-chat.not-found', 'That chat isn’t available — it may have been deleted, or you may not have access.'));
+      }
+      // Stale personal chat id (e.g. deleted in another tab) — clear it.
       // Gated on a successful list fetch: a transient list failure
       // leaves `chats` empty too, but we MUST NOT throw away a valid
       // ?chat param in that case — the next list reload should still
@@ -375,12 +412,18 @@
     // hrn:node:hadronmemory.com:hadron-portal:review:async-onmount-runs-after-teardown.
     if (destroyed) return;
     const url = new URL(window.location.href);
+    const param = appId ? 'agentChat' : 'chat';
     if (chatId) {
-      if (url.searchParams.get('chat') === chatId) return;
-      url.searchParams.set('chat', chatId);
+      if (url.searchParams.get(param) === chatId &&
+        (!appId || (url.searchParams.get('chat') === AGENT_CHAT_KEY && url.searchParams.get('tab') === 'chats'))) return;
+      if (appId) {
+        url.searchParams.set('tab', 'chats');
+        url.searchParams.set('chat', AGENT_CHAT_KEY);
+      }
+      url.searchParams.set(param, chatId);
     } else {
-      if (!url.searchParams.has('chat')) return;
-      url.searchParams.delete('chat');
+      if (!url.searchParams.has(param)) return;
+      url.searchParams.delete(param);
     }
     replaceState(url, {});
   }
@@ -502,7 +545,7 @@
         syncChatIdToUrl(chatId);
         if (focus) void focusConversation();
       }
-      return;
+      return true;
     }
     showList = false;
     loadingChat = true;
@@ -549,10 +592,12 @@
       // a full last page is indistinguishable from a middle one.
       resetScrollback({ messages, hasOlder: body.hasOlder });
       scrollMessagesToBottom();
+      return true;
     } catch (e) {
       setTurnError(e instanceof Error ? e.message : 'Failed to resume chat');
       activeChatId = null;
       syncChatIdToUrl(null);
+      return false;
     } finally {
       loadingChat = false;
     }
@@ -577,7 +622,7 @@
       notes.push({ tone: 'good', text: stage ? t('agent-chat.progress.detour-returned', 'Back to {where}', { where: stage }) : t('agent-chat.progress.detour-returned-plain', 'Back to where we were') });
     }
     if (typeof body.rejectedNextStage === 'string' && body.rejectedNextStage) {
-      notes.push({ tone: 'neutral', text: t('agent-chat.progress.stage-refused', 'Couldn\'t move to "{name}", so we\'re staying on this step.', { name: body.rejectedNextStage }) });
+      notes.push({ tone: 'neutral', text: t('agent-chat.progress.stage-refused', 'Staying on this step, and your message is saved. Couldn\'t move to "{name}".', { name: body.rejectedNextStage }) });
     }
     progressNotice = notes.length ? { chatId, notes } : null;
   }
@@ -921,7 +966,7 @@
                  in flow, so the title keeps the row's width and they never
                  cover the title or scope badge (#2095). -->
             <li
-              class="group grid grid-cols-[minmax(0,1fr)_auto] items-center transition
+              class="group relative grid grid-cols-[minmax(0,1fr)_auto] items-center transition
                 {activeChatId === chat.loc
                   ? 'bg-indigo-50 dark:bg-indigo-950/40'
                   : 'hover:bg-zinc-50 dark:hover:bg-zinc-800'}"
@@ -954,7 +999,7 @@
                   type="button"
                   data-chat-row={chat.loc}
                   onclick={() => resumeChat(chat.loc)}
-                  class="col-span-2 row-start-1 block min-w-0 px-3 pb-0.5 pt-2 text-left text-sm pointer-coarse:min-h-11
+                  class="col-span-2 row-start-1 block min-w-0 px-3 pb-0.5 pt-2 text-left text-sm pointer-coarse:min-h-11 after:absolute after:inset-0 after:content-['']
                     {activeChatId === chat.loc
                       ? 'text-indigo-900 dark:text-indigo-200'
                       : 'text-zinc-700 dark:text-zinc-300'}"
@@ -977,10 +1022,14 @@
                     </span>
                   </div>
                 </button>
-                <!-- The meta line sits outside the row button so the actions
-                     can share it without covering the tap target. It hugs the
-                     title; the 44px targets' extra height falls below it. -->
-                <div class="col-start-1 row-start-2 flex items-center gap-2 self-start px-3 pt-0.5 text-[10px] text-zinc-400">
+                <!-- The existing row button's transparent pseudo-element
+                     stretches across the row. Actions sit above it in their
+                     own grid cell; meta text passes pointer hits through. No
+                     extra opener or keyboard stop is introduced (#2105). -->
+                <div
+                  data-chat-meta={chat.loc}
+                  class="pointer-events-none col-start-1 row-start-2 flex items-start gap-2 self-stretch px-3 pt-0.5 text-[10px] text-zinc-400"
+                >
                   <span>{agentChatRowStrings.messages(chat.messageCount)}</span>
                   {#if chat.lastMessageAt}
                     <span>{agentChatRowStrings.separator()}</span>
@@ -988,7 +1037,7 @@
                   {/if}
                 </div>
                 <div
-                  class="col-start-2 row-start-2 flex gap-0.5 pb-1 pr-1
+                  class="relative z-10 col-start-2 row-start-2 flex gap-0.5 pb-1 pr-1
                     {activeChatId === chat.loc
                       ? 'opacity-100'
                       : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 @max-2xl:opacity-100 pointer-coarse:opacity-100'}"
@@ -1035,14 +1084,19 @@
       <!-- Header -->
       <header class="flex items-center gap-2 border-b border-zinc-200 px-4 py-3 @2xl:gap-3 dark:border-zinc-800">
         <!-- portal#2088: phone-only view navigation back to the list. Neutral
-             chrome (never the warm accent); it changes no chat. -->
+             chrome (never the warm accent); it changes no chat.
+             portal#2094: reads as a control at rest — a drawn zinc outline
+             strong enough to see against the header surface (>= 3:1 both
+             themes, one ramp step for both), a 20px chevron and the label,
+             inside the 44px target. Back is navigation; the warm accent is
+             never the primary navigation color. -->
         <button
           type="button"
           onclick={backToChats}
           aria-label={t('agent-chat.back.aria', 'Back to chats')}
-          class="-my-2 -ml-2 inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-lg px-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 @2xl:hidden dark:text-zinc-200 dark:hover:bg-zinc-800"
+          class="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-lg border border-zinc-500 bg-white px-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 @2xl:hidden dark:border-zinc-500 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
         >
-          <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4">
+          <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" class="h-5 w-5">
             <path fill-rule="evenodd" d="M12.79 5.23a.75.75 0 0 1-.02 1.06L8.832 10l3.938 3.71a.75.75 0 1 1-1.04 1.08l-4.5-4.25a.75.75 0 0 1 0-1.08l4.5-4.25a.75.75 0 0 1 1.06.02Z" clip-rule="evenodd" />
           </svg>
           {t('agent-chat.back.label', 'Chats')}
@@ -1083,9 +1137,9 @@
           {#if activeChatMeta && activeChatMeta.completed.length > 0}
             <div class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400" data-testid="completed-conversations-row">
               <span>{t('agent-chat.progress.done-label', 'Done')}:</span>
-              <ul class="flex flex-wrap gap-1.5" data-testid="completed-conversations">
+              <ul class="flex min-w-0 flex-wrap gap-1.5" data-testid="completed-conversations">
                 {#each activeChatMeta.completed as name (name)}
-                  <li class="rounded bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{name}</li>
+                  <li title={name} class="max-w-full truncate rounded bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{name}</li>
                 {/each}
               </ul>
             </div>
@@ -1094,15 +1148,16 @@
       </header>
 
       {#if stageToast}
-        <div class="mx-4 mt-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
-          Stage transitioned: <strong>{stageToast.from || '(start)'}</strong> → <strong>{stageToast.to}</strong>
+        <!-- The clamp sits on an inner element: line-clamp on a box that has vertical padding lets the next line show through the padding. -->
+        <div class="mx-4 mt-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
+          <span data-testid="stage-toast" title={stageToastText(stageToast)} class="line-clamp-2 break-words">{stageToastText(stageToast)}</span>
         </div>
       {/if}
 
-      <div role="status" data-testid="chat-progress-notice" class={progressNotice && progressNotice.chatId === activeChatId ? 'mx-4 mt-2 space-y-1' : 'sr-only'}>
+      <div role="status" data-testid="chat-progress-notice" class={progressNotice && progressNotice.chatId === activeChatId ? 'mx-4 mt-1.5 space-y-1' : 'sr-only'}>
         {#if progressNotice && progressNotice.chatId === activeChatId}
           {#each progressNotice.notes as note}
-            <p class="rounded-md border px-3 py-2 text-xs {note.tone === 'good' ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200' : 'border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300'}">{note.text}</p>
+            <p class="rounded-md border px-3 py-1 text-xs {note.tone === 'good' ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200' : 'border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300'}"><span data-testid="chat-progress-item" title={note.text} class="line-clamp-2 break-words">{note.text}</span></p>
           {/each}
         {/if}
       </div>
@@ -1215,7 +1270,11 @@
         {/if}
         <!-- portal#2088: below `@2xl` (panel width) the textarea keeps at least 200px and Send
              wraps under it when the row is too narrow (DOM and Tab order
-             unchanged); from `@2xl` up, one row as before. -->
+             unchanged); from `@2xl` up, one row as before.
+             portal#2094: the placeholder stays short (one word) so the
+             natural rows="2" box shows it whole at every width and locale;
+             no height is sized around a sentence. The Enter/Shift+Enter hint
+             lives in the helper line below, shown for fine pointers only. -->
         <div class="flex flex-wrap items-end gap-2 @2xl:flex-nowrap">
           {#if uploadMemoryId}
             <AssetUploadButton
@@ -1227,7 +1286,10 @@
           <textarea
             bind:value={input}
             onkeydown={onInputKeydown}
-            placeholder={activeChatId ? 'Type your message… (Enter to send, Shift+Enter for a new line)' : 'Start a chat first'}
+            placeholder={activeChatId
+              ? t('agent-chat.composer.placeholder', 'Message…')
+              : t('agent-chat.composer.placeholder-disabled', 'Start a chat first')}
+            aria-describedby={activeChatId ? 'agent-chat-composer-hint' : undefined}
             rows="2"
             disabled={!activeChatId || sending}
             class="min-h-[42px] w-full min-w-[12.5rem] flex-1 resize-none rounded-lg @2xl:min-w-0 border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
@@ -1242,6 +1304,24 @@
             Send
           </button>
         </div>
+        <!-- portal#2094: the keyboard hint the placeholder used to carry.
+             Helper text, not placeholder text, so the composer box is never
+             sized around a sentence, and tied to the field by
+             aria-describedby so it is announced on focus. It is real copy,
+             not a placeholder ghost, so it carries full text contrast
+             (>= 4.5:1, zinc-600/zinc-400). Hidden on touch pointers, where
+             an Enter-to-send hint rarely applies and every pixel of the
+             composer column is scarce, and hidden with no chat open, where
+             there is nothing to send. -->
+        {#if activeChatId}
+          <p
+            id="agent-chat-composer-hint"
+            data-testid="composer-hint"
+            class="pointer-coarse:hidden mt-1.5 text-xs text-zinc-600 dark:text-zinc-400"
+          >
+            {t('agent-chat.composer.hint', 'Enter to send · Shift+Enter for a new line')}
+          </p>
+        {/if}
       </div>
     {/if}
     {#if hasAiChoices}

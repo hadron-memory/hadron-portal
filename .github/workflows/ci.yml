@@ -33,6 +33,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   ci:
     # #1285: Playwright 1.58.2 cannot install Chromium on Ubuntu 26.04.
@@ -81,9 +85,22 @@ jobs:
       - name: Check App agent chat phone layout
         run: pnpm test:agent-chat-phone-layout
 
+      # portal#2201: short phone transcripts retain readable vertical space.
+      - name: Check App agent chat transcript height
+        run: pnpm test:agent-chat-transcript-height
+
       # portal#2098: the chat list's Rename/Delete by keyboard, mouse and touch.
       - name: Check App agent chat row actions
         run: pnpm test:agent-chat-row-actions
+
+      # These native negative controls skip without Chromium in the early
+      # unit-test step; run them explicitly after the browser install too.
+      # REQUIRE_CHROMIUM_CONTROLS turns a missing browser into a failure here, so
+      # this step can never pass having skipped every control (portal#2185).
+      - name: Check Agent chat row oracle failure controls
+        env:
+          REQUIRE_CHROMIUM_CONTROLS: '1'
+        run: pnpm exec vitest run scripts/test-agent-chat-row-actions-controls.test.ts
 
       - name: Check node phone layout
         run: pnpm test:node-phone-layout

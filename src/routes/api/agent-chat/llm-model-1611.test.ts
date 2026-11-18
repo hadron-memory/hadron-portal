@@ -52,6 +52,7 @@ function setup(o: { resolve?: Array<unknown | Error>; start?: Error; send?: Erro
   const resolve = o.resolve ?? [config('model-X')];
   let n = 0;
   mockRequest.mockImplementation(async (doc: string) => {
+    if (doc.includes('chatEffectiveToolChoice(')) return { chatEffectiveToolChoice: 'FORCED' };
     if (doc === RESOLVE_AI_CONFIG_QUERY) {
       const r = resolve[Math.min(n++, resolve.length - 1)];
       if (r instanceof Error) throw r;

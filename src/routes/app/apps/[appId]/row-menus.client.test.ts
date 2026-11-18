@@ -28,7 +28,7 @@ const KEY = { id: 'k1', keyPreview: 'abc123', label: 'CI', createdAt: '2026-10-0
 
 const IMPORTER = { id: 'ag0', name: 'Alpha', urn: 'hrn:agent:acme.com:alpha' };
 
-async function pageData(initialTab: 'agents' | 'keys') {
+async function pageData(initialTab: 'agents' | 'keys', agents: unknown[] = [AGENT]) {
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm,
     updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm,
     retireWorkerForm, releaseWorkerForm, postTeamChatMessageForm] = await Promise.all([
@@ -40,7 +40,7 @@ async function pageData(initialTab: 'agents' | 'keys') {
     app: {
       id: 'a1', urn: 'hrn:app:acme.com:team', name: 'Team', appType: 'WORKSTATION',
       role: 'OWNER', surfaces: [], agentId: null, agent: null,
-      agents: initialTab === 'agents' ? [AGENT] : [],
+      agents: initialTab === 'agents' ? agents : [],
     },
     appKeys: { kind: 'ok', keys: initialTab === 'keys' ? [KEY] : [] },
     viewerManages: { kind: 'known', manages: true },
@@ -56,13 +56,13 @@ async function pageData(initialTab: 'agents' | 'keys') {
   };
 }
 
-async function mountTab(tab: 'agents' | 'keys', over: Record<string, unknown> = {}) {
+async function mountTab(tab: 'agents' | 'keys', over: Record<string, unknown> = {}, agents: unknown[] = [AGENT]) {
 
   setStubPage(`https://example.test/app/apps/a1?tab=${tab}`, { appId: 'a1' });
   // The page may poll chats/authors from onMount regardless of tab; any
   // fetch it makes can resolve empty — these tests are about the menus.
   vi.stubGlobal('fetch', vi.fn(async (url) => ({ ok: true, json: async () => String(url).includes('/customisation?') ? { list: { state: 'not-shown' }, original: { state: 'not-shown' }, replacement: { state: 'not-shown' } } : {} }) as Response));
-  const m = mountComponent(Page as never, { data: { ...(await pageData(tab)), ...over }, form: null } as never) as Mounted<Record<string, unknown>>;
+  const m = mountComponent(Page as never, { data: { ...(await pageData(tab, agents)), ...over }, form: null } as never) as Mounted<Record<string, unknown>>;
 
   mounted.push(m);
   await tick(2);
@@ -314,5 +314,98 @@ describe('compile panel focus from the real row menu', () => {
     expect(JSON.parse(String(writes[0][1]!.body))).toMatchObject({ owner: { level: 'app', app: 'a1', agent: 'ag1' }, intent: 'compile', nodeId: 'c3', revision: 3 });
     expect([...panel.querySelectorAll('[role=alert]')].some(el => el.textContent === 'The prompt couldn’t be built right now. Try again.')).toBe(true);
     expect(panel.querySelector('[role=status]')?.textContent).toBe('');
+  });
+});
+
+const GAMMA = { id: 'ag2', urn: 'hrn:agent:acme.com:gamma', name: 'Gamma', personaRole: null };
+async function settle() {
+  await tick(4);
+  await new Promise((r) => setTimeout(r, 0));
+  await tick(4);
+}
+const pickCustomisation = (target: HTMLElement, name: string) =>
+  openMenu(target, `Actions for ${name}`)
+    .find((i) => i.textContent?.trim() === 'Customisation…')!
+    .click();
+const panelHeading = (target: HTMLElement) =>
+  target.querySelector('section[aria-label="Customisation"] h3')?.textContent?.trim();
+
+describe('switching Agents with an unsaved customisation draft (#1369)', () => {
+  async function dirtyBeta() {
+    const target = await mountTab('agents', {}, [AGENT, GAMMA]);
+    pickCustomisation(target, 'Beta');
+    await settle();
+    [...target.querySelectorAll<HTMLButtonElement>('section[aria-label="Customisation"] button')]
+      .find((b) => b.textContent?.trim() === 'Start customising')!
+      .click();
+    await settle();
+    // Metadata only: a typed loc with the content still empty is unsaved.
+    const locInput = target.querySelector<HTMLInputElement>('section[aria-label="Customisation"] form input')!;
+    locInput.value = 'boot:extra';
+    locInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await settle();
+    return { target, locInput };
+  }
+  it('asks before re-keying, and Cancel keeps the draft and the selected Agent', async () => {
+    const { target } = await dirtyBeta();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    pickCustomisation(target, 'Gamma');
+    await settle();
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(panelHeading(target)).toBe('Customisation for Beta');
+    expect(
+      target.querySelector<HTMLInputElement>('section[aria-label="Customisation"] form input')?.value,
+    ).toBe('boot:extra');
+  });
+  it('accepting switches once and saves nothing', async () => {
+    const { target } = await dirtyBeta();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    pickCustomisation(target, 'Gamma');
+    await settle();
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(panelHeading(target)).toBe('Customisation for Gamma');
+    const posts = vi.mocked(fetch).mock.calls.filter(([, o]) => (o as RequestInit | undefined)?.method === 'POST');
+    expect(posts).toHaveLength(0);
+  });
+  it('re-picking the same Agent only reveals the panel: no question, draft kept', async () => {
+    const { target } = await dirtyBeta();
+    const confirm = vi.spyOn(window, 'confirm');
+    pickCustomisation(target, 'Beta');
+    await settle();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(
+      target.querySelector<HTMLInputElement>('section[aria-label="Customisation"] form input')?.value,
+    ).toBe('boot:extra');
+  });
+  it('a clean panel switches without asking', async () => {
+    const target = await mountTab('agents', {}, [AGENT, GAMMA]);
+    const confirm = vi.spyOn(window, 'confirm');
+    pickCustomisation(target, 'Beta');
+    await settle();
+    pickCustomisation(target, 'Gamma');
+    await settle();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(panelHeading(target)).toBe('Customisation for Gamma');
+  });
+});
+
+describe('closing the customisation panel when its opener is gone (#1369)', () => {
+  it('returns focus to the Agents heading, which shows a focus ring', async () => {
+    const target = await mountTab('agents', {}, [AGENT, GAMMA]);
+    pickCustomisation(target, 'Beta');
+    await settle();
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search agents"]')!;
+    search.value = 'Gamma';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await settle();
+    expect(target.querySelector('button[aria-label="Actions for Beta"]')).toBeNull();
+    [...target.querySelectorAll<HTMLButtonElement>('section[aria-label="Customisation"] button')]
+      .find((b) => b.textContent === 'Close')!
+      .click();
+    await settle();
+    const heading = document.activeElement as HTMLElement;
+    expect(heading.tagName).toBe('H2');
+    expect(heading.textContent?.trim()).toBe('Agents');
+    expect(heading.className).toMatch(/focus:outline/);
   });
 });

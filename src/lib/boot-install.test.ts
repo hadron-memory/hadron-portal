@@ -20,6 +20,26 @@ describe('served now is only a viewer read', () => {
     expect(servedNowText(null, worker, 'c')).toBe('Couldn’t read what would be served now.');
   });
 });
+describe('portal#1754 servedNowText looks names up as own properties only', () => {
+  const unknown = 'Couldn’t read what would be served now.';
+  it.each(['constructor', '__proto__', 'toString', 'hasOwnProperty'])('a refusal named %s answers the serve-unknown text', name => {
+    expect(servedNowText({ refusal: name as never, served: null }, app, 'c')).toBe(unknown);
+  });
+  it.each(['constructor', '__proto__', 'toString'])('a pointer level named %s answers the serve-unknown text', name => {
+    expect(servedNowText({ refusal: null, served: { pointerLevel: name as never, compiledNodeId: 'x', servedRevSeq: 7 } }, app, 'c')).toBe(unknown);
+  });
+});
+describe('portal#1754 the own-property lookup keeps the legitimate copy', () => {
+  it('a real refusal still names its reason', () => {
+    expect(servedNowText({ refusal: 'BOOT_PROMPT_NOT_SIGNED', served: null }, app, 'c')).toContain('Right now it would be refused: no signed revision is available');
+  });
+  it('a valid pointer level still renders the served copy', () => {
+    expect(servedNowText({ refusal: null, served: { pointerLevel: 'WORKER', compiledNodeId: 'other', servedRevSeq: 7 } }, worker, 'c')).toContain('revision 7 of the worker’s own prompt');
+  });
+  it('this node needs no pointer level at all: a junk one still says "this prompt"', () => {
+    expect(servedNowText({ refusal: null, served: { pointerLevel: 'constructor' as never, compiledNodeId: 'c', servedRevSeq: 7 } }, app, 'c')).toContain('of this prompt');
+  });
+});
 describe('all typed compile refusals', () => {
   it.each(['BOOT_PROMPT_COMPILE_NOT_PERMITTED', 'BOOT_PROMPT_TARGET_RETIRED', 'BOOT_PROMPT_NO_SOURCE', 'BOOT_PROMPT_SOURCE_INVALID', 'BOOT_PROMPT_NODE_TYPE', 'BOOT_PROMPT_GRANT_REQUIRED', 'BOOT_PROMPT_COMPILE_LIMIT_EXCEEDED', ...['MALFORMED', 'UNAVAILABLE', 'RETIRED', 'REVISION_UNAVAILABLE', 'SOURCE_DISALLOWED', 'CYCLE', 'TOO_DEEP'].map(tail => `BOOT_PROMPT_INCLUDE_${tail}`)])('%s is fixed copy with no target leak', code => {
     for (const level of ['App', 'worker'] as const) {

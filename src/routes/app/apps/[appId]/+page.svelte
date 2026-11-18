@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AppSweepMode from './AppSweepMode.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import AppRunsPanel from './runs/AppRunsPanel.svelte';
@@ -6,12 +7,16 @@
   import TaskIntegrations from './TaskIntegrations.svelte';
   import { taskHref } from '$lib/agent-tasks/handle';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
-  import WorkerDeleteDialog from './WorkerDeleteDialog.svelte';
+  // portal#2205: the delete dialog is shared with the worker's own page, so it
+  // lives in $lib/components rather than this route's directory.
+  import WorkerDeleteDialog from '$lib/components/WorkerDeleteDialog.svelte';
   import StopBanner from '$lib/components/stops/StopBanner.svelte';
   import { rosterOf } from '$lib/withheld';
   import { publicServerBaseUrl } from '$lib/public-server-base-url';
   import { tick, untrack, onDestroy } from 'svelte';
   import { applyAction } from '$app/forms';
+  import { page } from '$app/stores';
+  import { dropNamedActions } from './app-list-pages';
   import { beforeNavigate, goto, afterNavigate, invalidateAll, preloadData, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -49,6 +54,7 @@
     const next = new URL(window.location.href);
     next.searchParams.set('tab', 'chats');
     next.searchParams.set('chat', key);
+    if (key !== AGENT_CHAT_KEY) next.searchParams.delete('agentChat');
     chatSwitchBusy = true;
     chatSwitchFailed = false;
     try { await goto(next, { noScroll: true }); }
@@ -143,7 +149,7 @@
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
   import { reportsToOf, reportsToSortKey, teamPlacementOf } from '$lib/worker-reports-to';
-  import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, withChatView } from '$lib/app-chats';
+  import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, chatFullViewFromParams, withChatView } from '$lib/app-chats';
   import { focusTrapWhen } from '$lib/a11y/focus-trap';
   import { enhance } from '$app/forms';
   import { submittedForm } from '$lib/forms/submitted-form';
@@ -152,7 +158,7 @@
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
   import skillGetStarted from '$lib/assets/skill-get-started.md?raw';
   import skillSearch from '$lib/assets/skill-search.md?raw';
-  import CappedNotice from '$lib/components/CappedNotice.svelte';
+  import ListPageNav from '$lib/components/ListPageNav.svelte';
   import type { PageData, ActionData } from './$types';
   import {
     addAgentSchema,
@@ -195,6 +201,7 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const app = $derived(data.app);
+  let legacyChatResolvedForApp = $state<string | null>(null);
   // Survives the filter-keyed thread, but never follows a navigation to another App.
   let teamFilterFocusRequest = $state<import('$lib/components/team-chat-thread').TeamChatFilterFocusRequest | null>(null);
   let teamFilterAnnouncement = $state('');
@@ -768,7 +775,8 @@
     }
     return id ? (installedAgents.find((a) => a.id === id) ?? null) : null;
   });
-  let customisationPanel = $state<{ reveal: () => void }>();
+  let customisationPanel = $state<{ reveal: () => void; mayLeave: () => boolean }>();
+  let agentsHeading = $state<HTMLHeadingElement>();
   let customisationChoice = $state<{ appRef: string; agentId: string } | null>(null);
   const customisationAgent = $derived(
     customisationChoice?.appRef === data.bootPointerAppKey
@@ -813,6 +821,9 @@
         if (appId === data.app.id && compileAgent?.id === agent.id) compilePanel?.reveal();
       });
     } else if (id === 'customisation') {
+      // Ask before a different Agent re-keys the panel and loses its draft (#1369).
+      // Choosing the same Agent only reveals the existing draft.
+      if (customisationAgent && customisationAgent.id !== agent.id && customisationPanel && !customisationPanel.mayLeave()) return;
       customisationChoice = { appRef: data.bootPointerAppKey, agentId: agent.id };
       const appKey = data.bootPointerAppKey;
       void tick().then(() => {
@@ -1085,6 +1096,10 @@
   // that result has already chosen the tab (above, and the routing effects
   // below), and the action URL has no `?tab=` for the loader to agree with.
   afterNavigate((nav) => {
+    // A real navigation brings loader data for the NEW URL, so the legacy-recovery suppression ends here.
+    // It is not keyed on `$page.url`: Kit's shallow `replaceState` (which writes the canonical pair) leaves
+    // `page.url` on the old href, so that key never cleared the banner outside a stubbed harness.
+    legacyChatResolvedForApp = null;
     if (!(nav.type === 'enter' && form)) {
       // #1943: local tabs now rewrite `?tab=` by shallow replaceState, which leaves the entry's loader
       // data (`data.initialTab`) on the tab that was LOADED. Back lands on such an entry, so the address
@@ -1092,8 +1107,30 @@
       const urlTab = resolveTabIntent(new URL(window.location.href).searchParams).initialTab;
       activeTab = ((urlTab ?? data.initialTab) as TabId | null) ?? 'chats';
     }
-    chatMaximized = data.initialChatFullView;
+    // #2164: `?view=full` is shallow-rewritten the same way, so it follows the address bar too. On a real
+    // navigation the loader read the same URL through the same function, so the two agree; only a
+    // history entry that was replaceState'd after its load can differ, and there the URL is right.
+    // Whatever type fires this, the read is the address bar, never `data`: the only writer of `chatMaximized`
+    // is `setChatMaximized`, which rewrites `?view=` in the same call, so the bar and the flag cannot
+    // disagree except on a replaceState'd history entry. A stale loader snapshot (an `invalidateAll`
+    // returning `initialChatFullView: false`) therefore cannot reach the flag through this callback.
+    chatMaximized = chatFullViewFromParams(new URL(window.location.href).searchParams);
+    // A known non-agent selector owns this URL; an old personal parameter
+    // must not travel with a shared/team link. Unknown selectors stay intact.
+    // Kit fires this callback for the initial `enter` BEFORE it marks the router started, and `replaceState`
+    // throws until then ("before router is initialized"; QA F2 on #2148). Kit sets `started` synchronously
+    // after its callbacks, so a microtask is enough; a real navigation can write straight away.
+    if (nav.type === 'enter') queueMicrotask(dropStaleAgentChat);
+    else dropStaleAgentChat();
   });
+  function dropStaleAgentChat() {
+    const url = new URL(window.location.href);
+    if (data.selectedChatKey && data.selectedChatKey !== AGENT_CHAT_KEY && !data.chatNotFound && url.searchParams.has('agentChat')) {
+      url.searchParams.delete('agentChat');
+      // A throw here would escape queueMicrotask unhandled; a leftover parameter is harmless, so leave it for the next navigation.
+      try { replaceState(url, {}); } catch { /* router not ready: the parameter stays until the next selection */ }
+    }
+  }
 
   // The team chat MAXIMISED — a fixed overlay over the whole viewport. In the
   // tab it gets 395px of a 900px window (measured 2026-09-14: the header, the
@@ -1141,11 +1178,21 @@
     }
   }
   // The post action URL REPLACES the query string (see the comment on the
-  // form), so it must carry the view too, or a non-enhanced POST would land
-  // the reader back in the tab view with their place lost.
-  const teamChatAction = $derived(
-    `?tab=chats&chat=chats%3Ateam${chatMaximized ? '&view=full' : ''}&/postTeamChatMessage`,
-  );
+  // form), so it must carry the COMPLETE current location: team filter, full
+  // view, selected chat and every independent list offset.
+  function chatActionUrl(action: 'postTeamChatMessage' | 'postChannelMessage', chatKey: string, full = false): string {
+    // A failed native post leaves its action name in the URL; replace it, never add a second.
+    const params = dropNamedActions(new URLSearchParams($page.url.searchParams));
+    params.set('tab', 'chats');
+    params.set('chat', chatKey);
+    if (data.chatRootsPage?.offset > 0 && !params.has('chatRootsOffset')) {
+      params.set('chatRootsOffset', String(data.chatRootsPage.offset));
+    }
+    if (full) params.set('view', 'full'); else params.delete('view');
+    return `?${params.toString()}&/${action}`;
+  }
+  const teamChatAction = $derived(chatActionUrl('postTeamChatMessage', TEAM_CHAT_LOC, chatMaximized));
+  const channelChatAction = $derived(chatActionUrl('postChannelMessage', data.selectedChatKey ?? ''));
 
   // #768 — roving focus for the tab strip. Only the selected tab is in the
   // sequential tab order, so the strip is ONE stop rather than one per tab, and
@@ -1236,7 +1283,8 @@
       // #1943: Runs and Templates already navigated to `?tab=<id>`; every other tab was local state,
       // so the address bar kept the last navigated tab. Name the shown tab by a shallow replaceState
       // (no history entry, no loader re-run), the way `?chat=` and `?view=` are synced.
-      if (!ownNavigationHref) syncTabParam(id);
+      // Its own guard: a URL the router will not take must not cost the focus restore below.
+      if (!ownNavigationHref) { try { syncTabParam(id); } catch { /* the address bar stays as it was; the tab is still shown */ } }
       await tick();
       if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id}`)?.focus();
     } catch { /* A failed navigation keeps the current tab; the router owns its error. */ }
@@ -2269,6 +2317,15 @@
             'Could not load this App’s chat list — others may exist beyond the ones shown.',
           )}
         </span>
+      {:else if data.chatDeepLinkUnresolved}
+        <!-- #2170 F6: the list loaded; only the linked chat could not be found
+             for certain. Saying the list failed would overstate it. -->
+        <span
+          role="status"
+          class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+        >
+          {t('app.chats.deep-link-unresolved', 'Couldn’t find the linked chat in this App — pick it from the list.')}
+        </span>
       {/if}
       <label for="app-chat-select" class="text-sm text-zinc-500">{t('app.chats.select', 'Chat')}</label>
       <select id="app-chat-select" class="min-w-0 max-w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
@@ -2280,12 +2337,13 @@
       {#if data.selectedChannelId && data.selectedChatKey?.startsWith('hrn:')}
         <Urn value={data.selectedChatKey} type="node" />
       {/if}
-      {#if data.chatsCapped}
-        <CappedNotice shown={data.chatRootsShown ?? 0} what={t('capped.chats', 'chats')} />
-      {/if}
     </div>
+    {#if data.chatRootsPage && !data.chatRootsError}
+      <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.chats.page-window', 'Registered Channels stay available on every page. Pagination covers legacy chat roots only.')}</p>
+      <ListPageNav page={data.chatRootsPage} label={t('app.chats.pages', 'Legacy chat-root pages')} />
+    {/if}
 
-    {#if data.chatNotFound}
+    {#if data.chatNotFound && legacyChatResolvedForApp !== app.id}
       <!-- The reader followed a link to a SPECIFIC chat. Substituting the
            default silently would let them read one conversation believing it
            is another. -->
@@ -2305,12 +2363,21 @@
          under a phone browser's address bar; the `vh` line before it is the
          fallback for browsers without `dvh`. Same pattern, same reason as the
          sidebar in src/routes/app/+layout.svelte. -->
-    <div class="flex flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
+    <!-- #2201: reserve transcript space on short phones without hiding controls.
+         In the normal app shell, the chat crosses @2xl (672px) at viewport
+         948px: the nav/gutters use the other 276px. Scope the floor below that
+         switch; short desktops keep the original viewport height (Peter #111914).
+         With #2171 merged, fine-pointer chrome at 320x568 uses 405px.
+         A 560px floor leaves a 155px scroller and 123px content after its
+         32px padding, above the 120px transcript gate. -->
+    <div class="flex max-[948px]:min-h-[560px] flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
       {#if appChatRender === 'agent-chat' && app.agentId}
         <div class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
           <AgentChat
             agentId={app.agentId}
             appId={app.id}
+            allowLegacyAppChat={!!data.chatNotFound && !data.chatsError}
+            onLegacyChatResolved={(appId) => { legacyChatResolvedForApp = appId; }}
             aiChoices={liveAiChoices}
             uploadMemoryId={writableMemoryIds[0]}
           />
@@ -2522,7 +2589,7 @@
           <ChannelChatThread appId={app.id} {channelId} messages={data.selectedChannelMessages}
             total={data.selectedChannelTotal} loadError={data.selectedChannelError}
             postForm={data.postChannelMessageForm} {form} {workerUrns}
-            action={`?tab=chats&chat=${encodeURIComponent(data.selectedChatKey ?? '')}&/postChannelMessage`}
+            action={channelChatAction}
             onSubmittingChange={(submitting) => { channelPostBusy = submitting; }}
             viewState={channelViews[channelStateKey]} onViewStateChange={(view) => { channelViews[channelStateKey] = view; }}
             draft={channelDrafts[channelStateKey]} onDraftChange={(draft) => { channelDrafts[channelStateKey] = draft; }} />
@@ -3197,7 +3264,7 @@
     <div id="panel-agents" role="tabpanel" aria-labelledby="tab-agents" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-4">
       <div>
-        <h2 class="font-semibold text-zinc-900 dark:text-white">{t('app.agents.title', 'Agents')}</h2>
+        <h2 bind:this={agentsHeading} tabindex="-1" class="rounded font-semibold text-zinc-900 focus:outline-2 focus:outline-offset-2 focus:outline-indigo-600 dark:text-white">{t('app.agents.title', 'Agents')}</h2>
         <p class="mt-1 max-w-2xl text-sm text-zinc-500">
           {t(
             'app.agents.description',
@@ -3297,7 +3364,12 @@
               const label = t('app.agents.actions.label', 'Actions for {name}', { name: customisationAgent.name });
               customisationChoice = null;
               await tick();
-              document.querySelector<HTMLButtonElement>(`button[aria-label="${CSS.escape(label)}"]`)?.focus();
+              const opener = document.querySelector<HTMLButtonElement>(`button[aria-label="${CSS.escape(label)}"]`);
+              if (opener) opener.focus();
+              else {
+                agentsHeading?.focus();
+                agentsHeading?.scrollIntoView?.({ block: 'nearest' });
+              }
             }} />
           {/key}
         {/if}
@@ -3420,13 +3492,17 @@
          rights across this App. Omit the partial writable set so the browser
          makes no read-only claim from omission; server writes stay authoritative.
          The full memory list awaits the server projection in #2190. -->
-    {#if data.appNodesCapped}
-      <div class="mb-3"><CappedNotice shown={data.appNodes?.length ?? 0} what={t('capped.nodes', 'nodes')} /></div>
-    {/if}
     {#if memoryScope === null}
       <p role="alert" class="mb-3 text-sm text-red-600 dark:text-red-400">{t('app.memory-scope.failed', 'Could not load accessible memories. Reload to try again.')}</p>
     {/if}
-    <MemoryBrowser nodes={data.appNodes ?? []} multiMemory={true} scopeMemoryIds={(memoryScope ?? []).map((m) => m.memoryId)} scopeMemories={memoryScope ?? []} />
+    <MemoryBrowser
+      nodes={data.appNodes ?? []}
+      multiMemory={true}
+      scopeMemoryIds={(memoryScope ?? []).map((m) => m.memoryId)}
+      scopeMemories={memoryScope ?? []}
+      serverPage={data.appNodesPage ?? null}
+      pageLabel={t('app.memory-node.pages', 'Memory node pages')}
+    />
     </div>
   {/if}
 
@@ -3760,6 +3836,10 @@
           </div>
         {/if}
       </section>
+
+      <!-- portal#2194: the host-sweep switch. Everyone who can read it sees the mode;
+           only an App manager acting as themselves gets the controls. -->
+      <AppSweepMode ownerId={app.id} mode={data.app.sweepMode ?? null} canManage={data.canManageApp === true && !impersonating} />
 
       <!-- portal#1963: the App's chatbot AI config. Keyed on the App, so a pick never follows the person to another App. -->
       {#if app.agentId}

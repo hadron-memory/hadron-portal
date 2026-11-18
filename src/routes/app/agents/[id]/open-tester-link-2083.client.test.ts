@@ -17,9 +17,9 @@ afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
 });
 
-async function mountAgent(canManageAgent: boolean | null) {
+async function mountAgent(canManageAgent: boolean | null, canOpenTester = canManageAgent) {
   const data = await pageData('a', { mentionOnly: false }, { systemMemoryId: 'mem-sys' });
-  const props = reactiveProps<Record<string, unknown>>({ data: { ...data, navOrgs: [], canManageAgent }, form: null });
+  const props = reactiveProps<Record<string, unknown>>({ data: { ...data, navOrgs: [], canManageAgent, canOpenTester }, form: null });
   const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick();
@@ -48,5 +48,16 @@ describe('Open Tester link (#2083)', () => {
   it('control: the neighbouring conversation-editor link is unaffected for a non-manager', async () => {
     const m = await mountAgent(false);
     expect(editorLink(m.target)).not.toBeNull();
+  });
+
+  it('#2100: hides the dead link for a manager outside the Tester owner scope', async () => {
+    const m = await mountAgent(true, false);
+    expect(testerLink(m.target)).toBeNull();
+    expect(editorLink(m.target)).not.toBeNull();
+  });
+
+  it('#2100: unknown Tester ownership hides the link despite management access', async () => {
+    const m = await mountAgent(true, null);
+    expect(testerLink(m.target)).toBeNull();
   });
 });
