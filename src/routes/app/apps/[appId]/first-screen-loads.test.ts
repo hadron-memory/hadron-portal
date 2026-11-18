@@ -144,6 +144,12 @@ describe('App page loader: the first screen only (portal#2240)', () => {
     expect(Object.keys(TAB_OPS).sort()).toEqual([...APP_TAB_IDS].sort());
   });
 
+  it.each(['worklog', 'staff', 'profile'])('?tab=%s still carries the frame clock (terminalNow): the display clock seeds from it on any first tab', async (tab) => {
+    const payload = await loadPage(`?tab=${tab}`);
+    expect(typeof payload.terminalNow).toBe('string');
+    expect(Number.isNaN(Date.parse(payload.terminalNow as string))).toBe(false);
+  });
+
   it('opens the default (no ?tab=) as Chats: frame + Chats reads only', async () => {
     await loadPage('');
     expect(opSet()).toEqual(expected('chats'));
