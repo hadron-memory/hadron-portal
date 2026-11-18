@@ -1030,6 +1030,10 @@
     ),
   );
   const tabs = $derived<{ id: TabId; label: string }[]>([
+    // portal#2241: the App's own identity at a glance, read-only (edits stay in Settings). Left-most
+    // and always present; it renders only from the App read the frame already makes, so it adds no
+    // request (ruling 0273). The page default is still Chats: Profile-as-default awaits Holger.
+    { id: 'profile', label: t('app.tabs.profile', 'Profile') },
     // #744: ONE "Chats" tab over every conversation the App has — the team
     // chat, any 1:1 chats, and the agent conversation — with a selector inside.
     //
@@ -2286,6 +2290,76 @@
     ...(data.viewerManages?.kind === 'known' && data.viewerManages.manages ? [{ id: 'grants', label: t('app.tabs.grants', 'Grants'), href: `/app/apps/${app.id}/grants` }] : []),
     { id: 'automations', label: t('app.tabs.automations', 'Automations'), href: `/app/apps/${app.id}/automations` }
   ]} active={activeTab} label={t('app.tabs-label', 'App sections')} onselect={(id) => { void focusTab(id as TabId); }} />
+
+  <!-- ───────────── PROFILE TAB (#2241) ─────────────
+       The App's OWN identity (not the viewer's, not a member's), read only from the App the page
+       already holds — no new query, no form, no action. Edits stay in Settings. A count the server
+       WITHHOLDS (`null`, portal#1148) shows "—", never 0. -->
+  {#if activeTab === 'profile'}
+    <div id="panel-profile" role="tabpanel" aria-labelledby="tab-profile" tabindex="0" class="min-w-0 space-y-6 focus-visible:outline-2 focus-visible:outline-indigo-500">
+      <section class="max-w-lg">
+        <h2 class="break-words font-semibold text-zinc-900 dark:text-white">{app.name}</h2>
+        <div class="mt-1"><Urn value={app.urn} type="app" /></div>
+        <div class="mt-4 divide-y divide-zinc-200 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
+          <div class="px-5 py-3">
+            <span class="text-sm text-zinc-500">{t('app.profile.description', 'Description')}</span>
+            <p data-testid="profile-description" class="mt-1 break-words text-sm text-zinc-900 dark:text-white">{app.description || '—'}</p>
+          </div>
+          <div class="flex items-center justify-between gap-4 px-5 py-3">
+            <span class="text-sm text-zinc-500">{t('app.profile.type', 'Type')}</span>
+            <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.appType}</span>
+          </div>
+          <div class="flex items-center justify-between gap-4 px-5 py-3">
+            <span class="text-sm text-zinc-500">{t('app.profile.owner', 'Owner organization')}</span>
+            {#if org}
+              <div class="min-w-0 text-right">
+                <a class="break-words text-sm text-indigo-600 hover:underline dark:text-indigo-400" href="/app/orgs/{encodeURIComponent(org.id)}">{org.name}</a>
+                {#if org.urn}<div class="mt-1"><Urn value={org.urn} type="org" /></div>{/if}
+              </div>
+            {:else}
+              <span class="text-sm text-zinc-900 dark:text-white">—</span>
+            {/if}
+          </div>
+          <div class="flex items-center justify-between gap-4 px-5 py-3">
+            <span class="text-sm text-zinc-500">{t('app.profile.created', 'Created')}</span>
+            <span class="text-sm text-zinc-900 dark:text-white">{formatDate(app.createdAt)}</span>
+          </div>
+          <div class="flex items-center justify-between gap-4 px-5 py-3">
+            <span class="text-sm text-zinc-500">{t('app.profile.updated', 'Updated')}</span>
+            <span class="text-sm text-zinc-900 dark:text-white">{formatDate(app.updatedAt)}</span>
+          </div>
+          <div class="flex items-center justify-between gap-4 px-5 py-3">
+            <span class="text-sm text-zinc-500">{t('app.profile.expires', 'Expires')}</span>
+            <span data-testid="profile-expires" class="text-sm text-zinc-900 dark:text-white">{formatDate(app.expiresAt)}</span>
+          </div>
+          <div class="min-w-0 space-y-1 px-5 py-3">
+            <span class="text-sm text-zinc-500">{t('app.profile.installed-agent', 'Installed Agent')}</span>
+            {#if app.agent}
+              <div class="min-w-0">
+                <a class="break-words text-sm text-indigo-600 hover:underline dark:text-indigo-400" href="/app/agents/{encodeURIComponent(app.agent.id)}">{app.agent.name}</a>
+                <Urn value={app.agent.urn} type="agent" linked />
+              </div>
+            {:else}
+              <p class="text-sm text-zinc-900 dark:text-white">—</p>
+            {/if}
+          </div>
+          <div class="flex items-center justify-between gap-4 px-5 py-3">
+            <span class="text-sm text-zinc-500">{t('app.profile.agent-count', 'Linked agents')}</span>
+            <span data-testid="profile-agent-count" class="text-sm font-medium text-zinc-900 dark:text-white">{app.agents == null ? '—' : app.agents.length}</span>
+          </div>
+          <div class="flex items-center justify-between gap-4 px-5 py-3">
+            <span class="text-sm text-zinc-500">{t('app.profile.member-count', 'Members')}</span>
+            <span data-testid="profile-member-count" class="text-sm font-medium text-zinc-900 dark:text-white">{app.memberCount == null ? '—' : app.memberCount}</span>
+          </div>
+        </div>
+        {#if data.canManageApp === true}
+          <p class="mt-4">
+            <button type="button" data-testid="profile-edit-in-settings" class="text-sm text-indigo-600 hover:underline dark:text-indigo-400" onclick={() => void focusTab('settings')}>{t('app.profile.edit-in-settings', 'Edit in Settings')}</button>
+          </p>
+        {/if}
+      </section>
+    </div>
+  {/if}
 
   <!-- ───────────── CHATS TAB (#744) ─────────────
        Every conversation the App has, behind one selector: the agent chat, the
