@@ -249,22 +249,35 @@ addressable. Nullable-by-contract URNs render as absent, never as an empty chip.
 
 Before building or changing anything a user sees, run the portal engineer's task
 [`hrn:node:hadronmemory.com:portal-engineer-system:tasks:build-portal-ui`](https://hadronmemory.com/app/u/hrn:node:hadronmemory.com:portal-engineer-system:tasks:build-portal-ui).
-It holds the full ground rules and the procedure; in short:
+It holds the full ground rules and the procedure, and it is the source of truth
+if the two ever differ; in short:
 
 1. **Start from what the user wants to do, not the API.** A keep/set/clear
    mutation becomes buttons ("Change…", "Clear"), never a "mode" dropdown.
-2. **Pick entities with the existing pickers.** `SelectAgent`, `SelectMemory`,
+2. **Pick entities with the existing pickers** in
+   [`src/lib/components`](src/lib/components): `SelectAgent`, `SelectMemory`,
    `SelectOrg`, `SelectUser`, `SelectPublicAgent`. Never a free-text URN or ID
    field.
 3. **One title per section.** No caption, heading and label repeating each other.
-4. **Show an entity once:** name, then its `Urn` chip directly below.
+4. **Show an entity once:** name, then its `Urn` chip directly below (see
+   [A referenced object shows its URN](#a-referenced-object-shows-its-urn)).
 5. **Plain copy:** buttons are a plain verb ("Save"), and labels carry no
-   parenthesised instructions.
+   parenthesised instructions. If a field needs explaining, put it in helper text
+   under the field, not in the label.
 6. **Check the running page** in dark and light, and put the screenshots in the
-   PR.
+   PR. Run it as a signed-in user per
+   [Driving the local app as a signed-in user](#driving-the-local-app-as-a-signed-in-user-dev-login).
+   With no browser available, say so in the PR ("visual check not done") and
+   leave it to the QA browser seat. Never imply it was done.
 
-Passing tests and reviews don't make a UI good: #1105 shipped green and still
-needed six UI fixes, filed as #1108. Each one breaks a rule above.
+If the task cannot be loaded (no MCP or network access to Hadron), the six rules
+above are enough to proceed: follow them and note in the PR that the task was not
+consulted.
+
+Passing tests and reviews don't make a UI good: [#1105](https://github.com/hadron-memory/hadron-portal/issues/1105)
+shipped green and still needed six UI fixes, filed as
+[#1108](https://github.com/hadron-memory/hadron-portal/issues/1108). Each one
+breaks a rule above.
 
 ## Git and PR conventions
 
