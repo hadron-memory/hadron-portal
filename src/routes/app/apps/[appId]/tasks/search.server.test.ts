@@ -9,7 +9,7 @@ const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizat
 const fail = (code: string) => ({ response: { errors: [{ message: 'private diagnostic', extensions: { code } }] } });
 async function board(text: string, extra = '') {
   const { load } = await import('./+page.server');
-  return await load({ params: { appId: app.id }, locals: { token: 'test', impersonation: null },
+  return await load({ params: { appId: app.id }, parent: async () => ({}), locals: { token: 'test', impersonation: null },
     url: new URL(`http://localhost/app/apps/app-1/tasks?text=${encodeURIComponent(text)}${extra}`) } as never) as any;
 }
 beforeEach(() => {
@@ -50,7 +50,7 @@ describe('board GET search (#1400)', () => {
   it('a BAD_USER_INPUT on a read with no text is a failed read, not search guidance', async () => {
     request.mockImplementation(async (q: string) => { if (q === AGENT_TASKS_APP_QUERY) return { app }; throw fail('BAD_USER_INPUT'); });
     const { load } = await import('./+page.server');
-    const r = await load({ params: { appId: app.id }, locals: { token: 'test', impersonation: null },
+    const r = await load({ params: { appId: app.id }, parent: async () => ({}), locals: { token: 'test', impersonation: null },
       url: new URL('http://localhost/app/apps/app-1/tasks?status=ended') } as never) as any;
     expect(r.board).toEqual({ kind: 'failed' });
     expect(request.mock.calls[1][1]).not.toHaveProperty('text');
@@ -71,6 +71,7 @@ describe('board GET search (#1400)', () => {
       id: `t${i}`, handle: `AT0.${i + 1}`, priority: 1, blocked: false, title: `Task ${i}`, description: i === 205 ? 'Hidden NeEdLe %_\\' : '',
       status: 'FINISHED', parentTaskId: null, queued: false,
       waitingOnChildren: false, source: null, owner: { id: 'u1', kind: 'USER', name: 'Test', urn: null }, assignee: null, startBy: null,
+      finishBy: null, overdue: false,
       createdAt: '2026-10-29T00:00:00Z', updatedAt: null, tags: [],
     }));
     const run = async (document: string, text: string, status = ['FINISHED']) => graphql({ schema, source: document,

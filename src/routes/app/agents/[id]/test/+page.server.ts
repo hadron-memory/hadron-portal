@@ -8,16 +8,26 @@ import {
   portalRuntimeRefusal,
 } from '$lib/server/llm/agentChatLlm';
 import { decodeFixture, summarize, type FixtureSummary } from '$lib/server/agent-tester/fixture-codec';
-import { resolveTesterAgent } from '$lib/server/agent-tester/resolve-agent';
+import { requireTesterAgent } from '$lib/server/agent-tester/resolve-agent';
 import type { PageServerLoad } from './$types';
+import { CREDENTIAL_UNAVAILABLE, hasRuntimeCredential } from '$lib/server/llm/chatAi';
 import { drainFindNodes } from '$lib/server/paginate';
+import { t } from '$lib/i18n/t';
 
 // Spec 019 — Agent Chat Tester. Organization agents come from the caller's
 // organizations; user-owned agents come from the server's ownedByMe scope.
 // Neither list includes an unrelated private agent, so misses share one 404.
 export const load: PageServerLoad = async ({ params, locals }) => {
   const client = gqlClient(locals.token);
-  const resolved = await resolveTesterAgent(client, params.id);
+  // portal#2099: a failed lookup (org list, ownedByMe, manage read) is one fixed
+  // Tester 500 that never carries server text. A miss stays the 404 and the
+  // server's own `startChat` refusal stays authoritative.
+  const resolved = await requireTesterAgent(client, locals.user?.id, params.id).catch((e: unknown) => {
+    // An HttpError below skips handleError's log, so keep the diagnosis: the
+    // server's error code only, never its message (graphql-request packs the request into it).
+    console.error('[agent-tester] lookup failed:', extractGqlErrorCode(e) ?? 'no code');
+    throw error(500, t('agent-tester.load-failed', 'The Agent Tester could not be loaded. Please try again.'));
+  });
   if (!resolved) throw error(404, 'Agent not found or no longer available');
   const { agent, org } = resolved;
 
@@ -64,15 +74,14 @@ export const load: PageServerLoad = async ({ params, locals }) => {
  * (#958: including the runtime's endpoint check — a config it would refuse is
  * `unavailable`, with the runtime's message.)
  *
- * - `ready`: a config resolves. Which level it came from is reported, since an
+ * - `ready`: a usable credential resolves. Which level it came from is reported, since an
  *   inherited config is the case the old check got wrong.
  * - `not-configured`: NoAiConfigAvailableError. The server's words are kept:
  *   they name the config and level when a nearer config exists without a key,
  *   which fails closed rather than falling through (spec 036).
  * - `unavailable`: any other refusal, shown verbatim. The runtime makes this
- *   exact call before every turn, so it would fail the same way. A caller who
- *   is not an admin of the agent's org lands here: the server's refusal is an
- *   untyped `Forbidden`, and it is not guessed at from the prose.
+ *   exact call before every turn. Identity-only resolution is also unavailable;
+ *   configuration identity alone does not grant this runtime a credential.
  */
 export type LlmReadiness =
   | { status: 'ready'; name: string; ownerType: string; provider: string; model: string }
@@ -82,14 +91,16 @@ export type LlmReadiness =
 async function llmReadiness(client: ReturnType<typeof gqlClient>, agentId: string): Promise<LlmReadiness> {
   try {
     const r = await client.request<{
-      resolveAIConfig: { name: string; ownerType: string; provider: string; model: string; effectiveEndpoint: string | null };
+      resolveAIConfig: { apiKey: string | null; name: string; ownerType: string; provider: string; model: string; effectiveEndpoint: string | null };
     }>(AI_CONFIG_READINESS_QUERY, { name: 'default', agentRef: agentId });
-    const { effectiveEndpoint, ...config } = r.resolveAIConfig;
+    const { name, ownerType, provider, model, effectiveEndpoint, apiKey } = r.resolveAIConfig;
     // #958: a config the runtime would refuse is not ready, in the runtime's
     // own words, so the two still cannot disagree (#928).
-    const refusal = portalRuntimeRefusal({ provider: config.provider, effectiveEndpoint });
+    const refusal = portalRuntimeRefusal({ provider, effectiveEndpoint });
     if (refusal) return { status: 'unavailable', detail: refusal };
-    return { status: 'ready', ...config };
+    if (!hasRuntimeCredential(apiKey)) return { status: 'unavailable', detail: CREDENTIAL_UNAVAILABLE };
+    // Explicit projection: never serialize the credential or extra response fields.
+    return { status: 'ready', name, ownerType, provider, model };
   } catch (e: unknown) {
     // Only the SERVER's answer is shown. A transport failure's message is not:
     // graphql-request packs the request into it (the #468 leak), so it gets
@@ -99,7 +110,7 @@ async function llmReadiness(client: ReturnType<typeof gqlClient>, agentId: strin
     if (extractGqlErrorCode(e) === 'NoAiConfigAvailableError') return { status: 'not-configured', detail };
     // A refusal the server gave (a non-admin's Forbidden) is an expected
     // answer, not an outage; only a failure to get one is logged.
-    if (detail === null) console.warn('[agent-tester] LLM readiness check failed:', e);
+    if (detail === null) console.warn('[agent-tester] LLM readiness check failed');
     return { status: 'unavailable', detail };
   }
 }

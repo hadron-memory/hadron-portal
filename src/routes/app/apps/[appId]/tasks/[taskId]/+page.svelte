@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TaskFindings from '$lib/components/agent-tasks/TaskFindings.svelte';
   import TaskHandBack from '$lib/components/agent-tasks/TaskHandBack.svelte';
   import TaskProperties from '$lib/components/agent-tasks/TaskProperties.svelte';
   import TaskReview from '$lib/components/agent-tasks/TaskReview.svelte';
@@ -14,6 +15,8 @@
   import TaskReferences from '$lib/components/agent-tasks/TaskReferences.svelte';
   import TaskStateChips from '$lib/components/agent-tasks/TaskStateChips.svelte';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
+  import TaskClones from '$lib/components/agent-tasks/TaskClones.svelte';
+  import TaskLineage from '$lib/components/agent-tasks/TaskLineage.svelte';
   import { isProjectZero, taskHref } from '$lib/agent-tasks/handle';
   import TaskActionBar from '$lib/components/agent-tasks/TaskActionBar.svelte';
   import { fmtRunTime } from '$lib/flow/runs';
@@ -143,6 +146,7 @@
           viewerId={data.viewerId}
           appUrn={data.app.urn}
           nodeMemories={data.nodeMemories}
+          cloneHref={`/app/apps/${data.app.id}/tasks/new?from=${encodeURIComponent(task.id)}`}
         />
       {/if}
     </div>
@@ -191,6 +195,12 @@
           {#if parent && parent.id === task.parentTaskId}<TaskHandle handle={parent.handle} />{/if}
         </dd>
       {/if}
+
+      <!-- portal#2161 (hrn:node:hadronmemory.com:specs:cor:agt:050:02): where this task came from. The link reads "Replaces" when the
+           source has ended (finished or cancelled) and "Cloned from" otherwise; null (not a clone, or a
+           source this caller can't read) renders nothing at all — no placeholder. -->
+      <!-- portal#2161: the null rule (nothing renders, no placeholder) is the component's own. -->
+      <TaskLineage clonedFrom={task.clonedFrom} {basePath} />
 
       {#if task.source}
         <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.source', 'Source')}</dt>
@@ -288,6 +298,14 @@
     {/if}
   </section>
 
+  <!-- portal#2161: the tasks cloned from this one, paged; nothing renders when the list is empty. -->
+  <TaskClones initial={data.clones} appId={data.app.id} taskId={task.id} {basePath} />
+
+  <!-- portal#1637: a finished task's immutable findings, right after the Result they belong to. No result, no section. -->
+  {#if task.result}
+    <TaskFindings appId={data.app.id} appUrn={data.app.urn ?? null} taskId={task.id} initial={data.findings} canWrite={data.canWrite} nodeMemories={data.nodeMemories} />
+  {/if}
+
   <TaskHandBack handBack={task.handBack} />
 
   <!-- portal#1697: above Properties, whose pr.* and review.* keys are mirrors of what this section reads. -->
@@ -307,7 +325,7 @@
     {#if data.tree.kind === 'ok' && data.tree.value}
       {#if data.tree.value.capped}
         <p role="status" class="mb-2 text-xs text-amber-700 dark:text-amber-300">
-          {t('app.tasks.tree.capped', 'Showing the first 1000 tasks in this tree; deeper or later subtasks aren’t shown.')}
+          {t('app.tasks.tree.capped', 'Showing the first 1000 tasks in this tree; deeper or later subtasks may not be shown.')}
         </p>
       {/if}
       <SubtaskTree rows={data.tree.value.rows} rootId={task.id} {basePath} />

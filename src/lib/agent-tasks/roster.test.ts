@@ -9,6 +9,7 @@ import {
   rosterTaskIds,
   taskRefHandle,
   alarmWakeSummary,
+  alarmFilterLabel,
   filterAlarms,
   parseAlarmFilter,
   rosterAttentionRank,
@@ -67,13 +68,29 @@ const alarm = (id: string, acknowledgedAt: string | null, wakes: AgentAlarm['wak
 });
 
 describe('alarm filters', () => {
-  it('open is unacknowledged, and is the default', () => {
+  // portal#2000 (A + D): the default view is In effect, backed by the server's
+  // alarmsInEffect filter (#3934) — unacknowledged AND no recorded escalation
+  // end. The client cannot re-derive that from a row, so it must not re-filter.
+  it('in effect is the server-filtered default and is not re-filtered here', () => {
     const list = [alarm('a', null), alarm('b', '2026-10-15T11:00:00Z')];
-    expect(filterAlarms(list, 'open').map((a) => a.id)).toEqual(['a']);
+    expect(filterAlarms(list, 'in-effect')).toBe(list);
     expect(filterAlarms(list, 'acknowledged').map((a) => a.id)).toEqual(['b']);
     expect(filterAlarms(list, 'all')).toHaveLength(2);
-    expect(parseAlarmFilter(null)).toBe('open');
-    expect(parseAlarmFilter('nope')).toBe('open');
+  });
+
+  it('parses the filter values, defaulting to in effect; pre-#2000 open links land there', () => {
+    expect(parseAlarmFilter(null)).toBe('in-effect');
+    expect(parseAlarmFilter('nope')).toBe('in-effect');
+    expect(parseAlarmFilter('in-effect')).toBe('in-effect');
+    expect(parseAlarmFilter('open')).toBe('in-effect');
+    expect(parseAlarmFilter('acknowledged')).toBe('acknowledged');
+    expect(parseAlarmFilter('all')).toBe('all');
+    expect(alarmFilterLabel('in-effect')).toBe('In effect');
+    // A prototype key must not resolve to an inherited member and leak out of
+    // the AlarmFilter union (a lookup map would return Object.constructor).
+    for (const hostile of ['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__']) {
+      expect(parseAlarmFilter(hostile)).toBe('in-effect');
+    }
   });
 
   it('names the latest owner woken, and the next one due while open', () => {

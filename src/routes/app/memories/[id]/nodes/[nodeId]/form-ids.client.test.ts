@@ -19,7 +19,7 @@ import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
-import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_PAGE_QUERY, MOVE_NODE_MUTATION } from '$lib/server/queries';
 // Static imports: the page is large, and importing it inside a test spent the
 // test's whole timeout under full-suite load. `vi.mock` below is hoisted above
 // these, so the loader still sees the mocked client.
@@ -55,12 +55,13 @@ const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
   warnSpy?.mockRestore();
+  vi.unstubAllGlobals();
 });
 
 function serveNode(node: typeof NODE | null) {
   mockRequest.mockImplementation(async (doc: string) => {
     if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node };
-    if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+    if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
     return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
   });
 }
@@ -134,4 +135,63 @@ describe('node page form ids (#995)', () => {
     await submitWith(target, props, '?/duplicate', result);
     expect(target.textContent).toContain('Node not found');
   });
+});
+
+// #1902: Refresh changes only the draft; the existing updateMeta action moves on Save.
+async function openMetaEditor(target: HTMLElement) {
+  [...target.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'Settings')!.click();
+  await tick(3);
+  [...target.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'Edit')!.click();
+  await tick(3);
+}
+async function typeMeta(target: HTMLElement, id: string, value: string) {
+  const input = target.querySelector<HTMLInputElement>(`#${id}`)!;
+  input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); await tick(3);
+}
+const refreshButton = (target: HTMLElement) => target.querySelector<HTMLButtonElement>('[data-testid="refresh-node-loc"]');
+it('#1902 offers Refresh only after renaming and fills the draft without a write', async () => {
+  const { target } = await mountPage(); await openMetaEditor(target);
+  expect(refreshButton(target)).toBeNull();
+  await typeMeta(target, 'editName', 'New Foo');
+  expect(refreshButton(target)).not.toBeNull();
+  expect(target.querySelector<HTMLInputElement>('#editLoc')!.value).toBe('foo');
+  const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ rows: [{ id: NODE.id, loc: 'foo' }], hasMore: false })));
+  vi.stubGlobal('fetch', fetcher);
+  refreshButton(target)!.click(); for (let i = 0; i < 12; i++) await tick();
+  expect(target.querySelector<HTMLInputElement>('#editLoc')!.value).toBe('new-foo');
+  expect(mockRequest.mock.calls.filter(([q]) => q === MOVE_NODE_MUTATION)).toEqual([]);
+  expect(target.textContent).toContain('Old URNs of minted nodes keep working; others may stop working.');
+  await typeMeta(target, 'editName', 'Foo'); expect(refreshButton(target)).toBeNull();
+});
+it('#1902 keeps the saved parent, skips sibling collisions, then Save uses the existing move', async () => {
+  const saved = { ...NODE, loc: 'p:old', name: 'Old', memory: { id: 'mem-A', urn: 'hrn:mem:acme.com:mem-a' } };
+  const { target } = await mountPage(saved); await openMetaEditor(target);
+  await typeMeta(target, 'editName', 'Foo');
+  expect(refreshButton(target)).not.toBeNull();
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ rows: [{ id: saved.id, loc: saved.loc }, { id: 'sibling', loc: 'p:foo' }], hasMore: false }))));
+  refreshButton(target)!.click(); for (let i = 0; i < 12; i++) await tick();
+  expect(target.querySelector<HTMLInputElement>('#editLoc')!.value).toBe('p:foo-2');
+  const form = target.querySelector<HTMLFormElement>('form[action="?/updateMeta"]')!;
+  const fd = new FormData(form);
+  await actions.updateMeta({ request: { formData: async () => fd }, params: { id: 'mem-A', nodeId: saved.id }, locals: { token: 'tok' } } as never);
+  expect(mockRequest.mock.calls.filter(([q]) => q === MOVE_NODE_MUTATION).map(([, vars]) => vars))
+    .toEqual([{ sourceRef: saved.id, targetUrn: 'hrn:node:acme.com:mem-a:p:foo-2' }]);
+});
+it('#1902 warns only for a changed location, including a manually edited one', async () => {
+  const { target } = await mountPage(); await openMetaEditor(target);
+  expect(target.querySelector('[data-testid="node-loc-move-warning"]')).toBeNull();
+  await typeMeta(target, 'editLoc', 'another');
+  expect(target.querySelector('[data-testid="node-loc-move-warning"]')).not.toBeNull();
+  await typeMeta(target, 'editLoc', 'foo');
+  expect(target.querySelector('[data-testid="node-loc-move-warning"]')).toBeNull();
+});
+
+it('#1902 a read-only reader cannot open Edit or Refresh', async () => {
+  const {target,props}=await mountPage();
+  props.data={...(props.data as Record<string,unknown>),canWriteMemory:false};await tick();flushSync();
+  const settings=[...target.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent==='Settings')!;
+  settings.click();await tick();flushSync();
+  expect(target.querySelector('#editName')).toBeNull();
+  expect(target.querySelector('[data-testid="refresh-node-loc"]')).toBeNull();
+  expect([...target.querySelectorAll('button')].some(b=>b.textContent?.trim()==='Edit')).toBe(false);
 });

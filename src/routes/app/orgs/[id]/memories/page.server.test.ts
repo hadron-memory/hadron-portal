@@ -6,13 +6,16 @@
  * classes) whose container is the current org. Mocks `$lib/server/api`'s
  * `gqlClient` and routes by query identity, as in the sibling loader tests.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { ClientError } from 'graphql-request';
+import { GraphQLError } from 'graphql';
 import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import {
   DELETE_MEMORY_MUTATION,
   DELETE_MEMORY_SUBSCRIPTION_MUTATION,
   ORG_MEMORIES_TAB_QUERY,
   ORG_SYSTEM_MEMORIES_QUERY,
+  OWN_SYSTEM_MEMORY_IDS_QUERY,
   PUBLIC_MEMORIES_QUERY,
   MEMORIES_QUERY,
   CREATE_MEMORY_SUBSCRIPTION_MUTATION,
@@ -74,12 +77,24 @@ const fakeOrg = {
   members: [], memories: [], agents: [], subscriptions: [],
 };
 
-function routeMock(myMemories: unknown[], publicMemories: unknown[] = [], org: unknown = undefined) {
+function routeMock(
+  myMemories: unknown[],
+  publicMemories: unknown[] = [],
+  org: unknown = undefined,
+  systemMemories: unknown[] = [],
+  ownedSystemIds: string[] | Error = [],
+) {
   mockRequest.mockImplementation(async (query: string) => {
     // #845: the loader fetches the org itself, so this is where a test injects
     // one — not through parent(), which now carries chrome only.
     if (query === ORG_MEMORIES_TAB_QUERY) return { organization: org ?? fakeOrg };
-    if (query === ORG_SYSTEM_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+    if (query === ORG_SYSTEM_MEMORIES_QUERY) {
+      return { memories: { items: systemMemories, total: systemMemories.length } };
+    }
+    if (query === OWN_SYSTEM_MEMORY_IDS_QUERY) {
+      if (ownedSystemIds instanceof Error) throw ownedSystemIds;
+      return { memories: { items: ownedSystemIds.map((id) => ({ id })), total: ownedSystemIds.length } };
+    }
     if (query === PUBLIC_MEMORIES_QUERY) {
       return { memories: { items: publicMemories, total: publicMemories.length } };
     }
@@ -116,12 +131,406 @@ describe('memories-list load() — personalMemories (spec 034)', () => {
   });
 });
 
+describe('memories-list load() — system rows stay inside this org (#2140)', () => {
+  // The server's memories(orgId:) can return rows that are not this org's: an
+  // App's install memory is unioned in for every App the caller reaches, in any
+  // org, and the caller's own user-owned memories appear in every org context
+  // (hrn:node:hadronmemory.com:specs:cor:api:100, hrn:node:hadronmemory.com:specs:cor:api:100:01,
+  // hrn:node:hadronmemory.com:specs:cor:api:120:03). The tab captioned "owned by
+  // this organization" must show only this org's rows.
+  type Slices = { systemMemories: { id: string; name?: string }[]; personalMemories: { id: string; name?: string }[] };
+  const ids = (rows: { id: string }[]) => rows.map((m) => m.id).sort();
+  // Ownership of a system row is the SERVER's answer (memories(ownedByMe) +
+  // memoryClasses system): Memory.userId is the personal/private owner only, so a
+  // system row arrives with userId null and the client cannot tell whose it is.
+  async function slices(system: unknown[], owned: string[] | Error = []): Promise<Slices> {
+    routeMock([], [], undefined, system, owned);
+    const load = await importLoad();
+    return (await load(ev({ orgId: 'org-1', userId: 'u1' }))) as unknown as Slices;
+  }
+
+  it('drops an install memory of an App in another org', async () => {
+    // Whoever asks (an org admin in B, an App owner in B, a platform admin), the
+    // server hands the loader this same row, so one caller pins it; what the
+    // loader must not do is show it.
+    const r = await slices([
+      { id: 'i-b', name: 'Product Team - install', class: 'system', organizationId: 'org-2', appId: 'app-b', userId: null },
+    ]);
+    expect(ids(r.systemMemories)).toEqual([]);
+    expect(ids(r.personalMemories)).toEqual([]);
+  });
+
+  it('keeps this org\'s own system memories, including its App\'s install memory (#2044)', async () => {
+    const r = await slices([
+      { id: 's1', name: 'Org system', class: 'system', organizationId: 'org-1', appId: null, userId: null },
+      { id: 'i-a', name: 'Org App install', class: 'system', organizationId: 'org-1', appId: 'app-a', userId: null },
+      { id: 'i-b', name: 'Other org install', class: 'system', organizationId: 'org-2', appId: 'app-b', userId: null },
+    ]);
+    expect(ids(r.systemMemories)).toEqual(['i-a', 's1']);
+    expect(ids(r.personalMemories)).toEqual([]);
+  });
+
+  it('sends an org-less system memory the server says the caller owns to Personal Memories, not Org Memories', async () => {
+    // userId is null on a system row: the API cannot say whose it is, only the
+    // ownedByMe slice can.
+    const row = { id: 'flow-lab', name: 'flow-lab-system', class: 'system', organizationId: null, appId: null, userId: null };
+    const r = await slices([row], ['flow-lab']);
+    expect(ids(r.systemMemories)).toEqual([]);
+    expect(ids(r.personalMemories)).toEqual(['flow-lab']);
+  });
+
+  it('shows an org-less system row to nobody the server does not name as its owner', async () => {
+    // Also the install memory of a user-owned App the caller is only a member of:
+    // org-less, readable, not theirs.
+    const row = { id: 'theirs', name: 'Someone else', class: 'system', organizationId: null, appId: 'app-u', userId: null };
+    const r = await slices([row], []);
+    expect(ids(r.systemMemories)).toEqual([]);
+    expect(ids(r.personalMemories)).toEqual([]);
+  });
+
+  it('drops the caller\'s own system row tied to another org', async () => {
+    const r = await slices(
+      [{ id: 'mine-b', name: 'Mine in B', class: 'system', organizationId: 'org-2', appId: null, userId: null }],
+      ['mine-b'],
+    );
+    expect(ids(r.systemMemories)).toEqual([]);
+    expect(ids(r.personalMemories)).toEqual([]);
+  });
+
+  it('never lists a row twice in Personal Memories, and takes only system class from the system read', async () => {
+    // Overlap: the same id arrives from the personal/private read and from the
+    // system read; and an org-less personal-class row arrives in the system
+    // answer. Both would render twice if the slices were not kept disjoint.
+    routeMock(
+      [{ id: 'dup', name: 'Dup', class: 'private', organizationId: 'org-1', userId: 'u1' }],
+      [],
+      undefined,
+      [
+        { id: 'dup', name: 'Dup', class: 'system', organizationId: null, userId: null },
+        { id: 'stray', name: 'Stray personal', class: 'personal', organizationId: null, userId: null },
+      ],
+      ['dup', 'stray'],
+    );
+    const load = await importLoad();
+    const r = (await load(ev({ orgId: 'org-1', userId: 'u1' }))) as unknown as Slices;
+    expect(r.personalMemories.map((m) => m.id)).toEqual(['dup']);
+  });
+
+  it('an org-owned system row stays in Org Memories even when the caller owns it too', async () => {
+    const r = await slices(
+      [{ id: 'both', name: 'Org + user', class: 'system', organizationId: 'org-1', appId: null, userId: null }],
+      ['both'],
+    );
+    expect(ids(r.systemMemories)).toEqual(['both']);
+    expect(ids(r.personalMemories)).toEqual([]);
+  });
+
+  it('a failed ownership read hides the org-less rows, it does not leak them, and does not throw', async () => {
+    const r = await slices(
+      [
+        { id: 'flow-lab', name: 'flow-lab-system', class: 'system', organizationId: null, userId: null },
+        { id: 's1', name: 'Org system', class: 'system', organizationId: 'org-1', userId: null },
+      ],
+      new Error('boom'),
+    );
+    expect(ids(r.systemMemories)).toEqual(['s1']);
+    expect(ids(r.personalMemories)).toEqual([]);
+  });
+
+  it('a failed system read still degrades to empty slices without throwing', async () => {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === ORG_MEMORIES_TAB_QUERY) return { organization: fakeOrg };
+      if (query === ORG_SYSTEM_MEMORIES_QUERY) throw new Error('boom');
+      if (query === PUBLIC_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      if (query === MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      throw new Error('Unexpected query');
+    });
+    const load = await importLoad();
+    const r = (await load(ev())) as unknown as Slices;
+    expect(r.systemMemories).toEqual([]);
+    expect(r.personalMemories).toEqual([]);
+  });
+
+  // portal#2175 (FIT 6884373873 a): the system read is paginated, so the same
+  // id can arrive twice — a row shifting across a page boundary mid-fetch. A
+  // duplicate must list once and land in the tab its OWNER fields give it (the
+  // #2147 rule), never move between tabs.
+  it('a duplicated systemRows id lists once, in the tab it would land in without the duplicate', async () => {
+    // The two copies of each id DIFFER in a payload field (a shifted row can
+    // re-read with a newer name): first occurrence wins, and the row keeps the
+    // tab its owner fields give it either way.
+    const r = await slices(
+      [
+        { id: 's1', name: 'Org system', class: 'system', organizationId: 'org-1', appId: null, userId: null },
+        { id: 's1', name: 'Org system v2', class: 'system', organizationId: 'org-1', appId: null, userId: null },
+        { id: 'flow-lab', name: 'flow-lab-system', class: 'system', organizationId: null, appId: null, userId: null },
+        { id: 'flow-lab', name: 'flow-lab-system v2', class: 'system', organizationId: null, appId: null, userId: null },
+      ],
+      ['flow-lab'],
+    );
+    // The control is the tests above: s1 (this org) → Org Memories, flow-lab
+    // (org-less, owned) → Personal Memories. The duplicates change nothing,
+    // and the FIRST copy is the one that survives.
+    expect(ids(r.systemMemories)).toEqual(['s1']);
+    expect(r.systemMemories.find((m) => m.id === 's1')?.name).toBe('Org system');
+    expect(ids(r.personalMemories)).toEqual(['flow-lab']);
+    expect(r.personalMemories.find((m) => m.id === 'flow-lab')?.name).toBe('flow-lab-system');
+  });
+
+  // portal#2175: the OTHER paged reads this loader consumes can hand back the
+  // same id twice the same way. The "never listed twice" invariant covers them
+  // too, not just systemRows.
+  it('a duplicated memories() id lists once in Personal Memories', async () => {
+    routeMock(
+      [
+        { id: 'p1', name: 'Mine private', organizationId: 'org-1', userId: 'u1', class: 'private' },
+        { id: 'p1', name: 'Mine private', organizationId: 'org-1', userId: 'u1', class: 'private' },
+        { id: 'p2', name: 'Mine personal', organizationId: 'org-1', userId: 'u1', class: 'personal' },
+      ],
+    );
+    const load = await importLoad();
+    const r = (await load(ev({ orgId: 'org-1', userId: 'u1' }))) as { personalMemories: { id: string }[] };
+    expect(r.personalMemories.map((m) => m.id).sort()).toEqual(['p1', 'p2']);
+  });
+
+  it('a duplicated publicMemories id is offered once in availableMemories (the subscribe picker)', async () => {
+    routeMock(
+      [],
+      [
+        { id: 'pub-1', name: 'Shared One', organizationId: 'org-9' },
+        { id: 'pub-1', name: 'Shared One', organizationId: 'org-9' },
+        { id: 'pub-2', name: 'Shared Two', organizationId: 'org-9' },
+      ],
+    );
+    const load = await importLoad();
+    const r = (await load(ev({ orgId: 'org-1', userId: 'u1' }))) as { availableMemories: { id: string }[] };
+    expect(r.availableMemories.map((m) => m.id).sort()).toEqual(['pub-1', 'pub-2']);
+  });
+});
+
+// portal#2175 (FIT 6884373873 c): a degraded read stays fail-closed (the tests
+// above pin the fallbacks) but is no longer silent — each failing read logs one
+// warn naming itself and the org plus the error's code or transport class.
+// Nothing else from the error prints: a ClientError's message/stack carry the
+// request/response payloads (bearer token, row content) —
+// hrn:node:hadronmemory.com:hadron-portal:findings:custom-handle-error-replaces-framework-copy-and-logging.
+// The failure is also no longer reader-indistinguishable from empty: every
+// list the failed read feeds carries a degraded flag, so the page can trade
+// its empty-state copy for truthful unavailable copy (pinned mounted in
+// page.client.test.ts — the acceptance's "never renders as no memories").
+describe('memories-list load() — degraded reads log (portal#2175)', () => {
+  // The spy is created here and restored here: vi.restoreAllMocks would also
+  // wipe the module-factory mocks for later tests (they only survive today
+  // because an undefined requireNonConsumer happens to await fine), so restore
+  // ONLY the console spy even when an assertion fails first.
+  let warn: MockInstance<typeof console.warn>;
+  beforeEach(() => {
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
+  it('an uncoded plain-Error failure logs the read name, the org, and the error class name', async () => {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === ORG_MEMORIES_TAB_QUERY) return { organization: fakeOrg };
+      if (query === ORG_SYSTEM_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      if (query === OWN_SYSTEM_MEMORY_IDS_QUERY) return { memories: { items: [], total: 0 } };
+      if (query === PUBLIC_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      if (query === MEMORIES_QUERY) throw new Error('boom');
+      throw new Error('Unexpected query');
+    });
+    const load = await importLoad();
+    const r = (await load(ev())) as unknown as {
+      personalMemories: unknown[];
+      systemMemoriesDegraded: boolean;
+      personalMemoriesDegraded: boolean;
+      availableMemoriesDegraded: boolean;
+    };
+    expect(r.personalMemories).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    // The label is the error's class, not 'transport': a plain Error here is
+    // (e.g.) the pager's own envelope bug, not a network problem.
+    expect(warn).toHaveBeenCalledWith('[org-memories] my memories read failed for org-1 (Error); rows hidden, fail-closed');
+    // Only the list this read feeds is flagged.
+    expect(r.personalMemoriesDegraded).toBe(true);
+    expect(r.systemMemoriesDegraded).toBe(false);
+    expect(r.availableMemoriesDegraded).toBe(false);
+  });
+
+  // graphql-request's ClientError extends Error but never sets this.name, so
+  // an e.name fallback labels a codeless transport/GraphQL failure 'Error' —
+  // the same word as the portal-side envelope bug above. The label is
+  // STRUCTURAL (hasClientErrorResponse), never instanceof: a duplicated
+  // graphql-request or a re-thrown error keeps its response shape, not its
+  // class identity.
+  it('a codeless ClientError logs ClientError, not the inherited Error name', async () => {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === ORG_MEMORIES_TAB_QUERY) return { organization: fakeOrg };
+      if (query === ORG_SYSTEM_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      if (query === OWN_SYSTEM_MEMORY_IDS_QUERY) return { memories: { items: [], total: 0 } };
+      if (query === PUBLIC_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      // errors with no extensions.code: extractGqlErrorCode yields null, so
+      // the label branch under test is the one that runs in production.
+      if (query === MEMORIES_QUERY)
+        throw new ClientError(
+          { status: 200, body: '{}', headers: new Headers(), errors: [new GraphQLError('nope')] },
+          { query: 'query Fixture { __typename }' },
+        );
+      throw new Error('Unexpected query');
+    });
+    const load = await importLoad();
+    const r = (await load(ev())) as unknown as { personalMemories: unknown[] };
+    expect(r.personalMemories).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith('[org-memories] my memories read failed for org-1 (ClientError); rows hidden, fail-closed');
+  });
+
+  it('an HTTP-level ClientError without an errors key and re-thrown response-shaped errors all log ClientError', async () => {
+    // The shapes here are the pinned graphql-request 7.4.0's real ones
+    // (runRequest.js): a non-2xx whose body did not parse is wrapped as
+    // ClientError({ status, headers, body }, { query, variables }) — NO
+    // errors key at all. Hand-added `errors: []` fixtures do not occur in
+    // the library and are not used here.
+    const cases: unknown[] = [
+      new ClientError(
+        { status: 503, body: 'Service Unavailable', headers: new Headers() },
+        { query: 'query Fixture { __typename }' },
+      ),
+      new ClientError(
+        { status: 502, body: 'Bad Gateway', headers: new Headers() },
+        { query: 'query Fixture { __typename }', variables: { x: 1 } },
+      ),
+      // NOT a ClientError instance at all (a re-throw across a duplicated
+      // graphql-request keeps the shape, not the class): both always-set
+      // fields present, no errors array anywhere.
+      Object.assign(new Error('rethrown'), { response: { status: 503 }, request: {} }),
+    ];
+    for (const thrown of cases) {
+      warn.mockClear();
+      mockRequest.mockImplementation(async (query: string) => {
+        if (query === ORG_MEMORIES_TAB_QUERY) return { organization: fakeOrg };
+        if (query === ORG_SYSTEM_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+        if (query === OWN_SYSTEM_MEMORY_IDS_QUERY) return { memories: { items: [], total: 0 } };
+        if (query === PUBLIC_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+        if (query === MEMORIES_QUERY) throw thrown;
+        throw new Error('Unexpected query');
+      });
+      const load = await importLoad();
+      const r = (await load(ev())) as unknown as { personalMemories: unknown[] };
+      expect(r.personalMemories).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(`[org-memories] my memories read failed for org-1 (ClientError); rows hidden, fail-closed`);
+    }
+  });
+
+  // The acceptance's named read: a failed OWNERSHIP read. Its rows hide
+  // (fail-closed, pinned above) and it flags exactly the personal tab — the
+  // tab whose rows it feeds — not the org or subscribe-picker lists.
+  it('a failed ownership read flags only the personal list it feeds', async () => {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === ORG_MEMORIES_TAB_QUERY) return { organization: fakeOrg };
+      if (query === ORG_SYSTEM_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      if (query === OWN_SYSTEM_MEMORY_IDS_QUERY) throw new Error('ownership read down');
+      if (query === PUBLIC_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      if (query === MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      throw new Error('Unexpected query');
+    });
+    const load = await importLoad();
+    const r = (await load(ev())) as unknown as {
+      personalMemories: unknown[];
+      systemMemoriesDegraded: boolean;
+      personalMemoriesDegraded: boolean;
+      availableMemoriesDegraded: boolean;
+    };
+    expect(r.personalMemories).toEqual([]);
+    expect(r.personalMemoriesDegraded).toBe(true);
+    expect(r.systemMemoriesDegraded).toBe(false);
+    expect(r.availableMemoriesDegraded).toBe(false);
+  });
+
+  // The org-system read feeds BOTH tabs (systemMemories directly, and the
+  // caller's own org-less system rows on the personal tab via ownSystemIds),
+  // so its failure flags both.
+  it('a failed org-system read flags both lists it feeds', async () => {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === ORG_MEMORIES_TAB_QUERY) return { organization: fakeOrg };
+      if (query === ORG_SYSTEM_MEMORIES_QUERY) throw new Error('system read down');
+      if (query === OWN_SYSTEM_MEMORY_IDS_QUERY) return { memories: { items: [], total: 0 } };
+      if (query === PUBLIC_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      if (query === MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      throw new Error('Unexpected query');
+    });
+    const load = await importLoad();
+    const r = (await load(ev())) as unknown as {
+      systemMemoriesDegraded: boolean;
+      personalMemoriesDegraded: boolean;
+      availableMemoriesDegraded: boolean;
+    };
+    expect(r.systemMemoriesDegraded).toBe(true);
+    expect(r.personalMemoriesDegraded).toBe(true);
+    expect(r.availableMemoriesDegraded).toBe(false);
+  });
+
+  it('a coded GraphQL failure logs the code, and every degraded read logs once — never the token, the raw message, or row content', async () => {
+    // The shape graphql-request throws: the code lives on
+    // response.errors[0].extensions.code. The message and response body carry
+    // the bearer token — exactly what must NOT print, so the error is built to
+    // fail the assertion if any of it leaks.
+    const coded = {
+      message: 'FORBIDDEN: bearer test-token rejected',
+      response: { errors: [{ message: 'FORBIDDEN: bearer test-token rejected', extensions: { code: 'FORBIDDEN' } }] },
+    };
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === ORG_MEMORIES_TAB_QUERY) return { organization: fakeOrg };
+      if (query === ORG_SYSTEM_MEMORIES_QUERY) throw coded;
+      if (query === OWN_SYSTEM_MEMORY_IDS_QUERY) throw coded;
+      if (query === PUBLIC_MEMORIES_QUERY) throw coded;
+      if (query === MEMORIES_QUERY) throw coded;
+      throw new Error('Unexpected query');
+    });
+    const load = await importLoad();
+    const r = (await load(ev())) as unknown as {
+      systemMemories: unknown[];
+      personalMemories: unknown[];
+      systemMemoriesDegraded: boolean;
+      personalMemoriesDegraded: boolean;
+      availableMemoriesDegraded: boolean;
+    };
+    // Fail-closed unchanged: every degraded read still hides its rows.
+    expect(r.systemMemories).toEqual([]);
+    expect(r.personalMemories).toEqual([]);
+    // Every list is flagged for its unavailable-state copy.
+    expect(r.systemMemoriesDegraded).toBe(true);
+    expect(r.personalMemoriesDegraded).toBe(true);
+    expect(r.availableMemoriesDegraded).toBe(true);
+    expect(warn).toHaveBeenCalledTimes(4);
+    const lines = warn.mock.calls.map((c) => c.join(' ')).sort();
+    expect(lines).toEqual([
+      '[org-memories] my memories read failed for org-1 (FORBIDDEN); rows hidden, fail-closed',
+      '[org-memories] org system memories read failed for org-1 (FORBIDDEN); rows hidden, fail-closed',
+      '[org-memories] own system-memory ids read failed for org-1 (FORBIDDEN); rows hidden, fail-closed',
+      '[org-memories] public memories read failed for org-1 (FORBIDDEN); rows hidden, fail-closed',
+    ]);
+    const logged = JSON.stringify(warn.mock.calls);
+    expect(logged).not.toContain('test-token');
+    expect(logged).not.toContain('rejected');
+  });
+});
+
 describe('memories-list load() — initialTab (#556)', () => {
-  it('defaults to the org tab with no ?tab= hint', async () => {
+  it('defaults to the org tab with no ?tab= hint, and a healthy load flags no list degraded', async () => {
     routeMock([]);
     const load = await importLoad();
-    const result = (await load(ev())) as { initialTab: string };
+    const result = (await load(ev())) as {
+      initialTab: string;
+      systemMemoriesDegraded: boolean;
+      personalMemoriesDegraded: boolean;
+      availableMemoriesDegraded: boolean;
+    };
     expect(result.initialTab).toBe('org');
+    expect(result.systemMemoriesDegraded).toBe(false);
+    expect(result.personalMemoriesDegraded).toBe(false);
+    expect(result.availableMemoriesDegraded).toBe(false);
   });
 
   it('honors ?tab=personal (the create-flow deep link)', async () => {
@@ -507,4 +916,26 @@ it('returned failed reports stay sanitized errors in syncAll', async () => {
   mockRequest.mockResolvedValueOnce({ syncMemory: { syncStatus: 'ERROR', syncError: 'https://user:ghs_SECRET@github.com/a', lastSyncReport: JSON.stringify({ version: 1, outcome: 'failed', recordedAt: '2026-10-26T01:02:03.000Z', entries: [], code: 'SYNC_FAILED' }) } });
   const result = await runAction('syncAll') as { status: number; data: { form: { message: { type: string; text: string } } } };
   expect(result.status).toBe(500); expect(result.data.form.message.type).toBe('error'); expect(result.data.form.message.text).not.toContain('ghs_SECRET');
+});
+
+
+it('#1308 classifies each bulk result once', async () => {
+  const raw = JSON.stringify({ version: 1, outcome: 'partial', recordedAt: '2026-10-26T01:02:03.000Z', entries: [] });
+  mockRequest.mockResolvedValueOnce({ organization: { memories: [{ id: 'm', name: 'Docs', source: 'synthetic' }] } });
+  mockRequest.mockResolvedValueOnce({ syncMemory: { syncStatus: 'OK', lastSyncReport: raw } });
+  const parsed = vi.spyOn(JSON, 'parse');
+  try {
+    await runAction('syncAll');
+    expect(parsed.mock.calls.filter(([input]) => input === raw)).toHaveLength(1);
+  } finally { parsed.mockRestore(); }
+});
+
+
+it('#1308 bulk OK without completion reports uncertainty, not failure to finish', async () => {
+  mockRequest.mockResolvedValueOnce({ organization: { memories: [{ id: 'm', name: 'Docs', source: 'synthetic' }] } });
+  mockRequest.mockResolvedValueOnce({ syncMemory: { syncStatus: 'OK', lastSyncReport: null, lastSyncedAt: null } });
+  const result = await runAction('syncAll') as { form: { message: { type: string; text: string } } };
+  expect(result.form.message.text).toContain('Clean completed syncs are not confirmed for: Docs.');
+  expect(result.form.message.text).not.toContain('didn’t finish');
+  expect(result.form.message.text).not.toContain('All memories synced.');
 });

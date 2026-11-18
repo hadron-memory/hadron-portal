@@ -5,6 +5,10 @@ on:
     branches: [main]
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   api-key-chain:
     # #1285: Playwright 1.58.2 cannot install Chromium on Ubuntu 26.04.
@@ -32,7 +36,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           repository: hadron-memory/hadron-server
-          ref: a290aceb0bd78cda995e2196fd385864010b7d10 # tests/e2e/server-revision.txt
+          ref: 1441992a407fe70c0e60f868ba1b0b32113ffb9a # tests/e2e/server-revision.txt
           path: server-fixture
           persist-credentials: false
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6

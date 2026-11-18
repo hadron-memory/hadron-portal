@@ -1,7 +1,8 @@
 <script lang="ts">
+  import TabRow from '$lib/components/TabRow.svelte';
   import { untrack } from 'svelte';
   import { TASK_SEARCH_MAX, taskBoardHref } from '$lib/agent-tasks/search';
-  import { overdueApplies, type BoardNarrow } from '$lib/agent-tasks/narrow';
+  import { overdueApplies, unresolvedApplies, type BoardNarrow } from '$lib/agent-tasks/narrow';
   import { invalidateAll } from '$app/navigation';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
@@ -32,7 +33,7 @@
   import { goto } from '$app/navigation';
   import { parseHandle, taskHref } from '$lib/agent-tasks/handle';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
-  import type { PageData } from './$types';
+  import type { ActionData, PageData } from './$types';
 
   /**
    * portal#1052 — the App's task board (design §4): root tasks in one
@@ -40,7 +41,7 @@
    * page (§4.1's fallback: the Subtasks cell links there, anchored at
    * #subtasks).
    */
-  let { data }: { data: PageData } = $props();
+  let { data, form = null }: { data: PageData; form?: ActionData | null } = $props();
 
   const basePath = $derived(`/app/apps/${data.app.id}`);
   const appsHref = $derived(data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps');
@@ -55,6 +56,7 @@
     ownerText: string;
     assigneeText: string;
     startByMs: number;
+    finishByMs: number;
     updatedMs: number;
     createdMs: number;
     tagsText: string;
@@ -77,6 +79,7 @@
             ownerText: partySearchText(task.owner),
             assigneeText: partySearchText(task.assignee),
             startByMs: ms(task.startBy),
+            finishByMs: ms(task.finishBy),
             updatedMs: ms(task.updatedAt ?? task.createdAt),
             createdMs: ms(task.createdAt),
             tagsText: task.tags.join(' '),
@@ -110,10 +113,18 @@
     { id: 'status', accessorFn: (r) => r.statusText, header: t('app.tasks.col.status', 'Status'), enableHiding: false, size: 170 },
     { id: 'title', accessorFn: (r) => r.title, header: t('app.tasks.col.task', 'Task'), enableHiding: false, size: 320 },
     { id: 'priority', accessorFn: (r) => r.priority, header: t('app.tasks.priority', 'Priority'), size: 110, sortDescFirst: false, sortFn: 'basic', sortUndefined: 'last' },
+    // portal#2248 review (Uma P3 1, Jonas P3, Celine QA note): the two deadline
+    // columns sit with the task's core facts, ahead of the people columns — at
+    // 1440 the visible defaults total ~1690px, so anything after Assignee is
+    // past the fold and Finish by was cut mid-date at the table edge. Widening
+    // alone cannot fix a fold cut; the order puts both deadlines inside the
+    // first 1000px. Saved arrangements keep their own order; this is the
+    // default for fresh views.
+    { id: 'startBy', accessorFn: (r) => r.startByMs, header: t('app.tasks.col.start-by', 'Start by'), size: 200 },
+    { id: 'finishBy', accessorFn: (r) => r.finishByMs, header: t('app.tasks.col.finish-by', 'Finish by'), size: 200 },
     { id: 'owner', accessorFn: (r) => r.ownerText, header: t('app.tasks.col.owner', 'Owner'), size: 200 },
     { id: 'assignee', accessorFn: (r) => r.assigneeText, header: t('app.tasks.col.assignee', 'Assignee'), size: 200 },
     { id: 'subtasks', accessorFn: () => '', header: t('app.tasks.col.subtasks', 'Subtasks'), enableSorting: false, enableGlobalFilter: false, size: 120 },
-    { id: 'startBy', accessorFn: (r) => r.startByMs, header: t('app.tasks.col.start-by', 'Start by'), size: 170 },
     { id: 'updated', accessorFn: (r) => r.updatedMs, header: t('app.tasks.col.updated', 'Updated'), size: 170 },
     { id: 'created', accessorFn: (r) => r.createdMs, header: t('app.tasks.col.created', 'Created'), size: 170 },
     { id: 'tags', accessorFn: (r) => r.tagsText, header: t('app.tasks.col.tags', 'Tags'), size: 180 },
@@ -137,9 +148,10 @@
   });
 
   // portal#1427: Overdue and tags ride along every link; a page loaded without them reads as unset.
-  const narrow: BoardNarrow = $derived({ overdue: data.overdue ?? false, tags: data.tags ?? [] });
-  const narrowed = $derived(narrow.overdue || narrow.tags.length > 0);
+  const narrow: BoardNarrow = $derived({ overdue: data.overdue ?? false, tags: data.tags ?? [], unresolved: data.unresolved ?? false });
+  const narrowed = $derived(narrow.overdue || narrow.tags.length > 0 || narrow.unresolved);
   const overdueOffered = $derived(overdueApplies(data.filter));
+  const unresolvedOffered = $derived(unresolvedApplies(data.filter));
 
   function viewHref(v: TaskView): string {
     return taskBoardHref(basePath, data.filter, data.text ?? '', v, narrow);
@@ -152,7 +164,7 @@
 
   // A route can be reused on navigation. Reset position for each server slice,
   // without subscribing to the table state that the reset itself writes.
-  const boardSlice = $derived(JSON.stringify([data.app.id, data.filter, data.text ?? '', narrow.overdue, narrow.tags]));
+  const boardSlice = $derived(JSON.stringify([data.app.id, data.filter, data.text ?? '', narrow.overdue, narrow.tags, narrow.unresolved]));
   $effect(() => {
     void boardSlice;
     untrack(() => {
@@ -192,9 +204,6 @@
     // when a browser restores this document from its back/forward cache.
   }
 
-  const overdue = (task: AgentTaskRow) =>
-    task.status === 'PENDING' && task.startBy !== null && ms(task.startBy) > 0 && ms(task.startBy) < Date.now();
-
   let refreshing = $state(false);
   async function refresh() {
     refreshing = true;
@@ -222,26 +231,15 @@
     <TasksReadOnlyNote view={data.view ?? 'board'} />
   </div>
 
-  <!-- §2: Board · Roster · Composition · Alarms, addressed by ?view=. Its own row scrolls on a phone, never the page. -->
-  <nav aria-label={t('app.tasks.view.label', 'Task views')} class="-mx-1 flex overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
-    {#each TASK_VIEWS as v (v)}
-      <a
-        href={viewHref(v)}
-        data-sveltekit-reload
-        aria-current={data.view === v ? 'page' : undefined}
-        class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium {data.view === v
-          ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-          : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200'}"
-      >{taskViewLabel(v)}</a>
-    {/each}
-  </nav>
+  <!-- §2: Board · Roster · Composition · Alarms, addressed by ?view=. The shared overflow menu keeps every view reachable on a phone. -->
+  <TabRow mode="links" items={TASK_VIEWS.map(v => ({ id: v, label: taskViewLabel(v), href: viewHref(v), reload: true }))} active={data.view ?? 'board'} label={t('app.tasks.view.label', 'Task views')} />
 
   {#if data.view === 'roster' && data.roster}
     <TasksRoster roster={data.roster} refs={data.refs} {basePath} impersonating={data.impersonating} />
   {:else if data.view === 'composition' && data.composition}
     <TasksComposition composition={data.composition} {basePath} impersonating={data.impersonating} />
   {:else if data.view === 'alarms' && data.alarms}
-    <TasksAlarms alarms={data.alarms} filter={data.alarmFilter} limit={data.alarmsLimit} refs={data.refs} {basePath} impersonating={data.impersonating} />
+    <TasksAlarms ackResult={form?.alarmAck ?? null} alarms={data.alarms} filter={data.alarmFilter} paging={data.alarmPaging} refs={data.refs} {basePath} impersonating={data.impersonating} />
   {:else if !board}
     <!-- The loader always reads the board for the board view; if it ever doesn't, say so rather than show nothing. -->
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
@@ -306,6 +304,15 @@
           {t('app.tasks.narrow.overdue.label', 'Overdue only')}
         </label>
       </div>
+      <!-- portal#1643: finished tasks (subtasks included) with a finding nobody has disposed of yet. -->
+      <div class="w-full pb-0 sm:w-auto sm:pb-2">
+        <label class="flex items-center gap-2 text-sm font-medium {unresolvedOffered ? 'text-zinc-700 dark:text-zinc-300' : 'cursor-not-allowed text-zinc-500 dark:text-zinc-400'}">
+          <input type="checkbox" name="unresolved" value="1" checked={narrow.unresolved} aria-disabled={unresolvedOffered ? undefined : 'true'}
+            onclick={(event) => { if (!unresolvedOffered) event.preventDefault(); }}
+            aria-describedby="task-unresolved-guidance" class="size-4 rounded border-zinc-300 dark:border-zinc-700" />
+          {t('app.tasks.narrow.unresolved.label', 'Unresolved findings')}
+        </label>
+      </div>
       <button type="submit" class="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500">{t('app.tasks.search.submit', 'Search')}</button>
       <a href={taskBoardHref(basePath, data.filter, '')} data-sveltekit-reload class="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700">{t('app.tasks.search.clear', 'Clear')}</a>
       <p id="task-search-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.search.limit', 'Up to 200 characters after trimming. Searches titles and descriptions in this App.')}</p>
@@ -317,8 +324,17 @@
       {:else}
         <p id="task-overdue-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">
           {overdueOffered
-            ? t('app.tasks.narrow.overdue.guidance', 'Overdue: the start-by time has passed and the task has not started.')
+            ? t('app.tasks.narrow.overdue.guidance', 'Overdue: a pending task past its start-by, or a pending or started task past its finish-by. Backlog and ended tasks are never overdue.')
             : t('app.tasks.narrow.overdue.unavailable', 'Overdue applies to Active, Queued and All tasks.')}
+        </p>
+      {/if}
+      {#if data.unresolvedDropped}
+        <p id="task-unresolved-guidance" role="status" class="w-full text-xs text-amber-700 dark:text-amber-300" data-testid="unresolved-dropped">{t('app.tasks.narrow.unresolved.dropped', 'Unresolved findings was turned off: it does not apply to {bucket} tasks.', { bucket: boardFilterLabel(data.filter) })}</p>
+      {:else}
+        <p id="task-unresolved-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">
+          {unresolvedOffered
+            ? t('app.tasks.narrow.unresolved.guidance', 'Unresolved findings: finished tasks, subtasks included, with a finding no one has recorded a disposition for.')
+            : t('app.tasks.narrow.unresolved.unavailable', 'Unresolved findings applies to Ended and All tasks.')}
         </p>
       {/if}
     </form>
@@ -384,7 +400,14 @@
       >
         {#snippet cell(cell, row)}
           {#if cell.column.id === 'status'}
-            <TaskStateChips task={row.task} />
+            <span class="inline-flex flex-wrap items-center gap-1.5">
+              <TaskStateChips task={row.task} />
+              <!-- portal#2244: the server's verdict, shown even when start-by is null
+                   (a finish-by-only overdue) and never computed from the browser clock.
+                   Task-level verdict, task-level place (portal#2248 review): the boolean
+                   does not say which deadline passed, so it never attaches to a date cell. -->
+              {#if row.task.overdue}<span data-testid="overdue-mark" class="text-xs font-medium text-amber-700 dark:text-amber-300">{t('app.tasks.overdue', 'overdue')}</span>{/if}
+            </span>
           {:else if cell.column.id === 'title'}
             <div class="flex min-w-0 flex-col">
               <span class="flex min-w-0 items-center gap-1.5">
@@ -415,7 +438,12 @@
           {:else if cell.column.id === 'startBy'}
             {#if row.task.startBy}
               <span class="whitespace-nowrap">{fmtRunTime(row.task.startBy)}</span>
-              {#if overdue(row.task)}<span class="ml-1 text-xs font-medium text-amber-700 dark:text-amber-300">{t('app.tasks.overdue', 'overdue')}</span>{/if}
+            {:else}
+              <span class="text-zinc-400">—</span>
+            {/if}
+          {:else if cell.column.id === 'finishBy'}
+            {#if row.task.finishBy}
+              <span class="whitespace-nowrap">{fmtRunTime(row.task.finishBy)}</span>
             {:else}
               <span class="text-zinc-400">—</span>
             {/if}

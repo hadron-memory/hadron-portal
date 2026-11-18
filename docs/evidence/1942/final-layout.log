@@ -1,0 +1,221 @@
+
+> hadron-web@0.1.0 test:table-cell-overflow-layout /home/orca/orca/workspaces/hadron-portal/juliet
+> node scripts/test-table-cell-overflow-layout.mjs
+
+11:08:57 AM [vite] (client) Re-optimizing dependencies because vite config has changed
+rem-control alarms 390 false {
+  width: 84.890625,
+  height: 44,
+  left: 32,
+  right: 13.109375,
+  top: 476.5,
+  bottom: 20,
+  labelLines: 1
+}
+alarms/390/light: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 504,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 294,
+    netOnChangedChannels: 0
+  }
+}
+rem-control runs 390 false {
+  width: 74.796875,
+  height: 44,
+  left: 32,
+  right: 33.203125,
+  top: 90.5,
+  bottom: 90,
+  labelLines: 1
+}
+runs/390/light: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 546,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 537,
+    netOnChangedChannels: 0
+  }
+}
+config/390/light: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 1110,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 1119,
+    netOnChangedChannels: 0
+  }
+}
+rem-control alarms 390 true {
+  width: 84.890625,
+  height: 44,
+  left: 32,
+  right: 13.109375,
+  top: 476.5,
+  bottom: 20,
+  labelLines: 1
+}
+alarms/390/dark: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 492,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 294,
+    netOnChangedChannels: 0
+  }
+}
+rem-control runs 390 true {
+  width: 74.796875,
+  height: 44,
+  left: 32,
+  right: 33.203125,
+  top: 90.5,
+  bottom: 90,
+  labelLines: 1
+}
+runs/390/dark: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 540,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 525,
+    netOnChangedChannels: 0
+  }
+}
+config/390/dark: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 1107,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 1119,
+    netOnChangedChannels: 0
+  }
+}
+rem-control alarms 1280 false {
+  width: 84.890625,
+  height: 44,
+  left: 32,
+  right: 13.109375,
+  top: 476.5,
+  bottom: 20,
+  labelLines: 1
+}
+alarms/1280/light: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 573,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 408,
+    netOnChangedChannels: 0
+  }
+}
+rem-control runs 1280 false {
+  width: 74.796875,
+  height: 44,
+  left: 32,
+  right: 33.203125,
+  top: 46.5,
+  bottom: 46,
+  labelLines: 1
+}
+runs/1280/light: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 525,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 444,
+    netOnChangedChannels: 0
+  }
+}
+config/1280/light: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 1005,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 1167,
+    netOnChangedChannels: 0
+  }
+}
+rem-control alarms 1280 true {
+  width: 84.890625,
+  height: 44,
+  left: 32,
+  right: 13.109375,
+  top: 476.5,
+  bottom: 20,
+  labelLines: 1
+}
+alarms/1280/dark: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 570,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 408,
+    netOnChangedChannels: 0
+  }
+}
+rem-control runs 1280 true {
+  width: 74.796875,
+  height: 44,
+  left: 32,
+  right: 33.203125,
+  top: 46.5,
+  bottom: 46,
+  labelLines: 1
+}
+runs/1280/dark: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 522,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 435,
+    netOnChangedChannels: 0
+  }
+}
+config/1280/dark: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 1005,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 1164,
+    netOnChangedChannels: 0
+  }
+}

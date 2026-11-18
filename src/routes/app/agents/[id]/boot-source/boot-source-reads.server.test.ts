@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
-import { GET as resolved } from './resolved/+server';
 import { GET as lint } from './lint/+server';
-import { AGENT_BOOT_START_QUERY, BOOT_RESOLVED_SOURCE_QUERY, BOOT_SOURCE_LINT_QUERY, BOOT_SOURCE_QUERY } from '$lib/server/queries';
+import { AGENT_BOOT_START_QUERY, BOOT_SOURCE_LINT_QUERY, BOOT_SOURCE_QUERY } from '$lib/server/queries';
 
 const request = vi.fn();
 const gqlClient = vi.fn((_token: unknown) => ({ request }));
@@ -20,9 +19,8 @@ const forbidden = () => new ClientError({ status: 200, errors: [{ message: 'hrn:
 
 beforeEach(() => { request.mockReset(); gqlClient.mockClear(); });
 
-describe('the two queries (portal#1667)', () => {
-  it('resolves through raw: false, and keeps the source read that feeds the editor raw', () => {
-    expect(BOOT_RESOLVED_SOURCE_QUERY).toContain('raw: false');
+describe('the source queries (portal#1667)', () => {
+  it('keeps the source read raw', () => {
     expect(BOOT_SOURCE_QUERY).toContain('raw: true');
   });
   it('keeps lint out of the source read, and never selects the server sentence that names targets', () => {
@@ -32,7 +30,7 @@ describe('the two queries (portal#1667)', () => {
   });
 });
 
-describe.each([['resolved', resolved], ['lint', lint]] as const)('%s endpoint', (_name, GET) => {
+describe.each([['lint', lint]] as const)('%s endpoint', (_name, GET) => {
   it('refuses a request with no token and reads nothing', async () => {
     expect((await GET(event({ token: null }))).status).toBe(401);
     expect(gqlClient).not.toHaveBeenCalled();
@@ -58,13 +56,6 @@ describe.each([['resolved', resolved], ['lint', lint]] as const)('%s endpoint', 
     request.mockReset();
     request.mockImplementation(answer(null));
     expect((await GET(event())).status).toBe(404);
-  });
-});
-
-describe('resolved endpoint', () => {
-  it('answers with the revision and text the server returned, its notice untouched', async () => {
-    request.mockImplementation(answer({ id: 'n', revision: 5, content: 'a [Include unavailable] b' }));
-    expect(await (await resolved(event())).json()).toEqual({ node: { id: 'n', revision: 5, content: 'a [Include unavailable] b' } });
   });
 });
 

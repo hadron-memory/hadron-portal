@@ -20,10 +20,15 @@ const was = { batchWindowSecondsWas: '120', busyDelaySecondsWas: '600', stuckWin
 const gqlError = (code: string, message = `server says ${code}`) => ({ response: { errors: [{ message, extensions: { code } }] } });
 
 describe('documents', () => {
-  it('reads the five S9 fields and writes through setAppDeliverySettings with a String appRef', () => {
-    for (const f of ['batchWindowSeconds', 'busyDelaySeconds', 'stuckWindowSeconds', 'standbyEnabled', 'standbyEffective']) {
+  it('reads the three delivery fields and writes through setAppDeliverySettings with a String appRef', () => {
+    for (const f of ['batchWindowSeconds', 'busyDelaySeconds', 'stuckWindowSeconds']) {
       expect(APP_DELIVERY_SETTINGS_QUERY).toContain(f);
       expect(SET_APP_DELIVERY_SETTINGS_MUTATION).toContain(f);
+    }
+    // portal#1759 (server#3606): the retired standby fields are selected by neither document.
+    for (const f of ['standbyEnabled', 'standbyEffective']) {
+      expect(APP_DELIVERY_SETTINGS_QUERY).not.toContain(f);
+      expect(SET_APP_DELIVERY_SETTINGS_MUTATION).not.toContain(f);
     }
     expect(APP_DELIVERY_SETTINGS_QUERY).toContain('$appRef: String!');
     expect(SET_APP_DELIVERY_SETTINGS_MUTATION).toContain('setAppDeliverySettings(appRef: $appRef, input: $input)');

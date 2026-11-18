@@ -10,6 +10,7 @@
   toggleable via the column menu).
 -->
 <script lang="ts">
+  import TabRow from '$lib/components/TabRow.svelte';
   import { tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -266,7 +267,8 @@
       name: g.name,
       urn: g.urn,
       section: 'personal' as const,
-      badge: g.class === 'private' ? 'Private' : 'Personal',
+      // #2140: the caller's own org-less system memory lands here too.
+      badge: g.class === 'private' ? 'Private' : g.class === 'system' ? 'System' : 'Personal',
       storage: null,
       branch: null,
       lastSyncedAt: null,
@@ -396,9 +398,6 @@
   // 74px tall — two lines of compressed text. The page did not overflow because
   // the labels were being crushed instead, which is the failure this looks like
   // when the rail cannot scroll.
-  const subTabBase = 'shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium transition';
-  const subTabActive = 'border-indigo-500 text-indigo-600 dark:text-indigo-400';
-  const subTabInactive = 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200';
 </script>
 
 <svelte:head><title>Memories · {org.name} · Hadron</title></svelte:head>
@@ -411,23 +410,12 @@
   </div>
 
   <!-- #342/#555: secondary tab row (Personal Memories / Org Memories / Subscriptions) -->
-  <!-- #858: `overflow-x-auto` on the rail itself — it is the direct parent of
-       the tabs, so there is no inner scroller here and no `min-w-0` to add (a
-       flex item that is a scroll container already has an automatic minimum
-       size of zero). -->
-  <div class="flex gap-1 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
-    <button type="button" onclick={() => (subTab = 'personal')} class="{subTabBase} {subTab === 'personal' ? subTabActive : subTabInactive}">
-      {t('org-memories.subtab.personal', 'Personal Memories')}
-      <span class="ml-1 text-xs font-normal text-zinc-400">({personalRows.length})</span>
-    </button>
-    <button type="button" onclick={() => (subTab = 'org')} class="{subTabBase} {subTab === 'org' ? subTabActive : subTabInactive}">
-      {t('org-memories.subtab.org', 'Org Memories')}
-    </button>
-    <button type="button" onclick={() => (subTab = 'subscriptions')} class="{subTabBase} {subTab === 'subscriptions' ? subTabActive : subTabInactive}">
-      {t('org-memories.subtab.subscriptions', 'Subscriptions')}
-      <span class="ml-1 text-xs font-normal text-zinc-400">({subscriptions.length})</span>
-    </button>
-  </div>
+  <TabRow items={[
+    { id: 'personal', label: t('org-memories.subtab.personal', 'Personal Memories'), badge: `(${personalRows.length})` },
+    { id: 'org', label: t('org-memories.subtab.org', 'Org Memories') },
+    { id: 'subscriptions', label: t('org-memories.subtab.subscriptions', 'Subscriptions'), badge: `(${subscriptions.length})` }
+  ]} active={subTab} label={t('org-memories.tabs-label', 'Memory lists')} onselect={(id) => subTab = id as typeof subTab} />
+  <div class="space-y-4" role="tabpanel" id="panel-{subTab}" aria-labelledby="tab-{subTab}" tabindex="0">
 
   {#if deleteActionError || syncAllActionError || unsubscribeActionError}
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
@@ -451,7 +439,7 @@
     {:else if cell.column.id === 'urn'}
       <Urn value={m.urn} type="memory" size={10} />
     {:else if cell.column.id === 'type'}
-      <span class="inline-block rounded px-1.5 py-0.5 text-xs {badgeClass(m)}">{m.badge}</span>
+      <span data-testid="row-type-badge" class="inline-block rounded px-1.5 py-0.5 text-xs {badgeClass(m)}">{m.badge}</span>
     {:else if cell.column.id === 'vectorIndex'}
       {#if m.vectorIndexEnabled}
         <div class="flex flex-col gap-0.5">
@@ -484,11 +472,20 @@
     <!-- #555: Personal Memories — the caller's own personal memories (the
          personal + private classes) in this org. The create link preselects the
          personal class so the "new" page defaults to it. -->
-    {#if personalRows.length === 0}
+    <!-- portal#2175 (FIT 6884373873 c): a failed feed read hides its rows
+         (fail-closed) but must not read as "no memories" — the degraded flag
+         trades the empty-state copy for truthful unavailable copy, and the
+         alert also sits above rows that survived another read's failure. -->
+    {#if data.personalMemoriesDegraded}
+      <div role="alert" class="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+        {t('org-memories.personal.load-failed', "Couldn't load your personal memories just now — this is a temporary error, not an empty list. Try refreshing the page.")}
+      </div>
+    {:else if personalRows.length === 0}
       <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
         {t('org-memories.personal.empty', 'No personal memories yet.')} <a href="/app/orgs/{org.id}/memories/new?class=personal" class="text-indigo-600 hover:underline dark:text-indigo-400">{t('org-memories.add-one', 'Add one →')}</a>
       </div>
-    {:else}
+    {/if}
+    {#if personalRows.length > 0}
       <DataTable
         table={personalTable}
         listKey="orgs:memories:personal"
@@ -508,11 +505,20 @@
       </a>
     </div>
   {:else if subTab === 'org'}
-    {#if orgRows.length === 0}
+    <!-- portal#2175 (FIT 6884373873 c): same trade as the personal tab — a
+         failed system-rows read hides its rows but never reads as "no
+         memories", and the alert sits above whatever rows the org read did
+         return. -->
+    {#if data.systemMemoriesDegraded}
+      <div role="alert" class="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+        {t('org-memories.load-failed', "Couldn't load this organization's memories just now — this is a temporary error, not an empty list. Try refreshing the page.")}
+      </div>
+    {:else if orgRows.length === 0}
       <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
         {t('org-memories.empty', 'No memories yet.')} <a href="/app/orgs/{org.id}/memories/new" class="text-indigo-600 hover:underline dark:text-indigo-400">{t('org-memories.add-one', 'Add one →')}</a>
       </div>
-    {:else}
+    {/if}
+    {#if orgRows.length > 0}
       <!-- 26rem offset tuned to this page's chrome height (sub-tabs above,
            action buttons below) — per-page convention. -->
       <DataTable
@@ -588,7 +594,13 @@
     <!-- Subscribe to external memories (moved here from the page footer) -->
     <div class="pt-2">
       <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">Subscribe to a memory</h2>
-      {#if data.availableMemories.length === 0}
+      <!-- portal#2175: a failed public-memories read empties the whole picker
+           feed, so a degraded flag here means the catalogue is missing, not
+           absent — the picker is withheld rather than offered over an
+           incomplete catalogue. -->
+      {#if data.availableMemoriesDegraded}
+        <p role="alert" class="text-sm text-amber-700 dark:text-amber-300">{t('org-memories.available.load-failed', "Couldn't load the public memories list just now — this is a temporary error, not an empty catalogue. Try refreshing the page.")}</p>
+      {:else if data.availableMemories.length === 0}
         <p class="text-sm text-zinc-500">No public memories available to subscribe to.</p>
       {:else}
         <form method="POST" action="?/subscribe" use:subscribeEnhance class="flex items-start gap-3 max-w-lg" novalidate>
@@ -644,4 +656,6 @@
     <input type="hidden" name="_kind" value="unsubscribeMemory" />
     <input type="hidden" name="memoryId" value={$unsubscribeForm.memoryId} />
   </form>
+
+  </div>
 </div>

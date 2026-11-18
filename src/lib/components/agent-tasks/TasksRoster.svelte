@@ -208,7 +208,12 @@
       {:else if cell.column.id === 'detail'}
         <div class="min-w-0 text-sm">
           {#if e.state === 'YOUR_MOVE' && e.alarms.length}
-            <a href="{basePath}/tasks?view=alarms" class="text-indigo-600 hover:underline dark:text-indigo-300">
+            <!-- Uma's #2021 ruling: this link must land where every counted
+                 alarm is visible. The count is the server's unacknowledged
+                 total, which includes alarms whose escalation ended, so the
+                 In-effect default can show fewer rows than the number beside
+                 the link — All is the only existing view that contains them. -->
+            <a href="{basePath}/tasks?view=alarms&alarms=all" class="text-indigo-600 hover:underline dark:text-indigo-300">
               {t('app.tasks.roster.detail.alarms', '{n} unacknowledged alarm(s)', { n: e.alarms.length })}
             </a>
           {/if}

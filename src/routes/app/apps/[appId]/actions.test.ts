@@ -1,16 +1,19 @@
 import { pageOf } from '$lib/test/pagedFixture';
 import { castWorkerSchema } from './schema';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import { APP_KEY_IMPERSONATION_READ_ONLY, APP_KEY_MANAGERS_ONLY } from '$lib/server/app-key-refusal';
 import { AGENT_TOOLS_IMPERSONATION_READ_ONLY, AGENT_TOOLS_MANAGERS_ONLY } from './agent-tools-refusal';
 import {
+  AI_SERVICE_CONFIGS_QUERY,
+  APP_CHATBOT_AI_CONFIG_QUERY,
   INSTALL_AGENT_INTO_APP_MUTATION,
-  APP_NODES_QUERY,
+  APP_NODES_PAGE_QUERY,
   APP_QUERY,
   APP_CHAT_TARGET_QUERY,
   CHANNEL_CHAT_TARGET_QUERY,
   CREATE_CHANNEL_MESSAGE_MUTATION,
+  CREATE_TEAM_CHAT_MESSAGE_MUTATION,
   APP_KEYS_QUERY,
   APP_VIEWER_MANAGES_QUERY,
   APP_MEMBERS_QUERY,
@@ -27,7 +30,7 @@ import {
   SELF_CAN_MANAGE_QUERY,
   TEAM_CHAT_MESSAGES_QUERY,
   TEAM_WORK_ITEMS_QUERY,
-  APP_CHAT_ROOTS_QUERY,
+  APP_CHAT_ROOTS_PAGE_QUERY,
   UPDATE_APP_MUTATION,
 } from '$lib/server/queries';
 
@@ -118,7 +121,7 @@ const validSettings = {
 describe('load', () => {
   it('seeds the link-agent form with an explicit empty choice', async () => {
     // mockResolvedValue (not …Once): the loader makes SEVERAL paginated calls —
-    // AI configs and, since #974, the App's Worker staff.
+    // Complete-context consumers such as the App's Worker staff.
     mockFetchAllItems.mockResolvedValue([]);
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) {
@@ -156,11 +159,12 @@ describe('load', () => {
       if (query === APP_ORG_AGENT_GRANTS_QUERY) {
         return Promise.resolve({ organization: { id: 'org-1', agentOrgGrants: [] } });
       }
+      if (query === AI_SERVICE_CONFIGS_QUERY) return Promise.resolve({ aiServiceConfigs: { items: [], total: 0 } });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       // #744: chat-root discovery for the Chats selector. Shares the appNodes
       // resolver but is its own document, so the strict mock needs it by name.
-      if (query === APP_CHAT_ROOTS_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_CHAT_ROOTS_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
@@ -169,6 +173,7 @@ describe('load', () => {
       }
       // #1106: the viewer's manage self-audit (the Client tab's plugin grid).
       if (query === SELF_CAN_MANAGE_QUERY) return Promise.resolve({ effectiveAccess: { canManage: true } });
+      if (query === APP_CHATBOT_AI_CONFIG_QUERY) return Promise.resolve({ app: { id: 'app-1', chatbotAiConfigId: null } });
       throw new Error('Unexpected query');
     });
 
@@ -210,7 +215,7 @@ describe('load', () => {
         });
       }
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
@@ -260,7 +265,7 @@ describe('load', () => {
         });
       }
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
@@ -297,7 +302,7 @@ describe('load', () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) return Promise.reject(new Error('chat exploded'));
       return Promise.resolve({ resolveAiServiceConfigs: [] });
     });
@@ -331,7 +336,7 @@ describe('load', () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
@@ -373,7 +378,7 @@ describe('load', () => {
       mockRequest.mockImplementation((query, vars) => {
         if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
         if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-        if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+        if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
         if (query === TEAM_CHAT_MESSAGES_QUERY) return chat(vars as Record<string, unknown>);
         if (query === TEAM_WORK_ITEMS_QUERY) return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
         return Promise.resolve({ resolveAiServiceConfigs: [] });
@@ -443,7 +448,7 @@ describe('load', () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({
           teamChatMessages: { items: [{ nodeId: 'n1', seq: 42 }], total: 913 },
@@ -478,7 +483,7 @@ describe('load', () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
@@ -585,14 +590,14 @@ describe('update action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns a typed error when app update fails', async () => {
+  it('returns fallback copy when app update transport fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('update', validSettings)) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to update app' });
   });
 });
 
@@ -620,6 +625,46 @@ describe('addAgent action', () => {
     mockRequest.mockResolvedValueOnce({});
     await runAction('addAgent', { agentId: 'agent-1' });
     expect(mockRequest.mock.calls[0][1]).toEqual({ appRef: 'app-1', agentRef: 'agent-1' });
+  });
+
+  // portal#1715 S2. Stubbed refusals: these prove the mapping, not that a real
+  // server reaches each code on this path.
+  describe('a refused install', () => {
+    const GENERIC = 'Something went wrong on our side.';
+    const refusal = (code: string, text = 'internal server text') => Object.assign(new Error(text), { response: { errors: [{ message: text, extensions: { code } }] } });
+    const refuse = async (error: unknown) => {
+      mockRequest.mockRejectedValueOnce(error);
+      return (await runAction('addAgent', { agentId: 'agent-1' })) as { status: number; data: { form: { message: { type: string; text: string } } } };
+    };
+
+    it.each([
+      ['AGENT_ORG_GRANT_INACTIVE', 'This App’s organization has an inactive grant for that agent, so it can’t be installed.'],
+      ['AGENT_ORG_GRANT_REQUIRED', 'This App’s organization needs a grant for that agent before it can be installed.'],
+    ])('%s shows portal copy, never the server’s, at status 500', async (code, text) => {
+      const result = await refuse(refusal(code));
+      expect(result.status).toBe(500);
+      expect(result.data.form.message).toEqual({ type: 'error', text });
+      expect(mockRequest).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([['AGENT_NOT_FOUND'], ['SOME_NEW_DOMAIN_CODE'], ['AGENT_DEPENDENCY_UNAVAILABLE']])('%s keeps today’s handling', async (code) => {
+      const result = await refuse(refusal(code));
+      expect(result.status).toBe(500);
+      expect(result.data.form.message).toEqual({ type: 'error', text: GENERIC });
+    });
+
+    it('a prototype key as a code is not a map entry', async () => {
+      const result = await refuse(refusal('constructor'));
+      expect(result.data.form.message.text).toBe(GENERIC);
+    });
+
+    it('a transport failure uses fallback copy and is not read as a typed unknown outcome', async () => {
+      const failure = new Error('socket hang up');
+      const result = await refuse(failure);
+      expect(result.status).toBe(500);
+      expect(result.data.form.message.text).toBe('Failed to add agent');
+      expect(result.data.form.message.text).not.toContain('could not be confirmed');
+    });
   });
 
   it('rejects missing agent ids before mutation', async () => {
@@ -688,14 +733,14 @@ describe('createKey action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns a typed error when key creation fails', async () => {
+  it('returns the fallback copy, not the raw text, when key creation fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('createKey', { label: 'production' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to create key' });
   });
 
   // portal#1068 (Holger #8095): whoever manages the App mints its keys. The
@@ -764,14 +809,14 @@ describe('removeAgent action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns typed removeAgent errors', async () => {
+  it('returns fallback copy for removeAgent transport errors', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('removeAgent', { agentId: 'agent-1' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to remove agent' });
   });
 });
 
@@ -815,14 +860,14 @@ describe('updateAgentTools action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns typed updateAgentTools errors', async () => {
+  it('returns the fallback copy for a transport failure in updateAgentTools errors', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('updateAgentTools', { agentTools: 'CLAUDE_CODE' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to update agent tools' });
   });
 
   // portal#1106: a non-manager's tick is refused by updateApp's gate. That is
@@ -904,14 +949,14 @@ describe('revokeKey action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns typed revokeKey errors', async () => {
+  it('returns the fallback copy for a transport failure in revokeKey errors', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('revokeKey', { keyId: 'key-1' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to revoke key' });
   });
 
   it('a FORBIDDEN revoke is a 403 with the same manager copy', async () => {
@@ -965,7 +1010,7 @@ describe('deleteApp action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns typed deleteApp errors', async () => {
+  it('returns fallback copy for deleteApp transport errors', async () => {
     mockRequest
       .mockResolvedValueOnce({ app: { organizationId: 'org-1' } }) // org lookup ok
       .mockRejectedValueOnce(new Error('nope')); // delete fails
@@ -974,7 +1019,7 @@ describe('deleteApp action', () => {
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to delete app' });
   });
 });
 
@@ -1131,6 +1176,26 @@ describe('castWorker action', () => {
     expect(result.data.form.message.text).toContain('contributor access');
   });
 
+  // portal#1813 (hadron-server#3626): the personal App's owner no longer
+  // qualifies for its ORGANIZATION-visible Agent. Without its own entry this
+  // fell to extractGqlError's generic "Failed to cast the worker.". The status
+  // stays the action's 500 for every refusal; only the copy is pinned.
+  it('translates BOOT_PROMPT_INSTALL_LICENSE_INACTIVE into its fixed copy', async () => {
+    mockRequest.mockRejectedValueOnce({
+      message: 'server text',
+      response: { errors: [{ message: 'server text', extensions: { code: 'BOOT_PROMPT_INSTALL_LICENSE_INACTIVE' } }] },
+    });
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', reporting: 'none' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({
+      type: 'error',
+      text: 'The owner of this App no longer qualifies to use this organization Agent, so the worker can’t be cast. Trying again won’t help.',
+    });
+  });
+
   it('uses generic copy for an UNKNOWN code', async () => {
     // hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only — only known codes get friendly
     // copy; an internal error must not be relabelled as a user mistake.
@@ -1144,14 +1209,14 @@ describe('castWorker action', () => {
     expect(result.data.form.message.text).toBe('Something went wrong on our side.');
   });
 
-  it('falls back to the server message for a payload-less transport failure', async () => {
+  it('uses action fallback copy for a payload-less transport failure', async () => {
     // No `response.errors` at all — reading extensions.code off it would yield
     // undefined and, with a catch-all, mislabel an outage.
     mockRequest.mockRejectedValueOnce(new Error('bad gateway'));
     const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', reporting: 'none' })) as {
       data: { form: { message: { text: string } } };
     };
-    expect(result.data.form.message.text).toBe('bad gateway');
+    expect(result.data.form.message.text).toBe('Failed to cast the worker.');
   });
 });
 
@@ -1176,14 +1241,14 @@ describe('retireWorker action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns a typed error when retiring fails', async () => {
+  it('returns fallback copy when retiring transport fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('retireWorker', { workerId: 'worker-1' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to retire the worker.' });
   });
 
   // Retiring shares castWorker's gate, so it must share its refusal copy —
@@ -1426,14 +1491,14 @@ describe('releaseWorker action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns a typed error when releasing fails', async () => {
+  it('returns fallback copy when releasing transport fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('releaseWorker', { workerId: 'worker-1', expectedHolderUserId: 'user-9' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to release the name.' });
   });
 
   // releaseWorker does NOT share the staffing gate: it admits the HOLDER or an
@@ -1548,14 +1613,15 @@ describe('worklog loading (#733)', () => {
    * argument so the existing single-purpose calls read unchanged.
    */
   function stubAll(worklog: Record<string, unknown> | Error) {
-    const chatRoots = (worklog as Record<string, unknown>)?.appChatRoots;
+    const configuredChatRoots = (worklog as Record<string, unknown>)?.appChatRoots;
+    const chatRoots = Array.isArray(configuredChatRoots) || configuredChatRoots instanceof Error ? configuredChatRoots : undefined;
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
-      if (query === APP_CHAT_ROOTS_QUERY) {
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
+      if (query === APP_CHAT_ROOTS_PAGE_QUERY) {
         if (chatRoots instanceof Error) return Promise.reject(chatRoots);
-        return Promise.resolve({ appNodes: chatRoots ?? [] });
+        return Promise.resolve({ appNodesPage: { items: chatRoots ?? [], total: chatRoots?.length ?? 0, hasMore: false } });
       }
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
@@ -1711,7 +1777,7 @@ describe('team chat tail paging (#1536)', () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: page });
       }
@@ -1771,7 +1837,7 @@ describe('canManageApp (#1106)', () => {
     mockRequest.mockImplementation((query, vars) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp({ urn: 'hrn:app:acme.com:demo' }) });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       if (query === SELF_CAN_MANAGE_QUERY) {
         expect(vars).toEqual({ user: 'user-1', resource: 'hrn:app:acme.com:demo' });
@@ -1874,8 +1940,8 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
         return Promise.resolve({ organization: { id: 'org-1', agentOrgGrants: [] } });
       }
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
-      if (query === APP_CHAT_ROOTS_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
+      if (query === APP_CHAT_ROOTS_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
@@ -2121,7 +2187,7 @@ describe('load: key inventory (portal#1068)', () => {
       if (query === APP_KEYS_QUERY) return keysRead(vars as { limit?: number; offset?: number });
       if (query === APP_VIEWER_MANAGES_QUERY) return managesRead();
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       if (query === TEAM_WORK_ITEMS_QUERY) return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
       return Promise.resolve({ resolveAiServiceConfigs: [] });
@@ -2224,7 +2290,7 @@ describe('load: Human Team roster states (portal#1148)', () => {
         });
       }
       if (query === APP_MEMBERS_QUERY) return membersRead();
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       if (query === TEAM_WORK_ITEMS_QUERY) return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
       return Promise.resolve({ resolveAiServiceConfigs: [] });
@@ -2378,7 +2444,230 @@ describe('castWorker reporting choice (#1149)', () => {
     const result = (await runAction('castWorker', { ...base, reporting: 'head', reportsTo: 'worker-ada' })) as {
       data: { form: { message: { text: string } } };
     };
-    expect(result.data.form.message.text).toBe('bad gateway');
+    expect(result.data.form.message.text).toBe('Failed to cast the worker.');
     expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+});
+
+// #1778: exercise each actual action catch, not just the shared extractor.
+describe('App action transport copy', () => {
+  const cases = [
+    ['update', validSettings, UPDATE_APP_MUTATION, 'Failed to update app'],
+    ['addAgent', { agentId: 'agent-1' }, INSTALL_AGENT_INTO_APP_MUTATION, 'Failed to add agent'],
+    ['removeAgent', { agentId: 'agent-1' }, UNINSTALL_AGENT_FROM_APP_MUTATION, 'Failed to remove agent'],
+    ['castWorker', { agentId: 'agent-1', name: 'Aster', reporting: 'none' }, CAST_WORKER_MUTATION, 'Failed to cast the worker.'],
+    ['postTeamChatMessage', { body: 'hello' }, CREATE_TEAM_CHAT_MESSAGE_MUTATION, 'Failed to post to the team chat.'],
+    ['retireWorker', { workerId: 'worker-1' }, RETIRE_WORKER_MUTATION, 'Failed to retire the worker.'],
+    ['releaseWorker', { workerId: 'worker-1', expectedHolderUserId: 'user-1' }, RELEASE_WORKER_MUTATION, 'Failed to release the name.'],
+    ['deleteApp', {}, DELETE_APP_MUTATION, 'Failed to delete app'],
+  ] as const;
+
+  it.each(cases)('%s uses its fallback for a plain transport Error', async (name, fields, mutation, fallback) => {
+    // deleteApp reads ownership first; fail the mutation itself, not that
+    // non-fatal lookup. Every case must reach exactly one attempted write.
+    mockRequest.mockImplementation(async query => {
+      if (query === mutation) throw new Error('fetch failed PRIVATE_TRANSPORT_DETAIL');
+      return { app: { organizationId: null } };
+    });
+    const result = await runAction(name, fields) as {
+      status: number; data: { form: { message: { type: string; text: string } } };
+    };
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(mockRequest).toHaveBeenCalledTimes(name === 'deleteApp' ? 2 : 1);
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: fallback });
+    expect(JSON.stringify(result)).not.toContain('PRIVATE_TRANSPORT_DETAIL');
+  });
+
+  it.each(cases)('%s preserves an existing typed validation refusal', async (name, fields, mutation) => {
+    mockRequest.mockImplementation(async query => {
+      if (query === mutation) throw { response: { errors: [{ message: 'Correct the submitted value.', extensions: { code: 'BAD_USER_INPUT' } }] } };
+      return { app: { organizationId: null } };
+    });
+    const result = await runAction(name, fields) as {
+      status: number; data: { form: { message: { type: string; text: string } } };
+    };
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Correct the submitted value.' });
+    expect(result.status).toBe(500);
+  });
+});
+
+// #1789 (ruling hrn:node:hadronmemory.com:hadron-dev-team-shared:rulings:0247):
+// one fixed, identifier-free diagnostic record per transport-failed attempt at
+// each of the eight App actions, on the existing portal container log. GraphQL
+// errors and successes emit nothing. The record is CLOSED — exactly
+// event/action/classification — so every test below also seeds canaries in
+// every forbidden field the ruling names and asserts none reaches the sink.
+describe('App action transport diagnostics (#1789)', () => {
+  const CANARY_MSG = 'CANARY_transport_message_6f2a';
+  const CANARY_NESTED = 'CANARY_nested_response_body_91bd';
+  const CANARY_VARS = 'CANARY_query_variables_c30d';
+  const CANARY_REQID = 'CANARY_request_id_77aa';
+
+  // [action name, ruling-0247 diagnostic label, form fields, mutation]
+  const cases = [
+    ['update', 'update', validSettings, UPDATE_APP_MUTATION],
+    ['addAgent', 'install_link', { agentId: 'agent-1' }, INSTALL_AGENT_INTO_APP_MUTATION],
+    ['removeAgent', 'unlink', { agentId: 'agent-1' }, UNINSTALL_AGENT_FROM_APP_MUTATION],
+    ['castWorker', 'cast', { agentId: 'agent-1', name: 'Aster', reporting: 'none' }, CAST_WORKER_MUTATION],
+    ['postTeamChatMessage', 'team_chat_post', { body: 'hello' }, CREATE_TEAM_CHAT_MESSAGE_MUTATION],
+    ['retireWorker', 'retire', { workerId: 'worker-1' }, RETIRE_WORKER_MUTATION],
+    ['releaseWorker', 'release', { workerId: 'worker-1', expectedHolderUserId: 'user-1' }, RELEASE_WORKER_MUTATION],
+    ['deleteApp', 'delete', {}, DELETE_APP_MUTATION],
+  ] as const;
+
+  let warned: string[];
+  beforeEach(() => {
+    warned = [];
+    vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      warned.push(args.map((a) => String(a)).join(' '));
+    });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** A plain transport failure seeded with canaries in every forbidden field
+   * the ruling names: message, stack, URL, headers/cookies, query, variables
+   * and nested response-body properties. If any of it can reach the sink, the
+   * canary assertions fail. */
+  function canaryTransportError(): Error {
+    const e = new Error(`fetch failed ${CANARY_MSG}`);
+    Object.assign(e, {
+      stack: `Error: fetch failed ${CANARY_MSG}\n    at CANARY_stack_frame`,
+      request: {
+        url: `https://CANARY_url.example/${CANARY_VARS}`,
+        headers: { cookie: `CANARY_cookie=${CANARY_VARS}` },
+      },
+      query: `mutation { CANARY_query_${CANARY_VARS} }`,
+      variables: { appRef: CANARY_VARS, nested: { deep: CANARY_NESTED } },
+      response: { body: CANARY_NESTED, errors: undefined, data: { secret: CANARY_NESTED } },
+    });
+    return e;
+  }
+
+  /** Succeeds every non-mutation query (deleteApp's non-fatal org lookup) and
+   * fails the named mutation with the seeded transport error. */
+  function failMutationWithTransport(mutation: unknown) {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === mutation) throw canaryTransportError();
+      return { app: { organizationId: null } };
+    });
+  }
+
+  it.each(cases)('%s emits exactly one fixed record for a transport failure', async (name, label, fields, mutation) => {
+    failMutationWithTransport(mutation);
+    await runAction(name, fields);
+    // One attempted write, one record — and no retry or replay between them.
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(warned).toHaveLength(1);
+    // The exact fixed record: key set, key order, no whitespace, nothing else
+    // on the line. Any fourth field or error-derived text breaks this string.
+    expect(warned[0]).toBe(`{"event":"app_action_transport_failure","action":"${label}","classification":"transport"}`);
+    expect(Object.keys(JSON.parse(warned[0])).sort()).toEqual(['action', 'classification', 'event']);
+    // No canary from any forbidden field reached the sink.
+    expect(warned.join(' ')).not.toContain(CANARY_MSG);
+    expect(warned.join(' ')).not.toContain(CANARY_NESTED);
+    expect(warned.join(' ')).not.toContain(CANARY_VARS);
+  });
+
+  it.each(cases)('%s emits one record per independent failed attempt', async (name, _label, fields, mutation) => {
+    failMutationWithTransport(mutation);
+    await runAction(name, fields);
+    await runAction(name, fields);
+    await runAction(name, fields);
+    // Each attempt tried its write exactly once and produced exactly one
+    // record — no duplicates within an attempt, no replay between attempts.
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(3);
+    expect(warned).toHaveLength(3);
+    for (const line of warned) {
+      expect(JSON.parse(line)).toMatchObject({ event: 'app_action_transport_failure' });
+    }
+  });
+
+  // Success shapes mirror the existing per-action success tests; deleteApp's
+  // success legitimately rejects with the 303 redirect, swallowed here because
+  // the assertion under test is the ABSENCE of a diagnostic.
+  const successValues = {
+    [UPDATE_APP_MUTATION]: {},
+    [INSTALL_AGENT_INTO_APP_MUTATION]: {},
+    [UNINSTALL_AGENT_FROM_APP_MUTATION]: {},
+    [CAST_WORKER_MUTATION]: {},
+    [CREATE_TEAM_CHAT_MESSAGE_MUTATION]: { createTeamChatMessage: { nodeId: 'n1', seq: 36 } },
+    [RETIRE_WORKER_MUTATION]: {},
+    [RELEASE_WORKER_MUTATION]: { releaseWorker: { worker: { id: 'worker-1' }, forced: false, releasedFrom: null, notified: null } },
+    [DELETE_APP_MUTATION]: {},
+  } as Record<string, unknown>;
+
+  it.each(cases)('%s emits nothing on success', async (name, _label, fields, mutation) => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === mutation) return successValues[mutation];
+      return { app: { organizationId: null } };
+    });
+    // The success control must prove success, not swallow any rejection:
+    // deleteApp's success IS the 303 redirect; the other seven return a
+    // success message. A silently-failing mock cannot pass this green.
+    if (name === 'deleteApp') {
+      await expect(runAction(name, fields)).rejects.toMatchObject({ status: 303 });
+    } else {
+      const result = await runAction(name, fields) as { form: { message: { type: string } } };
+      expect(result.form.message.type).toBe('success');
+    }
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(warned).toHaveLength(0);
+  });
+
+  it.each(cases)('%s emits nothing for a typed validation refusal', async (name, _label, fields, mutation) => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === mutation) throw { response: { errors: [{ message: 'Correct the submitted value.', extensions: { code: 'BAD_USER_INPUT' } }] } };
+      return { app: { organizationId: null } };
+    });
+    await runAction(name, fields);
+    // The rejection reached the catch (mutation ran once), so the silence
+    // below is the classifier's, not a mock that never fired.
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(warned).toHaveLength(0);
+  });
+
+  it.each(cases)('%s emits nothing for an internal GraphQL error', async (name, _label, fields, mutation) => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === mutation) throw { response: { errors: [{ message: CANARY_MSG, extensions: { code: 'INTERNAL_SERVER_ERROR', requestId: CANARY_REQID } }] } };
+      return { app: { organizationId: null } };
+    });
+    await runAction(name, fields);
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(warned).toHaveLength(0);
+    expect(warned.join(' ')).not.toContain(CANARY_REQID);
+  });
+
+  // Greer's LOCAL P2 (hrn:node:hadronmemory.com:hadron-dev-team-shared:sprints:sprint-3:reviews:hadron-portal-1803:greer-local-ed805e33):
+  // a mutant that logs every GraphQL code EXCEPT the two covered above
+  // survived the original matrix. Ruling 0247's silence rule is "none for a
+  // GraphQL error" — ANY GraphQL error — so the matrix must pin the codes it
+  // does not name, with canaries, exactly as it pins the ones it does.
+  const CANARY_UNKNOWN_CODE = 'CANARY_unknown_gql_code_4e19';
+
+  it.each(cases)('%s emits nothing for an unknown coded GraphQL error', async (name, _label, fields, mutation) => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === mutation) throw { response: { errors: [{ message: CANARY_MSG, extensions: { code: CANARY_UNKNOWN_CODE } }] } };
+      return { app: { organizationId: null } };
+    });
+    await runAction(name, fields);
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(warned).toHaveLength(0);
+    expect(warned.join(' ')).not.toContain(CANARY_UNKNOWN_CODE);
+    expect(warned.join(' ')).not.toContain(CANARY_MSG);
+  });
+
+  it.each(cases)('%s emits nothing for a GraphQL error with a message but no code', async (name, _label, fields, mutation) => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === mutation) throw { response: { errors: [{ message: CANARY_MSG }] } };
+      return { app: { organizationId: null } };
+    });
+    await runAction(name, fields);
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(warned).toHaveLength(0);
+    expect(warned.join(' ')).not.toContain(CANARY_MSG);
   });
 });

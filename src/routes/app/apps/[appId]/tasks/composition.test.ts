@@ -28,7 +28,7 @@ function page(composition: unknown, data: Record<string, unknown> = {}) {
         loadedAt: '2026-10-26T01:00:00Z', impersonating: null, board: null, roster: null, alarms: null, titles: {},
         composition, ...data },
     },
-  } as never).body;
+  } as never).body.replace(/<!--[\s\S]*?-->/g, ''); // Ignore Svelte snippet anchors; they are not visible link text.
 }
 const ok = (lanes: unknown[]) => ({ kind: 'ok', value: { appId: 'app-1', asOf: '2026-10-26T00:00:00Z', lanes } });
 

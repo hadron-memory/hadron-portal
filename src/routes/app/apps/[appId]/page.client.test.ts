@@ -6,18 +6,18 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { page, setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationCalls, navigationHooks, navigationGuards, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { kitAppliedResults, submitEnhanced, submitEnhancedWithResult, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
+import { kitAppliedResults, resetKitAppliedResults, submitEnhanced, submitEnhancedWithResult, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatFilter } from '$lib/team-chat-filter';
 import type { TeamChatMessage, TeamChatRefusal } from '$lib/types';
 import { AGENT_CHAT_KEY } from '$lib/app-chats';
 import Page from './+page.svelte';
+import { resetAiConfigRecoveryForTests } from '$lib/components/ai-config-recovery';
+import { message, pageData, runsPanel } from './app-page.fixture';
 import {
-  createAppMemorySchema, addAgentSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
-  deleteAppSchema, releaseWorkerSchema, removeAppAgentSchema, retireWorkerSchema,
-  revokeAppKeySchema, updateAppAgentToolsSchema,
-  addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema,
+  createAppMemorySchema, addAgentSchema, castWorkerSchema, removeAppAgentSchema,
+  revokeAppKeySchema, addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema,
 } from './schema';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -29,46 +29,10 @@ afterEach(() => {
   Reflect.deleteProperty(document, 'hidden');
   resetNavigationCalls();
   resetNavigationGuards();
+  resetKitAppliedResults();
+  resetAiConfigRecoveryForTests();
   window.history.replaceState({}, '', '/');
 });
-
-function message(seq: number, authorWorkerId: string): TeamChatMessage {
-  return {
-    nodeId: `m${seq}`, seq, body: `body ${seq}`, at: '2026-09-30T12:00:00.000Z',
-    authorUserId: null, authorWorkerId, authorName: seq === 1 ? 'Ada' : 'Dara',
-    sessionId: null, replyToSeq: null, mentions: [], urn: null, teamTags: null,
-  };
-}
-
-async function pageData() {
-  const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm,
-    updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm,
-    retireWorkerForm, releaseWorkerForm, postTeamChatMessageForm] = await Promise.all([
-    appSettingsSchema, addAgentSchema, createAppKeySchema, removeAppAgentSchema,
-    updateAppAgentToolsSchema, revokeAppKeySchema, deleteAppSchema, castWorkerSchema,
-    retireWorkerSchema, releaseWorkerSchema, postTeamChatMessageSchema,
-  ].map((schema) => superValidate(zod4(schema), { errors: false })));
-  return {
-    app: {
-      id: 'a1', urn: 'hrn:app:acme.com:team', name: 'Team', appType: 'WORKSTATION',
-      role: 'OWNER', surfaces: [], agentId: null, agent: null, agents: [],
-    },
-    appKeys: { kind: 'ok', keys: [] },
-    viewerManages: { kind: 'known', manages: true },
-    org: null, availableAgents: [], staff: [
-      { id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', retiredAt: null },
-    ],
-    staffError: false,
-    teamChatMessages: [message(1, 'w1')], teamChatTotal: 1, teamChatError: false, teamFilter: { kind: 'none' }, teamFilterInvalid: false, teamChatRefusal: null,
-    appChats: [{ key: 'chats:team', label: 'Team chat' }], chatsError: false,
-    selectedChatKey: 'chats:team', initialTab: 'chats', initialChatFullView: false,
-    chatConfigs: [], appConfigs: [], worklog: [], worklogTotal: 0, worklogError: false,
-    currentUserId: 'u1',
-    appSettingsForm, addAgentForm, createKeyForm, removeAgentForm,
-    updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm,
-    retireWorkerForm, releaseWorkerForm, postTeamChatMessageForm,
-  };
-}
 
 describe('App team chat roster refresh', () => {
   it('renders a new worker URN after a failed lookup and a successful retry on an empty poll', async () => {
@@ -366,6 +330,58 @@ describe('Worker agents tab (#1009)', () => {
     expect(columnTexts(target, 'Task')[0]).toContain('Started');
     expect(target.querySelector('a[href="/app/apps/a1/tasks/t9"]')).not.toBeNull();
     expect(columnTexts(target, 'Task')[1]).toBe('—');
+  });
+
+  it.each(['Sample Holder', 'hrn:user:acme.com:sample-holder'])('finds a worker by displayed holder identity: %s (#1168)', async (needle) => {
+    const target = await mountStaff([worker({ heldByUserId: 'u9' })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: {
+        id: 'u9', name: 'Sample Holder', handle: 'sample-holder', urn: 'hrn:user:acme.com:sample-holder',
+      } }) },
+    });
+    expect(columnTexts(target, 'Name held by')[0]).toContain('Sample Holder');
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    search.value = needle;
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(2);
+    expect(names(target)).toContain('Ada');
+  });
+
+  it.each(['self', 'other'])('renders the authorized %s holder name and copyable URN (#1168)', async (kind) => {
+    const target = await mountStaff([worker({ heldByUserId: kind === 'self' ? 'u1' : 'u9' })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: {
+        id: kind === 'self' ? 'u1' : 'u9', name: 'Sample Holder', handle: 'sample-holder', urn: 'hrn:user:acme.com:sample-holder',
+      } }) },
+    });
+    const cell = target.querySelector('tbody tr')!;
+    expect(columnTexts(target, 'Name held by')[0]).toContain('Sample Holder');
+    expect(cell.querySelector('[title="hrn:user:acme.com:sample-holder"]')).not.toBeNull();
+  });
+
+  it.each([null, { id: 'u9', name: null, handle: null, urn: null }])('keeps a masked holder unnamed and unsearchable (#1168)', async (holder) => {
+    const target = await mountStaff([worker({ heldByUserId: 'u9' })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: holder }) },
+    });
+    expect(columnTexts(target, 'Name held by')[0]).toContain('Held by another member');
+    expect(target.querySelector('[title="hrn:user:acme.com:sample-holder"]')).toBeNull();
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    search.value = 'Sample Holder';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(2);
+    expect(names(target)).toEqual([]);
+  });
+
+  it.each([null, undefined])('does not search an undisclosed holder projection (#1168)', async (heldByUserId) => {
+    const target = await mountStaff([worker({ heldByUserId })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: {
+        id: 'u9', name: 'Sample Holder', handle: 'sample-holder', urn: 'hrn:user:acme.com:sample-holder',
+      } }) },
+    });
+    expect(columnTexts(target, 'Name held by')[0]).toBe('—');
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    search.value = 'Sample Holder';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(2);
+    expect(names(target)).toEqual([]);
   });
 
   // Greta LOCAL P2 on portal#1375: a current task the loader could not resolve is
@@ -841,7 +857,7 @@ describe('Worker agents tab (#1009)', () => {
       expect(col[0]).toContain('Locked: Model at capacity');
       expect(col[1]).toContain('Idle');
       expect(col[2]).toContain('Busy');
-      expect(col[3]).toContain('Dark: Missed its wake-up');
+      expect(col[3]).toContain('Dark: Missed its ticker wake');
       for (const c of col) expect(c).toMatch(/checked .*ago/);
       // The session Status cell is untouched by the terminal.
       expect(colTexts(target, 'Status')).toEqual(Array(4).fill('No recorded activity'));
@@ -879,12 +895,51 @@ describe('Worker agents tab (#1009)', () => {
       expect(await search(target, 'Dark')).toEqual(['Bo']);
     });
 
-    it('a stale report keeps its server state', async () => {
+    it('#1948 a stale report withholds its server state from the badge and search', async () => {
       const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term({ status: 'busy', reason: null, checkedAt: '2026-10-01T00:00:00.000Z' }) }) }));
       const cell = colTexts(target, 'Terminal')[0];
-      expect(cell).toContain('Busy');
+      expect(cell).toContain('Stale');
       expect(cell).toMatch(/checked .*ago/);
-      expect(cell).not.toMatch(/Dark|Idle/);
+      expect(cell).not.toMatch(/Dark|Idle|Busy/);
+      expect(await search(target, 'Busy')).toEqual([]);
+      expect(await search(target, 'Stale')).toEqual(['Ada']);
+    });
+
+    const staleNote = (target: HTMLElement) => target.querySelectorAll('[data-testid="terminal-stale-note"]');
+    it('#1948 all reported rows stale shows one note; unreported and missing rows do not count', async () => {
+      const target = await mountTerminal([w('w1','Ada'), w('w2','Bo'), w('w3','Cy')], ok({
+        w1: entry({terminal: term({checkedAt:'2026-10-31T04:00:00.000Z'})}), w2: entry({terminal:null}),
+      }));
+      expect(staleNote(target)).toHaveLength(1);
+      expect(staleNote(target)[0].textContent).toMatch(/30 minutes/);
+    });
+    it.each(['fresh', 'unknown-time'])('#1948 a %s report suppresses the all-stale note', async (kind) => {
+      const target = await mountTerminal([w('w1','Ada'),w('w2','Bo')],ok({
+        w1:entry({terminal:term({checkedAt:'2026-10-31T04:00:00.000Z'})}),
+        w2:entry({terminal:term({checkedAt:kind==='fresh'?'2026-10-31T11:57:00.000Z':null})}),
+      }));
+      expect(colTexts(target,'Terminal')[0]).toContain('Stale');
+      expect(staleNote(target)).toHaveLength(0);
+    });
+    it('#1948 no report or internals-hidden old report never manufactures an all-stale note', async () => {
+      const target=await mountTerminal([w('w1','Ada'),w('w2','Bo',{hasLiveSession:null})],ok({
+        w1:entry({terminal:null}),w2:entry({terminal:term({checkedAt:'2026-10-31T04:00:00.000Z'})}),
+      }));
+      expect(staleNote(target)).toHaveLength(0);
+    });
+    it('#1948 a clock tick makes stale display, note and active grid search agree', async () => {
+      vi.useFakeTimers();
+      const target=await mountTerminal([w('w1','Ada')],ok({w1:entry({terminal:term({status:'idle',reason:null,checkedAt:'2026-10-31T11:30:00.000Z'})})}));
+      expect(colTexts(target,'Terminal')[0]).toContain('Idle');
+      expect(staleNote(target)).toHaveLength(0);
+      expect(await search(target,'Idle')).toEqual(['Ada']);
+      await vi.advanceTimersByTimeAsync(30_000); await tick(2);
+      // No second input event: the active filter must invalidate on the clock tick itself.
+      expect(target.querySelectorAll('tbody a[href^="/app/workers/"]')).toHaveLength(0);
+      expect(await search(target,'Idle')).toEqual([]);
+      expect(await search(target,'Stale')).toEqual(['Ada']);
+      expect(colTexts(target,'Terminal')[0]).toContain('Stale');
+      expect(staleNote(target)).toHaveLength(1);
     });
 
     it('a future or unparsable checkedAt is time unknown', async () => {
@@ -1159,7 +1214,8 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
     await tick(2);
     const configsPanel = m.target.querySelector('#panel-ai-configs')!;
-    expect(configsPanel.textContent).toContain('AI providers');
+    expect(configsPanel.textContent).toContain('AI provider configurations');
+    expect(configsPanel.textContent).toContain('Owned by Team');
     expect(m.target.querySelector('#panel-keys')).toBeNull();
 
     (m.target.querySelector('#tab-settings') as HTMLButtonElement).click();
@@ -1167,7 +1223,7 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     const settingsPanel = m.target.querySelector('#panel-settings')!;
     expect(settingsPanel.textContent).not.toContain('Generate Key');
     expect(settingsPanel.textContent).not.toContain('production-backend');
-    expect(settingsPanel.textContent).not.toContain('AI providers');
+    expect(settingsPanel.textContent).not.toContain('AI provider configurations');
   });
 
   // A fresh page (a full POST before hydration) is followed by SvelteKit
@@ -1431,6 +1487,382 @@ describe('Chats tab, no LLM config (#1007/#1008, Cody on #1034)', () => {
   });
 });
 
+describe('App AI configuration readback lifecycle', () => {
+  const masked = {
+    id: 'c1', name: 'default', ownerType: 'APP', ownerId: 'a1', provider: 'anthropic', model: 'claude-sonnet-5',
+    endpoint: null, effectiveEndpoint: 'https://api.anthropic.com/v1', apiStyle: null, effectiveApiStyle: null,
+    hasApiKey: true, apiKeyPreview: '…key', params: null, enabled: true,
+    createdAt: '2026-11-08T00:00:00Z', updatedAt: null,
+  };
+
+  // portal#1963: the loader's dropdown options (chatAiChoiceOptions output). The value is the config id.
+  const choice = (id: string, name: string, over: Record<string, unknown> = {}) => ({
+    value: id, name, provider: 'anthropic', model: 'claude-sonnet-5', isDefault: false,
+    isAppChatbotConfig: false, unavailableReason: null, ...over,
+  });
+  const defaultChoice = {
+    value: 'default', name: 'default', provider: null, model: null, isDefault: true,
+    isAppChatbotConfig: false, unavailableReason: null,
+  };
+  const optionValues = (target: HTMLElement) =>
+    [...target.querySelectorAll<HTMLOptionElement>('#agent-chat-ai-config option')].map((o) => o.value);
+
+  async function mountAi(dataOver: Record<string, unknown> = {}) {
+    setStubPage('https://example.test/app/apps/a1?tab=ai-configs', { appId: 'a1' });
+    const data = await pageData();
+    const m = mountComponent(Page as never, reactiveProps({
+      data: {
+        ...data,
+        aiChoices: [defaultChoice, choice('c1', 'default')],
+        ...dataOver,
+        initialTab: 'ai-configs', selectedChatKey: AGENT_CHAT_KEY,
+        app: {
+          ...data.app, surfaces: ['chat'], agentId: 'ag1', agent: { id: 'ag1', name: 'Bot' },
+          agents: [{ id: 'ag1', name: 'Bot' }],
+        },
+        appChats: [{ key: AGENT_CHAT_KEY, label: 'Bot' }],
+        org: { id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com', members: [{ user: { id: 'u1' }, role: 'ADMIN' }] },
+      },
+      form: null,
+    }) as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(3);
+    return m;
+  }
+
+  async function readyAiButton(target: HTMLElement, label: string) {
+    const trigger = ([...target.querySelectorAll('button')] as HTMLButtonElement[]).find(b => b.textContent?.trim() === label)!;
+    await vi.waitFor(() => expect(trigger.disabled).toBe(false));
+    return trigger;
+  }
+
+  async function fillNewConfig(target: HTMLElement) {
+    const add = [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Add configuration')!;
+    add.click();
+    flushSync();
+    for (const [selector, value] of [['#ac-name', 'default'], ['#ac-model', 'claude-sonnet-5'], ['#ac-key', 'synthetic-key']] as const) {
+      const input = target.querySelector<HTMLInputElement>(selector)!;
+      input.value = value;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      flushSync();
+    }
+    // The draft identity read precedes enabling its explicit submit.
+    (await readyAiButton(target, 'Save')).click();
+  }
+
+  it('keeps a pending mutation, uncertainty and its replay lock while the AI tab is hidden', async () => {
+    let rejectCreate!: (error: Error) => void;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'create') return new Promise<Response>((_, reject) => { rejectCreate = reject; });
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi();
+    await fillNewConfig(m.target);
+    await vi.waitFor(() => expect(typeof rejectCreate).toBe('function'));
+    const panel = m.target.querySelector<HTMLElement>('#panel-ai-configs')!;
+    const region = m.target.querySelector<HTMLElement>('[data-testid="ai-config-feedback"]')!;
+
+    (m.target.querySelector('#tab-settings') as HTMLButtonElement).click();
+    await tick(3);
+    rejectCreate(new Error('dropped response'));
+    await tick(30);
+    expect(panel.hidden).toBe(true);
+    expect(region.isConnected).toBe(true);
+    expect(region.textContent).toContain('couldn’t confirm the change went through');
+
+    (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
+    await tick(3);
+    expect(panel.hidden).toBe(false);
+    expect(m.target.querySelector('[data-testid="ai-config-feedback"]')).toBe(region);
+    expect(region.textContent).toContain('couldn’t confirm the change went through');
+    expect(([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Save')!.disabled).toBe(true);
+  });
+
+  it('aborts a timed-out resolved-config fetch through the production callback', async () => {
+    vi.useFakeTimers();
+    let relatedSignal: AbortSignal | undefined;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string; signal?: AbortSignal }) => {
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
+        return { ok: true, json: async () => ({ configs: [] }) } as Response;
+      }
+      if (url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        relatedSignal = init?.signal;
+        return new Promise<Response>(() => {});
+      }
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'create') return { ok: true, json: async () => ({ ok: true }) } as Response;
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi();
+    await fillNewConfig(m.target);
+    await tick(30);
+    expect(relatedSignal?.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(relatedSignal?.aborted).toBe(true);
+  });
+
+  it('does not lock an org admin out when the App-member-only Chat read is withheld', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
+        return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
+      }
+      if (url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        return { ok: true, json: async () => ({ withheld: true }) } as Response;
+      }
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'create') return { ok: true, json: async () => ({ ok: true }) } as Response;
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi({ chatConfigs: null });
+    await fillNewConfig(m.target);
+    await tick(40);
+
+    const feedback = m.target.querySelector('[data-testid="ai-config-feedback"]')!;
+    expect(feedback.textContent).toContain('Saved “default”.');
+    expect(feedback.textContent).not.toContain('couldn’t be refreshed');
+    ([...m.target.querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.trim() === 'Add configuration')!.click();
+    await tick(3);
+    await readyAiButton(m.target, 'Save');
+  });
+
+  it('refreshes both the owner grid and resolved Chat configs across create and delete', async () => {
+    let configs = [] as typeof masked[];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1' || url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        return { ok: true, json: async () => ({ configs }) } as Response;
+      }
+      if (url.startsWith('/api/agent-chat/list')) return { ok: true, json: async () => ({ chats: [] }) } as Response;
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'create') {
+        configs = [masked];
+        return { ok: true, json: async () => ({ ok: true, config: masked }) } as Response;
+      }
+      if (body.action === 'delete') {
+        configs = [];
+        return { ok: true, json: async () => ({ ok: true }) } as Response;
+      }
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi({ chatConfigs: null });
+    await fillNewConfig(m.target);
+    await tick(40);
+    expect(m.target.querySelector('[data-testid="ai-config-feedback"]')!.textContent).toContain('Saved “default”.');
+
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    expect(m.target.querySelector('#agent-chat-ai-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
+
+    // Null loader reads are not identity tokens: App B must not inherit A's
+    // resolved list, and returning to A restores only A's working copy.
+    const appA = m.props.data as {
+      app: Record<string, unknown>;
+      chatConfigs: unknown;
+      appConfigs: unknown;
+    };
+    m.props.data = {
+      ...appA,
+      app: { ...appA.app, id: 'b1', agentId: 'ag2' },
+      chatConfigs: null,
+      appConfigs: [],
+      aiChoices: null,
+    };
+    await tick(10);
+    expect(m.target.querySelector('#agent-chat-ai-config')).toBeNull();
+    appA.appConfigs = [masked];
+    m.props.data = appA;
+    await tick(10);
+    expect(m.target.querySelector('#agent-chat-ai-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
+
+    (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
+    await tick(3);
+    (m.target.querySelector('button[aria-label="Actions for default"]') as HTMLButtonElement).click();
+    flushSync();
+    ([...m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')]).find((x) => x.textContent?.trim() === 'Delete')!.click();
+    flushSync();
+    (await readyAiButton(m.target, 'Delete')).click();
+    await tick(40);
+    expect(m.target.querySelector('[data-testid="ai-config-feedback"]')!.textContent).toContain('Deleted “default”.');
+
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    expect(m.target.querySelector('#agent-chat-ai-config')).toBeNull();
+    expect(m.target.querySelector('#panel-chats')!.textContent).toContain('Connect an LLM provider to enable agent chat');
+  });
+
+  it('keeps recovery locked when a loader replacement drops the resolved-config readback', async () => {
+    let releaseRelated!: (reply: Response) => void;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
+        return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
+      }
+      if (url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        return new Promise<Response>((resolve) => { releaseRelated = resolve; });
+      }
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'create') return { ok: true, json: async () => ({ ok: true }) } as Response;
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi({ chatConfigs: [] });
+    await fillNewConfig(m.target);
+    await tick(30);
+    expect(releaseRelated).toBeTypeOf('function');
+
+    const loader = m.props.data as Record<string, unknown>;
+    m.props.data = { ...loader, chatConfigs: [] };
+    await tick(5);
+    releaseRelated({ ok: true, json: async () => ({ configs: [masked] }) } as Response);
+    await tick(40);
+    expect(m.target.querySelector('[data-testid="ai-config-feedback"]')!.textContent).toContain('couldn’t be refreshed');
+  });
+
+  it('supersedes a resolved-config working copy on a same-App null loader generation', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1' || url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        return { ok: true, json: async () => ({ configs: [masked] }) } as Response;
+      }
+      if (url.startsWith('/api/agent-chat/list')) return { ok: true, json: async () => ({ chats: [] }) } as Response;
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'create') return { ok: true, json: async () => ({ ok: true }) } as Response;
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi({ chatConfigs: null });
+    await fillNewConfig(m.target);
+    await tick(40);
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    expect(m.target.querySelector('#agent-chat-ai-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
+
+    // The new loader generation's list wins over the superseded working copy.
+    const loader = m.props.data as Record<string, unknown>;
+    m.props.data = { ...loader, chatConfigs: null, aiChoices: [defaultChoice] };
+    await tick(10);
+    expect(optionValues(m.target)).toEqual(['default']);
+  });
+
+  it('masks stale resolved Chat configs when their readback fails after delete', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1') {
+        return { ok: true, json: async () => ({ configs: [] }) } as Response;
+      }
+      if (url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        return { ok: false, status: 500, json: async () => ({ failed: true }) } as Response;
+      }
+      if (url.startsWith('/api/agent-chat/list')) return { ok: true, json: async () => ({ chats: [] }) } as Response;
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'delete') return { ok: true, json: async () => ({ ok: true }) } as Response;
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi({ chatConfigs: [masked], appConfigs: [masked] });
+    (m.target.querySelector('button[aria-label="Actions for default"]') as HTMLButtonElement).click();
+    flushSync();
+    ([...m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')]).find((x) => x.textContent?.trim() === 'Delete')!.click();
+    flushSync();
+    (await readyAiButton(m.target, 'Delete')).click();
+    await tick(40);
+
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    // Nothing but `default` can be vouched for once the readback failed.
+    expect(optionValues(m.target)).toEqual(['default']);
+  });
+
+  it('drops a deleted config from the dropdown without a reload (portal#1963)', async () => {
+    const fast = { ...masked, id: 'c2', name: 'fast' };
+    let configs = [fast, masked];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
+      if (url === '/api/ai-configs?ownerType=APP&ownerId=a1' || url === '/api/ai-configs?appRef=a1&agentRef=ag1') {
+        return { ok: true, json: async () => ({ configs }) } as Response;
+      }
+      if (url.startsWith('/api/agent-chat/list')) return { ok: true, json: async () => ({ chats: [] }) } as Response;
+      if (url !== '/api/ai-configs' || init?.method !== 'POST') throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(init.body!);
+      if (body.action === 'endpoints') return { ok: true, json: async () => ({ endpoints: [] }) } as Response;
+      if (body.action === 'delete') {
+        configs = [masked];
+        return { ok: true, json: async () => ({ ok: true }) } as Response;
+      }
+      throw new Error(`unexpected action: ${body.action}`);
+    }));
+    const m = await mountAi({
+      chatConfigs: [fast, masked], appConfigs: [fast, masked],
+      aiChoices: [defaultChoice, choice('c2', 'fast'), choice('c1', 'default')],
+    });
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    const picker = m.target.querySelector<HTMLSelectElement>('#agent-chat-ai-config')!;
+    picker.value = 'c2';
+    picker.dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+    expect(optionValues(m.target)).toEqual(['default', 'c2', 'c1']);
+
+    (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
+    await tick(3);
+    (m.target.querySelector('button[aria-label="Actions for fast"]') as HTMLButtonElement).click();
+    flushSync();
+    ([...m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')]).find((x) => x.textContent?.trim() === 'Delete')!.click();
+    flushSync();
+    (await readyAiButton(m.target, 'Delete')).click();
+    await vi.waitFor(() => expect(configs.map(c => c.id)).toEqual(['c1']));
+
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(optionValues(m.target)).toEqual(['default', 'c1']));
+    // The deleted pick is no longer shown (or sent): the dropdown falls back to `default`.
+    expect(m.target.querySelector<HTMLSelectElement>('#agent-chat-ai-config')!.value).toBe('default');
+  });
+
+  it('resets the Chat config selection when App or agent identity changes', async () => {
+    const fast = { ...masked, id: 'c2', name: 'fast' };
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.startsWith('/api/agent-chat/list')) return { ok: true, json: async () => ({ chats: [] }) } as Response;
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const m = await mountAi({
+      chatConfigs: [fast, masked], aiChoices: [defaultChoice, choice('c2', 'fast'), choice('c1', 'default')],
+    });
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
+    await tick(10);
+    const picker = m.target.querySelector<HTMLSelectElement>('#agent-chat-ai-config')!;
+    picker.value = 'c2';
+    picker.dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+    expect(picker.value).toBe('c2');
+
+    const loader = m.props.data as { app: Record<string, unknown> };
+    m.props.data = {
+      ...loader,
+      app: { ...loader.app, id: 'b1', agentId: 'ag2' },
+      chatConfigs: [{ ...fast, id: 'b2' }, { ...masked, id: 'b3' }],
+      aiChoices: [defaultChoice, choice('b2', 'fast'), choice('b3', 'default')],
+    };
+    await tick(10);
+    expect(m.target.querySelector<HTMLSelectElement>('#agent-chat-ai-config')!.value).toBe('default');
+  });
+});
+
 // portal#1068 — the Client tab's "Download setup files" mints a key through
 // /api/create-app-key. A manager refusal must reach the reader as the rule,
 // not as "Failed to create client key." with the reason dropped.
@@ -1463,7 +1895,7 @@ describe('Client tab: a refused key mint (#1068)', () => {
     const target = await mountClient(async () =>
       new Response(JSON.stringify({ error: MANAGERS_ONLY }), { status: 403, headers: { 'Content-Type': 'application/json' } }));
     downloadButton(target).click();
-    await vi.waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
+    await vi.waitFor(() => expect(target.textContent).toContain(MANAGERS_ONLY));
     expect(alertSpy).not.toHaveBeenCalled();
     const alertEl = [...target.querySelectorAll('[role="alert"]')].find((el) => el.textContent?.includes(MANAGERS_ONLY));
     expect(alertEl).toBeTruthy();
@@ -1474,7 +1906,7 @@ describe('Client tab: a refused key mint (#1068)', () => {
     vi.spyOn(window, 'alert').mockImplementation(() => {});
     const target = await mountClient(async () => new Response('gateway', { status: 502 }));
     downloadButton(target).click();
-    await vi.waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
+    await vi.waitFor(() => expect(target.textContent).toContain('Failed to create client key.'));
     const alertEl = [...target.querySelectorAll('[role="alert"]')].find((el) => el.textContent?.includes('Failed to create client key.'));
     expect(alertEl).toBeTruthy();
   });
@@ -1679,7 +2111,8 @@ describe('registered Channel chat switching (#1033)', () => {
     const base = await pageData();
     const room = async (id: string) => ({ ...base,
       appChats: [{ key: 'room-a', label: 'A' }, { key: 'room-b', label: 'B' }],
-      selectedChatKey: id, selectedChannelId: id, chatsCapped: id === 'room-a', chatRootsShown: 200,
+      selectedChatKey: id, selectedChannelId: id,
+      chatRootsPage: { offset: 20, count: 5, total: 25, firstHref: null, previousHref: '/app/apps/a1?tab=chats', nextHref: null },
       selectedChannelMessages: [{ ...message(1, 'w1'), body: `message ${id}` }], selectedChannelTotal: 1, selectedChannelError: false,
       postChannelMessageForm: await superValidate({ channelRef: id }, zod4(postTeamChatMessageSchema), { id: `channel:${id}`, errors: false }),
     });
@@ -1690,7 +2123,8 @@ describe('registered Channel chat switching (#1033)', () => {
     mounted.push(m);
     await tick(2);
     expect(m.target.querySelectorAll('#app-chat-select option')).toHaveLength(2);
-    expect(m.target.textContent).toContain('Showing the first 200 chats');
+    expect(m.target.querySelector('form[action*="postChannelMessage"]')?.getAttribute('action')).toContain('chatRootsOffset=20');
+    expect(m.target.textContent).not.toContain('Showing the first 200 chats');
     const body = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
     body.value = 'draft for A';
     body.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1819,6 +2253,93 @@ it.each([true, false])('keeps a pending Channel post mounted through tab changes
 
 });
 
+describe('focusTab and a navigation the busy guard cancelled (#1833)', () => {
+  async function mountChats() {
+    setStubPage('http://localhost/app/apps/a1?tab=chats', { appId: 'a1' });
+    const base = await pageData();
+    const data = { ...base, initialTab: 'chats', selectedChatKey: 'other', selectedChannelId: 'other', selectedChannelMessages: [],
+      selectedChannelTotal: 0, selectedChannelError: false,
+      postChannelMessageForm: await superValidate({ channelRef: 'other' }, zod4(postTeamChatMessageSchema), { errors: false, id: 'channel:other' }),
+    };
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const textarea = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+    textarea.value = 'post during preload';
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    const result = await superValidate({ body: 'post during preload', channelRef: 'other' }, zod4(postTeamChatMessageSchema), { id: 'channel:other', errors: false });
+    result.message = { type: 'success', text: 'Posted.' };
+    return { m, form: textarea.closest('form')!, result };
+  }
+  /** Kit runs beforeNavigate for the owned goto; a guard that cancels makes goto resolve with no commit. */
+  const kitGoto = (cancel: ReturnType<typeof vi.fn>) => () => {
+    const navigation = {
+      type: 'goto', to: { url: new URL('/app/apps/a1?tab=runs', window.location.href) },
+      from: { url: new URL('http://localhost/app/apps/a1?tab=chats') }, cancel, willUnload: false,
+    };
+    for (const guard of navigationGuards.filter((entry) => entry.fn === 'beforeNavigate')) {
+      (guard.callback as (nav: unknown) => void)(navigation);
+    }
+  };
+  const selected = (m: Mounted<Record<string, unknown>>, id: string) => m.target.querySelector(`#tab-${id}`)?.getAttribute('aria-selected');
+
+  it('does not select Runs when the busy guard cancelled the owned navigation (post started during the preload)', async () => {
+    const { m, form, result } = await mountChats();
+    let releasePreload!: () => void;
+    navigationHooks.onPreloadData = () => new Promise((resolve) => {
+      releasePreload = () => resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    });
+    const cancel = vi.fn();
+    navigationHooks.onGoto = kitGoto(cancel);
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { form: result } }, async () => {
+      await tick(2);
+      releasePreload();
+      await tick(10);
+    });
+    await tick(5);
+
+    expect(cancel).toHaveBeenCalled();
+    expect(selected(m, 'chats')).toBe('true');
+    expect(selected(m, 'runs')).toBe('false');
+  });
+
+  it('control: with no post the owned navigation commits and Runs is selected', async () => {
+    const { m } = await mountChats();
+    navigationHooks.onPreloadData = () => Promise.resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    const cancel = vi.fn();
+    navigationHooks.onGoto = kitGoto(cancel);
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(10);
+
+    expect(cancel).not.toHaveBeenCalled();
+    expect(selected(m, 'runs')).toBe('true');
+  });
+
+  it('control: a post already busy before the click stops at entry, with no navigation', async () => {
+    const { m, form, result } = await mountChats();
+    await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { form: result } }, async () => {
+      await tick(2);
+      m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+      await tick(5);
+    });
+    expect(navigationCalls.filter((call) => call.fn === 'goto')).toHaveLength(0);
+    expect(selected(m, 'runs')).toBe('false');
+  });
+
+  it('control: a rejected goto keeps the current tab', async () => {
+    const { m } = await mountChats();
+    navigationHooks.onPreloadData = () => Promise.resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    navigationHooks.onGoto = () => Promise.reject(new Error('loader failed'));
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(10);
+    expect(selected(m, 'runs')).toBe('false');
+    expect(selected(m, 'chats')).toBe('true');
+  });
+});
+
 describe('Cast role follows the selected Agent (#1319)', () => {
   it('has no role input and updates the read-only role when the Agent changes', async () => {
     setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
@@ -1918,7 +2439,7 @@ describe('App memory scope inventory (#1043)', () => {
     expect(m.target.textContent).toContain('Agent link');
   });
   it('renders failed scope as an error, never as an empty inventory', async () => {
-    const m=await showSettings(null);expect(m.target.querySelector('[role="alert"]')?.textContent).toContain('Could not load');expect(m.target.textContent).not.toContain('No accessible memories');
+    const m=await showSettings(null);expect([...m.target.querySelectorAll('[role="alert"]')].some(el => el.textContent?.includes('Could not load'))).toBe(true);expect(m.target.textContent).not.toContain('No accessible memories');
   });
   it('renders successful empty scope distinctly', async () => {
     const m=await showSettings([]);expect(m.target.textContent).toContain('No accessible memories');expect(m.target.textContent).not.toContain('OLD FIRST ONLY');
@@ -2275,6 +2796,363 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     return { type: 'success' as const, status: 200, data: { form: f } };
   };
 
+  it.each(['success', 'refusal'] as const)('#1777 cast %s remains in the same mounted region after held Runs navigation', async outcome => {
+    const { m, form } = await openCast();
+    const region = m.target.querySelector(`[data-testid="cast-answer-${outcome === 'success' ? 'status' : 'alert'}"]`);
+    expect(region).not.toBeNull();
+    expect(region!.textContent?.trim()).toBe('');
+    await fill(form(), 'agent-a', 'Iris');
+    const sent = idOf(form());
+    const delayed = await submitEnhancedDeferred(form());
+    let release!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>(r => { release = r; });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    expect(release).toBeTypeOf('function');
+    const result = await success(sent);
+    if (outcome === 'refusal') {
+      result.data.form.valid = false;
+      result.data.form.message = { type: 'error', text: 'Name already taken.' };
+    }
+    await delayed.finish(outcome === 'success' ? result : { ...result, type: 'failure', status: 400 });
+    await tick(3);
+    expect(m.target.textContent).toContain(outcome === 'success' ? 'Worker cast.' : 'Name already taken.');
+    release();
+    await tick(3);
+    expect(m.target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
+    expect(m.target.textContent).toContain(outcome === 'success' ? 'Worker cast.' : 'Name already taken.');
+    expect(region).not.toBeNull();
+    expect(m.target.contains(region)).toBe(true);
+    expect(region!.getAttribute('role')).toBe(outcome === 'success' ? 'status' : 'alert');
+    expect(region!.textContent).toContain(outcome === 'success' ? 'Worker cast.' : 'Name already taken.');
+    expect([...m.target.querySelectorAll('[role="status"], [role="alert"]')].filter(el => el.textContent?.includes(outcome === 'success' ? 'Worker cast.' : 'Name already taken.'))).toHaveLength(1);
+  });
+
+  it('#1795 keeps the Runs payload when the cast refresh used the pre-navigation URL', async () => {
+    const { m, props, form } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    const sent = idOf(form());
+    const delayed = await submitEnhancedDeferred(form());
+    let releaseRuns!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { releaseRuns = resolve; });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+
+    const order: string[] = [];
+    let releaseRefresh!: () => void;
+    navigationHooks.onInvalidateAll = () => {
+      order.push('refresh-requested');
+      return new Promise<void>((resolve) => { releaseRefresh = resolve; });
+    };
+    const finishing = delayed.finish(await success(sent));
+    await tick(4);
+
+    // The held Runs navigation supplies its panel. The action's invalidation
+    // response is deliberately held until afterwards, as in Cooper's repro.
+    order.push('runs-response');
+    props.data = { ...props.data, initialTab: 'runs', runsPanel: await runsPanel('held-run') };
+    await tick(3);
+    releaseRuns();
+    await tick(20);
+    expect(releaseRefresh).toBeTypeOf('function');
+
+    // The action's refresh used the pre-Runs URL and has no Runs section.
+    // Its late response must not erase the payload the held navigation loaded.
+    props.data = { ...props.data, initialTab: 'staff', runsPanel: null };
+    releaseRefresh();
+    await finishing;
+    await tick(6);
+
+    expect(m.target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('held-run');
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('Loading runs…');
+    expect(order).toEqual(['refresh-requested', 'runs-response']);
+    expect(navigationCalls.filter((call) => call.fn === 'invalidateAll')).toHaveLength(1);
+  });
+
+  it('#1795 QA: preloaded Runs survives an invalidated navigation payload', async () => {
+    const { m, props, form } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    const sent = idOf(form());
+    const delayed = await submitEnhancedDeferred(form());
+    const preloaded = await runsPanel('preloaded-run');
+    let releasePreload: (() => void) | undefined;
+    navigationHooks.onPreloadData = () => new Promise((resolve) => {
+      releasePreload = () => resolve({ type: 'loaded', status: 200, data: { runsPanel: preloaded } });
+    });
+    let releaseGoto!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { releaseGoto = resolve; });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+
+    // Cedar's real-browser ordering: the old-URL action refresh applies while
+    // the destination load is still held. Kit discards that destination's
+    // eventual navigation payload, so props NEVER receive the fresh panel.
+    navigationHooks.onInvalidateAll = async () => {
+      props.data = { ...props.data, initialTab: 'staff', runsPanel: null };
+    };
+    await delayed.finish(await success(sent));
+    await tick(4);
+    releasePreload?.();
+    await tick(2);
+    releaseGoto();
+    await tick(20);
+
+    expect(m.target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('preloaded-run');
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('Loading runs…');
+    expect(navigationCalls.filter((call) => call.fn === 'preloadData')).toHaveLength(1);
+  });
+
+  it('#1825 clears a retained Runs payload when the principal changes on the same App', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=runs', { appId: 'a1' });
+    const data = await pageData();
+    data.initialTab = 'runs';
+    data.runsPanel = await runsPanel('principal-one-run');
+    const props = reactiveProps({ data, form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(3);
+
+    // Control: an old-URL refresh without a Runs section retains the panel for
+    // the SAME principal, which is the #1795 behavior this key must preserve.
+    props.data = { ...props.data, runsPanel: null };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('principal-one-run');
+
+    props.data = { ...props.data, currentUserId: 'u2', runsPanel: null };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('principal-one-run');
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('Loading runs…');
+
+    // The old payload was cleared, not merely hidden: returning to the first
+    // principal without a fresh Runs response cannot resurrect it.
+    props.data = { ...props.data, currentUserId: 'u1', runsPanel: null };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('principal-one-run');
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('Loading runs…');
+  });
+
+  it.each(['newer tab', 'teardown', 'chat navigation', 'A-B-A navigation'] as const)('#1795 a completed stale preload does not navigate after %s', async (boundary) => {
+    const { m } = await openCast();
+    const preloaded = await runsPanel('stale-preloaded-run');
+    let releasePreload!: () => void;
+    navigationHooks.onPreloadData = () => new Promise((resolve) => {
+      releasePreload = () => resolve({ type: 'loaded', status: 200, data: { runsPanel: preloaded } });
+    });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    if (boundary === 'newer tab') {
+      m.target.querySelector<HTMLButtonElement>('#tab-staff')!.click();
+      await tick(5);
+      expect(m.target.querySelector('#tab-staff')?.getAttribute('aria-selected')).toBe('true');
+    } else if (boundary === 'teardown') {
+      m.unmount();
+    } else {
+      const destinations = boundary === 'chat navigation'
+        ? ['https://example.test/app/apps/a1?tab=chats&chat=other']
+        : ['https://example.test/app/apps/a2?tab=staff', 'https://example.test/app/apps/a1?tab=staff'];
+      for (const destination of destinations) {
+        const navigation = {
+          type: 'goto', to: { url: new URL(destination) },
+          from: { url: new URL('https://example.test/app/apps/a1?tab=staff') },
+          cancel: vi.fn(), willUnload: false,
+        };
+        for (const guard of navigationGuards.filter((entry) => entry.fn === 'beforeNavigate')) {
+          (guard.callback as (nav: unknown) => void)(navigation);
+        }
+      }
+      await tick(3);
+    }
+
+    releasePreload();
+    await tick(20);
+    const destinations = navigationCalls.filter((call) => call.fn === 'goto').map((call) => String(call.args[0]));
+    expect(destinations).toEqual(boundary === 'newer tab' ? ['/app/apps/a1?tab=staff'] : []);
+  });
+
+  // portal#1831: an external navigation supersedes a held Runs choice. The obsolete
+  // focusTab can no longer release the pending latch (mine !== tabNavigation), so
+  // the supersession itself must, or the next ordinary local tab click is forced
+  // through goto and a failing goto blocks the switch.
+  async function supersedeHeldRuns(m: { target: HTMLElement }) {
+    let releasePreload!: () => void;
+    navigationHooks.onPreloadData = () => new Promise((resolve) => {
+      releasePreload = () => resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    const navigation = {
+      type: 'goto', to: { url: new URL('https://example.test/app/apps/a1?tab=chats&chat=other') },
+      from: { url: new URL('https://example.test/app/apps/a1?tab=staff') },
+      cancel: vi.fn(), willUnload: false,
+    };
+    for (const guard of navigationGuards.filter((entry) => entry.fn === 'beforeNavigate')) {
+      (guard.callback as (nav: unknown) => void)(navigation);
+    }
+    await tick(3);
+    return releasePreload;
+  }
+
+  it('#1831 a local tab click after an external navigation superseded Runs stays local', async () => {
+    const { m } = await openCast();
+    const releasePreload = await supersedeHeldRuns(m);
+    releasePreload();
+    await tick(10);
+    navigationCalls.length = 0;
+    navigationHooks.onGoto = () => Promise.reject(new Error('loader failed'));
+    m.target.querySelector<HTMLButtonElement>('#tab-keys')!.click();
+    await tick(5);
+
+    expect(navigationCalls.filter((call) => call.fn === 'goto')).toHaveLength(0);
+    expect(m.target.querySelector('#tab-keys')?.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('#1831 control: a local click with no pending choice stays local even if goto would fail', async () => {
+    const { m } = await openCast();
+    navigationHooks.onGoto = () => Promise.reject(new Error('loader failed'));
+    m.target.querySelector<HTMLButtonElement>('#tab-keys')!.click();
+    await tick(5);
+
+    expect(navigationCalls.filter((call) => call.fn === 'goto')).toHaveLength(0);
+    expect(m.target.querySelector('#tab-keys')?.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('#1831 releasing on supersession does not clear a NEWER focusTab-owned navigation', async () => {
+    const { m } = await openCast();
+    await supersedeHeldRuns(m);
+    // A newer Runs choice after the external navigation owns the latch again.
+    navigationHooks.onPreloadData = () => Promise.resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    let releaseGoto!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => {
+      // Kit runs beforeNavigate for the owned goto itself, with its exact URL.
+      const navigation = {
+        type: 'goto', to: { url: new URL('/app/apps/a1?tab=runs', window.location.href) },
+        from: { url: new URL('https://example.test/app/apps/a1?tab=staff') },
+        cancel: vi.fn(), willUnload: false,
+      };
+      for (const guard of navigationGuards.filter((entry) => entry.fn === 'beforeNavigate')) {
+        (guard.callback as (nav: unknown) => void)(navigation);
+      }
+      releaseGoto = resolve;
+    });
+    navigationCalls.length = 0;
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(5);
+    // Still pending: the owned goto neither bumped the epoch nor released the latch,
+    // so a second choice is still routed through goto (and supersedes this one).
+    expect(navigationCalls.filter((call) => call.fn === 'goto').map((call) => String(call.args[0]))).toEqual(['/app/apps/a1?tab=runs']);
+    releaseGoto();
+    await tick(10);
+    // The owned navigation completed and was not treated as superseded.
+    expect(m.target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('#1831 a newer focusTab choice holding the latch is still pending when an owned navigation passes beforeNavigate', async () => {
+    const { m } = await openCast();
+    let releaseGoto!: () => void;
+    navigationHooks.onPreloadData = () => Promise.resolve({ type: 'loaded', status: 200, data: { runsPanel: null } });
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => {
+      const navigation = {
+        type: 'goto', to: { url: new URL('/app/apps/a1?tab=runs', window.location.href) },
+        from: { url: new URL('https://example.test/app/apps/a1?tab=staff') },
+        cancel: vi.fn(), willUnload: false,
+      };
+      for (const guard of navigationGuards.filter((entry) => entry.fn === 'beforeNavigate')) {
+        (guard.callback as (nav: unknown) => void)(navigation);
+      }
+      releaseGoto = resolve;
+    });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(5);
+    navigationCalls.length = 0;
+    navigationHooks.onGoto = undefined;
+    // Latch must still be held: an ordinary local tab is routed through goto.
+    m.target.querySelector<HTMLButtonElement>('#tab-keys')!.click();
+    await tick(5);
+    expect(navigationCalls.filter((call) => call.fn === 'goto').map((call) => String(call.args[0]))).toEqual(['/app/apps/a1?tab=keys']);
+    releaseGoto?.();
+    await tick(5);
+  });
+
+  it.each([false, true])('control: Runs renders with no action (navigation held=%s)', async (held) => {
+    const { m, props } = await openCast();
+    let releaseRuns: (() => void) | undefined;
+    if (held) navigationHooks.onGoto = () => new Promise<void>((resolve) => { releaseRuns = resolve; });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    props.data = { ...props.data, initialTab: 'runs', runsPanel: await runsPanel(`control-${held}-run`) };
+    await tick(3);
+    releaseRuns?.();
+    await tick(20);
+
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain(`control-${held}-run`);
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('Loading runs…');
+    expect(navigationCalls.filter((call) => call.fn === 'invalidateAll')).toHaveLength(0);
+
+    // A real Runs response always supersedes the retained payload.
+    props.data = { ...props.data, runsPanel: await runsPanel(`fresh-${held}-run`) };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain(`fresh-${held}-run`);
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain(`control-${held}-run`);
+
+    // R2, not R1, is what a still-later old-URL omission must retain.
+    props.data = { ...props.data, initialTab: 'staff', runsPanel: null };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain(`fresh-${held}-run`);
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain(`control-${held}-run`);
+  });
+
+  it('#1795 never retains one App’s Runs payload on another App', async () => {
+    const { m, props } = await openCast();
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    props.data = { ...props.data, initialTab: 'runs', runsPanel: await runsPanel('app-a-run') };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('app-a-run');
+
+    props.data = await dataFor('a2');
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('app-a-run');
+    props.data = { ...props.data, initialTab: 'runs', runsPanel: { ...await runsPanel('app-b-run'), app: { id: 'a2', name: 'Other', organizationId: null } } };
+    await tick(3);
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('app-b-run');
+  });
+
+  it.each([
+    ['above', -80, -20, false, true],
+    ['below', 800, 860, false, true],
+    ['reduced motion', -80, -20, true, true],
+    ['visible', 10, 70, false, false],
+  ] as const)('#1777 refusal reveal: %s, without moving focus', async (_case, top, bottom, reduced, shouldScroll) => {
+    const { m, form } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    const region = m.target.querySelector<HTMLElement>('[data-testid="cast-answer-alert"]')!;
+    const scroll = vi.fn();
+    region.scrollIntoView = scroll;
+    vi.spyOn(region, 'getBoundingClientRect').mockReturnValue({ top, bottom } as DOMRect);
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: reduced })));
+    const input = form().querySelector<HTMLInputElement>('[name="name"]')!;
+    input.focus();
+    const refused = async () => {
+      const f = (await success(idOf(form()))).data.form;
+      f.valid = false;
+      f.message = { type: 'error', text: 'Name already taken.' };
+      const pending = await submitEnhancedDeferred(form());
+      await pending.finish({ type: 'failure', status: 400, data: { form: f } });
+      await tick(3);
+    };
+    await refused();
+    expect(region.textContent).toContain('Name already taken.');
+    if (shouldScroll) expect(scroll).toHaveBeenCalledWith({ block: 'nearest', behavior: reduced ? 'instant' : 'smooth' });
+    else expect(scroll).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(input);
+    scroll.mockClear();
+    await refused();
+    // An identical refusal from another current submission still needs revealing.
+    expect(scroll).toHaveBeenCalledTimes(shouldScroll ? 1 : 0);
+  });
+
   it('a No team choice made for App A is not carried to App B', async () => {
     const { m, props, open, form } = await openCast();
     await fill(form(), 'agent-a', 'Iris');
@@ -2427,6 +3305,296 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     const cast = [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cast a worker') as HTMLButtonElement;
     expect(cast.disabled).toBe(false);
   });
+
+  // portal#1715 S1. Walks the App change across every await between Superforms
+  // entering its result handler and finishing with it, for each outcome. This
+  // sweep is what reproduced the defect on main: at 0 turns A's success emptied
+  // B's draft, took focus and printed its receipt on B, and A's refusal wrote
+  // A's draft over B's. `regimes` proves the walk reached both sides of the
+  // result landing on A; a pass that never got there would say nothing.
+  describe('leaving A at any point while its answer is applied (portal#1715)', () => {
+    const NAME_TAKEN = 'That name is taken.';
+    const UNCONFIRMED = 'The cast could not be confirmed. Reload the page to check before casting again.';
+    const refused = async (id: string) => {
+      const bad = await superValidate({ agentId: 'agent-a', name: 'Iris', reporting: 'none', reportsTo: '' }, zod4(castWorkerSchema), { errors: false, id });
+      bad.valid = false;
+      bad.message = { type: 'error', text: NAME_TAKEN };
+      return { type: 'failure' as const, status: 500, data: { form: bad } };
+    };
+    const FAILED = { type: 'error', status: 500, error: { message: 'boom' } } as const;
+    const REDIRECT = { type: 'redirect', status: 303, location: '/signin' } as const;
+    const refreshes = () => navigationCalls.filter((c) => c.fn === 'invalidateAll').length;
+    const castButton = (target: HTMLElement) => [...target.querySelectorAll('button')].find((x) => x.textContent?.trim() === 'Cast a worker')!;
+    const submitButton = (target: HTMLElement) => [...target.querySelectorAll<HTMLButtonElement>('form[action="?/castWorker"] button[type="submit"]')].at(-1)!;
+    async function typeOnB(m: Mounted<Record<string, unknown>>, form: () => HTMLFormElement) {
+      castButton(m.target).click();
+      flushSync();
+      const name = form().querySelector<HTMLInputElement>('[name="name"]')!;
+      name.value = 'NewB';
+      name.dispatchEvent(new Event('input', { bubbles: true }));
+      name.focus();
+      flushSync();
+      return name;
+    }
+
+    it.each([
+      ['success', success, 'Worker cast.'],
+      ['refusal', refused, NAME_TAKEN],
+      ['a failed request', async () => FAILED, UNCONFIRMED],
+    ] as const)('%s leaves B’s message, focus, composer and refreshes untouched', async (_name, answer, text) => {
+      const regimes = new Set<string>();
+      for (let turns = 0; turns <= 24; turns += 1) {
+        const { m, props, form } = await openCast();
+        await fill(form(), 'agent-a', 'Iris');
+        const sent = idOf(form());
+        const delayed = await submitEnhancedDeferred(form());
+        const result = await answer(sent);
+        const b = await dataFor('a2');
+        resetNavigationCalls();
+        const finishing = delayed.finish(result as never);
+        for (let i = 0; i < turns; i += 1) await Promise.resolve();
+        flushSync();
+        regimes.add(m.target.textContent?.includes(text) ? 'shown-on-A' : 'not-yet-shown');
+        const refreshedOnA = refreshes();
+        props.data = b;
+        flushSync();
+        const name = await typeOnB(m, form);
+        await finishing;
+        await tick(4);
+        const at = `${text} after ${turns} turns`;
+        expect(m.target.textContent, at).not.toContain(text);
+        expect(m.target.querySelector('form[action="?/castWorker"]'), at).not.toBeNull();
+        expect(name.value, at).toBe('NewB');
+        expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value, at).toBe('NewB');
+        expect(document.activeElement, at).toBe(name);
+        expect(refreshes(), at).toBe(refreshedOnA);
+        expect(submitButton(m.target).disabled, at).toBe(false);
+        expect(kitAppliedResults, at).toEqual([]);
+        m.unmount();
+        mounted.pop();
+      }
+      expect([...regimes].sort()).toEqual(['not-yet-shown', 'shown-on-A']);
+    });
+
+    it('a failed request says the cast is unconfirmed, claims neither outcome and frees the form', async () => {
+      const { m, form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit');
+      const delayed = await submitEnhancedDeferred(form());
+      await delayed.finish(FAILED as never);
+      await tick(4);
+      expect([...m.target.querySelectorAll('[role="alert"]')].map((x) => x.textContent?.trim())).toEqual([UNCONFIRMED]);
+      expect(m.target.textContent).not.toContain('Worker cast.');
+      expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('Iris');
+      expect(submitButton(m.target).disabled).toBe(false);
+      expect(refreshes()).toBe(0);
+      expect(requestSubmit).not.toHaveBeenCalled();
+    });
+
+    it('a redirect still reaches Kit in the current App (applyAction is off for this form)', async () => {
+      const { form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const delayed = await submitEnhancedDeferred(form());
+      await delayed.finish(REDIRECT as never);
+      await tick(4);
+      expect(kitAppliedResults).toEqual([REDIRECT]);
+    });
+
+    it('A’s late redirect does not reach Kit on B', async () => {
+      const { props, form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const delayed = await submitEnhancedDeferred(form());
+      props.data = await dataFor('a2');
+      await tick(3);
+      await delayed.finish(REDIRECT as never);
+      await tick(4);
+      expect(kitAppliedResults).toEqual([]);
+    });
+
+    // Jane's BLIND on #1771: the fence read one variable that every submit overwrites, so a
+    // submit on B made A's still-pending answer look current. B can submit by then: the
+    // composer is a new element, and afterNavigate has cleared the form's submitting state.
+    it.each([
+      ['a failed request', async () => FAILED, UNCONFIRMED],
+      ['a refusal', refused, NAME_TAKEN],
+      ['a success', success, 'Worker cast.'],
+      ['a redirect', async () => REDIRECT, null],
+    ] as const)('%s for A, arriving after B submitted, stays off B', async (_name, answer, text) => {
+      const { m, props, form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const sent = idOf(form());
+      const first = await submitEnhancedDeferred(form());
+      props.data = await dataFor('a2');
+      await tick(3);
+      await typeOnB(m, form);
+      await submitEnhancedDeferred(form());
+      const tabs = () => m.target.querySelector('[role="tab"][aria-selected="true"]')?.textContent;
+      const tab = tabs();
+      resetNavigationCalls();
+      await first.finish(await answer(sent) as never);
+      await tick(4);
+      if (text) expect(m.target.textContent).not.toContain(text);
+      expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('NewB');
+      expect(tabs()).toBe(tab);
+      expect(refreshes()).toBe(0);
+      expect(kitAppliedResults).toEqual([]);
+    });
+
+    it('B’s own answer still lands after A’s stale one', async () => {
+      const { m, props, form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const first = await submitEnhancedDeferred(form());
+      props.data = await dataFor('a2');
+      await tick(3);
+      await typeOnB(m, form);
+      const sentB = idOf(form());
+      const second = await submitEnhancedDeferred(form());
+      await first.finish(FAILED as never);
+      await tick(2);
+      await second.finish(await refused(sentB) as never);
+      await tick(4);
+      expect(m.target.textContent).toContain(NAME_TAKEN);
+      expect(m.target.textContent).not.toContain(UNCONFIRMED);
+    });
+
+    it('a success or refusal never goes through Kit, so focus stays where the reader put it', async () => {
+      for (const answer of [success, refused]) {
+        const { m, form } = await openCast();
+        await fill(form(), 'agent-a', 'Iris');
+        const sent = idOf(form());
+        const delayed = await submitEnhancedDeferred(form());
+        const outside = castButton(m.target);
+        outside.focus();
+        await delayed.finish(await answer(sent) as never);
+        await tick(4);
+        expect(kitAppliedResults).toEqual([]);
+        expect(document.activeElement).toBe(outside);
+        m.unmount();
+        mounted.pop();
+      }
+    });
+
+    it('a refusal keeps the composer: open, with the rejected draft, on the AI Team tab', async () => {
+      const { m, form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const sent = idOf(form());
+      const delayed = await submitEnhancedDeferred(form());
+      await delayed.finish(await refused(sent) as never);
+      await tick(4);
+      expect(m.target.textContent).toContain(NAME_TAKEN);
+      expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('Iris');
+    });
+
+    // With applyAction off, the `form` prop effects that used to do this never see a cast.
+    async function closeAndLeave(m: Mounted<Record<string, unknown>>) {
+      castButton(m.target).click();
+      flushSync();
+      expect(m.target.querySelector('form[action="?/castWorker"]')).toBeNull();
+      m.target.querySelector<HTMLElement>('[role="tab"]:not(#tab-staff)')!.click();
+      flushSync();
+      expect(m.target.textContent).not.toContain('Cast a worker');
+    }
+
+    it('a refusal lands back on the AI Team tab and reopens a composer closed meanwhile', async () => {
+      const { m, form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const sent = idOf(form());
+      const delayed = await submitEnhancedDeferred(form());
+      await closeAndLeave(m);
+      await delayed.finish(await refused(sent) as never);
+      await tick(4);
+      expect(m.target.textContent).toContain(NAME_TAKEN);
+      expect(m.target.querySelector('form[action="?/castWorker"]')).not.toBeNull();
+    });
+
+    it('a success lands back on the AI Team tab, where its receipt is', async () => {
+      const { m, form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const sent = idOf(form());
+      const delayed = await submitEnhancedDeferred(form());
+      await closeAndLeave(m);
+      await delayed.finish(await success(sent));
+      await tick(4);
+      expect(m.target.textContent).toContain('Worker cast.');
+    });
+
+    it('a failed request lands back on the AI Team tab and doesn’t reopen the composer: it claims nothing to retry', async () => {
+      const { m, form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const delayed = await submitEnhancedDeferred(form());
+      await closeAndLeave(m);
+      await delayed.finish(FAILED as never);
+      await tick(4);
+      expect(m.target.textContent).toContain(UNCONFIRMED);
+      expect(m.target.querySelector('form[action="?/castWorker"]')).toBeNull();
+    });
+
+    it('control: a clean success still closes the composer, says so and refreshes once', async () => {
+      const { m, form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const sent = idOf(form());
+      const delayed = await submitEnhancedDeferred(form());
+      await delayed.finish(await success(sent));
+      await tick(4);
+      expect(m.target.querySelector('form[action="?/castWorker"]')).toBeNull();
+      expect(m.target.textContent).toContain('Worker cast.');
+      expect(refreshes()).toBe(1);
+    });
+
+    // portal#1715 S3: a live region mounted already holding its text isn't reliably
+    // announced, so the region stays mounted and the notice arrives inside it. This
+    // pins the DOM only: it says nothing about what a screen reader announced.
+    it('the stale-list notice arrives inside a status region already mounted, and clears on the next submit', async () => {
+      const { m, form, open } = await openCast();
+      const region = m.target.querySelector('[data-testid="cast-refresh-status"]')!;
+      expect(region.getAttribute('role')).toBe('status');
+      expect(region.textContent?.trim()).toBe('');
+      await fill(form(), 'agent-a', 'Iris');
+      navigationHooks.onInvalidateAll = () => { throw new Error('refresh failed after committed cast'); };
+      const sent = idOf(form());
+      const delayed = await submitEnhancedDeferred(form());
+      await delayed.finish(await success(sent));
+      await tick(4);
+      expect(m.target.querySelector('[data-testid="cast-refresh-status"]')).toBe(region);
+      expect(region.textContent).toContain('Do not cast again.');
+      expect(region.querySelector('[role="status"], [role="alert"], button')).toBeNull();
+      open();
+      await tick(2);
+      await fill(form(), 'agent-a', 'Iris');
+      await submitEnhancedDeferred(form());
+      await tick(2);
+      expect(region.textContent?.trim()).toBe('');
+    });
+  });
+
+  // portal#1715 S3.
+  describe('the agent list in the composer', () => {
+    const IMPORTER = { id: 'ag0', name: 'Alpha', urn: 'hrn:agent:acme.com:alpha' };
+    async function selectOf(installMarks: Record<string, unknown>) {
+      const data = await dataFor('a1');
+      const m = mountComponent(Page as never, reactiveProps({ data: { ...data, installMarks }, form: null }) as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(2);
+      [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cast a worker')!.click();
+      await tick(2);
+      return m.target.querySelector<HTMLSelectElement>('[name="agentId"]')!;
+    }
+    const groups = (select: HTMLSelectElement) => [...select.querySelectorAll('optgroup')].map((g) => g.label);
+
+    it('the placeholder doesn’t say installed: the list can hold derived agents', async () => {
+      expect((await selectOf({})).querySelector('option')!.textContent).toBe('— Select an agent —');
+    });
+
+    it('hides an empty Installed group', async () => {
+      const select = await selectOf({ 'agent-a': { kind: 'derived', importer: IMPORTER }, 'agent-b': { kind: 'derived', importer: IMPORTER } });
+      expect(groups(select)).toEqual(['Derived']);
+    });
+
+    it('control: both groups show when each has an agent', async () => {
+      const select = await selectOf({ 'agent-a': { kind: 'installed' }, 'agent-b': { kind: 'derived', importer: IMPORTER } });
+      expect(groups(select)).toEqual(['Installed', 'Derived']);
+    });
+  });
 });
 
 describe('Roster placement readback (#1149)', () => {
@@ -2512,6 +3680,53 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
     expect(m.target.textContent).not.toContain(LINKED);
     expect(refreshes()).toBe(0);
     expect(actions(m.target).disabled).toBe(false);
+  });
+
+  // Same race as the cast's (Jane's BLIND on #1771, Xabat's ruling 6692838145). After a
+  // navigation afterNavigate clears the form's submitting state, so B's row can Install while
+  // A's request is out, and the fence read the variable that B's submit had just overwritten.
+  describe('A’s answer arriving after B installed (portal#1715)', () => {
+    const FAILED = { type: 'error', status: 500, error: { message: 'boom' } } as const;
+    const REDIRECT = { type: 'redirect', status: 303, location: '/signin' } as const;
+    const UNCONFIRMED = 'could not be confirmed';
+    const navigated = async () => {
+      for (const guard of navigationGuards.filter((g) => g.fn === 'afterNavigate')) (guard.callback as (nav: unknown) => void)({ type: 'link' });
+      await tick(3);
+    };
+    async function pendingOnBoth() {
+      const { m, props } = await mountAgents();
+      const a = await beginInstall(m.target);
+      props.data = await dataFor('a2');
+      await tick(3);
+      await navigated();
+      const b = await beginInstall(m.target);
+      resetNavigationCalls();
+      return { m, a, b };
+    }
+
+    it.each([
+      ['a failed request', async () => FAILED, UNCONFIRMED],
+      ['a refusal', refused, REFUSED],
+      ['a success', confirmed, LINKED],
+      ['a redirect', async () => REDIRECT, null],
+    ] as const)('%s stays off B', async (_name, answer, text) => {
+      const { m, a } = await pendingOnBoth();
+      await a.delayed.finish(await answer(a.id) as never);
+      await tick(4);
+      if (text) expect(m.target.textContent).not.toContain(text);
+      expect(refreshes()).toBe(0);
+      expect(kitAppliedResults).toEqual([]);
+    });
+
+    it('B’s own answer still lands after A’s stale one', async () => {
+      const { m, a, b } = await pendingOnBoth();
+      await a.delayed.finish(FAILED as never);
+      await tick(2);
+      await b.delayed.finish(await refused(b.id) as never);
+      await tick(4);
+      expect(m.target.textContent).toContain(REFUSED);
+      expect(m.target.textContent).not.toContain(UNCONFIRMED);
+    });
   });
 
   it('A’s late refusal says nothing on B', async () => {
@@ -2610,6 +3825,7 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
   it('leaving A at any point while its answer is applied leaves B untouched (success, refusal, failed request)', async () => {
     const failed = async () => ({ type: 'error', status: 500, error: { message: 'boom' } });
     for (const [answer, text] of [[confirmed, LINKED], [refused, REFUSED], [failed, 'could not be confirmed']] as const) {
+      const regimes = new Set<string>();
       for (let turns = 0; turns <= 12; turns += 1) {
         const { m, props } = await mountAgents();
         const { id, delayed } = await beginInstall(m.target);
@@ -2618,6 +3834,8 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
         resetNavigationCalls();
         const finishing = delayed.finish(result as never);
         for (let i = 0; i < turns; i += 1) await Promise.resolve();
+        flushSync();
+        regimes.add(m.target.textContent?.includes(text) ? 'shown-on-A' : 'not-yet-shown');
         const refreshedWhileOnA = refreshes();
         props.data = b;
         flushSync();
@@ -2633,6 +3851,8 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
         m.unmount();
         mounted.pop();
       }
+      // The walk only counts if it reached both sides of the result landing on A.
+      expect([...regimes].sort(), text).toEqual(['not-yet-shown', 'shown-on-A']);
     }
   });
 
@@ -2642,7 +3862,6 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
 
   it('a redirect still reaches Kit in the current App (applyAction is off for this form)', async () => {
     const { m } = await mountAgents();
-    kitAppliedResults.length = 0;
     const { delayed } = await beginInstall(m.target);
     await delayed.finish(REDIRECT as never);
     await tick(4);
@@ -2651,7 +3870,6 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
 
   it('A’s late redirect does not reach Kit on B', async () => {
     const { m, props } = await mountAgents();
-    kitAppliedResults.length = 0;
     const { delayed } = await beginInstall(m.target);
     props.data = await dataFor('a2');
     await tick(3);
@@ -2685,8 +3903,8 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
 
   it('a success or refusal never goes through Kit, so focus stays where the reader put it', async () => {
     for (const answer of [confirmed, refused]) {
+      resetKitAppliedResults();
       const { m } = await mountAgents();
-      kitAppliedResults.length = 0;
       const { id, delayed } = await beginInstall(m.target);
       const search = m.target.querySelector<HTMLInputElement>('input[aria-label="Search agents"]')!;
       search.focus();
@@ -2712,5 +3930,526 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
     expect(m.target.textContent).not.toContain(LINKED);
     expect(m.target.textContent).not.toContain('could not be refreshed');
     expect(actions(m.target).disabled).toBe(false);
+  });
+
+  // portal#1715 S3: DOM only, not a claim about what a screen reader announced.
+  it('the stale-list notice arrives inside a status region already mounted, and clears on the next submit', async () => {
+    const { m } = await mountAgents();
+    const region = m.target.querySelector('[data-testid="install-refresh-status"]')!;
+    expect(region.getAttribute('role')).toBe('status');
+    expect(region.textContent?.trim()).toBe('');
+    navigationHooks.onInvalidateAll = () => { throw new Error('refresh failed after a confirmed install'); };
+    const { id, delayed } = await beginInstall(m.target);
+    await delayed.finish(await confirmed(id) as never);
+    await tick(4);
+    expect(m.target.querySelector('[data-testid="install-refresh-status"]')).toBe(region);
+    expect(region.textContent).toContain('could not be refreshed');
+    expect(region.textContent).not.toContain('Do not install again');
+    expect(region.querySelector('[role="status"], [role="alert"], button')).toBeNull();
+    navigationHooks.onInvalidateAll = undefined;
+    await beginInstall(m.target);
+    await tick(2);
+    expect(region.textContent?.trim()).toBe('');
+  });
+
+  // portal#1715 S2: these banners had dark classes only, so a refusal was a dark block on a light page.
+  it('the shared banners have a light and a dark look', async () => {
+    const { m } = await mountAgents();
+    const { id, delayed } = await beginInstall(m.target);
+    await delayed.finish(await refused(id) as never);
+    await tick(4);
+    const alert = [...m.target.querySelectorAll('[role="alert"]')].find((x) => x.textContent?.includes(REFUSED))!;
+    expect(alert.className.split(' ')).toEqual(expect.arrayContaining(['bg-red-50', 'text-red-700', 'dark:bg-red-950', 'dark:text-red-300']));
+    const { id: next, delayed: again } = await beginInstall(m.target);
+    await again.finish(await confirmed(next) as never);
+    await tick(4);
+    const status = [...m.target.querySelectorAll('[role="status"]')].find((x) => x.textContent?.includes(LINKED))!;
+    expect(status.firstElementChild).not.toBeNull();
+    expect(status.firstElementChild!.className.split(' ')).toEqual(expect.arrayContaining(['bg-green-50', 'text-green-700', 'dark:bg-green-950', 'dark:text-green-300']));
+  });
+
+  it('the stale-list notice leaves with the App', async () => {
+    const { m, props } = await mountAgents();
+    navigationHooks.onInvalidateAll = () => { throw new Error('refresh failed after a confirmed install'); };
+    const { id, delayed } = await beginInstall(m.target);
+    await delayed.finish(await confirmed(id) as never);
+    await tick(4);
+    const region = m.target.querySelector('[data-testid="install-refresh-status"]')!;
+    expect(region.textContent).toContain('could not be refreshed');
+    props.data = await dataFor('a2');
+    await tick(4);
+    expect(m.target.querySelector('[data-testid="install-refresh-status"]')!.textContent?.trim()).toBe('');
+  });
+});
+
+// portal#1715 S1. Picker Link, row Install and row Unlink are three forms, and
+// `multipleSubmits: 'prevent'` holds per form, so nothing but this invariant stops
+// two writes at once. Each pin counts the submit events that left the page: a
+// disabled attribute alone wouldn't show a write didn't go out, because the row's
+// actions reach `requestSubmit()`, which ignores disabled controls.
+describe('one agent write at a time on the Agents tab (portal#1715)', () => {
+  const BETA = { id: 'ag1', urn: 'hrn:agent:acme.com:beta', name: 'Beta', personaRole: null };
+  const DELTA = { id: 'ag3', urn: 'hrn:agent:acme.com:delta', name: 'Delta', personaRole: null };
+  const GAMMA = { id: 'ag2', urn: 'hrn:agent:acme.com:gamma', name: 'Gamma' };
+  const IMPORTER = { id: 'ag0', name: 'Alpha', urn: 'hrn:agent:acme.com:alpha' };
+  async function mountAgents() {
+    vi.stubGlobal('fetch', vi.fn(async (url) => ({ ok: true, json: async () => String(url).includes('/customisation?') ? { list: { state: 'not-shown' }, original: { state: 'not-shown' }, replacement: { state: 'not-shown' } } : {} }) as Response));
+    setStubPage('https://example.test/app/apps/a1?tab=agents', { appId: 'a1' });
+    const data = await pageData();
+    Object.assign(data.app, { agents: [BETA, DELTA] });
+    data.initialTab = 'agents';
+    const props = reactiveProps({
+      data: { ...data, availableAgents: [GAMMA], bootPointerAppKey: 'a1', installMarks: { ag1: { kind: 'derived', importer: IMPORTER }, ag3: { kind: 'installed' } } },
+      form: null,
+    });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const writes: string[] = [];
+    m.target.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const form = e.target as HTMLFormElement;
+      const id = form.querySelector<HTMLInputElement>('[name="__superform_id"]')?.value ?? '';
+      writes.push(id.startsWith('installAgent:') ? 'install' : form.getAttribute('action') === '?/removeAgent' ? 'unlink' : 'link');
+    }, { capture: true });
+    return { m, writes };
+  }
+  const forms = (target: HTMLElement) => [...target.querySelectorAll<HTMLFormElement>('form')];
+  const installForm = (target: HTMLElement) => forms(target).find((f) => f.querySelector<HTMLInputElement>('[name="__superform_id"]')?.value.startsWith('installAgent:'))!;
+  const linkForm = (target: HTMLElement) => forms(target).find((f) => f.getAttribute('action') === '?/addAgent' && !f.classList.contains('hidden'))!;
+  const unlinkForm = (target: HTMLElement) => target.querySelector<HTMLFormElement>('form[action="?/removeAgent"]')!;
+  const linkButton = (target: HTMLElement) => linkForm(target).querySelector<HTMLButtonElement>('button[type="submit"]')!;
+  const menu = (target: HTMLElement, name: string) => target.querySelector<HTMLButtonElement>(`button[aria-label="Actions for ${name}"]`)!;
+  const item = (target: HTMLElement, label: string) => [...target.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find((i) => i.textContent?.trim() === label)!;
+  async function pick(target: HTMLElement) {
+    const select = linkForm(target).querySelector<HTMLSelectElement>('[name="agentId"]')!;
+    select.value = 'ag2';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(2);
+  }
+  async function openItem(target: HTMLElement, name: string, label: string) {
+    menu(target, name).click();
+    flushSync();
+    return item(target, label);
+  }
+  const answer = async (schema: typeof addAgentSchema | typeof removeAppAgentSchema, id: string) => {
+    const f = await superValidate({ agentId: 'ag1' } as never, zod4(schema as typeof addAgentSchema), { errors: false, id });
+    f.message = { type: 'success', text: 'Done.' };
+    return { type: 'success' as const, status: 200, data: { form: f } };
+  };
+  const idOf = (form: HTMLFormElement) => form.querySelector<HTMLInputElement>('[name="__superform_id"]')?.value ?? 'x';
+
+  // The menu closes on an outside click, so a first write started by clicking would
+  // leave these clicks on a detached item, passing without ever reaching a guard.
+  // `reached` proves the item is live; the first write starts with no outside click.
+  const reached = (target: HTMLElement, el: HTMLElement) => expect(target.contains(el)).toBe(true);
+  async function start(form: HTMLFormElement) {
+    form.requestSubmit();
+    const begun = await submitEnhancedDeferred(form);
+    await tick(2);
+    return begun;
+  }
+
+  it('picker to row: while Link is submitting, row Install can’t post', async () => {
+    const { m, writes } = await mountAgents();
+    await pick(m.target);
+    const install = await openItem(m.target, 'Beta', 'Install');
+    await start(linkForm(m.target));
+    reached(m.target, install);
+    install.click();
+    await tick(3);
+    expect(writes).toEqual(['link']);
+    expect(menu(m.target, 'Beta').disabled).toBe(true);
+    expect(linkButton(m.target).textContent?.trim()).toBe('Linking...');
+  });
+
+  it('picker to row: while Link is submitting, row Unlink can’t post', async () => {
+    const { m, writes } = await mountAgents();
+    await pick(m.target);
+    const unlink = await openItem(m.target, 'Delta', 'Unlink');
+    await start(linkForm(m.target));
+    reached(m.target, unlink);
+    unlink.click();
+    await tick(3);
+    expect(writes).toEqual(['link']);
+  });
+
+  it('row to picker: while row Install is submitting, Link can’t post', async () => {
+    const { m, writes } = await mountAgents();
+    await pick(m.target);
+    (await openItem(m.target, 'Beta', 'Install')).click();
+    await tick(2);
+    expect(writes).toEqual(['install']);
+    await submitEnhancedDeferred(installForm(m.target));
+    await tick(2);
+    linkButton(m.target).click();
+    await tick(2);
+    expect(writes).toEqual(['install']);
+    expect(linkButton(m.target).disabled).toBe(true);
+    expect(linkButton(m.target).textContent?.trim()).toBe('Link');
+  });
+
+  it('row to row: while row Install is submitting, row Unlink can’t post', async () => {
+    const { m, writes } = await mountAgents();
+    const unlink = await openItem(m.target, 'Delta', 'Unlink');
+    await start(installForm(m.target));
+    reached(m.target, unlink);
+    unlink.click();
+    await tick(3);
+    expect(writes).toEqual(['install']);
+  });
+
+  it('while Unlink is submitting, neither Link nor row Install posts', async () => {
+    const { m, writes } = await mountAgents();
+    await pick(m.target);
+    const install = await openItem(m.target, 'Beta', 'Install');
+    await start(unlinkForm(m.target));
+    reached(m.target, install);
+    install.click();
+    await tick(3);
+    expect(writes).toEqual(['unlink']);
+    linkButton(m.target).click();
+    await tick(2);
+    expect(writes).toEqual(['unlink']);
+    expect(linkButton(m.target).disabled).toBe(true);
+  });
+
+  it('control: one write after another goes through once the first has answered', async () => {
+    const { m, writes } = await mountAgents();
+    await pick(m.target);
+    const link = await start(linkForm(m.target));
+    expect(linkButton(m.target).disabled).toBe(true);
+    await link.finish(await answer(addAgentSchema, idOf(linkForm(m.target))) as never);
+    await tick(4);
+    expect(menu(m.target, 'Beta').disabled).toBe(false);
+    (await openItem(m.target, 'Beta', 'Install')).click();
+    await tick(2);
+    expect(writes).toEqual(['link', 'install']);
+  });
+});
+
+// #1776: real Superforms callbacks, held across a reused Page's App change.
+describe('Link and Unlink answers belong to their App visit (#1776)', () => {
+  const DELTA = { id: 'ag3', urn: 'hrn:agent:acme.com:delta', name: 'Delta', personaRole: null };
+  const GAMMA = { id: 'ag2', urn: 'hrn:agent:acme.com:gamma', name: 'Gamma' };
+  type Kind = 'link' | 'unlink';
+  type Outcome = 'success' | 'refusal' | 'error' | 'redirect';
+  async function dataFor(appId: string) {
+    setStubPage(`https://example.test/app/apps/${appId}?tab=agents`, { appId });
+    const data = await pageData();
+    Object.assign(data.app, { id: appId, agents: [DELTA] });
+    return { ...data, initialTab: 'agents', availableAgents: [GAMMA], bootPointerAppKey: appId,
+      installMarks: { ag3: { kind: 'installed' } } };
+  }
+  async function mountAgents() {
+    vi.stubGlobal('fetch', vi.fn(async url => ({ ok: true, json: async () => String(url).includes('/customisation?')
+      ? { list: { state: 'not-shown' }, original: { state: 'not-shown' }, replacement: { state: 'not-shown' } } : {} }) as Response));
+    const props = reactiveProps({ data: await dataFor('a1'), form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(3);
+    return { m, props };
+  }
+  const formOf = (target: HTMLElement, kind: Kind) => kind === 'unlink'
+    ? target.querySelector<HTMLFormElement>('form[action="?/removeAgent"]')!
+    : [...target.querySelectorAll<HTMLFormElement>('form[action="?/addAgent"]')].find(f => !f.classList.contains('hidden'))!;
+  async function begin(target: HTMLElement, kind: Kind) {
+    if (kind === 'link') {
+      const select = formOf(target, kind).querySelector<HTMLSelectElement>('[name="agentId"]')!;
+      select.value = GAMMA.id;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      await tick(2);
+    } else {
+      const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+      target.querySelector<HTMLButtonElement>('button[aria-label="Actions for Delta"]')!.click();
+      flushSync();
+      [...target.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(el => el.textContent?.trim() === 'Unlink')!.click();
+      await tick(2);
+      expect(requestSubmit).toHaveBeenCalledTimes(1);
+      expect(requestSubmit.mock.instances[0]).toBe(formOf(target, kind));
+      requestSubmit.mockRestore();
+    }
+    const form = formOf(target, kind);
+    // Main uses the loader's schema id without an explicit hidden field;
+    // the fenced form exposes its live instance id. Derive the old id from
+    // the same loader schema, never from an invented constant.
+    const id = form.querySelector<HTMLInputElement>('[name="__superform_id"]')?.value
+      ?? (await superValidate(zod4((kind === 'link' ? addAgentSchema : removeAppAgentSchema) as typeof addAgentSchema), { errors: false })).id;
+    expect(new FormData(form).get('agentId')).toBe(kind === 'link' ? GAMMA.id : DELTA.id);
+    return { id, delayed: await submitEnhancedDeferred(form), form };
+  }
+  it('#1777 shared success region is mounted empty, filled, then cleared without replacement', async () => {
+    const { m, props } = await mountAgents();
+    const region = m.target.querySelector('[data-testid="app-success-status"]');
+    expect(region).not.toBeNull();
+    expect(region!.textContent?.trim()).toBe('');
+    expect(region!.getAttribute('role')).toBe('status');
+    const a = await begin(m.target, 'link');
+    await a.delayed.finish(await answer('link', 'success', a.id, 'A') as never);
+    await tick(3);
+    expect(m.target.querySelector('[data-testid="app-success-status"]')).toBe(region);
+    expect(region!.textContent).toContain('A link success');
+    props.data = await dataFor('a2');
+    await tick(3);
+    expect(m.target.querySelector('[data-testid="app-success-status"]')).toBe(region);
+    expect(region!.textContent?.trim()).toBe('');
+  });
+
+  async function answer(kind: Kind, outcome: Outcome, id: string, owner: string) {
+    if (outcome === 'error') return { type: 'error', status: 500, error: { message: `${owner} failed request` } };
+    if (outcome === 'redirect') return { type: 'redirect', status: 303, location: `/${owner}-redirect` };
+    const f = await superValidate({ agentId: kind === 'link' ? GAMMA.id : DELTA.id },
+      zod4((kind === 'link' ? addAgentSchema : removeAppAgentSchema) as typeof addAgentSchema), { errors: false, id });
+    f.valid = outcome === 'success';
+    f.message = { type: outcome === 'success' ? 'success' : 'error', text: `${owner} ${kind} ${outcome}` };
+    return { type: outcome === 'success' ? 'success' : 'failure', status: outcome === 'success' ? 200 : 400, data: { form: f } };
+  }
+
+  it('#1795 Link retains Runs through an overlapping old-URL refresh', async () => {
+    const { m, props } = await mountAgents();
+    const pending = await begin(m.target, 'link');
+    let releaseRuns!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { releaseRuns = resolve; });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+
+    const order: string[] = [];
+    let releaseRefresh!: () => void;
+    navigationHooks.onInvalidateAll = () => {
+      order.push('refresh-requested');
+      return new Promise<void>((resolve) => { releaseRefresh = resolve; });
+    };
+    const finishing = pending.delayed.finish(await answer('link', 'success', pending.id, 'A') as never);
+    await tick(4);
+    order.push('runs-response');
+    props.data = { ...props.data, initialTab: 'runs', runsPanel: await runsPanel('held-link-run') };
+    await tick(3);
+    releaseRuns();
+    await tick(20);
+    expect(releaseRefresh).toBeTypeOf('function');
+
+    props.data = { ...props.data, initialTab: 'agents', runsPanel: null };
+    releaseRefresh();
+    await finishing;
+    await tick(6);
+
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('held-link-run');
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('Loading runs…');
+    expect(order).toEqual(['refresh-requested', 'runs-response']);
+    expect(navigationCalls.filter((call) => call.fn === 'invalidateAll')).toHaveLength(1);
+  });
+
+  it('#1795 retains Runs when an Unlink refresh began BEFORE the tab click', async () => {
+    const { m, props } = await mountAgents();
+    const pending = await begin(m.target, 'unlink');
+    const order: string[] = [];
+    let releaseRefresh!: () => void;
+    navigationHooks.onInvalidateAll = () => {
+      order.push('refresh-requested');
+      return new Promise<void>((resolve) => { releaseRefresh = resolve; });
+    };
+    const finishing = pending.delayed.finish(await answer('unlink', 'success', pending.id, 'A') as never);
+    await tick(4);
+    expect(releaseRefresh).toBeTypeOf('function');
+
+    let releaseRuns!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { releaseRuns = resolve; });
+    m.target.querySelector<HTMLButtonElement>('#tab-runs')!.click();
+    await tick(2);
+    order.push('runs-response');
+    props.data = { ...props.data, initialTab: 'runs', runsPanel: await runsPanel('held-unlink-run') };
+    await tick(3);
+    releaseRuns();
+    await tick(20);
+
+    // The older Agents-URL refresh lands last. No per-action navigation wait
+    // can cover this inverse ordering; the page must retain its Runs payload.
+    props.data = { ...props.data, initialTab: 'agents', runsPanel: null };
+    releaseRefresh();
+    await finishing;
+    await tick(6);
+
+    expect(m.target.querySelector('#panel-runs')?.textContent).toContain('held-unlink-run');
+    expect(m.target.querySelector('#panel-runs')?.textContent).not.toContain('Loading runs…');
+    expect(order).toEqual(['refresh-requested', 'runs-response']);
+  });
+
+  async function move(props: { data: Awaited<ReturnType<typeof dataFor>> }, appId: string) {
+    props.data = await dataFor(appId);
+    await tick(3);
+    // Superforms makes B available after a real router navigation; without
+    // this hook a pending A request can vacuously keep B from submitting.
+    for (const g of navigationGuards.filter(g => g.fn === 'afterNavigate'))
+      (g.callback as (nav: unknown) => void)({ type: 'link' });
+    await tick(3);
+  }
+  for (const kind of ['link', 'unlink'] as const) {
+    for (const bSubmitted of [false, true]) {
+      it.each(['success', 'refusal', 'error', 'redirect'] as const)(`${kind}: late %s stays off B (B submitted=${bSubmitted})`, async outcome => {
+        const { m, props } = await mountAgents();
+        const a = await begin(m.target, kind);
+        await move(props, 'a2');
+        const b = bSubmitted ? await begin(m.target, kind) : null;
+        resetNavigationCalls();
+        resetKitAppliedResults();
+        const focus = m.target.querySelector<HTMLSelectElement>('#agentId')!;
+        focus.focus();
+        await a.delayed.finish(await answer(kind, outcome, a.id, 'A') as never);
+        await tick(4);
+        expect(m.target.textContent).not.toContain(`A ${kind}`);
+        expect(kitAppliedResults).toEqual([]);
+        expect(navigationCalls.filter(c => c.fn === 'invalidateAll')).toHaveLength(0);
+        expect(document.activeElement).toBe(focus);
+        if (b) {
+          // Same post-navigation lifecycle position: a dead delivery wire must
+          // fail this control even if every stale-answer negative passes.
+          await b.delayed.finish(await answer(kind, 'refusal', b.id, 'B') as never);
+          await tick(4);
+          expect(m.target.textContent).toContain(`B ${kind} refusal`);
+        }
+      });
+    }
+    it.each(['message', 'fields'] as const)(`${kind}: completed A %s and selection clear on App change`, async state => {
+      const { m, props } = await mountAgents();
+      const selection = () => kind === 'link'
+        ? formOf(m.target, kind).querySelector<HTMLSelectElement>('[name="agentId"]')!.value
+        : formOf(m.target, kind).querySelector<HTMLInputElement>('[name="agentId"]')!.value;
+      async function completed(owner: string) {
+        if (state === 'fields') {
+          const form = formOf(m.target, kind);
+          if (kind === 'link') {
+            // Link has novalidate: reproduce the action's validation of the
+            // exact empty submitted FormData, including its live form id.
+            const body = new FormData(form);
+            const delayed = await submitEnhancedDeferred(form);
+            const f = await superValidate(body, zod4(addAgentSchema));
+            expect(f.valid).toBe(false);
+            await delayed.finish({ type: 'failure', status: 400, data: { form: f } });
+          } else {
+            // Unlink validates its empty target on the client before sending.
+            expect((await submitEnhanced(form)).cancelled).toBe(true);
+          }
+          await vi.waitFor(() => expect(m.target.textContent).toContain('Agent is required'));
+        } else {
+          const sent = await begin(m.target, kind);
+          const f = await superValidate({ agentId: kind === 'link' ? GAMMA.id : DELTA.id },
+            zod4((kind === 'link' ? addAgentSchema : removeAppAgentSchema) as typeof addAgentSchema), { id: sent.id });
+          f.message = { type: 'error', text: `${owner} completed ${kind} answer` };
+          await sent.delayed.finish({ type: 'failure', status: 500, data: { form: f } });
+          await tick(3);
+        }
+      }
+      const expected = state === 'fields' ? 'Agent is required' : `A completed ${kind} answer`;
+      await completed('A');
+      expect(m.target.textContent).toContain(expected);
+      expect(selection()).toBe(state === 'fields' ? '' : kind === 'link' ? GAMMA.id : DELTA.id);
+      await move(props, 'a2');
+      expect(m.target.textContent).not.toContain(expected);
+      expect(selection()).toBe('');
+      await completed('B');
+      expect(m.target.textContent).toContain(state === 'fields' ? 'Agent is required' : `B completed ${kind} answer`);
+    });
+    it(`${kind}: returning A is a new visit, not the old pending request`, async () => {
+      const { m, props } = await mountAgents();
+      const a = await begin(m.target, kind);
+      await move(props, 'a2');
+      await move(props, 'a1');
+      const current = await begin(m.target, kind);
+      resetKitAppliedResults();
+      await a.delayed.finish(await answer(kind, 'refusal', a.id, 'OLD') as never);
+      await tick(3);
+      expect(m.target.textContent).not.toContain(`OLD ${kind}`);
+      expect(kitAppliedResults).toEqual([]);
+      await current.delayed.finish(await answer(kind, 'refusal', current.id, 'CURRENT') as never);
+      await tick(3);
+      expect(m.target.textContent).toContain(`CURRENT ${kind} refusal`);
+    });
+    it(`${kind}: an App change during the successful refresh cannot rebind B`, async () => {
+      const { m, props } = await mountAgents();
+      const a = await begin(m.target, kind);
+      let reached = false;
+      navigationHooks.onInvalidateAll = async () => {
+        reached = true;
+        await move(props, 'a2');
+        const select = formOf(m.target, 'link').querySelector<HTMLSelectElement>('[name="agentId"]')!;
+        select.value = GAMMA.id;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        await tick(2);
+        select.focus();
+      };
+      await a.delayed.finish(await answer(kind, 'success', a.id, 'A') as never);
+      await tick(4);
+      expect(reached).toBe(true);
+      expect(m.target.textContent).not.toContain(`A ${kind}`);
+      const select = formOf(m.target, 'link').querySelector<HTMLSelectElement>('[name="agentId"]')!;
+      expect(select.value).toBe(GAMMA.id);
+      expect(document.activeElement).toBe(select);
+      expect(kitAppliedResults).toEqual([]);
+    });
+    it(`${kind}: a fresh mount cannot receive the destroyed page's answer`, async () => {
+      const first = await mountAgents();
+      const a = await begin(first.m.target, kind);
+      first.m.unmount();
+      mounted.splice(mounted.indexOf(first.m), 1);
+      const fresh = await mountAgents();
+      const current = await begin(fresh.m.target, kind);
+      resetKitAppliedResults();
+      await a.delayed.finish(await answer(kind, 'refusal', a.id, 'OLD') as never);
+      await tick(3);
+      expect(fresh.m.target.textContent).not.toContain(`OLD ${kind}`);
+      expect(kitAppliedResults).toEqual([]);
+      await current.delayed.finish(await answer(kind, 'refusal', current.id, 'CURRENT') as never);
+      await tick(3);
+      expect(fresh.m.target.textContent).toContain(`CURRENT ${kind} refusal`);
+    });
+    it(`${kind}: B own failed request keeps its existing error handling`, async () => {
+      const { m, props } = await mountAgents();
+      await begin(m.target, kind);
+      await move(props, 'a2');
+      const b = await begin(m.target, kind);
+      await expect(b.delayed.finish(await answer(kind, 'error', b.id, 'B') as never))
+        .rejects.toMatchObject({ message: 'B failed request' });
+    });
+    it.each(['success', 'refusal', 'redirect'] as const)(`${kind}: B own %s still lands after navigation`, async outcome => {
+      const { m, props } = await mountAgents();
+      await begin(m.target, kind);
+      await move(props, 'a2');
+      const b = await begin(m.target, kind);
+      resetKitAppliedResults();
+      resetNavigationCalls();
+      await b.delayed.finish(await answer(kind, outcome, b.id, 'B') as never);
+      await tick(4);
+      if (outcome === 'redirect') expect(kitAppliedResults).toEqual([{ type: 'redirect', status: 303, location: '/B-redirect' }]);
+      else expect(m.target.textContent).toContain(`B ${kind} ${outcome}`);
+    });
+  }
+});
+
+// #2170 F6: an inconclusive deep-link lookup is not a failed chat list.
+describe('App chats: deep-link uncertainty vs chat-list failure', () => {
+  async function mountChats(overrides: Record<string, unknown>) {
+    setStubPage('https://example.test/app/apps/a1?tab=chats', { appId: 'a1' });
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true, json: async () => ({ items: [], total: 0, workers: [], loadFailed: false }),
+    }) as Response));
+    const data = { ...(await pageData()), ...overrides };
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return m.target;
+  }
+  const DEEP_LINK = 'Couldn’t find the linked chat in this App — pick it from the list.';
+  const DISCOVERY = 'Could not load this App’s chat list';
+
+  it('says the linked chat could not be found, not that the list failed', async () => {
+    const t = await mountChats({ chatsError: false, chatDeepLinkUnresolved: true });
+    expect(t.textContent).toContain(DEEP_LINK);
+    expect(t.textContent).not.toContain(DISCOVERY);
+  });
+
+  it('a real chat-list failure keeps the discovery message (control)', async () => {
+    const t = await mountChats({ chatsError: true, chatDeepLinkUnresolved: false });
+    expect(t.textContent).toContain(DISCOVERY);
+    expect(t.textContent).not.toContain(DEEP_LINK);
   });
 });

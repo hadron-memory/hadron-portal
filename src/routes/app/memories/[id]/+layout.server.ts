@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlErrorCode } from '$lib/gql-error';
 import { MEMORY_LAYOUT_ORG_QUERY, SELF_CAN_WRITE_QUERY, MEMORY_BY_ID_QUERY } from '$lib/server/queries';
 import type { Organization, OrgMember, UserSummary, Memory } from '$lib/types';
 import type { LayoutServerLoad } from './$types';
@@ -26,12 +27,14 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
   // #646: ask the same server gate writes use; a share role alone cannot
   // account for another grant. Failure keeps reading available, never editing.
   let canWriteMemory = false;
+  let canManageMemory = false;
   if (locals.user?.id) {
     try {
-      const access = await client.request<{ effectiveAccess: { canWrite: boolean } }>(SELF_CAN_WRITE_QUERY, {
+      const access = await client.request<{ effectiveAccess: { canWrite: boolean; canManage: boolean } }>(SELF_CAN_WRITE_QUERY, {
         user: locals.user.id, resource: memory.urn,
       });
       canWriteMemory = access.effectiveAccess.canWrite === true;
+      canManageMemory = access.effectiveAccess.canManage === true;
     } catch {
       console.warn('[memory-layout] write access unavailable');
     }
@@ -39,21 +42,31 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
 
   // Load the owning org for breadcrumb + settings (members/urn). Keyed on the
   // memory's own organizationId, not a URL segment. MEMORY_LAYOUT_ORG_QUERY is
-  // authz-gated, so a non-member viewer gets `org: null` — the settings page
-  // guards on that and hides member-only affordances (server enforces anyway).
+  // authz-gated. A null nested memory.organization already proves the viewer
+  // is not a member, so no second guaranteed-refused request is needed. When a
+  // member-shaped nested value is present, known access/domain refusals still
+  // map to non-member; only transport/internal failures set orgReadFailed and
+  // preserve chrome.
   // Guard the call: a memory with no owning org id (defensive — the schema
   // types it non-null) would otherwise fire a wasted request / non-null
   // GraphQL validation error.
-  const orgData = memory.organizationId
+  let orgReadFailed = false;
+  const orgData = memory.organizationId && memory.organization !== null
     ? await client
         .request<{ organization: MemoryLayoutOrg | null }>(MEMORY_LAYOUT_ORG_QUERY, { ref: memory.organizationId })
-        .catch(() => ({ organization: null }))
+        .catch((cause) => {
+          const code = extractGqlErrorCode(cause);
+          orgReadFailed = code !== 'FORBIDDEN' && code !== 'UNAUTHENTICATED' && code !== 'NOT_FOUND' && code !== 'ORGANIZATION_NOT_FOUND';
+          return { organization: null };
+        })
     : { organization: null };
 
   return {
     org: orgData.organization,
+    orgReadFailed,
     graph: memory,
     canWriteMemory,
+    canManageMemory,
     // portal#1524 (Holger, 2026-10-31): the node list is deliberately NOT
     // loaded, which is a different state from "the load failed"
     // (`nodesFailed`, which shows an error banner) and from "this memory has no

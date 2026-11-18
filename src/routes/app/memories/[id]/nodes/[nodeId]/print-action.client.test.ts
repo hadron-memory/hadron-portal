@@ -11,7 +11,8 @@ import { flushSync } from 'svelte';
 import { captureUnhandledRejections, mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_PAGE_QUERY } from '$lib/server/queries';
+import { announcedAlertText } from '$lib/test/announcedAlertText';
 // Static imports: the page is large, and importing it inside a test spent the
 // test's whole timeout under full-suite load. `vi.mock` below is hoisted above
 // these, so the loader still sees the mocked client.
@@ -52,7 +53,7 @@ afterEach(() => {
 async function mountPage() {
   mockRequest.mockImplementation(async (doc: string) => {
     if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: NODE };
-    if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+    if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
     return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
   });
   const loaded = (await load({
@@ -203,8 +204,8 @@ describe('node menu Print (#1073)', () => {
     expect(create).not.toHaveBeenCalled();
     expect(wins[0].location.href).toBe('');
     expect(wins[0].close).toHaveBeenCalled();
-    const alert = target.querySelector('[role="alert"]');
-    expect(alert?.textContent).toContain('Could not open the PDF');
+    const alert = announcedAlertText(target);
+    expect(alert).toContain('Could not open the PDF');
   });
 
   it('says the popup was blocked, without fetching or minting a URL', async () => {
@@ -222,8 +223,8 @@ describe('node menu Print (#1073)', () => {
     expect(open).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
-    const alert = target.querySelector('[role="alert"]');
-    expect(alert?.textContent).toMatch(/blocked/i);
+    const alert = announcedAlertText(target);
+    expect(alert).toMatch(/blocked/i);
   });
 
   it('revokes the live object URL on unmount', async () => {
@@ -284,8 +285,8 @@ describe('node menu Print (#1073)', () => {
     expect(create).not.toHaveBeenCalled();
     expect(wins[0].location.href).toBe('');
     expect(wins[0].close).toHaveBeenCalled();
-    const alert = target.querySelector('[role="alert"]');
-    expect(alert?.textContent).toContain('did not return a PDF');
+    const alert = announcedAlertText(target);
+    expect(alert).toContain('did not return a PDF');
   });
 
   // ── Reused-page navigation (#1193 READ P2s: Gustav 6308078003, George
@@ -303,7 +304,7 @@ describe('node menu Print (#1073)', () => {
   async function navigateTo(props: Record<string, unknown>, node: typeof NODE) {
     mockRequest.mockImplementation(async (doc: string) => {
       if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node };
-      if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+      if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
       return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
     });
     props.data = {
@@ -380,7 +381,7 @@ describe('node menu Print (#1073)', () => {
     // close B's window.
     resolvers[0](new Response('Internal Server Error', { status: 500 }));
     await settle();
-    expect(target.querySelector('[role="alert"]')).toBeNull();
+    expect(announcedAlertText(target)).toBeNull();
     expect(wins[1].close).not.toHaveBeenCalled();
     expect(wins[0].close).toHaveBeenCalled();
 

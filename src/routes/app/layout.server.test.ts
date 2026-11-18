@@ -181,6 +181,15 @@ describe('+layout.server.ts — the signin bounce preserves deep-link state (#76
     expect(r.location).toBe(`/signin?redirect=${encodeURIComponent('/app/dashboard')}`);
     expect(r.location).not.toContain('%3F'); // no encoded bare '?'
   });
+
+  it('keeps the signed-out public-organization boundary on the existing signin redirect (#1846 slice B)', async () => {
+    const path = '/app/org/org-public?from=memory';
+    const r = await expectSigninRedirect(path);
+    expect(r.status).toBe(303);
+    expect(r.location).toBe(`/signin?redirect=${encodeURIComponent(path)}`);
+    expect(mockMyOrgsRequest).not.toHaveBeenCalled();
+    expect(mockMeRequest).not.toHaveBeenCalled();
+  });
 });
 
 describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {

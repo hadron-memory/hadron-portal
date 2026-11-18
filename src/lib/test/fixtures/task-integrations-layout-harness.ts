@@ -17,7 +17,7 @@ const workers = [
 ];
 
 export function mountTaskIntegrations(target: HTMLElement, rosterFailed = false) {
-  return mount(TaskIntegrations as never, { target, props: {
+  return mount(TaskIntegrations, { target, props: {
     read: {
       kind: 'ok', revision: 3,
       properties: { taskIntegrations: [{
@@ -33,7 +33,7 @@ export function mountTaskIntegrations(target: HTMLElement, rosterFailed = false)
     },
     manages: true,
     workers: rosterFailed ? null : workers,
-  } as never });
+  } });
 }
 
 /** The save refused as a conflict, the one state that shows Reload. */
@@ -41,5 +41,5 @@ export function refuseWithConflict(form: HTMLFormElement) {
   return submitEnhancedWithResult(form, {
     type: 'success', status: 200,
     data: { taskIntegrationsResult: { ok: false, code: 'APP_PROPERTIES_CONFLICT', message: 'Someone else changed these settings.', path: null, currentRevision: 9 } },
-  } as never);
+  });
 }

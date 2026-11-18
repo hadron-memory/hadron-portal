@@ -29,6 +29,7 @@
     submitting,
     enhance,
     isTainted,
+    formId,
   } = superForm<RolesForm, App.Superforms.Message, RolesForm>(untrack(() => initial), {
     validators: zod4Client(updateAgentMemberRolesSchema),
     validationMethod: 'submit-only',
@@ -112,6 +113,10 @@
 
 {#if canManage}
   <form method="POST" action="?/updateMemberRoles" use:enhance novalidate class="space-y-3">
+    <!-- portal#2068: Superforms adds this id only while enhancing. A native POST must
+         name this Agent's form too, or the action answers under the unscoped fallback
+         and the page drops the Agent's own refusal. -->
+    <input type="hidden" name="__superform_id" value={$formId} />
     <input type="hidden" name="_kind" value="updateMemberRoles" />
     {#each draft as role (role)}
       <input type="hidden" name="roles" value={role} />

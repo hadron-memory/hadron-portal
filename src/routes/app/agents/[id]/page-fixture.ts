@@ -6,16 +6,18 @@
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import {
-  bootSourceSchema,
   bootCompileSchema,
   bootApproveSchema,
   addAgentMemorySchema,
   agentRegisterDefaultsSchema,
+  agentResetContextSchema,
   agentSettingsSchema,
   deleteAgentSchema,
   removeAgentMemorySchema,
   updateAgentMemoryRoleSchema,
+  updateAgentMemberRolesSchema,
 } from './schema';
+import { memberRolesFormId } from './member-roles-form-id';
 
 export function agent(id: string) {
   return {
@@ -30,6 +32,7 @@ export async function pageData(
   id: string,
   registerDefaults: { mentionOnly: boolean } | null,
   agentOverride: Record<string, unknown> = {},
+  resetContext: { kind: 'ok'; value: boolean } | { kind: 'absent' } | { kind: 'failed' } = { kind: 'absent' },
 ) {
   return {
     agent: { ...agent(id), ...agentOverride },
@@ -52,13 +55,22 @@ export async function pageData(
     ),
     // portal#1377: no pointer; tests may supply a source explicitly.
     bootSource: { mode: 'legacy' } as import('$lib/server/boot-source').BootSourceView,
-    bootSourceForm: await superValidate({ nodeId: '', content: '', expectedRevision: 1 }, zod4(bootSourceSchema), { id: `bootSource:${id}`, errors: false }),
     bootCompileForm: await superValidate({}, zod4(bootCompileSchema), { id: `bootCompile:${id}`, errors: false }),
     bootApproveForm: await superValidate({ nodeId: '', revision: 1 }, zod4(bootApproveSchema), { id: `bootApprove:${id}`, errors: false }),
     registerDefaults,
     registerDefaultsForm: await superValidate(
       { mentionOnly: registerDefaults?.mentionOnly ?? false },
       zod4(agentRegisterDefaultsSchema), { errors: false },
+    ),
+    resetContext,
+    resetContextForm: await superValidate(
+      { resetContextAfterTask: resetContext.kind === 'ok' ? resetContext.value : false },
+      zod4(agentResetContextSchema), { id: `resetContext:${id}`, errors: false },
+    ),
+    // portal#2068: scoped to the Agent, as the loader stamps it.
+    memberRolesForm: await superValidate(
+      { roles: ((agentOverride.installationPolicy as { memberRoles?: string[] } | null | undefined)?.memberRoles) ?? [] },
+      zod4(updateAgentMemberRolesSchema), { id: memberRolesFormId(id), errors: false },
     ),
     addMemoryForm: await superValidate(zod4(addAgentMemorySchema), { errors: false }),
     updateMemoryRoleForm: await superValidate(zod4(updateAgentMemoryRoleSchema), { errors: false }),

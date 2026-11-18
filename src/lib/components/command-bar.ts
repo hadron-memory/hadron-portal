@@ -1,4 +1,6 @@
 import { CANONICAL_SCHEME, parseUrn, UrnParseError } from '$lib/urn/parse-urn';
+import { t } from '$lib/i18n/t';
+import { parseHandle } from '$lib/agent-tasks/handle';
 import { openUrnCandidates } from '$lib/urn/open-urn-candidates';
 
 /**
@@ -53,9 +55,9 @@ export const COMMANDS: CommandSpec[] = [
     id: 'open',
     title: 'Open',
     triggers: ['open'],
-    desc: 'Open a resource by URN',
+    desc: t('command.open.description', 'Open a resource by URN or find a task by handle'),
     tint: 'blue',
-    arg: { kind: 'urn', hint: 'Open by URN…' },
+    arg: { kind: 'urn', hint: t('command.open.hint', 'Open by URN or task handle…') },
   },
   {
     id: 'org',
@@ -335,6 +337,12 @@ export async function buildCommandRoute(
  * a candidate rides one path segment un-encoded (see resource-share-links).
  */
 async function buildOpenRoute(value: string, resolve: ResolveFn): Promise<CommandRoute> {
+  // A bare handle is App-scoped. Ask global search for readable matches;
+  // never select an arbitrary App or manufacture a task URN from it.
+  const task = parseHandle(value);
+  if (task && task.appUrn === null) {
+    return { ok: true, path: `/app/search?q=${encodeURIComponent(value)}&type=agentTask` };
+  }
   const candidates = openUrnCandidates(value);
   if (candidates.length === 0) {
     return { ok: false, error: 'Not a valid URN.' };

@@ -3,6 +3,7 @@
   import type { Infer, SuperValidated } from 'sveltekit-superforms';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
+  import Urn from '$lib/components/Urn.svelte';
   import ConditionBuilder from '$lib/edge-conditions/ConditionBuilder.svelte';
   import { describeCondition } from '$lib/edge-conditions/describe';
   import type { UiCondition } from '$lib/edge-conditions/types';
@@ -89,6 +90,9 @@
       <p class="mt-0.5 truncate text-xs text-zinc-500 dark:text-zinc-400">
         {edge.sourceLabel} → {edge.targetLabel}
       </p>
+      {#if edge.targetUrn}
+        <div class="mt-1"><Urn value={edge.targetUrn} type="node" compact /></div>
+      {/if}
     </div>
     <button
       type="button"
@@ -135,8 +139,14 @@
         </label>
         <select id="convEdgeTiming" bind:value={timing} class={inputClass}>
           <option value="on_complete">on_complete</option>
-          <option value="on_enter">on_enter</option>
           <option value="always">always</option>
+          {#if edge.timing === 'on_enter'}
+            <!-- K1: the engine never runs on_enter. A stored one stays visible and
+                 is written back unchanged; a new rule is not offered it. -->
+            <option value="on_enter">
+              {t('conversation.edgePanel.timing.onEnterKept', 'on_enter (not available yet; kept as is)')}
+            </option>
+          {/if}
         </select>
       </div>
       <div class="flex-1">

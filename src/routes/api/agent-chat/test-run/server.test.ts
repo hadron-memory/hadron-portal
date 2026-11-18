@@ -16,6 +16,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { START_CHAT_MUTATION } from '$lib/server/queries';
 import { RegexTimeoutError, RegexUnavailableError } from '$lib/server/safe-regex';
 import { __resetRateLimit } from '$lib/server/rate-limit';
+import { asTesterManager } from '$lib/test/tester-manage';
 
 const mockRequest = vi.fn();
 const mockRunChatTurn = vi.fn();
@@ -27,7 +28,7 @@ const mockJudgeAgentReply = vi.fn();
 const mockTestRegexSafely = vi.fn();
 
 vi.mock('$lib/server/api', () => ({
-  gqlClient: () => ({ request: mockRequest }),
+  gqlClient: () => ({ request: (q: string, v?: unknown) => asTesterManager(mockRequest, { visibleAgentIds: ['a'] })(q, v) }),
 }));
 
 vi.mock('$lib/server/llm/agentChatTurn.js', () => ({
@@ -92,7 +93,7 @@ function ev(opts: {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(opts.body),
     }),
-    locals: { token: opts.token === undefined ? 'test-token' : opts.token },
+    locals: { token: opts.token === undefined ? 'test-token' : opts.token, user: { id: 'u1' } },
   } as Parameters<Awaited<ReturnType<typeof importPOST>>>[0];
 }
 
@@ -165,7 +166,7 @@ describe('POST /api/agent-chat/test-run', () => {
       headers: { 'Content-Type': 'application/json' },
       body: 'not json',
     });
-    const res = await POST({ request: req, locals: { token: 't' } } as Parameters<Awaited<ReturnType<typeof importPOST>>>[0]);
+    const res = await POST({ request: req, locals: { token: 't', user: { id: 'u1' } } } as Parameters<Awaited<ReturnType<typeof importPOST>>>[0]);
     expect(res.status).toBe(400);
   });
 

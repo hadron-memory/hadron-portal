@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { nodeMetaBaseline } from '$lib/node-meta-seed';
 import { ClientError } from 'graphql-request';
 import { GraphQLError } from 'graphql';
 import { jsonFingerprint } from '$lib/properties-source';
@@ -19,7 +20,7 @@ const payloads = [
   ['updateData', { data: '{"draft":true}', baseline: await jsonFingerprint({}) }],
   ['updateProperties', { properties: '{"draft":true}', baseline: await jsonFingerprint({}) }],
   ['updateStorage', { _kind: 'updateStorage', objectType: '', propertiesJson: '{"draft":true}' }],
-  ['updateMeta', { name: 'Kept name', loc: 'note', nodeType: 'info', description: 'kept draft', tags: '', seq: '1', alias: '' }],
+  ['updateMeta', { name: 'Kept name', loc: 'note', nodeType: 'info', description: 'kept draft', tags: '', seq: '1', alias: '', baseline: nodeMetaBaseline(node) }],
 ] as const;
 beforeEach(() => { request.mockReset(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
 async function run(action: string, payload: Record<string, string>, extensions: Record<string, unknown>) {

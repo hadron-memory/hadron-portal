@@ -21,19 +21,24 @@ export const navigationCalls: NavigationCall[] = [];
  * portal#1216: runs inside `invalidateAll`, so a test can change what the page
  * shows while a reload is in flight (a reader navigating away mid-write).
  * portal#1502: `onGoto` runs inside `goto` — a test that makes it reject
- * proves what a control does when its OWN reload fails to navigate. Both are
- * cleared by `resetNavigationCalls`.
+ * proves what a control does when its OWN reload fails to navigate.
+ * portal#2164: `onReplaceState` runs inside `replaceState` (after the call is recorded), so a test can make
+ * it throw. All are cleared by `resetNavigationCalls`.
  */
-export const navigationHooks: { onInvalidateAll?: () => void | Promise<void>; onGoto?: () => void | Promise<void> } = {};
+export const navigationHooks: { onInvalidateAll?: () => void | Promise<void>; onGoto?: () => void | Promise<void>; onPreloadData?: () => unknown | Promise<unknown>; onReplaceState?: () => void } = {};
 
 export function resetNavigationCalls(): void {
   navigationCalls.length = 0;
   navigationHooks.onInvalidateAll = undefined;
   navigationHooks.onGoto = undefined;
+  navigationHooks.onPreloadData = undefined;
+  navigationHooks.onReplaceState = undefined;
 }
 
 export function replaceState(...args: unknown[]): void {
   navigationCalls.push({ fn: 'replaceState', args });
+  // portal#2164: SvelteKit's replaceState throws for a URL it will not take; a test makes it do so.
+  navigationHooks.onReplaceState?.();
 }
 
 export function pushState(...args: unknown[]): void {
@@ -94,7 +99,7 @@ export function invalidate(...args: unknown[]): Promise<void> {
   return Promise.resolve();
 }
 
-export function preloadData(...args: unknown[]): Promise<void> {
+export async function preloadData(...args: unknown[]): Promise<unknown> {
   navigationCalls.push({ fn: 'preloadData', args });
-  return Promise.resolve();
+  return await navigationHooks.onPreloadData?.();
 }

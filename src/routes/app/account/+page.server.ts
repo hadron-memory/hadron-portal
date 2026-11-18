@@ -2,6 +2,8 @@ import { fail, redirect } from '@sveltejs/kit';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { publicServerBaseUrl } from '$lib/public-server-base-url';
+import { deploymentCapabilities } from '$lib/server/signing-capability';
 import { accountProfileStrings } from '$lib/i18n/account-profile-strings';
 import { DELETE_CONFIRMATION_TOKEN, deleteAccountStrings } from '$lib/i18n/delete-account-strings';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
@@ -58,6 +60,13 @@ export const load: PageServerLoad = async ({ locals }) => {
   // used to null `locals.user` when its own `me` failed (it no longer does),
   // and reading it after the await built a fallback user with no id.
   const sessionUser = locals.user;
+  // portal#1022: the capability answer is fetched in parallel with `me` — and
+  // unlike every other value on this page it is returned as a STREAMED
+  // promise, never awaited here, so a cold or hung capabilities endpoint (up
+  // to CAPABILITIES_DEADLINE_MS before it fails closed) cannot hold the
+  // profile hostage: the page renders, and the Passkeys section appears when
+  // the answer lands. The node view streams the same answer the same way.
+  const capabilities = deploymentCapabilities();
   const data = await gqlClient(locals.token)
     .request<{ me: UserSummary | null }>(ME_QUERY)
     // Surface a failed `me` instead of silently blanking the profile. The
@@ -70,7 +79,22 @@ export const load: PageServerLoad = async ({ locals }) => {
     });
   const user: UserSummary = data.me ?? { ...sessionUser!, handle: null };
   const form = await superValidate(profileFormDefaults(user), accountProfileFormAdapter, { errors: false });
-  return { user, form };
+  // portal#1022 links half: the passkey-registration link. The same
+  // per-process capability answer the node view uses, so the section appears
+  // only while the deployment actually serves the server-hosted page — a
+  // switched-off surface must not show that the feature exists (the
+  // signature-status rule, applied to this link too). The promise resolves to
+  // null then, and the section renders nothing.
+  const passkeysUrl = capabilities.then(
+    // The path is the server's own registration route (hadron-server
+    // src/api/ceremonyClientPages.ts) — the portal links to it, it does not
+    // own it. A configured base may legitimately end in a slash, so join with
+    // exactly one separator (Dorian's BLIND P3 on #1860).
+    (caps) => caps.has('passkey-registration')
+      ? `${publicServerBaseUrl().replace(/\/+$/, '')}/passkeys/register`
+      : null,
+  );
+  return { user, form, passkeysUrl };
 };
 
 export const actions: Actions = {

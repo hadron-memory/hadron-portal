@@ -113,17 +113,24 @@ export function taskRefHandle(id: string, refs: TaskRefs): string | null {
 
 // ── Alarms (§7, variant A: read-only) ──────────────────────────────────────
 
-export const ALARM_FILTERS = ['open', 'acknowledged', 'all'] as const;
+export const ALARM_FILTERS = ['in-effect', 'acknowledged', 'all'] as const;
 export type AlarmFilter = (typeof ALARM_FILTERS)[number];
 
 export function parseAlarmFilter(raw: string | null): AlarmFilter {
-  return (ALARM_FILTERS as readonly string[]).includes(raw ?? '') ? (raw as AlarmFilter) : 'open';
+  // portal#2000: `open` is the pre-#2000 name of the default view. An old
+  // bookmark lands on its successor rather than erroring: the view it named
+  // became In effect. Nothing on the portal emits `alarms=open` — the default
+  // filter has never carried a param — so this serves hand-written URLs only.
+  // A direct compare, never a lookup map: `?alarms=constructor` must stay the
+  // default, not resolve to an inherited Object.prototype member.
+  if (raw === 'open') return 'in-effect';
+  return (ALARM_FILTERS as readonly string[]).includes(raw ?? '') ? (raw as AlarmFilter) : 'in-effect';
 }
 
 export function alarmFilterLabel(f: AlarmFilter): string {
   switch (f) {
-    case 'open':
-      return t('app.tasks.alarms.filter.open', 'Open');
+    case 'in-effect':
+      return t('app.tasks.alarms.filter.in-effect', 'In effect');
     case 'acknowledged':
       return t('app.tasks.alarms.filter.acknowledged', 'Acknowledged');
     case 'all':
@@ -131,9 +138,17 @@ export function alarmFilterLabel(f: AlarmFilter): string {
   }
 }
 
-/** Open is unacknowledged. The server has no such filter yet (design §9 ask 2), so it is applied here. */
+/**
+ * Acknowledged and All are page-local predicates over the loaded page
+ * (design §9). In effect is NOT filtered here: the server already applied
+ * #3934's alarmsInEffect (unacknowledged AND no recorded escalation end,
+ * hrn:node:hadronmemory.com:specs:cor:agt:050:20) App-wide before paging,
+ * so the row set it returns already IS the view — and a client predicate on
+ * acknowledgedAt alone would misstate "in effect", because an unacknowledged
+ * alarm whose episode ended is open but not in effect.
+ */
 export function filterAlarms(alarms: AgentAlarm[], f: AlarmFilter): AgentAlarm[] {
-  if (f === 'open') return alarms.filter((a) => !a.acknowledgedAt);
+  if (f === 'in-effect') return alarms;
   if (f === 'acknowledged') return alarms.filter((a) => a.acknowledgedAt);
   return alarms;
 }

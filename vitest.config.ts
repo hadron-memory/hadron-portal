@@ -59,6 +59,13 @@ export default defineConfig({
           // portal#1649: server-rendered pages whose children navigate or read the URL.
           '$app/navigation': resolve(__dirname, 'src/lib/test/stubs/app-navigation.ts'),
           '$app/state': resolve(__dirname, 'src/lib/test/stubs/app-state.ts'),
+          // Grants SSR includes the same enhanced form used by the mounted lane.
+          '$app/forms': resolve(__dirname, 'src/lib/test/stubs/app-forms.ts'),
+          // portal#1022: the account loader (node lane, via page.server tests)
+          // builds the passkey-registration link from the public server base.
+          // Same stub the client lane resolves it to — a plain record tests
+          // can set per case.
+          '$env/dynamic/public': resolve(__dirname, 'src/lib/test/stubs/env-dynamic-public.ts'),
         } },
       },
       {
@@ -66,6 +73,7 @@ export default defineConfig({
         test: {
           name: 'client',
           include: ['src/**/*.client.test.ts'],
+          setupFiles: ['src/lib/test/setup-write-recovery.ts'],
           environment: 'jsdom',
         },
         resolve: {

@@ -1,4 +1,6 @@
-import { taskDependencies } from '$lib/server/task-planning';
+import { taskClonesPage, taskDependencies } from '$lib/server/task-planning';
+import { taskFindingsPage } from '$lib/server/task-findings';
+import type { FindingsRead } from '$lib/agent-tasks/findings';
 import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout';
 import { readTaskPriority } from '$lib/agent-tasks/planning';
 import { error, redirect, isHttpError } from '@sveltejs/kit';
@@ -12,6 +14,7 @@ import {
   REMOVE_AGENT_TASK_BLOCKER_MUTATION,
   ASSIGN_AGENT_TASK_MUTATION,
   CANCEL_AGENT_TASK_MUTATION,
+  DISPOSE_AGENT_TASK_FINDING_MUTATION,
   HAND_BACK_AGENT_TASK_MUTATION,
   MAKE_AGENT_TASK_READY_MUTATION,
   PARK_AGENT_TASK_MUTATION,
@@ -31,6 +34,7 @@ import { t } from '$lib/i18n/t';
 import { resolveSegment } from '$lib/agent-tasks/handle';
 import { taskEditPatch } from '$lib/agent-tasks/edit';
 import { parseHandBack } from '$lib/agent-tasks/hand-back';
+import { readDispositionForm } from '$lib/agent-tasks/dispositions';
 import type { AgentTaskDetail } from '$lib/agent-tasks/types';
 import type { MemoriesRead } from '$lib/node-choices';
 import type { Actions, PageServerLoad } from './$types';
@@ -47,7 +51,7 @@ type PickMemory = { id: string; name: string; urn: string; visibility: string | 
  * the page doesn't invent one. The tree and history are separate reads that
  * fail independently; the facts still render when either fails.
  */
-export const load: PageServerLoad = async ({ params, locals, url }) => {
+export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   const client = gqlClient(locals.token);
 
   // The App first and alone: a viewer it refuses gets the App page's 404
@@ -58,25 +62,32 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // forwarded to the server's own resolver; another App's qualified handle is
   // unknown before any task read, same as a task that does not exist.
   const seg = resolveSegment(params.taskId, app.urn);
-  if (seg.kind === 'unknown') throw error(404, 'Task not found, or you can’t see it');
+  if (seg.kind === 'unknown') throw error(404, 'Task not found');
   const taskData = await client.request<{ agentTask: AgentTaskDetail | null }>(AGENT_TASK_DETAIL_QUERY, { id: seg.ref });
   const task = taskData.agentTask;
-  if (!task) throw error(404, 'Task not found, or you can’t see it');
+  if (!task) throw error(404, 'Task not found');
 
   // A task resolves by id alone; one reached under another App's URL moves to
   // its own (the runs/[runId] pattern).
-  if (task.appId !== app.id) redirect(303, `/app/apps/${task.appId}/tasks/${encodeURIComponent(task.id)}`);
+  if (task.appId !== app.id) {
+    // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
+    await parent();
+    redirect(303, `/app/apps/${task.appId}/tasks/${encodeURIComponent(task.id)}`);
+  }
 
   // portal#1090: an impersonation session writes nothing, so it gets no bar
   // and no picker read. Everyone else gets the bar; the server decides.
   const canWrite = !locals.impersonation;
-  const [tree, history, review, crumbs, candidates] = await Promise.all([
+  const [tree, history, review, crumbs, candidates, clones] = await Promise.all([
     loadTree(client, task.id),
     loadHistory(client, app.id, task.id),
     // portal#1697: optional like the relations; a slow read costs the section, never the page.
     withTimeout(loadReview(client, app.id, task.id), OPTIONAL_LIST_TIMEOUT_MS, { kind: 'failed' } as const),
     loadAncestors(client, task.parentTaskId),
     canWrite ? loadWriteCandidates(client, app.id) : Promise.resolve({ workers: [], people: [], peopleWithheld: false, peopleFailed: false, roles: [], families: [] }),
+    // portal#2161: the first page of this task's clones, optional like the dependencies — a slow or
+    // failed read costs the Clones section, never the page, and reads as unknown, never as none.
+    withTimeout(taskClonesPage(client, app.id, task.id, 0), OPTIONAL_LIST_TIMEOUT_MS, { kind: 'failed' } as const),
   ]);
 
   return {
@@ -86,10 +97,18 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // optional-list budget becomes the existing unknown state ("reload to try again"),
     // never empty relations. The request itself is not cancelled, only no longer waited for.
     dependencies: await withTimeout(taskDependencies(client, app.id, task.id), OPTIONAL_LIST_TIMEOUT_MS, { kind: 'failed' } as const),
+    // portal#1637: the first page of the immutable findings, STREAMED so a slow or failed read costs the
+    // section and never the page. Only a task with a result is asked; a failure arrives as a VALUE
+    // ({kind:'failed'}), never empty and never a rejection (the #1588 pageerror class).
+    findings: (task.result
+      ? withTimeout(taskFindingsPage(client, app.id, task.id, 0), OPTIONAL_LIST_TIMEOUT_MS, { kind: 'failed' } as FindingsRead).catch((): FindingsRead => ({ kind: 'failed' }))
+      : Promise.resolve({ kind: 'no-result' } as FindingsRead)),
     // The tree's first row is the task itself; the view shows what is below it.
     tree,
     history,
     review,
+    // portal#2161: the task's clones (first page), for the Clones section.
+    clones,
     ancestors: crumbs.ancestors,
     ancestorsTruncated: crumbs.truncated,
     canWrite,
@@ -132,7 +151,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
  * refusal, which goes back verbatim with the reader's values. Park (portal#1143)
  * is offered on state alone; the same refusal answers anyone outside its audience.
  */
-type TaskWrite = 'handBack' | 'ready' | 'assign' | 'reassign' | 'park' | 'edit' | 'cancel' | 'priority' | 'addBlocker' | 'removeBlocker';
+type TaskWrite = 'handBack' | 'ready' | 'assign' | 'reassign' | 'park' | 'edit' | 'cancel' | 'priority' | 'addBlocker' | 'removeBlocker' | 'disposeFinding';
 
 async function write(
   action: TaskWrite,
@@ -156,7 +175,7 @@ async function write(
     if (isHttpError(e)) throw e;
     return writeFailure(action, { kind: 'uncertain' }, values);
   }
-  const planning = action === 'handBack' || action === 'priority' || action === 'addBlocker' || action === 'removeBlocker';
+  const planning = action === 'handBack' || action === 'disposeFinding' || action === 'priority' || action === 'addBlocker' || action === 'removeBlocker';
   const vars: Record<string, unknown> = { ...(planning ? { taskRef: taskId } : { taskId }), ...built.vars };
   // portal#1214: a write whose response can carry warnings keeps them.
   if (built.path) {
@@ -214,6 +233,13 @@ export const actions: Actions = {
     const reason = parseHandBack(String(fd.get('code') ?? ''), String(fd.get('text') ?? ''));
     if ('invalid' in reason) return reason;
     return { doc: HAND_BACK_AGENT_TASK_MUTATION, vars: { reason } };
+  }),
+  // portal#1643 (hadron-server#2663): the assigner's decision on one finding. The server decides who may
+  // (TASK_NOT_OWNER), and a refusal changes nothing the reader sees.
+  disposeFinding: (event) => write('disposeFinding', event, (fd) => {
+    const input = readDispositionForm(fd);
+    if (!input.ok) return { invalid: { field: input.field, message: input.message } };
+    return { doc: DISPOSE_AGENT_TASK_FINDING_MUTATION, path: 'disposeAgentTaskFinding', vars: input.vars };
   }),
   park: (event) => write('park', event, () => ({ doc: PARK_AGENT_TASK_MUTATION, vars: {} })),
   // portal#1357 (hadron-server#2645): the changed descriptive fields only; the server decides who may.

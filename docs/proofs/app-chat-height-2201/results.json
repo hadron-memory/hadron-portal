@@ -1,0 +1,162 @@
+[
+  {
+    "label": "320x568-light-fine",
+    "content": 160,
+    "scroller": 192,
+    "latestVisible": true,
+    "textarea": 58,
+    "overflow": false,
+    "nested": [],
+    "bodyScroll": true
+  },
+  {
+    "label": "320x568-light-coarse",
+    "content": 160,
+    "scroller": 192,
+    "latestVisible": true,
+    "textarea": 58,
+    "overflow": false,
+    "nested": [],
+    "bodyScroll": true
+  },
+  {
+    "label": "320x568-dark-fine",
+    "content": 160,
+    "scroller": 192,
+    "latestVisible": true,
+    "textarea": 58,
+    "overflow": false,
+    "nested": [],
+    "bodyScroll": true
+  },
+  {
+    "label": "320x568-dark-coarse",
+    "content": 160,
+    "scroller": 192,
+    "latestVisible": true,
+    "textarea": 58,
+    "overflow": false,
+    "nested": [],
+    "bodyScroll": true
+  },
+  {
+    "label": "360x640-light-fine",
+    "content": 215,
+    "scroller": 247,
+    "latestVisible": true,
+    "textarea": 58,
+    "overflow": false,
+    "nested": [],
+    "bodyScroll": true
+  },
+  {
+    "label": "360x640-light-coarse",
+    "content": 215,
+    "scroller": 247,
+    "latestVisible": true,
+    "textarea": 58,
+    "overflow": false,
+    "nested": [],
+    "bodyScroll": true
+  },
+  {
+    "label": "360x640-dark-fine",
+    "content": 215,
+    "scroller": 247,
+    "latestVisible": true,
+    "textarea": 58,
+    "overflow": false,
+    "nested": [],
+    "bodyScroll": true
+  },
+  {
+    "label": "360x640-dark-coarse",
+    "content": 215,
+    "scroller": 247,
+    "latestVisible": true,
+    "textarea": 58,
+    "overflow": false,
+    "nested": [],
+    "bodyScroll": true
+  },
+  {
+    "label": "390x844-light-fine",
+    "content": 250,
+    "scroller": 282,
+    "latestVisible": true,
+    "textarea": 58,
+    "overflow": false,
+    "nested": [],
+    "bodyScroll": true
+  },
+  {
+    "label": "390x844-light-coarse",
+    "content": 250,
+    "scroller": 282,
+    "latestVisible": true,
+    "textarea": 58,
+    "overflow": false,
+    "nested": [],
+    "bodyScroll": true
+  },
+  {
+    "label": "390x844-dark-fine",
+    "content": 250,
+    "scroller": 282,
+    "latestVisible": true,
+    "textarea": 58,
+    "overflow": false,
+    "nested": [],
+    "bodyScroll": true
+  },
+  {
+    "label": "390x844-dark-coarse",
+    "content": 250,
+    "scroller": 282,
+    "latestVisible": true,
+    "textarea": 58,
+    "overflow": false,
+    "nested": [],
+    "bodyScroll": true
+  },
+  {
+    "label": "948x900-light-fine",
+    "content": 365,
+    "scroller": 397,
+    "latestVisible": true,
+    "textarea": 58,
+    "overflow": false,
+    "nested": [],
+    "bodyScroll": true
+  },
+  {
+    "label": "948x900-light-coarse",
+    "content": 365,
+    "scroller": 397,
+    "latestVisible": true,
+    "textarea": 58,
+    "overflow": false,
+    "nested": [],
+    "bodyScroll": true
+  },
+  {
+    "label": "948x900-dark-fine",
+    "content": 365,
+    "scroller": 397,
+    "latestVisible": true,
+    "textarea": 58,
+    "overflow": false,
+    "nested": [],
+    "bodyScroll": true
+  },
+  {
+    "label": "948x900-dark-coarse",
+    "content": 365,
+    "scroller": 397,
+    "latestVisible": true,
+    "textarea": 58,
+    "overflow": false,
+    "nested": [],
+    "bodyScroll": true
+  }
+]

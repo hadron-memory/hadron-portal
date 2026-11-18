@@ -98,8 +98,9 @@ describe('relation forward pages', () => {
     m.props.task = original; m.props.dependencies = first(); await tick(3);
     button(m.target, 'Load more Waits for').click(); await tick();
     old.resolve({ kind: 'ok', value: { items: [choice('old')], hasMore: false } }); await tick(5);
-    expect(button(m.target, 'Load more Waits for').disabled).toBe(true);
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    const more = button(m.target, 'Load more Waits for');
+    expect(more.disabled).toBe(false); expect(more.getAttribute('aria-disabled')).toBe('true');
+    more.click(); expect(fetcher).toHaveBeenCalledTimes(2);
     next.resolve({ kind: 'ok', value: { items: [choice('new')], hasMore: false } }); await tick(5);
     filter(m.target, 'Task old'); await tick(3); expect(m.target.textContent).not.toContain('Task old');
     filter(m.target, 'Task new'); await tick(3); expect(m.target.textContent).toContain('Task new');

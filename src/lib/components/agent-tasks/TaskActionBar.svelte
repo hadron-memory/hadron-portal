@@ -46,6 +46,7 @@
     viewerId = null,
     appUrn = null,
     nodeMemories = { kind: 'ok', value: [] },
+    cloneHref = null,
   }: {
     task: AgentTaskDetail;
     canWrite: boolean;
@@ -62,6 +63,13 @@
     appUrn?: string | null;
     /** portal#1576 step 2: the NODE reference picker's memory stage (streamed). #1588 QA F2: a failed read arrives as a VALUE ({kind:'failed'}), never a rejection. */
     nodeMemories?: Promise<MemoriesRead> | MemoriesRead;
+    /**
+     * portal#2161: the Clone link's destination (the New task form pre-filled from this task), or
+     * null to hide it. Unlike every other control here, Clone is a CREATE, not a change to this
+     * task: it is offered on every status, ended ones included (replacing an ended task is what the
+     * action is for, hrn:node:hadronmemory.com:specs:cor:agt:050:02). AT0 shows none — the page passes no href for it.
+     */
+    cloneHref?: string | null;
   } = $props();
 
   const actions = $derived(taskActions(task, viewerId));
@@ -82,14 +90,15 @@
   let values = $state<Record<string, string>>({});
   let assignee = $state('');
 
-  // portal#1357: an Edit details draft belongs to the task it was opened on. The page reuses
-  // this bar across tasks, so moving to another one closes it, and a draft never posts to a task it wasn't written for.
-  let editTaskId = untrack(() => task.id);
+  // portal#1357 (Edit details), portal#1571 (Hand back): an open panel's draft belongs to the
+  // task it was opened on. The page reuses this bar across tasks, so moving to another one closes
+  // it, and a draft never posts to a task it wasn't written for.
+  let panelTaskId = untrack(() => task.id);
   $effect(() => {
     const id = task.id;
     untrack(() => {
-      if (id !== editTaskId) {
-        editTaskId = id;
+      if (id !== panelTaskId) {
+        panelTaskId = id;
         if (open === 'edit' || open === 'handBack') open = null;
       }
     });
@@ -252,12 +261,25 @@
        has-actions branch, so it stays in view when the reload ends the task's actions. -->
   {@render refusalFor(refusal?.action ?? 'cancel', false)}
 
+  <!-- portal#2161: the Clone link, rendered by both branches below — a create, not a change to
+       this task, so it sits beside the state's actions (or the ended note) without being one of
+       them, and never opens a panel here: it is a link to the pre-filled New task form. -->
+  {#snippet cloneLink()}
+    {#if cloneHref}
+      <a href={cloneHref} data-testid="task-clone" class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('app.tasks.write.clone', 'Clone')}</a>
+    {/if}
+  {/snippet}
+
   {#if !canWrite}
     <p class="text-sm text-zinc-500 dark:text-zinc-400" data-testid="task-actions-off">
       {t('app.tasks.write.impersonating', 'Viewing as {name}: changes are switched off in a support session.', { name: impersonating ?? '—' })}
     </p>
   {:else if actions.length === 0}
-    <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.tasks.write.ended', 'An ended task can’t be changed.')}</p>
+    <!-- portal#2161: an ended task can't be changed, but it can still be cloned into a new one. -->
+    <div class="flex flex-wrap items-center gap-3">
+      <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.tasks.write.ended', 'An ended task can’t be changed.')}</p>
+      {@render cloneLink()}
+    </div>
   {:else}
     <div class="flex flex-wrap items-center gap-2" data-testid="task-actions">
       {#each actions as a (a)}
@@ -272,6 +294,7 @@
             : 'rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800'}
         >{taskActionLabel(a)}</button>
       {/each}
+      {@render cloneLink()}
     </div>
     <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.write.who', 'You can change a task you own, or any task if you manage the App.')}</p>
 

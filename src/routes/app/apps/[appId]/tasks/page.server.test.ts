@@ -2,8 +2,9 @@
  * portal#1052 — the board's and the task page's loaders.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AGENT_ALARMS_QUERY, AGENT_TASK_DETAIL_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_TREE_QUERY, AGENT_TASKS_APP_QUERY, PULL_REQUEST_READINESS_QUERY, TASK_REVIEW_EVENTS_QUERY, AGENT_TASKS_BOARD_QUERY, AGENT_TASK_REF_QUERY, TASK_DEPENDENCIES_QUERY, TEAM_COMPOSITION_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
+import { AGENT_ALARMS_QUERY, AGENT_ALARMS_IN_EFFECT_QUERY, AGENT_TASK_DETAIL_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_TREE_QUERY, AGENT_TASKS_APP_QUERY, PULL_REQUEST_READINESS_QUERY, TASK_REVIEW_EVENTS_QUERY, AGENT_TASKS_BOARD_QUERY, AGENT_TASK_REF_QUERY, TASK_DEPENDENCIES_QUERY, TEAM_COMPOSITION_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
 import { markStreamHandled } from '$lib/mark-stream-handled';
+import { selectsFieldPath } from '$lib/test/graphql-selection';
 
 const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
@@ -20,6 +21,7 @@ async function loadBoard(search = '') {
   const { load } = await import('./+page.server');
   return (await load({
     params: { appId: 'app-1' },
+    parent: async () => ({}),
     locals: { token: 'tok', user: { id: 'u1' }, impersonation: null },
     url: new URL(`http://localhost/app/apps/app-1/tasks${search}`),
   } as never)) as Record<string, unknown>;
@@ -41,6 +43,31 @@ describe('board loader', () => {
     const r = await loadBoard('?status=all&overdue=1&tags=ops,infra');
     expect(r).toMatchObject({ overdue: true, tags: ['ops', 'infra'], overdueDropped: false });
     expect(request).toHaveBeenLastCalledWith(AGENT_TASKS_BOARD_QUERY, expect.objectContaining({ overdue: true, tagsAll: ['ops', 'infra'] }));
+  });
+
+  // portal#1643 (hadron-server#2663)
+  it('Unresolved findings in Ended or All asks for unresolvedFindings across the whole tree, and says it is on', async () => {
+    request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { agentTasks: [] }));
+    for (const status of ['ended', 'all']) {
+      const r = await loadBoard(`?status=${status}&unresolved=1`);
+      expect(r).toMatchObject({ unresolved: true, unresolvedDropped: false });
+      expect(request.mock.calls.filter((c) => c[0] === AGENT_TASKS_BOARD_QUERY).at(-1)![1]).toMatchObject({ unresolvedFindings: true, rootsOnly: false });
+    }
+  });
+  it('Unresolved findings in Active, Queued or Backlog is dropped, not sent, and the page is told', async () => {
+    request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { agentTasks: [] }));
+    for (const status of ['active', 'queued', 'backlog']) {
+      request.mockClear();
+      const r = await loadBoard(`?status=${status}&unresolved=1`);
+      expect(r).toMatchObject({ unresolved: false, unresolvedDropped: true });
+      const vars = request.mock.calls.find((c) => c[0] === AGENT_TASKS_BOARD_QUERY)![1];
+      expect(vars).not.toHaveProperty('unresolvedFindings');
+      expect(vars).not.toHaveProperty('rootsOnly');
+    }
+  });
+  it('a stray unresolved value is canonicalised away with a redirect, like a stray overdue', async () => {
+    request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { agentTasks: [] }));
+    await expect(loadBoard('?status=ended&unresolved=yes')).rejects.toMatchObject({ status: 303, location: expect.not.stringContaining('unresolved') });
   });
 
   it('sends neither argument when the URL sets neither', async () => {
@@ -122,6 +149,7 @@ async function loadDetail(taskId = 't1') {
   const { load } = await import('./[taskId]/+page.server');
   const r = (await load({
     params: { appId: 'app-1', taskId },
+    parent: async () => ({}),
     locals: { token: 'tok', user: { id: 'u1' }, impersonation: null },
     // portal#1090: the loader reads ?created=1 from the URL.
     url: new URL('http://localhost/app/apps/app-1/tasks/t1'),
@@ -142,7 +170,7 @@ describe('views (slice 2)', () => {
     if (q === TEAM_COMPOSITION_QUERY) return { teamComposition: { appId: 'app-1', asOf: '2026-10-16T00:00:00Z', lanes: [] } };
     if (q === TEAM_ROSTER_QUERY) return { teamRoster: { asOf: '2026-10-16T00:00:00Z', workers: [{ startedTasks: ['t1'], pendingTasks: [], waitingOn: [], unreactedChildTask: null, alarms: [] }] } };
     if (q === AGENT_TASK_REF_QUERY) return { agentTask: { id: 't1', appId: 'app-1', handle: 'AT3', title: 'Ship it' } };
-    if (q === AGENT_ALARMS_QUERY) return { agentTeamEvents: [] };
+    if (q === AGENT_ALARMS_QUERY || q === AGENT_ALARMS_IN_EFFECT_QUERY) return { agentTeamEvents: [] };
     if (q === AGENT_TASKS_BOARD_QUERY) return { agentTasks: [] };
     throw new Error('unexpected');
   };
@@ -171,7 +199,7 @@ describe('views (slice 2)', () => {
     expect(r.refs).toEqual({});
     expect(request).toHaveBeenCalledWith(TEAM_COMPOSITION_QUERY, { appRef: 'app-1' });
     const asked = request.mock.calls.map((c) => c[0]);
-    for (const other of [AGENT_TASKS_BOARD_QUERY, TEAM_ROSTER_QUERY, AGENT_ALARMS_QUERY, AGENT_TASK_REF_QUERY]) expect(asked).not.toContain(other);
+    for (const other of [AGENT_TASKS_BOARD_QUERY, TEAM_ROSTER_QUERY, AGENT_ALARMS_QUERY, AGENT_ALARMS_IN_EFFECT_QUERY, AGENT_TASK_REF_QUERY]) expect(asked).not.toContain(other);
   });
 
   it('a failed composition read reaches the page as failed, not as an empty team or a thrown load', async () => {
@@ -189,12 +217,28 @@ describe('views (slice 2)', () => {
     expect((await loadBoard()).composition).toBeNull();
   });
 
-  it('the alarms view reads alarms, defaulting the filter to open', async () => {
+  // portal#2000 A: the default view is In effect, and the server does the
+  // filtering (its own document naming alarmsInEffect, #3934) App-wide before
+  // the page is cut — an empty answer really means no alarms in effect, not
+  // none on this page.
+  it('the alarms view reads alarms server-filtered to in effect, the default', async () => {
     request.mockImplementation(answer);
     const r = await loadBoard('?view=alarms');
     expect(r.alarms).toMatchObject({ kind: 'ok' });
-    expect(r.alarmFilter).toBe('open');
+    expect(r.alarmFilter).toBe('in-effect');
+    expect(request).toHaveBeenCalledWith(AGENT_ALARMS_IN_EFFECT_QUERY, expect.objectContaining({ appRef: 'app-1' }));
     expect(request.mock.calls.map((c) => c[0])).not.toContain(TEAM_ROSTER_QUERY);
+  });
+
+  it('page-local alarm filters read the untouched document; a pre-#2000 open link lands on in effect', async () => {
+    request.mockImplementation(answer);
+    await loadBoard('?view=alarms&alarms=acknowledged');
+    expect(request).toHaveBeenCalledWith(AGENT_ALARMS_QUERY, { appRef: 'app-1', before: undefined, after: undefined, newestFirst: true, limit: 21 });
+    expect(request.mock.calls.filter((c) => c[0] === AGENT_ALARMS_IN_EFFECT_QUERY)).toHaveLength(0);
+    request.mockClear();
+    const legacy = await loadBoard('?view=alarms&alarms=open');
+    expect(legacy.alarmFilter).toBe('in-effect');
+    expect(request).toHaveBeenCalledWith(AGENT_ALARMS_IN_EFFECT_QUERY, expect.objectContaining({ appRef: 'app-1' }));
   });
 
   it('an unknown view falls back to the board', async () => {
@@ -206,7 +250,7 @@ describe('views (slice 2)', () => {
 describe('task loader', () => {
   it('a null task is a 404 that doesn’t say which of missing or unreadable', async () => {
     request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { agentTask: null }));
-    await expect(loadDetail()).rejects.toMatchObject({ status: 404, body: { message: 'Task not found, or you can’t see it' } });
+    await expect(loadDetail()).rejects.toMatchObject({ status: 404, body: { message: 'Task not found' } });
   });
 
   it('a refused App read is a 404 on the task page too', async () => {
@@ -232,7 +276,7 @@ describe('task loader', () => {
       return { agentTask: null };
     });
     const r = await loadDetail();
-    expect(AGENT_TASK_DETAIL_QUERY).toMatch(/\bproperties\b/);
+    expect(selectsFieldPath(AGENT_TASK_DETAIL_QUERY, 'AgentTaskDetail', ['agentTask', 'properties'])).toBe(true);
     expect(request).toHaveBeenCalledWith(AGENT_TASK_DETAIL_QUERY, expect.anything());
     expect((r.task as { properties: unknown }).properties).toEqual(own);
   });
@@ -291,7 +335,7 @@ describe('task loader: handles', () => {
 
   it('another App’s qualified handle is a 404 BEFORE any task read — no redirect, same words as unknown', async () => {
     request.mockImplementation(async (q: string) => asked(q, detail({ appId: 'app-2' })));
-    await expect(loadDetail('hrn:agenttask:acme.com:other:AT3')).rejects.toMatchObject({ status: 404, body: { message: 'Task not found, or you can’t see it' } });
+    await expect(loadDetail('hrn:agenttask:acme.com:other:AT3')).rejects.toMatchObject({ status: 404, body: { message: 'Task not found' } });
     expect(request.mock.calls.map((c) => c[0])).not.toContain(AGENT_TASK_DETAIL_QUERY);
   });
 
@@ -308,7 +352,7 @@ describe('task loader: handles', () => {
       answers.push(await loadDetail(seg).then(() => null, (e) => ({ status: e.status, body: e.body })));
     }
     expect(new Set(answers.map((a) => JSON.stringify(a))).size).toBe(1);
-    expect(answers[0]).toEqual({ status: 404, body: { message: 'Task not found, or you can’t see it' } });
+    expect(answers[0]).toEqual({ status: 404, body: { message: 'Task not found' } });
   });
 
   it('a raw id of another App keeps its authorized redirect, and the URL segment is encoded', async () => {
@@ -353,4 +397,21 @@ describe('task loader: Review section (portal#1697)', () => {
     expect(r.review).toEqual({ kind: 'failed' });
     expect(r.task).toMatchObject({ id: 't1' });
   });
+});
+
+// #1935: constant-size cursors avoid growing a URL with every visited page.
+it('1935 continues one direction only and exposes links without a growing trail', async () => {
+  request.mockImplementation(async (q: string) => {
+    if (q === AGENT_TASKS_APP_QUERY) return { app };
+    if (q === AGENT_ALARMS_QUERY) return { agentTeamEvents: Array.from({ length: 21 }, (_, i) => ({ id: `a${i}`, taskId: null })) };
+    throw new Error('unexpected request');
+  });
+  const r = await loadBoard('?view=alarms&alarms=all&alarmBefore=second');
+  expect(request).toHaveBeenCalledWith(AGENT_ALARMS_QUERY, { appRef: 'app-1', before: 'second', after: undefined, newestFirst: true, limit: 21 });
+  expect(r.alarmPaging).toEqual({
+    previousHref: '/app/apps/app-1/tasks?view=alarms&alarms=all&alarmAfter=a0',
+    nextHref: '/app/apps/app-1/tasks?view=alarms&alarms=all&alarmBefore=a19' });
+  const first = await loadBoard('?view=alarms');
+  expect(first.alarmPaging).toMatchObject({ previousHref: null });
+  await expect(loadBoard('?view=alarms&alarmBefore=x&alarmAfter=y')).rejects.toMatchObject({ status: 400 });
 });

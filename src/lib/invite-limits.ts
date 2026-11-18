@@ -1,3 +1,4 @@
+import { t } from '$lib/i18n/t';
 import { formatPortalDate } from '$lib/format-portal-date';
 
 // V49 (hrn:node:hadronmemory.com:specs:cor:dmo:040:05): the server refuses an explicit expiresInDays outside
@@ -17,11 +18,13 @@ export function describeInviteLimits(result: {
   maxActivations?: number | null;
 }): string {
   const expiry = result.expiresAt && formatPortalDate(result.expiresAt) !== '—'
-    ? `Expires ${formatPortalDate(result.expiresAt)}`
-    : 'Does not expire';
+    ? t('invite.limits.expiry', 'Expires {date}', { date: formatPortalDate(result.expiresAt) })
+    : t('invite.limits.no-expiry', 'Does not expire');
   const n = result.maxActivations;
   const uses = typeof n === 'number'
-    ? `can be used ${n} ${n === 1 ? 'time' : 'times'}`
-    : 'has no use limit';
-  return `${expiry}; ${uses}.`;
+    ? n === 1
+      ? t('invite.limits.one-use', 'can be used {count} time', { count: n })
+      : t('invite.limits.many-uses', 'can be used {count} times', { count: n })
+    : t('invite.limits.unlimited', 'has no use limit');
+  return t('invite.limits.summary', '{expiry}; {uses}.', { expiry, uses });
 }
