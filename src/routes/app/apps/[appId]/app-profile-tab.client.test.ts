@@ -72,7 +72,8 @@ describe('App Profile tab (#2241)', () => {
     const urns = [...p.querySelectorAll('[title]')].map((el) => el.getAttribute('title'));
     expect(urns).toContain('hrn:app:acme.com:team');
     expect(text).toContain('Where the team works.');
-    expect(text).toContain('WORKSTATION');
+    // portal#2249: the Type row shows the label (the Settings option text), not the raw enum.
+    expect(text).toContain('💻 Workstation');
     expect(text).toContain('Acme');
     expect(text).toContain('Scribe');
     // The Agent's own URN (the link target), not the install-chain URN, which is a different entity.
