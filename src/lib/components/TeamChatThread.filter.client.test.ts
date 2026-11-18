@@ -413,6 +413,7 @@ describe('TeamChatThread team filter — pending toggles, cap, focus, chip ident
     // navigating — the guard is the reachable path, not dead code.
     (blocked[0] as HTMLButtonElement).click();
     expect(onSelectTeam).not.toHaveBeenCalled();
+    await tick(2);
     expect(q(m, 'team-chat-filter-status')?.textContent).toContain('At most 20 teams can be selected.');
   });
 
@@ -504,11 +505,13 @@ describe('TeamChatThread team filter — optimistic pending set and reachable ca
       total: 2, filter: { kind: 'teams', headRefs: ['head-ada', 'head-bo'] }, onSelectTeam,
     });
     chipOf(m, 'head-bo')!.click();
+    await tick(2);
     expect(chipOf(m, 'head-bo')).toBeNull(); // gone from the pending view
     expect(chipOf(m, 'head-ada')).not.toBeNull();
     // The remaining chip is a pure REMOVE: even mid-request it can only
     // shrink the set, never re-add what was already removed.
     chipOf(m, 'head-ada')!.click();
+    await tick(2);
     expect(onSelectTeam).toHaveBeenLastCalledWith(NO_TEAM_FILTER);
   });
 
@@ -522,6 +525,7 @@ describe('TeamChatThread team filter — optimistic pending set and reachable ca
       total: 1, filter: { kind: 'teams', headRefs: nineteen }, onSelectTeam,
     });
     (tagOf(m, 'head-x') as HTMLButtonElement).click(); // pending add — the 20th head, no write-back
+    await tick(2);
     const added = tagOf(m, 'head-x')!;
     expect(added.getAttribute('aria-pressed')).toBe('true');
     expect(added.getAttribute('aria-disabled')).not.toBe('true'); // removable, never trapped

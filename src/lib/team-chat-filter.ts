@@ -87,6 +87,18 @@ export function toggleTeamHead(filter: TeamChatFilter, headRef: string): TeamCha
   return { kind: 'teams', headRefs: [...current, headRef] };
 }
 
+/**
+ * Remove one head from a selection (a filter chip's click). A chip is a
+ * REMOVE control: unlike `toggleTeamHead` it can never ADD — a head not in
+ * the set is left alone rather than joined (#2250 round 3, Gil N1: a
+ * "Remove" whose compute base disagrees with the render must not become an
+ * add). Removing the last head clears the filter, exactly as a toggle-out.
+ */
+export function removeTeamHead(filter: TeamChatFilter, headRef: string): TeamChatFilter {
+  const next = filter.kind === 'teams' ? filter.headRefs.filter((r) => r !== headRef) : [];
+  return next.length > 0 ? { kind: 'teams', headRefs: next } : NO_TEAM_FILTER;
+}
+
 /** The GraphQL variables for a filter: exactly one of the pair, or neither. */
 export function filterVariablesOf(filter: TeamChatFilter): { teamHeadRefs?: string[]; untagged?: true } {
   if (filter.kind === 'teams') return { teamHeadRefs: filter.headRefs };

@@ -33,7 +33,7 @@
     type TranscriptView,
     scrollTopAfterPrepend,
   } from '$lib/team-chat-refresh';
-  import { NO_TEAM_FILTER, TEAM_HEAD_REFS_MAX, filterKeyOf, toggleTeamHead, type TeamChatFilter } from '$lib/team-chat-filter';
+  import { NO_TEAM_FILTER, TEAM_HEAD_REFS_MAX, filterKeyOf, removeTeamHead, toggleTeamHead, type TeamChatFilter } from '$lib/team-chat-filter';
   import type { TeamChatMessage, TeamChatRefusal } from '$lib/types';
 
   type PostTeamChatMessageForm = Infer<typeof postTeamChatMessageSchema, 'zod4'>;
@@ -409,6 +409,16 @@
   // The cap is judged on the same pending base: a full requested selection
   // refuses further adds locally, exactly as the server would.
   const capReached = $derived(toggleBase.kind === 'teams' && toggleBase.headRefs.length >= TEAM_HEAD_REFS_MAX);
+  // #2250 round 3 (Gil N1): between a click and its read landing, what the
+  // view SHOWS must agree with what a click DOES. The chips and the row
+  // tags' pressed state render the PENDING selection — the set the next
+  // click is computed against — not the applied prop: a still-rendered
+  // remove chip for an already-removed head would otherwise re-ADD it on a
+  // second click, and a pending-added head would render unpressed (or, near
+  // the cap, disabled and unremovable). With no request in flight the
+  // pending set IS the applied filter, so the resting view is unchanged.
+  const shownHeads = $derived(toggleBase.kind === 'teams' ? toggleBase.headRefs : []);
+  const pressedHeads = $derived(new Set(shownHeads));
   // A head's label is a post-time DISPLAY snapshot: it can collide and go
   // stale, so it is looked up for display only, never used as identity. With a
   // multi-head selection (#1482) each selected head is labelled from the first
@@ -431,19 +441,27 @@
   let filterBarEl: HTMLDivElement | undefined = $state();
   let composerEl: HTMLTextAreaElement | undefined = $state();
   let filterAnnouncement = $state('');
-  function selectTeam(next: TeamChatFilter, label?: string, base: TeamChatFilter = filter) {
+  function selectTeam(next: TeamChatFilter, label?: string, base: TeamChatFilter = toggleBase) {
     if (!onSelectTeam) return;
+    // #2250 round 3 (Gil N1): while a request is pending, a choice that does
+    // not change the set the next click acts on is not a choice — navigating
+    // to the same key would announce a change that never happened. With no
+    // request pending the click still navigates (an invalid view's explicit
+    // All choice is a real navigation even when the applied kind matches).
+    if (filterFocusRequest && filterKeyOf(next) === filterKeyOf(base)) return;
     // The clicked tag's label is an announcement fallback for the head this
     // click ADDS (its filtered read may have no row on screen). On a removal
     // it is the departing head's label and must not announce as the filter.
     // `base` is the selection the caller's toggle computed against — the
     // pending request while a route read is in flight (#2250 fix round), the
     // applied prop otherwise; added/removed are judged against THAT, never
-    // against a stale prop.
+    // against a stale prop. Round 3 (Gil N4/N5): the default follows the
+    // pending set too, and `removedHead` is set only when EXACTLY one head
+    // left — a bulk clear (All messages / untagged) names no neighbour.
     const baseHeads = base.kind === 'teams' ? base.headRefs : [];
     const nextHeads = next.kind === 'teams' ? next.headRefs : [];
     const addedHead = nextHeads.find((h) => !baseHeads.includes(h));
-    const removedHead = baseHeads.length > nextHeads.length
+    const removedHead = nextHeads.length === baseHeads.length - 1
       ? baseHeads.find((h) => !nextHeads.includes(h))
       : undefined;
     filterFocusRequest = {
@@ -886,31 +904,35 @@
       <div role="group" aria-labelledby="team-chat-filter-label" class="flex flex-wrap items-center gap-1">
         <button
           type="button"
-          aria-pressed={filter.kind === 'none' && !filterInvalid}
+          aria-pressed={toggleBase.kind === 'none' && !filterInvalid}
           onclick={() => selectTeam(NO_TEAM_FILTER)}
-          class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border px-2 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 {filter.kind === 'none' && !filterInvalid
+          class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border px-2 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 {toggleBase.kind === 'none' && !filterInvalid
             ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-200'
             : 'border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
         >
-          {#if filter.kind === 'none' && !filterInvalid}<Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />{/if}
+          {#if toggleBase.kind === 'none' && !filterInvalid}<Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />{/if}
           {t('app.team-chat.filter.all', 'All messages')}
         </button>
-        {#if filter.kind === 'teams'}
+        {#if shownHeads.length > 0}
           <!-- #1482: one chip per selected head, each removable on its own —
                removing the last one is the same as choosing All messages.
                #2250 fix round: a chip is a plain REMOVE button named for its
                own head (aria-pressed on a remove-only control mixed two
                models), and a head with no loaded label falls back to its head
                ref — several sparse heads used to render identical
-               "Selected team" chips with one shared accessible name. -->
-          {#each uniqueHeads(filter.headRefs) as headRef (headRef)}
+               "Selected team" chips with one shared accessible name.
+               #2250 round 3 (Gil N1): the chips iterate the PENDING set and
+               a chip click is a pure remove (removeTeamHead) — the view and
+               the action can no longer disagree about whether a head is in
+               the selection. -->
+          {#each uniqueHeads(shownHeads) as headRef (headRef)}
             {@const chipLabel = activeTeamLabels.get(headRef) ?? headRef}
             <button
               type="button"
               data-testid="team-chat-filter-active"
               data-head={headRef}
               aria-label={t('app.team-chat.filter.remove-named', 'Remove {team} from the filter', { team: chipLabel })}
-              onclick={() => selectTeam(toggleTeamHead(toggleBase, headRef), undefined, toggleBase)}
+              onclick={() => selectTeam(removeTeamHead(toggleBase, headRef), undefined, toggleBase)}
               class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border border-indigo-500 bg-indigo-50 px-2 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-200"
             >
               <Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />
@@ -921,13 +943,13 @@
         {/if}
         <button
           type="button"
-          aria-pressed={filter.kind === 'untagged'}
+          aria-pressed={toggleBase.kind === 'untagged'}
           onclick={() => selectTeam({ kind: 'untagged' })}
-          class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border px-2 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 {filter.kind === 'untagged'
+          class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border px-2 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 {toggleBase.kind === 'untagged'
             ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-200'
             : 'border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
         >
-          {#if filter.kind === 'untagged'}<Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />{/if}
+          {#if toggleBase.kind === 'untagged'}<Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />{/if}
           {t('app.team-chat.filter.untagged', 'No team tag recorded')}
         </button>
       </div>
@@ -1138,18 +1160,24 @@
               {#if msg.teamTags && msg.teamTags.length > 0}
                 <span data-testid="team-chat-tags" class="flex flex-wrap items-center gap-1">
                   {#each uniqueTags(msg.teamTags) as tag (tag.headId)}
-                    {@const pressed = filter.kind === 'teams' && filter.headRefs.includes(tag.headId)}
+                    {@const pressed = pressedHeads.has(tag.headId)}
                     <button
                       type="button"
                       data-testid="team-chat-tag"
                       data-head={tag.headId}
                       aria-pressed={pressed}
-                      disabled={!onSelectTeam || (!pressed && capReached)}
+                      disabled={!onSelectTeam}
+                      aria-disabled={!pressed && capReached ? 'true' : undefined}
                       onclick={() => {
                         // #2250 fix round: a full selection refuses a further
-                        // add locally — disabled above; this guard is the
-                        // belt — and says the limit rather than navigating to
-                        // an unchanged filter.
+                        // add locally and says the limit rather than
+                        // navigating to an unchanged filter. Round 3 (Gil
+                        // N3): the cap is carried as aria-disabled, not
+                        // native disabled — the control stays focusable and
+                        // clickable, so THIS guard (the live-region
+                        // announcement) is reachable by keyboard and screen
+                        // readers too; a native disabled button never fires
+                        // click and hides its title from them.
                         if (!pressed && capReached) { announceCapReached(); return; }
                         selectTeam(toggleTeamHead(toggleBase, tag.headId), tag.label, toggleBase);
                       }}
@@ -1158,7 +1186,7 @@
                         : capReached
                           ? t('app.team-chat.filter.cap-reached', 'At most {max} teams can be selected.', { max: TEAM_HEAD_REFS_MAX })
                           : t('app.team-chat.tag.filter', 'Show messages with this team tag')}
-                      class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 text-zinc-600 enabled:hover:bg-zinc-200 aria-pressed:border-indigo-500 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:enabled:hover:bg-zinc-700 dark:aria-pressed:border-indigo-400 dark:aria-pressed:bg-indigo-950 dark:aria-pressed:text-indigo-200"
+                      class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 text-zinc-600 enabled:hover:bg-zinc-200 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-pressed:border-indigo-500 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:enabled:hover:bg-zinc-700 dark:aria-pressed:border-indigo-400 dark:aria-pressed:bg-indigo-950 dark:aria-pressed:text-indigo-200"
                     >{#if pressed}<Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />{/if}{tag.label}</button>
                   {/each}
                 </span>
