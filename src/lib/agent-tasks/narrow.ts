@@ -5,10 +5,12 @@ import type { BoardFilter } from './status';
  * Overdue and tags. Both AND with the bucket and the search, and both live in
  * the URL.
  *
- * Overdue is the server's definition (start-by passed on the database clock,
- * not started, not ended, not backlog); the portal never recomputes it from
- * `startBy` to filter. Tags mean ALL of the listed tags, because every other
- * control on the board narrows and a second tag should too.
+ * Overdue is the server's definition (hadron-server#4220, implementing #2654:
+ * a pending, not-started task past its start-by, or a pending-or-started task
+ * past its finish-by and not ended; backlog never — all on the database clock);
+ * the portal never recomputes it from `startBy` to filter. Tags mean ALL of the
+ * listed tags, because every other control on the board narrows and a second
+ * tag should too.
  */
 export type BoardNarrow = { overdue: boolean; tags: string[]; unresolved: boolean };
 

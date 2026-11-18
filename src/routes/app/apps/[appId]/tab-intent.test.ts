@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { AGENT_CHAT_KEY, TEAM_CHAT_LOC } from '$lib/app-chats';
-import { APP_TAB_IDS, resolveTabIntent } from './tab-intent';
+import { APP_TAB_IDS, resolveTabIntent, shouldLoadTeamRoster } from './tab-intent';
 
 const intent = (qs: string) => resolveTabIntent(new URLSearchParams(qs));
 
@@ -82,5 +82,21 @@ describe('resolveTabIntent', () => {
 describe('team tabs (#1005, #1006)', () => {
   it.each(['members', 'agents'])('accepts ?tab=%s', (tab) => {
     expect(resolveTabIntent(new URLSearchParams(`tab=${tab}`)).initialTab).toBe(tab);
+  });
+});
+
+// portal#2238 (Holger's rule, ruling 0273): an App page loads only what its
+// first screen renders. The AI Team grid is the roster's only consumer, so
+// the loader reads the roster for NO other initial tab — on main the roster
+// rode the page's Promise.all for every open and hung them all.
+describe('which initial tab loads the roster (portal#2238)', () => {
+  it('loads it for staff and for nothing else in the tab set, nor the default', () => {
+    expect(shouldLoadTeamRoster('staff')).toBe(true);
+    for (const id of APP_TAB_IDS) {
+      if (id !== 'staff') expect(shouldLoadTeamRoster(id), `tab=${id}`).toBe(false);
+    }
+    // null is the no-?tab= default, resolved by the page to its default tab —
+    // not the AI Team, so no roster there either.
+    expect(shouldLoadTeamRoster(null)).toBe(false);
   });
 });
