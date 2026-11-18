@@ -43,17 +43,24 @@ it('keeps refusal text escaped, target intact and roster unrefreshed', async () 
   expect(onclose).not.toHaveBeenCalled(); expect(navigationCalls).toHaveLength(0);
   expect(new FormData(form()).get('workerRef')).toBe('one');
 });
-it('rejects a mismatched worker response without closing, refreshing or changing the target', async () => {
+it('rejects a mismatched worker response as an unknown outcome: latched, best-effort refreshed, target unchanged', async () => {
   const { props, onclose } = open(); await tick(); await check();
   const selected = props.worker;
   const pending = await submitEnhancedDeferred(form()); flushSync(); await tick();
   expect(document.querySelector('[role=status]')?.textContent).toContain('Deleting the selected worker');
   await pending.finish(result(true, 'other-worker')); flushSync(); await tick();
-  expect(document.querySelector('[role=alert]')?.textContent).toBe('Deletion was not confirmed. Refresh the roster before trying again.');
+  // portal#2260 round 1, Gil F1 — an answer about a DIFFERENT worker is no
+  // answer about this one: the selected worker's outcome is unknown, so the
+  // leg latches exactly like a 502 uncertain answer (Submit stays disabled —
+  // a retry would re-post a delete that may already have committed) and the
+  // page best-effort refreshes (F3) so an authoritative re-read can resolve
+  // it. The target is still not changed by the mismatch.
+  expect(document.querySelector('[role=alert]')?.textContent).toContain('may have succeeded');
   expect(document.querySelector('[role=status]')).toBeNull();
-  expect(document.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled).toBe(false);
+  expect(document.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled).toBe(true);
   expect(document.querySelector<HTMLDialogElement>('dialog')!.open).toBe(true);
-  expect(onclose).not.toHaveBeenCalled(); expect(navigationCalls).toHaveLength(0);
+  expect(onclose).not.toHaveBeenCalled();
+  expect(navigationCalls.some(c => c.fn === 'invalidateAll')).toBe(true);
   expect(props.worker).toBe(selected);
   expect(new FormData(form()).get('workerRef')).toBe('one');
 });
@@ -178,4 +185,69 @@ it('portal#2227: an uncertain answer latches Submit — a retry may re-post a co
   expect(cancel.disabled).toBe(false);
   cancel.click(); flushSync();
   expect(onclose).toHaveBeenCalledOnce();
+});
+it('portal#2260 F1: a transport-level error — no answer at all — latches Submit like any unknown outcome', async () => {
+  const { onclose } = open(); await tick(); await check();
+  // The browser-to-portal fetch itself died (use:enhance hands the callback
+  // a bare `error` result with no data): the portal may have committed the
+  // delete before the response was lost, so this is the same hazard the PR
+  // names — Submit must not come back offering the naive retry that would
+  // read WORKER_NOT_FOUND as a refusal.
+  await submitEnhancedWithRawResult(form(), { type: 'error', status: 500, error: new Error('fetch died') }); flushSync(); await tick();
+  expect(document.querySelector('[role=alert]')?.textContent).toContain('may have succeeded');
+  expect(document.querySelector('[role=status]')?.textContent ?? '').not.toContain('Deleting the selected worker');
+  expect(document.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled).toBe(true);
+  expect((await submitEnhanced(form())).cancelled).toBe(true);
+  const cancel = [...document.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Cancel')!;
+  expect(cancel.disabled).toBe(false);
+  cancel.click(); flushSync();
+  expect(onclose).toHaveBeenCalledOnce();
+});
+it('portal#2260 F3: an uncertain answer best-effort refreshes so the page resolves the unknown itself', async () => {
+  open(); await tick(); await check();
+  await submitEnhancedWithRawResult(form(), {
+    type: 'failure', status: 502,
+    data: { deleteWorkerResult: { ok: false, workerRef: 'one', code: null, uncertain: true, message: 'The delete may have succeeded. Reload to see the current state.' } },
+  }); flushSync(); await tick();
+  // Without this, Cancel unmounts the dialog onto a roster that still shows
+  // the row, and Delete on that stale row mounts a fresh dialog with Submit
+  // live — the retry hazard two clicks away. An authoritative re-read
+  // removes the row if the delete committed; if it did not, the row stays
+  // and the reader can safely retry.
+  expect(navigationCalls.some(c => c.fn === 'invalidateAll')).toBe(true);
+});
+it('portal#2260 F3: a failed best-effort refresh cannot unlatch Submit or leak the refresh error', async () => {
+  open(); await tick(); await check();
+  navigationHooks.onInvalidateAll = async () => { throw new Error('refresh unavailable'); };
+  await submitEnhancedWithRawResult(form(), {
+    type: 'failure', status: 502,
+    data: { deleteWorkerResult: { ok: false, workerRef: 'one', code: null, uncertain: true, message: 'The delete may have succeeded. Reload to see the current state.' } },
+  }); flushSync(); await tick();
+  expect(document.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled).toBe(true);
+  expect(document.querySelector('[role=alert]')?.textContent).toContain('may have succeeded');
+  expect(document.body.textContent).not.toContain('refresh unavailable');
+});
+it('portal#2260 F4: a disabled Submit carries its reason programmatically, in field order', async () => {
+  open(); await tick();
+  // Unmet attestation is the reason while the box is unchecked…
+  const submitButton = document.querySelector<HTMLButtonElement>('button[type=submit]')!;
+  expect(submitButton.disabled).toBe(true);
+  const uncheckedReason = submitButton.getAttribute('aria-describedby');
+  expect(uncheckedReason).toBeTruthy();
+  expect(document.getElementById(uncheckedReason!)?.textContent).toContain('attestation');
+  await check();
+  // …and the link is gone once the requirement is met and nothing else blocks.
+  expect(submitButton.getAttribute('aria-describedby')).toBeNull();
+  // An uncertain answer latches with the paused reason, linked the same way.
+  await submitEnhancedWithRawResult(form(), {
+    type: 'failure', status: 502,
+    data: { deleteWorkerResult: { ok: false, workerRef: 'one', code: null, uncertain: true, message: 'The delete may have succeeded. Reload to see the current state.' } },
+  }); flushSync(); await tick();
+  expect(submitButton.disabled).toBe(true);
+  const pausedReason = submitButton.getAttribute('aria-describedby');
+  expect(pausedReason).toBeTruthy();
+  expect(document.getElementById(pausedReason!)?.textContent).toContain('paused');
+  // The redirect-failure leg (deleted latch) keeps speaking through its own
+  // failure text, not the paused reason.
+  expect(document.getElementById(pausedReason!)?.textContent).not.toContain('worker was deleted');
 });

@@ -48,6 +48,25 @@ describe('deleteWorkerFailureRefusal — unknown outcome vs definite refusal', (
     },
   );
 
+  // portal#2260 round 1, Gil F2 — isDefiniteRefusal is wider than the four
+  // known codes: the framework/access set (UNAUTHENTICATED, BAD_USER_INPUT,
+  // NOT_FOUND) and any `*_NOT_FOUND` also prove the refusal came before any
+  // commit, so retry is correct for them. A definite refusal must keep the
+  // refusal shape — its class status below 500 (the mapper's own convention:
+  // only a refusal carries the server sentence) — not fall through to a
+  // 500 that reads as the server's own failure.
+  it.each([
+    ['UNAUTHENTICATED', 401],
+    ['BAD_USER_INPUT', 400],
+    ['NOT_FOUND', 404],
+    ['APP_NOT_FOUND', 404],
+  ])('answers the definite refusal %s as %i, never an unknown-outcome-shaped 500', (code, status) => {
+    const refusal = deleteWorkerFailureRefusal(gql(code), 'w1', sentences);
+    expect(refusal.result.uncertain).toBeUndefined();
+    expect(refusal.result.code).toBe(code);
+    expect(refusal.status).toBe(status);
+  });
+
   it('lets a page voice its own uncertain sentence over the shared default', () => {
     const refusal = deleteWorkerFailureRefusal(transport(), 'w1', {
       ...sentences, uncertain: 'Page-specific reload-first sentence.',
