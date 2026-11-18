@@ -159,6 +159,36 @@ describe('app runs legacy panel paging (#1881)', () => {
   });
 });
 
+describe('app runs legacy load(): Flows read failure (#2170 F7)', () => {
+  async function legacyLoad(flowsPage: () => unknown) {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockRequest.mockImplementation(async (query: string) => {
+      const name = getOperationAST(parse(query))?.name?.value;
+      if (query === APP_QUERY || query === AGENT_TASKS_APP_QUERY) return { app };
+      if (query === APP_RUNS_QUERY) return { appRuns: { items: [], total: 0 } };
+      if (query === APP_INSTALLED_AGENTS_QUERY) return { app: { appAgents: [] } };
+      if (name === 'AppFlowsPage') return flowsPage();
+      if (name === 'AppNodes') return { appNodes: [] };
+      throw new Error(`unexpected query: ${name}`);
+    });
+    const { load } = await importServer();
+    return await load({
+      request: { method: 'POST' }, params: { appId: 'app-1' }, locals: { token: 'tok' },
+      url: new URL('https://example.test/app/apps/app-1/runs'),
+    } as never) as { legacyPanel: Record<string, unknown> };
+  }
+
+  it('reports a failed Flows page read', async () => {
+    const result = await legacyLoad(() => { throw new Error('synthetic Flows failure'); });
+    expect(result.legacyPanel).toMatchObject({ flows: [], flowsError: true });
+  });
+
+  it('reports no Flows error when the read succeeds (control)', async () => {
+    const result = await legacyLoad(() => ({ appNodesPage: { items: [], total: 0, hasMore: false } }));
+    expect(result.legacyPanel).toMatchObject({ flowsError: false });
+  });
+});
+
 describe('app runs run action', () => {
   it('starts a flow and redirects to the run detail', async () => {
     mockRequest.mockResolvedValueOnce({ runTask: 'run-1' });

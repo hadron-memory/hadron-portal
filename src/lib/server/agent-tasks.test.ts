@@ -329,20 +329,31 @@ describe('canonicalTaskId (the identity a write uses)', () => {
     await canonicalTaskId(client, 'app-1', 'abc');
     expect(request).toHaveBeenLastCalledWith(AGENT_TASK_REF_QUERY, { id: 'abc' });
   });
+  // portal#2202 gate: every task-surface 404 carries the bare "Task not
+  // found" message — exact wording pinned per throw site, so reverting any
+  // one site to the retired "…or you can’t see it" oracle wording turns a
+  // test red. The App read's own 404 keeps its DISTINCT message on purpose
+  // (portal#1349: a non-participant gets the App's 404), and that
+  // distinctness is pinned here too.
   it('another App’s qualified handle is a 404 with NO task read', async () => {
     answer({ id: 'x', appId: 'app-2' });
-    await expect(canonicalTaskId(client, 'app-1', 'hrn:agenttask:acme.com:other:AT3')).rejects.toMatchObject({ status: 404 });
+    await expect(canonicalTaskId(client, 'app-1', 'hrn:agenttask:acme.com:other:AT3')).rejects.toMatchObject({ status: 404, body: { message: 'Task not found' } });
     expect(request.mock.calls.map((c) => c[0])).not.toContain(AGENT_TASK_REF_QUERY);
   });
   it('a task of another App, or none, is the same 404', async () => {
     answer({ id: 'x', appId: 'app-2' });
-    await expect(canonicalTaskId(client, 'app-1', 'AT3')).rejects.toMatchObject({ status: 404 });
+    await expect(canonicalTaskId(client, 'app-1', 'AT3')).rejects.toMatchObject({ status: 404, body: { message: 'Task not found' } });
     answer(null);
-    await expect(canonicalTaskId(client, 'app-1', 'AT3')).rejects.toMatchObject({ status: 404 });
+    await expect(canonicalTaskId(client, 'app-1', 'AT3')).rejects.toMatchObject({ status: 404, body: { message: 'Task not found' } });
   });
-  it('a refused App is a 404 before any task read', async () => {
+  it('a refused task read is the same 404 as a null answer', async () => {
+    request.mockImplementationOnce(async () => ({ app }));
+    request.mockRejectedValueOnce(gqlError('TASK_NOT_FOUND'));
+    await expect(canonicalTaskId(client, 'app-1', 'AT3')).rejects.toMatchObject({ status: 404, body: { message: 'Task not found' } });
+  });
+  it('a refused App is a 404 before any task read — the App’s own message, distinct on purpose', async () => {
     request.mockRejectedValueOnce(gqlError('FORBIDDEN'));
-    await expect(canonicalTaskId(client, 'app-1', 'AT3')).rejects.toMatchObject({ status: 404 });
+    await expect(canonicalTaskId(client, 'app-1', 'AT3')).rejects.toMatchObject({ status: 404, body: { message: 'App not found' } });
     expect(request).toHaveBeenCalledTimes(1);
   });
 });

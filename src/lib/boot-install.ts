@@ -13,15 +13,17 @@ export function servedNowText(value: Serve, owner: CompileOwner, nodeId: string)
       BOOT_PROMPT_TARGET_DELETED: t('boot.install.removed', 'the prompt it points at was removed'),
       BOOT_PROMPT_NOT_SIGNED: t('boot.install.not-signed', 'no signed revision is available'),
     };
-    return reasons[value.refusal] ? t('boot.install.serve-refused', 'Right now it would be refused: {reason}.', { reason: reasons[value.refusal] }) : unknown();
+    return Object.hasOwn(reasons, value.refusal) ? t('boot.install.serve-refused', 'Right now it would be refused: {reason}.', { reason: reasons[value.refusal] }) : unknown();
   }
   if (!value.served) return unknown();
   const s = value.served;
-  const prompt = s.compiledNodeId === nodeId ? t('boot.install.this-prompt', 'this prompt') : ({
+  const levels: Record<string, string> = {
     AGENT: t('boot.install.agent-prompt', 'the Agent’s prompt'),
     APP_AGENT: t('boot.install.app-prompt', 'the App’s prompt'),
     WORKER: t('boot.install.worker-prompt', 'the worker’s own prompt'),
-  })[s.pointerLevel];
+  };
+  if (s.compiledNodeId !== nodeId && !Object.hasOwn(levels, s.pointerLevel)) return unknown();
+  const prompt = s.compiledNodeId === nodeId ? t('boot.install.this-prompt', 'this prompt') : levels[s.pointerLevel];
   return owner.level === 'worker'
     ? t('boot.install.worker-serve', 'This worker’s next bind would get revision {n} of {prompt}.', { n: s.servedRevSeq, prompt })
     : t('boot.install.app-serve', 'A worker without its own prompt, a chat or a run started now would get revision {n} of {prompt}.', { n: s.servedRevSeq, prompt });

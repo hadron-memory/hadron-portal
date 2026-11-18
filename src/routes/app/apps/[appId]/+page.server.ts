@@ -9,8 +9,7 @@ import { withRegisteredChannels } from '$lib/app-chats';
 
 import { createMemory, readAppMemories, readAppMemoryScope, appMemoriesFromScope, canCreateAppMemory } from './app-memories';
 import { writeCustomisation } from '$lib/server/install-customisation';
-import { deleteWorkerSchema } from './schema';
-import type { DeleteWorkerResult } from './delete-worker';
+import { readDeleteWorkerPost, deleteWorkerFailureRefusal, type DeleteWorkerRefusal, type DeleteWorkerResult } from '$lib/workers/delete-worker';
 
 import { fail, error, redirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
@@ -25,7 +24,7 @@ import { readAppInstallMarks } from '$lib/server/app-install-marks';
 import { pointerAction, readAppPointers } from '$lib/server/boot-prompt-pointer';
 import { appAgentPointerKey } from '$lib/boot-prompt-pointer';
 import { lookupOwn } from '$lib/lookup';
-import { loadAppTeamRoster } from '$lib/server/app-team-roster';
+import { loadAppTeamRoster, type TeamRosterRead } from '$lib/server/app-team-roster';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError, extractGqlErrorCode, gqlErrorBody, isDefiniteRefusal } from '$lib/server/gqlError';
 import { loadOrgDetail } from '$lib/server/org-detail';
@@ -79,7 +78,7 @@ import {
 import { loadTeamChatTail, teamChatRefusalOf } from '$lib/server/team-chat';
 import { NO_TEAM_FILTER, parseTeamParam } from '$lib/team-chat-filter';
 import { chatMessageNodeTypes, loadChatMessages } from '$lib/server/team-chat';
-import { resolveTabIntent } from './tab-intent';
+import { resolveTabIntent, shouldLoadTeamRoster } from './tab-intent';
 import { loadTemplatesPanel } from './templates-panel';
 import {
   addMember,
@@ -124,6 +123,10 @@ import { readHoldStale, type HoldStale } from './hold-stale';
 // Flow summaries are a complete-graph consumer, not a display-list read.
 // Keep the established graph window; any lower bound it leaves is labelled.
 const APP_FLOW_GRAPH_LIMIT = 500;
+// A chat deep link outside the loaded root page is resolved by ONE targeted
+// locPrefix page of this size; past it, the link is reported as unresolved
+// rather than draining further pages (#2170 F6).
+const REQUESTED_CHAT_LOOKUP_LIMIT = 200;
 
 type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
 type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
@@ -620,7 +623,7 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
       .then((r) => r.appNodesPage)
       .catch((e) => {
         console.warn(`[app-runs] Flows page fetch failed for ${params.appId}:`, e);
-        return { items: [] as MemoryNode[], total: 0, hasMore: false };
+        return { items: [] as MemoryNode[], total: 0, hasMore: false, failed: true };
       })
     : Promise.resolve(null);
   const [appData, configsData, membersData] = await Promise.all([
@@ -904,7 +907,25 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
     loadViewerManages(client, app.id),
     // portal#1168 (hadron-server#2178): the grid's Task and Paused state, one
     // bulk read in its own classified request so its failure cannot take the page.
-    loadAppTeamRoster(client, app.id),
+    //
+    // portal#2238 (ruling 0273): the roster is on the critical path for the
+    // AI Team tab's first screen ONLY. Every other open starts NO roster
+    // request — in prod teamRoster took 30-60 s or failed, and awaiting it
+    // here for every tab hung the whole page and piled a long read onto the
+    // exhausted DB pool on each open. A reader who switches to AI Team
+    // afterwards gets the roster from the page's own bounded first-show fetch
+    // (roster/+server.ts). Bounded here too: even a ?tab=staff open must not
+    // wait on teamRoster longer than the members fetch's 8 s optional-list
+    // bound; a hang maps to the same { kind: 'failed' } the grid already
+    // degrades to. Not a streamed promise: streaming would still START the
+    // call on every open, which is the defect.
+    shouldLoadTeamRoster(initialTab)
+      ? withTimeout(
+          loadAppTeamRoster(client, app.id),
+          OPTIONAL_LIST_TIMEOUT_MS,
+          { kind: 'failed' } satisfies TeamRosterRead,
+        )
+      : Promise.resolve(null),
     // portal#1142 S8: the installs' boot-prompt pointers, for the Agents tab.
     readAppPointers(client, app.id),
     readAppInstallMarks(client, app.id),
@@ -1018,7 +1039,7 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
   // pasted prefix trigger an unbounded sequential drain.
   if (chatSelection.requestedMissing && requestedChat && requestedChat !== 'agent chat' && requestedChat !== 'chats:team' && registeredChannels !== null) {
     const page = await client.request<{ appNodesPage: { items: MemoryNode[]; total: number; hasMore: boolean } }>(APP_CHAT_ROOTS_PAGE_QUERY, {
-      appRef: params.appId, limit: 200, offset: 0, locPrefix: requestedChat,
+      appRef: params.appId, limit: REQUESTED_CHAT_LOOKUP_LIMIT, offset: 0, locPrefix: requestedChat,
     }).then((r) => r.appNodesPage).catch((e) => {
       console.warn(`[app-chats] requested chat-root fetch failed for ${requestedChat}:`, e);
       requestedChatLookupFailed = true;
@@ -1079,6 +1100,7 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
       app,
       flows: flowPageSummaries(flowsData.items, flowGraph ?? []),
       flowsPage: appListNavigation(url, 'flowsOffset', 'runs', flowsOffset, flowsData.items.length, flowsData.total, { hasMore: flowsData.hasMore }),
+      flowsError: 'failed' in flowsData,
       ...runsExtras,
     } : null,
     appMemoryScope,
@@ -1126,7 +1148,11 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
     // chat is neither the team chat nor the agent chat. `chatsError` is the
     // discovery failing — distinct from an App that genuinely has one chat.
     appChats,
-    chatsError: chatRoots === null || registeredChannels === null || requestedChatLookupFailed,
+    chatsError: chatRoots === null || registeredChannels === null,
+    // #2170 F6: the list loaded but a deep-linked chat could not be resolved
+    // for certain (the targeted lookup failed or was inconclusive). A distinct
+    // statement from the list failing, so the page words it differently.
+    chatDeepLinkUnresolved: requestedChatLookupFailed,
     chatRootsError: chatRoots === null,
     channelsError: registeredChannels === null,
     chatRootsPage: appListNavigation(url, 'chatRootsOffset', 'chats', chatRootsOffset, chatRoots?.items.length ?? 0, chatRoots?.total ?? 0, { hasMore: chatRoots?.hasMore }),
@@ -1539,35 +1565,31 @@ export const actions: Actions = {
 
   // #1023: no local eligibility or App-based authority shortcut. The mutation
   // resolves the supplied worker and checks its own staffing/reference gates.
+  // portal#2205: the consent guards and refusal mapping are shared with the
+  // worker page's delete action in $lib/workers/delete-worker.ts; this action
+  // keeps only what is genuinely the roster's (the posted ref, the staying
+  // success answer, the server's own refusal sentences).
   deleteWorker: async ({ request, locals }) => {
     const posted = await request.formData();
-    const workerRef = typeof posted.get('workerRef') === 'string' ? String(posted.get('workerRef')) : '';
-    const refuse = (status: number, message: string, code: string | null = null) =>
-      fail(status, { deleteWorkerResult: { ok: false, workerRef, message, code } satisfies DeleteWorkerResult });
-    if (['_kind', 'workerRef', 'confirmation'].some(key => posted.getAll(key).length !== 1)) {
-      return refuse(400, t('app.staff.delete.confirm-required', 'Explicit external-artifact verification is required.'));
-    }
-    const parsed = deleteWorkerSchema.safeParse(Object.fromEntries(posted));
-    if (!parsed.success) return refuse(400, t('app.staff.delete.confirm-required', 'Explicit external-artifact verification is required.'));
+    const guards = readDeleteWorkerPost(posted);
+    const workerRef = guards.ok ? guards.workerRef : guards.refusal.result.workerRef;
+    const refuse = (refusal: DeleteWorkerRefusal) =>
+      fail(refusal.status, { deleteWorkerResult: refusal.result satisfies DeleteWorkerResult });
+    if (!guards.ok) return refuse(guards.refusal);
     try {
       const result = await gqlClient(locals.token).request<{ deleteWorker: boolean }>(DELETE_WORKER_MUTATION, {
-        workerRef: parsed.data.workerRef, confirmNoExternalAttribution: true,
+        workerRef, confirmNoExternalAttribution: true,
       });
-      if (result.deleteWorker !== true) return refuse(500, t('app.staff.delete.unconfirmed', 'Deletion was not confirmed. Refresh the roster before trying again.'));
-      return { deleteWorkerResult: { ok: true, workerRef: parsed.data.workerRef,
+      if (result.deleteWorker !== true) return refuse({ status: 500, result: { ok: false, workerRef,
+        message: t('app.staff.delete.unconfirmed', 'Deletion was not confirmed. Refresh the roster before trying again.'), code: null } });
+      return { deleteWorkerResult: { ok: true, workerRef,
         message: t('app.staff.delete.done', 'Worker deleted.') } satisfies DeleteWorkerResult };
     } catch (e: unknown) {
-      const code = gqlErrorCode(e);
-      // Only GraphQL's own refusal sentence, never the request/extension census
-      // or a transport exception containing query variables, reaches the UI.
-      const errors = (e as { response?: { errors?: { message?: string }[] } } | null)?.response?.errors;
-      const status = code === 'FORBIDDEN' ? 403
-        : code === 'WORKER_NOT_FOUND' ? 404
-        : code === 'WORKER_IN_USE' || code === 'WORKER_EXTERNAL_ATTRIBUTION_UNCONFIRMED' ? 400 : 500;
-      const text = status < 500 && typeof errors?.[0]?.message === 'string'
-        ? errors[0].message
-        : t('app.staff.delete.failed', 'Could not confirm deletion. Refresh the roster and try again.');
-      return refuse(status, text, code);
+      // No sentence overrides here: the roster shows the server's own refusal
+      // text (redaction and the status table live in the shared mapper).
+      return refuse(deleteWorkerFailureRefusal(e, workerRef, {
+        failed: t('app.staff.delete.failed', 'Could not confirm deletion. Refresh the roster and try again.'),
+      }));
     }
   },
 

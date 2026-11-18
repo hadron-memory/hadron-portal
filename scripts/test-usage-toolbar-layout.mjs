@@ -10,6 +10,15 @@ import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
 
+// The probe owns its document: a fulfilled inert page, not a dev-server path
+// (/@vite/client falls through to SvelteKit's 404 document and logs a server
+// error). Asserting 200 makes a regression to a Kit-404 URL fail loudly.
+async function gotoFixtureDocument(page, origin) {
+  await page.route('**/__usage_toolbar_layout_fixture*', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>test-usage-toolbar-layout</title>' }));
+  const response = await page.goto(new URL('/__usage_toolbar_layout_fixture', origin).href);
+  assert.equal(response?.status(), 200, `fixture document was not served inert (HTTP ${response?.status()})`);
+}
+
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 } });
 let browser;
 try {
@@ -24,7 +33,7 @@ try {
       // The chart pane fetches its series; answer it so the pane settles.
       await page.route('**/usage/activity**', (route) =>
         route.fulfill({ json: { windowDays: 30, timeZone: 'UTC', buckets: [], loadFailed: false } }));
-      await page.goto(new URL('/@vite/client', origin).href);
+      await gotoFixtureDocument(page, origin);
       await page.evaluate(([css, pane]) => {
         localStorage.setItem('hadron:memoryUsage:pane', pane);
         document.head.innerHTML = '';

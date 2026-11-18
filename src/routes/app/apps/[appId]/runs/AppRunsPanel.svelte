@@ -20,7 +20,7 @@
   type RunAppFlowForm = Infer<typeof runAppFlowSchema, 'zod4'>;
   type RunAppFlowSuperform = SuperValidated<RunAppFlowForm, App.Superforms.Message, RunAppFlowForm>;
 
-  type PanelData = RunsSection & { app: { id: string; name: string; organizationId: string | null }; flows: FlowSummary[]; flowsPage: ListPageNavigation; runForm: RunAppFlowSuperform; runAgents: InstalledAgent[] | null };
+  type PanelData = RunsSection & { app: { id: string; name: string; organizationId: string | null }; flows: FlowSummary[]; flowsPage: ListPageNavigation; flowsError: boolean; runForm: RunAppFlowSuperform; runAgents: InstalledAgent[] | null };
   let { data, form }: { data: PanelData; form: unknown } = $props();
 
   const initialRunForm = untrack(() => submittedForm<RunAppFlowForm>(form, 'runFlow') as RunAppFlowSuperform | null ?? data.runForm);
@@ -68,7 +68,7 @@
   <!-- Flows this app can start (#483) — derived: runnable entry nodes with
        routing edges. The Run button mints a MANUAL run; payloads live on the
        node page's Test-flow panel. -->
-  {#if data.flows.length > 0 || data.flowsPage.total > 0 || data.flowsPage.firstHref || data.flowsPage.previousHref}
+  {#if data.flowsError || data.flows.length > 0 || data.flowsPage.total > 0 || data.flowsPage.firstHref || data.flowsPage.previousHref}
     <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
       <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('flows.title', 'Flows')}</h2>
       <p class="mt-1 text-xs text-zinc-400">
@@ -94,7 +94,15 @@
       {#if runActionError}
         <div role="alert" class="mt-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{runActionError}</div>
       {/if}
-      {#if data.flows.length > 0}
+      {#if data.flowsError}
+        <!-- #2170 F7: a failed read is not "no Flows". Say so, and offer no
+             pager over a list that was never read. -->
+        <p
+          role="status"
+          data-flows-error
+          class="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+        >{t('flows.load-failed', 'Flows couldn’t load. Reload the page to try again.')}</p>
+      {:else if data.flows.length > 0}
         <ul class="mt-3 divide-y divide-zinc-100 dark:divide-zinc-800">
         {#each data.flows as flow (flow.entry.id)}
           <li class="flex flex-wrap items-center gap-x-4 gap-y-2 py-2.5">
@@ -128,8 +136,10 @@
       {:else}
         <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{t('flows.none-on-page', 'No flows on this page.')}</p>
       {/if}
-      <p class="mt-3 text-xs text-zinc-500 dark:text-zinc-400">{t('flows.page-window', 'Pages step through this App’s runnable nodes; only Flow entry nodes are listed.')}</p>
-      <ListPageNav page={data.flowsPage} label={t('flows.pages', 'Flow pages')} />
+      {#if !data.flowsError}
+        <p class="mt-3 text-xs text-zinc-500 dark:text-zinc-400">{t('flows.page-window', 'Pages step through this App’s runnable nodes; only Flow entry nodes are listed.')}</p>
+        <ListPageNav page={data.flowsPage} label={t('flows.pages', 'Flow pages')} />
+      {/if}
     </section>
   {/if}
 

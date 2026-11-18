@@ -7,6 +7,8 @@
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import type { PageData, ActionData } from './$types';
+  import SelectOrg from '$lib/components/SelectOrg.svelte';
+  import Urn from '$lib/components/Urn.svelte';
   import { memorySubscriptionSchema, memoryUnsubscribeSchema } from './schema';
 
   type MemorySubscriptionForm = Infer<typeof memorySubscriptionSchema, 'zod4'>;
@@ -53,8 +55,10 @@
   const unsubscribeActionError = $derived(scopedActionError<MemoryUnsubscribeForm>(form, 'unsubscribeMemory', $unsubscribeMessage, $unsubscribeErrors, ['orgId', '_kind']));
   const unsubscribeActionSuccess = $derived(scopedActionSuccess<MemoryUnsubscribeForm>(form, 'unsubscribeMemory', $unsubscribeMessage));
 
-  const inputClass =
-    'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
+  // portal#2220: the org is picked from the orgs this caller administers (never the
+  // owning org), not typed as a raw id. `targets` is a UI hint; the server's gate decides.
+  let pickerOpen = $state(false);
+  const selectedOrg = $derived(data.targets.find((o) => o.id === $subscriptionForm.orgId) ?? null);
 
   function setUnsubscribeOrg(orgId: string) {
     unsubscribeForm.update((current) => ({ ...current, orgId }), { taint: false });
@@ -101,21 +105,29 @@
         </div>
       {/if}
 
+      {#if data.targets.length === 0}
+        <p role="status" class="text-sm text-zinc-500">
+          {t('subscriptions.no-targets', 'You do not administer another organization that could subscribe to this memory.')}
+        </p>
+      {:else}
       <form method="POST" action="?/subscribe" use:subscriptionEnhance class="flex max-w-md items-start gap-3" novalidate>
         <input type="hidden" name="_kind" value={$subscriptionForm._kind} />
-        <div class="flex-1">
-          <label for="subOrgId" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">{t('subscriptions.org-id', 'Organization ID')}</label>
-          <input
+        <div class="min-w-0 flex-1">
+          <span id="subOrgLabel" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">{t('subscriptions.org', 'Organization')}</span>
+          <input type="hidden" name="orgId" bind:value={$subscriptionForm.orgId} />
+          {#if selectedOrg}
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-zinc-900 dark:text-white">{selectedOrg.name}</p>
+              <div class="mt-1"><Urn value={selectedOrg.urn} type="org" /></div>
+            </div>
+          {/if}
+          <button
             id="subOrgId"
-            name="orgId"
-            type="text"
-            bind:value={$subscriptionForm.orgId}
-            placeholder="org-cuid"
-            aria-invalid={!!orgIdError}
+            type="button"
+            onclick={() => (pickerOpen = true)}
             aria-describedby={orgIdError ? 'subOrgIdError' : undefined}
-            {...$subscriptionConstraints.orgId}
-            class="{inputClass} font-mono {orgIdError ? 'border-red-500 focus:border-red-500' : ''}"
-          />
+            class="mt-2 rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-300 {orgIdError ? 'border-red-500' : ''}"
+          >{selectedOrg ? t('subscriptions.org.change', 'Change') : t('subscriptions.org.choose', 'Choose organization')}</button>
           {#if orgIdError}
             <p id="subOrgIdError" class="mt-1 text-xs text-red-600 dark:text-red-400">{orgIdError}</p>
           {/if}
@@ -134,6 +146,8 @@
           {$subscriptionSubmitting ? t('subscriptions.adding', 'Adding...') : t('subscriptions.add', 'Add')}
         </button>
       </form>
+      <SelectOrg orgs={data.targets} bind:open={pickerOpen} onselect={(o) => { $subscriptionForm.orgId = o.id; }} />
+      {/if}
     </section>
   {/if}
 </div>

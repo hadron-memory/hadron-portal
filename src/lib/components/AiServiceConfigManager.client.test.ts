@@ -25,9 +25,11 @@ const GLM_ENDPOINTS = [
 ];
 
 let posts: Array<Record<string, unknown>>;
+let chatProbeStatus: string | null;
 beforeEach(() => {
   resetAiConfigRecoveryForTests();
   posts = [];
+  chatProbeStatus = null;
   vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
     if (_url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
     const body = JSON.parse(init.body) as Record<string, unknown>;
@@ -35,7 +37,7 @@ beforeEach(() => {
     const reply = body.action === 'endpoints'
       ? { endpoints: body.provider === 'glm' ? GLM_ENDPOINTS : body.provider === 'kimi' ? KIMI_ENDPOINTS : [] }
       : body.action === 'testSaved'
-        ? { result: { ok: true, provider: 'glm', model: 'm', endpoint: 'https://api.z.ai/api/paas/v4', apiStyle: 'CHAT_COMPLETIONS', latencyMs: 5, reply: 'hi', error: null, used: { provider: 'SAVED', model: 'SAVED', endpoint: 'OVERRIDE', apiStyle: 'SAVED', key: 'SAVED' } } }
+        ? { result: { chat: chatProbeStatus === null ? null : { status: chatProbeStatus }, ok: true, provider: 'glm', model: 'm', endpoint: 'https://api.z.ai/api/paas/v4', apiStyle: 'CHAT_COMPLETIONS', latencyMs: 5, reply: 'hi', error: null, used: { provider: 'SAVED', model: 'SAVED', endpoint: 'OVERRIDE', apiStyle: 'SAVED', key: 'SAVED' } } }
         : { ok: true };
     return { ok: true, json: async () => reply } as Response;
   }));
@@ -185,6 +187,98 @@ describe('kimi (#2138)', () => {
     set($<HTMLSelectElement>(root, '#ac-provider')!, 'openai');
     await settle();
     expect($<HTMLInputElement>(root, '#ac-model')!.value).toBe('my-model');
+  });
+
+  // #2181: Test must probe the string Save would leave (hrn:node:hadronmemory.com:specs:cor:dmo:050:10).
+  describe('saved-config Test override model rule', () => {
+    const saved = (over: Partial<AiServiceConfig>) => config({
+      provider: 'kimi', model: '  kimi-k3 ', effectiveEndpoint: 'https://api.moonshot.ai/v1', ...over,
+    });
+    const overrideAfterTest = async (root: HTMLElement) => {
+      await performAction(root, 'Test');
+      const post = posts.find((p) => p.action === 'testSaved');
+      expect(post, 'Test should have posted testSaved').toBeDefined();
+      return post!.override as Record<string, unknown>;
+    };
+    const flip = async (root: HTMLElement, provider: string) => {
+      set($<HTMLSelectElement>(root, '#ac-provider')!, provider);
+      await settle();
+    };
+
+    it('an unchanged padded kimi model sends no model override', async () => {
+      const root = await open({ configs: [saved({})] });
+      editRow(root);
+      await settle();
+      expect($<HTMLInputElement>(root, '#ac-model')!.value).toBe('  kimi-k3 ');
+      expect('model' in await overrideAfterTest(root)).toBe(false);
+    });
+
+    it('a changed padded kimi model is sent verbatim', async () => {
+      const root = await open({ configs: [saved({})] });
+      editRow(root);
+      await settle();
+      set($<HTMLInputElement>(root, '#ac-model')!, '  kimi-k4 ');
+      await settle();
+      expect((await overrideAfterTest(root)).model).toBe('  kimi-k4 ');
+    });
+
+    it('a non-kimi provider still trims its model override', async () => {
+      const root = await open({ configs: [config({ provider: 'glm', model: 'glm-5' })] });
+      editRow(root);
+      await settle();
+      set($<HTMLInputElement>(root, '#ac-model')!, '  glm-6 ');
+      await settle();
+      expect((await overrideAfterTest(root)).model).toBe('glm-6');
+    });
+
+    it('switching a padded kimi config to another provider trims the model (live provider rules)', async () => {
+      const root = await open({ configs: [saved({})] });
+      editRow(root);
+      await settle();
+      await flip(root, 'openai');
+      const o = await overrideAfterTest(root);
+      expect(o.provider).toBe('openai');
+      expect(o.model).toBe('kimi-k3');
+    });
+
+    it('switching a padded non-kimi config to kimi sends the model verbatim', async () => {
+      const root = await open({ configs: [config({ provider: 'glm', model: 'glm-5' })] });
+      editRow(root);
+      await settle();
+      set($<HTMLInputElement>(root, '#ac-model')!, '  kimi-k3 ');
+      await flip(root, 'kimi');
+      const o = await overrideAfterTest(root);
+      expect(o.provider).toBe('kimi');
+      expect(o.model).toBe('  kimi-k3 ');
+    });
+
+    for (const [label, cfg] of [
+      ['kimi', saved({})],
+      ['non-kimi', config({ provider: 'glm', model: 'glm-5' })],
+    ] as const) {
+      it(`a cleared or whitespace-only model on a ${label} config is refused like Save, with no test post`, async () => {
+        for (const blank of ['', '   ']) {
+          const root = await open({ configs: [cfg] });
+          editRow(root);
+          await settle();
+          set($<HTMLInputElement>(root, '#ac-model')!, blank);
+          await settle();
+          await performAction(root, 'Test');
+          expect(root.textContent).toContain(aiConfigStrings.modelRequired());
+          expect(posts.filter((p) => p.action === 'testSaved')).toHaveLength(0);
+        }
+      });
+    }
+  });
+
+  it('a saved kimi config whose model equals the offered default keeps it when the provider is switched away', async () => {
+    const root = await open({ configs: [config({ provider: 'kimi', model: 'kimi-k3', effectiveEndpoint: 'https://api.moonshot.ai/v1' })] });
+    editRow(root);
+    await settle();
+    expect($<HTMLInputElement>(root, '#ac-model')!.value).toBe('kimi-k3');
+    set($<HTMLSelectElement>(root, '#ac-provider')!, 'openai');
+    await settle();
+    expect($<HTMLInputElement>(root, '#ac-model')!.value).toBe('kimi-k3');
   });
 
   it('Test on an unsaved kimi config asks to save first and posts nothing to the test route', async () => {
@@ -737,5 +831,39 @@ describe('a late save response must not replace the replacement editor’s basel
     const updates = posts.filter((p) => p.action === 'update');
     expect(updates).toHaveLength(2);
     expect('endpoint' in updates[1]!).toBe(false); // no spurious endpoint change
+  });
+});
+
+
+describe('#2043 separately labelled saved Test outcomes', () => {
+  it.each([
+    ['PASS', 'Passed: the model returned one valid response.'],
+    ['FAIL_TEXT_ONLY', 'Failed: the model answered in text instead of using its response tool.'],
+    ['FAIL_OTHER_TOOL', 'Failed: the model called a different tool.'],
+    ['FAIL_MULTIPLE_CALLS', 'Failed: the model called more than one tool.'],
+    ['FAIL_MALFORMED', 'Failed: the model returned an invalid response.'],
+    ['FAIL_PROVIDER_UNAVAILABLE', 'The chat test could not complete. Check the provider settings and try again.'],
+    ['UNSUPPORTED_PROVIDER', 'Chat testing is not supported by this provider.'],
+  ])('renders %s alongside a successful run result', async (status, copy) => {
+    chatProbeStatus = status;
+    const root = await open({ configs: [config()] });
+    editRow(root);
+    await settle();
+    const region = root.querySelector('[data-testid="ai-config-test-feedback"]');
+    expect(region).not.toBeNull();
+    expect(region?.textContent?.trim()).toBe('');
+    await performAction(root, 'Test');
+    expect(root.querySelector('[data-testid="ai-config-test-feedback"]')).toBe(region);
+    expect(root.querySelector('[data-testid="ai-config-test-run"]')?.textContent).toContain('Run');
+    expect(root.querySelector('[data-testid="ai-config-test-run"]')?.textContent).toContain('Works:');
+    const chat = root.querySelector('[data-testid="ai-config-test-chat"]');
+    expect(chat?.textContent).toContain('Chat');
+    expect(chat?.textContent).toContain(copy);
+  });
+  it('null chat on an older response renders the labelled run only', async () => {
+    const root = await open({ configs: [config()] });
+    editRow(root); await settle(); await performAction(root, 'Test');
+    expect(root.querySelector('[data-testid="ai-config-test-run"]')?.textContent).toContain('Works:');
+    expect(root.querySelector('[data-testid="ai-config-test-chat"]')).toBeNull();
   });
 });

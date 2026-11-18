@@ -9,6 +9,7 @@
   import AssetChip from '$lib/components/assets/AssetChip.svelte';
   import type { AssetSummary } from '$lib/api/assetUpload';
   import { olderCursorFrom } from '$lib/agent-chat-window';
+  import { AGENT_CHAT_KEY } from '$lib/app-chats';
   import { resolveActiveChatFromUrl } from '$lib/components/agent-chat-helpers.js';
   import { scrollTopAfterPrepend } from '$lib/team-chat-refresh';
   import { t } from '$lib/i18n/t.js';
@@ -38,7 +39,18 @@
     uploadMemoryId,
     appId,
     aiChoices = null,
-  }: { agentId: string; uploadMemoryId?: string; appId?: string; aiChoices?: ChatAiChoiceOption[] | null } = $props();
+    allowLegacyAppChat = false,
+    onLegacyChatResolved,
+  }: {
+    agentId: string;
+    uploadMemoryId?: string;
+    appId?: string;
+    aiChoices?: ChatAiChoiceOption[] | null;
+    /** The App has proved the requested selector missing, without a read failure. */
+    allowLegacyAppChat?: boolean;
+    /** A successful legacy resume can dismiss the page's old missing banner. */
+    onLegacyChatResolved?: (appId: string) => void;
+  } = $props();
 
   // portal#1963: the choice stored with the open chat (null for a new chat, or none stored), and the one the
   // user picked in the dropdown. A pick is what gets SENT, so the server stores it; until the user picks, the
@@ -175,6 +187,14 @@
     turnErrorFromList = message !== null && fromList;
   }
 
+  /** One place for the stage toast's words: the visible line and its `title` read the same string (portal#2184). */
+  function stageToastText(toast: { from: string; to: string }): string {
+    return t('agent-chat.stage-toast', 'Stage transitioned: {from} → {to}', {
+      from: toast.from || t('agent-chat.stage-toast.start', '(start)'),
+      to: toast.to
+    });
+  }
+
   // Recent stage-transition toast
   let stageToast = $state<{ from: string; to: string } | null>(null);
 
@@ -307,20 +327,37 @@
 
   // ── Initial list fetch ───────────────────────────────────────────────
   // After loading the chat list, auto-resume the chat referenced by
-  // `?chat=<id>` so a reload restores the open conversation. Without
+  // `?chat=agent chat&agentChat=<loc>` on an App (legacy `?chat=<loc>`
+  // elsewhere) so a reload restores the open conversation. Without
   // this, every reload silently emptied the transcript pane — to the
   // user that looked like "chats are not saving."
   onMount(async () => {
+    const issuedAppId = appId;
+    const issuedAgentId = agentId;
+    const issuedSelector = new URL(window.location.href).searchParams.get('chat');
+    const issuedLegacyProof = allowLegacyAppChat;
     await refreshChatList();
-    const target = resolveActiveChatFromUrl(new URL(window.location.href), chats);
+    const url = new URL(window.location.href);
+    const legacyAllowed = issuedLegacyProof && allowLegacyAppChat && url.searchParams.get('chat') === issuedSelector && issuedAppId === appId && issuedAgentId === agentId;
+    // The unresolved-selector proof still holds while the page shows its not-found banner. That includes Back/Forward
+    // into an already-recovered entry, where Kit serves the cached `chatNotFound: true` but the URL is canonical, so
+    // this is gated on the proof, not on the URL looking legacy (BLIND P2 on #2148). A fresh canonical load has
+    // chatNotFound false, so the proof is absent and nothing fires.
+    const legacy = !!appId && legacyAllowed;
+    const target = resolveActiveChatFromUrl(url, chats, { appChat: !!appId, allowLegacyAppChat: legacyAllowed });
     if (target) {
       // A page load is not the person choosing a chat: show it, don't move focus.
-      await resumeChat(target, { focus: false });
+      const resumed = await resumeChat(target, { focus: false });
+      if (legacy && resumed && !destroyed && issuedAppId && appId === issuedAppId && agentId === issuedAgentId) onLegacyChatResolved?.(issuedAppId);
     } else if (
       listError === null &&
-      new URL(window.location.href).searchParams.has('chat')
+      (!appId || url.searchParams.get('chat') === AGENT_CHAT_KEY) &&
+      url.searchParams.has(appId ? 'agentChat' : 'chat')
     ) {
-      // Stale ?chat=<id> (e.g. chat deleted in another tab) — clear it.
+      if (appId) {
+        setTurnError(t('agent-chat.not-found', 'That chat isn’t available — it may have been deleted, or you may not have access.'));
+      }
+      // Stale personal chat id (e.g. deleted in another tab) — clear it.
       // Gated on a successful list fetch: a transient list failure
       // leaves `chats` empty too, but we MUST NOT throw away a valid
       // ?chat param in that case — the next list reload should still
@@ -375,12 +412,18 @@
     // hrn:node:hadronmemory.com:hadron-portal:review:async-onmount-runs-after-teardown.
     if (destroyed) return;
     const url = new URL(window.location.href);
+    const param = appId ? 'agentChat' : 'chat';
     if (chatId) {
-      if (url.searchParams.get('chat') === chatId) return;
-      url.searchParams.set('chat', chatId);
+      if (url.searchParams.get(param) === chatId &&
+        (!appId || (url.searchParams.get('chat') === AGENT_CHAT_KEY && url.searchParams.get('tab') === 'chats'))) return;
+      if (appId) {
+        url.searchParams.set('tab', 'chats');
+        url.searchParams.set('chat', AGENT_CHAT_KEY);
+      }
+      url.searchParams.set(param, chatId);
     } else {
-      if (!url.searchParams.has('chat')) return;
-      url.searchParams.delete('chat');
+      if (!url.searchParams.has(param)) return;
+      url.searchParams.delete(param);
     }
     replaceState(url, {});
   }
@@ -502,7 +545,7 @@
         syncChatIdToUrl(chatId);
         if (focus) void focusConversation();
       }
-      return;
+      return true;
     }
     showList = false;
     loadingChat = true;
@@ -549,10 +592,12 @@
       // a full last page is indistinguishable from a middle one.
       resetScrollback({ messages, hasOlder: body.hasOlder });
       scrollMessagesToBottom();
+      return true;
     } catch (e) {
       setTurnError(e instanceof Error ? e.message : 'Failed to resume chat');
       activeChatId = null;
       syncChatIdToUrl(null);
+      return false;
     } finally {
       loadingChat = false;
     }
@@ -577,7 +622,7 @@
       notes.push({ tone: 'good', text: stage ? t('agent-chat.progress.detour-returned', 'Back to {where}', { where: stage }) : t('agent-chat.progress.detour-returned-plain', 'Back to where we were') });
     }
     if (typeof body.rejectedNextStage === 'string' && body.rejectedNextStage) {
-      notes.push({ tone: 'neutral', text: t('agent-chat.progress.stage-refused', 'Couldn\'t move to "{name}", so we\'re staying on this step.', { name: body.rejectedNextStage }) });
+      notes.push({ tone: 'neutral', text: t('agent-chat.progress.stage-refused', 'Staying on this step, and your message is saved. Couldn\'t move to "{name}".', { name: body.rejectedNextStage }) });
     }
     progressNotice = notes.length ? { chatId, notes } : null;
   }
@@ -1092,9 +1137,9 @@
           {#if activeChatMeta && activeChatMeta.completed.length > 0}
             <div class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400" data-testid="completed-conversations-row">
               <span>{t('agent-chat.progress.done-label', 'Done')}:</span>
-              <ul class="flex flex-wrap gap-1.5" data-testid="completed-conversations">
+              <ul class="flex min-w-0 flex-wrap gap-1.5" data-testid="completed-conversations">
                 {#each activeChatMeta.completed as name (name)}
-                  <li class="rounded bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{name}</li>
+                  <li title={name} class="max-w-full truncate rounded bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{name}</li>
                 {/each}
               </ul>
             </div>
@@ -1103,15 +1148,16 @@
       </header>
 
       {#if stageToast}
-        <div class="mx-4 mt-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
-          Stage transitioned: <strong>{stageToast.from || '(start)'}</strong> → <strong>{stageToast.to}</strong>
+        <!-- The clamp sits on an inner element: line-clamp on a box that has vertical padding lets the next line show through the padding. -->
+        <div class="mx-4 mt-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
+          <span data-testid="stage-toast" title={stageToastText(stageToast)} class="line-clamp-2 break-words">{stageToastText(stageToast)}</span>
         </div>
       {/if}
 
-      <div role="status" data-testid="chat-progress-notice" class={progressNotice && progressNotice.chatId === activeChatId ? 'mx-4 mt-2 space-y-1' : 'sr-only'}>
+      <div role="status" data-testid="chat-progress-notice" class={progressNotice && progressNotice.chatId === activeChatId ? 'mx-4 mt-1.5 space-y-1' : 'sr-only'}>
         {#if progressNotice && progressNotice.chatId === activeChatId}
           {#each progressNotice.notes as note}
-            <p class="rounded-md border px-3 py-2 text-xs {note.tone === 'good' ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200' : 'border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300'}">{note.text}</p>
+            <p class="rounded-md border px-3 py-1 text-xs {note.tone === 'good' ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200' : 'border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300'}"><span data-testid="chat-progress-item" title={note.text} class="line-clamp-2 break-words">{note.text}</span></p>
           {/each}
         {/if}
       </div>

@@ -6,6 +6,7 @@
  * POST handler, and invoke it with a hand-rolled RequestEvent.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { __resetRateLimit } from '$lib/server/rate-limit';
 
 const mockRequest = vi.fn();
 const mockGqlClient = vi.fn();
@@ -31,7 +32,9 @@ async function jsonOf(res: Response): Promise<any> {
 }
 
 beforeEach(() => {
+  __resetRateLimit();
   mockRequest.mockReset();
+  mockRequest.mockImplementation(async (doc: string) => doc.includes('chatToolChoiceFor(') ? { chatToolChoiceFor: 'FORCED' } : undefined);
   mockGqlClient.mockReset();
   mockGqlClient.mockReturnValue({ request: mockRequest });
   mockCallAgentChatLlm.mockReset();
@@ -186,8 +189,10 @@ describe('POST /api/ai-configs', () => {
     expect(llmArgs.tools).toHaveLength(1);
     expect(llmArgs.tools[0].name).toBe('respond');
     expect(llmArgs.respondTest).toBe(true);
-    // No GraphQL needed for the inline path.
-    expect(mockRequest).not.toHaveBeenCalled();
+    // #2043: only the server pure decision is queried; no saved key/config read.
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    expect(mockRequest).toHaveBeenCalledWith(expect.stringContaining('chatToolChoiceFor('), { provider: 'openai', model: 'gpt-4o-mini' });
+    expect(llmArgs.toolChoice).toBe('FORCED');
   });
 
   // #937: the old by-NAME saved test resolved whichever config won the
@@ -564,4 +569,42 @@ describe('#1986 the owner-list route no longer answers an identity read', () => 
     expect(text).not.toContain('"principal"');
     for (const call of mockRequest.mock.calls) expect(String(call[0])).not.toMatch(/AiConfigPrincipal|authContext/);
   });
+});
+
+
+it('#2043 inline Test consumes the server decision for the verbatim unsaved pair', async () => {
+  mockRequest.mockResolvedValueOnce({ chatToolChoiceFor: 'AUTO' });
+  mockCallAgentChatLlm.mockResolvedValueOnce({ respond: { message: 'hi' }, rawText: 'hi' });
+  const { POST } = await import('./+server');
+  const response = await POST(ev({ body: { action: 'test', provider: 'anthropic', model: 'opaque-future-id', apiKey: 'SYNTHETIC2043' } }));
+  expect(response.status).toBe(200);
+  expect(mockRequest).toHaveBeenCalledWith(expect.stringContaining('chatToolChoiceFor'), { provider: 'anthropic', model: 'opaque-future-id' });
+  expect(mockCallAgentChatLlm.mock.calls[0][0]).toMatchObject({ toolChoice: 'AUTO', respondTest: true, model: 'opaque-future-id' });
+});
+
+it('#2043 old-server rejection of the pure decision stays forced', async () => {
+  mockRequest.mockRejectedValueOnce({ response: { status: 400, errors: [{ message: 'Cannot query field "chatToolChoiceFor" on type "Query".', extensions: { code: 'GRAPHQL_VALIDATION_FAILED' } }] } });
+  mockCallAgentChatLlm.mockResolvedValueOnce({ respond: { message: 'hi' }, rawText: 'hi' });
+  const { POST } = await import('./+server');
+  const response = await POST(ev({ body: { action: 'test', provider: 'anthropic', model: 'claude-sonnet-5-5', apiKey: 'SYNTHETIC2043' } }));
+  expect((await jsonOf(response)).ok).toBe(true);
+  expect(mockCallAgentChatLlm.mock.calls[0][0].toolChoice).toBe('FORCED');
+});
+it('#2043 an inline decision refusal fails without spending on a provider', async () => {
+  mockRequest.mockRejectedValueOnce({ response: { errors: [{ message: 'SYNTHETIC_PRIVATE_TEXT', extensions: { code: 'FORBIDDEN' } }] } });
+  const { POST } = await import('./+server');
+  const response = await POST(ev({ body: { action: 'test', provider: 'anthropic', model: 'm', apiKey: 'SYNTHETIC2043' } }));
+  expect(mockCallAgentChatLlm).not.toHaveBeenCalled();
+  const body = await jsonOf(response);
+  expect(body.ok).toBe(false);expect(JSON.stringify(body)).not.toContain('SYNTHETIC_PRIVATE_TEXT');
+});
+it('#2043 unsaved decision variables preserve the configured model verbatim', async () => {
+  mockRequest.mockResolvedValueOnce({ chatToolChoiceFor: 'FORCED' });
+  mockCallAgentChatLlm.mockResolvedValueOnce({ respond: { message: 'hi' }, rawText: 'hi' });
+  const { POST } = await import('./+server');
+  const response = await POST(ev({ body: { action: 'test', provider: 'anthropic', model: ' opaque/ID ', apiKey: 'SYNTHETIC2043' } }));
+  expect(response.status).toBe(200);
+  expect((await jsonOf(response)).ok).toBe(true);
+  expect(mockRequest.mock.calls[0][1]).toEqual({ provider: 'anthropic', model: ' opaque/ID ' });
+  expect(mockCallAgentChatLlm.mock.calls[0][0].model).toBe(' opaque/ID ');
 });

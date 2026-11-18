@@ -492,7 +492,7 @@ describe('task page actions: handle routes', () => {
   it.each(['FORBIDDEN', 'NOT_FOUND', 'TASK_NOT_FOUND', 'APP_NOT_FOUND'])('a %s refusal resolving the task is the same neutral 404 and writes nothing', async (code) => {
     request.mockResolvedValue({});
     resolver.mockRejectedValueOnce(gqlError(code, 'Forbidden'));
-    await expect((await taskActions()).cancel(at('AT3.405'))).rejects.toMatchObject({ status: 404, body: { message: 'Task not found, or you can’t see it' } });
+    await expect((await taskActions()).cancel(at('AT3.405'))).rejects.toMatchObject({ status: 404, body: { message: 'Task not found' } });
     expect(request).not.toHaveBeenCalled();
   });
 

@@ -70,9 +70,21 @@ const json = (body: unknown, status = 200) =>
  * of the chats, so the row actions can be driven end to end; their calls are
  * counted as `title` and `delete`, never as `writes`.
  */
-export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boolean; rowActions?: boolean; shortTitle?: boolean } = {}): AgentChatFixture {
-  const chats = CHATS.map((c) => ({ ...c }));
-  if (options.shortTitle) chats[1].title = 'Hi';
+export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boolean; rowActions?: boolean; shortTitle?: boolean; transcriptHeight?: boolean } = {}): AgentChatFixture {
+  const chats = (options.transcriptHeight ? CHATS.slice(0, 1) : CHATS).map((c) => ({ ...c }));
+  const messages = options.transcriptHeight
+    ? [{ role: 'user', content: 'Can we plan the next session?', seq: 1 },
+       { role: 'assistant', content: 'Yes, let’s plan the next session.', seq: 2 }]
+    : MESSAGES;
+  if (options.shortTitle) {
+    // Loc can change when a real node moves; this seeded fixture never moves
+    // its chats, so loc is stable here even if the seed array is reordered.
+    // The one-chat transcript-height seed has no chats:b; there shortTitle is a
+    // no-op, as it was on main. Every other seed must hold it.
+    const chat = chats.find(c => c.loc === 'chats:b');
+    if (!chat && !options.transcriptHeight) throw new Error('short-title fixture requires chats:b');
+    if (chat) chat.title = 'Hi';
+  }
   navigationCalls.length = 0;
   // The recorder only records. SvelteKit's replaceState also changes the
   // address, and AgentChat reads `window.location` live before each sync, so
@@ -113,7 +125,7 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
       const { chatId } = JSON.parse(String(init?.body ?? '{}'));
       const chat = chats.find((c) => c.loc === chatId);
       if (!chat) return json({ error: 'Chat not found' }, 404);
-      return json({ chat, messages: MESSAGES, hasOlder: false });
+      return json({ chat, messages, hasOlder: false });
     }
     if (url.includes('/api/agent-chat/start')) {
       calls.start++;

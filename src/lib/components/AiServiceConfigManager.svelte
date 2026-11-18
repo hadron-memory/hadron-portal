@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte';
+  import AiConfigTestFeedback from './AiConfigTestFeedback.svelte';
   import { testResultView, type AiConfigTestResult, type AiConfigTestView } from '$lib/ai-config-test';
   import { lookupOwn } from '$lib/lookup';
   import { safeRedirect } from '$lib/safeRedirect';
@@ -1020,7 +1021,12 @@
         // which is tested and never saved.
         const override: Record<string, unknown> = {};
         if (providerInput !== editing.provider) override.provider = providerInput;
-        if (modelInput.trim() && modelInput.trim() !== editing.model) override.model = modelInput.trim();
+        // Test probes the string Save would leave (#2181): verbatim for Kimi,
+        // trimmed for every other provider, and compared the same way.
+        // savedModel() reads the LIVE provider dropdown (providerInput), never
+        // editing.provider, and always returns a string; blank was refused above.
+        const modelOnSave = savedModel();
+        if (modelOnSave !== editing.model) override.model = modelOnSave;
         // The credential Save would leave, by Save's own rule: "Remove the
         // stored key" wins over a typed key, so a pass can't hide a config that
         // won't run once saved.
@@ -1362,18 +1368,7 @@
         <p class="mt-1 text-xs text-zinc-400">{s.paramsHint()}</p>
       </div>
 
-      {#if testResult}
-        <div
-          class="rounded-md border px-3 py-2 text-xs {testResult.ok
-            ? 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300'
-            : 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'}"
-        >
-          <p>{testResult.ok ? '' : '× '}{testResult.headline}</p>
-          {#each testResult.details as d (d)}
-            <p class="mt-0.5 opacity-80">{d}</p>
-          {/each}
-        </div>
-      {/if}
+      <AiConfigTestFeedback result={testResult} />
 
       <div class="flex flex-wrap gap-2">
         <button

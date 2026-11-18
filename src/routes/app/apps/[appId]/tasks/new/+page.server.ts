@@ -78,10 +78,10 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   const fromRaw = url.searchParams.get('from');
   if (fromRaw) {
     const seg = resolveSegment(fromRaw, app.urn);
-    if (seg.kind === 'unknown') throw error(404, 'Task not found, or you can’t see it');
+    if (seg.kind === 'unknown') throw error(404, 'Task not found');
     const srcData = await client.request<{ agentTask: AgentTaskDetail | null }>(AGENT_TASK_DETAIL_QUERY, { id: seg.ref });
     const src = srcData.agentTask;
-    if (!src) throw error(404, 'Task not found, or you can’t see it');
+    if (!src) throw error(404, 'Task not found');
     if (src.appId !== app.id) {
       // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
       await parent();

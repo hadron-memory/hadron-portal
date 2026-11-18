@@ -1212,6 +1212,25 @@ export const UPDATE_WORKER_SIGNATURE_MUTATION = /* GraphQL */ `
   }
 `;
 
+/**
+ * portal#2205 — the worker's App id, for the worker page's delete action to
+ * redirect to the App's staff roster after the worker's own page stops
+ * resolving. Light on purpose: it runs beside a destructive mutation, so it
+ * selects nothing the redirect does not need. organizationId backs the
+ * degraded target (hadron-portal#742): /app/apps is the org-less "My apps"
+ * list and cannot show an org-owned App, so a masked/unreadable App falls
+ * back to its org's Apps list instead. A missing/masked app answers null,
+ * and the caller falls back from there.
+ */
+export const WORKER_APP_QUERY = /* GraphQL */ `
+  query WorkerApp($ref: ID!) {
+    worker(ref: $ref) {
+      id
+      app { id organizationId }
+    }
+  }
+`;
+
 export const WORKER_QUERY = /* GraphQL */ `
   ${WORKER_FIELDS}
   query Worker($ref: ID!) {
@@ -5020,12 +5039,25 @@ export const SKILL_PLAN_EXPORT_QUERY = /* GraphQL */ `
   }
 `;
 
+// #2043 / server#4042: server-owned decisions; no model policy lives in the portal.
+export const CHAT_EFFECTIVE_TOOL_CHOICE_QUERY = /* GraphQL */ `
+  query ChatEffectiveToolChoice($chatId: String!) {
+    chatEffectiveToolChoice(chatId: $chatId)
+  }
+`;
+
+export const CHAT_TOOL_CHOICE_FOR_QUERY = /* GraphQL */ `
+  query ChatToolChoiceFor($provider: String!, $model: String!) {
+    chatToolChoiceFor(provider: $provider, model: $model)
+  }
+`;
+
 // #937 (server#1378): test a SAVED config by id, of any owner kind, through the
 // server's own run path. The stored key never leaves the server; `override`
 // tests edited-but-unsaved values without storing them.
 export const TEST_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
   mutation TestAiServiceConfig($id: ID!, $override: AiServiceConfigTestOverride) {
-    testAiServiceConfig(id: $id, override: $override) {
+    testAiServiceConfig(id: $id, override: $override, chatProbe: true) {
       ok
       provider
       model
@@ -5035,6 +5067,7 @@ export const TEST_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
       latencyMs
       reply
       error { code message transient }
+      chat { status }
     }
   }
 `;
@@ -5522,6 +5555,12 @@ const AGENT_TASK_ROW_FIELDS = /* GraphQL */ `
     owner { id kind name urn }
     assignee { id kind name urn }
     startBy
+    finishBy
+    # portal#2244 (hadron-server#4220, implementing #2654): the server's overdue
+    # verdict — a pending, not-started task past its start-by, or a pending-or-
+    # started task past its finish-by and not ended; backlog never — on the server
+    # clock. The page renders this and computes no overdue predicate of its own.
+    overdue
     createdAt
     updatedAt
     tags

@@ -12,16 +12,28 @@ import { chromium } from 'playwright';
 
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 } });
 let browser;
+// The probe owns its document: a fulfilled inert page, not a dev-server path
+// (/@vite/client falls through to SvelteKit's 404 document and logs a server
+// error). Asserting 200 makes a regression to a Kit-404 URL fail loudly.
+async function gotoFixtureDocument(page, origin) {
+  await page.route('**/__org_integrations_row_fixture*', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>Org integrations row</title>' }));
+  const response = await page.goto(new URL('/__org_integrations_row_fixture', origin).href);
+  assert.equal(response?.status(), 200, `fixture document was not served inert (HTTP ${response?.status()})`);
+}
+
 try {
   await server.listen();
   const origin = server.resolvedUrls.local[0];
-  const css = await (await fetch(new URL('src/app.css?direct', origin))).text();
+  const cssResponse = await fetch(new URL('src/app.css?direct', origin));
+  assert.ok(cssResponse.ok, `compiled app.css was not served (HTTP ${cssResponse.status})`);
+  const css = await cssResponse.text();
+  assert.ok(css.length > 1000, `compiled app.css looks empty (${css.length} bytes)`);
   browser = await chromium.launch({ headless: true });
 
   for (const [width, column] of [[390, 308], [390, 324], [320, 238], [1280, 1000]]) {
     for (const dark of [false, true]) {
       const page = await browser.newPage({ viewport: { width, height: 844 } });
-      await page.goto(new URL('/@vite/client', origin).href);
+      await gotoFixtureDocument(page, origin);
       await page.evaluate(([css, dark]) => {
         document.head.innerHTML = '';
         document.documentElement.classList.toggle('dark', dark);
@@ -30,7 +42,7 @@ try {
       await page.addStyleTag({ content: `#col { width: ${column}px; margin: 0 auto; }` });
       await page.evaluate(async () => {
         const { mountAddRow } = await import('/src/lib/test/fixtures/add-integration-row-harness.ts');
-        mountAddRow(document.getElementById('col'));
+        mountAddRow(document.getElementById('col'), { onconfigure: () => { window.__configured = (window.__configured ?? 0) + 1; } });
       });
       await page.waitForSelector('#addIntegration');
 
@@ -52,22 +64,60 @@ try {
       });
       const got = await measure();
       const label = `${width}px viewport, ${column}px column, ${dark ? 'dark' : 'light'}`;
+      assert.equal(got.viewport, width, `${label}: the page is not laid out at ${width}px (viewport meta or emulation)`);
       assert.equal(got.controls, 2, `${label}: select and Configure expected`);
       assert.equal(got.scrollWidth, width, `${label}: page overflows (${got.scrollWidth} > ${width})`);
       assert.ok(got.rects.every((r) => r.right <= got.colRight + 0.5), `${label}: a control runs past the column (${JSON.stringify(got.rects)})`);
       assert.ok(got.reachable, `${label}: a control is off-screen or covered`);
 
-      if (width === 390 && column === 308 && !dark) {
-        // Prove the browser sees the defect: take the wrap away and the row
-        // must overflow its column, or this check cannot tell fixed from broken.
+      if (column < 400) {
+        // Prove the browser sees the defect in every cell where the row can
+        // overflow: take the wrap away and the row must overflow its column, or
+        // this check cannot tell fixed from broken. The 1280px / 1000px cells
+        // are excluded because the unwrapped row fits there by design.
         const mutant = await page.addStyleTag({ content: '[data-testid="add-integration-row"] { flex-wrap: nowrap !important; } [data-testid="add-integration-row"] > select { min-width: auto !important; max-width: none !important; flex: none !important; }' });
         const m = await measure();
-        assert.ok(m.rects.some((r) => r.right > m.colRight + 0.5) || m.scrollWidth > width, 'no-wrap mutant must overflow the column');
+        assert.ok(m.rects.some((r) => r.right > m.colRight + 0.5) || m.scrollWidth > width, `${label}: no-wrap mutant must overflow the column`);
         await mutant.evaluate((el) => el.remove());
+      }
+
+      if (width === 390 && column === 308) {
+        // Interaction (portal#1829): select an integration with the keyboard, Tab
+        // to Configure, press Enter; the click must reach `onconfigure` once.
+        // Configure is disabled until something is selected, so Tab from the
+        // select must skip it first.
+        await page.evaluate(() => { window.__configured = 0; });
+        await page.focus('#addIntegration');
+        await page.keyboard.press('Tab');
+        assert.equal(await page.evaluate(() => document.activeElement?.tagName), 'BODY', `${label}: Configure took focus while disabled`);
+        await page.focus('#addIntegration');
+        await page.selectOption('#addIntegration', 'exchange');
+        await page.keyboard.press('Tab');
+        assert.equal(await page.evaluate(() => document.activeElement?.textContent?.trim()), 'Configure', `${label}: Tab from the select does not reach Configure`);
+        await page.keyboard.press('Enter');
+        assert.equal(await page.evaluate(() => window.__configured), 1, `${label}: Enter on Configure did not call onconfigure exactly once`);
       }
       console.log(JSON.stringify({ width, column, dark, scrollWidth: got.scrollWidth, rects: got.rects }));
       await page.close();
     }
+  }
+
+  // The hasGithubConfigured variant (portal#1829): GitHub is no longer offered
+  // once configured, only Exchange, and the row still fits the narrowest column.
+  for (const [hasGithubConfigured, expected] of [[false, ['', 'github', 'exchange']], [true, ['', 'exchange']]]) {
+    const page = await browser.newPage({ viewport: { width: 320, height: 844 } });
+    await gotoFixtureDocument(page, origin);
+    await page.evaluate((css) => { document.head.innerHTML = ''; document.body.innerHTML = `<style>${css}</style><main id="col"></main>`; }, css);
+    await page.addStyleTag({ content: '#col { width: 238px; margin: 0 auto; }' });
+    await page.evaluate(async (hasGithubConfigured) => {
+      const { mountAddRow } = await import('/src/lib/test/fixtures/add-integration-row-harness.ts');
+      mountAddRow(document.getElementById('col'), { hasGithubConfigured });
+    }, hasGithubConfigured);
+    await page.waitForSelector('#addIntegration');
+    const values = await page.$$eval('#addIntegration option', (os) => os.map((o) => o.value));
+    assert.deepEqual(values, expected, `hasGithubConfigured=${hasGithubConfigured}: wrong options offered`);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 320, `hasGithubConfigured=${hasGithubConfigured}: page overflows at 320px`);
+    await page.close();
   }
 } finally {
   await browser?.close();
