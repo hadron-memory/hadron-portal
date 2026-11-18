@@ -30,9 +30,30 @@ describe('Tester link owner scope (#2100)', () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it('preserves the org-manager affordance without an owner-list read', async () => {
-    expect(await testerLinkEligibility(client, { ...personal, organizationId: 'org-a' }, true)).toBe(true);
-    expect(request).not.toHaveBeenCalled();
+  describe('org-owned Agent mirrors the Tester reach (#2187)', () => {
+    const orgOwned = { id: 'target', organizationId: 'org-a' };
+    const orgsWith = (ids: string[]) => ({ organizations: { items: [{ id: 'org-a', agents: ids.map((id) => ({ id })) }], total: 1 } });
+
+    it('hides the link when the org agents list omits the Agent (PERSONAL, non-creator manager)', async () => {
+      request.mockResolvedValue(orgsWith(['someone-elses']));
+      expect(await testerLinkEligibility(client, orgOwned, true)).toBe(false);
+    });
+
+    it('shows the link when the org agents list includes the Agent (creator, or ORGANIZATION/PUBLIC)', async () => {
+      request.mockResolvedValue(orgsWith(['target']));
+      expect(await testerLinkEligibility(client, orgOwned, true)).toBe(true);
+    });
+
+    it.each([false, null])('does not read the org list when management is %s', async (manage) => {
+      expect(await testerLinkEligibility(client, orgOwned, manage)).toBe(manage);
+      expect(request).not.toHaveBeenCalled();
+    });
+
+    it('a failed org read is unknown, not hidden-as-false', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      request.mockRejectedValueOnce(new Error('private upstream details'));
+      expect(await testerLinkEligibility(client, orgOwned, true)).toBeNull();
+    });
   });
 
   it('admits the owner through ownedByMe, including a platform admin who owns it', async () => {

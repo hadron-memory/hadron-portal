@@ -39,15 +39,29 @@ export async function requireTesterAgent(
   return (await canManageStrict(client, userId, found.agent.urn)) ? found : null;
 }
 
-async function findVisibleAgent(
+/**
+ * The Tester's org-Agent reach: the Agent as the `organizations { agents }`
+ * list shows it to this caller (a PERSONAL Agent only to its creator). Shared
+ * with the Agent page's link eligibility so the link cannot drift from it.
+ */
+export async function findOrgListedAgent(
   client: ReturnType<typeof gqlClient>,
   agentId: string,
-): Promise<{ agent: TesterAgent; org: Organization | null } | null> {
+): Promise<{ agent: TesterAgent; org: Organization } | null> {
   const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
   for (const org of orgs) {
     const agent = (org.agents ?? []).find((a) => a.id === agentId);
     if (agent) return { agent, org };
   }
+  return null;
+}
+
+async function findVisibleAgent(
+  client: ReturnType<typeof gqlClient>,
+  agentId: string,
+): Promise<{ agent: TesterAgent; org: Organization | null } | null> {
+  const inOrg = await findOrgListedAgent(client, agentId);
+  if (inOrg) return inOrg;
 
   const owned = await fetchAllItems<TesterAgent>(client, MY_AGENTS_QUERY, 'agents');
   const agent = owned.find((a) => a.id === agentId);
