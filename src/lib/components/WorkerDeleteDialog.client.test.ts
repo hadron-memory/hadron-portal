@@ -160,3 +160,22 @@ it('portal#2205: a failed redirect speaks redirect-specific copy linking the ros
   expect(link?.getAttribute('href')).toBe('/app/apps/app-one?tab=staff');
   expect(link?.textContent).toContain('roster');
 });
+it('portal#2227: an uncertain answer latches Submit — a retry may re-post a committed delete; only Cancel/Escape release', async () => {
+  const { onclose } = open(); await tick(); await check();
+  await submitEnhancedWithRawResult(form(), {
+    type: 'failure', status: 502,
+    data: { deleteWorkerResult: { ok: false, workerRef: 'one', code: null, uncertain: true, message: 'The delete may have succeeded. Reload to see the current state.' } },
+  }); flushSync(); await tick();
+  // The reload-first sentence is shown, and the naive-retry hazard is closed:
+  // the outcome is unknown, so Submit must NOT come back (a retry would
+  // re-post a delete that may already have committed and read
+  // WORKER_NOT_FOUND as a refusal). Same latch shape as the redirect leg.
+  expect(document.querySelector('[role=alert]')?.textContent).toContain('may have succeeded');
+  expect(document.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled).toBe(true);
+  expect((await submitEnhanced(form())).cancelled).toBe(true);
+  // The modal is not a trap: Cancel stays enabled and closes.
+  const cancel = [...document.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Cancel')!;
+  expect(cancel.disabled).toBe(false);
+  cancel.click(); flushSync();
+  expect(onclose).toHaveBeenCalledOnce();
+});
