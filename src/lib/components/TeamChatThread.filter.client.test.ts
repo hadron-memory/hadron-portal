@@ -339,3 +339,128 @@ it('cached transcript restoration never merges an old filter into a new filter',
   expect(m.target.textContent).not.toContain('body 1');
   expect(m.target.textContent).not.toContain('body 2');
 });
+
+// #2250 fix round (Gil's BLIND P2s + Georgia's F1): pending-request toggles,
+// the 20-head cap affordance, per-chip focus targets, and chip identity.
+describe('TeamChatThread team filter — pending toggles, cap, focus, chip identity (fix round)', () => {
+  const CY = { headId: 'head-cy', label: 'team.cy' };
+  const chipFor = (m: Mounted<Record<string, unknown>>, head: string) =>
+    m.target.querySelector(`[data-testid="team-chat-filter-active"][data-head="${head}"]`) as HTMLButtonElement | null;
+
+  it('toggles against the pending request while the route-owned read has not landed', async () => {
+    // The parent never writes back here: both clicks land while the first
+    // goto is still pending, so the second toggle must compute against the
+    // REQUESTED set, not the stale prop (BLIND P2: rapid toggles dropped the
+    // first selection).
+    const onSelectTeam = vi.fn();
+    const m = await mountThread({
+      messages: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [BO] })],
+      total: 2, onSelectTeam,
+    });
+    const tags = qa(m, 'team-chat-tag');
+    (tags[0] as HTMLButtonElement).click();
+    expect(onSelectTeam).toHaveBeenLastCalledWith({ kind: 'teams', headRefs: ['head-ada'] });
+    (tags[1] as HTMLButtonElement).click();
+    expect(onSelectTeam).toHaveBeenLastCalledWith({ kind: 'teams', headRefs: ['head-ada', 'head-bo'] });
+  });
+
+  it('reads a second fast click on the same chip as add-then-remove, not add-add', async () => {
+    const onSelectTeam = vi.fn();
+    const m = await mountThread({ messages: [message(1, { teamTags: [ADA] })], total: 1, onSelectTeam });
+    const tag = qa(m, 'team-chat-tag')[0] as HTMLButtonElement;
+    tag.click();
+    tag.click();
+    expect(onSelectTeam).toHaveBeenNthCalledWith(1, { kind: 'teams', headRefs: ['head-ada'] });
+    expect(onSelectTeam).toHaveBeenNthCalledWith(2, NO_TEAM_FILTER);
+  });
+
+  it('renders an unselected row tag at the 20-head cap as disabled with the limit as its title, and never navigates', async () => {
+    const full = Array.from({ length: 20 }, (_, i) => `head-full${i}`);
+    const onSelectTeam = vi.fn();
+    const m = await mountThread({
+      messages: [message(1, { teamTags: [{ headId: full[0], label: 'team.zero' }, ADA] }), message(2, { teamTags: [ADA] })],
+      total: 2,
+      filter: { kind: 'teams', headRefs: full },
+      onSelectTeam,
+    });
+    const tags = qa(m, 'team-chat-tag');
+    // Both rows carry the unselected head-ada plus row 1's already-selected
+    // head-full0: at the cap the unselected tag is disabled and its title
+    // names the limit instead of promising an add; the selected one stays
+    // enabled (removal is always allowed).
+    expect(tags).toHaveLength(3);
+    const disabled = tags.filter((el) => el.hasAttribute('disabled'));
+    expect(disabled.map((el) => el.getAttribute('data-head'))).toEqual(['head-ada', 'head-ada']);
+    for (const el of disabled) expect(el.getAttribute('title')).toBe('At most 20 teams can be selected.');
+    const enabled = tags.filter((el) => !el.hasAttribute('disabled'));
+    expect(enabled.map((el) => el.getAttribute('data-head'))).toEqual(['head-full0']);
+    expect(enabled[0].getAttribute('title')).toBe('Remove this team from the filter');
+    (disabled[0] as HTMLButtonElement).click(); // a disabled control never navigates
+    expect(onSelectTeam).not.toHaveBeenCalled();
+  });
+
+  it('focuses the added head\'s own chip, not the first chip, when several are selected', async () => {
+    const props = reactiveProps<Record<string, unknown>>({
+      messages: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [BO] })],
+      total: 2, filter: { kind: 'teams', headRefs: ['head-ada'] },
+      onSelectTeam: (next: TeamChatFilter) => { props.filter = next; },
+    });
+    const m = await mountThread(props);
+    document.body.append(m.target);
+    (qa(m, 'team-chat-tag')[1] as HTMLButtonElement).click();
+    await tick(4);
+    expect(document.activeElement).toBe(chipFor(m, 'head-bo'));
+    expect(document.activeElement).not.toBe(chipFor(m, 'head-ada'));
+  });
+
+  it('focuses the removed chip\'s neighbour on a middle-chip removal, and All messages when the last head goes', async () => {
+    const props = reactiveProps<Record<string, unknown>>({
+      messages: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [BO] }), message(3, { teamTags: [CY] })],
+      total: 3, filter: { kind: 'teams', headRefs: ['head-ada', 'head-bo', 'head-cy'] },
+      onSelectTeam: (next: TeamChatFilter) => { props.filter = next; },
+    });
+    const m = await mountThread(props);
+    document.body.append(m.target);
+    chipFor(m, 'head-bo')!.click(); // middle chip out
+    await tick(4);
+    expect(document.activeElement).toBe(chipFor(m, 'head-cy'));
+    chipFor(m, 'head-cy')!.click(); // now the last-but-one… focus its neighbour chain
+    await tick(4);
+    chipFor(m, 'head-ada')!.click(); // the last head: nothing remains
+    await tick(4);
+    const all = [...q(m, 'team-chat-filter')!.querySelectorAll('button')].find((b) => b.textContent?.includes('All messages'))!;
+    expect(document.activeElement).toBe(all);
+  });
+
+  it('gives several unlabelled chips distinct accessible names built from their head refs', async () => {
+    // Georgia's LOCAL P3 + the BLIND focus note: two sparse heads used to
+    // render identical "Selected team" chips — same name, no identity.
+    const m = await mountThread({
+      messages: [message(1, { teamTags: [ADA] })], total: 1,
+      filter: { kind: 'teams', headRefs: ['head-x1', 'head-y2'] },
+      onSelectTeam: vi.fn(),
+    });
+    const chips = qa(m, 'team-chat-filter-active');
+    expect(chips).toHaveLength(2);
+    const names = chips.map((el) => el.getAttribute('aria-label') ?? '');
+    expect(names[0]).toContain('head-x1');
+    expect(names[1]).toContain('head-y2');
+    expect(names[0]).not.toBe(names[1]);
+    expect(chips[0].textContent).toContain('head-x1');
+    expect(chips[1].textContent).toContain('head-y2');
+  });
+
+  it('announces the remaining set when a head leaves via its filter-bar chip (no clicked label exists)', async () => {
+    const props = reactiveProps<Record<string, unknown>>({
+      messages: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [BO] })],
+      total: 2, filter: { kind: 'teams', headRefs: ['head-ada', 'head-bo'] },
+      onSelectTeam: (next: TeamChatFilter) => { props.filter = next; },
+    });
+    const m = await mountThread(props);
+    document.body.append(m.target);
+    chipFor(m, 'head-ada')!.click();
+    await tick(4);
+    expect(q(m, 'team-chat-filter-status')?.textContent).toContain('team.bo');
+    expect(q(m, 'team-chat-filter-status')?.textContent).not.toContain('team.ada');
+  });
+});
