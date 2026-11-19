@@ -166,6 +166,62 @@ describe('App Runs manual server table', () => {
     expect(document.activeElement).toBe(running);
     expect(failed.checked).toBe(true); expect(running.checked).toBe(true);
   });
+  // portal#2290 row 2: while a request is held, the request the reader waits on is the base for the next click.
+  describe('pager and sort header follow the held request (portal#2290)', () => {
+    const goto = () => navigationCalls.filter(x => x.fn === 'goto');
+    const lastUrl = () => new URL(goto().at(-1)!.args[0] as string, 'https://test');
+    it('Next from a held intent on page 1 asks page 2, never served page 3 + 1', async () => {
+      const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
+      const m = mount(); await tick(8);
+      statusBox(m.target, 'FAILED').click(); await tick(4);
+      expect(lastUrl().searchParams.get('page')).toBeNull();
+      find(m.target, 'Next').click(); await tick(4);
+      expect(goto()).toHaveLength(2);
+      expect(lastUrl().searchParams.get('page')).toBe('2');
+      expect(lastUrl().searchParams.get('status')).toBe('FAILED');
+      held.resolve(); await tick(8);
+    });
+    it('Previous from a held intent on page 1 makes no request', async () => {
+      const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
+      const m = mount(); await tick(8);
+      statusBox(m.target, 'FAILED').click(); await tick(4);
+      find(m.target, 'Previous').click(); await tick(4);
+      expect(goto()).toHaveLength(1);
+      held.resolve(); await tick(8);
+    });
+    it('does not disable the pager or the sort header while a request is held', async () => {
+      const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
+      const m = mount(); await tick(8);
+      find(m.target, 'Previous').click(); await tick(4);
+      expect(lastUrl().searchParams.get('page')).toBe('2');
+      for (const el of [find(m.target, 'Previous'), find(m.target, 'Next'), find(m.target, 'Started')]) {
+        expect(el.hasAttribute('disabled')).toBe(false);
+        expect(el.hasAttribute('aria-disabled')).toBe(false);
+      }
+      held.resolve(); await tick(8);
+    });
+    it('a second header click while the first is held toggles from the held sort, not the served one', async () => {
+      const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
+      const m = mount(); await tick(8);
+      find(m.target, 'Started').click(); await tick(4);
+      const first = lastUrl().searchParams.get('dir');
+      find(m.target, 'Started').click(); await tick(4);
+      expect(goto()).toHaveLength(2);
+      expect(lastUrl().searchParams.get('sort')).toBe('startedAt');
+      expect(lastUrl().searchParams.get('dir')).not.toBe(first);
+      held.resolve(); await tick(8);
+    });
+    it('a header sort click while a filter is held keeps the held filter', async () => {
+      const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
+      const m = mount(); await tick(8);
+      statusBox(m.target, 'FAILED').click(); await tick(4);
+      find(m.target, 'Started').click(); await tick(4);
+      expect(goto()).toHaveLength(2);
+      expect(lastUrl().searchParams.get('status')).toBe('FAILED');
+      expect(lastUrl().searchParams.get('sort')).toBe('startedAt');
+      held.resolve(); await tick(8);
+    });
+  });
   it('does not move a live filter focus to the heading after navigation', async () => {
     const m = mount(); await tick(8);
     const sort = m.target.querySelector<HTMLSelectElement>('select[aria-label="Sort runs by"]')!;
