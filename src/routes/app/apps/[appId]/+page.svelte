@@ -13,6 +13,9 @@
   import StopBanner from '$lib/components/stops/StopBanner.svelte';
   import { rosterOf } from '$lib/withheld';
   import { publicServerBaseUrl } from '$lib/public-server-base-url';
+  // portal#2249: one source for the App type's labels — Profile row, Settings
+  // read-only row and the Settings options render these so they cannot drift.
+  import { APP_TYPE_VALUES, appTypeLabel } from '$lib/i18n/app-type-strings';
   import { tick, untrack, onDestroy } from 'svelte';
   import { applyAction } from '$app/forms';
   import { page } from '$app/stores';
@@ -2512,7 +2515,7 @@
           </div>
           <div class="flex items-center justify-between gap-4 px-5 py-3">
             <span class="text-sm text-zinc-500">{t('app.profile.type', 'Type')}</span>
-            <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.appType}</span>
+            <span data-testid="profile-type" class="text-sm font-medium text-zinc-900 dark:text-white">{appTypeLabel(app.appType)}</span>
           </div>
           <div class="flex items-center justify-between gap-4 px-5 py-3">
             <span class="text-sm text-zinc-500">{t('app.profile.owner', 'Owner organization')}</span>
@@ -4022,12 +4025,9 @@
                 <label for="appType" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
                 <select id="appType" name="appType" bind:value={$appSettingsForm.appType}
                   class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                  <option value="WORKSTATION">💻 Workstation</option>
-                  <option value="CHATBOT">💬 Chatbot</option>
-                  <option value="AGENT">🤖 Agent</option>
-                  <option value="AUTOMATION">⚙️ Automation</option>
-                  <option value="CLOUD">☁️ Cloud</option>
-                  <option value="IOT">📡 IoT</option>
+                  {#each APP_TYPE_VALUES as appTypeValue (appTypeValue)}
+                    <option value={appTypeValue}>{appTypeLabel(appTypeValue)}</option>
+                  {/each}
                 </select>
               </div>
               <div>
@@ -4108,7 +4108,7 @@
           <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
             <div class="flex items-center justify-between px-5 py-3">
               <span class="text-sm text-zinc-500">Type</span>
-              <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.appType}</span>
+              <span data-testid="settings-type" class="text-sm font-medium text-zinc-900 dark:text-white">{appTypeLabel(app.appType)}</span>
             </div>
             <div class="flex items-center justify-between px-5 py-3">
               <span class="text-sm text-zinc-500">Role</span>
