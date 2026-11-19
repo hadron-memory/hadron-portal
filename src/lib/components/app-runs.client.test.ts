@@ -181,7 +181,7 @@ describe('App Runs manual server table', () => {
     it('Next from a held intent on page 1 asks page 2, never served page 3 + 1', async () => {
       const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
       const m = mount(); await tick(8);
-      statusBox(m.target, 'FAILED').click(); await tick(4);
+      statusBox(m.target, 'Failed').click(); await tick(4);
       expect(lastUrl().searchParams.get('page')).toBeNull();
       find(m.target, 'Next').click(); await tick(4);
       expect(goto()).toHaveLength(2);
@@ -192,7 +192,7 @@ describe('App Runs manual server table', () => {
     it('Previous from a held intent on page 1 makes no request', async () => {
       const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
       const m = mount(); await tick(8);
-      statusBox(m.target, 'FAILED').click(); await tick(4);
+      statusBox(m.target, 'Failed').click(); await tick(4);
       find(m.target, 'Previous').click(); await tick(4);
       expect(goto()).toHaveLength(1);
       held.resolve(); await tick(8);
@@ -222,7 +222,7 @@ describe('App Runs manual server table', () => {
     it('a rejected held request rolls the pager back to the served page', async () => {
       const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
       const m = mount(); await tick(8);
-      statusBox(m.target, 'FAILED').click(); await tick(4);
+      statusBox(m.target, 'Failed').click(); await tick(4);
       held.reject(new Error('offline')); await tick(8);
       navigationHooks.onGoto = undefined;
       find(m.target, 'Next').click(); await tick(4);
@@ -234,8 +234,8 @@ describe('App Runs manual server table', () => {
       const a = deferred<void>(), b = deferred<void>();
       let call = 0; navigationHooks.onGoto = () => ++call === 1 ? a.promise : b.promise;
       const m = mount(); await tick(8);
-      statusBox(m.target, 'FAILED').click(); await tick(4);
-      statusBox(m.target, 'RUNNING').click(); await tick(4);
+      statusBox(m.target, 'Failed').click(); await tick(4);
+      statusBox(m.target, 'Running').click(); await tick(4);
       a.resolve(); await tick(8);
       find(m.target, 'Next').click(); await tick(4);
       expect(goto()).toHaveLength(3);
@@ -255,7 +255,7 @@ describe('App Runs manual server table', () => {
     it('a header sort click while a filter is held keeps the held filter', async () => {
       const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
       const m = mount(); await tick(8);
-      statusBox(m.target, 'FAILED').click(); await tick(4);
+      statusBox(m.target, 'Failed').click(); await tick(4);
       find(m.target, 'Started').click(); await tick(4);
       expect(goto()).toHaveLength(2);
       expect(lastUrl().searchParams.get('status')).toBe('FAILED');
