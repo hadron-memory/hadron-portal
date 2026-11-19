@@ -12,7 +12,9 @@ concurrency:
 jobs:
   api-key-chain:
     # #1285: Playwright 1.58.2 cannot install Chromium on Ubuntu 26.04.
-    runs-on: ubuntu-24.04
+    # PR jobs run on the orca1 self-hosted runner only while the repo variable PORTAL_SELF_HOSTED is 'true'
+    # (hadron-server proposals:orca1-self-hosted-runner-portal); otherwise, and for pushes to main, ubuntu-24.04.
+    runs-on: ${{ github.event_name == 'pull_request' && vars.PORTAL_SELF_HOSTED == 'true' && fromJSON('["self-hosted","orca1-portal"]') || 'ubuntu-24.04' }}
     timeout-minutes: 20
     defaults:
       run:

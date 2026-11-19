@@ -15,7 +15,9 @@ concurrency:
 
 jobs:
   tab-strips:
-    runs-on: ubuntu-latest
+    # PR jobs run on the orca1 self-hosted runner only while the repo variable PORTAL_SELF_HOSTED is 'true'
+    # (hadron-server proposals:orca1-self-hosted-runner-portal); otherwise, and for pushes to main, ubuntu-latest.
+    runs-on: ${{ github.event_name == 'pull_request' && vars.PORTAL_SELF_HOSTED == 'true' && fromJSON('["self-hosted","orca1-portal"]') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
