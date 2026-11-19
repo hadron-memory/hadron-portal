@@ -22,14 +22,12 @@ export async function testerLinkEligibility(
   orgs: Organization[] = [],
 ): Promise<boolean | null> {
   if (canManage !== true) return canManage;
-  if (agent.organizationId !== null) {
-    // #2187: an org-owned Agent opens in the Tester only where the Tester's own
-    // org lookup finds it; a PERSONAL one is creator-only, even to managers.
-    // `orgs` is the list the page already loaded (the same query the Tester
-    // reads), so this adds no request. The Tester's user-owned fallback lists
-    // only user-owned Agents, so it cannot match an org-owned one.
-    return findOrgListedAgent(orgs, agent.id) !== null;
-  }
+  // #2187: the Tester's own two-step reach (resolve-agent findVisibleAgent): the
+  // caller's org agents list first (a PERSONAL Agent only to its creator), then
+  // the owned-by-me list. `orgs` is the list the page already loaded, so the
+  // common case adds no request; the owned read runs only when the org list
+  // misses (and always for a user-owned Agent, which has no org list).
+  if (agent.organizationId !== null && findOrgListedAgent(orgs, agent.id) !== null) return true;
   try {
     const owned = await fetchAllItems<{ id: string }>(client, TESTER_OWNED_AGENT_IDS_QUERY, 'agents');
     return owned.some((a) => a.id === agent.id);

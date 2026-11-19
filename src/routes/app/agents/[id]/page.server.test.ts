@@ -243,6 +243,7 @@ describe('/app/agents/[id] loader', () => {
     const fallback = mockRequest.getMockImplementation()!;
     mockRequest.mockImplementation(async (query, vars) => {
       if (query === SELF_CAN_MANAGE_QUERY) return { effectiveAccess: { canManage: true } };
+      if (query === TESTER_OWNED_AGENT_IDS_QUERY) return { agents: { items: [], total: 0 } };
       return fallback(query, vars);
     });
     const event = ev({ agentId: agentInA.id });
@@ -250,7 +251,6 @@ describe('/app/agents/[id] loader', () => {
     const result = await (await importLoad())(event) as { canManageAgent: boolean; canOpenTester: boolean };
     expect(result.canManageAgent).toBe(true);
     expect(result.canOpenTester).toBe(listed);
-    expect(mockRequest).not.toHaveBeenCalledWith(TESTER_OWNED_AGENT_IDS_QUERY, expect.anything());
   });
 
   it('#1226: a failed Nodes-tab read (any page) is agentNodesError, not an empty memory', async () => {

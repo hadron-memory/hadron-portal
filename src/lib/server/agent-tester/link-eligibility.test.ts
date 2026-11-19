@@ -34,8 +34,23 @@ describe('Tester link owner scope (#2100)', () => {
     const orgOwned = { id: 'target', organizationId: 'org-a' };
     const orgsWith = (ids: string[], orgId = 'org-a') => [{ id: orgId, agents: ids.map((id) => ({ id })) }] as never;
 
-    it('hides the link when the org agents list omits the Agent (PERSONAL, non-creator manager)', async () => {
+    const ownedList = (ids: string[]) => ({ agents: { items: ids.map((id) => ({ id })), total: ids.length } });
+
+    it('hides the link when neither the org list nor the owned list shows the Agent (PERSONAL, non-creator manager)', async () => {
+      request.mockResolvedValue(ownedList([]));
       expect(await testerLinkEligibility(client, orgOwned, true, orgsWith(['someone-elses']))).toBe(false);
+      expect(request).toHaveBeenCalledWith(TESTER_OWNED_AGENT_IDS_QUERY, { limit: 200, offset: 0 });
+    });
+
+    it("falls back to the owned list like the Tester's second step", async () => {
+      request.mockResolvedValue(ownedList(['target']));
+      expect(await testerLinkEligibility(client, orgOwned, true, orgsWith([]))).toBe(true);
+    });
+
+    it('a failed owned read is unknown, not hidden-as-false', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      request.mockRejectedValueOnce(new Error('private upstream details'));
+      expect(await testerLinkEligibility(client, orgOwned, true, orgsWith([]))).toBeNull();
     });
 
     it('shows the link when the org agents list includes the Agent (creator, or ORGANIZATION/PUBLIC)', async () => {
@@ -47,15 +62,12 @@ describe('Tester link owner scope (#2100)', () => {
       expect(await testerLinkEligibility(client, orgOwned, true, orgs)).toBe(true);
     });
 
-    it('hides the link with no org list at all', async () => {
-      expect(await testerLinkEligibility(client, orgOwned, true)).toBe(false);
-    });
 
     it.each([false, null])('keeps %s when management is not proven', async (manage) => {
       expect(await testerLinkEligibility(client, orgOwned, manage, orgsWith(['target']))).toBe(manage);
     });
 
-    it('never makes a request: the page already holds the list', async () => {
+    it('makes no request when the org list shows the Agent', async () => {
       await testerLinkEligibility(client, orgOwned, true, orgsWith(['target']));
       expect(request).not.toHaveBeenCalled();
     });
