@@ -3232,17 +3232,19 @@ export const TEAM_CHAT_MESSAGES_QUERY = /* GraphQL */ `
   # reader while workers post, so it skips or duplicates mid-scroll. seq is
   # atomic and unique per chat, so the cursor is stable.
   #
-  # #1137: teamHeadRef / untagged are the S3 team filter (server#2019),
-  # mutually exclusive and applied SERVER-SIDE before paging and total. Both
-  # are omitted for the unfiltered thread. teamTags is the stored head
-  # identity per message — headId is the identity, label display only.
+  # #1137/#1482: teamHeadRefs / untagged are the S3 team filter (server#2019,
+  # widened to several heads by server#3759), mutually exclusive and applied
+  # SERVER-SIDE before paging and total. Both are omitted for the unfiltered
+  # thread; one head travels as the list of one, so the portal has a single
+  # wire shape for the team arm. teamTags is the stored head identity per
+  # message — headId is the identity, label display only.
   query TeamChatMessages(
     $appRef: ID!
     $sinceSeq: Int
     $beforeSeq: Int
     $limit: Int
     $offset: Int
-    $teamHeadRef: ID
+    $teamHeadRefs: [ID!]
     $untagged: Boolean
   ) {
     teamChatMessages(
@@ -3251,7 +3253,7 @@ export const TEAM_CHAT_MESSAGES_QUERY = /* GraphQL */ `
       beforeSeq: $beforeSeq
       limit: $limit
       offset: $offset
-      teamHeadRef: $teamHeadRef
+      teamHeadRefs: $teamHeadRefs
       untagged: $untagged
     ) {
       items {

@@ -87,7 +87,7 @@
   </span>
 </div>
 
-<div class="mt-4 min-w-0" data-testid="spec-document-body" role="region" aria-label={name}>
+<div class="mt-4 min-w-0" data-testid="spec-document-body" role="region" aria-label={name.trim() || t('spec-document.title', 'Document')}>
   {#if renderFailed}
     <pre class="overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-zinc-100 p-3 text-sm text-zinc-800 dark:bg-zinc-800 dark:text-zinc-100" data-testid="spec-document-raw">{markdown}</pre>
   {/if}

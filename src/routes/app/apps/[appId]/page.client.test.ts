@@ -93,7 +93,7 @@ describe('App team chat team filter (#1137)', () => {
       return { ok: true, json: async () => ({ items: [], total: 0, loadFailed: false }) } as Response;
     }));
     vi.useFakeTimers();
-    const data = { ...(await pageData()), teamChatMessages: [tagged(1)], teamFilter: { kind: 'team', headRef: 'head-ada' } as TeamChatFilter };
+    const data = { ...(await pageData()), teamChatMessages: [tagged(1)], teamFilter: { kind: 'teams', headRefs: ['head-ada'] } as TeamChatFilter };
     const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
@@ -107,6 +107,36 @@ describe('App team chat team filter (#1137)', () => {
     const url = call.args[0] as URL;
     expect([url.searchParams.get('tab'), url.searchParams.get('team')]).toEqual(['chats', 'untagged']);
     expect(call.args[1]).toMatchObject({ keepFocus: true, noScroll: true });
+  });
+
+  it('carries a multi-head selection on every poll read, and a second chip toggles it into the URL (#1482)', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=chats&team=head-ada&team=head-bo', { appId: 'a1' });
+    window.history.replaceState({}, '', '/app/apps/a1?tab=chats&team=head-ada&team=head-bo');
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    const requests: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      requests.push(url);
+      if (url.includes('/team-chat/authors')) return { ok: true, json: async () => ({ workers: [], loadFailed: false }) } as Response;
+      return { ok: true, json: async () => ({ items: [], total: 0, loadFailed: false }) } as Response;
+    }));
+    vi.useFakeTimers();
+    const taggedAda = tagged(1);
+    const taggedBo: TeamChatMessage = { ...message(2, 'w1'), teamTags: [{ headId: 'head-bo', label: 'team.bo' }] };
+    const data = { ...(await pageData()), teamChatMessages: [taggedAda, taggedBo], teamFilter: { kind: 'teams', headRefs: ['head-ada', 'head-bo'] } as TeamChatFilter };
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    await vi.advanceTimersByTimeAsync(8000);
+    await tick(3);
+    expect(requests.filter((u) => u.includes('sinceSeq'))).toEqual(['/app/apps/a1/team-chat?sinceSeq=2&team=head-ada&team=head-bo']);
+
+    // Toggling one head off asks for the smaller set, keeping the other params.
+    const boChip = Array.from(m.target.querySelectorAll('[data-testid="team-chat-tag"]')).find((b) => b.textContent?.includes('team.bo')) as HTMLButtonElement;
+    boChip.click();
+    const call = navigationCalls.findLast((c) => c.fn === 'goto')!;
+    const url = call.args[0] as URL;
+    expect(url.searchParams.getAll('team')).toEqual(['head-ada']);
+    expect(url.searchParams.get('tab')).toBe('chats');
   });
 
   it('never reads team-chat while ?team= is malformed (#1137 review)', async () => {
@@ -146,7 +176,7 @@ describe('App team chat team filter (#1137)', () => {
     await tick(2);
     await vi.advanceTimersByTimeAsync(8000);
     // The loader answers for ?team=head-bo while the unfiltered poll is in flight.
-    props.data = { ...props.data, teamChatMessages: [], teamChatTotal: 0, teamFilter: { kind: 'team', headRef: 'head-bo' } as TeamChatFilter };
+    props.data = { ...props.data, teamChatMessages: [], teamChatTotal: 0, teamFilter: { kind: 'teams', headRefs: ['head-bo'] } as TeamChatFilter };
     await tick(3);
     release({ ok: true, json: async () => ({ items: [message(2, 'w1')], total: 2, loadFailed: false }) } as Response);
     await vi.advanceTimersByTimeAsync(0);
@@ -2518,7 +2548,7 @@ it('portal#1410 carries an explicit filter focus request through the route-keyed
   const tag=m.target.querySelector<HTMLButtonElement>('[data-testid="team-chat-tag"]')!;
   tag.focus();tag.click();await tick(2);
   expect(navigationCalls.some(c=>c.fn==='goto'&&String(c.args[0]).includes('team=head-ada'))).toBe(true);
-  props.data={...props.data,teamFilter:{kind:'team',headRef:'head-ada'}};
+  props.data={...props.data,teamFilter:{kind:'teams',headRefs:['head-ada']}};
   await tick(2);finishNavigation();await tick(5);
   const active=m.target.querySelector('[data-testid="team-chat-filter-active"]');
   expect(active).not.toBeNull();expect(document.activeElement).toBe(active);
@@ -2546,10 +2576,18 @@ describe('portal#1624 BLIND refused and abandoned filter navigation', () => {
   };
   it('a refused filter never announces selected and cannot reapply its intent on a later healthy reload',async()=>{
     const {m,props,release}=await setup();await selectTag(m);
-    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-ada'},teamChatMessages:[],teamChatError:true,teamChatRefusal:refusal};
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'teams',headRefs:['head-ada']},teamChatMessages:[],teamChatError:true,teamChatRefusal:refusal};
     await tick(3);release();await tick(5);
     expect(m.target.querySelector('[data-testid="team-chat-filter-refused"]')?.textContent).toBe(refusal.message);
     expect(status(m).textContent).not.toContain('selected');
+    // #2250 round 5 (Gil P2-1): on the REAL route a refused read lands with the REQUESTED set applied, so the
+    // filter DID change. The sentence must say it was refused, never "did not change", and focus goes to a control
+    // that exists among the applied chips.
+    await tick(10); // the clear-then-set announcement needs a flush between its two writes
+    expect(status(m).textContent).toContain('The team filter was refused.');
+    expect(status(m).textContent).not.toContain('did not change');
+    expect(m.target.querySelector('[data-testid="team-chat-filter-active"][data-head="head-ada"]')).not.toBeNull();
+    expect(document.activeElement).toBe(m.target.querySelector('[data-testid="team-chat-filter-active"][data-head="head-ada"]'));
     props.data={...props.data,teamChatMessages:[tagged],teamChatError:false,teamChatRefusal:null};await tick(4);
     expect(status(m).textContent).not.toContain('selected');
   });
@@ -2557,13 +2595,13 @@ describe('portal#1624 BLIND refused and abandoned filter navigation', () => {
     const {m,props,release}=await setup();await selectTag(m);
     props.data={...props.data,teamFilterInvalid:true,teamChatError:true,teamChatMessages:[]};await tick(3);release();await tick(4);
     expect(status(m).textContent).not.toContain('selected');
-    props.data={...props.data,teamFilter:{kind:'team',headRef:'head-ada'},teamFilterInvalid:false,teamChatError:false,teamChatMessages:[tagged]};await tick(5);
+    props.data={...props.data,teamFilter:{kind:'teams',headRefs:['head-ada']},teamFilterInvalid:false,teamChatError:false,teamChatMessages:[tagged]};await tick(5);
     expect(status(m).textContent).not.toContain('selected');
     expect(document.activeElement).not.toBe(m.target.querySelector('[data-testid="team-chat-filter-active"]'));
   });
   it('a completed navigation that did not apply its requested key cannot fire on a later history visit',async()=>{
     const {m,props,release}=await setup();await selectTag(m);release();await tick(4);
-    props.data={...props.data,teamFilter:{kind:'team',headRef:'head-ada'}};await tick(5);
+    props.data={...props.data,teamFilter:{kind:'teams',headRefs:['head-ada']}};await tick(5);
     expect(status(m).textContent).not.toContain('selected');
     expect(document.activeElement).not.toBe(m.target.querySelector('[data-testid="team-chat-filter-active"]'));
   });
@@ -2577,10 +2615,16 @@ describe('portal#1624 BLIND refused and abandoned filter navigation', () => {
     const second=m.target.querySelectorAll<HTMLButtonElement>('[data-testid="team-chat-tag"]')[1];
     second.focus();second.click();await tick(2);
     pending[0].reject(new Error('old navigation cancelled'));await tick(3);
-    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-bo'},teamChatMessages:[bo]};
+    // #2250 fix round: the second click SUPERSEDED the first, so it computed
+    // from the pending request's set ({ada} + bo) — its navigation targets
+    // BOTH heads and the applied URL carries both. The #1624 property this
+    // pin guards is untouched: the old navigation's rejection consumed none
+    // of the newer choice, which completes and announces.
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'teams',headRefs:['head-ada','head-bo']},teamChatMessages:[bo]};
     await tick(3);pending[1].resolve();await tick(5);
     expect(status(m).textContent).toContain('team.bo');
-    expect(document.activeElement).toBe(m.target.querySelector('[data-testid="team-chat-filter-active"]'));
+    // Focus lands on the chip the click ADDED (head-bo's), not chip 1.
+    expect(document.activeElement).toBe(m.target.querySelector('[data-testid="team-chat-filter-active"][data-head="head-bo"]'));
   });
   it('clearing an initially invalid view still focuses and announces the healthy explicit All choice',async()=>{
     const {m,props,release}=await setup(true);
@@ -2597,7 +2641,7 @@ describe('portal#1624 BLIND refused and abandoned filter navigation', () => {
     const pending:Array<{resolve:()=>void;reject:(error:Error)=>void}>=[];
     navigationHooks.onGoto=()=>new Promise<void>((resolve,reject)=>{pending.push({resolve,reject});});
     await selectTag(m);
-    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-ada'}};await tick(3);pending[0].resolve();await tick(5);
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'teams',headRefs:['head-ada']}};await tick(3);pending[0].resolve();await tick(5);
     expect(status(m).textContent).toContain('team.ada');
     const untagged=untaggedButton(m);untagged.focus();untagged.click();await tick(2);
     expect(pending).toHaveLength(2);
@@ -2610,11 +2654,24 @@ describe('portal#1624 BLIND refused and abandoned filter navigation', () => {
     expect(m.target.querySelector('[data-testid="team-chat-filter-active"]')).toBeNull();
     expect(document.activeElement).toBe(document.body);
   });
+  it('#2250 round 5 (Gil P2-2): a lone rejected navigation with the URL unchanged and no refusal drops the pending view back to the applied filter',async()=>{
+    const {m}=await setup();
+    const pending:Array<{resolve:()=>void;reject:(error:Error)=>void}>=[];
+    navigationHooks.onGoto=()=>new Promise<void>((resolve,reject)=>{pending.push({resolve,reject});});
+    await selectTag(m);
+    // While the read is in flight the view shows the requested set.
+    expect(m.target.querySelector('[data-testid="team-chat-filter-active"][data-head="head-ada"]')).not.toBeNull();
+    pending[0].reject(new Error('navigation failed'));await tick(5);
+    // No URL change, no refusal: the request is consumed, the chips return to the applied (unfiltered) view.
+    expect(m.target.querySelector('[data-testid="team-chat-filter-active"]')).toBeNull();
+    const all=[...m.target.querySelectorAll<HTMLButtonElement>('[data-testid="team-chat-filter"] button')].find(b=>b.textContent?.includes('All messages'))!;
+    expect(all.getAttribute('aria-pressed')).toBe('true');
+  });
   it('portal#1629 focus moved to another thread control, then destroyed by the keyed remount, is left on BODY (not pulled to the chip)',async()=>{
     const {m,props,release}=await setup();await selectTag(m);
     expect(navigationCalls.filter(c=>c.fn==='goto')).toHaveLength(1);
     const other=untaggedButton(m);other.focus();expect(document.activeElement).toBe(other);
-    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-ada'}};await tick(3);release();await tick(5);
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'teams',headRefs:['head-ada']}};await tick(3);release();await tick(5);
     expect(m.target.contains(other)).toBe(false);
     expect(document.activeElement).toBe(document.body);
     expect(status(m).textContent).toContain('team.ada');
@@ -2639,7 +2696,7 @@ it('portal#1624 QA restores the newer composer focus after the keyed route destr
   const tag=m.target.querySelector<HTMLButtonElement>('[data-testid="team-chat-tag"]')!;tag.focus();tag.click();await tick(2);
   const oldComposer=m.target.querySelector<HTMLTextAreaElement>('#team-chat-body')!;
   oldComposer.focus();oldComposer.value='draft typed while navigation waits';oldComposer.dispatchEvent(new Event('input',{bubbles:true}));await tick(3);
-  props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-ada'}};await tick(3);release();await tick(5);
+  props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'teams',headRefs:['head-ada']}};await tick(3);release();await tick(5);
   const newComposer=m.target.querySelector<HTMLTextAreaElement>('#team-chat-body')!;
   expect(newComposer).not.toBe(oldComposer);expect(newComposer.value).toBe('draft typed while navigation waits');
   expect(document.activeElement).toBe(newComposer);

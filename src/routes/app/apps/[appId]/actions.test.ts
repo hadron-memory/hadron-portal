@@ -397,14 +397,28 @@ describe('load', () => {
 
     it('reads the tail UNDER the filter and reports what it was read under', async () => {
       const r = await loadWith('?team=h1', async () => ({ teamChatMessages: { items: [], total: 0 } }));
-      expect(teamChatCalls()[0][1]).toMatchObject({ teamHeadRef: 'h1' });
-      expect(r.teamFilter).toEqual({ kind: 'team', headRef: 'h1' });
+      expect(teamChatCalls()[0][1]).toMatchObject({ teamHeadRefs: ['h1'] });
+      expect(r.teamFilter).toEqual({ kind: 'teams', headRefs: ['h1'] });
       expect(r.teamFilterInvalid).toBe(false);
+    });
+
+    it('reads a multi-head selection as ONE list and reports it (#1482)', async () => {
+      const r = await loadWith('?team=h2&team=h1&team=h2', async () => ({ teamChatMessages: { items: [], total: 0 } }));
+      expect(teamChatCalls()[0][1]).toMatchObject({ teamHeadRefs: ['h2', 'h1'] });
+      expect(r.teamFilter).toEqual({ kind: 'teams', headRefs: ['h2', 'h1'] });
+      expect(r.teamFilterInvalid).toBe(false);
+    });
+
+    it('reads NOTHING for `untagged` mixed with heads — one-sided reads are not a fallback (#1482)', async () => {
+      const r = await loadWith('?team=untagged&team=h1', async () => ({ teamChatMessages: { items: [], total: 0 } }));
+      expect(teamChatCalls()).toHaveLength(0);
+      expect(r.teamFilterInvalid).toBe(true);
+      expect(r.teamChatError).toBe(true);
     });
 
     it('sends no filter argument when the parameter is absent', async () => {
       const r = await loadWith('', async () => ({ teamChatMessages: { items: [], total: 0 } }));
-      expect(teamChatCalls()[0][1]).not.toHaveProperty('teamHeadRef');
+      expect(teamChatCalls()[0][1]).not.toHaveProperty('teamHeadRefs');
       expect(teamChatCalls()[0][1]).not.toHaveProperty('untagged');
       expect(r.teamFilter).toEqual({ kind: 'none' });
     });

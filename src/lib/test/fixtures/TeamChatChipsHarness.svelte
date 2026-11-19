@@ -25,7 +25,7 @@
     if (request && focusRequest === request) Object.assign(request, { navigation: 'complete' });
   }
   let announcement = $state('');
-  let focusRequest = $state<import('$lib/components/team-chat-thread').TeamChatFilterFocusRequest | null>(null);
+  let focusRequest = $state<import('$lib/components/team-chat-thread').TeamChatFilterRequest | null>(null);
   let filter = $state<TeamChatFilter>({ kind: 'none' });
   const postForm = { id: 'chip-layout', valid: false, posted: false, errors: {}, constraints: {}, data: { _kind: 'postTeamChatMessage', body: '' } };
   const messages = [{ nodeId:'layout-message', seq:1, body:'A message with a stored team tag.', at:'2026-11-02T00:00:00Z', authorUserId:null,authorWorkerId:'fixture-worker',authorName:'Example worker',sessionId:null,replyToSeq:null,mentions:[],urn:null,teamTags:[{headId:'fixture-head',label:'team.example'},{headId:'short-head',label:'X'}] }];
