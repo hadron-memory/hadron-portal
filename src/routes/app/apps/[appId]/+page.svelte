@@ -1436,6 +1436,8 @@
   // clears the manager's copy of the question so its own route guard does not ask a second time.
   // If we then do not land on the chosen tab, the question is put back with the draft.
   let templatesLeaveMessage = $state<string | null>(null);
+  // #2288: set only when the navigation THIS choice owns rejects; cleared by the next choice (a landing always follows one).
+  let tabNavigationFailed = $state(false);
   function syncTabParam(id: TabId) {
     const url = new URL(window.location.href);
     if (url.searchParams.get('tab') === id) return;
@@ -1451,6 +1453,7 @@
       templatesLeaveMessage = null;
     }
     let landed = false;
+    tabNavigationFailed = false;
     const mine = ++tabNavigation, appId = app.id, principalId = data.currentUserId;
     let ownNavigationHref: string | null = null;
     try {
@@ -1478,7 +1481,14 @@
         ownNavigationHref = new URL(href, window.location.href).href;
         tabNavigationHref = ownNavigationHref;
         tabNavigationCancelled = false;
-        await goto(href, { keepFocus: true, noScroll: true });
+        try {
+          await goto(href, { keepFocus: true, noScroll: true });
+        } catch (e) {
+          // #2288: only the choice that still owns the epoch, on the same App and not torn down, reports it.
+          // (`mine === tabNavigation` already implies not torn down; `tabAlive` states it.)
+          if (tabAlive && mine === tabNavigation && app.id === appId) tabNavigationFailed = true;
+          throw e;
+        }
         // A cancelled navigation resolves without a commit: keep the current tab.
         if (tabNavigationCancelled) return;
       }
@@ -2514,6 +2524,9 @@
     ...(data.viewerManages?.kind === 'known' && data.viewerManages.manages ? [{ id: 'grants', label: t('app.tabs.grants', 'Grants'), href: `/app/apps/${app.id}/grants` }] : []),
     { id: 'automations', label: t('app.tabs.automations', 'Automations'), href: `/app/apps/${app.id}/automations` }
   ]} active={activeTab} label={t('app.tabs-label', 'App sections')} onselect={(id) => { void focusTab(id as TabId); }} />
+  {#if tabNavigationFailed}
+    <p role="alert" class="mt-2 text-sm text-red-700 dark:text-red-400">{t('app.tabs.navigation-failed', 'Could not open this tab. Try again.')}</p>
+  {/if}
 
   <!-- ───────────── PROFILE TAB (#2241) ─────────────
        The App's OWN identity (not the viewer's, not a member's), read only from the App the page
