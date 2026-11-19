@@ -203,7 +203,7 @@
   const app = $derived(data.app);
   let legacyChatResolvedForApp = $state<string | null>(null);
   // Survives the filter-keyed thread, but never follows a navigation to another App.
-  let teamFilterFocusRequest = $state<import('$lib/components/team-chat-thread').TeamChatFilterFocusRequest | null>(null);
+  let teamFilterFocusRequest = $state<import('$lib/components/team-chat-thread').TeamChatFilterRequest | null>(null);
   let teamFilterAnnouncement = $state('');
   const teamFilterAppId = $derived(app.id);
   $effect(() => { void teamFilterAppId; untrack(() => { teamFilterFocusRequest = null; teamFilterAnnouncement = ''; }); });

@@ -1,8 +1,15 @@
 import type { TeamChatFilter } from '$lib/team-chat-filter';
 import type { TeamChatMessage } from '$lib/types';
 
-/** Ephemeral user intent, owned outside a route-keyed thread mount. Never persisted. */
-export interface TeamChatFilterFocusRequest {
+/**
+ * Ephemeral user intent, owned outside a route-keyed thread mount. Never persisted.
+ *
+ * #2250 round 5 (Gil N5): renamed from `TeamChatFilterFocusRequest` — focus is
+ * one of the things it carries (opener, movedFocus), not what it is. It is the
+ * record of one in-flight filter REQUEST: what was asked, what it replaces, and
+ * how the route's read resolved.
+ */
+export interface TeamChatFilterRequest {
   key: string;
   label?: string;
   /**

@@ -21,7 +21,7 @@
     indexBySeq,
     replyPreviewOf,
     type DayLabel,
-    type TeamChatFilterFocusRequest,
+    type TeamChatFilterRequest,
   } from './team-chat-thread';
   import { clampProbe } from './clamp-probe';
   import {
@@ -128,7 +128,7 @@
     /** Ask for a different filter ('none' clears). Omit and the filter UI is read-only. */
     onSelectTeam?: (next: TeamChatFilter) => void;
     /** Parent-owned when a route keys/remounts this thread on filter changes. */
-    filterFocusRequest?: TeamChatFilterFocusRequest | null;
+    filterFocusRequest?: TeamChatFilterRequest | null;
     /** Route owner keeps its live region outside a keyed thread. */
     onFilterAnnouncement?: (text: string) => void;
   } = $props();
@@ -489,17 +489,25 @@
   // every other entry. Say the limit in the live region rather than
   // navigating to an unchanged filter and announcing a change that never
   // happened.
-  let capAnnouncementFlip = false;
+  // #2250 round 5 (Gil N2/N4): a live region announces CHANGES, so repeating
+  // a sentence is silent. Round 4 forced the change by flipping a zero-width
+  // mark — which leaked invisible characters into every string handed to
+  // onFilterAnnouncement (the route's region, translators, tests). Clear the
+  // region first, let that change flush, then set the clean text: the region
+  // sees ''→text as a change on every repeat, and no consumer ever receives a
+  // mark. Both repeatable announcements — the cap refusal and the failed-read
+  // revert — go through here.
+  async function announceFilter(text: string) {
+    filterAnnouncement = '';
+    onFilterAnnouncement?.('');
+    await tick();
+    filterAnnouncement = text;
+    onFilterAnnouncement?.(text);
+  }
   function announceCapReached() {
-    // #2250 round 4 (Gil F3): a live region announces CHANGES — setting the
-    // same string again is silent, so a second blocked click (or a second
-    // blocked tag) gave a screen-reader user nothing. Flip a zero-width
-    // mark each time so every refusal is a change the region re-announces.
-    capAnnouncementFlip = !capAnnouncementFlip;
-    filterAnnouncement = t('app.team-chat.filter.cap-reached', 'At most {max} teams can be selected.', {
+    void announceFilter(t('app.team-chat.filter.cap-reached', 'At most {max} teams can be selected.', {
       max: TEAM_HEAD_REFS_MAX,
-    }) + (capAnnouncementFlip ? ' \u200b' : '');
-    onFilterAnnouncement?.(filterAnnouncement);
+    }));
   }
   function rememberFilterFocus(event: FocusEvent) {
     const request = filterFocusRequest;
@@ -515,7 +523,7 @@
     if (!head || !filterBarEl) return null;
     return filterBarEl.querySelector<HTMLElement>(`[data-head="${head.replace(/["\\]/g, '\\$&')}"]`);
   }
-  function focusTargetFor(requested: TeamChatFilterFocusRequest): HTMLElement | null {
+  function focusTargetFor(requested: TeamChatFilterRequest): HTMLElement | null {
     const bar = filterBarEl;
     if (!bar) return null;
     if (requested.addedHead) {
@@ -549,20 +557,44 @@
     let cancelled = false;
     void tick().then(() => {
       if (cancelled || !messagesEl || filterFocusRequest !== requested || filterKey !== applied) return;
+      if (!failed && requested.key !== applied) {
+        // #2250 round 5 (Gil N1): ABANDONED, not failed. The navigation
+        // completed and the route applied a DIFFERENT filter — back/forward,
+        // canonicalization, a superseding URL change — so the filter DID
+        // change, just not to what this request asked for. Only a failed read
+        // guarantees "did not change": the revert sentence would be false
+        // here, and a focus restore could target a control from a base that
+        // no longer applies. Consume the request silently.
+        filterFocusRequest = null;
+        return;
+      }
       if (failed || requested.key !== applied) {
-        // #2250 round 4 (Gil F2): a failed or abandoned choice is consumed
-        // without a SUCCESS announcement (the existing error UI explains the
-        // failure) — but not invisibly. The optimistic chip change unmounted
-        // the control the reader had focus on; when the revert re-renders,
-        // give focus back (the restored chip for a removal, the opener for
-        // an add or bulk clear, when still connected) and say the filter did
-        // not change, so a keyboard reader is not left on <body> over a
-        // revert they cannot see. Focus is only taken back from <body>: a
-        // reader who moved elsewhere keeps their focus.
-        filterAnnouncement = t('app.team-chat.filter.reverted', 'The team filter did not change.');
-        onFilterAnnouncement?.(filterAnnouncement);
+        // #2250 round 4 (Gil F2): a failed choice is consumed without a
+        // SUCCESS announcement (the existing error UI explains the failure) —
+        // but not invisibly. The optimistic chip change unmounted the control
+        // the reader had focus on; when the revert re-renders, give focus
+        // back (the restored chip for a removal, the opener for an add or
+        // bulk clear, when still connected) and say the filter did not
+        // change, so a keyboard reader is not left on <body> over a revert
+        // they cannot see. Focus is only taken back from <body>: a reader who
+        // moved elsewhere keeps their focus.
+        // #2250 round 5 (Gil N4): the sentence goes through the clear-then-set
+        // helper, so a SECOND failed choice over the same base re-announces
+        // the same sentence (a plain re-set is silent in a live region) and
+        // every string a consumer receives is clean.
+        void announceFilter(t('app.team-chat.filter.reverted', 'The team filter did not change.'));
         filterFocusRequest = null;
         void tick().then(() => {
+          // #2250 round 5 (Gil N7): no `cancelled` check here, deliberately.
+          // THIS arm's own `filterFocusRequest = null` re-runs the effect and
+          // flips `cancelled` before this continuation fires, so a literal
+          // guard would kill every legitimate restore (the F2 pin catches
+          // exactly that). The hazards N7 named are covered by the signals
+          // that actually distinguish them: a superseding request leaves
+          // `filterFocusRequest` set, teardown nulls `filterBarEl`
+          // (bind:this resets on unmount), and a reader who moved elsewhere
+          // is not on <body>. Both directions are pinned (N10 teardown /
+          // focus-kept).
           if (filterFocusRequest || !filterBarEl) return;
           if (document.activeElement !== document.body) return;
           if (requested.removedHead) chipInBar(requested.removedHead)?.focus();
