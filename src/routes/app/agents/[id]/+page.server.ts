@@ -458,7 +458,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     memberRolesForm,
     bootPointer,
     canManageAgent,
-    canOpenTester: await testerLinkEligibility(client, agent, canManageAgent),
+    canOpenTester: await testerLinkEligibility(client, agent, canManageAgent, orgs),
     // The key a pointer result carries (the action's own params.id), so a
     // result shows only for the Agent it was written for.
     bootPointerKey: params.id,

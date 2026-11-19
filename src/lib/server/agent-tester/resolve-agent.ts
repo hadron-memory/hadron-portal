@@ -40,15 +40,15 @@ export async function requireTesterAgent(
 }
 
 /**
- * The Tester's org-Agent reach: the Agent as the `organizations { agents }`
- * list shows it to this caller (a PERSONAL Agent only to its creator). Shared
- * with the Agent page's link eligibility so the link cannot drift from it.
+ * The Tester's org-Agent reach, as a pure predicate over the caller's
+ * `organizations { agents }` list (a PERSONAL Agent appears only to its
+ * creator). Shared with the Agent page's link eligibility, which already holds
+ * that list, so the link cannot drift from the Tester.
  */
-export async function findOrgListedAgent(
-  client: ReturnType<typeof gqlClient>,
+export function findOrgListedAgent(
+  orgs: Organization[],
   agentId: string,
-): Promise<{ agent: TesterAgent; org: Organization } | null> {
-  const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
+): { agent: TesterAgent; org: Organization } | null {
   for (const org of orgs) {
     const agent = (org.agents ?? []).find((a) => a.id === agentId);
     if (agent) return { agent, org };
@@ -60,7 +60,8 @@ async function findVisibleAgent(
   client: ReturnType<typeof gqlClient>,
   agentId: string,
 ): Promise<{ agent: TesterAgent; org: Organization | null } | null> {
-  const inOrg = await findOrgListedAgent(client, agentId);
+  const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
+  const inOrg = findOrgListedAgent(orgs, agentId);
   if (inOrg) return inOrg;
 
   const owned = await fetchAllItems<TesterAgent>(client, MY_AGENTS_QUERY, 'agents');
