@@ -1376,7 +1376,7 @@ describe('App Keys Scopes column (portal#1099)', () => {
 });
 
 // portal#1487 — giving a live key one scope of the closed list
-// (cor:aut:010:03) from a dialog the row's ⋯ menu opens. The server is the
+// (hrn:node:hadronmemory.com:specs:cor:aut:010:03) from a dialog the row's ⋯ menu opens. The server is the
 // gate; every refusal text below is the server's own, shown beside the form.
 describe('App key scope grant dialog (portal#1487)', () => {
   const key = {

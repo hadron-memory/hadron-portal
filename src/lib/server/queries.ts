@@ -2303,7 +2303,7 @@ export const REVOKE_APP_KEY_MUTATION = /* GraphQL */ `
 
 // portal#1487 — grantAppKeyScope (hadron-server#1781, #1876). id is the
 // AppKey id; hostId is sent ONLY for host:operate, which the server grants
-// for one host (cor:agt:070:04). The portal needs nothing back beyond the
+// for one host (hrn:node:hadronmemory.com:specs:cor:agt:070:04). The portal needs nothing back beyond the
 // write: a success invalidates the page and the Scopes column re-reads, so
 // the selection stays the id alone.
 export const GRANT_APP_KEY_SCOPE_MUTATION = /* GraphQL */ `

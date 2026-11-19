@@ -990,9 +990,9 @@ describe('revokeKey action', () => {
 });
 
 // portal#1487 — giving a live App key one scope of the closed list
-// (cor:aut:010:03). The server is the gate: the action always sends the
+// (hrn:node:hadronmemory.com:specs:cor:aut:010:03). The server is the gate: the action always sends the
 // mutation and translates the server's own refusal codes, never a portal-side
-// role guess. host:operate names its ONE host (cor:agt:070:04); a second host
+// role guess. host:operate names its ONE host (hrn:node:hadronmemory.com:specs:cor:agt:070:04); a second host
 // is refused APP_KEY_SCOPE_HOST_CONFLICT and the SERVER's sentence is what the
 // reader sees.
 describe('grantKeyScope action', () => {
