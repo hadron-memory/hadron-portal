@@ -12,6 +12,9 @@ function ownerOf(value: unknown): CompileOwner | null {
   if (v.level === 'worker' && typeof v.worker === 'string' && v.worker) return { level: 'worker', app: v.app, agent: v.agent, worker: v.worker };
   return null;
 }
+/** GraphQL `Int` is signed 32-bit: the server rejects a larger revNo or offset at variable coercion (#2210). */
+const MAX_GRAPHQL_INT = 2147483647;
+
 export const GET: RequestHandler = async ({ url, locals, setHeaders }) => {
   setHeaders?.({ 'Cache-Control': 'private, no-store' });
   const client = gqlClient(locals.token);
@@ -23,7 +26,7 @@ export const GET: RequestHandler = async ({ url, locals, setHeaders }) => {
       if (!node) return json({ failed: true }, { status: 400 });
       const rev = Number(url.searchParams.get('revision'));
       const offset = Number(url.searchParams.get('offset') ?? 0);
-      if (!Number.isInteger(rev) || rev < 1 || !Number.isInteger(offset) || offset < 0 || offset > 2147483647) return json({ failed: true }, { status: 400 });
+      if (!Number.isInteger(rev) || rev < 1 || rev > MAX_GRAPHQL_INT || !Number.isInteger(offset) || offset < 0 || offset > MAX_GRAPHQL_INT) return json({ failed: true }, { status: 400 });
       return json({ page: await readProvenance(client, node, rev, offset) });
     }
     const owner = ownerOf(Object.fromEntries(url.searchParams));

@@ -13,7 +13,14 @@ it('enforces the Last changed midnight boundary in an isolated timezone', () => 
     'src/lib/components/NodeList.timestamps.test.ts',
   ], {
     cwd: root,
-    env: { ...process.env, TZ: 'America/Los_Angeles', NODELIST_TIMEZONE_BOUNDARY: '1' },
+    // HADRON_TEST_TZ (vitest.config.ts) is how a child asks for a non-UTC
+    // zone: config `env.TZ` would otherwise stomp a plainly inherited TZ.
+    env: {
+      ...process.env,
+      TZ: 'America/Los_Angeles',
+      HADRON_TEST_TZ: 'America/Los_Angeles',
+      NODELIST_TIMEZONE_BOUNDARY: '1',
+    },
     encoding: 'utf8', timeout: 90_000,
   });
   expect(child.error, `${child.stdout}\n${child.stderr}`).toBeUndefined();

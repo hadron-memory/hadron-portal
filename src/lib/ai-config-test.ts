@@ -26,8 +26,8 @@ export interface AiConfigTestResult {
 }
 
 export interface AiConfigTestView {
-  /** Saved Test has distinct run/chat legs; inline Test retains its existing single outcome. */
-  saved?: true;
+  /** Render the Run and Chat legs under their own labels. Set by `testResultView`; an inline Test omits it and keeps its single outcome. */
+  labelledLegs?: true;
   chat?: { ok: boolean; headline: string } | null;
   ok: boolean;
   /** One line: works / why not. */
@@ -87,7 +87,7 @@ export function testResultView(r: AiConfigTestResult): AiConfigTestView {
   // (NO_API_KEY, KEY_UNREADABLE, CONFIG_INVALID, QUOTA_EXCEEDED, or any
   // unrecognised code) stops before the call, and must not read as evidence
   // that the endpoint was reached.
-  const legs = { saved: true as const, chat: r.chat == null ? null : chatProbeView(r.chat.status) };
+  const legs = { labelledLegs: true as const, chat: r.chat == null ? null : chatProbeView(r.chat.status) };
   const called = r.ok || r.error?.code === 'LLM_CALL_FAILED';
   const where = !r.endpoint
     ? t('ai-config.test.endpoint.unknown', 'The endpoint can’t be known for this provider setup')

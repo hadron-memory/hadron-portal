@@ -3232,17 +3232,19 @@ export const TEAM_CHAT_MESSAGES_QUERY = /* GraphQL */ `
   # reader while workers post, so it skips or duplicates mid-scroll. seq is
   # atomic and unique per chat, so the cursor is stable.
   #
-  # #1137: teamHeadRef / untagged are the S3 team filter (server#2019),
-  # mutually exclusive and applied SERVER-SIDE before paging and total. Both
-  # are omitted for the unfiltered thread. teamTags is the stored head
-  # identity per message — headId is the identity, label display only.
+  # #1137/#1482: teamHeadRefs / untagged are the S3 team filter (server#2019,
+  # widened to several heads by server#3759), mutually exclusive and applied
+  # SERVER-SIDE before paging and total. Both are omitted for the unfiltered
+  # thread; one head travels as the list of one, so the portal has a single
+  # wire shape for the team arm. teamTags is the stored head identity per
+  # message — headId is the identity, label display only.
   query TeamChatMessages(
     $appRef: ID!
     $sinceSeq: Int
     $beforeSeq: Int
     $limit: Int
     $offset: Int
-    $teamHeadRef: ID
+    $teamHeadRefs: [ID!]
     $untagged: Boolean
   ) {
     teamChatMessages(
@@ -3251,7 +3253,7 @@ export const TEAM_CHAT_MESSAGES_QUERY = /* GraphQL */ `
       beforeSeq: $beforeSeq
       limit: $limit
       offset: $offset
-      teamHeadRef: $teamHeadRef
+      teamHeadRefs: $teamHeadRefs
       untagged: $untagged
     ) {
       items {
@@ -5084,6 +5086,24 @@ export const TEST_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
   }
 `;
 
+// #2217: the same Test without the chat leg. Sent only after a server that
+// predates `chatProbe` rejected the document above, so the Run row still shows.
+export const TEST_AI_SERVICE_CONFIG_RUN_ONLY_MUTATION = /* GraphQL */ `
+  mutation TestAiServiceConfigRunOnly($id: ID!, $override: AiServiceConfigTestOverride) {
+    testAiServiceConfig(id: $id, override: $override) {
+      ok
+      provider
+      model
+      endpoint
+      apiStyle
+      used { provider model endpoint apiStyle key }
+      latencyMs
+      reply
+      error { code message transient }
+    }
+  }
+`;
+
 // ---------------------------------------------------------------------------
 // #942 — Channel management (spec 049 phase 4). An App's Channels, the App's
 // default, and the caller's WRITE standing on the App's shared memory (the
@@ -6135,6 +6155,39 @@ export const CHANGE_WORKER_AGENT_MUTATION = /* GraphQL */ `
 export const APP_CASTABLE_AGENTS_QUERY = /* GraphQL */ `
   query AppCastableAgents($ref: ID!) {
     app(ref: $ref) { id appAgents { agent { id name urn description personaRole } } }
+  }
+`;
+
+/**
+ * #1720 — just enough of a node to decide whether it can open as a document
+ * and to name the citation to build it for: its memory, loc, name and role.
+ * Read-only; the view never selects content.
+ */
+export const SPEC_DOCUMENT_NODE_QUERY = /* GraphQL */ `
+  query SpecDocumentNode($ref: ID!) {
+    node(ref: $ref) {
+      id
+      urn
+      memoryId
+      loc
+      name
+      role
+    }
+  }
+`;
+
+/**
+ * #1720 (hadron-server#1302 / #3535, merged 07d96c78) — a Feature's specs as ONE
+ * deterministic Markdown document. The portal reads `markdown` and `loc` only;
+ * `entries` is not selected. Every client shows the string unchanged
+ * (hrn:node:hadronmemory.com:specs:cor:spc:030:02).
+ */
+export const SPEC_DOCUMENT_QUERY = /* GraphQL */ `
+  query SpecDocument($memoryRef: ID!, $loc: String!) {
+    specDocument(memoryRef: $memoryRef, loc: $loc) {
+      loc
+      markdown
+    }
   }
 `;
 

@@ -8,6 +8,7 @@ import {
   deleteAppSchema, releaseWorkerSchema, removeAppAgentSchema, retireWorkerSchema,
   revokeAppKeySchema, updateAppAgentToolsSchema,
 } from './schema';
+import { TAB_PAYLOAD_KEYS } from './first-screen';
 
 export function message(seq: number, authorWorkerId: string): TeamChatMessage {
   return {
@@ -16,6 +17,16 @@ export function message(seq: number, authorWorkerId: string): TeamChatMessage {
     sessionId: null, replyToSeq: null, mentions: [], urn: null, teamTags: null,
   };
 }
+
+/**
+ * portal#2240: the page renders a tab from loader data only when that data
+ * carries the tab's read groups; otherwise it fetches the tab on first show.
+ * This fixture is the page as these tests knew it before #2240, with every
+ * tab already read, so it names every tab-payload key. Keys it gives no value
+ * stay `undefined`, which is what those tests saw when the key was absent.
+ * A test of the first-show fetch deletes the keys of the tab it means to fetch.
+ */
+export const everyTabRead = (): Record<string, undefined> => Object.fromEntries([...TAB_PAYLOAD_KEYS].map((k) => [k, undefined]));
 
 export async function pageData() {
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm,
@@ -26,6 +37,7 @@ export async function pageData() {
     retireWorkerSchema, releaseWorkerSchema, postTeamChatMessageSchema,
   ].map((schema) => superValidate(zod4(schema), { errors: false })));
   return {
+    ...everyTabRead(),
     app: {
       id: 'a1', urn: 'hrn:app:acme.com:team', name: 'Team', appType: 'WORKSTATION',
       role: 'OWNER', surfaces: [], agentId: null, agent: null, agents: [],

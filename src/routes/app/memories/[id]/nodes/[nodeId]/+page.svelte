@@ -71,6 +71,7 @@
   import { submittedForm } from '$lib/forms/submitted-form';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
   import { createNodeMarkdownRenderer, renderNodeMarkdown } from '$lib/markdown/node-renderer';
+  import { viewDocumentMenuAction } from '$lib/spec-document/spec-document';
   import { t } from '$lib/i18n/t';
   import { NODE_TYPES, isCanonicalNodeType } from '$lib/node-types';
   import { declaredObjectType, readMemorySchema } from '$lib/schema/memory-schema';
@@ -1250,6 +1251,8 @@
     // pointing nowhere.
     ...(openChat ? [{ id: 'open-chat', label: t('node-actions.open-chat', 'Open chat') }] : []),
     { id: 'edit', label: t('node-actions.edit', 'Edit') },
+    // #1720: only a spec node (hrn:node:hadronmemory.com:specs:cor:acl:130:01: the role's base kind is `spec`).
+    ...viewDocumentMenuAction(node.role),
     { id: 'download', label: t('node-actions.download', 'Download') },
     // #1073: opens the node's PDF render in a new tab for printing — the
     // browser's PDF viewer owns print, so this is the Download path with no
@@ -1264,7 +1267,7 @@
     ...(!node.isRunnable ? [{ id: 'convert-to-task', label: t('node-actions.convert-to-task', 'Convert to task') }] : []),
     ...(canTestFlow ? [{ id: 'run', label: t('node-actions.run', 'Run') }] : []),
     { id: 'delete', label: t('node-actions.delete', 'Delete'), danger: true },
-  ].filter((action) => !readOnly || ['open-chat', 'download', 'print', 'export-skill'].includes(action.id))
+  ].filter((action) => !readOnly || ['open-chat', 'view-document', 'download', 'print', 'export-skill'].includes(action.id))
     .filter((action) => !isCompiledPrompt || !COMPILED_HIDDEN_ACTIONS.has(action.id)));
   const COMPILED_HIDDEN_ACTIONS = new Set(['edit', 'move', 'delete', 'convert-to-task']);
 
@@ -1312,6 +1315,7 @@
       case 'open-chat': if (openChat) goto(`${basePath}/nodes/${openChat.nodeId}`); break;
       case 'add-child': goto(addChildHref); break;
       case 'download': downloadOpen = true; break;
+      case 'view-document': goto(`${basePath}/nodes/${node.id}/document`); break;
       case 'print': void printNode(); break;
       case 'export-skill': skillExportOpen = true; break;
       case 'delete': $deleteFormData.hard = false; $deleteFormData.recursive = false; deleteOpen = true; break;
@@ -3273,6 +3277,8 @@
             canPost={canPostChat}
             hasOlder={data.chatHasOlder ?? false}
             onLoadOlder={loadOlderChat}
+            loadFailed={data.chatLoadFailed ?? false}
+            onRetry={() => invalidateAll()}
             heightClass="h-[calc(100vh-24rem)] min-h-[24rem]"
           />
         {/key}

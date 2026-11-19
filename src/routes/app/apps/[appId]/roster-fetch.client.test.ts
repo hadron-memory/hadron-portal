@@ -41,7 +41,7 @@ import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import type { TeamRosterRead } from '$lib/server/app-team-roster';
 import type { z } from 'zod';
 import Page from './+page.svelte';
-import { releaseWorkerSchema, type ReleaseWorkerMessage } from './schema';
+import { castWorkerSchema, releaseWorkerSchema, type ReleaseWorkerMessage } from './schema';
 import { pageData } from './app-page.fixture';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -279,5 +279,131 @@ describe('AI Team roster: re-asked after a roster-invalidating action (portal#22
     await settled(3);
     expect(target.querySelector('#panel-staff')!.textContent).toContain('Ship the roster refresh');
     expect(target.querySelector('#panel-staff')!.textContent).not.toContain('Fix the login handoff');
+  });
+});
+
+/**
+ * portal#2246 — follow-ups from the #2243 review: a failed roster read is
+ * retryable (items 1), a hung connection resolves to the failed notice (2),
+ * a lapsed session offers sign-in rather than the generic notice (3), and the
+ * confirmed-cast leg of the re-ask is pinned (6).
+ */
+describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () => {
+  /** A fetch stub that answers `/roster` from `answer(callIndex)`. */
+  function stubRosterResponses(answer: (n: number, init?: RequestInit) => Promise<Response> | Response) {
+    let n = 0;
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL, init?: RequestInit) => {
+        const href = String(url);
+        calls.push(href);
+        if (href.endsWith('/roster')) return answer(n++, init);
+        return { ok: true, json: async () => ({ items: [], total: 0, loadFailed: true }) } as Response;
+      }),
+    );
+    return calls;
+  }
+  const json = (status: number, body: unknown) => ({ ok: status >= 200 && status < 300, status, json: async () => body }) as Response;
+  const retryButton = (root: Element) =>
+    [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Try again');
+
+  it('item 1: a failed roster read offers Try again, which re-fetches and shows the fresh read', async () => {
+    const calls = stubRosterResponses((n) => json(200, n === 0 ? { kind: 'failed' } : rosterOk));
+    const target = await mountPage({ teamRoster: null });
+
+    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await settled(3);
+    const panel = target.querySelector('#panel-staff')!;
+    expect(panel.textContent).toContain('Task and pause state could not be loaded');
+    // A reload is not the only retry: the notice must not promise one it cannot deliver.
+    const retry = retryButton(panel);
+    expect(retry).toBeDefined();
+    retry!.click();
+    await settled(3);
+    expect(rosterCalls(calls)).toHaveLength(2);
+    expect(panel.textContent).toContain('Fix the login handoff');
+    expect(panel.textContent).not.toContain('Task and pause state could not be loaded');
+  });
+
+  it('item 2: a hung roster connection resolves to the failed notice within 10 s', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      stubRosterResponses((_n, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          // A connection that never sends a byte: only an abort ends it.
+          init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+        }),
+      );
+      const target = await mountPage({ teamRoster: null });
+      target.querySelector<HTMLElement>('#tab-staff')!.click();
+      await tick(3);
+      expect(target.querySelector('#panel-staff')!.textContent).toContain('Loading');
+
+      await vi.advanceTimersByTimeAsync(10_500);
+      await tick(3);
+      expect(target.querySelector('#panel-staff')!.textContent).toContain('Task and pause state could not be loaded');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('item 3: a 401 roster read shows the sign-in path, not the generic notice', async () => {
+    stubRosterResponses(() => json(401, { kind: 'failed' }));
+    const target = await mountPage({ teamRoster: null });
+
+    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await settled(3);
+    const panel = target.querySelector('#panel-staff')!;
+    const link = [...panel.querySelectorAll('a')].find((a) => a.getAttribute('href')?.startsWith('/signin'));
+    expect(link).toBeDefined();
+    expect(link!.getAttribute('href')).toContain('redirect=');
+    expect(panel.textContent).not.toContain('Task and pause state could not be loaded');
+  });
+
+  it('item 6: a confirmed cast re-asks /roster and shows the fresh read', async () => {
+    const rosterAfterCast: TeamRosterRead = {
+      kind: 'ok',
+      byWorker: {
+        w1: { ...rosterOk.byWorker.w1!, currentTask: { id: 't3', title: 'Welcome the new worker', status: 'RUNNING', handle: 'AT0.10' } },
+      },
+    };
+    let read: TeamRosterRead = rosterOk;
+    const calls = stubFetch({ read: () => read });
+    setStubPage('https://example.test/app/apps/a1?tab=chats', { appId: 'a1' });
+    window.history.replaceState({}, '', '/app/apps/a1?tab=chats');
+    const base = { ...(await pageData()), teamRoster: null, user: { id: 'u1' } } as Record<string, any>;
+    Object.assign(base.app, { agents: [{ id: 'agent-a', name: 'Portal Engineer', urn: 'hrn:agent:acme.com:portal', personaRole: 'portal-engineer' }] });
+    const m = mountComponent(Page as never, reactiveProps<Record<string, unknown>>({ data: base, form: null }) as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const target = m.target;
+
+    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await settled(3);
+    expect(rosterCalls(calls)).toHaveLength(1);
+
+    [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cast a worker')!.click();
+    await tick(2);
+    const form = target.querySelector<HTMLFormElement>('form[action="?/castWorker"]')!;
+    const agent = form.querySelector<HTMLSelectElement>('[name="agentId"]')!;
+    agent.value = 'agent-a';
+    agent.dispatchEvent(new Event('change', { bubbles: true }));
+    const nameInput = form.querySelector<HTMLInputElement>('[name="name"]')!;
+    nameInput.value = 'Nova';
+    nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+    form.querySelector<HTMLInputElement>('input[name="reporting"][value="none"]')!.click();
+    await tick(2);
+    const id = form.querySelector<HTMLInputElement>('[name="__superform_id"]')!.value;
+    // Submit first (the page fences a result by the attempt that sent it), then deliver the answer.
+    const result = await superValidate({ agentId: 'agent-a', name: 'Nova', reporting: 'none', reportsTo: '' }, zod4(castWorkerSchema), { errors: false, id });
+    result.message = { type: 'success', text: 'Worker cast.' };
+    // The invalidating reload brings no roster on a client-switched AI Team view.
+    read = rosterAfterCast;
+    await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { form: result } });
+    await settled(3);
+
+    expect(rosterCalls(calls)).toHaveLength(2);
+    expect(target.querySelector('#panel-staff')!.textContent).toContain('Welcome the new worker');
   });
 });

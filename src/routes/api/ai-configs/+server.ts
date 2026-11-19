@@ -6,6 +6,7 @@ import {
   UPDATE_AI_SERVICE_CONFIG_MUTATION,
   DELETE_AI_SERVICE_CONFIG_MUTATION,
   TEST_AI_SERVICE_CONFIG_MUTATION,
+  TEST_AI_SERVICE_CONFIG_RUN_ONLY_MUTATION,
   AI_PROVIDER_ENDPOINTS_QUERY,
   AI_SERVICE_CONFIGS_QUERY,
   RESOLVE_AI_SERVICE_CONFIGS_QUERY,
@@ -13,6 +14,7 @@ import {
 import { fetchAllItems } from '$lib/server/paginate';
 import { inlineTestable } from '$lib/components/ai-config-manager';
 import { callAgentChatLlm } from '$lib/server/llm/agentChatLlm.js';
+import { chatProbeUnsupported } from '$lib/server/llm/chatProbeSupport.js';
 import { chatToolChoiceFor } from '$lib/server/llm/chatToolChoice.js';
 import { RESPOND_TEST_TOOLS } from '$lib/server/llm/respondTestTool';
 import { publicChatError } from '$lib/server/llm/chatError.js';
@@ -312,10 +314,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         ...('params' in o ? { params: o.params ?? null } : {}),
       };
       try {
-        const data = await client.request<{ testAiServiceConfig: AiConfigTestResult }>(TEST_AI_SERVICE_CONFIG_MUTATION, {
-          id: body.id,
-          override: Object.keys(override).length > 0 ? override : null,
-        });
+        const variables = { id: body.id, override: Object.keys(override).length > 0 ? override : null };
+        let data: { testAiServiceConfig: AiConfigTestResult };
+        try {
+          data = await client.request<{ testAiServiceConfig: AiConfigTestResult }>(TEST_AI_SERVICE_CONFIG_MUTATION, variables);
+        } catch (e) {
+          // #2217: an older server rejects `chatProbe` at validation, before any provider call.
+          // Same Test without the chat leg; no chat outcome means no chat row, never a pass.
+          if (!chatProbeUnsupported(e)) throw e;
+          data = await client.request<{ testAiServiceConfig: AiConfigTestResult }>(TEST_AI_SERVICE_CONFIG_RUN_ONLY_MUTATION, variables);
+        }
         const result = data.testAiServiceConfig;
         // The server's structured failure may still contain raw provider text
         // on an older deployment. Keep only a known code and fixed message.

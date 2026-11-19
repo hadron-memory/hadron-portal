@@ -12,10 +12,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import { setStubPage } from '$lib/test/stubs/app-stores';
+import { appTypePageData } from '$lib/test/fixtures/app-type-page-data';
 import { resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
 import Page from './+page.svelte';
-import { pageData } from './app-page.fixture';
+import pageSource from './+page.svelte?raw';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
@@ -26,12 +26,8 @@ afterEach(() => {
   window.history.replaceState({}, '', '/');
 });
 
-async function mountTab(tab: 'profile' | 'settings', app: Record<string, unknown>) {
-  const url = `/app/apps/a1?tab=${tab}`;
-  setStubPage(`https://example.test${url}`, { appId: 'a1' });
-  window.history.replaceState({}, '', url);
-  const base = await pageData();
-  const data = { ...base, app: { ...base.app, ...app }, initialTab: tab, canManageApp: true };
+async function mountTab(tab: 'profile' | 'settings', appType: string) {
+  const data = await appTypePageData(tab, appType);
   const props = reactiveProps<Record<string, unknown>>({ data, form: null });
   const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
@@ -41,23 +37,24 @@ async function mountTab(tab: 'profile' | 'settings', app: Record<string, unknown
 
 describe('the App type shows its label (#2249)', () => {
   it('the Profile Type row shows the Settings option text, icon included', async () => {
-    const target = await mountTab('profile', { appType: 'IOT' });
+    const target = await mountTab('profile', 'IOT');
     const row = target.querySelector<HTMLElement>('[data-testid="profile-type"]');
     expect(row).not.toBeNull();
     expect(row!.textContent).toBe('📡 IoT');
   });
 
   it('the Settings read-only Type row shows the same text', async () => {
-    const target = await mountTab('settings', { appType: 'IOT' });
+    const target = await mountTab('settings', 'IOT');
     const row = target.querySelector<HTMLElement>('[data-testid="settings-type"]');
     expect(row).not.toBeNull();
     expect(row!.textContent).toBe('📡 IoT');
   });
 
   it('the Settings edit form options show the same labels', async () => {
-    const target = await mountTab('settings', { appType: 'IOT' });
+    const target = await mountTab('settings', 'IOT');
     // editMode starts false; the read-only card's Edit button reveals the form.
     const edit = [...target.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Edit');
+    expect(edit, 'the Settings card has no Edit button; was it renamed?').toBeDefined();
     edit!.click();
     await tick(2);
     const options = [...target.querySelectorAll<HTMLSelectElement>('#appType option')].map((o) => o.textContent);
@@ -65,9 +62,18 @@ describe('the App type shows its label (#2249)', () => {
   });
 
   it('an unknown value from a newer server renders the raw value, never blank', async () => {
-    const target = await mountTab('profile', { appType: 'FUTURE' });
+    const target = await mountTab('profile', 'FUTURE');
     const row = target.querySelector<HTMLElement>('[data-testid="profile-type"]');
     expect(row).not.toBeNull();
     expect(row!.textContent).toBe('FUTURE');
+  });
+
+  it('the Settings options are built from the shared source, not a hard-coded list', () => {
+    // The options test above pins the rendered text, so re-hard-coding the
+    // list in the page would still pass it; pin the source instead.
+    expect(pageSource).toMatch(/import\s*\{[^}]*\bAPP_TYPE_VALUES\b[^}]*\}\s*from/);
+    expect(pageSource).toMatch(/\{#each\s+APP_TYPE_VALUES\s+as\b/);
+    // quote-agnostic: no <option> with a literal enum value, however it is quoted
+    expect(pageSource).not.toMatch(/<option\b[^>]*\bvalue\s*=\s*['"]?(WORKSTATION|CHATBOT|AGENT|AUTOMATION|CLOUD|IOT)\b/);
   });
 });

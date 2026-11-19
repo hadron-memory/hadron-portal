@@ -4,7 +4,7 @@
  * Revision nodes are `nodeType: 'system'`. An UNQUALIFIED findNodes hides that node type even when
  * `memoryIds` names the agent's system memory (hrn:node:hadronmemory.com:specs:cor:api:090:02: the
  * memory-class default and the node-type exclusion are orthogonal; naming a nodeType wins). The mock
- * below applies that server default, so a query that omits `nodeType` sees an empty list, as QA did.
+ * below SIMULATES that server default (it does not run the real server), so a query that omits `nodeType` sees an empty list, as QA did.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ORGANIZATIONS_QUERY } from '$lib/server/queries';
@@ -56,7 +56,7 @@ function post(body: unknown) {
 }
 
 describe('POST /api/agent-chat/revisions action=list (portal#2085)', () => {
-  it('lists a published system-type revision through the real findNodes default', async () => {
+  it('lists a published system-type revision through the simulated findNodes default', async () => {
     const { POST } = await import('./+server');
     const res = await POST(post({ action: 'list', agentId: 'agent-aaa' }));
     const json = (await res.json()) as { revisions: Array<{ loc: string; published: boolean }> };
@@ -69,7 +69,9 @@ describe('POST /api/agent-chat/revisions action=list (portal#2085)', () => {
     const { POST } = await import('./+server');
     await POST(post({ action: 'list', agentId: 'agent-aaa' }));
     const call = mockRequest.mock.calls.find(([q]) => String(q).includes('findNodes'));
-    expect(call?.[0]).toContain('nodeType');
-    expect(call?.[1]).toMatchObject({ memoryIds: ['sys-mem-a'] });
+    // The filter must BIND the variable, not merely declare it: the mock selects on `vars.nodeType`, so
+    // a query that declares `$nodeType` but drops it from the filter would still see the revision here.
+    expect(call?.[0]).toMatch(/filter:\s*\{[^}]*\bnodeType:\s*\$nodeType\b/);
+    expect(call?.[1]).toMatchObject({ memoryIds: ['sys-mem-a'], nodeType: 'system' });
   });
 });

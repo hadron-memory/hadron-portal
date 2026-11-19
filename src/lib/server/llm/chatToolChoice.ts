@@ -4,7 +4,14 @@ import { CHAT_EFFECTIVE_TOOL_CHOICE_QUERY, CHAT_TOOL_CHOICE_FOR_QUERY } from '$l
 export type ChatToolChoice = 'AUTO' | 'FORCED';
 type DecisionField = 'chatEffectiveToolChoice' | 'chatToolChoiceFor';
 
-/** Only the old server's unknown ROOT FIELD is absence; read refusals/transport errors still fail. */
+/**
+ * Only the old server's unknown ROOT FIELD is absence; read refusals/transport errors still fail.
+ *
+ * The text match is graphql-js's own validation message, `Cannot query field "<f>" on type "Query".`
+ * It is pinned on purpose (agentChatTurn.toolChoice.test.ts): if graphql-js rewords it, an old server
+ * stops reading as absent and the turn fails closed, never open. The structural guards (no `path`,
+ * validation code or none) keep an ordinary resolver error from ever matching.
+ */
 function missingDecisionField(error: unknown, field: DecisionField): boolean {
   if (typeof error !== 'object' || error === null) return false;
   const errors = (error as { response?: { errors?: unknown } }).response?.errors;

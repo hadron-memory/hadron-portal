@@ -90,6 +90,43 @@ export function applyView<T extends RowData>(table: PortalTable<T>, view: SavedV
   if (!options.columnsOnly && !server) table.setPagination({ pageIndex: 0, pageSize: view.pagination?.pageSize ?? 25 });
 }
 
+/**
+ * Merge a saved column order with the list's current default order
+ * (portal#2253 item 4): ids the saved order does not name (columns added after
+ * the view was saved) enter at their DEFAULT position — immediately after the
+ * closest preceding default-order id, including one merged in by an earlier
+ * iteration (so several new columns keep their default relative order) —
+ * instead of table-core's bare append at the far end, where a deadline column
+ * lands past the fold and reads as clipped. A missing id with NO surviving
+ * predecessor at all (a column added before everything else) enters at the
+ * front, its default position.
+ *
+ * An EMPTY saved order stays empty: it means "natural order", which already
+ * self-updates as columns are added, and freezing it into an explicit list
+ * would pin today's arrangement on a user who never dragged anything. Ids the
+ * table no longer knows are preserved in place (inert, and table-core ignores
+ * them) so the merge never discards a user's arrangement.
+ */
+export function mergeMissingColumns(
+  defaultOrder: readonly string[],
+  saved: ColumnOrderState,
+): ColumnOrderState {
+  if (!saved.length) return saved;
+  const present = new Set(saved);
+  const missing = defaultOrder.filter((id) => !present.has(id));
+  if (!missing.length) return saved;
+  const out = [...saved];
+  for (const id of missing) {
+    let anchor = -1;
+    for (let i = defaultOrder.indexOf(id) - 1; i >= 0; i--) {
+      const at = out.indexOf(defaultOrder[i]!);
+      if (at !== -1) { anchor = at; break; }
+    }
+    out.splice(anchor + 1, 0, id);
+  }
+  return out;
+}
+
 /** Turn a saved view into a partial PortalTableState usable as `initialState`. */
 export function viewToInitialState(view: SavedView | null | undefined): Partial<PortalTableState> {
   return view

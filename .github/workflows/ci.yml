@@ -41,6 +41,9 @@ jobs:
   ci:
     # #1285: Playwright 1.58.2 cannot install Chromium on Ubuntu 26.04.
     runs-on: ubuntu-24.04
+    # portal#2283: a stalled apt fetch once held this job for 2 h 08 min. A whole green run takes
+    # 42-65 min including queueing, so 75 turns a hang red without cutting a slow day short.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -73,9 +76,15 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # portal#2283: make apt give up and retry instead of waiting forever on a stalled mirror.
+      - name: Bound apt network waits
+        run: echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts
+
       # #854: jsdom cannot measure flexbox or document overflow. This fixture
       # uses the compiled app CSS and actual Urn component, without an API/DB.
+      # #854 browser install. The step normally takes 1.9-8.5 min; 15 turns a hang red in a quarter of an hour.
       - name: Install Chromium
+        timeout-minutes: 15
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Check team chat chip target sizes

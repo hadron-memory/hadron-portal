@@ -72,10 +72,13 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const chatTarget = chatPostTarget(node, evidence);
   const isTeamChannel = isTeamChannelChat(node, evidence);
 
-  // Non-fatal on error — an empty thread beats crashing the chat page.
+  // Non-fatal on error — a failed read beats crashing the chat page. #1828: but it is reported as a
+  // FAILED load (`chatLoadFailed`), never passed off as an empty thread.
+  let chatLoadFailed = false;
   // #793: a bounded WINDOW (newest CHAT_PAGE_SIZE), not the whole thread.
   const page = await loadChatMessages(gqlClient(locals.token), params.id, node.loc, { sort: chatSortKey(node), messageNodeTypes: chatMessageNodeTypes(node) }).catch((err) => {
     console.error('[chat-page] messages query failed:', err);
+    chatLoadFailed = true;
     return { messages: [], total: 0, hasOlder: false, offset: 0 };
   });
   const messages = page.messages;
@@ -118,6 +121,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     messages,
     hasOlder: page.hasOlder,
     chatOffset: page.offset,
+    chatLoadFailed,
     // #489 part 4 (@codex on PR #791): the App reference has to be HERE too,
     // not only on the node page. This is the surface a reader stays on — the
     // full transcript and composer — and it is one click from the node page's

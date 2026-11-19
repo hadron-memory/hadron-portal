@@ -38,7 +38,7 @@ afterEach(() => {
 });
 async function mountBar(over: Record<string, unknown> = {}, props: Record<string, unknown> = {}) {
   const p = reactiveProps<Record<string, unknown>>({
-    task: task(over), canWrite: true, impersonating: null, candidates, roles, families, openChildren: { count: 0, capped: false }, ...props,
+    task: task(over), canWrite: true, impersonating: null, loadPickers: async () => ({ kind: 'ok' as const, value: { ...candidates, roles, families } }), loadMemories: async () => ({ kind: 'ok' as const, value: [] }), openChildren: { count: 0, capped: false }, ...props,
   });
   const m = mountComponent(TaskActionBar as never, p as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
