@@ -894,16 +894,27 @@ export async function loadTeamChatNewer(
 }
 
 /**
- * The server's typed refusal of a team filter (#1137), or null for any other
- * failure.
+ * The server's typed refusal of a team filter (#1137, widened #1482), or null
+ * for any other failure.
  *
  * `TEAM_CHAT_TEAM_HEAD_INVALID` is the ONE shape the server answers an unknown,
  * retired-and-unavailable or foreign head with, deliberately non-oracular: its
- * fixed text does not say which. The portal shows that text as-is and never
- * retries the read unfiltered (a fallback would show more than the reader asked
- * for under a filter they believe is on), and adds no candidate list of its own.
- * Any other failure stays a degraded read, not a refusal the reader is told
- * about (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
+ * fixed text does not say which. With several heads (#1482/server#3759) one
+ * bad entry refuses the whole call with the same text.
+ *
+ * `BAD_USER_INPUT` is deliberately NOT mapped. The teamHeadRefs cap refusal is
+ * prevented client-side (TEAM_HEAD_REFS_MAX refuses over-cap URLs and stops a
+ * full selection from growing), so nothing portal-driven can provoke it — and
+ * BAD_USER_INPUT is not this call's alone: the same request carries `appRef`
+ * from the route segment, and a malformed ref is answered BAD_USER_INPUT
+ * before any lookup. Mapping the code would sell that as a team-filter
+ * refusal, halting the poll over a filter the reader never chose. Codes are
+ * mapped only when this surface is known to be their one producer
+ * (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
+ * The portal shows a refusal's text as-is and never retries the read
+ * unfiltered (a fallback would show more than the reader asked for under a
+ * filter they believe is on), and adds no candidate list of its own. Any other
+ * failure stays a degraded read, not a refusal the reader is told about.
  */
 export const TEAM_CHAT_HEAD_REFUSAL_CODE = 'TEAM_CHAT_TEAM_HEAD_INVALID';
 
@@ -912,6 +923,8 @@ export function teamChatRefusalOf(e: unknown): { code: string; message: string }
     ?.response?.errors;
   const first = Array.isArray(errors) ? errors[0] : undefined;
   if (first?.extensions?.code !== TEAM_CHAT_HEAD_REFUSAL_CODE) return null;
+  // `!first` is unreachable here: a falsy `first` makes the optional chain
+  // above `undefined !== CODE` and has already returned.
   if (typeof first.message !== 'string' || first.message === '') return null;
   return { code: TEAM_CHAT_HEAD_REFUSAL_CODE, message: first.message };
 }
