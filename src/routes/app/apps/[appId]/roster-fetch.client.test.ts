@@ -368,15 +368,16 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
     const target = await mountPage({ teamRoster: null });
 
     target.querySelector<HTMLElement>('#tab-staff')!.click();
+    // Kit's shallow replaceState moves the address bar to the new tab and leaves
+    // $page.url (the stub page, ?tab=chats) on the loaded one; mirror that.
+    window.history.replaceState({}, '', '/app/apps/a1?tab=staff');
     await settled(3);
     const panel = target.querySelector('#panel-staff')!;
     const link = [...panel.querySelectorAll('a')].find((a) => a.getAttribute('href')?.startsWith('/signin'));
     expect(link).toBeDefined();
     // The way back in lands on the tab the reader is on now (the address bar, which
     // Kit's shallow replaceState keeps current while $page.url goes stale), not the loaded tab.
-    expect(link!.getAttribute('href')).toBe(
-      `/signin?redirect=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`,
-    );
+    expect(link!.getAttribute('href')).toBe(`/signin?redirect=${encodeURIComponent('/app/apps/a1?tab=staff')}`);
     expect(panel.textContent).not.toContain('Task and pause state could not be loaded');
     // A lapsed session is not retryable: no Try again, and the link sits outside the status text.
     expect(retryButton(panel)).toBeUndefined();
