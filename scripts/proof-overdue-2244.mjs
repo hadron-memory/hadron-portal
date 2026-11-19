@@ -126,15 +126,22 @@ async function shoot(name, { dark, savedArrangement = null }) {
   if (!headers.some((h) => h.startsWith('Finish by'))) throw new Error(`${name}: no Finish by column: ${JSON.stringify(headers)}`);
   // portal#2248 review P3: both deadline columns fully inside the 1440
   // viewport — a date cut mid-value at the table edge fails the ask
-  // ("a reader can tell which time passed").
-  const fold = await page.$$eval('thead tr:last-child th', (ths) => ths.map((th) => {
-    const r = th.getBoundingClientRect();
-    return { text: (th.textContent || '').trim(), right: r.right };
-  }));
-  for (const prefix of ['Start by', 'Finish by']) {
-    const h = fold.find((x) => x.text.startsWith(prefix));
-    if (!h) throw new Error(`${name}: "${prefix}" column missing`);
-    if (h.right > 1440) throw new Error(`${name}: "${prefix}" column is cut by the 1440 viewport edge (right=${Math.round(h.right)})`);
+  // ("a reader can tell which time passed"). This binds the DEFAULT
+  // arrangement only (the unseeded legs): a seeded arrangement is by
+  // construction a dragged one, and where the user drags their deadlines is
+  // their choice, not a clip the app caused (portal#2274 P3 follow-on: the
+  // dragged seed puts Finish by past 1440 by the width of the people columns
+  // dragged ahead of it).
+  if (!savedArrangement) {
+    const fold = await page.$$eval('thead tr:last-child th', (ths) => ths.map((th) => {
+      const r = th.getBoundingClientRect();
+      return { text: (th.textContent || '').trim(), right: r.right };
+    }));
+    for (const prefix of ['Start by', 'Finish by']) {
+      const h = fold.find((x) => x.text.startsWith(prefix));
+      if (!h) throw new Error(`${name}: "${prefix}" column missing`);
+      if (h.right > 1440) throw new Error(`${name}: "${prefix}" column is cut by the 1440 viewport edge (right=${Math.round(h.right)})`);
+    }
   }
   // portal#2253 item 4, seeded leg only: the migration must have woven the
   // unseen Finish by column in right after Start by (its default home), not
@@ -142,6 +149,10 @@ async function shoot(name, { dark, savedArrangement = null }) {
   if (savedArrangement) {
     const startByIdx = headers.findIndex((h) => h.startsWith('Start by'));
     const finishByIdx = headers.findIndex((h) => h.startsWith('Finish by'));
+    // Absence must fail HERE: the fold check above no longer covers the
+    // seeded leg, and without this assert a missing Start by (-1) passes the
+    // adjacency vacuously (-1 + 1 === 0 matches Finish by at 0) — portal#2274 P3.
+    if (startByIdx < 0) throw new Error(`${name}: "Start by" column missing: ${JSON.stringify(headers)}`);
     if (finishByIdx !== startByIdx + 1) {
       throw new Error(`${name}: saved arrangement did not migrate (Finish by at ${finishByIdx}, Start by at ${startByIdx}): ${JSON.stringify(headers)}`);
     }
@@ -187,16 +198,19 @@ async function shoot(name, { dark, savedArrangement = null }) {
 // try/finally (portal#2248 review P3): a failed assertion must not
 // leave the vite server and the browser to process-exit cleanup.
 // The third leg (portal#2253 item 4) seeds a saved arrangement saved before
-// the Finish by column existed — deadlines dragged ahead of the people
-// columns — and proves the migration places the column at its default home,
-// inside the 1440 fold, on a real layout.
+// the Finish by column existed — the people columns dragged AHEAD of the
+// deadlines, matching the client test's seed — and proves the migration
+// places the column at its default home on a real layout. The seed must be a
+// visibly dragged order: the earlier seed merged back to exactly the default
+// arrangement, so the screenshot could not distinguish "migrated" from "no
+// saved view at all" (portal#2274 P3).
 const savedArrangement = {
   'hadron:views:v1:app-tasks:board': JSON.stringify([{
     id: 'v1', listKey: 'app-tasks:board', name: 'Pre-2248 layout',
     view: {
       sorting: [{ id: 'updated', desc: true }], columnFilters: [], globalFilter: '',
       columnVisibility: { created: false, tags: false, id: false },
-      columnOrder: ['status', 'title', 'startBy', 'owner', 'assignee', 'subtasks', 'updated'],
+      columnOrder: ['status', 'title', 'priority', 'owner', 'assignee', 'subtasks', 'startBy', 'updated'],
       columnSizing: {}, pagination: { pageIndex: 0, pageSize: 25 },
     },
     isDefault: true, createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z',

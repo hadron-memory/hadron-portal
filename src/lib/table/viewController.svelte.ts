@@ -6,7 +6,7 @@ import type { RowData } from '@tanstack/table-core';
 import { extractView, extractTableView, applyView, serializeView, mergeMissingColumns } from './savedView';
 import { type ViewStore, type SavedViewRecord, resolveInitialView } from './viewStore';
 import { localStorageViewStore } from './localStorageViewStore';
-import { createViewFrom, overwriteView, applyAndActivate, removeAndResolve, duplicateView, migrateStoredView } from './viewActions';
+import { createViewFrom, overwriteView, applyAndActivate, removeAndResolve, duplicateView, persistMergeBestEffort } from './viewActions';
 import { savedViewsStrings as s } from '$lib/i18n/saved-views-strings';
 
 export interface ViewController {
@@ -56,8 +56,11 @@ export function createViewController<T extends RowData>(args: {
       // portal#2253 item 4: migrate a stored arrangement that predates a
       // column (the missing id merges in at its default position) and persist
       // the merge, so the view applies cleanly and never reads as permanently
-      // modified. The no-op path stays SYNCHRONOUS — every list mounts through
-      // here, and one extra await shifts mount timing for all of them
+      // modified. The persist is BEST-EFFORT (portal#2274 P2): a quota-full
+      // store throws on write, and that must not stop the mount from applying
+      // the merged arrangement — the same fallback migrateStoredView uses, via
+      // the shared helper. The no-op path stays SYNCHRONOUS — every list mounts
+      // through here, and one extra await shifts mount timing for all of them
       // (picker-inner-layers pinned the old hop count).
       let target = resolved;
       const merged = mergeMissingColumns(
@@ -65,7 +68,7 @@ export function createViewController<T extends RowData>(args: {
         resolved.view.columnOrder,
       );
       if (merged !== resolved.view.columnOrder) {
-        target = await store.update(listKey, resolved.id, { view: { ...resolved.view, columnOrder: merged } });
+        target = await persistMergeBestEffort(store, listKey, resolved, { ...resolved.view, columnOrder: merged });
         views = views.map((v) => (v.id === target.id ? target : v));
       }
       applyView(table, target.view, { columnsOnly: args.initialColumnsOnly, initial: true });
@@ -76,11 +79,12 @@ export function createViewController<T extends RowData>(args: {
   async function select(id: string) {
     const current = views.find((x) => x.id === id);
     if (!current) return;
-    // Migrate first and swap the record into local state, so isModified
-    // compares against the merged arrangement, not the pre-merge stored one.
-    const v = await migrateStoredView(store, table, listKey, current);
+    // applyAndActivate migrates and returns the merged record; swapping it
+    // into local state keeps isModified comparing against the merged
+    // arrangement, not the pre-merge stored one — one migrate per select,
+    // not two (portal#2274 P3).
+    const v = await applyAndActivate(store, table, listKey, current); // discards unsaved tweaks (FR-007)
     if (v !== current) views = views.map((x) => (x.id === id ? v : x));
-    await applyAndActivate(store, table, listKey, v); // discards unsaved tweaks (FR-007)
     activeId = id;
   }
 

@@ -10,7 +10,7 @@
  * persists the merge, so the saved view neither strands the column at the end
  * nor reads as permanently "modified" against the arrangement it now has.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import Harness from '$lib/test/fixtures/TaskBoardHarness.svelte';
 
@@ -83,12 +83,21 @@ function headerIndexes(m: Mounted<any>): Partial<Record<typeof HEADERS[number], 
  * of a header proves nothing. Wait for init to have RUN: the saved view's tab
  * appears in the strip, and (for a dragged order) the saved arrangement is
  * visible in the DOM. */
-async function untilApplied(m: Mounted<any>, applied: (idx: Partial<Record<typeof HEADERS[number], number>>) => boolean, rounds = 25) {
+async function untilApplied(m: Mounted<any>, applied: (idx: Partial<Record<typeof HEADERS[number], number>>) => boolean, rounds = 50) {
   for (let i = 0; i < rounds; i++) {
     const tabbed = m.target.textContent?.includes('Pre-2248 layout') ?? false;
     if (tabbed && applied(headerIndexes(m))) return;
     await tick(2);
   }
+  // Fail HERE with a message that names the wait (portal#2274 P3): a silent
+  // timeout left the following expect to fail on a natural-order DOM, which
+  // reads as a merge bug instead of "init never ran".
+  const tabbed = m.target.textContent?.includes('Pre-2248 layout') ?? false;
+  throw new Error(
+    tabbed
+      ? `saved view applied but the expected arrangement never appeared within ${rounds} rounds — headers: ${JSON.stringify(headerOrder(m))}`
+      : `saved-view init never ran within ${rounds} rounds — the saved view's tab never appeared in the strip`,
+  );
 }
 
 /** Visible header names in DOM order — the assertion vocabulary. */
@@ -146,5 +155,40 @@ describe('a saved arrangement predating a column (portal#2253 item 4)', () => {
       'Status', 'Task', 'Priority', 'Start by', 'Finish by', 'Owner', 'Assignee', 'Subtasks', 'Updated',
     ]);
     expect(storedOrder()).toEqual([]);
+  });
+
+  it('applies the merged arrangement even when the persist fails (quota-full storage) — portal#2274 P2', async () => {
+    // Quota-full storage: reads work, every write throws. jsdom's localStorage
+    // setItem cannot be shadowed by assignment (the override silently no-ops),
+    // so the whole global is stubbed — the view store resolves
+    // globalThis.localStorage on every access and picks the stub up.
+    const seeded = new Map<string, string>([
+      [KEY, JSON.stringify([{
+        id: 'v1', listKey: 'app-tasks:board', name: 'Pre-2248 layout', view: pre2244View,
+        isDefault: true, createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z',
+      }])],
+      [ACTIVE_KEY, 'v1'],
+    ]);
+    const quotaStorage = {
+      length: 0,
+      clear: () => seeded.clear(),
+      getItem: (k: string) => seeded.get(k) ?? null,
+      key: () => null,
+      removeItem: (k: string) => void seeded.delete(k),
+      setItem: () => { throw new DOMException('quota exceeded', 'QuotaExceededError'); },
+    } as unknown as Storage;
+    vi.stubGlobal('localStorage', quotaStorage);
+    try {
+      const m = await mount([task({})]);
+      await untilApplied(m, (idx) => (idx['Owner'] ?? -1) < (idx['Start by'] ?? -1));
+      expect(headerOrder(m)).toEqual([
+        'Status', 'Task', 'Priority', 'Owner', 'Assignee', 'Subtasks', 'Start by', 'Finish by', 'Updated',
+      ]);
+      // The stub keeps the pre-merge order: no write could land, so the next
+      // mount re-attempts the merge.
+      expect(JSON.parse(seeded.get(KEY)!)[0].view.columnOrder).toEqual(pre2244Order);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
