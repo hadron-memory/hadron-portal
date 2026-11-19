@@ -179,6 +179,9 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
       agentId: 'agent-fixture',
       appId: 'app-fixture',
       uploadMemoryId: 'memory-fixture',
+      // longConfigName flips isDefault off: a default choice is labelled just
+      // "Default", which would hide the long name. The value stays 'default', so the
+      // picker still seeds to this option; the transcript-height probe asserts it is selected.
       aiChoices: [
         { value: 'default', name: options.longConfigName ? LONG_CONFIG_NAME : 'Default', provider: 'synthetic', model: 'fixture-model', isDefault: !options.longConfigName, unavailableReason: null },
       ] as never,

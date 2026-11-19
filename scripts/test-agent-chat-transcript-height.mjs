@@ -143,9 +143,12 @@ try {
         }
         if (width === 948) assert.equal(m.panel, 620);
         if (variant.longConfigName) {
-          // The long fixture must actually be on the page, not silently ignored.
+          // The long name must be the SELECTED option the composer row shows, not
+          // just present in the closed select (a stress that renders nothing would pass).
           const { LONG_CONFIG_NAME } = await page.evaluate(() => import('/src/lib/test/fixtures/agent-chat-phone-harness.ts').then(m => ({ LONG_CONFIG_NAME: m.LONG_CONFIG_NAME })));
-          assert.equal(await page.locator('#agent-chat-ai-config option').first().textContent().then(t => t?.includes(LONG_CONFIG_NAME)), true, `${label}: long config name not rendered`);
+          const shown = await page.locator('#agent-chat-ai-config').evaluate(el => [...el.selectedOptions].map(o => o.textContent ?? ''));
+          assert.equal(shown.length, 1, `${label}: AI config select has no single selected option`);
+          assert.ok(shown[0].includes(LONG_CONFIG_NAME), `${label}: long config name is not the selected option`);
         }
         assert(await page.getByLabel('AI config').isVisible(), `${label}: AI config hidden`);
         assert(await page.getByRole('button', { name: 'Send', exact: true }).isVisible(), `${label}: Send hidden`);
