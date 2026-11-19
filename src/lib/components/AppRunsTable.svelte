@@ -22,13 +22,14 @@
   // page data (this effect) BEFORE `goto` resolves, and the effect bumps `epoch`, so navigate's own guard
   // never sees its success: the served section is announced here, where it lands. Plain, not $state: the
   // effect must not re-run on it.
-  let awaitingServe = false;
+  // A token, not a boolean: navigate clears only its own wait if goto settles with no new data (same URL).
+  let awaitingServe = 0, serveToken = 0;
   $effect(() => {
     if (initial !== snapshot || appRef !== resource) {
       // Only a navigate of this same App view earns an announcement; an App change or data nobody here
       // asked for (a refresh, Back) clears the region instead.
-      const served = awaitingServe && appRef === resource;
-      awaitingServe = false;
+      const served = awaitingServe !== 0 && appRef === resource;
+      awaitingServe = 0;
       epoch++; snapshot = initial; resource = appRef; section = initial; intent = null; pending = false;
       announcement = served ? runsAnnouncement(initial) : '';
     }
@@ -53,10 +54,10 @@
   function query(change: Partial<RunsQuery>): RunsQuery { return { page: controls.page, statuses: controls.statuses, sort: controls.sort, dir: controls.dir, ...change }; }
   async function navigate(next: RunsQuery, replaceState = false) {
     const id = ++epoch, ref = appRef;
-    intent = next; announcement = ''; pending = true; awaitingServe = true;
+    intent = next; announcement = ''; pending = true; const mine = awaitingServe = ++serveToken;
     try { await goto(runsHref(ref, next), { replaceState, keepFocus: true, noScroll: true }); }
-    catch { if (alive && id === epoch && ref === appRef) { awaitingServe = false; announcement = t('runs.navigation-failed', 'Could not open this runs page. Try again.'); } }
-    finally { if (alive && id === epoch && ref === appRef) { intent = null; pending = false; } }
+    catch { if (alive && id === epoch && ref === appRef) { awaitingServe = 0; announcement = t('runs.navigation-failed', 'Could not open this runs page. Try again.'); } }
+    finally { if (awaitingServe === mine) awaitingServe = 0; if (alive && id === epoch && ref === appRef) { intent = null; pending = false; } }
   }
   const table = createSvelteTable<AppRun>({
     get data() { return section.runs; }, columns, defaultColumn: { minSize: 40 }, getRowId: r => r.id,
@@ -82,7 +83,7 @@
   async function retry() {
     const id = ++epoch, ref = appRef, basedOn = initial;
     const current = () => alive && id === epoch && ref === appRef && basedOn === initial;
-    pending = true; announcement = ''; awaitingServe = false;
+    pending = true; announcement = ''; awaitingServe = 0;
     try {
       const url = new URL(runsHref(ref, section), window.location.origin);
       const res = await fetch(`/app/apps/${encodeURIComponent(ref)}/runs-data${url.search}`, { cache: 'no-store' });

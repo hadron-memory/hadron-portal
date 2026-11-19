@@ -292,6 +292,14 @@ describe('App Runs announces the served result after a successful navigate (port
     m.props.initial = section({ page: 1, total: 5 }); flushSync(); await tick(8);
     expect(live(m.target).textContent).toBe('');
   });
+  it('a navigate that serves no new data does not let a later refresh announce itself', async () => {
+    // goto resolves (e.g. the same URL again) but no new page data arrives: nothing asked for the later data.
+    navigationHooks.onGoto = async () => {};
+    const m = mount(); await tick(8);
+    find(m.target, 'Active').click(); await tick(8);
+    m.props.initial = section({ page: 1, total: 5 }); flushSync(); await tick(8);
+    expect(live(m.target).textContent).toBe('');
+  });
   it('keeps one polite live region', async () => {
     const m = mount(); await tick(8);
     await navigateAndServe(m, () => find(m.target, 'Active').click(), section({ page: 1, total: 2 }));
