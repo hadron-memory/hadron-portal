@@ -4,7 +4,6 @@
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import AppRunsPanel from './runs/AppRunsPanel.svelte';
   import ChatbotAiConfigSetting from './ChatbotAiConfigSetting.svelte';
-  import TaskIntegrations from './TaskIntegrations.svelte';
   import { taskHref } from '$lib/agent-tasks/handle';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
   // portal#2205: the delete dialog is shared with the worker's own page, so it
@@ -4231,17 +4230,6 @@
           />
         {/key}
       {/if}
-
-      <!-- portal#1607: the App's task integrations. Keyed on propertiesRevision (null = no section)
-           and viewerManages (edit controls); unknown viewerManages keeps the controls, as the key controls do. -->
-      <!-- Keyed on the App: SvelteKit reuses this page between Apps, and an open draft must not follow the person to another App. -->
-      {#key app.id}
-        <TaskIntegrations
-          read={tabData.appProperties ?? { kind: 'hidden' }}
-          manages={data.viewerManages?.kind === 'known' ? data.viewerManages.manages : null}
-          workers={tabData.staff}
-        />
-      {/key}
 
       <!-- Scope stays visible as error/empty as well as a non-empty inventory. -->
       <section class="max-w-4xl">
