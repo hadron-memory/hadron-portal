@@ -50,6 +50,7 @@
     manualPagination: true, manualSorting: true, manualFiltering: true,
     initialState: { sorting: [{ id: 'createdAt', desc: true }], pagination: { pageIndex: 0, pageSize: 20 } },
     get rowCount() { return section.total; }, enableMultiSort: false, enableSortingRemoval: false,
+    // The pager and sort header follow `controls`; the status filter and the saved view still describe the served page (portal#2290 scope).
     get state() { return { sorting, columnFilters: section.statuses.length ? [{ id: 'status', value: section.statuses }] : [], pagination: { pageIndex: controls.page - 1, pageSize: RUNS_PAGE_SIZE } }; },
     onSortingChange: updater => { const next = typeof updater === 'function' ? updater(sorting) : updater; const item = next[0]; void navigate(query({ page: 1, sort: RUN_SORTS.includes(item?.id as RunsQuery['sort']) ? item.id as RunsQuery['sort'] : 'createdAt', dir: item?.desc ? 'desc' : 'asc' })); },
     onPaginationChange: updater => { const now = { pageIndex: controls.page - 1, pageSize: RUNS_PAGE_SIZE }; const next = typeof updater === 'function' ? updater(now) : updater; if (next.pageIndex !== now.pageIndex) void navigate(query({ page: next.pageIndex + 1 })); },

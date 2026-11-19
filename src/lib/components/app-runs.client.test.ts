@@ -208,7 +208,40 @@ describe('App Runs manual server table', () => {
       find(m.target, 'Started').click(); await tick(4);
       expect(goto()).toHaveLength(2);
       expect(lastUrl().searchParams.get('sort')).toBe('startedAt');
-      expect(lastUrl().searchParams.get('dir')).not.toBe(first);
+      expect([first, lastUrl().searchParams.get('dir')]).toEqual(['desc', 'asc']);
+      held.resolve(); await tick(8);
+    });
+    it('a rejected held request rolls the pager back to the served page', async () => {
+      const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
+      const m = mount(); await tick(8);
+      statusBox(m.target, 'FAILED').click(); await tick(4);
+      held.reject(new Error('offline')); await tick(8);
+      navigationHooks.onGoto = undefined;
+      find(m.target, 'Next').click(); await tick(4);
+      expect(goto()).toHaveLength(2);
+      expect(lastUrl().searchParams.get('page')).toBe('4');
+      expect(lastUrl().searchParams.get('status')).toBeNull();
+    });
+    it('an interrupted request leaves the newer request as the base, even after the older one settles', async () => {
+      const a = deferred<void>(), b = deferred<void>();
+      let call = 0; navigationHooks.onGoto = () => ++call === 1 ? a.promise : b.promise;
+      const m = mount(); await tick(8);
+      statusBox(m.target, 'FAILED').click(); await tick(4);
+      statusBox(m.target, 'RUNNING').click(); await tick(4);
+      a.resolve(); await tick(8);
+      find(m.target, 'Next').click(); await tick(4);
+      expect(goto()).toHaveLength(3);
+      expect(lastUrl().searchParams.get('page')).toBe('2');
+      expect(lastUrl().searchParams.get('status')).toBe('RUNNING,FAILED');
+      b.resolve(); await tick(8);
+    });
+    it('Previous while held steps back from the held page', async () => {
+      const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
+      const m = mount(section({ page: 5 })); await tick(8);
+      find(m.target, 'Previous').click(); await tick(4);
+      find(m.target, 'Previous').click(); await tick(4);
+      expect(goto()).toHaveLength(2);
+      expect(lastUrl().searchParams.get('page')).toBe('3');
       held.resolve(); await tick(8);
     });
     it('a header sort click while a filter is held keeps the held filter', async () => {
