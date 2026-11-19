@@ -173,7 +173,7 @@
         <tr class="text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
           {#each headerGroup.headers as header (header.id)}
             <th
-              class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 w-[var(--col-w)] {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''} {header.column.id === stickyEndColumn ? 'max-sm:left-0 max-sm:right-0 max-sm:z-20' : ''}{endColumn?.id === header.column.id && !singleColumnFit ? ' max-sm:w-[var(--phone-end-w)]' : ''}{singleColumnFit ? ' max-sm:w-full' : ''}{phoneHidden.includes(header.column.id) ? ' max-sm:hidden' : ''}{singleColumnFit ? ' max-sm:border-r-0' : ''}"
+              class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 w-[var(--col-w)] {header.column.getCanSort() && !sortButtons ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''} {header.column.id === stickyEndColumn ? 'max-sm:left-0 max-sm:right-0 max-sm:z-20' : ''}{endColumn?.id === header.column.id && !singleColumnFit ? ' max-sm:w-[var(--phone-end-w)]' : ''}{singleColumnFit ? ' max-sm:w-full' : ''}{phoneHidden.includes(header.column.id) ? ' max-sm:hidden' : ''}{singleColumnFit ? ' max-sm:border-r-0' : ''}"
               style="--col-w: {header.getSize()}px;"
               tabindex={!sortButtons && header.column.getCanSort() ? 0 : undefined}
               aria-sort={header.column.getIsSorted() === 'asc' ? 'ascending' : header.column.getIsSorted() === 'desc' ? 'descending' : undefined}
@@ -187,7 +187,7 @@
             >
               <div class="flex min-w-0 items-center gap-1">
                 {#if sortButtons && header.column.getCanSort()}
-                  <button type="button" class="min-h-11 min-w-0 truncate text-left focus-visible:outline-2 focus-visible:outline-indigo-500" onclick={header.column.getToggleSortingHandler()}>{header.column.columnDef.header}</button>
+                  <button type="button" class="min-h-11 min-w-0 cursor-pointer truncate text-left hover:text-zinc-700 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:hover:text-zinc-200" onclick={header.column.getToggleSortingHandler()}>{header.column.columnDef.header}</button>
                 {:else}<span class="min-w-0 truncate">{header.column.columnDef.header}</span>{/if}
                 {#if header.column.getCanSort()}
                   <span class={header.column.getIsSorted() ? 'text-indigo-500' : 'text-zinc-300 dark:text-zinc-700'}>{sortIndicator(header.column.getIsSorted())}</span>
@@ -249,7 +249,7 @@
      flow and reachable instead. -->
 {#if showFooter}
 <div data-testid="table-footer" class="flex flex-wrap items-center justify-between gap-3">
-  <span aria-current="page" class="text-sm text-zinc-500">{pageCount > 1 ? tableStrings.pageOf(pageIndex + 1, pageCount) : ''}</span>
+  <span aria-current={pageCount > 1 ? 'page' : undefined} class="text-sm text-zinc-500">{pageCount > 1 ? tableStrings.pageOf(pageIndex + 1, pageCount) : ''}</span>
   <div class="flex flex-wrap items-center gap-2">
     {#if showPageSize}<select value={pageSize} onchange={(e) => table.setPageSize(Number((e.target as HTMLSelectElement).value))}
       aria-label={tableStrings.rowsPerPage()}

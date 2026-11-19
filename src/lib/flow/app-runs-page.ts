@@ -20,11 +20,26 @@ export function runsHref(appRef: string, query: RunsQuery): string {
   p.set('sort', query.sort); p.set('dir', query.dir);
   return `/app/apps/${encodeURIComponent(appRef)}?${p}`;
 }
+/**
+ * #1766 — a GraphQL enum NAME matches `^[A-Za-z_][A-Za-z0-9_]*$` (the spec's
+ * Name production; it sets no length bound — the 64-char cap is #1766's own
+ * sanity limit against garbage strings). A well-shaped value this build
+ * doesn't know (a newer server added a member) passes so it can be RENDERED;
+ * anything else (wrong type, empty, not a name, over-long) is malformed and
+ * still rejects the row. This is response-shape tolerance only — the URL
+ * filter whitelist above stays strict, so the portal never SENDS an unknown
+ * enum to GraphQL.
+ */
+const ENUM_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+function isWellShapedEnumName(v: unknown): v is string {
+  return typeof v === 'string' && v.length <= 64 && ENUM_NAME.test(v);
+}
+
 /** Refuse malformed retry payloads before any formatter/table receives them. */
 export function isRunsSection(value: unknown): value is RunsSection {
   if (!value || typeof value !== 'object') return false;
   const s = value as RunsSection;
-  return Number.isSafeInteger(s.page) && s.page >= 1 && Number.isSafeInteger(s.total) && s.total >= 0 && typeof s.failed === 'boolean' && typeof s.explicitState === 'boolean' && RUN_SORTS.includes(s.sort) && ['asc', 'desc'].includes(s.dir) && Array.isArray(s.statuses) && s.statuses.every(x => RUN_STATUSES.includes(x)) && Array.isArray(s.runs) && s.runs.length <= RUNS_PAGE_SIZE && s.runs.every(r => r && typeof r.id === 'string' && RUN_STATUSES.includes(r.status) && typeof r.entryNodeUrn === 'string' && typeof r.triggerKind === 'string' && ['MANUAL', 'WEBHOOK', 'SCHEDULE', 'INTEGRATION', 'SPAWN'].includes(r.triggerKind) && typeof r.createdAt === 'string' && (r.startedAt === null || typeof r.startedAt === 'string') && (r.finishedAt === null || typeof r.finishedAt === 'string') && (r.failure === null || typeof r.failure === 'object') && (r.eventData === null || typeof r.eventData === 'object'));
+  return Number.isSafeInteger(s.page) && s.page >= 1 && Number.isSafeInteger(s.total) && s.total >= 0 && typeof s.failed === 'boolean' && typeof s.explicitState === 'boolean' && RUN_SORTS.includes(s.sort) && ['asc', 'desc'].includes(s.dir) && Array.isArray(s.statuses) && s.statuses.every(x => RUN_STATUSES.includes(x)) && Array.isArray(s.runs) && s.runs.length <= RUNS_PAGE_SIZE && s.runs.every(r => r && typeof r.id === 'string' && isWellShapedEnumName(r.status) && typeof r.entryNodeUrn === 'string' && isWellShapedEnumName(r.triggerKind) && typeof r.createdAt === 'string' && (r.startedAt === null || typeof r.startedAt === 'string') && (r.finishedAt === null || typeof r.finishedAt === 'string') && (r.failure === null || typeof r.failure === 'object') && (r.eventData === null || typeof r.eventData === 'object'));
 }
 
 /** The Sort select's label for a served sort (the same `runs.*` keys the select uses). */
