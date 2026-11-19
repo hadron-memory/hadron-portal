@@ -7,7 +7,7 @@
   import type { PortalColumnDef, PortalTableState } from '$lib/table/features';
   import type { SavedView } from '$lib/table/savedView';
   import { t } from '$lib/i18n/t';
-  import { RUN_STATUSES, describeTrigger, fmtRunTime, runDuration, failureCode, runStatusLabel, statusChipClass, type AppRun } from '$lib/flow/runs';
+  import { RUN_STATUSES, describeTrigger, fmtRunTime, runDuration, failureCode, statusChipClass, type AppRun } from '$lib/flow/runs';
   import { runsHref, isRunsSection, RUNS_PAGE_SIZE, RUN_SORTS, type RunsSection, type RunsQuery } from '$lib/flow/app-runs-page';
   let { appRef, initial }: { appRef: string; initial: RunsSection } = $props();
   const mountedApp = untrack(() => appRef), mountedSection = untrack(() => initial);
@@ -36,6 +36,29 @@
     { id: 'failure', header: t('runs.col.failure', 'Failure'), enableSorting: false, size: 220 },
     { id: 'actions', header: t('runs.col.open', 'Open'), enableSorting: false, enableHiding: false, size: 140, minSize: 140 },
   ];
+  // portal#2286: labels go through t() so they can be localized; a status with no key renders raw.
+  // portal#1766: a status this build doesn't know is NOT a key-less known status — it renders
+  // `Unknown: {raw}`, borrowing no known state's label (same contract as runStatusLabel in
+  // $lib/flow/runs, composed here because this table localizes known statuses #2286-style).
+  const STATUS_LABELS: Record<string, string> = { PENDING: 'Pending', RUNNING: 'Running', COMPLETED: 'Completed', FAILED: 'Failed', TIMED_OUT: 'Timed out', CANCELLED: 'Cancelled' };
+  const statusLabel = (status: string) => (RUN_STATUSES as readonly string[]).includes(status)
+    ? t(`runs.status.${status}`, Object.hasOwn(STATUS_LABELS, status) ? STATUS_LABELS[status] : status)
+    : t('runs.unknown', 'Unknown: {raw}', { raw: status });
+  const SORT_LABELS: Record<RunsQuery['sort'], string> = { createdAt: 'Created', startedAt: 'Started', finishedAt: 'Finished', status: 'Status' };
+  const sortSummary = $derived.by(() => {
+    const sort = t(`runs.sort.${controls.sort}`, SORT_LABELS[controls.sort] ?? controls.sort);
+    const order = controls.sort === 'status'
+      ? (controls.dir === 'asc' ? t('runs.order.status-asc', 'A to Z') : t('runs.order.status-desc', 'Z to A'))
+      : (controls.dir === 'asc' ? t('runs.order.time-asc', 'oldest first') : t('runs.order.time-desc', 'newest first'));
+    return t('runs.sort-summary', 'Sorted by {sort}, {order}', { sort, order });
+  });
+  // The panel above explains an unfiltered-empty SERVED page once; when it is not showing that (the first read failed and Retry
+  // recovered to empty), the table owns the one message, keyed on the same served `initial` the panel reads.
+  const panelExplains = $derived(!initial.failed && initial.total === 0 && initial.statuses.length === 0);
+  const ACTIVE = ['PENDING', 'RUNNING'];
+  const allPressed = $derived(controls.statuses.length === 0);
+  const activePressed = $derived(controls.statuses.length === ACTIVE.length && ACTIVE.every(x => controls.statuses.includes(x as never)));
+  const pressedClass = (on: boolean) => on ? 'border-indigo-600 bg-indigo-600 text-white dark:border-indigo-400 dark:bg-indigo-500' : 'border-zinc-300 bg-white text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100';
   function query(change: Partial<RunsQuery>): RunsQuery { return { page: controls.page, statuses: controls.statuses, sort: controls.sort, dir: controls.dir, ...change }; }
   async function navigate(next: RunsQuery, replaceState = false) {
     const id = ++epoch, ref = appRef;
@@ -96,16 +119,19 @@
     <label class="flex min-h-11 min-w-0 items-center gap-2">{t('runs.order', 'Order')}
       <select aria-label={t('runs.order-label', 'Run sort order')} value={controls.dir} onchange={e => navigate(query({ page: 1, dir: e.currentTarget.value as RunsQuery['dir'] }))} class="min-h-11 min-w-0 rounded border border-zinc-300 bg-white px-2 text-zinc-900 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"><option value="desc">{t('runs.descending', 'Descending')}</option><option value="asc">{t('runs.ascending', 'Ascending')}</option></select>
     </label>
-    <button type="button" onclick={() => navigate(query({ page: 1, statuses: [] }))} class="min-h-11 rounded border border-zinc-300 bg-white px-3 text-zinc-900 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">{t('runs.filter.all', 'All')}</button>
-    <button type="button" onclick={() => navigate(query({ page: 1, statuses: ['PENDING', 'RUNNING'] }))} class="min-h-11 rounded border border-zinc-300 bg-white px-3 text-zinc-900 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">{t('runs.filter.active', 'Active')}</button>
-    {#each RUN_STATUSES as status}<label class="flex min-h-11 items-center gap-1"><input type="checkbox" checked={controls.statuses.includes(status)} onchange={(e) => navigate(query({ page: 1, statuses: RUN_STATUSES.filter(s => s === status ? e.currentTarget.checked : controls.statuses.includes(s)) }))} />{status}</label>{/each}
+    <button type="button" aria-pressed={allPressed} onclick={() => navigate(query({ page: 1, statuses: [] }))} class="min-h-11 rounded border px-3 focus-visible:outline-2 focus-visible:outline-indigo-500 {pressedClass(allPressed)}">{t('runs.filter.all', 'All')}</button>
+    <button type="button" aria-pressed={activePressed} onclick={() => navigate(query({ page: 1, statuses: ['PENDING', 'RUNNING'] }))} class="min-h-11 rounded border px-3 focus-visible:outline-2 focus-visible:outline-indigo-500 {pressedClass(activePressed)}">{t('runs.filter.active', 'Active')}</button>
+    {#each RUN_STATUSES as status}<label class="flex min-h-11 items-center gap-1"><input type="checkbox" checked={controls.statuses.includes(status)} onchange={(e) => navigate(query({ page: 1, statuses: RUN_STATUSES.filter(s => s === status ? e.currentTarget.checked : controls.statuses.includes(s)) }))} />{statusLabel(status)}</label>{/each}
   </fieldset>
+  <p data-testid="runs-sort-summary" class="text-sm text-zinc-600 dark:text-zinc-300">{sortSummary}</p>
   {#if section.failed}<div role="alert"><p>{t('runs.read-failed', 'Could not load runs. Try again.')}</p><button type="button" disabled={pending} onclick={retry} class="min-h-11 rounded border border-zinc-300 bg-white px-3 text-zinc-900 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">{t('runs.retry', 'Retry')}</button></div>
-  {:else if section.total === 0}<p>{section.statuses.length ? t('runs.empty.filtered', 'No runs with this status yet.') : t('runs.empty.title', 'No runs yet.')}</p>{/if}
-  {#if !section.failed}<p>{t('runs.pager.total', 'Total:')} {section.total}</p>{/if}
+  {:else if section.total === 0 && section.statuses.length}<p>{t('runs.empty.filtered', 'No runs with this status yet.')}</p>
+  {:else if section.total === 0 && !panelExplains}<p>{t('runs.empty.title', 'No runs yet.')}</p>{/if}
+  <!-- portal#2286: the unfiltered empty case is explained once: by the panel above when the page was served empty, else by the line above. -->
+  {#if !section.failed && !(section.total === 0 && !section.statuses.length && panelExplains)}<p>{t('runs.pager.total', 'Total:')} {section.total}</p>{/if}
   <DataTable containCells {table} listKey="app-runs-server" showSearch={false} showPageSize={false} initialColumnsOnly={section.explicitState} sortButtons={true} searchPlaceholder="" searchAriaLabel="">
     {#snippet cell(c, run)}
-      {#if c.column.id === 'status'}<span class="inline-block max-w-full rounded px-2 py-1 [overflow-wrap:anywhere] {statusChipClass(run.status)}">{runStatusLabel(run.status)}</span>
+      {#if c.column.id === 'status'}<span class="inline-block max-w-full rounded px-2 py-1 [overflow-wrap:anywhere] {statusChipClass(run.status)}">{statusLabel(run.status)}</span>
       {:else if c.column.id === 'triggerKind'}{describeTrigger(run)}
       {:else if c.column.id === 'entryNodeUrn'}<Urn value={run.entryNodeUrn} type="node" size={11} compact />
       {:else if c.column.id === 'duration'}{runDuration(run)}

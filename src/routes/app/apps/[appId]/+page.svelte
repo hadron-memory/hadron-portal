@@ -16,7 +16,7 @@
   // portal#2249: one source for the App type's labels — Profile row, Settings
   // read-only row and the Settings options render these so they cannot drift.
   import { APP_TYPE_VALUES, appTypeLabel } from '$lib/i18n/app-type-strings';
-  import { tick, untrack, onDestroy } from 'svelte';
+  import { tick, untrack, onDestroy, flushSync } from 'svelte';
   import { applyAction } from '$app/forms';
   import { page } from '$app/stores';
   import { dropNamedActions } from './app-list-pages';
@@ -362,6 +362,9 @@
   const castHeads = $derived(sortedStaff.filter((w) => !w.retiredAt));
   const selectedCastHead = $derived(castHeads.find((w) => w.id === $castWorkerForm.reportsTo) ?? null);
   let castOpen = $state(false);
+  // portal#1796: the "Cast a worker" opener. The composer closes on a clean cast and takes the
+  // focused Cast button with it, so focus is handed back here (see onUpdated).
+  let castOpener: HTMLButtonElement | undefined = $state();
   // App the in-flight cast was submitted for, and whether its post-cast roster refresh failed.
   // Generation fence: bumped every time the composer's context is LEFT (App change), so a result
   // that began in an earlier visit to the same App (A -> B -> A) is as stale as one from B.
@@ -1077,9 +1080,17 @@
   // is dropped, so an older answer can never clobber the page state a newer
   // one was fetched for (F2).
   let rosterFetchEpoch = 0;
+  // The endpoint bounds its own read at 8 s (OPTIONAL_LIST_TIMEOUT_MS in
+  // roster/+server.ts); this is the transport's bound and must stay above it,
+  // or the client gives up on an answer the server is still entitled to send.
+  // roster-fetch.client.test.ts pins the pair.
   const ROSTER_FETCH_TIMEOUT_MS = 10_000;
+  // The request in flight, so a newer ask or a teardown ends it rather than
+  // leaving it to run out its timer (portal#2282).
+  let rosterFetchCtl: AbortController | null = null;
   function startRosterFetch(appId: string, opts: { supersedeData?: boolean } = {}) {
     const epoch = ++rosterFetchEpoch;
+    rosterFetchCtl?.abort();
     rosterSupersedesData = opts.supersedeData ? data : null;
     rosterFetchedForApp = appId;
     rosterFetch = { appId, read: { kind: 'loading' } };
@@ -1096,6 +1107,7 @@
       // timer rather than `AbortSignal.timeout`: the timer is the one a test
       // can drive.
       const ctl = new AbortController();
+      rosterFetchCtl = ctl;
       const timer = setTimeout(() => ctl.abort(), ROSTER_FETCH_TIMEOUT_MS);
       try {
         const res = await fetch(`/app/apps/${appId}/roster`, { signal: ctl.signal });
@@ -1116,11 +1128,19 @@
         // transport failure or timeout: keep the failed read
       } finally {
         clearTimeout(timer);
+        if (rosterFetchCtl === ctl) rosterFetchCtl = null;
       }
       if (epoch !== rosterFetchEpoch) return;
       rosterFetch = { appId, read };
     })();
   }
+  // Teardown: end the request and make its late answer stale, so nothing
+  // writes page state after the component is gone.
+  onDestroy(() => {
+    rosterFetchEpoch++;
+    rosterFetchCtl?.abort();
+    rosterFetchCtl = null;
+  });
   $effect(() => {
     if (activeTab !== 'staff') return;
     const appId = app.id;
@@ -1287,6 +1307,11 @@
     const current = untrack(() => activeTab);
     if (!tabs.some((tab) => tab.id === current)) activeTab = tabs[0]?.id ?? 'memory';
   });
+  // portal#2292: the label the tab strip shows for the active tab (so a locale change moves both). The
+  // default tab (Chats, what the URL carries without `?tab=`) leads with nothing; it becomes Profile if
+  // #2241 makes Profile the default, and this is the one line to change then.
+  const TITLE_UNLABELLED_TAB: TabId = 'chats';
+  const tabTitleLabel = $derived(activeTab === TITLE_UNLABELLED_TAB ? '' : (tabs.find((tab) => tab.id === activeTab)?.label ?? ''));
   // "Read once at init" is not enough on its own: SvelteKit REUSES this
   // component for a query-only navigation, so a same-App link to
   // `?tab=chats&chat=chats:team&view=full` followed from the Worklog tab
@@ -1781,12 +1806,19 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    // portal#1796: the Cast button is aria-disabled while casting, so this is what refuses a second
+    // submit. Named here, not left to the library default, because the safety property rests on it.
+    multipleSubmits: 'prevent',
     // Fence by originating App (hrn:node:hadronmemory.com:hadron-portal:review:superforms-late-result-crosses-entity-navigation):
     // this page component is REUSED across /apps/A -> /apps/B, so A's slow answer
     // must not close B's composer, empty B's draft or print "Worker cast." on B.
     // The cast itself is already committed server-side; only its application to
     // the screen is dropped (never replayed).
     onSubmit: ({ formElement }) => {
+      // portal#1796: the Cast button is aria-disabled while casting, not disabled, so it keeps
+      // keyboard focus and no longer blocks a second activation itself. The double-submit guard
+      // is Superforms' multipleSubmits: 'prevent' (set above), which cancels a second submit
+      // BEFORE this hook runs; scripts/test-cast-submit-focus.mjs pins that one request goes out.
       castAttemptGeneration = castGeneration;
       castRequestGeneration.set(formElement, castGeneration);
       castRefreshFailed = false;
@@ -1837,6 +1869,15 @@
           { taint: false },
         );
         castOpen = false;
+        // portal#1796: the Cast button held focus and has just unmounted with the composer,
+        // which would drop focus to <body>. Hand it to the opener, unless the reader has
+        // already moved focus somewhere real while the request was out.
+        // flushSync, not await tick(): no extra microtask turn before the refresh below, whose
+        // timing the late-result race tests pin.
+        flushSync();
+        if (attempt === castGeneration && (!document.activeElement || document.activeElement === document.body)) {
+          castOpener?.focus();
+        }
         try {
           await invalidateAll();
           // portal#2243 F1: after ruling 0273 the reload carries the roster
@@ -2420,7 +2461,9 @@
 </script>
 
 
-<svelte:head><title>{app.name} · Apps · {org ? `${org.name} · ` : ''}Hadron</title></svelte:head>
+<!-- portal#2292: the shown tab's label leads the title, so browser tabs, history entries and screen-reader
+     announcements tell the tabs apart. The tab with no `?tab=` (Chats) keeps the title the page always had. -->
+<svelte:head><title>{tabTitleLabel ? `${tabTitleLabel} · ` : ''}{app.name} · Apps · {org ? `${org.name} · ` : ''}Hadron</title></svelte:head>
 <!-- Escape leaves the maximised team chat. Bound at the window so it works
      from the composer, the thread and the button alike. -->
 <svelte:window onkeydown={onWindowKeydown} />
@@ -3031,6 +3074,7 @@
         <div class="flex shrink-0 items-center gap-2">
           <button
             type="button"
+            bind:this={castOpener}
             onclick={() => (castOpen = !castOpen)}
             aria-expanded={castOpen}
             class="rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
@@ -3278,8 +3322,8 @@
           <div class="flex gap-3">
             <button
               type="submit"
-              disabled={$castWorkerSubmitting}
-              class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+              aria-disabled={$castWorkerSubmitting}
+              class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 aria-disabled:hover:bg-amber-500 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
             >
               {$castWorkerSubmitting ? t('app.staff.casting', 'Casting…') : t('app.staff.cast.submit', 'Cast')}
             </button>
@@ -3361,16 +3405,16 @@
           </div>
         {/if}
         {#if teamRoster?.kind === 'failed'}
-          <p role="status" class="flex items-center gap-2 text-xs text-zinc-500">
-            {t('app.staff.roster.failed', 'Task and pause state could not be loaded.')}
+          <div class="flex items-center gap-2 text-xs text-zinc-500">
+            <p role="status">{t('app.staff.roster.failed', 'Task and pause state could not be loaded.')}</p>
             <!-- portal#2246 item 1: a failed read is final for the visit unless asked again. -->
-            <button type="button" onclick={() => startRosterFetch(app.id, { supersedeData: true })} class="rounded-md border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.staff.roster.retry', 'Try again')}</button>
-          </p>
+            <button type="button" onclick={() => { if (teamRoster?.kind === 'failed') startRosterFetch(app.id, { supersedeData: true }); }} class="rounded-md border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.staff.roster.retry', 'Try again')}</button>
+          </div>
         {:else if teamRoster?.kind === 'signedOut'}
-          <p role="status" class="text-xs text-zinc-500">
-            {t('app.staff.roster.signed-out', 'Your session has ended, so task and pause state could not be loaded.')}
-            <a href={`/signin?redirect=${encodeURIComponent(`${$page.url.pathname}${$page.url.search}`)}`} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.staff.roster.sign-in', 'Sign in')}</a>
-          </p>
+          <div class="flex items-center gap-2 text-xs text-zinc-500">
+            <p role="status">{t('app.staff.roster.signed-out', 'Your session has ended, so task and pause state could not be loaded.')}</p>
+            <a href={`/signin?redirect=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.staff.roster.sign-in', 'Sign in')}</a>
+          </div>
         {:else if teamRoster?.kind === 'hidden'}
           <p role="status" class="text-xs text-zinc-500">{t('app.staff.roster.hidden', 'Task and pause state are not shown to you.')}</p>
         {/if}

@@ -1,6 +1,14 @@
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
+import { superValidate } from 'sveltekit-superforms';
+import { zod4 } from 'sveltekit-superforms/adapters';
+import { setStubPage } from '$lib/test/stubs/app-stores';
+import { runAppFlowSchema } from '../../routes/app/apps/[appId]/runs/schema';
+import AppRunsPanel from '../../routes/app/apps/[appId]/runs/AppRunsPanel.svelte';
 import { flushSync } from 'svelte';
 import AppRunsTable from './AppRunsTable.svelte';
+// portal#2286: a test can stub a `t()` key to prove the label comes from the i18n boundary.
+const stubbed = vi.hoisted(() => ({ keys: {} as Record<string, string> }));
+vi.mock('$lib/i18n/t', async orig => { const real = await orig<typeof import('$lib/i18n/t')>(); return { ...real, t: (id: string, def: string, vars?: Record<string, string | number | null | undefined>) => stubbed.keys[id] ?? real.t(id, def, vars) }; });
 import { mountComponent, tick } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { navigationCalls, resetNavigationCalls, navigationHooks, navigationGuards, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
@@ -18,7 +26,7 @@ const find = (root: HTMLElement, label: string) => [...root.querySelectorAll('bu
 const statusBox = (root: HTMLElement, name: string) => [...root.querySelectorAll('label')].find(x => x.textContent?.trim() === name)!.querySelector('input')!;
 const selectControl = (root: HTMLElement, label: string) => root.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!;
 const changeSelect = (select: HTMLSelectElement, value: string) => { select.value = value; select.dispatchEvent(new Event('change', { bubbles: true })); };
-beforeEach(() => { localStorage.clear(); resetNavigationCalls(); resetNavigationGuards(); });
+beforeEach(() => { stubbed.keys = {}; localStorage.clear(); resetNavigationCalls(); resetNavigationGuards(); });
 afterEach(() => { cleanup.forEach(f => f()); cleanup = []; resetNavigationGuards(); document.body.removeAttribute('tabindex'); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe('App Runs manual server table', () => {
   it('does not navigate or flash busy when the initial saved query already matches', async () => {
@@ -76,7 +84,7 @@ describe('App Runs manual server table', () => {
   it('keeps a held filter when the next choice changes sorting', async () => {
     const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
     const m = mount(); await tick(8);
-    statusBox(m.target, 'FAILED').click(); await tick(4);
+    statusBox(m.target, 'Failed').click(); await tick(4);
     changeSelect(selectControl(m.target, 'Sort runs by'), 'status'); await tick(4);
     const url = new URL(navigationCalls.at(-1)!.args[0] as string, 'https://test');
     expect(url.searchParams.get('status')).toBe('FAILED'); expect(url.searchParams.get('sort')).toBe('status');
@@ -85,7 +93,7 @@ describe('App Runs manual server table', () => {
   it('restores the served checkbox after navigation rejects', async () => {
     navigationHooks.onGoto = async () => { throw new Error('navigation rejected'); };
     const m = mount(); await tick(8);
-    const checkbox = statusBox(m.target, 'FAILED'); checkbox.click(); await tick(8);
+    const checkbox = statusBox(m.target, 'Failed'); checkbox.click(); await tick(8);
     expect(checkbox.checked).toBe(false);
   });
   it('restores the served sort after navigation rejects', async () => {
@@ -103,7 +111,7 @@ describe('App Runs manual server table', () => {
   it('lets served data replace intent before the old navigation settles', async () => {
     const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
     const m = mount(); await tick(8);
-    const checkbox = statusBox(m.target, 'FAILED'); checkbox.click(); await tick(4);
+    const checkbox = statusBox(m.target, 'Failed'); checkbox.click(); await tick(4);
     m.props.initial = section({ statuses: [], page: 1 }); flushSync(); await tick(4);
     expect(checkbox.checked).toBe(false);
     expect(m.target.querySelector('[aria-busy]')?.getAttribute('aria-busy')).toBe('false');
@@ -157,8 +165,8 @@ describe('App Runs manual server table', () => {
     let call = 0; navigationHooks.onGoto = () => ++call === 1 ? a.promise : b.promise;
     const m = mount(); await tick(8);
     const labels = [...m.target.querySelectorAll('label')];
-    const failed = labels.find(x => x.textContent?.trim() === 'FAILED')!.querySelector('input')!;
-    const running = labels.find(x => x.textContent?.trim() === 'RUNNING')!.querySelector('input')!;
+    const failed = labels.find(x => x.textContent?.trim() === 'Failed')!.querySelector('input')!;
+    const running = labels.find(x => x.textContent?.trim() === 'Running')!.querySelector('input')!;
     failed.focus(); failed.click(); await tick(4);
     expect(failed.matches(':disabled')).toBe(false);
     expect(document.activeElement).toBe(failed);
@@ -222,8 +230,82 @@ describe('App Runs manual server table', () => {
     expect(failed.target.textContent).not.toContain('Total:');
     const empty = mount(section({ runs: [], total: 0, failed: false })); await tick(8);
     expect(empty.target.querySelector('[role=alert]')).toBeNull();
-    expect(empty.target.textContent).toContain('Total: 0');
-    expect(empty.target.textContent).toContain('No runs yet');
+    // portal#2286: the unfiltered empty case is the panel's one explainer; the table adds no second statement.
+    expect(empty.target.textContent).not.toContain('Total:');
+    expect(empty.target.textContent).not.toContain('No runs yet');
+    const filtered = mount(section({ runs: [], total: 0, failed: false, statuses: ['FAILED'] })); await tick(8);
+    expect(filtered.target.textContent).toContain('Total: 0');
+    expect(filtered.target.textContent).toContain('No runs with this status yet.');
+  });
+
+  // portal#2286 — the four Runs-controls cues.
+  const pressed = (root: HTMLElement, label: string) => find(root, label).getAttribute('aria-pressed');
+  const panelData = async (over: Record<string, unknown> = {}) => ({
+    app: { id: 'app-1', name: 'Digest', organizationId: 'org-1' },
+    runs: [], total: 0, page: 1, pageSize: 20, status: null, statuses: [], sort: 'createdAt', dir: 'desc', failed: false, explicitState: true,
+    flows: [], flowsPage: { offset: 0, count: 0, total: 0, firstHref: null, previousHref: null, nextHref: null },
+    runForm: await superValidate(zod4(runAppFlowSchema), { errors: false }), runAgents: null, ...over,
+  });
+  it('an unfiltered empty page states "no runs" exactly once', async () => {
+    setStubPage('http://localhost/app/apps/app-1?tab=runs', { appId: 'app-1' });
+    const m = mountComponent(AppRunsPanel as never, { data: await panelData(), form: null } as never); cleanup.push(m.unmount); await tick(8);
+    const text = m.target.textContent ?? '';
+    expect(text.match(/Runs start from a trigger/g)).toHaveLength(1);
+    expect(text).not.toContain('No runs yet');
+    expect(text).not.toContain('Total:');
+  });
+  it('a filtered empty page keeps its one filtered message', async () => {
+    setStubPage('http://localhost/app/apps/app-1?tab=runs', { appId: 'app-1' });
+    const m = mountComponent(AppRunsPanel as never, { data: await panelData({ statuses: ['FAILED'] }), form: null } as never); cleanup.push(m.unmount); await tick(8);
+    const text = m.target.textContent ?? '';
+    expect(text.match(/No runs with this status yet\./g)).toHaveLength(1);
+    expect(text).not.toContain('Runs start from a trigger');
+    expect(text).not.toContain('No runs yet');
+  });
+  it('a failed first read that Retry recovers to an empty unfiltered list still states "no runs" once', async () => {
+    setStubPage('http://localhost/app/apps/app-1?tab=runs', { appId: 'app-1' });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply(section({ runs: [], total: 0, page: 1 }))));
+    const m = mountComponent(AppRunsPanel as never, { data: await panelData({ failed: true }), form: null } as never); cleanup.push(m.unmount); await tick(8);
+    find(m.target, 'Retry').click(); await tick(24);
+    const text = m.target.textContent ?? '';
+    expect(text).not.toContain('Could not load runs');
+    expect((text.match(/No runs yet\./g) ?? []).length + (text.match(/Runs start from a trigger/g) ?? []).length).toBe(1);
+  });
+  it('an inherited Object.prototype key is not a status label', async () => {
+    const m = mount(section({ runs: [{ ...run('x'), status: 'constructor' as never }] })); await tick(8);
+    expect(m.target.textContent).toContain('constructor');
+    expect(m.target.textContent).not.toContain('function Object');
+  });
+  it.each([
+    ['createdAt', 'desc', 'Sorted by Created, newest first'], ['createdAt', 'asc', 'Sorted by Created, oldest first'],
+    ['startedAt', 'asc', 'Sorted by Started, oldest first'], ['finishedAt', 'desc', 'Sorted by Finished, newest first'],
+    ['status', 'asc', 'Sorted by Status, A to Z'], ['status', 'desc', 'Sorted by Status, Z to A'],
+  ] as const)('summarises %s %s as one line, with no extra column', async (sort, dir, line) => {
+    const m = mount(section({ sort, dir })); await tick(8);
+    expect(m.target.querySelector('[data-testid="runs-sort-summary"]')?.textContent?.trim()).toBe(line);
+    expect(m.target.querySelectorAll('thead th')).toHaveLength(7);
+  });
+  it('the sort summary follows a pending sort choice before the page is served', async () => {
+    const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
+    const m = mount(); await tick(8);
+    changeSelect(selectControl(m.target, 'Sort runs by'), 'startedAt'); await tick(4);
+    expect(m.target.querySelector('[data-testid="runs-sort-summary"]')?.textContent?.trim()).toBe('Sorted by Started, newest first');
+    held.resolve(); await tick(4);
+  });
+  it.each([
+    [[], 'true', 'false'], [['PENDING', 'RUNNING'], 'false', 'true'], [['RUNNING', 'PENDING'], 'false', 'true'],
+    [['RUNNING'], 'false', 'false'], [['PENDING'], 'false', 'false'], [['PENDING', 'RUNNING', 'FAILED'], 'false', 'false'],
+  ] as const)('All/Active aria-pressed follows statuses %j', async (statuses, all, active) => {
+    const m = mount(section({ statuses: [...statuses] as never })); await tick(8);
+    expect(pressed(m.target, 'All')).toBe(all); expect(pressed(m.target, 'Active')).toBe(active);
+  });
+  it('chip and checkbox labels come from t(), and an unknown status renders Unknown: raw (#1766)', async () => {
+    stubbed.keys['runs.status.RUNNING'] = 'Läuft';
+    const m = mount(section({ runs: [{ ...run('r1'), status: 'RUNNING' }, { ...run('r2'), status: 'PAUSED' as never }] })); await tick(8);
+    expect(statusBox(m.target, 'Läuft')).toBeTruthy();
+    const chips = [...m.target.querySelectorAll('tbody tr td:first-child span')].map(x => x.textContent?.trim());
+    // #1766 (merged over #2286): an unknown status never renders bare — the reader sees it is unknown.
+    expect(chips).toEqual(['Läuft', 'Unknown: PAUSED']);
   });
 
 });
