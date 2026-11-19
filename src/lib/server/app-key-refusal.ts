@@ -1,5 +1,10 @@
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
-import { APP_KEY_MANAGERS_ONLY, APP_KEY_IMPERSONATION_READ_ONLY } from '$lib/app-key-copy';
+import {
+  APP_KEY_HOST_CONFLICT_FALLBACK,
+  APP_KEY_IMPERSONATION_READ_ONLY,
+  APP_KEY_MANAGERS_ONLY,
+  APP_KEY_NOT_FOUND_FALLBACK,
+} from '$lib/app-key-copy';
 
 /**
  * portal#1068 (hadron-server#1743) — what a refused App-key write tells the
@@ -26,9 +31,20 @@ import { APP_KEY_MANAGERS_ONLY, APP_KEY_IMPERSONATION_READ_ONLY } from '$lib/app
 // same words a refused write returns (portal#1153).
 export { APP_KEY_MANAGERS_ONLY, APP_KEY_IMPERSONATION_READ_ONLY };
 
-export function appKeyRefusal(e: unknown, fallback: string): { status: 403 | 500; text: string } {
+export function appKeyRefusal(e: unknown, fallback: string): { status: 403 | 404 | 409 | 500; text: string } {
   const code = extractGqlErrorCode(e);
   if (code === 'FORBIDDEN') return { status: 403, text: APP_KEY_MANAGERS_ONLY() };
   if (code === 'IMPERSONATION_READ_ONLY') return { status: 403, text: APP_KEY_IMPERSONATION_READ_ONLY() };
+  // portal#1487 — the SERVER's own sentence for the two grant answers that
+  // are neither an audience refusal nor a fault: a second host (a host key
+  // reaches one host) and a key that is gone or was never this App's. Only
+  // these known codes map; everything else stays the generic branch
+  // (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
+  if (code === 'APP_KEY_SCOPE_HOST_CONFLICT') {
+    return { status: 409, text: extractGqlError(e, APP_KEY_HOST_CONFLICT_FALLBACK(), ['APP_KEY_SCOPE_HOST_CONFLICT'], { transport: 'fallback' }) };
+  }
+  if (code === 'APP_KEY_NOT_FOUND') {
+    return { status: 404, text: extractGqlError(e, APP_KEY_NOT_FOUND_FALLBACK(), ['APP_KEY_NOT_FOUND'], { transport: 'fallback' }) };
+  }
   return { status: 500, text: extractGqlError(e, fallback, [], { transport: 'fallback' }) };
 }

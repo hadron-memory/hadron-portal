@@ -20,6 +20,7 @@ import {
   CAST_WORKER_MUTATION,
   CREATE_APP_KEY_MUTATION,
   DELETE_APP_MUTATION,
+  GRANT_APP_KEY_SCOPE_MUTATION,
   APP_DETAIL_ORG_QUERY,
   APP_ORG_AGENTS_QUERY,
   APP_ORG_AGENT_GRANTS_QUERY,
@@ -80,7 +81,7 @@ beforeEach(() => {
 async function runAction(
   name:
     | 'update' | 'addAgent' | 'removeAgent' | 'updateAgentTools' | 'createKey'
-    | 'revokeKey' | 'deleteApp' | 'castWorker' | 'retireWorker' | 'releaseWorker'
+    | 'revokeKey' | 'grantKeyScope' | 'deleteApp' | 'castWorker' | 'retireWorker' | 'releaseWorker'
     | 'postTeamChatMessage' | 'postChannelMessage',
   fields: Record<string, string | string[]>,
   // #825 — the signed-in user, for actions whose COPY depends on whether the
@@ -985,6 +986,195 @@ describe('revokeKey action', () => {
     expect(result.data.form.message).toEqual({ type: 'error', text: APP_KEY_MANAGERS_ONLY() });
     // The copy is generic: it never echoes the key it refused.
     expect(result.data.form.message.text).not.toContain('key-1');
+  });
+});
+
+// portal#1487 — giving a live App key one scope of the closed list
+// (cor:aut:010:03). The server is the gate: the action always sends the
+// mutation and translates the server's own refusal codes, never a portal-side
+// role guess. host:operate names its ONE host (cor:agt:070:04); a second host
+// is refused APP_KEY_SCOPE_HOST_CONFLICT and the SERVER's sentence is what the
+// reader sees.
+describe('grantKeyScope action', () => {
+  it('grants attention:deliver with no host variable at all', async () => {
+    mockRequest.mockResolvedValueOnce({ grantAppKeyScope: { id: 'key-1' } });
+    const result = await runAction('grantKeyScope', { keyId: ' key-1 ', scope: 'attention:deliver' });
+
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { _kind: 'grantKeyScope', keyId: 'key-1', scope: 'attention:deliver' },
+        message: { type: 'success', text: 'Scope granted.' },
+      },
+    });
+    expect(mockRequest.mock.calls[0]).toEqual([
+      GRANT_APP_KEY_SCOPE_MUTATION,
+      { id: 'key-1', scope: 'attention:deliver' },
+    ]);
+  });
+
+  it('grants host:operate with the named host, trimmed', async () => {
+    mockRequest.mockResolvedValueOnce({ grantAppKeyScope: { id: 'key-1' } });
+    const result = await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: ' h-1 ' });
+
+    expect(result).toMatchObject({
+      form: { valid: true, data: { _kind: 'grantKeyScope', keyId: 'key-1', scope: 'host:operate', hostId: 'h-1' } },
+    });
+    expect(mockRequest.mock.calls[0]).toEqual([
+      GRANT_APP_KEY_SCOPE_MUTATION,
+      { id: 'key-1', scope: 'host:operate', hostId: 'h-1' },
+    ]);
+  });
+
+  // Acceptance 2: without a host the grant is NOT sent — the server would
+  // only answer BAD_USER_INPUT for the missing target of a host scope.
+  it('refuses host:operate with no host before the mutation', async () => {
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: '' })) as {
+      status: number;
+      data: { form: { errors: { hostId?: string[] } } };
+    };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.hostId?.[0]).toBe('Name the host this key may operate.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('refuses host:operate with a whitespace-only host before the mutation', async () => {
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: '   ' })) as {
+      status: number;
+      data: { form: { errors: { hostId?: string[] } } };
+    };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.hostId?.[0]).toBe('Name the host this key may operate.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects a scope off the closed list before the mutation', async () => {
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'admin:everything' })) as {
+      status: number;
+      data: { form: { errors: { scope?: string[] } } };
+    };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.scope).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects grantKeyScope POSTs with the wrong form discriminator', async () => {
+    const result = (await runAction('grantKeyScope', {
+      _kind: 'revokeKey',
+      keyId: 'key-1',
+      scope: 'attention:deliver',
+    })) as { status: number; data: { form: { errors: { _kind?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  // Acceptance 4: a key that already holds the scope (same host) is a plain
+  // success — the server's grant is idempotent and keeps the first record.
+  it('a repeated grant of a held scope is a plain success', async () => {
+    mockRequest.mockResolvedValueOnce({ grantAppKeyScope: { id: 'key-1' } });
+    const result = await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: 'h-1' });
+    expect(result).toMatchObject({ form: { message: { type: 'success', text: 'Scope granted.' } } });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+
+  // Acceptance 3: the server's own conflict sentence, verbatim, as a 409. It
+  // names the held host and its remedy; the portal adds nothing.
+  it('a HOST_CONFLICT refusal is the server’s own sentence as a 409', async () => {
+    const serverText = 'This key already operates as host h-1. A host key reaches one host: revoke host:operate first, or use another key.';
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: serverText, extensions: { code: 'APP_KEY_SCOPE_HOST_CONFLICT' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: 'h-2' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(409);
+    expect(result.data.form.message).toEqual({ type: 'error', text: serverText });
+  });
+
+  // Acceptance 5: the audience refusals. A participant who does not manage the
+  // App, a worker session and an App key all answer FORBIDDEN — the portal
+  // cannot and does not distinguish them; an impersonating admin is blocked
+  // before the resolver by the server's read-only plugin.
+  it('a FORBIDDEN refusal is a 403 naming who may manage keys', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'attention:deliver' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(403);
+    expect(result.data.form.message).toEqual({ type: 'error', text: APP_KEY_MANAGERS_ONLY() });
+    expect(result.data.form.message.text).not.toContain('key-1');
+  });
+
+  it('an impersonation session’s refusal is a 403 with the read-only copy', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'read-only', extensions: { code: 'IMPERSONATION_READ_ONLY' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'attention:deliver' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(403);
+    expect(result.data.form.message.text).toBe(APP_KEY_IMPERSONATION_READ_ONLY());
+  });
+
+  // Acceptance 7: a revoked key, or a key id that is not in this App, is the
+  // server's not-found — shown AS not-found, never as an internal error.
+  it('an APP_KEY_NOT_FOUND refusal is a 404 with the server’s not-found text', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'App key not found.', extensions: { code: 'APP_KEY_NOT_FOUND' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'gone-key', scope: 'attention:deliver' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(404);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'App key not found.' });
+  });
+
+  // Acceptance 6 + the known-codes-only rule
+  // (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only):
+  // an unknown code is a generic 500, never a portal role guess, and an
+  // unknown GraphQL code carries no free server text.
+  it('an unknown code stays a generic 500, not a role guess', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'exploded', extensions: { code: 'APP_KEY_EXPLODED' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'attention:deliver' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message.text).not.toBe(APP_KEY_MANAGERS_ONLY());
+    expect(result.data.form.message.text).not.toContain('exploded');
+  });
+
+  // A malformed host token that slips past the form's empty-check meets the
+  // server's own BAD_USER_INPUT, whose message does carry (framework code).
+  it('a BAD_USER_INPUT backstop is a 500 carrying the server’s message', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'host:operate is granted for one host: name it with hostId (a host token).', extensions: { code: 'BAD_USER_INPUT' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: '!!!' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message.text).toBe('host:operate is granted for one host: name it with hostId (a host token).');
+  });
+
+  it('returns the fallback copy for a transport failure', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('nope'));
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'attention:deliver' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to grant the scope' });
   });
 });
 

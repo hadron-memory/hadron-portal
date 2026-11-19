@@ -67,6 +67,32 @@ export const revokeAppKeySchema = z.object({
   keyId: z.string().trim().min(1, 'Key is required').prefault(''),
 });
 
+// portal#1487 — giving a live key ONE scope of the closed list
+// (hrn:node:hadronmemory.com:specs:cor:aut:010:03): attention:deliver, or
+// host:operate for a single named host
+// (hrn:node:hadronmemory.com:specs:cor:agt:070:04). No free-text scope: an
+// unknown value fails the enum here, and the server would refuse it
+// BAD_USER_INPUT anyway.
+//
+// The host is refused LOCALLY only when empty, so the grant is never sent for
+// the server to invent a target (acceptance 2). Shape stays the server's
+// call: a malformed-but-present token meets the server's own BAD_USER_INPUT,
+// whose message the action shows as-is.
+export const grantAppKeyScopeSchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
+  _kind: z.literal('grantKeyScope').default('grantKeyScope'),
+  keyId: z.string().trim().min(1, 'Key is required').prefault(''),
+  // attention:deliver is the no-argument grant, so the dialog starts there;
+  // the choice is a visible select, never a guess.
+  scope: z.enum(['attention:deliver', 'host:operate']).prefault('attention:deliver'),
+  hostId: z.string().trim().prefault(''),
+}).superRefine((value, ctx) => {
+  if (value.scope === 'host:operate' && !value.hostId) {
+    ctx.addIssue({ code: 'custom', path: ['hostId'], message: 'Name the host this key may operate.' });
+  }
+});
+
 export const deleteAppSchema = z.object({
   // Defaulted _kind accepts omitted hidden inputs while still rejecting a
   // defined discriminator from the wrong action.

@@ -18,3 +18,17 @@ export const APP_KEY_IMPERSONATION_READ_ONLY = () =>
     'app.key.error.impersonation',
     'This is a read-only impersonation session, so it can’t create or revoke keys.',
   );
+
+// portal#1487 — the two answers a scope grant can refuse besides the audience
+// refusals above. The SERVER's own message is what the reader sees (it names
+// the held host, and the not-found key); these constants are the fallback for
+// a refusal whose text could not be read, and neither promises the portal can
+// revoke a scope — that stays in the CLI for #1487.
+export const APP_KEY_HOST_CONFLICT_FALLBACK = () =>
+  t(
+    'app.key.error.scope-host-conflict',
+    'This key already operates as one host, so it can’t take a second. A host key reaches one host.',
+  );
+
+export const APP_KEY_NOT_FOUND_FALLBACK = () =>
+  t('app.key.error.not-found', 'That App key was not found.');

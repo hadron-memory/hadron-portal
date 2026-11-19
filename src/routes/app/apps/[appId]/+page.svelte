@@ -170,6 +170,7 @@
     castWorkerSchema,
     createAppKeySchema,
     deleteAppSchema,
+    grantAppKeyScopeSchema,
     releaseWorkerSchema,
     removeAppAgentSchema,
     retireWorkerSchema,
@@ -187,6 +188,7 @@
   type CastWorkerForm = Infer<typeof castWorkerSchema, 'zod4'>;
   type CreateAppKeyForm = Infer<typeof createAppKeySchema, 'zod4'>;
   type DeleteAppForm = Infer<typeof deleteAppSchema, 'zod4'>;
+  type GrantAppKeyScopeForm = Infer<typeof grantAppKeyScopeSchema, 'zod4'>;
   type RemoveAppAgentForm = Infer<typeof removeAppAgentSchema, 'zod4'>;
   type RetireWorkerForm = Infer<typeof retireWorkerSchema, 'zod4'>;
   type ReleaseWorkerForm = Infer<typeof releaseWorkerSchema, 'zod4'>;
@@ -197,6 +199,7 @@
   type CastWorkerSuperform = SuperValidated<CastWorkerForm, App.Superforms.Message, CastWorkerForm>;
   type CreateAppKeySuperform = SuperValidated<CreateAppKeyForm, App.Superforms.Message, CreateAppKeyForm>;
   type DeleteAppSuperform = SuperValidated<DeleteAppForm, App.Superforms.Message, DeleteAppForm>;
+  type GrantAppKeyScopeSuperform = SuperValidated<GrantAppKeyScopeForm, App.Superforms.Message, GrantAppKeyScopeForm>;
   type RemoveAppAgentSuperform = SuperValidated<RemoveAppAgentForm, App.Superforms.Message, RemoveAppAgentForm>;
   type RetireWorkerSuperform = SuperValidated<RetireWorkerForm, App.Superforms.Message, RetireWorkerForm>;
   type ReleaseWorkerSuperform = SuperValidated<ReleaseWorkerForm, ReleaseWorkerMessage, ReleaseWorkerForm>;
@@ -1743,6 +1746,59 @@
     clearOnSubmit: 'none',
   });
 
+  // ── Grant a scope (portal#1487) ──────────────────────────────────────
+  // One live key gets one scope of the closed list, from a dialog the row's
+  // ⋯ menu opens beside Revoke. The server is the gate; on a success Kit
+  // invalidates the page, the Scopes column re-reads, and the dialog closes.
+  // On a refusal the dialog STAYS and shows the server's own sentence beside
+  // the form that ran.
+  const initialGrantKeyScopeForm = untrack(() => submittedForm<GrantAppKeyScopeForm>(form, 'grantKeyScope') as GrantAppKeyScopeSuperform | null ?? data.grantKeyScopeForm);
+  const {
+    form: grantKeyScopeForm,
+    errors: grantKeyScopeErrors,
+    message: grantKeyScopeMessage,
+    submitting: grantKeyScopeSubmitting,
+    enhance: grantKeyScopeEnhance,
+  } = superForm<GrantAppKeyScopeForm, App.Superforms.Message, GrantAppKeyScopeForm>(initialGrantKeyScopeForm, {
+    validators: zod4Client(grantAppKeyScopeSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onResult: ({ result }) => {
+      if (result.type === 'success') grantScopeKey = null;
+    },
+  });
+
+  // The key the dialog is open for; null means closed. Opening RESETS the
+  // form for the chosen key, so a refusal from an earlier attempt never
+  // reads as this one's answer.
+  let grantScopeKey = $state<AppKey | null>(null);
+  function openGrantScope(key: AppKey) {
+    if ($grantKeyScopeSubmitting) return;
+    grantKeyScopeForm.update(() => ({ _kind: 'grantKeyScope', keyId: key.id, scope: 'attention:deliver' as const, hostId: '' }), { taint: false });
+    grantKeyScopeErrors.set({});
+    grantKeyScopeMessage.set(undefined);
+    grantScopeKey = key;
+  }
+  function closeGrantScope() {
+    if ($grantKeyScopeSubmitting) return;
+    grantScopeKey = null;
+  }
+  // showModal gives the dialog the top layer and focus containment; close()
+  // returns focus to the menu trigger (the browser's own restore). The
+  // action's teardown closes a dialog that is still open (the {#if} below
+  // unmounts it on every close path).
+  function grantScopeDialogAction(el: HTMLDialogElement) {
+    el.showModal();
+    el.querySelector<HTMLSelectElement>('select[name="scope"]')?.focus();
+    return {
+      destroy() {
+        if (el.open) el.close();
+      },
+    };
+  }
+
   const initialDeleteAppForm = untrack(() => submittedForm<DeleteAppForm>(form, 'deleteApp') as DeleteAppSuperform | null ?? data.deleteAppForm);
   const {
     errors: deleteAppErrors,
@@ -1981,6 +2037,15 @@
       : $revokeKeyErrors.keyId?.[0] ?? $revokeKeyErrors._kind?.[0] ?? null,
   );
   const revokeKeyActionSuccess = $derived($revokeKeyMessage?.type === 'success' ? $revokeKeyMessage.text : null);
+  // portal#1487 — the dialog owns its own refusal text (beside the form that
+  // ran); only the SUCCESS joins the shared line above the tabs, because the
+  // dialog has closed by then.
+  const grantKeyScopeActionError = $derived(
+    $grantKeyScopeMessage?.type === 'error'
+      ? $grantKeyScopeMessage.text
+      : $grantKeyScopeErrors.hostId?.[0] ?? $grantKeyScopeErrors.scope?.[0] ?? $grantKeyScopeErrors.keyId?.[0] ?? $grantKeyScopeErrors._kind?.[0] ?? null,
+  );
+  const grantKeyScopeActionSuccess = $derived($grantKeyScopeMessage?.type === 'success' ? $grantKeyScopeMessage.text : null);
   const deleteAppActionError = $derived($deleteAppMessage?.type === 'error' ? $deleteAppMessage.text : $deleteAppErrors._kind?.[0] ?? null);
   const castWorkerAgentError = $derived($castWorkerErrors.agentId?.[0] ?? null);
   // #760: the name is required since hadron-server#1050 removed the register.
@@ -2475,9 +2540,9 @@
   {/if}
   <!-- #1777: keep the region mounted; only its content changes. -->
   <div role="status" data-testid="app-success-status" class="mb-0">
-    {#if settingsActionSuccess || addAgentActionSuccess || installAgentActionSuccess || removeAgentActionSuccess || updateAgentToolsActionSuccess || revokeKeyActionSuccess}
+    {#if settingsActionSuccess || addAgentActionSuccess || installAgentActionSuccess || removeAgentActionSuccess || updateAgentToolsActionSuccess || revokeKeyActionSuccess || grantKeyScopeActionSuccess}
       <div class="mb-4 rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
-        {settingsActionSuccess ?? addAgentActionSuccess ?? installAgentActionSuccess ?? removeAgentActionSuccess ?? updateAgentToolsActionSuccess ?? revokeKeyActionSuccess}
+        {settingsActionSuccess ?? addAgentActionSuccess ?? installAgentActionSuccess ?? removeAgentActionSuccess ?? updateAgentToolsActionSuccess ?? revokeKeyActionSuccess ?? grantKeyScopeActionSuccess}
       </div>
     {/if}
   </div>
@@ -3952,11 +4017,16 @@
               {:else if cell.column.id === 'actions'}
                 <!-- #1020: Revoke lives in the row's ⋯ menu; the browser
                      confirm and the hidden form below the table carry what
-                     the per-row form did. portal#1153: absent when withheld. -->
+                     the per-row form did. portal#1153: absent when withheld.
+                     portal#1487: Grant scope opens the dialog below from the
+                     same menu — the control belongs to one live key. -->
                 {#if keyControls !== 'withheld'}
                 <NodeActionsMenu
-                  actions={[{ id: 'revoke', label: t('app.keys.revoke', 'Revoke'), danger: true }]}
-                  onselect={() => revokeAppKey(key)}
+                  actions={[
+                    { id: 'grantScope', label: t('app.keys.grant.menu', 'Grant scope…') },
+                    { id: 'revoke', label: t('app.keys.revoke', 'Revoke'), danger: true },
+                  ]}
+                  onselect={(id) => (id === 'grantScope' ? openGrantScope(key) : revokeAppKey(key))}
                   label={t('app.keys.actions.label', 'Actions for key {key}', { key: key.keyPreview })}
                   fixed
                   compact
@@ -3976,6 +4046,60 @@
           <input type="hidden" name="_kind" value="revokeKey" />
           <input type="hidden" name="keyId" value={$revokeKeyForm.keyId} />
         </form>
+        {/if}
+
+        <!-- portal#1487 — Grant scope. Native dialog (showModal: top layer +
+             contained focus; close restores focus to the menu trigger).
+             Escape is refused while a grant is in flight, so the write cannot
+             be abandoned mid-submit. The refusal text sits beside the form
+             that ran; the key is shown once — label, preview beneath. -->
+        {#if grantScopeKey}
+          <dialog
+            use:grantScopeDialogAction
+            aria-labelledby="grant-scope-title"
+            data-testid="grant-scope-dialog"
+            oncancel={(event) => {
+              if ($grantKeyScopeSubmitting) event.preventDefault();
+              else closeGrantScope();
+            }}
+            class="m-auto w-[calc(100%-2rem)] max-w-md max-h-[85dvh] overflow-auto rounded-xl border border-zinc-200 bg-white p-5 text-zinc-900 shadow-xl backdrop:bg-black/60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+          >
+            <!-- No novalidate here, unlike the create form: superforms runs its
+                 client validation only without it, and the empty-host refusal
+                 must stop the grant before it is sent (acceptance 2). -->
+            <form method="POST" action="?/grantKeyScope" use:grantKeyScopeEnhance class="mt-1 space-y-4">
+              <input type="hidden" name="_kind" value={$grantKeyScopeForm._kind} />
+              <input type="hidden" name="keyId" value={$grantKeyScopeForm.keyId} />
+              <h3 id="grant-scope-title" class="text-lg font-semibold">{t('app.keys.grant.heading', 'Grant a scope')}</h3>
+              <p class="break-words text-sm text-zinc-500">
+                {grantScopeKey.label || t('app.keys.grant.unlabeled-key', 'Key')}
+                <span class="mt-1 block break-all font-mono text-xs text-zinc-400">{grantScopeKey.keyPreview}</span>
+              </p>
+              <div>
+                <label for="grant-scope" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.keys.grant.scope', 'Scope')}</label>
+                <select id="grant-scope" name="scope" bind:value={$grantKeyScopeForm.scope} class={inputClass}>
+                  <option value="attention:deliver">attention:deliver</option>
+                  <option value="host:operate">host:operate</option>
+                </select>
+              </div>
+              {#if $grantKeyScopeForm.scope === 'host:operate'}
+                <div>
+                  <label for="grant-host" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.keys.grant.host', 'Host')}</label>
+                  <input id="grant-host" type="text" name="hostId" bind:value={$grantKeyScopeForm.hostId} class={inputClass} autocomplete="off" />
+                  <p class="mt-1 text-xs text-zinc-500">{t('app.keys.grant.host-help', 'The id of the one host this key may operate. A host key reaches one host.')}</p>
+                </div>
+              {/if}
+              {#if grantKeyScopeActionError}
+                <p role="alert" data-testid="grant-scope-error" class="break-words text-sm text-red-700 dark:text-red-300">{grantKeyScopeActionError}</p>
+              {/if}
+              <div class="flex flex-wrap justify-end gap-3">
+                <button type="button" onclick={closeGrantScope} disabled={$grantKeyScopeSubmitting} class="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600">{t('app.keys.grant.cancel', 'Cancel')}</button>
+                <button type="submit" disabled={$grantKeyScopeSubmitting} class="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
+                  {$grantKeyScopeSubmitting ? t('app.keys.grant.submitting', 'Granting…') : t('app.keys.grant.submit', 'Grant')}
+                </button>
+              </div>
+            </form>
+          </dialog>
         {/if}
       </section>
     </div>
