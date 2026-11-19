@@ -11,6 +11,7 @@
   import SubtaskTree from '$lib/components/agent-tasks/SubtaskTree.svelte';
   import TaskHistory from '$lib/components/agent-tasks/TaskHistory.svelte';
   import TaskExternalId from '$lib/components/agent-tasks/TaskExternalId.svelte';
+  import TaskRoleTaskRefs from '$lib/components/agent-tasks/TaskRoleTaskRefs.svelte';
   import TaskSource from '$lib/components/agent-tasks/TaskSource.svelte';
   import TaskReferences from '$lib/components/agent-tasks/TaskReferences.svelte';
   import TaskStateChips from '$lib/components/agent-tasks/TaskStateChips.svelte';
@@ -273,6 +274,7 @@
           <span class="font-medium {outcomeClass(task.result.outcome)}">{task.result.outcome}</span>
           {#if task.result.summary}<p class="whitespace-pre-line text-zinc-700 dark:text-zinc-300">{task.result.summary}</p>{/if}
           {#if task.result.evidence}<div><TaskSource source={task.result.evidence} /></div>{/if}
+          <TaskRoleTaskRefs refs={task.result.workedFromRoleTaskRefs} names={data.roleTaskNames} />
         </dd>
       {/if}
 
