@@ -22,6 +22,7 @@ import { REVIEW_EVENT_TYPES, reviewFacts, type PullRequestReadiness, type TaskRe
 import { boardFilterArgs, type BoardFilter } from '$lib/agent-tasks/status';
 import { NO_NARROW, narrowArgs, type BoardNarrow } from '$lib/agent-tasks/narrow';
 import type { AgentAlarm, AgentTaskRow, AgentTeamEvent, TaskRead, TaskRefs, TeamComposition, TeamRoster, WriteCandidates } from '$lib/agent-tasks/types';
+import { TASK_NOT_FOUND_MESSAGE } from '$lib/server/task-not-found';
 
 /**
  * portal#1052 — the Tasks views' reads.
@@ -287,16 +288,16 @@ export async function canonicalTaskRef(client: GraphQLClient, appId: string, seg
   const app = await loadTasksApp(client, appId);
   if (!app) throw error(404, 'App not found');
   const seg = resolveSegment(segment, app.urn);
-  if (seg.kind === 'unknown') throw error(404, 'Task not found');
+  if (seg.kind === 'unknown') throw error(404, TASK_NOT_FOUND_MESSAGE);
   let r: { agentTask: { id: string; appId: string } | null };
   try {
     r = await client.request(AGENT_TASK_REF_QUERY, { id: seg.ref });
   } catch (e) {
     // A refusal is the same 404 as a null answer; any other failure is the caller's to classify.
-    if (TASK_REF_REFUSALS.has(extractGqlErrorCode(e) ?? '')) throw error(404, 'Task not found');
+    if (TASK_REF_REFUSALS.has(extractGqlErrorCode(e) ?? '')) throw error(404, TASK_NOT_FOUND_MESSAGE);
     throw e;
   }
-  if (!r.agentTask || r.agentTask.appId !== app.id) throw error(404, 'Task not found');
+  if (!r.agentTask || r.agentTask.appId !== app.id) throw error(404, TASK_NOT_FOUND_MESSAGE);
   return { appId: app.id, taskId: r.agentTask.id };
 }
 
