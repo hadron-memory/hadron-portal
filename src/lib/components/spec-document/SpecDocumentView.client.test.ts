@@ -10,18 +10,35 @@ let writeText: ReturnType<typeof vi.fn>;
 let blobs: Blob[];
 let downloads: Array<{ name: string; href: string }>;
 
+// F4 (#2271): jsdom has no URL.createObjectURL/revokeObjectURL, so there is nothing to spyOn. Each global
+// is installed through defineProperty and its prior descriptor is put back in afterEach, so
+// nothing leaks into another test file sharing the worker.
+type Saved = { target: object; key: string; descriptor: PropertyDescriptor | undefined };
+let saved: Saved[] = [];
+function stubGlobal(target: object, key: string, value: unknown) {
+  saved.push({ target, key, descriptor: Object.getOwnPropertyDescriptor(target, key) });
+  Object.defineProperty(target, key, { value, configurable: true, writable: true });
+}
+function restoreGlobals() {
+  for (const { target, key, descriptor } of saved.reverse()) {
+    if (descriptor) Object.defineProperty(target, key, descriptor);
+    else delete (target as Record<string, unknown>)[key];
+  }
+  saved = [];
+}
+
 beforeEach(() => {
   writeText = vi.fn().mockResolvedValue(undefined);
-  Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+  stubGlobal(navigator, 'clipboard', { writeText });
   blobs = [];
   downloads = [];
-  URL.createObjectURL = vi.fn((b: Blob) => { blobs.push(b); return 'blob:test/1'; });
-  URL.revokeObjectURL = vi.fn();
+  stubGlobal(URL, 'createObjectURL', vi.fn((b: Blob) => { blobs.push(b); return 'blob:test/1'; }));
+  stubGlobal(URL, 'revokeObjectURL', vi.fn());
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
     downloads.push({ name: this.download, href: this.href });
   });
 });
-afterEach(() => { vi.restoreAllMocks(); document.body.innerHTML = ''; });
+afterEach(() => { vi.restoreAllMocks(); restoreGlobals(); document.body.innerHTML = ''; });
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -30,18 +47,18 @@ describe('SpecDocumentView', () => {
     const m = mountComponent(SpecDocumentView, { markdown: MD, loc: 'cor:agt:110', name: 'F' });
     flushSync(); await tick();
     expect(m.target.querySelector('#cor-agt-110')).not.toBeNull();
-    expect(m.target.querySelector('h1')?.textContent).toContain('Feature');
+    expect(m.target.querySelector('h2')?.textContent).toContain('Feature');
     m.unmount();
   });
   it('re-renders when the markdown prop changes on the mounted component (in-route navigation)', async () => {
     const props = reactiveProps({ markdown: '# Alpha doc\n', loc: 'a:b', name: 'A' });
     const m = mountComponent(SpecDocumentView, props);
     flushSync(); await tick();
-    expect(m.target.querySelector('h1')?.textContent).toContain('Alpha');
+    expect(m.target.querySelector('h2')?.textContent).toContain('Alpha');
     props.markdown = '# Beta doc\n';
     flushSync(); await tick(); flushSync();
-    expect(m.target.querySelector('h1')?.textContent).toContain('Beta');
-    expect(m.target.querySelector('h1')?.textContent).not.toContain('Alpha');
+    expect(m.target.querySelector('h2')?.textContent).toContain('Beta');
+    expect(m.target.querySelector('h2')?.textContent).not.toContain('Alpha');
     m.unmount();
   });
   it('makes every rendered code block keyboard-reachable and named, and the body a named region', async () => {
@@ -66,6 +83,33 @@ describe('SpecDocumentView', () => {
       expect(status().trim()).toBe('');
       m.unmount();
     } finally { vi.useRealTimers(); }
+  });
+  it('F3 (#2271): a pending status timer does not survive unmount, and nothing throws when the clock runs on', async () => {
+    vi.useFakeTimers();
+    const errors: unknown[] = [];
+    const onError = (e: ErrorEvent) => errors.push(e.error);
+    window.addEventListener('error', onError);
+    try {
+      const m = mountComponent(SpecDocumentView, { markdown: MD, loc: 'a:b', name: 'F' });
+      flushSync();
+      (m.target.querySelector('[data-testid=spec-document-copy]') as HTMLButtonElement).click();
+      await vi.advanceTimersByTimeAsync(10); flushSync();
+      expect(m.target.querySelector('[data-testid=spec-document-copy-status]')?.textContent).toContain('Copied');
+      const pendingBefore = vi.getTimerCount();
+      expect(pendingBefore).toBeGreaterThan(0);
+      m.unmount();
+      // The status timer is cleared by teardown, not left to fire into a destroyed component.
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(errors).toEqual([]);
+    } finally { window.removeEventListener('error', onError); vi.useRealTimers(); }
+  });
+  it('F10 (#2271): an empty name still gives the body region an accessible name', async () => {
+    const m = mountComponent(SpecDocumentView, { markdown: '# x\n', loc: 'a:b', name: '  ' });
+    flushSync(); await tick();
+    const region = m.target.querySelector('[data-testid=spec-document-body]');
+    expect(region?.getAttribute('aria-label')?.trim()).toBeTruthy();
+    m.unmount();
   });
   it('copies the response string exactly, not the rendered text', async () => {
     const m = mountComponent(SpecDocumentView, { markdown: MD, loc: 'cor:agt:110', name: 'F' });

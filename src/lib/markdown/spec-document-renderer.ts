@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify';
 import { Marked } from 'marked';
-import { installNoteHooks, NOTE_ATTRIBUTES, NOTE_TAGS } from './node-renderer';
+import { installSharedMarkdownHooks, NOTE_ATTRIBUTES, NOTE_TAGS } from './node-renderer';
 
 /**
  * #1720: the assembled spec document renders through THIS path, never through
@@ -30,7 +30,7 @@ const XHTML = 'http://www.w3.org/1999/xhtml';
 
 let purify: ReturnType<typeof DOMPurify> | null = null;
 /** Per-call state read by the hook. render is synchronous, so one slot is enough. */
-let active: { container: Element | null; seen: Set<string> } | null = null;
+let active: { container: Element | null } | null = null;
 
 function isServerAnchorShape(node: Element): boolean {
   return (
@@ -44,7 +44,7 @@ function isServerAnchorShape(node: Element): boolean {
 function purifier(): ReturnType<typeof DOMPurify> {
   if (purify) return purify;
   const instance = DOMPurify(window);
-  installNoteHooks(instance);
+  installSharedMarkdownHooks(instance);
   instance.addHook('afterSanitizeAttributes', (node) => {
     const id = node.getAttribute?.('id');
     if (id === null || id === undefined) return;
@@ -55,19 +55,71 @@ function purifier(): ReturnType<typeof DOMPurify> {
       !state ||
       !isServerAnchorShape(node) ||
       !SPEC_ANCHOR_ID.test(id) ||
-      clashes ||
-      state.seen.has(id)
+      clashes
     ) {
       node.removeAttribute('id');
-      return;
     }
-    state.seen.add(id);
+    // A duplicate id is settled once the whole document is known: see
+    // resolveDuplicateAnchors. Deciding it here, in document order, let an
+    // authored copy that came first take an id the server assigned to a later part.
   });
   purify = instance;
   return instance;
 }
 
 const marked = new Marked();
+
+const HEADING = /^H[1-6]$/;
+
+/**
+ * The server's anchor line is its own block directly before the part's heading
+ * (hrn:node:hadronmemory.com:specs:cor:spc:030:02); the assigned anchors are unique across the document, so a
+ * repeated id means an authored copy exists. The copy that precedes a heading
+ * is the server's; failing that, the first stands. Every other copy loses its
+ * id.
+ *
+ * BEST EFFORT, by construction: this settles an authored copy that does not
+ * look like the server's block (the common clash). An authored copy that
+ * mimics the server's exact shape (its own anchor block, a blank line, then a
+ * heading) and comes first is indistinguishable from the server's by anything
+ * in the rendered HTML, so it wins; the rendered document carries no
+ * information an author cannot forge. Closing that needs the server to
+ * neutralise authored ids that match SPEC_ANCHOR_ID, which is a server change,
+ * not a client one. The limit is pinned in the renderer tests.
+ */
+function precedesHeading(anchor: Element): boolean {
+  const host = anchor.parentElement;
+  const unit = host && host.tagName === 'P' && host.childNodes.length === 1 ? host : anchor;
+  return HEADING.test(unit.nextElementSibling?.tagName ?? '');
+}
+
+function resolveDuplicateAnchors(root: Element): void {
+  const byId = new Map<string, Element[]>();
+  for (const a of root.querySelectorAll('a[id]')) {
+    const group = byId.get(a.id);
+    if (group) group.push(a);
+    else byId.set(a.id, [a]);
+  }
+  for (const group of byId.values()) {
+    if (group.length < 2) continue;
+    const winner = group.find(precedesHeading) ?? group[0];
+    for (const a of group) if (a !== winner) a.removeAttribute('id');
+  }
+}
+
+/**
+ * The page owns the only h1 (its title); the document's own `#` and every level
+ * below it move down one. h6 has nowhere to go, so an authored h5 and h6 both
+ * end as h6: every other relative level holds.
+ */
+function shiftHeadingsDown(root: Element): void {
+  for (const h of [...root.querySelectorAll('h1,h2,h3,h4,h5')]) {
+    const next = root.ownerDocument.createElement(`h${Number(h.tagName[1]) + 1}`);
+    for (const attr of [...h.attributes]) next.setAttribute(attr.name, attr.value);
+    next.append(...h.childNodes);
+    h.replaceWith(next);
+  }
+}
 
 /**
  * The server's Markdown as sanitized HTML. `container` is the element the HTML
@@ -76,16 +128,20 @@ const marked = new Marked();
  * portal chrome id.
  */
 export function renderSpecDocument(source: string, container: Element | null): string {
-  active = { container, seen: new Set() };
+  active = { container };
   try {
-    return purifier().sanitize(marked.parse(source, { async: false }) as string, {
+    const body = purifier().sanitize(marked.parse(source, { async: false }) as string, {
+      RETURN_DOM: true,
       ALLOWED_TAGS: NOTE_TAGS,
       ALLOWED_ATTR: [...NOTE_ATTRIBUTES, 'id'],
       ALLOW_DATA_ATTR: false,
       ALLOW_ARIA_ATTR: false,
       ALLOWED_URI_REGEXP: SAFE_URI,
       FORBID_TAGS: ['style'],
-    });
+    }) as unknown as HTMLElement;
+    resolveDuplicateAnchors(body);
+    shiftHeadingsDown(body);
+    return body.innerHTML;
   } finally {
     active = null;
   }
