@@ -2553,6 +2553,14 @@ describe('portal#1624 BLIND refused and abandoned filter navigation', () => {
     await tick(3);release();await tick(5);
     expect(m.target.querySelector('[data-testid="team-chat-filter-refused"]')?.textContent).toBe(refusal.message);
     expect(status(m).textContent).not.toContain('selected');
+    // #2250 round 5 (Gil P2-1): on the REAL route a refused read lands with the REQUESTED set applied, so the
+    // filter DID change. The sentence must say it was refused, never "did not change", and focus goes to a control
+    // that exists among the applied chips.
+    await tick(10); // the clear-then-set announcement needs a flush between its two writes
+    expect(status(m).textContent).toContain('The team filter was refused.');
+    expect(status(m).textContent).not.toContain('did not change');
+    expect(m.target.querySelector('[data-testid="team-chat-filter-active"][data-head="head-ada"]')).not.toBeNull();
+    expect(document.activeElement).toBe(m.target.querySelector('[data-testid="team-chat-filter-active"][data-head="head-ada"]'));
     props.data={...props.data,teamChatMessages:[tagged],teamChatError:false,teamChatRefusal:null};await tick(4);
     expect(status(m).textContent).not.toContain('selected');
   });
@@ -2618,6 +2626,19 @@ describe('portal#1624 BLIND refused and abandoned filter navigation', () => {
     expect(untaggedButton(m).getAttribute('aria-pressed')).toBe('true');
     expect(m.target.querySelector('[data-testid="team-chat-filter-active"]')).toBeNull();
     expect(document.activeElement).toBe(document.body);
+  });
+  it('#2250 round 5 (Gil P2-2): a lone rejected navigation with the URL unchanged and no refusal drops the pending view back to the applied filter',async()=>{
+    const {m}=await setup();
+    const pending:Array<{resolve:()=>void;reject:(error:Error)=>void}>=[];
+    navigationHooks.onGoto=()=>new Promise<void>((resolve,reject)=>{pending.push({resolve,reject});});
+    await selectTag(m);
+    // While the read is in flight the view shows the requested set.
+    expect(m.target.querySelector('[data-testid="team-chat-filter-active"][data-head="head-ada"]')).not.toBeNull();
+    pending[0].reject(new Error('navigation failed'));await tick(5);
+    // No URL change, no refusal: the request is consumed, the chips return to the applied (unfiltered) view.
+    expect(m.target.querySelector('[data-testid="team-chat-filter-active"]')).toBeNull();
+    const all=[...m.target.querySelectorAll<HTMLButtonElement>('[data-testid="team-chat-filter"] button')].find(b=>b.textContent?.includes('All messages'))!;
+    expect(all.getAttribute('aria-pressed')).toBe('true');
   });
   it('portal#1629 focus moved to another thread control, then destroyed by the keyed remount, is left on BODY (not pulled to the chip)',async()=>{
     const {m,props,release}=await setup();await selectTag(m);

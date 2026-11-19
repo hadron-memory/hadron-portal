@@ -569,35 +569,42 @@
         return;
       }
       if (failed || requested.key !== applied) {
-        // #2250 round 4 (Gil F2): a failed choice is consumed without a
-        // SUCCESS announcement (the existing error UI explains the failure) —
-        // but not invisibly. The optimistic chip change unmounted the control
-        // the reader had focus on; when the revert re-renders, give focus
-        // back (the restored chip for a removal, the opener for an add or
-        // bulk clear, when still connected) and say the filter did not
-        // change, so a keyboard reader is not left on <body> over a revert
-        // they cannot see. Focus is only taken back from <body>: a reader who
-        // moved elsewhere keeps their focus.
-        // #2250 round 5 (Gil N4): the sentence goes through the clear-then-set
-        // helper, so a SECOND failed choice over the same base re-announces
-        // the same sentence (a plain re-set is silent in a live region) and
-        // every string a consumer receives is clean.
-        void announceFilter(t('app.team-chat.filter.reverted', 'The team filter did not change.'));
+        // A failed choice is consumed without a SUCCESS announcement (the
+        // error UI explains the failure) — but not invisibly. The optimistic
+        // chip change unmounted the control the reader had focus on, so focus
+        // comes back and the live region states what happened to the filter.
+        // Focus is only taken back from <body>: a reader who moved elsewhere
+        // keeps their focus.
+        //
+        // Two failure shapes need different sentences and different focus
+        // targets. The real route derives `filter` from the URL, so a refused
+        // read of a REQUESTED set lands with that set applied: the filter DID
+        // change and its chips are the view — say "was refused" and focus the
+        // control the request named among THOSE chips. Only when the applied
+        // set is still the base (a poll's refusal racing the navigation, a
+        // failed read that never landed) did the filter not change: say that,
+        // and restore the control the revert re-rendered (the restored chip
+        // for a removal, the opener otherwise).
+        const requestedApplied = requested.key === applied;
+        void announceFilter(requestedApplied
+          ? t('app.team-chat.filter.refused', 'The team filter was refused.')
+          : t('app.team-chat.filter.reverted', 'The team filter did not change.'));
         filterFocusRequest = null;
         void tick().then(() => {
-          // #2250 round 5 (Gil N7): no `cancelled` check here, deliberately.
-          // THIS arm's own `filterFocusRequest = null` re-runs the effect and
-          // flips `cancelled` before this continuation fires, so a literal
-          // guard would kill every legitimate restore (the F2 pin catches
-          // exactly that). The hazards N7 named are covered by the signals
-          // that actually distinguish them: a superseding request leaves
-          // `filterFocusRequest` set, teardown nulls `filterBarEl`
+          // No `cancelled` check here, deliberately. This arm's own
+          // `filterFocusRequest = null` re-runs the effect and flips
+          // `cancelled` before this continuation fires, so a literal guard
+          // would kill every legitimate restore. The real hazards are covered
+          // by the signals that distinguish them: a superseding request
+          // leaves `filterFocusRequest` set, teardown nulls `filterBarEl`
           // (bind:this resets on unmount), and a reader who moved elsewhere
-          // is not on <body>. Both directions are pinned (N10 teardown /
+          // is not on <body>. Both directions are pinned (teardown /
           // focus-kept).
           if (filterFocusRequest || !filterBarEl) return;
           if (document.activeElement !== document.body) return;
-          if (requested.removedHead) chipInBar(requested.removedHead)?.focus();
+          if (requestedApplied) {
+            (focusTargetFor(requested) ?? composerEl)?.focus();
+          } else if (requested.removedHead) chipInBar(requested.removedHead)?.focus();
           else if (requested.opener instanceof HTMLElement && requested.opener.isConnected) requested.opener.focus();
         });
         return;

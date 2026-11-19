@@ -18,6 +18,7 @@ import TeamChatThread from './TeamChatThread.svelte';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
+  for (const dispose of [...rejectionDisposers]) dispose();
   while (mounted.length) mounted.pop()!.unmount();
   Reflect.deleteProperty(document, 'hidden');
   vi.useRealTimers();
@@ -629,6 +630,28 @@ describe('TeamChatThread team filter — pending labels, revert focus, cap re-an
     expect(q(m, 'team-chat-filter-status')?.textContent).toContain('did not change');
   });
 
+  it('a refused read that lands with the REQUESTED set applied says "was refused" and focuses a chip that exists (round 5 P2-1)', async () => {
+    const props = reactiveProps<Record<string, unknown>>({
+      messages: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [BO] })],
+      total: 2, filter: { kind: 'teams', headRefs: ['head-ada', 'head-bo'] },
+      refusal: null,
+      onSelectTeam: (_next: TeamChatFilter) => { /* the route answers below */ },
+    });
+    const m = await mountThread(props);
+    document.body.append(m.target);
+    chipOf(m, 'head-bo')!.click();
+    await tick(2);
+    // The real route: the URL moved to the requested set AND the read was refused.
+    props.filter = { kind: 'teams', headRefs: ['head-ada'] };
+    props.refusal = { code: 'TEAM_HEAD_REFUSED', message: 'refused' };
+    await tick(6);
+    const text = q(m, 'team-chat-filter-status')?.textContent ?? '';
+    expect(text).toContain('The team filter was refused.');
+    expect(text).not.toContain('did not change');
+    expect(chipOf(m, 'head-bo')).toBeNull();
+    expect(document.activeElement).toBe(chipOf(m, 'head-ada'));
+  });
+
   it('announces the cap again on a second blocked click — cleared first, then the clean text (F3; round 5: clear-then-set)', async () => {
     const onFilterAnnouncement = vi.fn();
     const full = Array.from({ length: 20 }, (_, i) => `head-full${i}`);
@@ -853,9 +876,12 @@ describe('TeamChatThread team filter — abandoned vs failed, clean re-announce,
     chipOf(m, 'head-bo')!.click(); await tick(2);
     props.refusal = REFUSAL; await tick(3); // the revert ran; focus restore is scheduled
     m.unmount();
-    mounted.splice(mounted.indexOf(m), 1);
+    const at = mounted.indexOf(m);
+    if (at >= 0) mounted.splice(at, 1);
     await tick(4);
     expect(rejections()).toEqual([]);
+    // Teardown must not pull focus to a chip that no longer exists.
+    expect(document.activeElement).toBe(document.body);
   });
 
   it('N10: a failed All choice un-presses once the revert consumes the request', async () => {
@@ -879,10 +905,15 @@ describe('TeamChatThread team filter — abandoned vs failed, clean re-announce,
 function codes(strings: string[]): string[] {
   return strings.flatMap((s) => (s.match(/[​‌‍﻿]/g) ?? []));
 }
+// Under Vitest a Node-side unhandled rejection surfaces on `process`, not as a DOM
+// event, so collect there; the listener is removed by the disposer, and
+// afterEach calls any disposer a failing test left behind.
+const rejectionDisposers = new Set<() => void>();
 function captureUnhandledRejections(): () => unknown[] {
   const seen: unknown[] = [];
-  const onUnhandled = (e: PromiseRejectionEvent) => seen.push(e.reason);
-  process.on('unhandledRejection', () => {});
-  window.addEventListener('unhandledrejection', onUnhandled);
-  return () => { window.removeEventListener('unhandledrejection', onUnhandled); return seen; };
+  const onUnhandled = (reason: unknown) => { seen.push(reason); };
+  process.on('unhandledRejection', onUnhandled);
+  const dispose = () => { process.off('unhandledRejection', onUnhandled); rejectionDisposers.delete(dispose); };
+  rejectionDisposers.add(dispose);
+  return () => { dispose(); return seen; };
 }
