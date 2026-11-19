@@ -17,6 +17,7 @@
     "test:conversation-panel-buttons-layout": "node scripts/test-conversation-panel-buttons-layout.mjs",
     "test:task-integrations-focus": "node scripts/test-task-integrations-focus.mjs",
     "test:apply-agent-tickers-focus": "node scripts/test-apply-agent-tickers-focus.mjs",
+    "test:cast-submit-focus": "node scripts/test-cast-submit-focus.mjs",
     "test:nodes-tab-lazy": "node scripts/test-nodes-tab-lazy.mjs",
     "test:task-integrations-layout": "node scripts/test-task-integrations-layout.mjs",
     "test:task-history-links-layout": "node scripts/test-task-history-links-layout.mjs",
