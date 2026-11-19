@@ -31,7 +31,8 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
     const failed = { kind: 'failed' } as const;
     switch (section) {
       case 'history':
-        return json(await loadHistory(client, appId, taskId), { headers });
+        // portal#2263 (Jack P2#3): a hung history read is the section's failed value, never an endless "Loading…".
+        return json(await withTimeout(loadHistory(client, appId, taskId), OPTIONAL_LIST_TIMEOUT_MS, failed), { headers });
       case 'review':
         // portal#1697: optional; a slow read costs the section, never the page.
         return json(await withTimeout(loadReview(client, appId, taskId), OPTIONAL_LIST_TIMEOUT_MS, failed), { headers });
@@ -47,14 +48,15 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
       case 'pickers': {
         // An impersonation session writes nothing, so it reads no pickers.
         if (locals.impersonation) return json({ kind: 'ok', value: { workers: [], people: [], peopleWithheld: false, peopleFailed: false, roles: [], families: [] } }, { headers });
-        const c = await loadWriteCandidates(client, appId);
-        return json({ kind: 'ok', value: c }, { headers });
+        // A hung roster read is a failed value too, so the picker's Try again can fire.
+        const c = await withTimeout(loadWriteCandidates(client, appId), OPTIONAL_LIST_TIMEOUT_MS, null);
+        return json(c === null ? failed : { kind: 'ok', value: c }, { headers });
       }
       case 'memories': {
         if (locals.impersonation) return json({ kind: 'ok', value: [] } satisfies MemoriesRead, { headers });
         // portal#1585/#1588: a failed read is a FAILURE value, never [] — "the read failed" must not read as "you can read nothing".
-        const read = await fetchAllItems<PickMemory>(client, MEMORIES_QUERY, 'memories').then(
-          (memories): MemoriesRead => ({ kind: 'ok', value: memories }),
+        const read = await withTimeout(fetchAllItems<PickMemory>(client, MEMORIES_QUERY, 'memories'), OPTIONAL_LIST_TIMEOUT_MS, null).then(
+          (memories): MemoriesRead => (memories === null ? failed : { kind: 'ok', value: memories }),
           (e): MemoriesRead => {
             console.warn('[task-detail] node-picker memory list failed:', e);
             return { kind: 'failed' };

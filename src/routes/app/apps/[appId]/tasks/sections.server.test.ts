@@ -5,6 +5,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AGENT_TASK_EVENTS_QUERY, AGENT_TASK_REF_QUERY, AGENT_TASKS_APP_QUERY, MEMORIES_QUERY, TEAM_ROSTER_QUERY, APP_PEOPLE_QUERY } from '$lib/server/queries';
+import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import { GET } from './[taskId]/sections/+server';
 
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
@@ -80,5 +81,25 @@ describe('sections endpoint (portal#2261)', () => {
     expect(await (await get('memories', locals)).json()).toEqual({ kind: 'ok', value: [] });
     const asked = request.mock.calls.map((c) => c[0]);
     for (const q of [TEAM_ROSTER_QUERY, APP_PEOPLE_QUERY, MEMORIES_QUERY]) expect(asked).not.toContain(q);
+  });
+
+  // Jack's P2#3 on #2263: history, pickers and memories were the three sections with no time budget, so a hung
+  // read left the section on "Loading…" and the picker's Try again could never fire.
+  it.each(['history', 'pickers', 'memories'])('a %s read that hangs settles to the failed VALUE past the optional-list budget', async (section) => {
+    vi.useFakeTimers();
+    try {
+      request.mockImplementation(async (q: string) => {
+        if (q === AGENT_TASKS_APP_QUERY) return { app };
+        if (q === AGENT_TASK_REF_QUERY) return { agentTask: { id: 't1', appId: 'app-1' } };
+        return new Promise(() => {}); // never settles
+      });
+      const pending = get(section);
+      await vi.advanceTimersByTimeAsync(OPTIONAL_LIST_TIMEOUT_MS + 1);
+      const r = await pending;
+      expect(r.status).toBe(200);
+      expect(await r.json()).toEqual({ kind: 'failed' });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

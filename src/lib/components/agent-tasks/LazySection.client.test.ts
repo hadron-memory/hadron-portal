@@ -8,7 +8,7 @@ import { answerSnippet } from '$lib/test/answerSnippet.svelte';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import LazySection from './LazySection.svelte';
 
-type Observer = { cb: IntersectionObserverCallback; fire: () => void };
+type Observer = { cb: IntersectionObserverCallback; fire: () => void; disconnected: boolean };
 let observers: Observer[] = [];
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 
@@ -16,10 +16,14 @@ class FakeObserver {
   cb: IntersectionObserverCallback;
   constructor(cb: IntersectionObserverCallback) {
     this.cb = cb;
-    observers.push({ cb, fire: () => cb([{ isIntersecting: true } as IntersectionObserverEntry], this as never) });
+    this.record = { cb, disconnected: false, fire: () => cb([{ isIntersecting: true } as IntersectionObserverEntry], this as never) };
+    observers.push(this.record);
   }
+  record: Observer;
   observe() {}
-  disconnect() {}
+  disconnect() {
+    this.record.disconnected = true;
+  }
 }
 
 /** One pending fetch per call, resolved by the test in whatever order it likes. */
@@ -121,5 +125,25 @@ describe('LazySection after a write on the same task (Jonas P2, #2263)', () => {
     props.version = { n: 2 };
     await tick(6);
     expect(pending).toHaveLength(0);
+  });
+
+  it('a task change disconnects the old observer, and an aborted read leaves no failed state behind', async () => {
+    const { props, root } = await mountSection('A');
+    const first = observers.at(-1)!;
+    shown();
+    await tick(6);
+    expect(first.disconnected).toBe(true); // shown once: it watches no more
+    props.taskId = 'B';
+    await tick(6);
+    expect(pending[0].signal?.aborted).toBe(true);
+    await tick(6); // A's aborted fetch has rejected by now
+    expect(answer(root)).toBeNull(); // never the failed value, and never A's answer
+    const second = observers.at(-1)!;
+    expect(second).not.toBe(first);
+    expect(second.disconnected).toBe(false);
+    props.taskId = 'C'; // moved on before B was ever shown
+    await tick(6);
+    expect(second.disconnected).toBe(true);
+    expect(observers.at(-1)).not.toBe(second);
   });
 });
