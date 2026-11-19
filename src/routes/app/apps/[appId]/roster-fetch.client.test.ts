@@ -372,12 +372,17 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
     const panel = target.querySelector('#panel-staff')!;
     const link = [...panel.querySelectorAll('a')].find((a) => a.getAttribute('href')?.startsWith('/signin'));
     expect(link).toBeDefined();
-    // The way back in lands on the page the reader was on (the stub page URL).
-    expect(link!.getAttribute('href')).toBe(`/signin?redirect=${encodeURIComponent('/app/apps/a1?tab=chats')}`);
+    // The way back in lands on the tab the reader is on now (the address bar, which
+    // Kit's shallow replaceState keeps current while $page.url goes stale), not the loaded tab.
+    expect(link!.getAttribute('href')).toBe(
+      `/signin?redirect=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`,
+    );
     expect(panel.textContent).not.toContain('Task and pause state could not be loaded');
     // A lapsed session is not retryable: no Try again, and the link sits outside the status text.
     expect(retryButton(panel)).toBeUndefined();
     expect(link!.closest('[role="status"]')).toBeNull();
+    // The message itself is the polite live region.
+    expect([...panel.querySelectorAll('[role="status"]')].some((e) => e.textContent?.includes('Your session has ended'))).toBe(true);
   });
 
   it('portal#2282: the retry control sits outside the status text, shows loading, and a double click asks once', async () => {
@@ -391,6 +396,7 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
     const panel = target.querySelector('#panel-staff')!;
     const retry = retryButton(panel)!;
     expect(retry.closest('[role="status"]')).toBeNull();
+    expect([...panel.querySelectorAll('[role="status"]')].some((e) => e.textContent?.includes('could not be loaded'))).toBe(true);
     retry.click();
     retry.click();
     await settled(3);

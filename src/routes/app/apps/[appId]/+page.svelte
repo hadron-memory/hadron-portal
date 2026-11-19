@@ -3386,7 +3386,7 @@
         {:else if teamRoster?.kind === 'signedOut'}
           <div class="flex items-center gap-2 text-xs text-zinc-500">
             <p role="status">{t('app.staff.roster.signed-out', 'Your session has ended, so task and pause state could not be loaded.')}</p>
-            <a href={`/signin?redirect=${encodeURIComponent(`${$page.url.pathname}${$page.url.search}`)}`} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.staff.roster.sign-in', 'Sign in')}</a>
+            <a href={`/signin?redirect=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.staff.roster.sign-in', 'Sign in')}</a>
           </div>
         {:else if teamRoster?.kind === 'hidden'}
           <p role="status" class="text-xs text-zinc-500">{t('app.staff.roster.hidden', 'Task and pause state are not shown to you.')}</p>
