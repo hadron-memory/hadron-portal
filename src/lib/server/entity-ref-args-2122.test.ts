@@ -43,13 +43,13 @@ describe('portal#2122 renamed ref args (server#4140)', () => {
     expect(vars.get('ref')).toBe('ID!');
   });
 
-  it('createAgent takes orgRef and systemMemoryRef, both optional ID', () => {
+  it('createAgent takes orgRef (required ID, as before the rename) and systemMemoryRef (optional ID)', () => {
     const { args, vars } = field(CREATE_AGENT_MUTATION, 'createAgent');
     expect(args.get('orgRef')).toBe('orgRef');
     expect(args.get('systemMemoryRef')).toBe('systemMemoryRef');
     expect(args.has('orgId')).toBe(false);
     expect(args.has('systemMemoryId')).toBe(false);
-    expect(vars.get('orgRef')).toBe('ID');
+    expect(vars.get('orgRef')).toBe('ID!');
     expect(vars.get('systemMemoryRef')).toBe('ID');
   });
 
