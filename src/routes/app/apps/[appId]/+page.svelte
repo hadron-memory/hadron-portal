@@ -1784,6 +1784,9 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    // portal#1796: the Cast button is aria-disabled while casting, so this is what refuses a second
+    // submit. Named here, not left to the library default, because the safety property rests on it.
+    multipleSubmits: 'prevent',
     // Fence by originating App (hrn:node:hadronmemory.com:hadron-portal:review:superforms-late-result-crosses-entity-navigation):
     // this page component is REUSED across /apps/A -> /apps/B, so A's slow answer
     // must not close B's composer, empty B's draft or print "Worker cast." on B.
@@ -1792,7 +1795,7 @@
     onSubmit: ({ formElement }) => {
       // portal#1796: the Cast button is aria-disabled while casting, not disabled, so it keeps
       // keyboard focus and no longer blocks a second activation itself. The double-submit guard
-      // is Superforms' multipleSubmits: 'prevent' (default), which cancels a second submit
+      // is Superforms' multipleSubmits: 'prevent' (set above), which cancels a second submit
       // BEFORE this hook runs; scripts/test-cast-submit-focus.mjs pins that one request goes out.
       castAttemptGeneration = castGeneration;
       castRequestGeneration.set(formElement, castGeneration);
@@ -3296,7 +3299,7 @@
             <button
               type="submit"
               aria-disabled={$castWorkerSubmitting}
-              class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+              class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 aria-disabled:hover:bg-amber-500 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
             >
               {$castWorkerSubmitting ? t('app.staff.casting', 'Casting…') : t('app.staff.cast.submit', 'Cast')}
             </button>

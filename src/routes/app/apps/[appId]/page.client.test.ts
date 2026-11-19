@@ -2422,7 +2422,7 @@ describe('Cast role follows the selected Agent (#1319)', () => {
     await tick(2);
     const form = m.target.querySelector<HTMLFormElement>('form[action="?/castWorker"]')!;
     const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
-    expect(submit.hasAttribute('aria-disabled') && submit.getAttribute('aria-disabled')).not.toBe('true');
+    expect(submit.getAttribute('aria-disabled')).not.toBe('true');
     submit.focus();
     const pending = await submitEnhancedDeferred(form);
     await tick(2);
@@ -2430,7 +2430,18 @@ describe('Cast role follows the selected Agent (#1319)', () => {
     expect(submit.getAttribute('aria-disabled')).toBe('true');
     expect(submit.disabled).toBe(false);
     expect(document.activeElement).toBe(submit);
-    await pending.finish({ type: 'failure', status: 400, data: { form: { id: 'x', valid: false, posted: true, errors: {}, data: {} } } });
+    const id = form.querySelector<HTMLInputElement>('input[name="__superform_id"]')!.value;
+    await pending.finish({
+      type: 'failure', status: 409,
+      data: { form: { id, valid: false, posted: true, errors: {}, data: { agentId: 'agent-a', name: 'Probe', reporting: 'none' }, message: { type: 'error', text: 'That name is already taken.' } } },
+    });
+    await tick(3);
+    // A refused cast keeps the composer open with the typed name, shows the refusal, and is
+    // submittable again (aria-disabled cleared).
+    expect(m.target.querySelector('[data-testid="cast-answer-alert"]')!.textContent).toContain('That name is already taken.');
+    expect(m.target.querySelector<HTMLInputElement>('form[action="?/castWorker"] [name="name"]')!.value).toBe('Probe');
+    expect(submit.getAttribute('aria-disabled')).not.toBe('true');
+    expect(document.activeElement).toBe(submit);
   });
 
   it.each([null, '', '   '])('shows an explicit no-role state for a restored selected Agent with role %j', async (personaRole) => {

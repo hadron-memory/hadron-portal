@@ -2,10 +2,11 @@
  * portal#1796: mounts the real App page on its AI Team tab for scripts/test-cast-submit-focus.mjs.
  *
  * Same shape as app-page-roster-harness: the real `+page.svelte` over the shared fixture data, no
- * backend. `$app/*` imports are rewritten to the test stubs by the driver EXCEPT `$app/forms`, which
- * stays real: the point is superforms' real `use:enhance` round trip, so the POST to `?/castWorker`
- * is faked at the network layer by the driver (page.route) and kit's own deserialize/applyAction
- * chain runs. Returns after the page is mounted and the composer is closed.
+ * backend. `$app/*` imports are rewritten to the test stubs by the driver, and `$app/forms` is the
+ * app-forms-browser.ts replica (a real fetch round trip with superforms' own callbacks, plain JSON
+ * instead of devalue, a no-op `update`): kit's real module needs kit's client runtime. The POST to
+ * `?/castWorker` is faked at the network layer by the driver (page.route). Returns after the page is
+ * mounted and the composer is closed.
  */
 import { mount, unmount } from 'svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
