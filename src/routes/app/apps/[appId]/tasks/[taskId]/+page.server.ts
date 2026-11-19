@@ -22,6 +22,7 @@ import {
   UPDATE_AGENT_TASK_MUTATION,
 } from '$lib/server/queries';
 import { canonicalTaskId, loadAncestors, loadHistory, loadReview, loadTasksApp, loadTree, loadWriteCandidates } from '$lib/server/agent-tasks';
+import { TASK_NOT_FOUND_MESSAGE } from '$lib/server/task-not-found';
 import {
   classifyWriteError,
   formValues,
@@ -62,10 +63,10 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   // forwarded to the server's own resolver; another App's qualified handle is
   // unknown before any task read, same as a task that does not exist.
   const seg = resolveSegment(params.taskId, app.urn);
-  if (seg.kind === 'unknown') throw error(404, 'Task not found');
+  if (seg.kind === 'unknown') throw error(404, TASK_NOT_FOUND_MESSAGE);
   const taskData = await client.request<{ agentTask: AgentTaskDetail | null }>(AGENT_TASK_DETAIL_QUERY, { id: seg.ref });
   const task = taskData.agentTask;
-  if (!task) throw error(404, 'Task not found');
+  if (!task) throw error(404, TASK_NOT_FOUND_MESSAGE);
 
   // A task resolves by id alone; one reached under another App's URL moves to
   // its own (the runs/[runId] pattern).
