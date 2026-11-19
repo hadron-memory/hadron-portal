@@ -4,8 +4,7 @@
  * never the library's message. The real action handlers run; only the GraphQL
  * client is faked. Typed refusal maps, status routing and no-retry stay as they
  * were. Reproduced paths: updateAgentTools, createKey, revokeKey (Gaia, #1787
- * LOCAL). Source-only until this test reproduced them: saveTaskIntegrations,
- * the three Channels actions, run cancel.
+ * LOCAL). Source-only until this test reproduced them: the three Channels actions, run cancel.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
@@ -72,23 +71,6 @@ describe('POST /api/create-app-key', () => {
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: 'Failed to create app key' });
     expect(mockRequest).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('saveTaskIntegrations', () => {
-  it('a transport failure on the write returns the save-failed copy, with no second write', async () => {
-    const { saveTaskIntegrations } = await import('$lib/server/app-properties');
-    const { APP_PROPERTIES_QUERY } = await import('$lib/server/queries');
-    const request = vi.fn(async (doc: string) => {
-      if (doc === APP_PROPERTIES_QUERY) return { app: { id: 'a', properties: { taskIntegrations: [] }, propertiesRevision: 3 } };
-      throw transport();
-    });
-    const body = new FormData();
-    body.set('integrations', '[]');
-    body.set('revision', '3');
-    const r = await saveTaskIntegrations({ request } as never, 'a', body);
-    expect(r).toMatchObject({ ok: false, message: 'The settings could not be saved.' });
-    expect(request).toHaveBeenCalledTimes(2);
   });
 });
 

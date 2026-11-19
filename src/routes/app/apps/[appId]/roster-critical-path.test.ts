@@ -58,7 +58,6 @@ const h = vi.hoisted(() => {
     AppBootPointers: { app: { appAgents: [] } },
     AppInstallMarks: { app: { appAgents: [] } },
     TeamStopSignals: { teamStopSignals: { edges: [], pageInfo: { hasNextPage: false, endCursor: null } } },
-    AppProperties: { app: { properties: null, propertiesRevision: null } },
     AppMemoryScope: { appMemoryScope: { items: [], total: 0 } },
   };
   return {

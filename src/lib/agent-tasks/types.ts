@@ -1,7 +1,8 @@
 import type { TaskReference } from './references';
+import type { RoleTaskRef } from './role-task-refs';
 /**
  * portal#1052 — the agent-task read shapes the Tasks views select, mirroring
- * the server SDL (schema/schema.graphql, hadron-server 8cccdcbb). Only the
+ * the server SDL (schema/schema.graphql, hadron-server 04114a644). Only the
  * fields a view renders are here; each query selects exactly these.
  */
 
@@ -28,6 +29,8 @@ export interface AgentTaskResult {
   outcome: string;
   summary: string | null;
   evidence: string | null;
+  /** portal#2245 (hadron-server#4414): the role tasks followed, in stored order; null when the finish gave none. */
+  workedFromRoleTaskRefs: RoleTaskRef[] | null;
 }
 
 export interface AgentTaskSessionEndRequest {
