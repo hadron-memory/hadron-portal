@@ -191,4 +191,17 @@ describe('run step timeline (portal#482)', () => {
     await settle();
     expect(rows(m)).toHaveLength(2);
   });
+
+  it('a well-shaped unknown status/trigger renders Unknown: raw in a neutral chip and offers no kill switch (#1766)', async () => {
+    runOver = { status: 'PAUSED', triggerKind: 'FUTURE_KIND' };
+    const m = await mountPage();
+    const chip = m.target.querySelector('h1 span') as HTMLElement;
+    expect(chip.textContent?.trim()).toBe('Unknown: PAUSED');
+    expect(chip.className).toContain('border-zinc-300');
+    expect(chip.className).not.toContain('amber');
+    expect(text(m)).toContain('Unknown: FUTURE_KIND');
+    // Unknown claims no state: not cancellable, so no stop button and no live pulse.
+    expect(text(m)).not.toContain('Stop this run');
+    expect(chip.querySelector('.animate-pulse')).toBeNull();
+  });
 });
