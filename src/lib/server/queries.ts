@@ -2254,28 +2254,6 @@ export const APP_VIEWER_MANAGES_QUERY = /* GraphQL */ `
   }
 `;
 
-/**
- * portal#1607 — the App's properties (hrn:node:hadronmemory.com:specs:cor:dmo:050:20), in their OWN request so a
- * server without the fields, or a refusal, cannot take the App page with it.
- * `propertiesRevision` is null only for a caller who may not read properties;
- * `properties` is also null for an App that has none yet, so only the revision
- * tells the two apart.
- */
-export const APP_PROPERTIES_QUERY = /* GraphQL */ `
-  query AppProperties($ref: ID!) {
-    app(ref: $ref) { id properties propertiesRevision }
-  }
-`;
-
-export const SET_APP_PROPERTIES_MUTATION = /* GraphQL */ `
-  mutation SetAppProperties($appRef: String!, $expectedRevision: Int, $properties: JSON) {
-    setAppProperties(appRef: $appRef, expectedRevision: $expectedRevision, properties: $properties) {
-      id
-      propertiesRevision
-    }
-  }
-`;
-
 export const APP_KEYS_QUERY = /* GraphQL */ `
   query AppKeys($appRef: ID!, $limit: Int, $offset: Int) {
     appKeysPage(appRef: $appRef, limit: $limit, offset: $offset) {
