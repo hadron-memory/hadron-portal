@@ -7,7 +7,7 @@
   import type { PortalColumnDef, PortalTableState } from '$lib/table/features';
   import type { SavedView } from '$lib/table/savedView';
   import { t } from '$lib/i18n/t';
-  import { RUN_STATUSES, describeTrigger, fmtRunTime, runDuration, failureCode, statusChipClass, type AppRun } from '$lib/flow/runs';
+  import { RUN_STATUSES, describeTrigger, fmtRunTime, runDuration, failureCode, runStatusLabel, statusChipClass, type AppRun } from '$lib/flow/runs';
   import { runsHref, isRunsSection, RUNS_PAGE_SIZE, RUN_SORTS, type RunsSection, type RunsQuery } from '$lib/flow/app-runs-page';
   let { appRef, initial }: { appRef: string; initial: RunsSection } = $props();
   const mountedApp = untrack(() => appRef), mountedSection = untrack(() => initial);
@@ -105,7 +105,7 @@
   {#if !section.failed}<p>{t('runs.pager.total', 'Total:')} {section.total}</p>{/if}
   <DataTable containCells {table} listKey="app-runs-server" showSearch={false} showPageSize={false} initialColumnsOnly={section.explicitState} sortButtons={true} searchPlaceholder="" searchAriaLabel="">
     {#snippet cell(c, run)}
-      {#if c.column.id === 'status'}<span class="inline-block max-w-full rounded px-2 py-1 [overflow-wrap:anywhere] {statusChipClass(run.status)}">{run.status}</span>
+      {#if c.column.id === 'status'}<span class="inline-block max-w-full rounded px-2 py-1 [overflow-wrap:anywhere] {statusChipClass(run.status)}">{runStatusLabel(run.status)}</span>
       {:else if c.column.id === 'triggerKind'}{describeTrigger(run)}
       {:else if c.column.id === 'entryNodeUrn'}<Urn value={run.entryNodeUrn} type="node" size={11} compact />
       {:else if c.column.id === 'duration'}{runDuration(run)}

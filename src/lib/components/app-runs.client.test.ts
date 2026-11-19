@@ -65,6 +65,14 @@ describe('App Runs manual server table', () => {
     const m = mount(section({ runs: [{ ...run('spawn'), triggerKind: 'SPAWN' }] })); await tick(8);
     expect(m.target.querySelector('tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('Spawn');
   });
+  it('renders well-shaped unknown enums as Unknown: raw in a neutral chip, borrowing no known state (#1766)', async () => {
+    const m = mount(section({ runs: [{ ...run('paused'), status: 'PAUSED', triggerKind: 'FUTURE_KIND' }] })); await tick(8);
+    const chip = m.target.querySelector('tbody tr td:nth-child(1) span') as HTMLElement;
+    expect(chip.textContent?.trim()).toBe('Unknown: PAUSED');
+    expect(chip.className).toContain('border-zinc-300');
+    expect(chip.className).not.toContain('amber');
+    expect(m.target.querySelector('tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('Unknown: FUTURE_KIND');
+  });
   it('keeps a held filter when the next choice changes sorting', async () => {
     const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
     const m = mount(); await tick(8);

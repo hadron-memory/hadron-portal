@@ -21,3 +21,32 @@ describe('App Runs URL state', () => {
   });
 
 });
+
+describe('App Runs response enums are forward-compatible (#1766)', () => {
+  const row = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+    id: 'r1', status: 'PENDING', entryNodeUrn: 'hrn:node:test:memory:entry', triggerKind: 'MANUAL',
+    createdAt: '2026-11-01T00:00:00Z', startedAt: null, finishedAt: null, failure: null, eventData: null, ...over,
+  });
+  const sectionWith = (rows: unknown[]) =>
+    ({ ...parseRunsQuery(new URLSearchParams()), runs: rows, total: rows.length, failed: false, explicitState: false });
+
+  it('accepts a well-shaped status or triggerKind this build does not know, instead of rejecting the page', () => {
+    expect(isRunsSection(sectionWith([row({ status: 'PAUSED' })]))).toBe(true);
+    expect(isRunsSection(sectionWith([row({ triggerKind: 'FUTURE_KIND' })]))).toBe(true);
+  });
+
+  it('still rejects malformed shapes: wrong type, empty, not an enum name, over 64 chars, null, missing', () => {
+    const overlong = 'A'.repeat(65);
+    const noStatus = row();
+    delete noStatus.status;
+    for (const bad of [
+      row({ status: 42 }), row({ status: '' }), row({ status: 'not an enum' }),
+      row({ status: overlong }), row({ triggerKind: null }), row({ triggerKind: 'also not an enum' }),
+      noStatus,
+    ]) expect(isRunsSection(sectionWith([bad]))).toBe(false);
+  });
+
+  it('keeps the URL status whitelist strict: an unknown value never becomes a GraphQL enum', () => {
+    expect(parseRunsQuery(new URLSearchParams('status=PAUSED')).statuses).toEqual([]);
+  });
+});
