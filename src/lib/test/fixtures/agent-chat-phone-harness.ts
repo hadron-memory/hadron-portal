@@ -8,7 +8,7 @@ import { navigationCalls } from '$lib/test/stubs/app-navigation';
 
 export const LONG_TOKEN = 'unbroken'.repeat(24);
 /** portal#2215: an AI config name far wider than a phone, to stress the composer row. */
-export const LONG_CONFIG_NAME = 'Regional volunteer onboarding assistant with extended context and scheduling tools'.repeat(2);
+export const LONG_CONFIG_NAME = ['Regional volunteer onboarding assistant with extended context and scheduling tools', 'Regional volunteer onboarding assistant with extended context and scheduling tools'].join(' / ');
 const CHATS = [
   {
     id: 'chat-a',
@@ -59,6 +59,8 @@ export type AgentChatFixture = {
   failDelete: (kind: DeleteFailure) => void;
   /** Make the next turn reject as a dropped connection does, once (#2110). */
   failTurn: () => void;
+  /** The AI config name this mount seeded (the long one under `longConfigName`). */
+  configName: string;
 };
 
 export type DeleteFailure = 'network' | 'json' | 'text';
@@ -187,5 +189,5 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
       ] as never,
     },
   });
-  return { stop: () => unmount(component), calls, navigationCalls, holdDelete, failDelete, failTurn };
+  return { stop: () => unmount(component), calls, navigationCalls, holdDelete, failDelete, failTurn, configName: options.longConfigName ? LONG_CONFIG_NAME : 'Default' };
 }

@@ -84,8 +84,10 @@ try {
   assert(css.length > 1000);
   browser = await chromium.launch({ headless: true });
   if (shots) await mkdir(shots, { recursive: true });
-  for (const variant of variants) for (const { width, height, minContent, unchanged } of cases) {
-    for (const dark of [false, true]) for (const coarse of [false, true]) {
+  for (const variant of variants) {
+   for (const { width, height, minContent, unchanged } of cases) {
+    for (const dark of [false, true]) {
+     for (const coarse of [false, true]) {
       const context = await browser.newContext({ viewport: { width, height }, hasTouch: coarse });
       try {
         const page = await context.newPage();
@@ -145,10 +147,21 @@ try {
         if (variant.longConfigName) {
           // The long name must be the SELECTED option the composer row shows, not
           // just present in the closed select (a stress that renders nothing would pass).
-          const { LONG_CONFIG_NAME } = await page.evaluate(() => import('/src/lib/test/fixtures/agent-chat-phone-harness.ts').then(m => ({ LONG_CONFIG_NAME: m.LONG_CONFIG_NAME })));
           const shown = await page.locator('#agent-chat-ai-config').evaluate(el => [...el.selectedOptions].map(o => o.textContent ?? ''));
           assert.equal(shown.length, 1, `${label}: AI config select has no single selected option`);
-          assert.ok(shown[0].includes(LONG_CONFIG_NAME), `${label}: long config name is not the selected option`);
+          const configName = await page.evaluate(() => window.__chat.configName);
+          assert.ok(configName.length > 60 && shown[0].includes(configName), `${label}: long config name is not the selected option`);
+        }
+        // Containment, not just visibility: isVisible() is true for a control pushed
+        // off-screen or clipped by an overflow ancestor. Every leg, both variants.
+        const boxes = await page.evaluate(() => {
+          const r = el => { const b = el.getBoundingClientRect(); return { left: b.left, right: b.right }; };
+          const send = [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Send');
+          return { send: send && r(send), select: r(document.getElementById('agent-chat-ai-config')), panel: r(document.getElementById('panel')), width: innerWidth, scroll: document.documentElement.scrollWidth };
+        });
+        assert(boxes.scroll <= boxes.width, `${label}: page scrolls horizontally`);
+        for (const k of ['send', 'select']) {
+          assert(boxes[k] && boxes[k].left >= boxes.panel.left - 0.5 && boxes[k].right <= boxes.panel.right + 0.5 && boxes[k].left >= -0.5 && boxes[k].right <= boxes.width + 0.5, `${label}: ${k} outside the panel or viewport`);
         }
         assert(await page.getByLabel('AI config').isVisible(), `${label}: AI config hidden`);
         assert(await page.getByRole('button', { name: 'Send', exact: true }).isVisible(), `${label}: Send hidden`);
@@ -158,7 +171,9 @@ try {
           await page.screenshot({ path: `${shots}/${label.replaceAll('/', '-')}.png`, fullPage: true });
         }
       } finally { await context.close(); }
+     }
     }
+   }
   }
   console.log(JSON.stringify(results, null, 2));
 } finally { await browser?.close(); await server.close(); }
