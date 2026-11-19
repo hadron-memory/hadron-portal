@@ -18,8 +18,9 @@ export interface RoleTaskRef {
  * same for every cause, so it says nothing about why the name is missing.
  */
 export function roleTaskLabel(ref: RoleTaskRef, names: Record<string, string> | undefined): string {
-  const name = names?.[ref.nodeId];
-  if (name && name.trim()) return name;
+  // Own keys only: page data is a plain object, so an id like `constructor` must not resolve to a prototype member.
+  const name = names && Object.hasOwn(names, ref.nodeId) ? names[ref.nodeId] : undefined;
+  if (typeof name === 'string' && name.trim()) return name;
   const leaf = ref.urn.slice(ref.urn.lastIndexOf(':') + 1);
   return leaf || ref.urn;
 }

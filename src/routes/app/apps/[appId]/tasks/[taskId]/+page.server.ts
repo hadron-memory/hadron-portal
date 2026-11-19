@@ -102,23 +102,25 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
  * stores the URN and revision but no name. Each read stands alone and ANY failure (a
  * node the viewer can no longer read, a deleted one, a transport error) leaves that id
  * out, so the row falls back to the URN leaf. No second request asks why, and the page
- * never fails on it. Sequential, like the reads above: at most ten, none when the
- * task has no refs.
+ * never fails on it. One read per distinct id, all in flight together (they depend on
+ * nothing but the refs): at most ten, none when the task has no refs.
  */
 async function loadRoleTaskNames(
   client: ReturnType<typeof gqlClient>,
   refs: { nodeId: string }[] | null | undefined,
 ): Promise<Record<string, string>> {
   const names: Record<string, string> = {};
-  for (const ref of refs ?? []) {
-    if (ref.nodeId in names) continue;
-    try {
-      const res = await client.request<{ node: { name: string | null } | null }>(ROLE_TASK_NAME_QUERY, { ref: ref.nodeId });
-      if (res.node?.name) names[ref.nodeId] = res.node.name;
-    } catch {
-      /* the fallback is the same for every cause */
-    }
-  }
+  const ids = [...new Set((refs ?? []).map((ref) => ref.nodeId))];
+  await Promise.all(
+    ids.map(async (id) => {
+      try {
+        const res = await client.request<{ node: { name: string | null } | null }>(ROLE_TASK_NAME_QUERY, { ref: id });
+        if (res.node?.name) names[id] = res.node.name;
+      } catch {
+        /* the fallback is the same for every cause */
+      }
+    }),
+  );
   return names;
 }
 

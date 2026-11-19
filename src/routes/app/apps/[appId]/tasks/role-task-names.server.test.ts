@@ -9,11 +9,12 @@ import { AGENT_TASK_DETAIL_QUERY, ROLE_TASK_NAME_QUERY } from '$lib/server/queri
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
 let task: Record<string, unknown>;
 let nodes: Record<string, () => unknown>;
-const request = vi.fn(async (q: string, v?: { ref: string }) => {
+const defaultRequest = async (q: string, v?: { ref: string }) => {
   if (q === AGENT_TASK_DETAIL_QUERY) return { agentTask: task };
   if (q === ROLE_TASK_NAME_QUERY) return nodes[v!.ref]();
   return {};
-});
+};
+const request = vi.fn(defaultRequest);
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
 vi.mock('$lib/server/agent-tasks', () => ({
   loadTasksApp: async () => app,
@@ -30,7 +31,8 @@ const run = async () =>
 const nameCalls = () => request.mock.calls.filter(([q]) => q === ROLE_TASK_NAME_QUERY);
 
 beforeEach(() => {
-  request.mockClear();
+  request.mockReset();
+  request.mockImplementation(defaultRequest);
   nodes = {};
   task = { id: 't1', appId: 'app-1', result: { outcome: 'SUCCESS', summary: null, evidence: null, workedFromRoleTaskRefs: [ref('a'), ref('b')] } };
 });
@@ -59,6 +61,26 @@ describe('role task names', () => {
     nodes = { a: () => ({ node: { name: 'Alpha' } }) };
     await run();
     expect(nameCalls()).toHaveLength(1);
+  });
+  it('does not re-read a ref listed twice whose first read failed', async () => {
+    task = { ...task, result: { outcome: 'SUCCESS', summary: null, evidence: null, workedFromRoleTaskRefs: [ref('a'), ref('a')] } };
+    nodes = { a: () => { throw new Error('forbidden'); } };
+    expect((await run()).roleTaskNames).toEqual({});
+    expect(nameCalls()).toHaveLength(1);
+  });
+  it('has all the reads in flight together, not one after another', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const seen: string[] = [];
+    request.mockImplementation(async (q: string, v?: { ref: string }) => {
+      if (q === AGENT_TASK_DETAIL_QUERY) return { agentTask: task };
+      if (q === ROLE_TASK_NAME_QUERY) { seen.push(v!.ref); await gate; return { node: { name: v!.ref.toUpperCase() } }; }
+      return {};
+    });
+    const done = run();
+    await vi.waitFor(() => expect(seen).toEqual(['a', 'b']));
+    release();
+    expect((await done).roleTaskNames).toEqual({ a: 'A', b: 'B' });
   });
   it.each([['null', null], ['absent', undefined]])('makes no name read for %s refs, or for a task with no result', async (_n, refs) => {
     task = { ...task, result: { outcome: 'SUCCESS', summary: null, evidence: null, workedFromRoleTaskRefs: refs } };

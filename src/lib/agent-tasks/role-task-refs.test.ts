@@ -10,6 +10,11 @@ describe('roleTaskLabel', () => {
     expect(roleTaskLabel(ref, {})).toBe('build-ui');
     expect(roleTaskLabel(ref, { n1: '   ' })).toBe('build-ui');
   });
+  it('never resolves a name through the prototype', () => {
+    for (const id of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+      expect(roleTaskLabel({ ...ref, nodeId: id }, {}), id).toBe('build-ui');
+    }
+  });
   it('shows the whole URN when it has no segment to take', () => {
     expect(roleTaskLabel({ ...ref, urn: 'opaque' }, {})).toBe('opaque');
     expect(roleTaskLabel({ ...ref, urn: 'hrn:node:x:' }, {})).toBe('hrn:node:x:');
