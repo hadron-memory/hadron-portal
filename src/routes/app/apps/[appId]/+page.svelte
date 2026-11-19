@@ -256,7 +256,7 @@
   // PageData rather than re-declared (or imported from $lib/server, which
   // components do not reach into even for types): the entry shape stays the
   // server's RosterEntry, exactly what `rosterEntry` below hands the grid.
-  type PageRosterRead = NonNullable<PageData['teamRoster']> | { kind: 'loading' };
+  type PageRosterRead = NonNullable<PageData['teamRoster']> | { kind: 'loading' } | { kind: 'signedOut' };
   // `$state.raw`: plain fetched JSON, and a deep proxy here would break the
   // identity discipline the roster-refresh state below depends on
   // (hrn:node:hadronmemory.com:hadron-portal:findings:svelte-state-proxy-breaks-roster-generation-identity).
@@ -1077,6 +1077,7 @@
   // is dropped, so an older answer can never clobber the page state a newer
   // one was fetched for (F2).
   let rosterFetchEpoch = 0;
+  const ROSTER_FETCH_TIMEOUT_MS = 10_000;
   function startRosterFetch(appId: string, opts: { supersedeData?: boolean } = {}) {
     const epoch = ++rosterFetchEpoch;
     rosterSupersedesData = opts.supersedeData ? data : null;
@@ -1089,17 +1090,32 @@
       // error page) is a failure too, so the grid falls back rather than
       // rendering a phantom state.
       let read: PageRosterRead = { kind: 'failed' };
+      // portal#2246 item 2: the endpoint bounds its own read at 8 s, but a
+      // connection that never sends a byte is the transport's to end. An abort
+      // lands in the catch below as the failed read. `AbortController` plus a
+      // timer rather than `AbortSignal.timeout`: the timer is the one a test
+      // can drive.
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), ROSTER_FETCH_TIMEOUT_MS);
       try {
-        const res = await fetch(`/app/apps/${appId}/roster`);
-        const body: unknown = res.ok ? await res.json().catch(() => null) : null;
-        const kind = (body as { kind?: unknown } | null)?.kind;
-        if (kind === 'ok' && body && typeof (body as { byWorker?: unknown }).byWorker === 'object') {
-          read = body as PageRosterRead;
-        } else if (kind === 'hidden' || kind === 'failed') {
-          read = { kind };
+        const res = await fetch(`/app/apps/${appId}/roster`, { signal: ctl.signal });
+        // portal#2246 item 3: the endpoint answers a lapsed session 401. That is
+        // not a degraded read; the reader needs the way back in.
+        if (res.status === 401) {
+          read = { kind: 'signedOut' };
+        } else {
+          const body: unknown = res.ok ? await res.json().catch(() => null) : null;
+          const kind = (body as { kind?: unknown } | null)?.kind;
+          if (kind === 'ok' && body && typeof (body as { byWorker?: unknown }).byWorker === 'object') {
+            read = body as PageRosterRead;
+          } else if (kind === 'hidden' || kind === 'failed') {
+            read = { kind };
+          }
         }
       } catch {
-        // transport failure: keep the failed read
+        // transport failure or timeout: keep the failed read
+      } finally {
+        clearTimeout(timer);
       }
       if (epoch !== rosterFetchEpoch) return;
       rosterFetch = { appId, read };
@@ -3294,7 +3310,7 @@
 
       {#if staffError}
         <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
-          {t('app.staff.unavailable', 'The staff list couldn’t be loaded — try again in a moment.')}
+          {t('app.staff.unavailable', 'The staff list couldn’t be loaded — reload the page to try again.')}
         </div>
       {:else if sortedStaff.length === 0}
         <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center dark:border-zinc-800 dark:bg-zinc-900">
@@ -3345,7 +3361,16 @@
           </div>
         {/if}
         {#if teamRoster?.kind === 'failed'}
-          <p role="status" class="text-xs text-zinc-500">{t('app.staff.roster.failed', 'Task and pause state could not be loaded; try again in a moment.')}</p>
+          <p role="status" class="flex items-center gap-2 text-xs text-zinc-500">
+            {t('app.staff.roster.failed', 'Task and pause state could not be loaded.')}
+            <!-- portal#2246 item 1: a failed read is final for the visit unless asked again. -->
+            <button type="button" onclick={() => startRosterFetch(app.id, { supersedeData: true })} class="rounded-md border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.staff.roster.retry', 'Try again')}</button>
+          </p>
+        {:else if teamRoster?.kind === 'signedOut'}
+          <p role="status" class="text-xs text-zinc-500">
+            {t('app.staff.roster.signed-out', 'Your session has ended, so task and pause state could not be loaded.')}
+            <a href={`/signin?redirect=${encodeURIComponent(`${$page.url.pathname}${$page.url.search}`)}`} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.staff.roster.sign-in', 'Sign in')}</a>
+          </p>
         {:else if teamRoster?.kind === 'hidden'}
           <p role="status" class="text-xs text-zinc-500">{t('app.staff.roster.hidden', 'Task and pause state are not shown to you.')}</p>
         {/if}
