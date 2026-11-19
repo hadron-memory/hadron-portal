@@ -18,8 +18,18 @@
   let failureHref = $state<string | null>(null);
   let generation = 0;
   let alive = true;
+  // portal#2260 round 3 (Gil P2 / Celine P2,
+  // hrn:node:hadronmemory.com:hadron-portal:review:identity-reset-tracks-scalar-not-loader-object)
+  // — the reset boundary is the target's IDENTITY, so the effect keys on a
+  // separately derived SCALAR, never on the id read through the prop object:
+  // the worker page re-supplies a fresh object literal whenever its load
+  // re-runs (which the uncertain leg's own invalidateAll does), and an
+  // object-read re-fires the reset on that same-ID re-supply, wiping the
+  // latch and its sentence right after they show. The derived primitive
+  // compares equal on same-ID replacement; only a real target change resets.
+  const targetWorkerId = $derived(worker.id);
   $effect(() => {
-    worker.id; // A new target is a new confirmation, even if a response is in flight.
+    targetWorkerId; // A new target is a new confirmation, even if a response is in flight.
     generation++;
     confirmed = false; pending = false; deleted = false; uncertain = false; failure = null; failureHref = null;
   });
@@ -38,7 +48,10 @@
   // status line) and deleted (the dialog is closing, or its refresh-failure
   // text already speaks) disable without a reason of their own.
   const submitDisabledReason = $derived.by(() => {
-    if (uncertain) return t('app.staff.delete.paused', 'Delete is paused — the outcome is unknown. Reload to see the current state before trying again.');
+    // portal#2260 round 3 (Gil P3): when latched, the role=alert sentence
+    // already carries the reload instruction — the reason states only WHY
+    // Submit is off, so the reader is not told the same guidance twice.
+    if (uncertain) return t('app.staff.delete.paused', 'Delete is paused — the outcome is unknown.');
     if (!confirmed) return t('app.staff.delete.attestation-required', 'Check the attestation to enable Delete.');
     return null;
   });
@@ -92,6 +105,11 @@
         // the delete may already have committed, so the leg latches instead
         // of re-enabling the naive retry that would re-post it and read
         // WORKER_NOT_FOUND as a refusal.
+        // portal#2260 round 3 (Gil P3): this deliberately includes error
+        // results that are provably pre-commit (e.g. a CSRF 403 rejected
+        // before the action ran) — Kit's `error` result does not distinguish
+        // them from a post-commit transport loss, so the conservative latch
+        // is the contract; reload is the release.
         uncertain = true;
         failure = t('app.staff.delete.uncertain', 'The delete may have succeeded. Reload to see the current state.');
         pending = false;
