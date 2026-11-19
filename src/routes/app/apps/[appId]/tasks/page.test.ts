@@ -178,7 +178,7 @@ describe('board', () => {
 const detail = (over: Record<string, unknown> = {}) => ({
   ...task(), appId: 'app-1', description: null, requirements: null, createdBy: holger, createdByRunId: null,
   assignedAt: null, assignedBy: null, startedAt: null, finishedAt: null, cancelledAt: null, closeSessionWhenDone: true,
-  result: null, sessionEndRequest: null, ...over,
+  result: null, sessionEndRequest: null, clonedFrom: null, ...over,
 });
 
 function taskPage(over: Record<string, unknown> = {}) {
@@ -187,7 +187,9 @@ function taskPage(over: Record<string, unknown> = {}) {
       data: { app, task: detail(), ancestors: [], ancestorsTruncated: false,
         canWrite: true, impersonating: null, created: false, candidates: { workers: [], people: [] },
         tree: { kind: 'ok', value: { rows: [detail()], capped: false } },
-        history: { kind: 'ok', value: { events: [], capped: false } }, review: { kind: 'ok', value: { readiness: null, seat: null } }, ...over },
+        history: { kind: 'ok', value: { events: [], capped: false } }, review: { kind: 'ok', value: { readiness: null, seat: null } },
+        // portal#2161: the loader's Clones read, optional like the review above.
+        clones: { kind: 'ok', value: { items: [], total: 0, hasMore: false } }, ...over },
     },
   } as never).body;
 }
@@ -275,6 +277,12 @@ describe('task page', () => {
     expect(html).toContain('href="/app/apps/app-1/tasks/c1"');
     expect(html).toContain('Child one');
     expect(html).not.toContain('No subtasks');
+  });
+
+  it('hedges the capped tree notice, and shows no notice without the cap (#1770)', () => {
+    const capped = taskPage({ tree: { kind: 'ok', value: { rows: [detail()], capped: true } } });
+    expect(capped).toContain('Showing the first 1000 tasks in this tree; deeper or later subtasks may not be shown.');
+    expect(taskPage()).not.toContain('Showing the first 1000 tasks in this tree');
   });
 
   it('an open alarm reads as an Alarm with the CLI acknowledge line, and no button', () => {

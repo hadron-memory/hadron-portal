@@ -1,7 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import { ClientError } from 'graphql-request';
 import { gqlClient } from '$lib/server/api';
-import { RESOLVE_URN_QUERY } from '$lib/server/queries';
+import { PUBLIC_ORGANIZATION_ROUTE_QUERY, RESOLVE_URN_QUERY } from '$lib/server/queries';
 import { loadTicker } from '$lib/server/tickers';
 import { withQuery } from '$lib/safeRedirect';
 import { normalizeUrn } from '$lib/urn/parse-urn';
@@ -57,7 +57,21 @@ const KNOWN_KINDS = new Set<UrnResolution['kind']>([
   'action',
 ]);
 
-export const load: PageServerLoad = async ({ params, locals, url }) => {
+/**
+ * #1846 slice B — membership still wins through resolveUrn. Only when that
+ * member-only resolution is absent/denied may an org-shaped URN use the
+ * server's closed public projection. Other kinds never get this fallback.
+ * Select just the id: this route redirects and must not invoke profile lists.
+ */
+async function publicOrganizationPath(urn: string, token: string | null | undefined): Promise<string | null> {
+  if (!/^(?:hrn|urn):org:/i.test(urn)) return null;
+  const { publicOrganization } = await gqlClient(token).request<{
+    publicOrganization: { id: string } | null;
+  }>(PUBLIC_ORGANIZATION_ROUTE_QUERY, { ref: urn });
+  return publicOrganization ? `/app/org/${publicOrganization.id}` : null;
+}
+
+export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   const urn = normalizeUrn(params.urn);
 
   // #1213: ticker and generic resolution share this rejection boundary.
@@ -82,6 +96,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     if (urn.startsWith('hrn:ticker:')) {
       const ticker = await loadTicker(gqlClient(locals.token), urn);
       if (!ticker?.app) throw error(404, notFoundMessage(urn));
+      // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
+      await parent();
       redirect(307, withQuery(`/app/apps/${ticker.app.id}/tickers/${ticker.id}`, url.search));
     }
 
@@ -112,6 +128,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         code === 'FORBIDDEN' ||
         code === 'PERMISSION_DENIED'
       ) {
+        const publicTarget = await publicOrganizationPath(urn, locals.token);
+        if (publicTarget) {
+          // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
+          await parent();
+          redirect(307, withQuery(publicTarget, url.search));
+        }
         throw error(404, notFoundMessage(urn));
       }
     }
@@ -119,6 +141,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   }
 
   if (!resolveUrn) {
+    const publicTarget = await publicOrganizationPath(urn, locals.token);
+    if (publicTarget) {
+      // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
+      await parent();
+      redirect(307, withQuery(publicTarget, url.search));
+    }
     throw error(404, notFoundMessage(urn));
   }
 
@@ -150,6 +178,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // gate every time. That second reason is why a link may safely be handed to
   // someone who cannot open it, and it is the half this comment used to state
   // only in passing. The extra round-trip is the accepted cost.
+  // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
+  await parent();
   redirect(307, withQuery(target, url.search));
 };
 

@@ -40,6 +40,8 @@ export interface AppChatEntry {
   alias?: string;
   /** The memory holding this chat's nodes — only set for `other`. */
   memoryId?: string;
+  /** Authenticated discovery root evidence; never inferred from selector/sort. */
+  nodeType?: string | null;
 }
 
 interface ChatRootNode {
@@ -80,6 +82,7 @@ export function buildAppChatList(
       label: n.name?.trim() || n.loc.split(':').slice(-1)[0] || n.loc,
       kind: 'other' as const,
       memoryId: n.memoryId ?? undefined,
+      nodeType: n.nodeType,
     }))
     .sort((a, b) => a.label.localeCompare(b.label));
 

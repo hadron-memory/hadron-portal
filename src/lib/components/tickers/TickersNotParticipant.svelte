@@ -12,11 +12,11 @@
 <div role="status" class="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900" data-testid="tickers-not-participant">
   <p class="font-medium text-zinc-900 dark:text-white">
     {what === 'wake'
-      ? t('worker.wake.not-participant.title', 'You don’t take part in this worker’s App, so its wake-ups aren’t shown.')
+      ? t('worker.wake.not-participant.title', 'You don’t take part in this worker’s App, so its tickers aren’t shown.')
       : t('app.tickers.not-participant.title', 'You don’t take part in this App, so its tickers aren’t shown.')}
   </p>
   <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-    {t('app.tickers.not-participant.body', 'Tickers and wake-ups are visible to the App’s owner and members. If you should see them, ask the App’s owner to add you.')}
+    {t('app.tickers.not-participant.body', 'Tickers are visible to the App’s owner and members. If you should see them, ask the App’s owner to add you.')}
   </p>
   {#if impersonating}
     <p class="mt-2 text-sm text-amber-700 dark:text-amber-300">

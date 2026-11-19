@@ -8,10 +8,8 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { MIN_TIER_HELP } from '$lib/test/minTierHelp';
 import TaskEditFields from './TaskEditFields.svelte';
-
-export const MIN_TIER_HELP =
-  'The task goes to the cheapest free worker at or above this tier. When a minimum is selected, a worker whose tier is unknown won’t be picked.';
 
 const holger = { id: 'u1', kind: 'USER' as const, name: 'Holger', urn: null };
 const task = (minTier: string | null) => ({

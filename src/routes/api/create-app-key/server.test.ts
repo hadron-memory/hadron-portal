@@ -50,11 +50,11 @@ describe('POST /api/create-app-key', () => {
     expect(await res.json()).toEqual({ error: APP_KEY_IMPERSONATION_READ_ONLY() });
   });
 
-  it('anything else stays a 500 with the server’s message', async () => {
+  it('a transport failure stays a 500 with the fallback copy, not the raw text', async () => {
     mockRequest.mockRejectedValueOnce(new Error('boom'));
     const { POST } = await import('./+server');
     const res = await POST(ev({ appId: 'a1', label: 'dev' }));
     expect(res.status).toBe(500);
-    expect(await res.json()).toEqual({ error: 'boom' });
+    expect(await res.json()).toEqual({ error: 'Failed to create app key' });
   });
 });

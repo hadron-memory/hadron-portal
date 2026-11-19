@@ -13,12 +13,17 @@
 
 import { conditionTextOf } from './canvas';
 import { extractionSpecOf } from './fields';
+import { orderOrdinaryConversations } from './conversation-order';
 
 export interface ConversationGraphNodeInput {
   id: string;
   loc: string;
   name: string;
   description?: string | null;
+  /** The node's own URN, shown beside a rule's target (render-urn). */
+  urn?: string | null;
+  /** Start order (Q14): ascending, nulls last, ties by loc. Ordinary conversations only. */
+  seq?: number | null;
   data?: unknown;
 }
 
@@ -58,6 +63,10 @@ export interface ConversationCanvasNode {
   height: number;
   isSetup: boolean;
   isFallback: boolean;
+  /** 1-based place in the start order; null for setup, fallback, stages and topics (Q13). */
+  startOrder: number | null;
+  /** How many ordinary conversations share the start order; null where startOrder is. */
+  startTotal: number | null;
   goalCount: number;
   /** 1-based slot in the conversation's stage sequence (stages only). */
   stageIndex: number | null;
@@ -93,6 +102,8 @@ export interface ConversationEdgeDetail {
   sourceLabel: string;
   targetId: string;
   targetLabel: string;
+  /** The target node's URN; null when the read did not carry one. */
+  targetUrn: string | null;
   priority: number | null;
   condition: unknown;
   timing: string | null;
@@ -204,9 +215,17 @@ export function buildConversationCanvas(
   edges: readonly ConversationGraphEdgeInput[],
 ): ConversationCanvasModel {
   const topics = nodes.filter((n) => isTopicLoc(n.loc)).sort((a, b) => a.loc.localeCompare(b.loc));
-  const conversations = nodes
-    .filter((n) => isConversationLoc(n.loc))
-    .sort((a, b) => a.loc.localeCompare(b.loc));
+  // Ordinary conversations first, in start order; setup and fallback follow by
+  // loc and carry no number (Q13, Q14, Q14a).
+  const allConversations = nodes.filter((n) => isConversationLoc(n.loc));
+  const ordinary = orderOrdinaryConversations(allConversations);
+  const startOrderByLoc = new Map(ordinary.map((c, i) => [c.loc, i + 1]));
+  const conversations = [
+    ...ordinary,
+    ...allConversations
+      .filter((n) => !startOrderByLoc.has(n.loc))
+      .sort((a, b) => a.loc.localeCompare(b.loc)),
+  ];
   const stagesByConv = new Map<string, ConversationGraphNodeInput[]>();
   for (const n of nodes) {
     if (!isStageLoc(n.loc)) continue;
@@ -232,6 +251,8 @@ export function buildConversationCanvas(
       height: TOPIC_HEIGHT,
       isSetup: false,
       isFallback: false,
+      startOrder: null,
+      startTotal: null,
       goalCount: 0,
       stageIndex: null,
       extractionFields: [],
@@ -267,6 +288,8 @@ export function buildConversationCanvas(
         height: STAGE_HEIGHT,
         isSetup: false,
         isFallback: false,
+        startOrder: null,
+        startTotal: null,
         goalCount: 0,
         stageIndex: i + 1,
         extractionFields: extractionSpecOf(stage.data).map((f) => f.field),
@@ -293,6 +316,8 @@ export function buildConversationCanvas(
       height,
       isSetup: convData.isSetup === true,
       isFallback: convData.isFallback === true,
+      startOrder: startOrderByLoc.get(conv.loc) ?? null,
+      startTotal: startOrderByLoc.has(conv.loc) ? ordinary.length : null,
       goalCount: goals.length,
       stageIndex: null,
       extractionFields: [],
@@ -364,6 +389,14 @@ export function buildConversationEdgeDetails(
   edges: readonly ConversationGraphEdgeInput[],
 ): ConversationEdgeDetail[] {
   const byId = new Map(nodes.map((n) => [n.id, n]));
+  const byLoc = new Map(nodes.map((n) => [n.loc, n]));
+  // A stage target reads "conversation / stage" so it is not mistaken for a
+  // conversation of the same name (display only, K1).
+  const targetLabelOf = (target: ConversationGraphNodeInput): string => {
+    if (!isStageLoc(target.loc)) return labelOf(target);
+    const parent = byLoc.get(segments(target.loc).slice(0, 2).join(':'));
+    return parent ? `${labelOf(parent)} / ${labelOf(target)}` : labelOf(target);
+  };
   return edges
     .filter((e) => byId.has(e.sourceId) && byId.has(e.targetId))
     .map((e) => {
@@ -374,7 +407,8 @@ export function buildConversationEdgeDetails(
         sourceId: e.sourceId,
         sourceLabel: labelOf(byId.get(e.sourceId)!),
         targetId: e.targetId,
-        targetLabel: labelOf(byId.get(e.targetId)!),
+        targetLabel: targetLabelOf(byId.get(e.targetId)!),
+        targetUrn: byId.get(e.targetId)!.urn ?? null,
         priority: e.priority ?? null,
         condition: e.condition ?? null,
         timing: timingOf(data),

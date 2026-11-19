@@ -1,3 +1,4 @@
+import { t } from '$lib/i18n/t';
 import { fail } from '@sveltejs/kit';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
@@ -41,7 +42,7 @@ export const actions: Actions = {
       const { maxActivations, expiresAt } = data.inviteUser;
       return { form, invited: true, inviteUrl, maxActivations, expiresAt };
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to send invitation') }, { status: 500 });
+      return message(form, { type: 'error', text: extractGqlError(e, t('account.invite.failed', 'Failed to send invitation')) }, { status: 500 });
     }
   },
 };

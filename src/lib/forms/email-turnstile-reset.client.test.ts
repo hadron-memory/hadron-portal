@@ -30,7 +30,7 @@ afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
   while (unsubs.length) unsubs.pop()!();
   page.update((p) => ({ ...p, form: null, status: 200 }));
-  delete env.PUBLIC_TURNSTILE_SITE_KEY;
+  Reflect.deleteProperty(env, 'PUBLIC_TURNSTILE_SITE_KEY');
   delete (window as { turnstile?: unknown }).turnstile;
 });
 

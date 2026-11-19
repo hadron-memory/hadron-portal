@@ -1,10 +1,10 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { env as publicEnv } from '$env/dynamic/public';
 import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { publicServerBaseUrl } from '$lib/public-server-base-url';
 import { loadOrgDetail } from '$lib/server/org-detail';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
@@ -228,7 +228,7 @@ export const actions: Actions = {
     // browser (to PUBLIC_SERVER_URL) with only the nonce. The 30-day JWT never
     // rides in the browser URL / access logs.
     const localUrl = env.LOCAL_SERVER_URL ?? 'http://localhost:4000';
-    const publicUrl = publicEnv.PUBLIC_SERVER_URL ?? 'http://localhost:4000';
+    const publicUrl = publicServerBaseUrl();
     const integrationsPath = `/app/orgs/${encodeURIComponent(params.id)}/integrations`;
 
     let nonce: string;

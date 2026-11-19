@@ -60,7 +60,7 @@ async function taskActions() {
 
 describe('task page actions', () => {
   it('the page has exactly these write actions', async () => {
-    expect(Object.keys(await taskActions()).sort()).toEqual(['addBlocker', 'assign', 'cancel', 'edit', 'handBack', 'park', 'priority', 'ready', 'reassign', 'removeBlocker']);
+    expect(Object.keys(await taskActions()).sort()).toEqual(['addBlocker', 'assign', 'cancel', 'disposeFinding', 'edit', 'handBack', 'park', 'priority', 'ready', 'reassign', 'removeBlocker']);
   });
 
   // portal#1571 (hadron-server#2651, hrn:node:hadronmemory.com:specs:cor:agt:050:29)
@@ -492,7 +492,7 @@ describe('task page actions: handle routes', () => {
   it.each(['FORBIDDEN', 'NOT_FOUND', 'TASK_NOT_FOUND', 'APP_NOT_FOUND'])('a %s refusal resolving the task is the same neutral 404 and writes nothing', async (code) => {
     request.mockResolvedValue({});
     resolver.mockRejectedValueOnce(gqlError(code, 'Forbidden'));
-    await expect((await taskActions()).cancel(at('AT3.405'))).rejects.toMatchObject({ status: 404, body: { message: 'Task not found, or you can’t see it' } });
+    await expect((await taskActions()).cancel(at('AT3.405'))).rejects.toMatchObject({ status: 404, body: { message: 'Task not found' } });
     expect(request).not.toHaveBeenCalled();
   });
 

@@ -5,8 +5,9 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphQLClient } from 'graphql-request';
-import { AGENT_TASK_DETAIL_QUERY, APP_PEOPLE_QUERY, AGENT_ALARMS_QUERY, AGENT_TASK_ANCESTOR_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_REF_QUERY, AGENT_TASKS_BOARD_QUERY, PULL_REQUEST_READINESS_QUERY, TASK_REVIEW_EVENTS_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
-import { loadWriteCandidates, ALARMS_LIMIT, BOARD_LIMIT, HISTORY_LIMIT, loadAlarms, loadAncestors, loadBoard, loadHistory, loadReview, loadRoster, loadTree, hydrateTaskRefs, canonicalTaskId, HYDRATE_CONCURRENCY } from './agent-tasks';
+import { AGENT_TASK_DETAIL_QUERY, APP_PEOPLE_QUERY, AGENT_ALARMS_QUERY, AGENT_ALARMS_IN_EFFECT_QUERY, AGENT_TASK_ANCESTOR_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_REF_QUERY, AGENT_TASKS_BOARD_QUERY, PULL_REQUEST_READINESS_QUERY, TASK_REVIEW_EVENTS_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
+import { loadWriteCandidates, ALARMS_PAGE_SIZE, BOARD_LIMIT, HISTORY_LIMIT, loadAlarms, loadAncestors, loadBoard, loadHistory, loadReview, loadRoster, loadTree, hydrateTaskRefs, canonicalTaskId, HYDRATE_CONCURRENCY } from './agent-tasks';
+import { selectsFieldPath } from '$lib/test/graphql-selection';
 
 const request = vi.fn();
 const client = { request } as unknown as GraphQLClient;
@@ -22,20 +23,22 @@ describe('loadBoard', () => {
     request.mockResolvedValueOnce({ agentTasks: [] });
     await loadBoard(client, 'app-1', 'backlog');
     expect(request).toHaveBeenCalledWith(AGENT_TASKS_BOARD_QUERY, { appRef: 'app-1', status: ['BACKLOG'], limit: BOARD_LIMIT });
-    expect(AGENT_TASKS_BOARD_QUERY).toContain('rootsOnly: true');
+    // portal#1643: roots only stays the default (a variable defaulting to true), so no filter sends it.
+    expect(AGENT_TASKS_BOARD_QUERY).toContain('$rootsOnly: Boolean = true');
+    expect(AGENT_TASKS_BOARD_QUERY).toContain('rootsOnly: $rootsOnly');
   });
 
   // portal#1427: each filter sends only its own argument, and none when unset.
   it('sends no overdue or tag argument when nothing is narrowed', async () => {
     request.mockResolvedValueOnce({ agentTasks: [] });
-    await loadBoard(client, 'app-1', 'all', '', { overdue: false, tags: [] });
+    await loadBoard(client, 'app-1', 'all', '', { overdue: false, tags: [], unresolved: false });
     const vars = request.mock.calls[0][1];
     expect(Object.keys(vars).sort()).toEqual(['appRef', 'limit']);
   });
 
   it('sends overdue: true and tagsAll, ANDed with the bucket and the text', async () => {
     request.mockResolvedValueOnce({ agentTasks: [] });
-    await loadBoard(client, 'app-1', 'queued', ' hello ', { overdue: true, tags: ['ops', 'infra'] });
+    await loadBoard(client, 'app-1', 'queued', ' hello ', { overdue: true, tags: ['ops', 'infra'], unresolved: false });
     expect(request).toHaveBeenCalledWith(AGENT_TASKS_BOARD_QUERY, {
       appRef: 'app-1', queued: true, text: 'hello', overdue: true, tagsAll: ['ops', 'infra'], limit: BOARD_LIMIT,
     });
@@ -43,8 +46,16 @@ describe('loadBoard', () => {
 
   it('never sends overdue: false', async () => {
     request.mockResolvedValueOnce({ agentTasks: [] });
-    await loadBoard(client, 'app-1', 'active', '', { overdue: false, tags: ['a'] });
+    await loadBoard(client, 'app-1', 'active', '', { overdue: false, tags: ['a'], unresolved: false });
     expect(request.mock.calls[0][1]).not.toHaveProperty('overdue');
+  });
+
+  it('unresolved findings asks the server for unresolvedFindings across the tree, ANDed with the bucket', async () => {
+    request.mockResolvedValueOnce({ agentTasks: [] });
+    await loadBoard(client, 'app-1', 'ended', '', { overdue: false, tags: [], unresolved: true });
+    expect(request).toHaveBeenCalledWith(AGENT_TASKS_BOARD_QUERY, { appRef: 'app-1', status: ['FINISHED', 'CANCELLED'], unresolvedFindings: true, rootsOnly: false, limit: BOARD_LIMIT });
+    expect(AGENT_TASKS_BOARD_QUERY).toContain('$unresolvedFindings: Boolean');
+    expect(AGENT_TASKS_BOARD_QUERY).toMatch(/unresolvedFindings: \$unresolvedFindings/);
   });
 
   it('declares the new arguments in the query', () => {
@@ -56,7 +67,7 @@ describe('loadBoard', () => {
 
   it('a failed narrowed read stays a failure, not an empty board', async () => {
     request.mockRejectedValueOnce(gqlError('FORBIDDEN'));
-    expect(await loadBoard(client, 'app-1', 'active', '', { overdue: true, tags: [] })).toEqual({ kind: 'failed' });
+    expect(await loadBoard(client, 'app-1', 'active', '', { overdue: true, tags: [], unresolved: false })).toEqual({ kind: 'failed' });
   });
 
   it('a full page is reported as capped, a short one is not', async () => {
@@ -100,11 +111,56 @@ describe('loadHistory', () => {
 
   it('stops at the bound and says so', async () => {
     let n = 0;
-    request.mockImplementation(async () => ({ agentTeamEvents: page(200, (n++) * 200) }));
+    request.mockImplementation(async () => {
+      if (n === 6) throw new Error('a seventh read'); // An unbounded walk fails this pin instead of hanging the run.
+      return { agentTeamEvents: page(200, (n++) * 200) };
+    });
     const r = await loadHistory(client, 'app-1', 't1');
     expect(r).toMatchObject({ kind: 'ok', value: { capped: true } });
     expect(r.kind === 'ok' && r.value.events).toHaveLength(HISTORY_LIMIT);
-    expect(request).toHaveBeenCalledTimes(HISTORY_LIMIT / 200);
+    expect(request).toHaveBeenCalledTimes(6);
+  });
+
+  // portal#1713: `agentTeamEvents` has no count or hasMore, so only a sixth page can tell 1000 from more.
+  // A fixed fixture stream: this proves the walk's arithmetic, not a snapshot of a stream being written to.
+  describe('the bound (portal#1713)', () => {
+    const serve = (total: number) =>
+      request.mockImplementation(async (_q: string, v: { after?: string }) => {
+        const from = v.after ? Number(v.after.slice(1)) + 1 : 0;
+        return { agentTeamEvents: page(Math.min(200, Math.max(0, total - from)), from) };
+      });
+
+    it.each([
+      [999, 999, false, 5],
+      [1000, 1000, false, 6],
+      [1001, 1000, true, 6],
+    ])('a stream of %i shows %i, capped %s, in %i reads', async (total, shown, capped, reads) => {
+      serve(total);
+      const r = await loadHistory(client, 'app-1', 't1');
+      expect(r).toMatchObject({ kind: 'ok', value: { capped } });
+      expect(r.kind === 'ok' && r.value.events).toHaveLength(shown);
+      expect(request).toHaveBeenCalledTimes(reads);
+    });
+
+    const sixthThrows = (e: unknown) => {
+      let n = 0;
+      request.mockImplementation(async () => {
+        if (n === 5) { n++; throw e; }
+        return { agentTeamEvents: page(200, (n++) * 200) };
+      });
+    };
+
+    it('APP_NOT_FOUND on the sixth read is the not-participant state', async () => {
+      sixthThrows(gqlError('APP_NOT_FOUND'));
+      expect(await loadHistory(client, 'app-1', 't1')).toEqual({ kind: 'not-participant' });
+      expect(request).toHaveBeenCalledTimes(6);
+    });
+
+    it('any other error on the sixth read fails, the 1000 rows dropped: it can’t tell complete from capped', async () => {
+      sixthThrows(new Error('boom'));
+      expect(await loadHistory(client, 'app-1', 't1')).toEqual({ kind: 'failed' });
+      expect(request).toHaveBeenCalledTimes(6);
+    });
   });
 });
 
@@ -143,21 +199,35 @@ describe('slice 2: roster, titles and alarms', () => {
   });
 
 
-  it('alarms walk forward by the last id, alarmsOnly, up to the bound', async () => {
-    const page = (n: number, from: number) => Array.from({ length: n }, (_, i) => ({ id: `a${from + i}` }));
-    request.mockResolvedValueOnce({ agentTeamEvents: page(200, 0) }).mockResolvedValueOnce({ agentTeamEvents: page(1, 200) });
-    const r = await loadAlarms(client, 'app-1');
-    expect(r).toMatchObject({ kind: 'ok', value: { capped: false } });
-    expect(request.mock.calls[0]).toEqual([AGENT_ALARMS_QUERY, { appRef: 'app-1', after: undefined, limit: 200 }]);
-    expect(request.mock.calls[1][1]).toMatchObject({ after: 'a199' });
+  it('alarms read one newest-first page, with a look-ahead and an older cursor', async () => {
+    const page = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `a${i}` }));
+    request.mockResolvedValueOnce({ agentTeamEvents: page(21) });
+    const r = await loadAlarms(client, 'app-1', 'prior');
+    expect(r).toMatchObject({ kind: 'ok', value: { nextBefore: 'a19' } });
+    expect(r.kind === 'ok' && r.value.alarms).toHaveLength(ALARMS_PAGE_SIZE);
+    expect(request.mock.calls[0]).toEqual([AGENT_ALARMS_QUERY, { appRef: 'app-1', before: 'prior', after: undefined, newestFirst: true, limit: 21 }]);
     expect(AGENT_ALARMS_QUERY).toContain('alarmsOnly: true');
+    expect(AGENT_ALARMS_QUERY).toContain('newestFirst: $newestFirst');
+    request.mockResolvedValueOnce({ agentTeamEvents: page(20) });
+    expect(await loadAlarms(client, 'app-1')).toMatchObject({ kind: 'ok', value: { nextBefore: null } });
+  });
 
-    request.mockReset();
-    let n = 0;
-    request.mockImplementation(async () => ({ agentTeamEvents: page(200, (n++) * 200) }));
-    const capped = await loadAlarms(client, 'app-1');
-    expect(capped).toMatchObject({ kind: 'ok', value: { capped: true } });
-    expect(capped.kind === 'ok' && capped.value.alarms).toHaveLength(ALARMS_LIMIT);
+  // portal#2000 A: the In effect read asks the server to filter (#3934's
+  // alarmsInEffect: unacknowledged and no recorded escalation end, App-wide
+  // before the page is cut), through its OWN document. The pre-existing
+  // document must not name the argument at all: GraphQL validates the
+  // document, not the values, so a shared document would break every alarms
+  // read against a server older than the argument — the page-local filters
+  // keep their exact pre-#2000 wire shape instead.
+  it('the in-effect alarms read is its own document; the pre-existing read names no new argument', async () => {
+    request.mockResolvedValueOnce({ agentTeamEvents: [{ id: 'a0' }] });
+    await loadAlarms(client, 'app-1', undefined, undefined, true);
+    expect(request.mock.calls[0]).toEqual([AGENT_ALARMS_IN_EFFECT_QUERY, { appRef: 'app-1', before: undefined, after: undefined, newestFirst: true, limit: 21 }]);
+    expect(AGENT_ALARMS_IN_EFFECT_QUERY).toContain('alarmsInEffect: true');
+    request.mockResolvedValueOnce({ agentTeamEvents: [{ id: 'a0' }] });
+    await loadAlarms(client, 'app-1');
+    expect(request.mock.calls[1]).toEqual([AGENT_ALARMS_QUERY, { appRef: 'app-1', before: undefined, after: undefined, newestFirst: true, limit: 21 }]);
+    expect(AGENT_ALARMS_QUERY).not.toContain('alarmsInEffect');
   });
 });
 
@@ -259,27 +329,38 @@ describe('canonicalTaskId (the identity a write uses)', () => {
     await canonicalTaskId(client, 'app-1', 'abc');
     expect(request).toHaveBeenLastCalledWith(AGENT_TASK_REF_QUERY, { id: 'abc' });
   });
+  // portal#2202 gate: every task-surface 404 carries the bare "Task not
+  // found" message — exact wording pinned per throw site, so reverting any
+  // one site to the retired "…or you can’t see it" oracle wording turns a
+  // test red. The App read's own 404 keeps its DISTINCT message on purpose
+  // (portal#1349: a non-participant gets the App's 404), and that
+  // distinctness is pinned here too.
   it('another App’s qualified handle is a 404 with NO task read', async () => {
     answer({ id: 'x', appId: 'app-2' });
-    await expect(canonicalTaskId(client, 'app-1', 'hrn:agenttask:acme.com:other:AT3')).rejects.toMatchObject({ status: 404 });
+    await expect(canonicalTaskId(client, 'app-1', 'hrn:agenttask:acme.com:other:AT3')).rejects.toMatchObject({ status: 404, body: { message: 'Task not found' } });
     expect(request.mock.calls.map((c) => c[0])).not.toContain(AGENT_TASK_REF_QUERY);
   });
   it('a task of another App, or none, is the same 404', async () => {
     answer({ id: 'x', appId: 'app-2' });
-    await expect(canonicalTaskId(client, 'app-1', 'AT3')).rejects.toMatchObject({ status: 404 });
+    await expect(canonicalTaskId(client, 'app-1', 'AT3')).rejects.toMatchObject({ status: 404, body: { message: 'Task not found' } });
     answer(null);
-    await expect(canonicalTaskId(client, 'app-1', 'AT3')).rejects.toMatchObject({ status: 404 });
+    await expect(canonicalTaskId(client, 'app-1', 'AT3')).rejects.toMatchObject({ status: 404, body: { message: 'Task not found' } });
   });
-  it('a refused App is a 404 before any task read', async () => {
+  it('a refused task read is the same 404 as a null answer', async () => {
+    request.mockImplementationOnce(async () => ({ app }));
+    request.mockRejectedValueOnce(gqlError('TASK_NOT_FOUND'));
+    await expect(canonicalTaskId(client, 'app-1', 'AT3')).rejects.toMatchObject({ status: 404, body: { message: 'Task not found' } });
+  });
+  it('a refused App is a 404 before any task read — the App’s own message, distinct on purpose', async () => {
     request.mockRejectedValueOnce(gqlError('FORBIDDEN'));
-    await expect(canonicalTaskId(client, 'app-1', 'AT3')).rejects.toMatchObject({ status: 404 });
+    await expect(canonicalTaskId(client, 'app-1', 'AT3')).rejects.toMatchObject({ status: 404, body: { message: 'App not found' } });
     expect(request).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('the task detail read (portal#1523)', () => {
   it('selects the requirements’ minimum model tier', () => {
-    expect(AGENT_TASK_DETAIL_QUERY).toMatch(/requirements\s*\{[^}]*\bminTier\b/);
+    expect(selectsFieldPath(AGENT_TASK_DETAIL_QUERY, 'AgentTaskDetail', ['agentTask', 'requirements', 'minTier'])).toBe(true);
   });
 });
 
@@ -328,11 +409,100 @@ describe('loadReview (portal#1697)', () => {
     expect(readinessCalls()[0][1]).toEqual({ taskRef: 't1', head: H });
   });
 
-  it('a stream past the bound is a failure, never an old head called current', async () => {
-    const page = Array.from({ length: 200 }, (_, i) => ({ id: `e${i}`, type: 'pr.frozen', payload: { head: H } }));
-    request.mockImplementation(async () => ({ agentTeamEvents: page }));
-    expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'failed' });
-    expect(readinessCalls()).toEqual([]);
+  // portal#1713: a fixed fixture stream, oldest first, whose LAST event carries the newest head.
+  describe('the bound (portal#1713)', () => {
+    const OLD = 'b'.repeat(40);
+    const reads = () => request.mock.calls.filter((c) => c[0] === TASK_REVIEW_EVENTS_QUERY);
+    const event = (i: number, total: number) => ({ id: `e${i}`, type: 'pr.frozen', payload: { head: i === total - 1 ? H : OLD } });
+    const serve = (total: number) =>
+      request.mockImplementation(async (q: string, v: { after?: string }) => {
+        if (q !== TASK_REVIEW_EVENTS_QUERY) return { pullRequestReadiness: readiness };
+        if (reads().length > 6) throw new Error('a seventh read'); // An unbounded walk fails these pins instead of hanging the run.
+        const from = v.after ? Number(v.after.slice(1)) + 1 : 0;
+        return { agentTeamEvents: Array.from({ length: Math.min(200, Math.max(0, total - from)) }, (_, i) => event(from + i, total)) };
+      });
+    const sixthThrows = (e: unknown) => {
+      let n = 0;
+      request.mockImplementation(async () => {
+        if (n === 5) { n++; throw e; }
+        const from = (n++) * 200;
+        return { agentTeamEvents: Array.from({ length: 200 }, (_, i) => event(from + i, Infinity)) };
+      });
+    };
+
+    it.each([[999, 5], [1000, 6]])('a stream of %i is complete: the newest head, in %i reads', async (total, count) => {
+      serve(total);
+      expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'ok', value: { readiness, seat: null } });
+      expect(reads()).toHaveLength(count);
+      expect(readinessCalls()).toEqual([[PULL_REQUEST_READINESS_QUERY, { taskRef: 't1', head: H }]]);
+    });
+
+    it('1001 events are unreadable, never an old head called current, with no seventh read', async () => {
+      serve(1001);
+      expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'unreadable' });
+      expect(reads()).toHaveLength(6);
+      expect(readinessCalls()).toEqual([]);
+    });
+
+    it('an endless stream is unreadable at six reads', async () => {
+      serve(Infinity);
+      expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'unreadable' });
+      expect(reads()).toHaveLength(6);
+      expect(readinessCalls()).toEqual([]);
+    });
+
+    it('APP_NOT_FOUND on the sixth read is the not-participant state', async () => {
+      sixthThrows(gqlError('APP_NOT_FOUND'));
+      expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'not-participant' });
+      expect(request).toHaveBeenCalledTimes(6);
+    });
+
+    it('any other error on the sixth read stays a failure, which a reload can pass', async () => {
+      sixthThrows(new Error('boom'));
+      expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'failed' });
+      expect(request).toHaveBeenCalledTimes(6);
+    });
+  });
+
+  // portal#1713: synthetic stored rows; the freeze writer refuses these today.
+  describe('a malformed newest event (portal#1713)', () => {
+    const OLD = 'b'.repeat(40);
+    const SECRET = 'payload-text-that-must-not-be-logged';
+    const seat = { id: 'e2', type: 'review.seat.assigned', payload: { slot: 'local', head: OLD } };
+
+    it('a malformed freeze after a valid one is unreadable, and readiness is never asked', async () => {
+      answer([frozen, { id: 'e2', type: 'pr.frozen', payload: { head: SECRET } }]);
+      expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'unreadable' });
+      expect(readinessCalls()).toEqual([]);
+    });
+
+    it('a malformed seat after a valid one is unreadable, a valid head with no slot included', async () => {
+      answer([seat, { id: 'e3', type: 'review.seat.assigned', payload: { head: H } }]);
+      expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'unreadable' });
+      expect(readinessCalls()).toEqual([]);
+    });
+
+    it('a valid newest freeze with a malformed newest seat is unreadable', async () => {
+      answer([frozen, { id: 'e2', type: 'review.seat.assigned', payload: { slot: 'local' } }]);
+      expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'unreadable' });
+      expect(readinessCalls()).toEqual([]);
+    });
+
+    it('a valid event after a malformed one is used', async () => {
+      answer([{ id: 'e0', type: 'pr.frozen', payload: { head: 'nope' } }, frozen]);
+      expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'ok', value: { readiness, seat: null } });
+      expect(readinessCalls()).toEqual([[PULL_REQUEST_READINESS_QUERY, { taskRef: 't1', head: H }]]);
+    });
+
+    it('logs the task id and the reason, never the payload', async () => {
+      answer([{ id: 'e2', type: 'pr.frozen', payload: { head: SECRET } }]);
+      vi.mocked(console.warn).mockClear();
+      await loadReview(client, 'app-1', 't1');
+      const logged = JSON.stringify(vi.mocked(console.warn).mock.calls);
+      expect(logged).toContain('t1');
+      expect(logged).toContain('pr.frozen');
+      expect(logged).not.toContain(SECRET);
+    });
   });
 
   it('a null answer is the not-participant state', async () => {

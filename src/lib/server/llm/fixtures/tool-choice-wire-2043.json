@@ -1,0 +1,338 @@
+[
+  {
+    "provider": "anthropic",
+    "model": "claude-sonnet-5-5",
+    "welcome": true,
+    "choice": "AUTO",
+    "body": "{\"model\":\"claude-sonnet-5-5\",\"max_tokens\":4096,\"system\":[{\"type\":\"text\",\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Please begin the conversation.\"}]}],\"tools\":[{\"name\":\"respond\",\"description\":\"Respond to the user\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}],\"tool_choice\":{\"type\":\"auto\"}}"
+  },
+  {
+    "provider": "anthropic",
+    "model": "claude-sonnet-5-5",
+    "welcome": false,
+    "choice": "AUTO",
+    "body": "{\"model\":\"claude-sonnet-5-5\",\"max_tokens\":4096,\"system\":[{\"type\":\"text\",\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hello\"}]}],\"tools\":[{\"name\":\"respond\",\"description\":\"Respond to the user\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}],\"tool_choice\":{\"type\":\"auto\"}}"
+  },
+  {
+    "provider": "anthropic",
+    "model": "claude-opus-5-5",
+    "welcome": true,
+    "choice": "AUTO",
+    "body": "{\"model\":\"claude-opus-5-5\",\"max_tokens\":4096,\"system\":[{\"type\":\"text\",\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Please begin the conversation.\"}]}],\"tools\":[{\"name\":\"respond\",\"description\":\"Respond to the user\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}],\"tool_choice\":{\"type\":\"auto\"}}"
+  },
+  {
+    "provider": "anthropic",
+    "model": "claude-opus-5-5",
+    "welcome": false,
+    "choice": "AUTO",
+    "body": "{\"model\":\"claude-opus-5-5\",\"max_tokens\":4096,\"system\":[{\"type\":\"text\",\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hello\"}]}],\"tools\":[{\"name\":\"respond\",\"description\":\"Respond to the user\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}],\"tool_choice\":{\"type\":\"auto\"}}"
+  },
+  {
+    "provider": "anthropic",
+    "model": "claude-fable-5-2",
+    "welcome": true,
+    "choice": "AUTO",
+    "body": "{\"model\":\"claude-fable-5-2\",\"max_tokens\":4096,\"system\":[{\"type\":\"text\",\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Please begin the conversation.\"}]}],\"tools\":[{\"name\":\"respond\",\"description\":\"Respond to the user\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}],\"tool_choice\":{\"type\":\"auto\"}}"
+  },
+  {
+    "provider": "anthropic",
+    "model": "claude-fable-5-2",
+    "welcome": false,
+    "choice": "AUTO",
+    "body": "{\"model\":\"claude-fable-5-2\",\"max_tokens\":4096,\"system\":[{\"type\":\"text\",\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hello\"}]}],\"tools\":[{\"name\":\"respond\",\"description\":\"Respond to the user\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}],\"tool_choice\":{\"type\":\"auto\"}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "anthropic.claude-sonnet-5-5",
+    "welcome": true,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Please begin the conversation.\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "anthropic.claude-sonnet-5-5",
+    "welcome": false,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"hello\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "us.anthropic.claude-sonnet-5-5",
+    "welcome": true,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Please begin the conversation.\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "us.anthropic.claude-sonnet-5-5",
+    "welcome": false,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"hello\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "eu.anthropic.claude-sonnet-5-5",
+    "welcome": true,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Please begin the conversation.\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "eu.anthropic.claude-sonnet-5-5",
+    "welcome": false,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"hello\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "au.anthropic.claude-sonnet-5-5",
+    "welcome": true,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Please begin the conversation.\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "au.anthropic.claude-sonnet-5-5",
+    "welcome": false,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"hello\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "global.anthropic.claude-sonnet-5-5",
+    "welcome": true,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Please begin the conversation.\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "global.anthropic.claude-sonnet-5-5",
+    "welcome": false,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"hello\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "anthropic.claude-opus-5-5",
+    "welcome": true,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Please begin the conversation.\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "anthropic.claude-opus-5-5",
+    "welcome": false,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"hello\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "us.anthropic.claude-opus-5-5",
+    "welcome": true,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Please begin the conversation.\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "us.anthropic.claude-opus-5-5",
+    "welcome": false,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"hello\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "eu.anthropic.claude-opus-5-5",
+    "welcome": true,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Please begin the conversation.\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "eu.anthropic.claude-opus-5-5",
+    "welcome": false,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"hello\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "au.anthropic.claude-opus-5-5",
+    "welcome": true,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Please begin the conversation.\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "au.anthropic.claude-opus-5-5",
+    "welcome": false,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"hello\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "jp.anthropic.claude-opus-5-5",
+    "welcome": true,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Please begin the conversation.\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "jp.anthropic.claude-opus-5-5",
+    "welcome": false,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"hello\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "global.anthropic.claude-opus-5-5",
+    "welcome": true,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Please begin the conversation.\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "global.anthropic.claude-opus-5-5",
+    "welcome": false,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"hello\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "anthropic.claude-fable-5-2",
+    "welcome": true,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Please begin the conversation.\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "anthropic.claude-fable-5-2",
+    "welcome": false,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"hello\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "us.anthropic.claude-fable-5-2",
+    "welcome": true,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Please begin the conversation.\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "us.anthropic.claude-fable-5-2",
+    "welcome": false,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"hello\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "global.anthropic.claude-fable-5-2",
+    "welcome": true,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Please begin the conversation.\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "global.anthropic.claude-fable-5-2",
+    "welcome": false,
+    "choice": "AUTO",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\\n\\nRespond by calling the respond tool exactly once. Do not answer in free text.\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"hello\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"auto\":{}}}}"
+  },
+  {
+    "provider": "anthropic",
+    "model": "claude-haiku-5-5",
+    "welcome": true,
+    "choice": "FORCED",
+    "body": "{\"model\":\"claude-haiku-5-5\",\"max_tokens\":4096,\"system\":[{\"type\":\"text\",\"text\":\"Stage prompt\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Please begin the conversation.\"}]}],\"tools\":[{\"name\":\"respond\",\"description\":\"Respond to the user\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}],\"tool_choice\":{\"type\":\"tool\",\"name\":\"respond\"}}"
+  },
+  {
+    "provider": "anthropic",
+    "model": "claude-haiku-5-5",
+    "welcome": false,
+    "choice": "FORCED",
+    "body": "{\"model\":\"claude-haiku-5-5\",\"max_tokens\":4096,\"system\":[{\"type\":\"text\",\"text\":\"Stage prompt\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hello\"}]}],\"tools\":[{\"name\":\"respond\",\"description\":\"Respond to the user\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}],\"tool_choice\":{\"type\":\"tool\",\"name\":\"respond\"}}"
+  },
+  {
+    "provider": "anthropic",
+    "model": "CLAUDE-SONNET-5-5",
+    "welcome": true,
+    "choice": "FORCED",
+    "body": "{\"model\":\"CLAUDE-SONNET-5-5\",\"max_tokens\":4096,\"system\":[{\"type\":\"text\",\"text\":\"Stage prompt\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Please begin the conversation.\"}]}],\"tools\":[{\"name\":\"respond\",\"description\":\"Respond to the user\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}],\"tool_choice\":{\"type\":\"tool\",\"name\":\"respond\"}}"
+  },
+  {
+    "provider": "anthropic",
+    "model": "CLAUDE-SONNET-5-5",
+    "welcome": false,
+    "choice": "FORCED",
+    "body": "{\"model\":\"CLAUDE-SONNET-5-5\",\"max_tokens\":4096,\"system\":[{\"type\":\"text\",\"text\":\"Stage prompt\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hello\"}]}],\"tools\":[{\"name\":\"respond\",\"description\":\"Respond to the user\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}],\"tool_choice\":{\"type\":\"tool\",\"name\":\"respond\"}}"
+  },
+  {
+    "provider": "anthropic",
+    "model": "claude-sonnet-5-5-x",
+    "welcome": true,
+    "choice": "FORCED",
+    "body": "{\"model\":\"claude-sonnet-5-5-x\",\"max_tokens\":4096,\"system\":[{\"type\":\"text\",\"text\":\"Stage prompt\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Please begin the conversation.\"}]}],\"tools\":[{\"name\":\"respond\",\"description\":\"Respond to the user\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}],\"tool_choice\":{\"type\":\"tool\",\"name\":\"respond\"}}"
+  },
+  {
+    "provider": "anthropic",
+    "model": "claude-sonnet-5-5-x",
+    "welcome": false,
+    "choice": "FORCED",
+    "body": "{\"model\":\"claude-sonnet-5-5-x\",\"max_tokens\":4096,\"system\":[{\"type\":\"text\",\"text\":\"Stage prompt\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hello\"}]}],\"tools\":[{\"name\":\"respond\",\"description\":\"Respond to the user\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}],\"tool_choice\":{\"type\":\"tool\",\"name\":\"respond\"}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "jp.anthropic.claude-sonnet-5-5",
+    "welcome": true,
+    "choice": "FORCED",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Please begin the conversation.\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"tool\":{\"name\":\"respond\"}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "jp.anthropic.claude-sonnet-5-5",
+    "welcome": false,
+    "choice": "FORCED",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"hello\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"tool\":{\"name\":\"respond\"}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "anthropic.claude-sonnet-5-5-x",
+    "welcome": true,
+    "choice": "FORCED",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Please begin the conversation.\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"tool\":{\"name\":\"respond\"}}}}"
+  },
+  {
+    "provider": "bedrock",
+    "model": "anthropic.claude-sonnet-5-5-x",
+    "welcome": false,
+    "choice": "FORCED",
+    "body": "{\"system\":[{\"text\":\"Stage prompt\"}],\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"hello\"}]}],\"additionalModelResponseFieldPaths\":[\"/delta/stop_sequence\"],\"toolConfig\":{\"tools\":[{\"toolSpec\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"inputSchema\":{\"json\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}}],\"toolChoice\":{\"tool\":{\"name\":\"respond\"}}}}"
+  },
+  {
+    "provider": "openai",
+    "model": "opaque-configured-id",
+    "welcome": true,
+    "choice": "FORCED",
+    "body": "{\"model\":\"opaque-configured-id\",\"input\":[{\"role\":\"system\",\"content\":\"Stage prompt\"},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Please begin the conversation.\"}]}],\"tools\":[{\"type\":\"function\",\"name\":\"respond\",\"description\":\"Respond to the user\",\"parameters\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}],\"tool_choice\":{\"type\":\"function\",\"name\":\"respond\"}}"
+  },
+  {
+    "provider": "openai",
+    "model": "opaque-configured-id",
+    "welcome": false,
+    "choice": "FORCED",
+    "body": "{\"model\":\"opaque-configured-id\",\"input\":[{\"role\":\"system\",\"content\":\"Stage prompt\"},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hello\"}]}],\"tools\":[{\"type\":\"function\",\"name\":\"respond\",\"description\":\"Respond to the user\",\"parameters\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}],\"tool_choice\":{\"type\":\"function\",\"name\":\"respond\"}}"
+  },
+  {
+    "provider": "glm",
+    "model": "opaque-configured-id",
+    "welcome": true,
+    "choice": "FORCED",
+    "body": "{\"model\":\"opaque-configured-id\",\"messages\":[{\"role\":\"system\",\"content\":\"Stage prompt\"},{\"role\":\"user\",\"content\":\"Please begin the conversation.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"parameters\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}],\"tool_choice\":{\"type\":\"function\",\"function\":{\"name\":\"respond\"}}}"
+  },
+  {
+    "provider": "glm",
+    "model": "opaque-configured-id",
+    "welcome": false,
+    "choice": "FORCED",
+    "body": "{\"model\":\"opaque-configured-id\",\"messages\":[{\"role\":\"system\",\"content\":\"Stage prompt\"},{\"role\":\"user\",\"content\":\"hello\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"respond\",\"description\":\"Respond to the user\",\"parameters\":{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"]}}}],\"tool_choice\":{\"type\":\"function\",\"function\":{\"name\":\"respond\"}}}"
+  }
+]

@@ -84,10 +84,11 @@ it('#1492 renders no host label or prompt, and nothing raw for an unknown state'
   for (const secret of ['HOSTLABEL', 'SCREENTEXT', 'solar_flare', 'quantum']) expect(text).not.toContain(secret);
 });
 
-it('#1492 a stale report keeps its server state; a future checkedAt is time unknown', async () => {
-  const stale = (await mountInternal(terminalOf({ status: 'busy', reason: null, checkedAt: '2026-10-01T00:00:00.000Z' }))).textContent!;
-  expect(stale).toContain('Busy');
-  expect(stale).not.toMatch(/Dark|Idle: /);
+it('#1948 an old report shows Stale without status or reason; a future checkedAt stays unknown', async () => {
+  const stale = (await mountInternal(terminalOf({ status: 'idle', reason: 'model_at_capacity', checkedAt: '2026-10-31T04:00:00.000Z' }))).textContent!;
+  expect(stale).toContain('Stale');
+  expect(stale).toMatch(/checked .*8.*ago/);
+  expect(stale).not.toMatch(/Busy|Dark|Idle|Model at capacity/);
   cleanup?.();
   expect((await mountInternal(terminalOf({ checkedAt: '2027-01-01T00:00:00.000Z' }))).textContent).toContain('checked: time unknown');
 });
@@ -132,4 +133,16 @@ it('#1492 the Profile tier shows no terminal, even if a terminal object arrives'
   const m = mountComponent(Page as never, { data: { worker: { ...profile, terminal: terminalOf() }, initialTab: 'wake', terminalNow: NOW } } as never);
   cleanup = m.unmount;
   for (const s of ['Locked', 'Model at capacity', 'Not reported', 'Last turn']) expect(m.target.textContent).not.toContain(s);
+});
+
+
+it('#1948 worker badge becomes Stale when its display clock crosses thirty minutes', async () => {
+  vi.useFakeTimers();
+  try {
+    const target=await mountInternal(terminalOf({status:'idle',reason:null,checkedAt:'2026-10-31T11:30:00.000Z'}));
+    expect(target.textContent).toContain('Idle');
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(target.textContent).toContain('Stale');
+    expect(target.textContent).not.toContain('Idle');
+  } finally { cleanup?.(); vi.useRealTimers(); }
 });

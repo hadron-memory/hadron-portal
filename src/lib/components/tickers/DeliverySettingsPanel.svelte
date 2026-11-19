@@ -6,10 +6,8 @@
     the form and the server's refusal answers anyone who may not (a manage audit
     under-reports owner-role members, Rodolfo's §10 P2 on #1152). A support
     session sees the values only.
-  - A save sends only the fields the reader changed (see buildDeliveryPatch). The
-    standby switch is never offered or sent: it is slice B, after S7. Its stored
-    and effective values are shown exactly as the server returns them, and
-    nothing here says standby works.
+  - A save sends only the fields the reader changed (see buildDeliveryPatch).
+    Standby is retired (server#3606, portal#1759): it is neither shown nor sent.
   - Nothing is optimistic. A refusal keeps what was typed and shows the server's
     sentence verbatim; a success reloads and shows the STORED values.
 -->
@@ -90,13 +88,6 @@
     }
   }
 
-  function standbyText(s: AppDeliverySettings): string {
-    if (s.standbyEnabled && !s.standbyEffective) {
-      return t('app.tickers.delivery.standby.pending', 'Standby: configured, not in effect yet.');
-    }
-    return s.standbyEnabled ? t('app.tickers.delivery.standby.on', 'Standby: on') : t('app.tickers.delivery.standby.off', 'Standby: off');
-  }
-
   function submitter() {
     return () => {
       const mine = ++generation;
@@ -163,7 +154,6 @@
             <p id="delivery-{f}-help" class="mt-1 text-xs text-zinc-600 dark:text-zinc-400">{helpFor(f)}</p>
           </div>
         {/each}
-        <p class="text-zinc-600 dark:text-zinc-400" data-testid="delivery-standby">{standbyText(s)}</p>
         <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tickers.settings.who', 'Only whoever manages the App can change these settings.')}</p>
         {#if refusal}<WriteRefusalAlert {refusal} />{/if}
         {#if status}
@@ -181,9 +171,6 @@
             <dd class="text-zinc-600 dark:text-zinc-400">{s[f]}</dd>
           </div>
         {/each}
-        <div class="min-w-0 sm:col-span-2" data-testid="delivery-standby">
-          <dd class="text-zinc-600 dark:text-zinc-400">{standbyText(s)}</dd>
-        </div>
       </dl>
       <p class="text-xs text-zinc-500 dark:text-zinc-400">
         {t('app.tasks.write.impersonating', 'Viewing as {name}: changes are switched off in a support session.', { name: impersonating ?? '—' })}

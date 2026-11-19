@@ -1,7 +1,7 @@
 import type { TaskReference } from './references';
 /**
  * portal#1052 — the agent-task read shapes the Tasks views select, mirroring
- * the server SDL (schema/schema.graphql, hadron-server 4c55560a). Only the
+ * the server SDL (schema/schema.graphql, hadron-server 8cccdcbb). Only the
  * fields a view renders are here; each query selects exactly these.
  */
 
@@ -60,6 +60,15 @@ export interface AgentTaskRow {
   owner: AgentTaskParty;
   assignee: AgentTaskParty | null;
   startBy: string | null;
+  finishBy: string | null;
+  /**
+   * portal#2244 (hadron-server#4220, implementing #2654): the server's own
+   * overdue verdict — a pending, not-started task past its start-by, or a
+   * pending-or-started task past its finish-by and not ended; backlog never —
+   * all on the server clock. The portal computes no overdue rule of its own;
+   * a row shows the mark exactly when this is true.
+   */
+  overdue: boolean;
   createdAt: string;
   updatedAt: string | null;
   tags: string[];
@@ -95,6 +104,13 @@ export interface AgentTaskDetail extends AgentTaskRow {
    * (hadron-server#2877); a server without it rejects the read rather than omitting the field.
    */
   properties?: unknown;
+  /**
+   * portal#2161 (hadron-server#3244, hrn:node:hadronmemory.com:specs:cor:agt:050:02): the task this
+   * one was cloned from, or null when it was not made by a clone or the source is not readable to
+   * this caller — both render as nothing (no placeholder). The link reads "Replaces …" when the
+   * source has ended (FINISHED or CANCELLED), "Cloned from …" otherwise.
+   */
+  clonedFrom: { id: string; handle: string; title: string; status: AgentTaskStatus } | null;
 }
 
 export interface AgentTeamAlarmWake {
@@ -225,3 +241,8 @@ export type TaskRefs = Record<string, TaskRefInfo | null>;
 
 export interface TaskChoice { id: string; appId: string; title: string; handle: string; status: string }
 export interface TaskDependencyPage { items: TaskChoice[]; hasMore: boolean }
+/**
+ * portal#2161: a page of a task's clones. Same shape as a dependency page plus
+ * `total`, so the list can say how many there are, not just that more exist.
+ */
+export interface TaskClonesPage { items: TaskChoice[]; total: number; hasMore: boolean }

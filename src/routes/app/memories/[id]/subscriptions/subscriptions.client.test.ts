@@ -1,0 +1,65 @@
+// portal#2220: the Add form picks an organization; it no longer takes a raw org id.
+import { afterEach, describe, expect, it } from 'vitest';
+import { superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
+import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import Page from './+page.svelte';
+import { memorySubscriptionSchema, memoryUnsubscribeSchema } from './schema';
+
+let mounted: Mounted<Record<string, unknown>> | null = null;
+afterEach(() => { mounted?.unmount(); mounted = null; });
+
+const targets = [
+  { id: 'org-2', name: 'Beta', urn: 'hrn:org:beta.com' },
+  { id: 'org-3', name: 'Gamma', urn: 'hrn:org:gamma.com' },
+];
+
+async function open(opts: { targets?: typeof targets; form?: unknown } = {}) {
+  const form = await superValidate({ orgId: '', role: 'READER' }, zod4(memorySubscriptionSchema), { errors: false });
+  const unsubscribeForm = await superValidate({ orgId: '' }, zod4(memoryUnsubscribeSchema), { errors: false });
+  const props = reactiveProps<Record<string, unknown>>({
+    data: { graph: { name: 'Public memory', class: 'user', subscriptions: [] }, form, unsubscribeForm, targets: opts.targets ?? targets },
+    form: opts.form ?? null,
+  });
+  mounted = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+  await tick();
+  return mounted.target;
+}
+const button = (root: HTMLElement, name: RegExp) => [...root.querySelectorAll('button')].find((b) => name.test(b.textContent ?? ''));
+
+describe('#2220 subscribe form', () => {
+  it('has no free-text organization id field', async () => {
+    const root = await open();
+    expect(root.querySelector('input[name=orgId][type=text]')).toBeNull();
+    expect(root.querySelector('input[placeholder="org-cuid"]')).toBeNull();
+    expect(root.querySelector<HTMLInputElement>('form[action="?/subscribe"] input[name=orgId]')?.type).toBe('hidden');
+  });
+
+  it('picking an organization fills the hidden id and shows the name with its URN', async () => {
+    const root = await open();
+    button(root, /Choose organization/)!.click();
+    await tick();
+    const dialog = document.querySelector('[role=dialog]')!;
+    expect(dialog).not.toBeNull();
+    // Each row carries its own Select button, named for its organization.
+    [...dialog.querySelectorAll<HTMLButtonElement>('button[aria-label]')].find((b) => /Beta/.test(b.getAttribute('aria-label') ?? ''))!.click();
+    await tick();
+    expect(root.querySelector<HTMLInputElement>('form[action="?/subscribe"] input[name=orgId]')!.value).toBe('org-2');
+    expect(root.querySelector('[title="hrn:org:beta.com"]')).not.toBeNull();
+    expect(button(root, /Change/)).toBeDefined();
+  });
+
+  it('with no administered organization there is no Add form, only an explanation', async () => {
+    const root = await open({ targets: [] });
+    expect(root.querySelector('form[action="?/subscribe"]')).toBeNull();
+    expect(root.querySelector('[role=status]')?.textContent).toMatch(/administer/i);
+  });
+
+  it('a refused add still shows the server refusal beside the form', async () => {
+    const sv = await superValidate({ orgId: 'org-2', role: 'READER' }, zod4(memorySubscriptionSchema), { errors: false });
+    (sv as any).message = { type: 'error', text: 'The organization that owns this memory cannot subscribe to it. A subscription is created by another organization’s admin.' };
+    const root = await open({ form: { form: sv } });
+    expect(root.querySelector('[role=alert]')?.textContent).toMatch(/cannot subscribe/);
+  });
+});

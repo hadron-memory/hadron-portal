@@ -209,12 +209,9 @@ export const removeAppMemberSchema = z.object({
 });
 
 
-// #1023: exact requester attestation, not boolean coercion or a default.
-export const deleteWorkerSchema = z.object({
-  _kind: z.literal('deleteWorker'),
-  workerRef: z.string().trim().min(1, 'Worker is required.'),
-  confirmation: z.literal('verified-no-external-attribution'),
-});
+// #1023's deleteWorkerSchema moved to $lib/workers/delete-worker.ts (portal#2205):
+// the worker's own page runs the same delete through the same contract, so the
+// schema lives beside the attestation token neither route owns alone.
 
 // #487: only a NEW memory, born on this App. No caller-controlled App,
 // Agent, class, or existing-memory reference is part of this form.

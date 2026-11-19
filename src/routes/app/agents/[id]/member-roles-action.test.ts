@@ -20,10 +20,11 @@ beforeEach(() => {
   mockRequest.mockResolvedValue({ updateAgent: { id: 'agent-1', installationPolicy: { memberRoles: [] } } });
 });
 
-async function run(roles: string[]) {
+async function run(roles: string[], formId?: string) {
   const { actions } = await import('./+page.server');
   const fd = new FormData();
   fd.set('_kind', 'updateMemberRoles');
+  if (formId !== undefined) fd.set('__superform_id', formId);
   for (const r of roles) fd.append('roles', r);
   return actions.updateMemberRoles({
     request: { formData: async () => fd },
@@ -32,7 +33,7 @@ async function run(roles: string[]) {
   } as never);
 }
 
-type ActionForm = { valid?: boolean; message?: unknown; errors?: { roles?: string[] | { _errors?: string[] } } };
+type ActionForm = { id?: string; valid?: boolean; message?: unknown; errors?: { roles?: string[] | { _errors?: string[] } } };
 // fail() wraps the form in `data`; message() returns it as `form`. The producer has
 // two shapes for an array field: schema validation nests under `_errors`, while
 // setError() on the field is a plain list.
@@ -95,5 +96,21 @@ describe('Agent member-roles action (portal#1405)', () => {
     mockRequest.mockRejectedValue(new Error('socket hang up'));
     const text = (formOf(await run(['owner'])) as { message?: { text?: string } }).message?.text ?? '';
     expect(text).toBe('The roles were not saved. Try again.');
+  });
+
+  it('answers under the Agent-scoped id the form posted (portal#2068), so a late result finds only that Agent\u2019s editor', async () => {
+    expect(formOf(await run(['owner'], 'updateMemberRoles:agent-a'))).toMatchObject({ id: 'updateMemberRoles:agent-a' });
+    expect(formOf(await run([], 'updateMemberRoles:agent-a'))).toMatchObject({ id: 'updateMemberRoles:agent-a' });
+  });
+
+  it('answers a native POST under the scoped id its markup names, refusals included (portal#2068, LOCAL F1 on #2071)', async () => {
+    const id = 'updateMemberRoles:agent-a';
+    expect(formOf(await run([], id))).toMatchObject({ id, valid: false });
+    expect(formOf(await run(['owner'], id))).toMatchObject({ id });
+  });
+
+  it('the posted id wins; an id-less post falls back to the unscoped id (portal#2068, BLIND P3 on #2071)', async () => {
+    expect(formOf(await run(['owner'], 'updateMemberRoles:agent-a'))?.id).toBe('updateMemberRoles:agent-a');
+    expect(formOf(await run(['owner']))?.id).toBe('updateMemberRoles');
   });
 });

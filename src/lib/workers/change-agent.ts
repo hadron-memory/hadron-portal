@@ -32,13 +32,18 @@ export function changeAgentRefusal(code: string | null): ChangeAgentRefusal & { 
     case 'WORKER_AGENT_NOT_INSTALLED':
       return known(400, 'not-installed', 'That agent isn’t installed in this App. Install it first, or choose another.');
     case 'AGENT_ORG_GRANT_INACTIVE':
-      return known(409, 'grant-inactive', 'This App’s organization has an inactive grant for that agent, so it can’t be used. Ask the organization to restore the grant.');
+      return known(409, 'grant-inactive', 'This App’s organization has an inactive grant for that agent, so it can’t be used.');
     case 'AGENT_ORG_GRANT_REQUIRED':
       return known(409, 'grant-required', 'This App’s organization needs a grant for that agent before it can be used.');
     case 'BOOT_PROMPT_GRANT_REQUIRED':
       return known(409, 'boot-grant', 'That agent’s boot prompt includes content from an agent this App’s organization has no grant for.');
     case 'BOOT_PROMPT_INCLUDE_UNAVAILABLE':
       return known(409, 'boot-include', 'That agent’s boot prompt includes content that isn’t available right now, so it can’t be served.');
+    case 'BOOT_PROMPT_INSTALL_LICENSE_INACTIVE':
+      // portal#1813 (hadron-server#3626): a personal App's owner no longer qualifies
+      // for its organization Agent. Definite, so never the outcome-unknown default.
+      // First sentence shared with #1786's chat copy; no route back, no retry.
+      return known(409, 'boot-prompt-install-license-inactive', 'The owner of this App no longer qualifies to use this organization Agent, so the agent can’t be changed. Trying again won’t help.');
     case 'APP_UNINSTALLED':
       return known(409, 'app-uninstalled', 'This App has been uninstalled, so its workers can’t be changed.');
     case 'WORKER_RETIRED':

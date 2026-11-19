@@ -78,10 +78,10 @@
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 </script>
 
-<svelte:head><title>Invite · Hadron</title></svelte:head>
+<svelte:head><title>{t('account.invite.title', "Invite \u00b7 Hadron")}</title></svelte:head>
 
 <div class="max-w-lg space-y-4">
-  <p class="text-sm text-zinc-500">Invite someone to join Hadron. They'll get their own account and personal workspace — no organization required.</p>
+  <p class="text-sm text-zinc-500">{t('account.invite.introduction', "Invite someone to join Hadron. They'll get their own account and personal workspace \u2014 no organization required.")}</p>
 
   {#if actionError}
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">{actionError}</div>
@@ -89,47 +89,49 @@
 
   {#if form && 'invited' in form && form.invited}
     <div role="status" aria-live="polite" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
-      <p class="mb-1">Invitation created! Share this link:</p>
+      <p class="mb-1">{t('account.invite.created', "Invitation created! Share this link:")}</p>
       <div class="flex items-center gap-2">
         <textarea readonly rows="2" value={form.inviteUrl} aria-label={t('account.invite.link', 'Invitation link')} class="min-w-0 flex-1 resize-none overflow-y-auto [field-sizing:content] rounded bg-zinc-100 px-3 py-1.5 font-mono text-xs text-green-800 dark:bg-zinc-800 dark:text-green-200 select-all break-all focus:outline-2 focus:outline-offset-2 focus:outline-indigo-500"></textarea>
-        <button type="button" onclick={copyInviteLink} aria-disabled={copyState === 'pending'} class="shrink-0 rounded-md border border-green-300 px-2 py-1 text-xs text-green-700 hover:bg-green-100 aria-disabled:opacity-50 dark:border-green-700 dark:text-green-300 dark:hover:bg-green-900">Copy</button>
+        <button type="button" onclick={copyInviteLink} aria-disabled={copyState === 'pending'} aria-label={t('account.invite.copy-link', 'Copy invitation link')} class="shrink-0 rounded-md border border-green-300 px-2 py-1 text-xs text-green-800 not-aria-disabled:hover:bg-green-100 aria-disabled:cursor-wait aria-disabled:opacity-50 dark:border-green-700 dark:text-green-300 dark:not-aria-disabled:hover:bg-green-900">{t('account.invite.copy', "Copy")}</button>
       </div>
-      <p class="mt-2 text-xs text-green-700 dark:text-green-400">
-        {#if copyState === 'unavailable'}
-          {t('account.invite.copy-unavailable', 'Copy is unavailable. Select the link and copy it manually.')}
-        {:else if copyState === 'failed'}
-          {t('account.invite.copy-failed', 'Could not copy the link. Select the link and copy it manually.')}
-        {:else if copyState === 'copied'}
-          {t('account.invite.copy-success', 'Link copied.')}
-        {/if}
-      </p>
+      {#if copyState === 'unavailable' || copyState === 'failed' || copyState === 'copied'}
+        <p class="mt-2 text-xs text-green-700 dark:text-green-400">
+          {#if copyState === 'unavailable'}
+            {t('account.invite.copy-unavailable', 'Copy is unavailable. Select the link and copy it manually.')}
+          {:else if copyState === 'failed'}
+            {t('account.invite.copy-failed', 'Could not copy the link. Select the link and copy it manually.')}
+          {:else if copyState === 'copied'}
+            {t('account.invite.copy-success', 'Link copied.')}
+          {/if}
+        </p>
+      {/if}
       <p class="mt-2 text-xs text-green-700 dark:text-green-400">{describeInviteLimits(form)}</p>
     </div>
   {/if}
 
   <form method="POST" action="?/invite" use:inviteEnhance class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
     <div>
-      <label for="inviteName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name <span class="text-zinc-500">(optional)</span></label>
-      <input id="inviteName" name="inviteName" type="text" placeholder="Their name" bind:value={$inviteForm.inviteName} {...$inviteConstraints.inviteName} class={inputClass} />
+      <label for="inviteName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('account.invite.name', "Name ")}<span class="text-zinc-500">{t('account.invite.optional', "(optional)")}</span></label>
+      <input id="inviteName" name="inviteName" type="text" placeholder={t('account.invite.name-placeholder', 'Their name')} bind:value={$inviteForm.inviteName} {...$inviteConstraints.inviteName} class={inputClass} />
     </div>
     <div>
-      <label for="inviteEmail" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Email <span class="text-zinc-500">(optional)</span></label>
+      <label for="inviteEmail" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('account.invite.email', "Email ")}<span class="text-zinc-500">{t('account.invite.optional', "(optional)")}</span></label>
       <input id="inviteEmail" name="inviteEmail" type="email" bind:value={$inviteForm.inviteEmail}
         aria-invalid={!!inviteEmailError}
         aria-describedby={inviteEmailError ? 'inviteEmailError' : 'inviteEmailHint'}
-        placeholder="them@example.com"
+        placeholder={t('account.invite.email-placeholder', 'them@example.com')}
         {...$inviteConstraints.inviteEmail}
         class="{inputClass} {inviteEmailError ? 'border-red-500 focus:border-red-500' : ''}" />
       {#if inviteEmailError}
         <p id="inviteEmailError" class="mt-1 text-xs text-red-600 dark:text-red-400">{inviteEmailError}</p>
       {/if}
-      <p id="inviteEmailHint" class="mt-1 text-xs text-zinc-500">If provided, only this email can accept the invite.</p>
+      <p id="inviteEmailHint" class="mt-1 text-xs text-zinc-500">{t('account.invite.email-hint', "If provided, only this email can accept the invite.")}</p>
     </div>
     <div>
-      <label for="inviteGithub" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">GitHub username <span class="text-zinc-500">(optional)</span></label>
-      <input id="inviteGithub" name="inviteGithub" type="text" placeholder="github-username" bind:value={$inviteForm.inviteGithub} {...$inviteConstraints.inviteGithub} class={inputClass} />
-      <p class="mt-1 text-xs text-zinc-500">If provided, only this GitHub user can accept the invite.</p>
+      <label for="inviteGithub" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('account.invite.github', "GitHub username ")}<span class="text-zinc-500">{t('account.invite.optional', "(optional)")}</span></label>
+      <input id="inviteGithub" name="inviteGithub" type="text" placeholder={t('account.invite.github-placeholder', 'github-username')} bind:value={$inviteForm.inviteGithub} {...$inviteConstraints.inviteGithub} class={inputClass} />
+      <p class="mt-1 text-xs text-zinc-500">{t('account.invite.github-hint', "If provided, only this GitHub user can accept the invite.")}</p>
     </div>
-    <button type="submit" disabled={$inviteSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">{$inviteSubmitting ? 'Creating...' : 'Create invitation'}</button>
+    <button type="submit" disabled={$inviteSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">{$inviteSubmitting ? t('account.invite.creating', 'Creating...') : t('account.invite.create', 'Create invitation')}</button>
   </form>
 </div>

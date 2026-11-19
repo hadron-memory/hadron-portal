@@ -10,6 +10,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
 import { isLocalPath } from '$lib/safeRedirect';
+import { PUBLIC_ORGANIZATION_ROUTE_QUERY, RESOLVE_URN_QUERY } from '$lib/server/queries';
 
 type UrnKind = 'memory' | 'node' | 'agent' | 'org' | 'app' | 'user' | 'worker' | 'action';
 
@@ -36,6 +37,7 @@ async function importLoad() {
 function ev(urn: string, search = '') {
   return {
     params: { urn },
+    parent: async () => ({}),
     url: new URL(`http://localhost/app/u/${urn}${search}`),
     locals: { user: { id: 'u1', roles: ['user'], githubUsername: 'gh' }, token: 'tok' },
   } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
@@ -55,12 +57,12 @@ async function expectRedirect(
   throw new Error('Expected load to throw a redirect, but it returned normally');
 }
 
-async function expectError(urn: string, search = ''): Promise<{ status: number }> {
+async function expectError(urn: string, search = ''): Promise<{ status: number; body?: { message?: string } }> {
   const load = await importLoad();
   try {
     await load(ev(urn, search));
   } catch (e) {
-    return e as { status: number };
+    return e as { status: number; body?: { message?: string } };
   }
   throw new Error('Expected load to throw an error, but it returned normally');
 }
@@ -84,12 +86,13 @@ describe('/app/u/[urn] — redirects each kind to its canonical page', () => {
     expect(r.location).toBe('/app/memories/mem-9/nodes/node-1');
   });
 
-  it('redirects an org URN to /app/orgs/{id}', async () => {
+  it('redirects a member org URN to the unchanged member page without a public fallback read', async () => {
     mockRequest.mockResolvedValueOnce({
       resolveUrn: { kind: 'org', id: 'org-1', memoryId: null, organizationId: null },
     });
     const r = await expectRedirect('urn:org:acme.com');
     expect(r.location).toBe('/app/orgs/org-1');
+    expect(mockRequest).toHaveBeenCalledExactlyOnceWith(RESOLVE_URN_QUERY, { urn: 'urn:org:acme.com' });
   });
 
   it('redirects an agent URN to /app/agents/{id}', async () => {
@@ -173,6 +176,74 @@ describe('/app/u/[urn] — redirects each kind to its canonical page', () => {
     const r = await expectRedirect('hrn:action:hadronmemory.com:hadron-dev-team:gate-an-issue');
     expect(r.status).toBe(307);
     expect(r.location).toBe('/app/memories/sys-9/nodes/reg-1');
+  });
+});
+
+describe('/app/u/[urn] — sanitized non-member organization routing (#1846 slice B)', () => {
+  it('falls back from a null member resolution to the discoverable public page, preserving query state', async () => {
+    mockRequest.mockResolvedValueOnce({ resolveUrn: null });
+    mockRequest.mockResolvedValueOnce({ publicOrganization: { id: 'org-public' } });
+    const urn = 'hrn:org:public.test';
+    const r = await expectRedirect(urn, '?from=memory');
+    expect(r.status).toBe(307);
+    expect(r.location).toBe('/app/org/org-public?from=memory');
+    expect(mockRequest).toHaveBeenNthCalledWith(1, RESOLVE_URN_QUERY, { urn });
+    expect(mockRequest).toHaveBeenNthCalledWith(2, PUBLIC_ORGANIZATION_ROUTE_QUERY, { ref: urn });
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it('supports the legacy urn:org scheme through the same public fallback', async () => {
+    mockRequest.mockResolvedValueOnce({ resolveUrn: null });
+    mockRequest.mockResolvedValueOnce({ publicOrganization: { id: 'org-public' } });
+    const urn = 'urn:org:public.test';
+    const r = await expectRedirect(urn);
+    expect(r.status).toBe(307);
+    expect(r.location).toBe('/app/org/org-public');
+    expect(mockRequest).toHaveBeenNthCalledWith(2, PUBLIC_ORGANIZATION_ROUTE_QUERY, { ref: urn });
+  });
+
+  it('uses the same public fallback when member resolution rejects with FORBIDDEN', async () => {
+    mockRequest.mockRejectedValueOnce(new ClientError(
+      { errors: [{ message: 'denied', extensions: { code: 'FORBIDDEN' } }], status: 200 } as unknown as ClientError['response'],
+      { query: 'query', variables: {} },
+    ));
+    mockRequest.mockResolvedValueOnce({ publicOrganization: { id: 'org-public' } });
+    const r = await expectRedirect('hrn:org:public.test');
+    expect(r.status).toBe(307);
+    expect(r.location).toBe('/app/org/org-public');
+  });
+
+  it('returns the identical neutral 404 for missing and non-discoverable organizations', async () => {
+    const outcomes: Array<{ status: number; body?: { message?: string } }> = [];
+    const urn = 'hrn:org:target.test';
+    for (const _case of ['missing', 'non-discoverable']) {
+      mockRequest.mockResolvedValueOnce({ resolveUrn: null });
+      mockRequest.mockResolvedValueOnce({ publicOrganization: null });
+      outcomes.push(await expectError(urn));
+    }
+    expect(outcomes.map((o) => o.status)).toEqual([404, 404]);
+    expect(outcomes[0].body?.message).toBe(outcomes[1].body?.message);
+    expect(outcomes[0].body?.message).toContain(`No resource found for "${urn}"`);
+  });
+
+  it('never issues a public-organization fallback for another resource kind', async () => {
+    mockRequest.mockResolvedValueOnce({ resolveUrn: null });
+    const r = await expectError('hrn:mem:public.test:docs');
+    expect(r.status).toBe(404);
+    expect(mockRequest).toHaveBeenCalledExactlyOnceWith(RESOLVE_URN_QUERY, { urn: 'hrn:mem:public.test:docs' });
+  });
+
+  it('keeps a transient public fallback failure a 500, not a false 404', async () => {
+    mockRequest.mockResolvedValueOnce({ resolveUrn: null });
+    mockRequest.mockRejectedValueOnce(new Error('public lookup unavailable'));
+    const load = await importLoad();
+    await expect(load(ev('hrn:org:public.test'))).rejects.toThrow('public lookup unavailable');
+  });
+
+  it('selects only the id needed for the redirect, not profile lists the route never renders', () => {
+    expect(PUBLIC_ORGANIZATION_ROUTE_QUERY.replace(/\s+/g, ' ').trim()).toBe(
+      'query PublicOrganizationRoute($ref: ID!) { publicOrganization(ref: $ref) { id } }',
+    );
   });
 });
 

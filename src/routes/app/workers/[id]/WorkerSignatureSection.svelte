@@ -186,11 +186,20 @@
   let linkLint = $state<SignatureLintPage | null>(null);
   let lintEpoch = 0;
   let lintBusy = $state(false);
+  let failedLintRetries = $state(0);
   let lintEl = $state<HTMLElement | null>(null);
+  function lintUnavailable(retry: boolean) {
+    linkLint = null;
+    lintState = 'unavailable';
+    // A new outcome on every completed explicit Retry, including an identical
+    // failure: the existing live region changes without remounting its nodes.
+    if (retry) failedLintRetries += 1;
+  }
   async function readLinkLint(retry = false) {
     if (!workerId || !anyReadable || (retry && lintBusy)) return;
     const expectedWorker = workerId, stamp = ++lintEpoch;
     lintBusy = true;
+    if (!retry) failedLintRetries = 0;
     // Keep unchanged advice nodes mounted during a saved-value refresh, so they
     // are not queued again by the live regions beside the save result.
     if (!linkLint && !retry) lintState = 'loading';
@@ -199,8 +208,9 @@
       const value = await r.json();
       if (lintEpoch !== stamp || workerId !== expectedWorker || !anyReadable) return;
       const page = r.ok && value.workerId === expectedWorker ? signatureLintPage(value.page) : null;
-      linkLint = page; lintState = page ? 'ready' : 'unavailable';
-    } catch { if (lintEpoch === stamp && workerId === expectedWorker && anyReadable) { linkLint = null; lintState = 'unavailable'; } }
+      if (page) { linkLint = page; lintState = 'ready'; failedLintRetries = 0; }
+      else lintUnavailable(retry);
+    } catch { if (lintEpoch === stamp && workerId === expectedWorker && anyReadable) lintUnavailable(retry); }
     finally {
       if (lintEpoch === stamp && workerId === expectedWorker) {
         lintBusy = false;
@@ -279,14 +289,22 @@
         <p class="text-sm text-zinc-500">{t('worker.signature.trailer-not-shown', 'Trailer template: not shown.')}</p>
       {/if}
 
+      {#if !retired}
+        <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('worker.signature.lint.refresh-help', 'Saved-value advice refreshes after a successful save.')}</p>
+      {/if}
       <!-- Advisory saved-state read, independent of form validity and save availability. -->
       <div bind:this={lintEl} data-signature-lint tabindex="-1" role="region" aria-label={t('worker.signature.lint.region', 'Saved worker link check')} aria-live="polite" aria-atomic="true" aria-busy={lintBusy} class="space-y-1 text-sm text-zinc-600 dark:text-zinc-300">
         {#if lintState === 'loading'}
           <p>{t('worker.signature.lint.loading', 'Checking the saved worker link…')}</p>
         {:else if lintState === 'unavailable'}
-          <p>{t('worker.signature.lint.unavailable', 'Couldn’t check the worker link.')}</p>
-          <button type="button" aria-disabled={lintBusy} class="rounded border border-zinc-300 px-3 py-1.5 aria-disabled:opacity-60 dark:border-zinc-600" onclick={() => readLinkLint(true)}>{t('worker.signature.lint.retry', 'Retry')}</button>
+          <p>{failedLintRetries
+            ? t('worker.signature.lint.unavailable.retry-failed', 'Couldn’t check the worker link. Retry {attempt} failed.', { attempt: failedLintRetries })
+            : t('worker.signature.lint.unavailable', 'Couldn’t check the worker link.')}</p>
+          <button type="button" aria-disabled={lintBusy} class="rounded border border-zinc-300 px-3 py-1.5 pointer-coarse:min-h-11 pointer-coarse:min-w-11 aria-disabled:opacity-60 dark:border-zinc-600" onclick={() => readLinkLint(true)}>{t('worker.signature.lint.retry', 'Retry')}</button>
         {:else if linkLint}
+          {#if !lintBusy && readable.signature && readable.trailer && linkLint.total === 0 && linkLint.items.length === 0 && linkLint.nextCursor === null}
+            <p>{t('worker.signature.lint.zero', 'No worker-link warnings on the saved values.')}</p>
+          {/if}
           {#each otherAdvice as _}<p>{t('worker.signature.lint.unknown', 'The worker link check found something to review.')}</p>{/each}
           {#if linkLint.total > linkLint.items.length || linkLint.nextCursor !== null}<p>{t('worker.signature.lint.partial', '{shown} of {total} saved-value checks shown. The rest isn’t shown.', { shown: linkLint.items.length, total: linkLint.total })}</p>{/if}
         {/if}

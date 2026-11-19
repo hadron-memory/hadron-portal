@@ -17,7 +17,20 @@ export const AI_CONFIG_PROVIDERS: { value: AiConfigProvider; label: string }[] =
   ...AI_PROVIDERS,
   // Unlike the brand names above, this label is words, so it is translatable.
   { value: 'openai-compatible', label: t('ai-config.provider.openai-compatible', 'OpenAI-compatible (your endpoint)') },
+  // hadron-portal#2138: a config-only provider like the one above. A brand
+  // name, so it is not translated. The server serves it; AIProvider stays
+  // kimi-free because the portal's own LLM client never does.
+  { value: 'kimi', label: 'Kimi (Moonshot)' },
 ];
+
+/**
+ * What the form pre-fills in the model field for a config-only provider. An
+ * editable starting point only: the portal never validates, normalises or
+ * rewrites a model string, and the server passes it through verbatim.
+ */
+export const CONFIG_ONLY_DEFAULT_MODELS: Partial<Record<AiConfigProvider, string>> = {
+  kimi: 'kimi-k3',
+};
 
 export const DEFAULT_MODELS: Record<AIProvider, string> = {
   anthropic: 'claude-sonnet-4-20250514',

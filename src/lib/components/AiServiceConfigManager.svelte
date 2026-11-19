@@ -1,8 +1,11 @@
 <script lang="ts">
+  import { onDestroy, onMount, tick } from 'svelte';
+  import AiConfigTestFeedback from './AiConfigTestFeedback.svelte';
   import { testResultView, type AiConfigTestResult, type AiConfigTestView } from '$lib/ai-config-test';
   import { lookupOwn } from '$lib/lookup';
-  import { invalidateAll } from '$app/navigation';
-  import { AI_CONFIG_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
+  import { safeRedirect } from '$lib/safeRedirect';
+  import { beforeNavigate } from '$app/navigation';
+  import { AI_CONFIG_PROVIDERS, CONFIG_ONLY_DEFAULT_MODELS, DEFAULT_MODELS } from '$lib/ai-config';
   import type { AiConfigOwnerType, AiConfigProvider, AiServiceConfig } from '$lib/types';
   import { aiConfigStrings as s } from '$lib/i18n/ai-config-strings';
   import { t } from '$lib/i18n/t';
@@ -10,7 +13,12 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import DataTable from './table/DataTable.svelte';
+  import ListPageNav from './ListPageNav.svelte';
+  import type { ListPageNavigation } from '$lib/list-page';
   import NodeActionsMenu from './NodeActionsMenu.svelte';
+  import Urn from './Urn.svelte';
+  import { parseAiConfig, withAiConfigTimeout } from './ai-config-readback';
+  import { nextAiConfigMutationId } from './ai-config-recovery';
   import {
     isValidConfigName,
     resolveKeyInput,
@@ -24,20 +32,50 @@
     endpointShapeError,
     inlineTestable,
     type AiApiStyle,
+    type AiConfigUncertain,
+    type AiConfigCommitted,
+    type AiConfigMutationPending,
   } from './ai-config-manager';
 
   let {
+    pagination,
     ownerType,
     ownerId,
+    ownerLabel = null,
+    ownerUrn = null,
+    currentUserId,
+    selectedContext = '[null,null]',
     configs,
     canManage = false,
     allowTest = false,
+    mutationUncertain = false,
+    mutationPending = false,
+    onMutationPending,
+    onAction,
+    onCommitted,
+    onUncertain,
   }: {
+    pagination?: ListPageNavigation;
     ownerType: AiConfigOwnerType;
     ownerId: string;
+    /** The caller's already-loaded owner name; null omits the caption. */
+    ownerLabel?: string | null;
+    /** The same already-authorized owner's URN; null omits the chip. */
+    ownerUrn?: string | null;
+    /** Section keys Manager remounts by this principal; action tokens fence it too. */
+    currentUserId: string;
+    selectedContext?: string;
     configs: AiServiceConfig[];
     canManage?: boolean;
     allowTest?: boolean;
+    /** Section-owned uncertainty survives this manager being torn down. */
+    mutationUncertain?: boolean;
+    /** Section-owned in-flight lock survives manager teardown/remount. */
+    mutationPending?: boolean;
+    onMutationPending: (outcome: AiConfigMutationPending) => void;
+    onAction: () => number;
+    onCommitted: (outcome: AiConfigCommitted) => void | Promise<void>;
+    onUncertain: (outcome: AiConfigUncertain) => void | Promise<void>;
   } = $props();
 
   const WELL_KNOWN = ['default', 'fast', 'frontier'];
@@ -54,6 +92,7 @@
   // ── Form state ──
   let formOpen = $state(false);
   let editId = $state<string | null>(null); // null ⇒ create
+  let savedConfig = $state<AiServiceConfig | null>(null);
   let nameInput = $state('');
   let providerInput = $state<AiConfigProvider>('anthropic');
   let modelInput = $state('');
@@ -72,12 +111,365 @@
   type KnownEndpoint = { url: string; label: string; isDefault: boolean; note: string | null };
   let knownEndpoints = $state<KnownEndpoint[]>([]);
   let busy = $state(false);
+  let uncertainMutation = $state(false);
+  // Section owns persistent recovery, notices and replay locks.
+  const mutationLocked = $derived(uncertainMutation || mutationUncertain);
   let error = $state<string | null>(null);
+  let signinHref = $state<string | null>(null);
+  let signinLink = $state<HTMLAnchorElement | null>(null);
+  let errorRegion = $state<HTMLDivElement | null>(null);
   // #937: one shape for both paths, so the result always reads the same way.
   let testResult = $state<AiConfigTestView | null>(null);
   let confirmDeleteId = $state<string | null>(null);
+  // Plain action generations fence visible editor feedback. The owner-visit
+  // generation additionally distinguishes A → B → A, where ownerKey matches
+  // again but the old request no longer belongs to the current editor.
+  let actionGeneration = 0;
+  // Editor sessions are coarser than actions: a Test click or arming a delete
+  // bumps actionGeneration without ending the editor, while cancel, close and
+  // any (re)open end the session a save response belonged to (#1910).
+  let editorSession = 0;
+  // #1984: the one way an editor session ends. A path that closes or (re)opens
+  // the editor calls this at its own position; the open paths deliberately
+  // don't go through resetEditor, which also clears error and test state.
+  function endEditorSession() {
+    editorSession++;
+  }
+  let actionController: AbortController | null = null;
+  let ownerKey = $state('');
+  let ownerAtVisit: { ownerType: AiConfigOwnerType; ownerId: string } | null = null;
+  let ownerGeneration = 0;
+  let destroyed = false;
 
-  const editing = $derived(editId ? (configs.find((c) => c.id === editId) ?? null) : null);
+  // BODY can be platform blur or a newer blank-page click. Track both focus
+  // and pointer intent without a reactive counter or an automatic replay.
+  let attentionVersion = 0;
+  type Attention = { version: number; element: Element | null };
+  const captureAttention = (): Attention => ({ version: attentionVersion, element: document.activeElement });
+  async function restoreAttention(
+    target: () => HTMLElement | null,
+    current: () => boolean,
+    attention: Attention,
+    reveal = false,
+  ) {
+    await tick();
+    // Recheck ownership AFTER rendering, before looking up a reused binding.
+    if (!current() || attention.version !== attentionVersion) return;
+    if (document.activeElement !== document.body && document.activeElement !== attention.element) return;
+    const element = target();
+    if (!element?.isConnected || element.matches(':disabled')) return;
+    if (reveal) errorRegion?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    element.focus({ preventScroll: true });
+  }
+
+  type ActionToken = {
+    attention: Attention;
+    generation: number;
+    editorSession: number;
+    noticeGeneration: number;
+    ownerKey: string;
+    ownerType: AiConfigOwnerType;
+    ownerId: string;
+    ownerGeneration: number;
+    principalId: string;
+    returnPath: string;
+    onCommitted: (outcome: AiConfigCommitted) => void | Promise<void>;
+    onUncertain: (outcome: AiConfigUncertain) => void | Promise<void>;
+    formFingerprint: string;
+    signal: AbortSignal;
+  };
+  type PendingMutation = {
+    id: number;
+    ownerKey: string;
+    principalId: string;
+    notify: (outcome: AiConfigMutationPending) => void;
+  };
+  let pendingMutations = $state<PendingMutation[]>([]);
+  const localMutationPending = $derived(
+    pendingMutations.some((mutation) => mutation.ownerKey === ownerKey && mutation.principalId === currentUserId),
+  );
+  let identityChecking = $state(false);
+  const mutationBlocked = $derived(localMutationPending || mutationPending || identityChecking);
+  // #1986 (Uma F4): the configuration-recovery sentence describes only a
+  // mutation check. An identity-only check says "Checking your sign-in…" alone.
+  const recoveryChecking = $derived(localMutationPending || mutationPending);
+  let draftPrincipal: { userId: string; selectedContext: string } | null = null;
+  let identitySequence = 0;
+  let identityController: AbortController | null = null;
+
+  function captureDraftPrincipal() {
+    draftPrincipal = { userId: currentUserId, selectedContext };
+    // Never adopt a different fresh identity as the owner of an existing
+    // editor. The loader identity is confirmed against this request's cookie.
+    void verifyDraftPrincipal();
+  }
+
+  function discardPrincipalDraft(attention: Attention) {
+    actionGeneration++;
+    actionController?.abort();
+    resetEditor();
+    resetForm();
+    confirmDeleteId = null;
+    busy = false;
+    error = s.principalChanged(ownerLabel);
+    const generation = actionGeneration;
+    const owner = ownerKey;
+    const user = currentUserId;
+    const message = error;
+    void restoreAttention(() => errorRegion, () => !destroyed && generation === actionGeneration && owner === ownerKey && user === currentUserId && error === message, attention, true);
+  }
+
+  async function verifyDraftPrincipal(): Promise<boolean> {
+    const captured = draftPrincipal;
+    if (!captured || destroyed) return false;
+    const attention = captureAttention();
+    const sequence = ++identitySequence;
+    identityController?.abort();
+    const controller = new AbortController();
+    identityController = controller;
+    identityChecking = true;
+    const current = () => !destroyed && sequence === identitySequence && captured === draftPrincipal;
+    try {
+      const data = await withAiConfigTimeout(async signal => {
+        const response = await fetch('/api/ai-configs/principal', { cache: 'no-store', signal });
+        if (!response.ok) throw new Error('Identity unavailable');
+        return await response.json() as { principal?: unknown };
+      }, () => { throw new Error('Identity unavailable'); }, undefined, controller.signal);
+      if (!current()) return false;
+      const principal = data.principal;
+      if (captured.selectedContext !== selectedContext || captured.userId !== currentUserId) {
+        discardPrincipalDraft(attention);
+        return false;
+      }
+      // Anonymous/refused is not a different identity. Keep the in-memory
+      // draft; only a subsequent exact CRUD401 offers the sign-in CTA.
+      if (principal === null) return true;
+      if (!principal || typeof principal !== 'object') throw new Error('Identity unavailable');
+      const fresh = principal as { principalType?: unknown; userId?: unknown; appId?: unknown };
+      if (fresh.principalType !== 'USER' && fresh.principalType !== 'APP') throw new Error('Identity unavailable');
+      if (fresh.principalType === 'USER' && (typeof fresh.userId !== 'string' || fresh.appId !== null)) throw new Error('Identity unavailable');
+      if (fresh.principalType === 'APP' && (fresh.userId !== null || typeof fresh.appId !== 'string')) throw new Error('Identity unavailable');
+      if (fresh.principalType !== 'USER' || fresh.userId !== captured.userId) {
+        discardPrincipalDraft(attention);
+        return false;
+      }
+      return true;
+    } catch {
+      if (current()) error = s.principalUnavailable();
+      return false;
+    } finally {
+      if (sequence === identitySequence) {
+        identityChecking = false;
+        void restoreAttention(() => attention.element instanceof HTMLElement ? attention.element : null, current, attention);
+      }
+    }
+  }
+
+  onMount(() => {
+    const onFocus = () => {
+      if (formOpen || confirmDeleteId !== null) void verifyDraftPrincipal();
+    };
+    const onFocusIn = (event: FocusEvent) => {
+      if (event.target !== document.body) attentionVersion++;
+    };
+    const onPointer = (event: PointerEvent) => {
+      const focused = document.activeElement;
+      if (!(focused && focused !== document.body && event.target instanceof Node && focused.contains(event.target))) attentionVersion++;
+    };
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('focusin', onFocusIn, true);
+    window.addEventListener('pointerdown', onPointer, true);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('focusin', onFocusIn, true);
+      window.removeEventListener('pointerdown', onPointer, true);
+    };
+  });
+
+  /**
+   * The model string a SAVE sends. Kimi's gate (portal#2138) says the portal
+   * never normalises or rewrites the model, so its outer whitespace goes to the
+   * server as typed; every other provider keeps the long-standing trim. Blank
+   * is still refused by the callers' `trim()` check.
+   */
+  function savedModel(): string {
+    return providerInput === 'kimi' ? modelInput : modelInput.trim();
+  }
+
+  function clearNotice(): number {
+    return onAction();
+  }
+
+  function formFingerprint(): string {
+    return JSON.stringify({
+      nameInput, providerInput, modelInput, apiKeyInput,
+      bedrockAccessKeyId, bedrockSecretAccessKey, bedrockRegion,
+      enabledInput, removeKey, paramsText, endpointInput, apiStyleInput, toolCalling,
+    });
+  }
+
+  function beginAction(): ActionToken {
+    const attention = captureAttention();
+    signinHref = null;
+    const noticeGeneration = clearNotice();
+    busy = false;
+    // Only non-mutating Test reads consume this signal. Mutation writes keep
+    // their independent uncertainty semantics even when the editor closes.
+    actionController?.abort();
+    actionController = new AbortController();
+    return {
+      attention,
+      generation: ++actionGeneration,
+      editorSession,
+      noticeGeneration,
+      ownerKey,
+      ownerType: ownerAtVisit!.ownerType,
+      ownerId: ownerAtVisit!.ownerId,
+      ownerGeneration,
+      principalId: currentUserId,
+      returnPath: safeRedirect(window.location.pathname),
+      onCommitted,
+      onUncertain,
+      formFingerprint: formFingerprint(),
+      signal: actionController.signal,
+    };
+  }
+
+  function isOwnerVisitCurrent(action: ActionToken): boolean {
+    return (
+      !destroyed &&
+      action.ownerKey === ownerKey &&
+      action.ownerKey === `${ownerType}:${ownerId}` &&
+      action.ownerGeneration === ownerGeneration &&
+      action.principalId === currentUserId
+    );
+  }
+
+  function isCurrent(action: ActionToken): boolean {
+    return !destroyed && action.generation === actionGeneration && isOwnerVisitCurrent(action);
+  }
+
+  // #1910: a save response belongs to the editor SESSION it was sent from, not
+  // to whichever action is newest. A Test click or delete-arm supersedes the
+  // action (generation bump) without ending the session — that response still
+  // seeds its own editor's baseline and still converts a preserved create
+  // draft into an update of the new row, so a second Save can never POST
+  // create again (the duplicate-create window). A response whose session ended
+  // (cancel, close, reopen, owner or user switch) is dropped: the Section's
+  // committed readback reconciles the row a stale write produced, so the
+  // replacement editor keeps the row it was opened against. The create and
+  // update paths share this fence so they cannot drift apart.
+  function isEditorSessionCurrent(action: ActionToken): boolean {
+    return !destroyed && action.editorSession === editorSession && isOwnerVisitCurrent(action);
+  }
+
+  function seedBaseline(
+    action: ActionToken,
+    saved: AiServiceConfig | null,
+    seed: (row: AiServiceConfig) => void,
+  ): void {
+    if (!isEditorSessionCurrent(action)) return;
+    if (saved) seed(saved);
+    else if (formFingerprint() !== action.formFingerprint) {
+      // The write may have committed, but without a complete saved row a
+      // preserved draft cannot safely become an update. Reconcile it.
+      throw new UncertainMutationError();
+    }
+  }
+
+  function trackMutation(action: ActionToken): number {
+    // Document-unique IDs keep same-owner registrations distinct across Manager
+    // teardown/remount and user switches; settlement releases only its own.
+    const id = nextAiConfigMutationId();
+    const notify = onMutationPending;
+    pendingMutations = [...pendingMutations, {
+      id,
+      ownerKey: action.ownerKey,
+      principalId: action.principalId,
+      notify,
+    }];
+    notify({
+      ownerKey: action.ownerKey,
+      mutationId: id,
+      pending: true,
+    });
+    return id;
+  }
+
+  function finishMutation(id: number) {
+    // Settlement always releases its own registration, even after Cancel or an
+    // owner change. A stale request must never clear another request's lock.
+    const finished = pendingMutations.find((mutation) => mutation.id === id);
+    pendingMutations = pendingMutations.filter((mutation) => mutation.id !== id);
+    if (finished) finished.notify({
+      ownerKey: finished.ownerKey,
+      mutationId: id,
+      pending: false,
+    });
+  }
+
+  function resetEditor() {
+    // An armed delete shares this editor visit/principal. Closing the editor
+    // must close its confirmation too, rather than leave an enabled no-op.
+    confirmDeleteId = null;
+    draftPrincipal = null;
+    identitySequence++;
+    identityController?.abort();
+    identityChecking = false;
+    signinHref = null;
+    endEditorSession(); // #1910: closing the editor ends the session a response belonged to
+    formOpen = false;
+    editId = null;
+    savedConfig = null;
+    error = null;
+    testResult = null;
+  }
+
+  // Track the scalar owner identity, not a refreshed configs/loader object.
+  // Same-owner invalidation must preserve a pending draft and its outcome.
+  $effect(() => {
+    const nextOwnerKey = `${ownerType}:${ownerId}`;
+    if (nextOwnerKey === ownerKey) return;
+    const previousOwnerKey = ownerKey;
+    ownerKey = nextOwnerKey;
+    ownerAtVisit = { ownerType, ownerId };
+    ownerGeneration++;
+    actionGeneration++;
+    actionController?.abort();
+    if (previousOwnerKey !== '') clearNotice();
+    resetEditor();
+    configFilter = '';
+    confirmDeleteId = null;
+    uncertainMutation = false;
+    busy = false;
+  });
+
+  onDestroy(() => {
+    destroyed = true;
+    identitySequence++;
+    identityController?.abort();
+    actionGeneration++;
+    actionController?.abort();
+  });
+
+  // The baseline is the freshest row this editor session knows: its own
+  // acknowledged write (savedConfig — a retained older row must not win, or a
+  // preserved draft diffs against stale fields and omits an
+  // endpoint/apiStyle:null that is still needed), else the live configs row,
+  // which a mid-edit refresh MAY replace so the diff follows the server's
+  // current row rather than the row the editor was opened against. openEdit,
+  // openCreate and resetEditor clear savedConfig, and seedBaseline only sets it
+  // while its own editor session is still current (#1910), so it never
+  // outlives its editor session.
+  const editing = $derived(editId ? (savedConfig?.id === editId ? savedConfig : (configs.find((c) => c.id === editId) ?? null)) : null);
+
+  // Keep a paged editor's source row in place, including browser Back/Forward.
+  // Other surfaces retain their existing navigation behavior.
+  beforeNavigate(({ from, to, cancel }) => {
+    if (!pagination || !(formOpen || busy || confirmDeleteId !== null)) return;
+    if (from?.url.pathname === to?.url.pathname &&
+        from?.url.searchParams.get('configOffset') !== to?.url.searchParams.get('configOffset')) cancel();
+  });
   const hasExistingKey = $derived(editing?.hasApiKey ?? false);
   const renamingWellKnown = $derived(
     !!editing && WELL_KNOWN.includes(editing.name) && nameInput.trim() !== editing.name,
@@ -91,6 +483,7 @@
     openai: 'RESPONSES',
     glm: 'CHAT_COMPLETIONS',
     'openai-compatible': 'CHAT_COMPLETIONS',
+    kimi: 'CHAT_COMPLETIONS',
   };
   function apiStyleLabel(style: AiApiStyle): string {
     return style === 'RESPONSES' ? s.apiStyleResponses() : s.apiStyleChat();
@@ -129,6 +522,22 @@
     // leftover value would still be sent and would still demand a key.
     if (providerInput === 'bedrock') endpointInput = '';
     if (providerInput !== 'openai-compatible') toolCalling = false;
+    prefillModel();
+  }
+
+  // #2138: choosing a config-only provider offers its default model, as an
+  // ordinary editable value. Only an empty field or our own earlier offer is
+  // replaced; anything the user typed or loaded is left alone, and nothing is
+  // validated or rewritten at save time.
+  let prefilledModel: string | null = null;
+  function prefillModel() {
+    if (prefilledModel !== null && modelInput === prefilledModel) modelInput = '';
+    prefilledModel = null;
+    const offer = lookupOwn(CONFIG_ONLY_DEFAULT_MODELS, providerInput);
+    if (offer && !modelInput.trim()) {
+      modelInput = offer;
+      prefilledModel = offer;
+    }
   }
 
   // #719 — the config list as the shared TanStack grid, replacing a stack of
@@ -191,19 +600,21 @@
     // Numeric accessor per hrn:node:hadronmemory.com:hadron-portal:review:date-column-sorts-by-instant — a raw date
     // string reaches TanStack's alphanumeric comparator, which reads the digit
     // groups and ignores the offset, ordering by wall clock rather than instant.
-    { accessorFn: (row) => configDateMs(row.createdAt), id: 'createdAt', header: t('ai-config.column.created', 'Created'), size: 170 },
+    { accessorFn: (row) => configDateMs(row.createdAt), id: 'createdAt', header: t('ai-config.column.created', 'Created'), size: 200 },
     // 170, not 120 (#1020 review): the cell's widest STATE is the inline Delete
     // confirm (question + buttons), not the ⋯ trigger; 120 clipped it.
-    { id: 'actions', header: t('ai-config.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 170 },
+    { id: 'actions', header: t('ai-config.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 170, minSize: 170 },
   ];
   const configFmt: Record<string, (v: unknown) => string> = {
     createdAt: (v) => (v == null ? '—' : new Date(v as number).toLocaleString()),
   };
   const configTable = createSvelteTable<AiServiceConfig>({
+    get manualPagination() { return !!pagination; },
     get data() {
       return configs;
     },
     columns: configColumns,
+    defaultColumn: { minSize: 40 },
     enableMultiSort: false,
     enableColumnResizing: true,
     columnResizeMode: 'onChange',
@@ -222,6 +633,7 @@
     // The extras carry the wire ISO the accessor discarded, for a reader
     // pasting a timestamp from an API response.
     globalFilterFn: makeGlobalFilterFn<AiServiceConfig>(configFmt, {
+      name: (row) => ownerType === 'ORGANIZATION' ? row.urn ?? '' : '',
       createdAt: (row) => row.createdAt,
     }),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
@@ -231,6 +643,7 @@
     nameInput = '';
     providerInput = 'anthropic';
     modelInput = '';
+    prefilledModel = null;
     apiKeyInput = '';
     bedrockAccessKeyId = '';
     bedrockSecretAccessKey = '';
@@ -246,17 +659,28 @@
   }
 
   function openCreate() {
+    endEditorSession(); // #1910: a reopened editor is a new session
+    beginAction();
     resetForm();
+    savedConfig = null;
     editId = null;
     formOpen = true;
+    captureDraftPrincipal();
   }
 
   function openEdit(c: AiServiceConfig) {
+    // The row is stale while its committed readback is pending. Opening it now
+    // would seed a full-field update that could revert the just-saved values.
+    if (mutationBlocked || mutationLocked) return;
+    endEditorSession(); // #1910: a reopened editor is a new session
+    beginAction();
     resetForm();
+    savedConfig = null;
     editId = c.id;
     nameInput = c.name;
     providerInput = c.provider;
     modelInput = c.model;
+    prefilledModel = null;
     enabledInput = c.enabled;
     bedrockRegion =
       (c.params && typeof c.params.bedrockRegion === 'string' && c.params.bedrockRegion) ||
@@ -269,13 +693,12 @@
     const shown = c.provider === 'openai-compatible' ? rest : (c.params ?? {});
     paramsText = c.params && Object.keys(shown).length > 0 ? JSON.stringify(shown, null, 2) : '';
     formOpen = true;
+    captureDraftPrincipal();
   }
 
   function closeForm() {
-    formOpen = false;
-    editId = null;
-    error = null;
-    testResult = null;
+    beginAction();
+    resetEditor();
   }
 
   /** Stable JSON for comparing params: keys sorted at every level. */
@@ -312,18 +735,159 @@
     return canonicalJson(next.value ?? null) !== canonicalJson(c.params ?? null);
   }
 
-  async function post(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const res = await fetch('/api/ai-configs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+  class SigninRequiredError extends Error {}
+
+  class UncertainMutationError extends Error {
+    constructor() {
+      super('Request failed');
+    }
+  }
+
+  async function post(payload: Record<string, unknown>, uncertainMutation = false, parentSignal?: AbortSignal): Promise<Record<string, unknown>> {
+    let res: Response;
+    let body: unknown;
+    const request = (signal?: AbortSignal) => (async () => {
+      const response = await fetch('/api/ai-configs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal,
+      });
+      // Exact CRUD 401 is definitive even if a proxy returned no JSON body.
+      // Never inspect or display upstream text to classify this refusal.
+      if (uncertainMutation && response.status === 401) return { response, body: null };
+      return { response, body: await response.json() as unknown };
+    })();
+    try {
+      if (uncertainMutation || parentSignal) {
+        ({ response: res, body } = await withAiConfigTimeout(
+          (signal) => request(signal),
+          () => {
+            if (uncertainMutation) throw new UncertainMutationError();
+            throw new Error(s.testTimedOut());
+          },
+          undefined,
+          parentSignal,
+        ));
+      } else {
+        ({ response: res, body } = await request());
+      }
+    } catch (cause) {
+      if (!uncertainMutation) throw cause;
+      // A dropped response, non-JSON proxy reply, or timeout says nothing about
+      // whether the mutation committed. Never present it as a safe refusal or
+      // leave an unexplained pending lock forever.
+      throw new UncertainMutationError();
+    }
+    if (uncertainMutation && res.status === 401) throw new SigninRequiredError();
+    const record = body && typeof body === 'object' && !Array.isArray(body)
+      ? body as Record<string, unknown>
+      : null;
+    if (uncertainMutation && (res.status >= 500 || (res.ok && record?.ok !== true))) {
+      // A 5xx may be upstream of a committed write. Likewise, a 2xx without the
+      // endpoint's explicit {ok:true} is not proof of success (or of refusal).
+      throw new UncertainMutationError();
+    }
+    if (!res.ok || record?.error) {
+      // A definitive 4xx refusal stays draft-local and safe to correct/retry.
+      throw new Error(String(record?.error ?? 'Request failed'));
+    }
+    return record ?? {};
+  }
+
+  type MutationOptions = {
+    action: ActionToken;
+    request: () => Promise<unknown>;
+    successText: string;
+    refreshFailedText: string;
+    refusalFallback: string;
+    onSuccess: () => void;
+  };
+
+  function publishUncertain(action: ActionToken, text: string, mutationId: number): void | Promise<void> {
+    if (isOwnerVisitCurrent(action)) {
+      // Safety outcomes survive Cancel and newer actions in the same visit.
+      uncertainMutation = true;
+      return action.onUncertain({
+        ownerKey: action.ownerKey,
+        mutationId,
+        text,
+      });
+    }
+    // A → B → A must not publish the old visit into the new editor, but the
+    // owner still needs reconciliation before replay can be safe. If another
+    // owner is current, the callback defers that recovery until A is revisited.
+    return action.onUncertain({
+      ownerKey: action.ownerKey,
+      mutationId,
+      text,
+      reconcileOnly: true,
     });
-    const body = await res.json();
-    if (!res.ok || body.error) throw new Error(body.error ?? 'Request failed');
-    return body;
+  }
+
+  function publishCommitted(action: ActionToken, successText: string, refreshFailedText: string, mutationId: number): void | Promise<void> {
+    return action.onCommitted({
+      ownerKey: action.ownerKey,
+      mutationId,
+      // Stale visits recover owner data but never publish an old success notice.
+      noticeGeneration: isOwnerVisitCurrent(action) ? action.noticeGeneration : -1,
+      successText,
+      refreshFailedText,
+    });
+  }
+
+  async function runMutation(options: MutationOptions) {
+    const { action } = options;
+    if (!await verifyDraftPrincipal() || !isCurrent(action)) {
+      if (isCurrent(action)) busy = false;
+      return;
+    }
+    // A changed draft during the identity read needs another explicit submit;
+    // do not combine captured key/name fields with newer reactive values.
+    if (formFingerprint() !== action.formFingerprint) {
+      error = s.draftChanged();
+      busy = false;
+      return;
+    }
+    const pendingMutation = trackMutation(action);
+    try {
+      try {
+        await options.request();
+      } catch (e) {
+        if (e instanceof UncertainMutationError) {
+          // Reconcile-only recovery retains the pending registration until its
+          // bounded readback finishes; settlement must not open a replay gap.
+          await publishUncertain(action, s.mutationUnconfirmed(), pendingMutation);
+        } else if (isCurrent(action)) {
+          if (e instanceof SigninRequiredError) {
+            error = s.signinDraft();
+            // Only the pathname goes to the other tab. The editor and all of
+            // its values remain in this instance; no navigation/replay hook.
+            signinHref = `/signin?redirect=${encodeURIComponent(action.returnPath)}`;
+          } else {
+            error = e instanceof Error ? e.message : options.refusalFallback;
+          }
+        }
+        return;
+      }
+      options.onSuccess();
+      // A confirmed write still has stale rows until recovery finishes. Keep
+      // the pending lock without delaying the Section's immediate success note.
+      await publishCommitted(action, options.successText, options.refreshFailedText, pendingMutation);
+    } finally {
+      finishMutation(pendingMutation);
+      if (isCurrent(action)) {
+        busy = false;
+        if (signinHref) void restoreAttention(() => signinLink, () => isCurrent(action) && signinHref !== null, action.attention, true);
+      }
+    }
   }
 
   async function save() {
+    if (mutationBlocked || mutationLocked) return;
+    const action = beginAction();
+    error = null;
+    testResult = null;
     const name = nameInput.trim();
     if (!isValidConfigName(name)) {
       error = s.invalidName();
@@ -366,52 +930,69 @@
       return;
     }
 
+    let createdId: string | null = null;
     busy = true;
-    error = null;
-    testResult = null;
-    try {
-      if (editId === null) {
-        await post({
-          action: 'create',
-          ownerType,
-          ownerId,
-          name,
-          provider: providerInput,
-          model: modelInput.trim(),
-          apiKey: enteredKey || undefined,
-          params: paramsValue,
-          enabled: enabledInput,
-          endpoint: endpointInput.trim() || undefined,
-          apiStyle: apiStyleInput || undefined,
-        });
-      } else {
-        const keyArg = resolveApiKeyAction({ removeKey: clearKey, enteredKey });
-        // Absent = unchanged, null = back to the provider default.
-        const endpoint = fieldChange(editing?.endpoint, endpointInput);
-        const apiStyle = fieldChange<AiApiStyle>(editing?.apiStyle, apiStyleInput);
-        await post({
-          action: 'update',
-          id: editId,
-          name,
-          provider: providerInput,
-          model: modelInput.trim(),
-          params: paramsValue,
-          enabled: enabledInput,
-          ...keyArg,
-          ...(endpoint !== undefined ? { endpoint } : {}),
-          ...(apiStyle !== undefined ? { apiStyle } : {}),
-        });
-      }
-      closeForm();
-      await invalidateAll();
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to save configuration';
-    } finally {
-      busy = false;
-    }
+    await runMutation({
+      action,
+      request: async () => {
+        if (editId === null) {
+          const result = await post({
+            action: 'create',
+            ownerType: action.ownerType,
+            ownerId: action.ownerId,
+            name,
+            provider: providerInput,
+            model: savedModel(),
+            apiKey: enteredKey || undefined,
+            params: paramsValue,
+            enabled: enabledInput,
+            endpoint: endpointInput.trim() || undefined,
+            apiStyle: apiStyleInput || undefined,
+          }, true);
+          const saved = parseAiConfig(result.config);
+          seedBaseline(action, saved, (row) => { createdId = row.id; savedConfig = row; });
+        } else {
+          const keyArg = resolveApiKeyAction({ removeKey: clearKey, enteredKey });
+          // Absent = unchanged, null = back to the provider default.
+          const endpoint = fieldChange(editing?.endpoint, endpointInput);
+          const apiStyle = fieldChange<AiApiStyle>(editing?.apiStyle, apiStyleInput);
+          const result = await post({
+            action: 'update',
+            id: editId,
+            name,
+            provider: providerInput,
+            model: savedModel(),
+            params: paramsValue,
+            enabled: enabledInput,
+            ...keyArg,
+            ...(endpoint !== undefined ? { endpoint } : {}),
+            ...(apiStyle !== undefined ? { apiStyle } : {}),
+          }, true);
+          const saved = parseAiConfig(result.config);
+          seedBaseline(action, saved, (row) => { savedConfig = row; });
+        }
+      },
+      successText: s.saveSuccess(name),
+      refreshFailedText: s.saveRefreshFailed(name),
+      refusalFallback: 'Failed to save configuration',
+      onSuccess: () => {
+        // The request captured the old values. Close only if the reader did not
+        // make newer edits while it was in flight. A preserved create draft is
+        // now an UPDATE of the row the server returned, never a second create.
+        // Session currency (not action generation): a Test click mid-flight
+        // supersedes the action without ending the editor that must still
+        // absorb this outcome (#1910 review: the same-session supersede).
+        if (!isEditorSessionCurrent(action)) return;
+        if (formFingerprint() === action.formFingerprint) resetEditor();
+        else if (createdId !== null) editId = createdId;
+      },
+    });
   }
 
   async function test() {
+    const action = beginAction();
+    error = null;
+    testResult = null;
     // Save refuses a blank model, so Test does too: otherwise an edited-away
     // model would silently test the saved one and could report success.
     if (!modelInput.trim()) {
@@ -427,9 +1008,12 @@
       bedrockRegion,
     });
     busy = true;
-    error = null;
-    testResult = null;
     try {
+      if (!await verifyDraftPrincipal() || !isCurrent(action)) return;
+      if (formFingerprint() !== action.formFingerprint) {
+        error = s.draftChanged();
+        return;
+      }
       if (editing) {
         // #937: a SAVED config, of ANY owner kind, tests BY ID through the
         // server's own run path (server#1378). The stored key stays there.
@@ -437,7 +1021,12 @@
         // which is tested and never saved.
         const override: Record<string, unknown> = {};
         if (providerInput !== editing.provider) override.provider = providerInput;
-        if (modelInput.trim() && modelInput.trim() !== editing.model) override.model = modelInput.trim();
+        // Test probes the string Save would leave (#2181): verbatim for Kimi,
+        // trimmed for every other provider, and compared the same way.
+        // savedModel() reads the LIVE provider dropdown (providerInput), never
+        // editing.provider, and always returns a string; blank was refused above.
+        const modelOnSave = savedModel();
+        if (modelOnSave !== editing.model) override.model = modelOnSave;
         // The credential Save would leave, by Save's own rule: "Remove the
         // stored key" wins over a typed key, so a pass can't hide a config that
         // won't run once saved.
@@ -461,7 +1050,8 @@
           }
           override.params = params.value;
         }
-        const res = (await post({ action: 'testSaved', id: editing.id, override })) as { result: AiConfigTestResult };
+        const res = (await post({ action: 'testSaved', id: editing.id, override }, false, action.signal)) as { result: AiConfigTestResult };
+        if (!isCurrent(action)) return;
         testResult = testResultView(res.result);
       } else if (!inlineTestable({ provider: providerInput, endpoint: endpointInput, apiStyle: apiStyleInput })) {
         // The portal's own client would test a different host than a run uses.
@@ -473,7 +1063,8 @@
           provider: providerInput,
           model: modelInput.trim(),
           apiKey: enteredKey,
-        })) as { ok: boolean; provider?: string; model?: string; reply?: string; error?: string };
+        }, false, action.signal)) as { ok: boolean; provider?: string; model?: string; reply?: string; error?: string };
+        if (!isCurrent(action)) return;
         testResult = r.ok
           ? { ok: true, headline: t('ai-config.test.ok.inline', '✓ Works: {provider} / {model}.', { provider: r.provider ?? '', model: r.model ?? '' }), details: r.reply ? [t('ai-config.test.reply', 'Reply: “{reply}”', { reply: r.reply })] : [] }
           : { ok: false, headline: r.error ?? t('ai-config.test.error.unknown', 'The test failed.'), details: [] };
@@ -481,31 +1072,82 @@
         error = s.testNeedsKey();
       }
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Test failed';
+      if (isCurrent(action)) error = e instanceof Error ? e.message : 'Test failed';
     } finally {
-      busy = false;
+      if (isCurrent(action)) busy = false;
     }
   }
 
-  async function doDelete(id: string) {
-    busy = true;
+  async function doDelete(id: string, name: string) {
+    if (mutationBlocked || mutationLocked) return;
+    const action = beginAction();
     error = null;
-    try {
-      await post({ action: 'delete', id });
-      confirmDeleteId = null;
-      await invalidateAll();
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to delete configuration';
-    } finally {
-      busy = false;
-    }
+    busy = true;
+    await runMutation({
+      action,
+      request: () => post({ action: 'delete', id }, true),
+      successText: s.deleteSuccess(name),
+      refreshFailedText: s.deleteRefreshFailed(name),
+      refusalFallback: 'Failed to delete configuration',
+      onSuccess: () => {
+        if (isCurrent(action)) confirmDeleteId = null;
+        // Cancelling the confirmation supersedes ordinary feedback, not the
+        // committed delete. If this row was open, its editor must still close
+        // when the delete succeeds; only the owner visit fences that cleanup.
+        if (isOwnerVisitCurrent(action) && editId === id) resetEditor();
+      },
+    });
+  }
+
+  function armDelete(id: string) {
+    beginAction();
+    error = null;
+    confirmDeleteId = id;
+    if (!draftPrincipal) captureDraftPrincipal();
+  }
+
+  function cancelDelete() {
+    // Cancel supersedes ordinary acknowledgement, not the committed readback.
+    beginAction();
+    confirmDeleteId = null;
   }
 </script>
 
 <section>
-  <div class="mb-3 flex items-start justify-between gap-4">
-    <div>
+  <div data-testid="ai-config-manager-feedback" role="status" aria-live="polite" aria-atomic="true">
+    {#if identityChecking}<p class="mb-3 text-sm text-zinc-500 dark:text-zinc-400">{s.principalChecking()}</p>{/if}
+    {#if recoveryChecking && !mutationLocked}
+      <p data-testid="ai-config-recovery-pending" class="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
+        {s.recoveryPending()}
+      </p>
+    {/if}
+  </div>
+  <!-- Always mounted so a refusal is announced whether it came from the open
+       editor or a row action; only the alert's content changes. -->
+  <div bind:this={errorRegion} tabindex="-1" data-testid="ai-config-error-feedback" role="alert" aria-live="assertive" aria-atomic="true">
+    {#if error}
+      <div
+        class="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+      >
+        <p>{error}</p>
+        {#if signinHref}
+          <a bind:this={signinLink} href={signinHref} target="_blank" rel="noopener noreferrer"
+            class="mt-1 inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
+          >{s.signinNewTab()}</a>
+          <p>{s.signinReturn()}</p>
+        {/if}
+      </div>
+    {/if}
+  </div>
+  <div class="mb-3 flex flex-col items-start justify-between gap-4 sm:flex-row">
+    <div class="min-w-0">
       <h2 class="font-semibold text-zinc-900 dark:text-white">{s.heading()}</h2>
+      {#if ownerLabel}
+        <p class="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">{s.ownerCaption(ownerLabel)}</p>
+        {#if ownerUrn}
+          <div class="mt-1 max-w-full"><Urn value={ownerUrn} size={10} compact label={ownerLabel} /></div>
+        {/if}
+      {/if}
       <p class="mt-0.5 text-sm text-zinc-500">{s.subheading()}</p>
       {#if ownerType === 'AGENT'}
         <p class="mt-1 text-xs text-zinc-400">{s.agentDefaultHint()}</p>
@@ -522,19 +1164,14 @@
     {/if}
   </div>
 
-  {#if error && !formOpen}
-    <div
-      class="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
-    >
-      {error}
-    </div>
-  {/if}
-
   <!-- Add / edit form -->
   {#if formOpen}
     <div
       class="mb-4 space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900"
     >
+      {#if editing}
+        <h3 class="text-sm font-medium text-zinc-900 [overflow-wrap:anywhere] dark:text-white">{s.editorTitle(editing.name)}</h3>
+      {/if}
       <div>
         <label for="ac-name" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
           {s.nameLabel()}
@@ -731,31 +1368,13 @@
         <p class="mt-1 text-xs text-zinc-400">{s.paramsHint()}</p>
       </div>
 
-      {#if error}
-        <div
-          class="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
-        >
-          {error}
-        </div>
-      {/if}
-      {#if testResult}
-        <div
-          class="rounded-md border px-3 py-2 text-xs {testResult.ok
-            ? 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300'
-            : 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'}"
-        >
-          <p>{testResult.ok ? '' : '× '}{testResult.headline}</p>
-          {#each testResult.details as d (d)}
-            <p class="mt-0.5 opacity-80">{d}</p>
-          {/each}
-        </div>
-      {/if}
+      <AiConfigTestFeedback result={testResult} />
 
       <div class="flex flex-wrap gap-2">
         <button
           type="button"
           onclick={save}
-          disabled={busy}
+          disabled={busy || mutationBlocked || mutationLocked}
           class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
         >
           {busy ? s.savingButton() : s.saveButton()}
@@ -785,34 +1404,42 @@
        bespoke cards. Same chrome as every other portal list. -->
   {#if configs.length === 0}
     {#if !formOpen}
-      <p class="text-sm text-zinc-500">{s.empty()}</p>
+      <p class="text-sm text-zinc-500">{pagination && (pagination.offset > 0 || pagination.total > 0) ? t('ai-config.empty.page', 'No AI configurations on this page.') : s.empty()}</p>
     {/if}
   {:else}
+    <div class="config-grid min-w-0">
     <DataTable
+      containCells
       table={configTable}
+      showFooter={!pagination}
       listKey="ai-configs"
-      searchPlaceholder={t('ai-config.search.placeholder', 'Search configs...')}
-      searchAriaLabel={t('ai-config.search.aria-label', 'Search AI provider configs')}
+      stickyEndColumn="actions"
+      searchPlaceholder={pagination ? t('ai-config.search.page', 'Search configs on this page…') : t('ai-config.search.placeholder', 'Search configs...')}
+      searchAriaLabel={pagination ? t('ai-config.search.page.aria', 'Search AI provider configs on this page') : t('ai-config.search.aria-label', 'Search AI provider configs')}
       bind:globalFilter={configFilter}
       maxHeight="max(200px, calc(100vh - 30rem))"
-      rowClass={(c) => (c.enabled ? '' : 'opacity-60')}
     >
       {#snippet cell(cell, c)}
+        <!-- Dim content, never the row: row opacity traps its fixed menu below later rows (#1867). -->
         {#if cell.column.id === 'name'}
-          <span class="truncate font-mono text-sm font-medium text-zinc-900 dark:text-white">{c.name}</span>
+          <span class:opacity-60={!c.enabled} class="block min-w-0 max-w-full font-mono text-sm font-medium [overflow-wrap:anywhere] text-zinc-900 dark:text-white">{c.name}</span>
+          {#if ownerType === 'ORGANIZATION' && c.urn}
+            <!-- #1907 is display-only; aiconf has no canonical portal detail page. -->
+            <div class="mt-1 min-w-0 max-w-full"><Urn value={c.urn} size={10} compact copyUrl={false} label={t('ai-config.urn-label', 'AI configuration')} /></div>
+          {/if}
         {:else if cell.column.id === 'enabled'}
           {#if c.enabled}
-            <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">
+            <span class="inline-block max-w-full rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">
               {s.enabledBadge()}
             </span>
           {:else}
-            <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+            <span class="inline-block max-w-full rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500 opacity-60 dark:bg-zinc-800 dark:text-zinc-400">
               {s.disabledBadge()}
             </span>
           {/if}
         {:else if cell.column.id === 'key'}
           <!-- The stored key is never rendered — only its preview, masked. -->
-          <span class="font-mono text-xs text-zinc-400">{maskedKey(c)}</span>
+          <span class:opacity-60={!c.enabled} class="font-mono text-xs text-zinc-400">{maskedKey(c)}</span>
         {:else if cell.column.id === 'actions'}
           {#if canManage}
             {#if confirmDeleteId === c.id}
@@ -820,19 +1447,19 @@
                    place (the share-page idiom): the irreversibility question
                    stays visible here, not only on the menu item's title,
                    which keyboard and touch users never see. Wraps, if narrow. -->
-              <div class="flex flex-wrap items-center gap-1.5">
-                <span class="text-xs text-zinc-500">{s.confirmQuestion()}</span>
+              <div class="flex min-w-0 flex-wrap items-center gap-1.5 [overflow-wrap:anywhere]">
+                <span class="min-w-0 [overflow-wrap:anywhere] text-xs text-zinc-500">{s.confirmDelete(c.name)}</span>
                 <button
                   type="button"
-                  onclick={() => doDelete(c.id)}
-                  disabled={busy}
+                  onclick={() => doDelete(c.id, c.name)}
+                  disabled={busy || mutationBlocked || mutationLocked}
                   class="rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-500 disabled:opacity-50"
                 >
                   {s.deleteButton()}
                 </button>
                 <button
                   type="button"
-                  onclick={() => (confirmDeleteId = null)}
+                  onclick={cancelDelete}
                   class="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
                 >
                   {s.cancelButton()}
@@ -849,7 +1476,7 @@
                 ]}
                 onselect={(id) => {
                   if (id === 'edit') openEdit(c);
-                  else confirmDeleteId = c.id;
+                  else armDelete(c.id);
                 }}
                 label={s.actionsLabel(c.name)}
                 fixed
@@ -859,9 +1486,21 @@
           {/if}
         {:else}
           {@const f = configFmt[cell.column.id]}
-          <div class="truncate">{f ? f(cell.getValue()) : (cell.getValue() ?? '—')}</div>
+          <div class:opacity-60={!c.enabled} class="min-w-0 max-w-full [overflow-wrap:anywhere]">{f ? f(cell.getValue()) : (cell.getValue() ?? '—')}</div>
         {/if}
       {/snippet}
     </DataTable>
+    </div>
+  {/if}
+  {#if pagination}
+    <ListPageNav page={pagination} label={t('app.ai-config.pages', 'AI config pages')} disabled={formOpen || busy || confirmDeleteId !== null} />
+    {#if formOpen}<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{t('app.ai-config.page-edit', 'Save or cancel the form before changing pages.')}</p>{/if}
   {/if}
 </section>
+
+<style>
+  /* Table actions reserve space; fixed menu descendants keep their viewport position. */
+  .config-grid :global(td button) { min-height: 44px; min-width: 44px; }
+  .config-grid :global(td [data-node-actions] > button) { display: inline-flex; }
+  .config-grid :global(td button:focus-visible) { outline: 2px solid var(--color-indigo-500); outline-offset: 2px; }
+</style>

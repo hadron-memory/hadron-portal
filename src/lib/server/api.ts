@@ -7,11 +7,12 @@ export function serverBaseUrl(): string {
   return env.LOCAL_SERVER_URL ?? 'http://localhost:4000';
 }
 
-export function gqlClient(token?: string | null): GraphQLClient {
+export function gqlClient(token?: string | null, signal?: AbortSignal): GraphQLClient {
   const url = `${serverBaseUrl()}/graphql`;
   return new GraphQLClient(url, {
     // #1647: fetch's default 'follow' re-sends method and body on 307/308, delivering a mutation twice.
     redirect: 'error',
+    ...(signal ? { signal } : {}),
     responseMiddleware: captureNodeAdvice,
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });

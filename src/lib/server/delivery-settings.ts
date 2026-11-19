@@ -17,13 +17,13 @@ import type { AppDeliverySettings, TickerRead } from '$lib/tickers/types';
 
 export const APP_DELIVERY_SETTINGS_QUERY = /* GraphQL */ `
   query AppDeliverySettings($appRef: String!) {
-    appDeliverySettings(appRef: $appRef) { batchWindowSeconds busyDelaySeconds stuckWindowSeconds standbyEnabled standbyEffective }
+    appDeliverySettings(appRef: $appRef) { batchWindowSeconds busyDelaySeconds stuckWindowSeconds }
   }
 `;
 
 export const SET_APP_DELIVERY_SETTINGS_MUTATION = /* GraphQL */ `
   mutation SetAppDeliverySettings($appRef: String!, $input: AppDeliverySettingsInput!) {
-    setAppDeliverySettings(appRef: $appRef, input: $input) { batchWindowSeconds busyDelaySeconds stuckWindowSeconds standbyEnabled standbyEffective }
+    setAppDeliverySettings(appRef: $appRef, input: $input) { batchWindowSeconds busyDelaySeconds stuckWindowSeconds }
   }
 `;
 
@@ -38,7 +38,7 @@ export async function loadAppDeliverySettings(client: GraphQLClient, appRef: str
   }
 }
 
-/** The three settings this slice edits. `standbyEnabled` is deliberately absent: it is never sent (slice B). */
+/** The three settings this slice edits. Standby is retired (server#3606, portal#1759): never selected or sent. */
 export const DELIVERY_FIELDS_EDITED = ['batchWindowSeconds', 'busyDelaySeconds', 'stuckWindowSeconds'] as const;
 export type DeliveryField = (typeof DELIVERY_FIELDS_EDITED)[number];
 

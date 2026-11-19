@@ -1,0 +1,184 @@
+{
+  "kind": "synthetic-real-component-browser-evidence",
+  "baseMain": "645f4d2333def55be0c0599f33c87f1a52b63598",
+  "redFirstCommit": "059f8f3be1e64b18604e1ce790be9db5db22052c",
+  "producer": "CELL_SHOTS=<artifact-dir> node scripts/test-table-cell-overflow-layout.mjs",
+  "runtime": {
+    "node": "v22.23.3",
+    "browser": "Playwright Chromium, actual pointer-coarse checked at390",
+    "viewports": [
+      390,
+      1280
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "textSizes": [
+      "normal",
+      "CSS-modeled200%celltext",
+      "actual200%root-rem for Open/Copy target and label acceptance"
+    ]
+  },
+  "limits": [
+    "No API/backend or app stack",
+    "No production or signed-in route",
+    "Screenshots after assertions except *-default.png taken at initial mount",
+    "Source hashes bind working-tree production/harness content to the eventual committed tree; no invented screenshot commit SHA",
+    "CSS cell text and bounded actual root-rem scaling; not OS/browser zoom. Cell-hosted native select remains independent QA scope."
+  ],
+  "sourceSHA256": {
+    "scripts/test-table-cell-overflow-layout.mjs": "d3044dca72eb460662d4ef50259170b6d0bb2967497d93e1945b8fc7c072a673",
+    "src/lib/components/AiServiceConfigManager.svelte": "e584201f3b5736dc3711dbe7c9a697b21dc63a5f2bd1e045555333bfedcb93fb",
+    "src/lib/components/AppRunsTable.svelte": "ce24e10e98802b19c8c58a7353da1d92a8d5077837f09c6c8398436ba5be1b7d",
+    "src/lib/components/Urn.svelte": "15ae935d9c84291c5559b40757bcfeed8702245f325415d2b60f0a90927b472e",
+    "src/lib/components/agent-tasks/TasksAlarms.svelte": "39072790300441245463b0be54aef40bbe471081be2997a0ca26ab2138a9a261",
+    "src/lib/components/table/DataTable.minSize.client.test.ts": "b484a0658039bea5792cfe7cfb699d8833aacbba2a53828e71cbc9b728392acc",
+    "src/lib/components/table/DataTable.svelte": "a58e5ea4b6d8c809f3945f5a4664cd089c6a4f10facb2d34ec35f8a3b544ba84",
+    "src/lib/table/createSvelteTable.svelte.ts": "cd9a221c3832be6ea681c1a8acc1b7ec73bca22cf5727753ec08b9a69b274f32",
+    "src/lib/table/savedView.ts": "4c8d74f1f98120a51e5bd825633db4923c4463a7c94a4b35ef85b81acdbd8a0f",
+    "src/lib/test/DataTableMinSizeHarness.svelte": "05e0450734bf244fba5dad3b2a2363c876633094d6da61a26a459bc6fc00c80f",
+    "src/lib/test/fixtures/table-cell-overflow-harness.ts": "c487e95a8233fd004d6fe151dca7c575dda4da4922f42f6a2258457539eabb4b",
+    "src/lib/test/mountComponent.ts": "35e22f9452654cd2231f6ce47fa7cce23718e657c1dd3ee4ba20b44b6b740652",
+    "src/lib/test/stubs/app-navigation.ts": "eca14f635307b9cf2c6f06a5398b2dd256755913ca62536dc85e5cacb1015f90"
+  },
+  "artifacts": {
+    "alarms-1280-dark-default.png": {
+      "bytes": 44926,
+      "sha256": "d8313ce7f04636230a226cb9cb67a891cc2edea9f5cc8e4e10924e15183ad68b"
+    },
+    "alarms-1280-dark.png": {
+      "bytes": 33246,
+      "sha256": "e50722fa435cf5035f3bad6ffe14f75d39a1c3cde6661a5c9dfc953c024b0b5a"
+    },
+    "alarms-1280-light-default.png": {
+      "bytes": 44339,
+      "sha256": "cbe18b9e9fa54adb5537e59046c9788eccab96c96a2773c7790e9ab3cb56c417"
+    },
+    "alarms-1280-light.png": {
+      "bytes": 32789,
+      "sha256": "41eae45fc3b606fbab63394f9d52c7b586c233882b2e088cdde8c4e1d924c954"
+    },
+    "alarms-390-dark-default.png": {
+      "bytes": 18042,
+      "sha256": "c8c1d50558d5171ddff29728c2b361489c0831015cc5075b09368be9bc7a8641"
+    },
+    "alarms-390-dark.png": {
+      "bytes": 22041,
+      "sha256": "dbf36228cecd723ecf95c797ff9e05ce4b189004411891f39371a30e60549436"
+    },
+    "alarms-390-light-default.png": {
+      "bytes": 17854,
+      "sha256": "dcb7eb3561e1199293a7e70de9f1412b56b9827657d23b38c847e5e00239c848"
+    },
+    "alarms-390-light.png": {
+      "bytes": 21575,
+      "sha256": "e89ac1eb253622b3c9bee083950184a3e60ab5d078cf70b520abd0170240a32f"
+    },
+    "config-1280-dark-default.png": {
+      "bytes": 86184,
+      "sha256": "c3075b121eab4d63ac0e7de3976bf890f085a10dfb54048c1cef77cab045845d"
+    },
+    "config-1280-dark.png": {
+      "bytes": 87365,
+      "sha256": "d9a59f9e6b687474cba295cb885cf4332efc8c4b2fc6f7b07e22bf8727be30c3"
+    },
+    "config-1280-light-default.png": {
+      "bytes": 86379,
+      "sha256": "a76b96a5c511a1e435f7e46dca0ad41dc2ce121f49c1da077f347bb2bf3bf1da"
+    },
+    "config-1280-light.png": {
+      "bytes": 87627,
+      "sha256": "0db578c5e46b8ee09a4042fb23074997793e1e11016a669e421de97dc35d89d4"
+    },
+    "config-390-dark-default.png": {
+      "bytes": 43471,
+      "sha256": "fe9e2d1c527d87b41c35e3d01ce7990eec3736883e54855cbec13e5949f6eb90"
+    },
+    "config-390-dark.png": {
+      "bytes": 42574,
+      "sha256": "3dca303106eda29b79ce4610dc1fbc0b2ee9a8591b6de7d6c8d642b36de184ef"
+    },
+    "config-390-light-default.png": {
+      "bytes": 43050,
+      "sha256": "50c04b6a8b0bbd2653914d37a883c64ebf2475d37c7ed97f11802d8b4fa38c2c"
+    },
+    "config-390-light.png": {
+      "bytes": 41991,
+      "sha256": "ef5cb95b020cb2886f4a6139195fde364a9df99544d684c4cd7ecec1cb4e6de1"
+    },
+    "confirmation-cell-red.log": {
+      "bytes": 643,
+      "sha256": "927f2731eef69d58866142b116ea626bb41e3b21e0a79fbf24363eb55990538b"
+    },
+    "final-layout.log": {
+      "bytes": 4779,
+      "sha256": "3efaf59c6af8a5c9697e8f718dfc808f1ddeb9fd198c913ac6049c80775f9b24"
+    },
+    "mutant-aria.log": {
+      "bytes": 1365,
+      "sha256": "59ab2635dfec945672a0ab80f27f115d51853ca37bc6d2eec0df1b4664132fee"
+    },
+    "mutant-net.log": {
+      "bytes": 651,
+      "sha256": "c4bca2e188a51aba4c0bc8ae88aa61a0579f85e8c21ed41bf138d795dcf0406f"
+    },
+    "mutant-wrap.log": {
+      "bytes": 760,
+      "sha256": "a10cb5eb947bae422dfdf2962d9aa882cb2d9168bc8d047c95839acb9264383f"
+    },
+    "red-sizing.log": {
+      "bytes": 1365,
+      "sha256": "7fac5ea97edeba7c6e60a995468ccaa7d4c35d6422b6966ae69cd0665b447553"
+    },
+    "red.log": {
+      "bytes": 19525,
+      "sha256": "67d2ed9325377b9029696b9c2553e89017be809bf986b1775de1675d66f6015e"
+    },
+    "rem-red-alarms.log": {
+      "bytes": 2104,
+      "sha256": "2f0bcb24302df3b6091f97b3fc87be90fb954e2c1a80fd09a419cceeb634c3fa"
+    },
+    "rem-red-runs.log": {
+      "bytes": 1998,
+      "sha256": "d8da5e46d9ec927e169e2ecfef43baa6da2bdefe7d0542e1fd4f1b5d7cd5e672"
+    },
+    "runs-1280-dark-default.png": {
+      "bytes": 38048,
+      "sha256": "fe440490dbbbf380956b2ee3247583a53e955accb829d21a2e3bad9a59d6b199"
+    },
+    "runs-1280-dark.png": {
+      "bytes": 31898,
+      "sha256": "3e0221748544bd04cb4b7fa025aab5e960a99f1da99ddabf7504f7d194be8f89"
+    },
+    "runs-1280-light-default.png": {
+      "bytes": 36981,
+      "sha256": "1669f3c9eae2423bb5b93cd769c89aa4e817ab20ec50aa153573b05408918a3e"
+    },
+    "runs-1280-light.png": {
+      "bytes": 30976,
+      "sha256": "502ad4834f10cd83bb37d7aede1ba3003dc2d2139d1a030a9f5870640754f128"
+    },
+    "runs-390-dark-default.png": {
+      "bytes": 24688,
+      "sha256": "b3f71149ab21e01f690956d6e7db5e6d8257584fa51847318a88e39f6509d89f"
+    },
+    "runs-390-dark.png": {
+      "bytes": 24128,
+      "sha256": "68a44371fe8ed855d034be980746060d8a8c910dafaa183b0455f9d25387e7d9"
+    },
+    "runs-390-light-default.png": {
+      "bytes": 24062,
+      "sha256": "62ee35883a55a640994572ff1c44e5916e50be4917bac7dba9ed4ee691315c86"
+    },
+    "runs-390-light.png": {
+      "bytes": 23633,
+      "sha256": "ee3b253f8c07c43054b7e9ee77ba0985668dd490a550db88ac30f8144f800b3b"
+    }
+  },
+  "fixRedFirstCommits": [
+    "c0afbcad26aba5c85a461478deeb33d3ee597481",
+    "1b3d396061721bf1e366ccfc104786b3b95ba1b4"
+  ],
+  "integratedMain": "73d6992c1d075abded934a02be233bcbb841de8f"
+}

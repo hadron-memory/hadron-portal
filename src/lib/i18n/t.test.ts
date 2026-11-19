@@ -8,7 +8,7 @@
  * lives at the boundary rather than at 35 call sites.
  */
 import { describe, expect, it } from 'vitest';
-import { fill, splitAt, t } from './t';
+import { fill, fillMarked, splitAt, t } from './t';
 
 describe('fill', () => {
   it('substitutes a placeholder', () => {
@@ -92,5 +92,48 @@ describe('splitAt', () => {
   });
   it('a message missing the placeholder keeps its text before and drops nothing', () => {
     expect(splitAt('no link here', 'link')).toEqual(['no link here', '']);
+  });
+});
+
+// portal#2226: a message can be rendered with markup where the translator put
+// the marked values, under the splitAt rule of #1415 (one message, not frozen
+// fragments) — and its joined text is byte-identical to fill, so a plain-text
+// rendering (a `title`) and a marked one cannot drift apart.
+describe('fillMarked', () => {
+  it('marks exactly the named values, in the message\'s own order', () => {
+    expect(fillMarked('Stage transitioned: {from} → {to}', { from: 'draft', to: 'review' }, ['from', 'to']))
+      .toEqual([
+        { text: 'Stage transitioned: ' },
+        { text: 'draft', marked: true },
+        { text: ' → ' },
+        { text: 'review', marked: true },
+      ]);
+  });
+  it('joins back to exactly what fill produces, including repeated placeholders', () => {
+    const vars = { shown: 3, total: 9 };
+    const message = '{shown} of {total} ({shown} shown)';
+    expect(fillMarked(message, vars, ['total']).map((s) => s.text).join('')).toBe(fill(message, vars));
+  });
+  it('substitutes unmarked values into the text and never rescans a value', () => {
+    // '{to}' inside the from-value must NOT be substituted a second time.
+    const segments = fillMarked('A {from} B {to} C', { from: '{to}', to: 'x' }, ['from', 'to']);
+    expect(segments).toEqual([
+      { text: 'A ' },
+      { text: '{to}', marked: true },
+      { text: ' B ' },
+      { text: 'x', marked: true },
+      { text: ' C' },
+    ]);
+  });
+  it('leaves unknown and null placeholders standing, as fill does', () => {
+    const segments = fillMarked('Move {known} to {missing} and {nulled}', { known: 'a', nulled: null }, ['known']);
+    expect(segments.map((s) => s.text).join('')).toBe(fill('Move {known} to {missing} and {nulled}', { known: 'a', nulled: null }));
+    expect(segments).toContainEqual({ text: 'a', marked: true });
+    expect(segments.some((s) => s.text.includes('{missing}'))).toBe(true);
+    expect(segments.some((s) => s.text.includes('{nulled}'))).toBe(true);
+  });
+  it('lets a translation drop a marked value: the message degrades to plain text', () => {
+    expect(fillMarked('Etappe gewechselt.', { from: 'draft', to: 'review' }, ['from', 'to']))
+      .toEqual([{ text: 'Etappe gewechselt.' }]);
   });
 });

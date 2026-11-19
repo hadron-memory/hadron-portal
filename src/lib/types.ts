@@ -5,13 +5,12 @@ import type { AssetSummary } from '$lib/api/assetUpload';
 export interface Memory {
   id: string;
   /**
-   * Owning org — NULL for a user-owned (org-less) memory (spec 047: personal /
-   * private memories created with no orgId, `ownerUserId` = caller). The
-   * `chk_memory_owner_xor` constraint makes org and user ownership mutually
-   * exclusive, so this is null exactly when the memory belongs to a user.
+   * Tenant organization, or null for an org-less memory. Personal/private
+   * memories may still be org-anchored while ALSO carrying the strict principal
+   * in `userId`; organizationId and userId are not mutually exclusive.
    */
   organizationId: string | null;
-  organization?: OrgSummary;
+  organization?: OrgSummary | null;
   urn: string;
   name: string;
   shortDescription: string | null;
@@ -66,6 +65,7 @@ export interface Memory {
   // selects it — treat `undefined` as "unknown", not as "refuses uploads", or a
   // slim projection would silently hide the affordance everywhere.
   acceptsUploads?: boolean;
+  /** Strict user principal for personal/private memories; independent of tenant organizationId. */
   userId?: string | null;
   userMemoryOfAgentId?: string | null;
   anonymousExpiresAt?: string | null;
@@ -93,6 +93,8 @@ export interface Agent {
   id: string;
   /** #1335: the source's CURRENT URN; only the detail query selects it (absent elsewhere), null for a non-clone or an unreadable source. */
   clonedFromAgentRef?: string | null;
+  /** portal#2194: how long the Agent's workers run; only the detail query selects it. */
+  lifecycle?: 'LONG_LIVED' | 'SHORT_LIVED';
   organizationId: string;
   urn: string;
   name: string;
@@ -117,7 +119,47 @@ export interface Agent {
   installationPolicy?: InstallationPolicy;
   imports?: AgentImport[];
   appCount?: number;
+  // portal#1850 (hrn:node:hadronmemory.com:specs:cor:dmo:050:19): manager-only; null for every other caller
+  // (PUBLIC readers included) and absent in projections that do not select it —
+  // the page renders nothing without it. Optional for the same reason as
+  // hasAiApiKey: treat undefined as "not selected", never as "not ready".
+  offerReadiness?: AgentOfferReadiness | null;
   createdAt: string;
+}
+
+// portal#1850: one blocking subject, named only because the manager may read
+// it. Name-only BY CONTRACT (hadron-server#2280): the server exposes no id and
+// no URN through this field — "nothing else about it is reachable" — so the
+// portal can render neither a link nor a Urn chip for a subject.
+export interface AgentOfferSubject {
+  name: string;
+}
+
+/** Every code the server emits today. Unknown codes stay possible at runtime — the UI renders them raw — so the union is open, not closed. */
+export type AgentOfferReasonCode =
+  | 'AGENT_NOT_PUBLIC'
+  | 'AGENT_RETIRED'
+  | 'CLONE_LINKED_MEMORY_ENCRYPTED'
+  | 'CLONE_LINKED_MEMORY_UNREADABLE'
+  | 'CLONE_BASE_UNUSABLE'
+  | 'CLONE_IMPORT_UNUSABLE'
+  | (string & {});
+
+export interface AgentOfferReason {
+  code: AgentOfferReasonCode;
+  /** Every blocked subject. subjects + omittedByCap + hiddenByAccess === count. */
+  count: number;
+  subjects: AgentOfferSubject[];
+  /** Readable subjects past the server's 20-name cap: counts only. */
+  omittedByCap: number;
+  /** Subjects the manager may not read: counts only, never named. */
+  hiddenByAccess: number;
+}
+
+export interface AgentOfferReadiness {
+  ready: boolean;
+  /** Every reason that holds, in the clone refusal's order. Empty exactly when ready. */
+  reasons: AgentOfferReason[];
 }
 
 export interface MemoryProvisioning {
@@ -163,6 +205,10 @@ export interface Chat {
   scope: 'private' | 'shared';
   /** Spec 017 — chat author (chat-root createdBy). Null on legacy chats. */
   createdBy: string | null;
+  /** portal#1963 (hadron-server#3957): `default`, a config id, or null when the chat stored no choice. */
+  aiConfigChoice?: string | null;
+  /** portal#2065 (hadron-server S3): conversations this chat has completed, in first-completion order. Always selected: the portal needs a server with the field (lockstep release); optional only so hand-built Chat values need not carry it. */
+  completedConversations?: string[];
 }
 
 /** One message in a chat history. */
@@ -288,6 +334,8 @@ export interface TeamWorkItem {
 }
 
 export interface App {
+  /** portal#2194: the host-sweep switch; only the App detail query selects it. */
+  sweepMode?: 'OFF' | 'OBSERVE' | 'APPLY';
   id: string;
   name: string;
   urn: string;
@@ -359,6 +407,11 @@ export type AppMembershipRole = 'OWNER' | 'ADMIN' | 'CONTRIBUTOR' | 'READER';
  * absence as "this App's URN predates the flat grammar", never as an error.
  */
 export interface Worker {
+  /** portal#2194: the sweep leave-alone marker. null = not shown to this caller (profile tier), never "not marked". */
+  leaveAlone?: boolean | null;
+  leaveAloneReason?: string | null;
+  leaveAloneBy?: string | null;
+  leaveAloneAt?: string | null;
   /** portal#1492: the latest terminal report; null when none or masked, absent on the Profile tier. */
   terminal?: import('$lib/workers/terminal').TerminalRead | null;
   /** Profile scalars supplied by server#1149; never reconstructed from App. */
@@ -540,6 +593,31 @@ export interface OrgSummary {
   id: string;
   name: string;
   urn: string;
+}
+
+/** hrn:node:hadronmemory.com:specs:cor:acl:080:02 — the only resource shape exposed by a public organization. */
+export interface PublicResourceRef {
+  id: string;
+  name: string;
+  urn: string;
+  description: string | null;
+}
+
+/** A bounded page of the same closed public-resource projection. */
+export interface PublicResourceRefsPage {
+  items: PublicResourceRef[];
+  total: number;
+  hasMore: boolean;
+}
+
+/** A closed, non-member-safe projection; deliberately not an Organization. */
+export interface PublicOrganization {
+  id: string;
+  name: string;
+  urn: string;
+  listedOnMarketplace: boolean;
+  publicMemoriesPage: PublicResourceRefsPage;
+  publicAgentsPage: PublicResourceRefsPage;
 }
 
 export interface Organization {
@@ -912,10 +990,12 @@ export type AiConfigOwnerType = 'HADRON_SERVER' | 'ORGANIZATION' | 'APP' | 'AGEN
  * `openai-compatible` (server#1389), which the portal's LLM client can't
  * speak. Kept apart so nothing that calls that client can be handed one.
  */
-export type AiConfigProvider = AIProvider | 'openai-compatible';
+export type AiConfigProvider = AIProvider | 'openai-compatible' | 'kimi';
 
 export interface AiServiceConfig {
   id: string;
+  /** Nullable server-computed address; omitted by older masked fixtures. */
+  urn?: string | null;
   name: string;
   ownerType: AiConfigOwnerType;
   ownerId: string;

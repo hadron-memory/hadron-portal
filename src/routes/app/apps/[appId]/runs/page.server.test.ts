@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getOperationAST, parse } from 'graphql';
 import {
   AGENT_TASKS_APP_QUERY,
-  APP_NODES_QUERY,
+  APP_FLOWS_PAGE_QUERY,
   APP_QUERY,
   APP_INSTALLED_AGENTS_QUERY,
   APP_RUNS_QUERY,
@@ -80,47 +81,14 @@ function superFormFrom(result: unknown) {
   } | undefined)?.form;
 }
 
-describe('app runs load()', () => {
-  it('returns runs, flows, and a seeded run Superform', async () => {
-    mockRequest.mockImplementation(async (query: string) => {
-      if (query === APP_QUERY || query === AGENT_TASKS_APP_QUERY) return { app };
-      if (query === APP_RUNS_QUERY) return { appRuns: { items: [], total: 0 } };
-      if (query === APP_NODES_QUERY) return { appNodes: [flowNode] };
-      throw new Error(`unexpected query: ${query.slice(0, 60)}`);
-    });
-    const { load } = await importServer();
-
-    const result = await load({
-      params: { id: 'org-1', appId: 'app-1' },
-      locals: { token: 'tok' },
-      parent: async () => ({}),
-      url: new URL('https://example.test/app/orgs/org-1/apps/app-1/runs'),
-    } as unknown as Parameters<typeof load>[0]) as {
-      runForm: { data: { _kind: string; entryUrn: string } };
-      page: number;
-      total: number;
-    };
-
-    expect(result.page).toBe(1);
-    expect(result.total).toBe(0);
-    expect(result.runForm.data).toMatchObject({
-      _kind: 'runFlow',
-      entryUrn: '',
-    });
-  });
-});
-
-// portal#1130: a viewer with no access gets the App page's 404, not a 500.
-// The server conceals the App (FORBIDDEN on app(ref:)) and its runs (NOT_FOUND
-// on appRuns); only those codes become a 404, and any other failure stays a
-// failure (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
 describe('app runs load(): a no-access viewer (#1130)', () => {
   const gqlError = (code: string) => ({ response: { errors: [{ message: code, extensions: { code } }] } });
 
   async function loadWith(answer: (query: string) => unknown) {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     mockRequest.mockImplementation(async (query: string) => answer(query));
-    const { load } = await importServer();
+    const { loadAppRunsPage } = await import('$lib/server/app-runs-page');
+    const load = (event: { url: URL }) => loadAppRunsPage({ request: mockRequest } as never, 'app-1', event.url.searchParams);
     return load({
       params: { id: 'org-1', appId: 'app-1' },
       locals: { token: 'tok' },
@@ -150,12 +118,12 @@ describe('app runs load(): a no-access viewer (#1130)', () => {
       if (q === APP_QUERY || q === AGENT_TASKS_APP_QUERY) return { app };
       if (q === APP_RUNS_QUERY) throw gqlError('INTERNAL_SERVER_ERROR');
       return { appNodes: [] };
-    })).rejects.not.toMatchObject({ status: 404 });
+    })).resolves.toMatchObject({ failed: true });
     await expect(loadWith((q) => {
       if (q === APP_QUERY || q === AGENT_TASKS_APP_QUERY) return { app };
       if (q === APP_RUNS_QUERY) throw new Error('ECONNREFUSED');
       return { appNodes: [] };
-    })).rejects.toThrow('ECONNREFUSED');
+    })).resolves.toMatchObject({ failed: true });
   });
 
   it('an App read failing with a server fault stays a failure, not a 404', async () => {
@@ -163,6 +131,61 @@ describe('app runs load(): a no-access viewer (#1130)', () => {
       if (q === APP_QUERY || q === AGENT_TASKS_APP_QUERY) throw gqlError('INTERNAL_SERVER_ERROR');
       return { appRuns: { items: [], total: 0 }, appNodes: [] };
     })).rejects.not.toMatchObject({ status: 404 });
+  });
+});
+
+describe('app runs legacy panel paging (#1881)', () => {
+  it('uses a runnable-only appNodesPage at the requested offset and carries navigation instead of a cap', async () => {
+    const pageCalls: Record<string, unknown>[] = [];
+    mockRequest.mockImplementation(async (query: string, vars: Record<string, unknown> = {}) => {
+      const name = getOperationAST(parse(query))?.name?.value;
+      if (query === APP_QUERY || query === AGENT_TASKS_APP_QUERY) return { app };
+      if (query === APP_RUNS_QUERY) return { appRuns: { items: [], total: 0 } };
+      if (query === APP_INSTALLED_AGENTS_QUERY) return { app: { appAgents: [] } };
+      if (name === 'AppFlowsPage') {
+        pageCalls.push(vars);
+        return { appNodesPage: { items: [], total: 45, hasMore: true } };
+      }
+      throw new Error(`unexpected query: ${name}`);
+    });
+    const { load } = await importServer();
+    const result = await load({
+      request: { method: 'POST' }, params: { appId: 'app-1' }, locals: { token: 'tok' },
+      url: new URL('https://example.test/app/apps/app-1/runs?flowsOffset=20'),
+    } as never) as { legacyPanel: Record<string, unknown> };
+    expect(pageCalls).toEqual([expect.objectContaining({ appRef: 'app-1', limit: 20, offset: 20 })]);
+    expect(result.legacyPanel.flowsPage).toMatchObject({ offset: 20, count: 0, total: 45 });
+    expect(result.legacyPanel).not.toHaveProperty('flowsCapped');
+  });
+});
+
+describe('app runs legacy load(): Flows read failure (#2170 F7)', () => {
+  async function legacyLoad(flowsPage: () => unknown) {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockRequest.mockImplementation(async (query: string) => {
+      const name = getOperationAST(parse(query))?.name?.value;
+      if (query === APP_QUERY || query === AGENT_TASKS_APP_QUERY) return { app };
+      if (query === APP_RUNS_QUERY) return { appRuns: { items: [], total: 0 } };
+      if (query === APP_INSTALLED_AGENTS_QUERY) return { app: { appAgents: [] } };
+      if (name === 'AppFlowsPage') return flowsPage();
+      if (name === 'AppNodes') return { appNodes: [] };
+      throw new Error(`unexpected query: ${name}`);
+    });
+    const { load } = await importServer();
+    return await load({
+      request: { method: 'POST' }, params: { appId: 'app-1' }, locals: { token: 'tok' },
+      url: new URL('https://example.test/app/apps/app-1/runs'),
+    } as never) as { legacyPanel: Record<string, unknown> };
+  }
+
+  it('reports a failed Flows page read', async () => {
+    const result = await legacyLoad(() => { throw new Error('synthetic Flows failure'); });
+    expect(result.legacyPanel).toMatchObject({ flows: [], flowsError: true });
+  });
+
+  it('reports no Flows error when the read succeeds (control)', async () => {
+    const result = await legacyLoad(() => ({ appNodesPage: { items: [], total: 0, hasMore: false } }));
+    expect(result.legacyPanel).toMatchObject({ flowsError: false });
   });
 });
 
@@ -230,17 +253,12 @@ describe('app runs: choosing the Agent (#1444)', () => {
     mockRequest.mockImplementation(async (query: string) => {
       if (query === APP_QUERY || query === AGENT_TASKS_APP_QUERY) return { app };
       if (query === APP_RUNS_QUERY) return { appRuns: { items: [], total: 0 } };
-      if (query === APP_NODES_QUERY) return { appNodes: [flowNode] };
+      if (query === APP_FLOWS_PAGE_QUERY) return { appNodesPage: { items: [flowNode], total: 1, hasMore: false } };
       if (query === APP_INSTALLED_AGENTS_QUERY) return agentsRead ? agentsRead() : { app: { id: 'app-1', appAgents } };
       throw new Error(`unexpected query: ${query.slice(0, 60)}`);
     });
-    const { load } = await importServer();
-    return (await load({
-      params: { id: 'org-1', appId: 'app-1' },
-      locals: { token: 'tok' },
-      parent: async () => ({}),
-      url: new URL('https://example.test/app/apps/app-1/runs'),
-    } as unknown as Parameters<typeof load>[0])) as { runAgents: unknown; runForm: { data: Record<string, unknown> } };
+    const { loadAppRunsExtras } = await import('$lib/server/app-runs-page');
+    return loadAppRunsExtras({ request: mockRequest } as never, 'app-1');
   }
 
   it('several installed Agents: the loader hands the picker their names', async () => {
