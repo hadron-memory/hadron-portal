@@ -45,8 +45,9 @@ const server = await createServer({
 });
 await server.listen();
 const origin = server.resolvedUrls.local[0].replace(/\/$/, '');
-const cssRes = await fetch(new URL('src/app.css?direct', origin));
-if (!cssRes.ok) throw new Error(`the stylesheet fetch failed: ${cssRes.status}`);
+const cssUrl = new URL('src/app.css?direct', origin);
+const cssRes = await fetch(cssUrl);
+if (!cssRes.ok) throw new Error(`the stylesheet fetch failed for ${cssUrl}: ${cssRes.status}`);
 const css = await cssRes.text();
 
 const EXPECTED_OPTIONS = ['💻 Workstation', '💬 Chatbot', '🤖 Agent', '⚙️ Automation', '☁️ Cloud', '📡 IoT'];

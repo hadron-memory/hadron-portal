@@ -31,7 +31,7 @@ const LABELS = {
 } satisfies Record<AppType, () => string>;
 
 /** The six App types, in the Settings select's order. */
-export const APP_TYPE_VALUES = Object.keys(LABELS) as readonly AppType[];
+export const APP_TYPE_VALUES: readonly AppType[] = Object.freeze(Object.keys(LABELS) as AppType[]);
 
 /**
  * The label an App type renders with (icon included), or the raw value when

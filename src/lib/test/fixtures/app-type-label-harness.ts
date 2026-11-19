@@ -36,7 +36,7 @@ window.fetch = (async () => {
 }) as typeof fetch;
 
 window.__mountAppTypePage = async ({ tab, appType }: HarnessOptions) => {
-  const data = await appTypePageData(tab, { appType });
+  const data = await appTypePageData(tab, appType);
   const target = document.createElement('div');
   target.className = 'p-4';
   document.body.appendChild(target);

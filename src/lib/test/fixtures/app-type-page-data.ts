@@ -9,10 +9,10 @@
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { pageData } from '../../../routes/app/apps/[appId]/app-page.fixture';
 
-export async function appTypePageData(tab: 'profile' | 'settings', app: Record<string, unknown>) {
+export async function appTypePageData(tab: 'profile' | 'settings', appType: string) {
   const url = `/app/apps/a1?tab=${tab}`;
   setStubPage(`https://example.test${url}`, { appId: 'a1' });
   window.history.replaceState({}, '', url);
   const base = await pageData();
-  return { ...base, app: { ...base.app, ...app }, initialTab: tab, canManageApp: true };
+  return { ...base, app: { ...base.app, appType }, initialTab: tab, canManageApp: true };
 }

@@ -32,7 +32,7 @@ const enumValues = (): string[] => {
   if (!Array.isArray(options)) {
     throw new Error('appType is no longer a prefault-wrapped z.enum: update enumValues() in app-type-strings.test.ts');
   }
-  return options;
+  return [...options];
 };
 
 describe('app type label source (#2249)', () => {
@@ -46,10 +46,13 @@ describe('app type label source (#2249)', () => {
     expect([...APP_TYPE_VALUES]).toEqual(['WORKSTATION', 'CHATBOT', 'AGENT', 'AUTOMATION', 'CLOUD', 'IOT']);
   });
 
-  it('reading the enum values does not reorder the schema\'s live options array', () => {
-    const before = [...enumValues()];
-    enumValues();
-    expect(enumValues()).toEqual(before);
+  it('sorting what enumValues() returns never reorders the schema\'s live options array', () => {
+    // The pre-#2254 call site did enumValues().sort(), which sorts zod's own
+    // array. The order is pinned literally (not read back through the helper,
+    // which could not fail), so handing out the live array turns this red.
+    enumValues().sort().reverse();
+    const live = (appSettingsSchema.shape.appType as unknown as { def: { innerType: { options: string[] } } }).def.innerType.options;
+    expect([...live]).toEqual(['WORKSTATION', 'CHATBOT', 'AGENT', 'AUTOMATION', 'CLOUD', 'IOT']);
   });
 
   it('an unknown value falls back to the raw value', () => {
