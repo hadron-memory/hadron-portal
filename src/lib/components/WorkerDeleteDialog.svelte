@@ -31,7 +31,8 @@
   onDestroy(() => { alive = false; generation++; });
   function close() { if (!pending) { confirmed = false; onclose(); } }
 
-  // portal#2260 round 1 (Gil F4, review:bindable-flag-stale-and-explain-disabled)
+  // portal#2260 round 1 (Gil F4,
+  // hrn:node:hadronmemory.com:hadron-portal:review:bindable-flag-stale-and-explain-disabled)
   // — one source of truth for WHY Submit is off, evaluated in field order, so
   // the disabled state and its explanation cannot diverge. pending (the
   // status line) and deleted (the dialog is closing, or its refresh-failure
