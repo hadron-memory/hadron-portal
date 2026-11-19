@@ -12,10 +12,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import Harness from '$lib/test/fixtures/TaskBoardHarness.svelte';
 
-// portal#2248 review (Gil P3 6): fmtRunTime renders with the runtime timezone,
-// so pin it before anything formats — 'Nov 20' must be the same date wherever
-// the suite runs.
-process.env.TZ = 'UTC';
+// portal#2253 item 1 (from the #2248 review round): the suite's timezone is
+// pinned once in vitest.config.ts (`test.env.TZ = 'UTC'`), set before any
+// module loads — a module-body `process.env.TZ` ran below the hoisted imports
+// (so a module-level Intl formatter kept the host zone), leaked into later
+// files in the same worker, and throws in browser-mode vitest. fmtRunTime
+// already pins its locale ('en-US'), so the zone is the only variable.
 
 const mounted: Mounted<any>[] = [];
 afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); });
@@ -41,7 +43,7 @@ async function mount(tasks: unknown[]) {
 /** One line per rendered task row, in DOM order. */
 const rowLines = (m: Mounted<any>) => [...m.target.querySelectorAll('[data-testid=task-row], tbody tr')] as HTMLElement[];
 /**
- * portal#2248 review (Gil P2 2): the mark is asserted by its hook
+ * portal#2248 review P2: the mark is asserted by its hook
  * (`data-testid="overdue-mark"`), never by row text — a title containing
  * "overdue" made the positive half of a text-match test unable to fail.
  */
@@ -93,13 +95,15 @@ describe('the overdue mark is the server overdue field', () => {
 
   it('shows a Finish by column with the deadline', async () => {
     const m = await mount([task({ finishBy: '2026-11-20T12:00:00Z' })]);
-    const head = [...m.target.querySelectorAll('th')].map((th) => th.textContent!.trim());
+    // Scoped to the one header row (portal#2253 item 3): a second header row
+    // or a th in tbody must not shift header indexes onto td indexes.
+    const head = [...m.target.querySelectorAll('thead tr:last-child th')].map((th) => th.textContent!.trim());
     expect(head.some((h) => h.startsWith('Finish by'))).toBe(true);
     expect(rowLines(m)[0].textContent).toContain('Nov 20');
   });
 });
 
-describe('the mark is task-level, in the Status cell (portal#2248 review: Jonas P2 1, Uma P2)', () => {
+describe('the mark is task-level, in the Status cell (portal#2248 review)', () => {
   /**
    * portal#2248 review — the server boolean does not say WHICH deadline
    * passed, so a mark attached to a date cell is a claim the UI cannot back:
@@ -108,7 +112,7 @@ describe('the mark is task-level, in the Status cell (portal#2248 review: Jonas 
    * status pill; the two date columns say which time passed.
    */
   const cellUnder = (m: Mounted<any>, headerPrefix: string) => {
-    const ths = [...m.target.querySelectorAll('th')] as HTMLElement[];
+    const ths = [...m.target.querySelectorAll('thead tr:last-child th')] as HTMLElement[];
     const idx = ths.findIndex((th) => th.textContent!.trim().startsWith(headerPrefix));
     expect(idx).toBeGreaterThanOrEqual(0);
     return rowLines(m)[0].querySelectorAll('td')[idx] as HTMLElement;
@@ -127,10 +131,14 @@ describe('the mark is task-level, in the Status cell (portal#2248 review: Jonas 
     expect(markIn(cellUnder(m, 'Status'))).not.toBeNull();
   });
 
-  it('both date columns are wide enough for their longest value at 1440 (review P3: clipping)', async () => {
+  it('reserves the default 200px for both deadline columns (portal#2253 item 2: renamed)', async () => {
     const m = await mount([task({ startBy: '2026-11-20T09:00:00Z', finishBy: '2026-11-21T09:00:00Z' })]);
+    // jsdom lays nothing out, so this pins the RESERVATION, not the fold: the
+    // 1440-viewport "fully visible" claim is measured in a real layout by
+    // scripts/proof-overdue-2244.mjs, which fails when a deadline column's
+    // right edge crosses the viewport.
     const width = (prefix: string) => {
-      const th = ([...m.target.querySelectorAll('th')] as HTMLElement[]).find((t) => t.textContent!.trim().startsWith(prefix))!;
+      const th = ([...m.target.querySelectorAll('thead tr:last-child th')] as HTMLElement[]).find((t) => t.textContent!.trim().startsWith(prefix))!;
       return th.getAttribute('style') ?? '';
     };
     expect(width('Start by')).toContain('--col-w: 200px');

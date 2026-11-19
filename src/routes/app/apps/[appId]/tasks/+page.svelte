@@ -92,7 +92,7 @@
   // portal#1349: the search box's live value, until the next server slice resets it.
   let typed = $state<string | null>(null);
   const searchValue = $derived(typed ?? data.text ?? '');
-  // A whole handle once trimmed: a pasted "AT3.405 " is still one (Uma's P2).
+  // A whole handle once trimmed: a pasted "AT3.405 " is still one (review P2).
   // portal#1415 item 3: the link NAMES the canonical spelling `parseHandle`
   // returns (upper case), never the case the user typed — and a bare handle
   // canonicalizes everywhere it travels (text, href, submit), so the URL bar
@@ -113,7 +113,7 @@
     { id: 'status', accessorFn: (r) => r.statusText, header: t('app.tasks.col.status', 'Status'), enableHiding: false, size: 170 },
     { id: 'title', accessorFn: (r) => r.title, header: t('app.tasks.col.task', 'Task'), enableHiding: false, size: 320 },
     { id: 'priority', accessorFn: (r) => r.priority, header: t('app.tasks.priority', 'Priority'), size: 110, sortDescFirst: false, sortFn: 'basic', sortUndefined: 'last' },
-    // portal#2248 review (Uma P3 1, Jonas P3, Celine QA note): the two deadline
+    // portal#2248 review: the two deadline
     // columns sit with the task's core facts, ahead of the people columns — at
     // 1440 the visible defaults total ~1690px, so anything after Assignee is
     // past the fold and Finish by was cut mid-date at the table edge. Widening

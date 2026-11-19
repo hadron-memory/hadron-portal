@@ -4,8 +4,33 @@
 // Svelte plugin, so `*.svelte.ts` runes modules can't be instantiated in tests).
 import type { PortalTable } from '$lib/table/features';
 import type { RowData } from '@tanstack/table-core';
-import { extractTableView, applyView, normalizeView } from './savedView';
+import { extractTableView, applyView, normalizeView, mergeMissingColumns } from './savedView';
 import type { ViewStore, SavedViewRecord } from './viewStore';
+
+/** The list's current default column order — the definition order of its
+ * leaf columns (no list ships a non-empty initial columnOrder). */
+function defaultColumnOrder<T extends RowData>(table: PortalTable<T>): string[] {
+  return table.getAllLeafColumns().map((c) => c.id);
+}
+
+/**
+ * Migrate a stored record for application (portal#2253 item 4): merge columns
+ * the saved order predates in at their default position, and PERSIST the merge
+ * — applying a merged order while the stored record keeps its pre-merge one
+ * would leave the view permanently "modified" (Save/Reset popping on every
+ * load) for a change the user never made. Returns the record unchanged when
+ * the merge is a no-op, so callers can skip both the write and the state swap.
+ */
+export async function migrateStoredView<T extends RowData>(
+  store: ViewStore,
+  table: PortalTable<T>,
+  listKey: string,
+  record: SavedViewRecord,
+): Promise<SavedViewRecord> {
+  const columnOrder = mergeMissingColumns(defaultColumnOrder(table), record.view.columnOrder);
+  if (columnOrder === record.view.columnOrder) return record;
+  return store.update(listKey, record.id, { view: { ...record.view, columnOrder } });
+}
 
 /** Create a view from the table's current arrangement; first view becomes default. */
 export async function createViewFrom<T extends RowData>(
@@ -31,14 +56,16 @@ export async function overwriteView<T extends RowData>(
   await store.update(listKey, id, { view: extractTableView(table) });
 }
 
-/** Apply a view to the table and mark it active. */
+/** Apply a view to the table and mark it active. Migrates first, so selecting
+ * a stored view that predates a column never appends the column at the end. */
 export async function applyAndActivate<T extends RowData>(
   store: ViewStore,
   table: PortalTable<T>,
   listKey: string,
   view: SavedViewRecord,
 ): Promise<void> {
-  applyView(table, view.view);
+  const migrated = await migrateStoredView(store, table, listKey, view);
+  applyView(table, migrated.view);
   await store.setActiveId(listKey, view.id);
 }
 
@@ -56,11 +83,13 @@ export async function removeAndResolve<T extends RowData>(
   currentActiveId: string | null,
 ): Promise<{ views: SavedViewRecord[]; activeId: string | null }> {
   await store.remove(listKey, id);
-  const views = await store.list(listKey);
+  let views = await store.list(listKey);
   if (!wasActive) return { views, activeId: currentActiveId };
 
-  const def = views.find((v) => v.isDefault) ?? null;
-  if (def) {
+  const def0 = views.find((v) => v.isDefault) ?? null;
+  if (def0) {
+    const def = await migrateStoredView(store, table, listKey, def0);
+    views = def !== def0 ? views.map((v) => (v.id === def.id ? def : v)) : views;
     applyView(table, def.view);
     await store.setActiveId(listKey, def.id);
     return { views, activeId: def.id };
@@ -83,7 +112,8 @@ export async function duplicateView<T extends RowData>(
   src: SavedViewRecord,
   name: string,
 ): Promise<SavedViewRecord> {
-  const record = await store.create(listKey, name, src.view);
+  const migrated = await migrateStoredView(store, table, listKey, src);
+  const record = await store.create(listKey, name, migrated.view);
   applyView(table, record.view);
   await store.setActiveId(listKey, record.id);
   return record;

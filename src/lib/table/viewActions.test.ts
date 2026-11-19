@@ -36,6 +36,10 @@ function tableStub() {
     __state: state,
     calls,
     store: { get: () => state },
+    // The list's current columns, in definition order (portal#2253 item 4:
+    // the migration reads the default order to place columns a saved view
+    // predates).
+    getAllLeafColumns: () => [{ id: 'colA' }, { id: 'colB' }, { id: 'colC' }],
     setSorting: push('setSorting'),
     setColumnFilters: push('setColumnFilters'),
     setGlobalFilter: push('setGlobalFilter'),
@@ -144,5 +148,36 @@ describe('duplicateView', () => {
     expect(t.calls).toContain('setSorting'); // applied to the table
     expect(await s.getActiveId(KEY)).toBe(copy.id);
     expect(await s.list(KEY)).toHaveLength(2);
+  });
+});
+
+describe('portal#2253 item 4 — applying a stored view that predates a column', () => {
+  it('applyAndActivate migrates the stored order and persists the merge', async () => {
+    const s = store();
+    const t = tableStub();
+    // A view saved when the list had only colA and colC, dragged around.
+    const stale = await s.create(KEY, 'Old', {
+      sorting: [], columnFilters: [], globalFilter: '', columnVisibility: {},
+      columnOrder: ['colC', 'colA'], columnSizing: {},
+      pagination: { pageIndex: 0, pageSize: 25 },
+    });
+    await applyAndActivate(s, t, KEY, stale);
+    const activated = await s.get(KEY, stale.id);
+    // colB (added later, default position between colA and colC) merges in
+    // after colA — its closest surviving default predecessor — and the merge
+    // is persisted, not just applied.
+    expect(activated?.view.columnOrder).toEqual(['colC', 'colA', 'colB']);
+  });
+
+  it('an up-to-date stored view applies with no rewrite', async () => {
+    const s = store();
+    const t = tableStub();
+    const fresh = await s.create(KEY, 'Fresh', {
+      sorting: [], columnFilters: [], globalFilter: '', columnVisibility: {},
+      columnOrder: ['colA', 'colB', 'colC'], columnSizing: {},
+      pagination: { pageIndex: 0, pageSize: 25 },
+    });
+    await applyAndActivate(s, t, KEY, fresh);
+    expect(await s.get(KEY, fresh.id)).toMatchObject({ updatedAt: fresh.updatedAt });
   });
 });

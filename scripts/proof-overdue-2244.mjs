@@ -18,7 +18,7 @@ import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 // fileURLToPath, not .pathname: paths with spaces or a Windows host break on
-// the raw pathname (portal#2248 review, Gil P3 5).
+// the raw pathname (portal#2248 review P3).
 const OUT = fileURLToPath(new URL('../docs/proofs/tasks-overdue-2244/', import.meta.url));
 mkdirSync(OUT, { recursive: true });
 
@@ -90,7 +90,7 @@ const initial = {
 const browser = await chromium.launch({ headless: true });
 const results = [];
 
-async function shoot(name, { dark }) {
+async function shoot(name, { dark, savedArrangement = null }) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
   await page.route('**/__board_fixture*', (r) => r.fulfill({
@@ -103,19 +103,31 @@ async function shoot(name, { dark }) {
     document.documentElement.classList.toggle('dark', dark);
     document.body.className = 'bg-white dark:bg-zinc-950';
   }, dark);
+  // portal#2253 item 4: optionally seed a saved board arrangement (pre-PR
+  // vintage, saved before the Finish by column existed) BEFORE the board
+  // mounts, the way a real browser carries it in localStorage across a
+  // deploy. The mount-time migration must weave the unseen column in at its
+  // default position rather than appending it at the far end.
+  if (savedArrangement) {
+    await page.evaluate((entries) => {
+      for (const [k, v] of Object.entries(entries)) localStorage.setItem(k, v);
+    }, savedArrangement);
+  }
   await page.evaluate(async () => { await import('/src/lib/test/fixtures/task-board-mount.ts'); });
   await page.evaluate(async (initial) => {
     window.__h = await window.__mountBoard(initial);
   }, initial);
-  // Not a fixed sleep loop (portal#2248 review, Gil P3 5): wait for the table.
+  // Not a fixed sleep loop (portal#2248 review P3): wait for the table.
   await page.waitForSelector('tbody tr');
 
-  const headers = await page.$$eval('th', (ths) => ths.map((th) => (th.textContent || '').trim()));
+  // Scoped to the one header row (portal#2253 item 3): header indexes map onto
+  // td indexes, and a second header row or a th in tbody would skew the mapping.
+  const headers = await page.$$eval('thead tr:last-child th', (ths) => ths.map((th) => (th.textContent || '').trim()));
   if (!headers.some((h) => h.startsWith('Finish by'))) throw new Error(`${name}: no Finish by column: ${JSON.stringify(headers)}`);
-  // portal#2248 review (Uma P3 1, Jonas P3): both deadline columns fully inside
-  // the 1440 viewport — a date cut mid-value at the table edge fails the ask
+  // portal#2248 review P3: both deadline columns fully inside the 1440
+  // viewport — a date cut mid-value at the table edge fails the ask
   // ("a reader can tell which time passed").
-  const fold = await page.$$eval('th', (ths) => ths.map((th) => {
+  const fold = await page.$$eval('thead tr:last-child th', (ths) => ths.map((th) => {
     const r = th.getBoundingClientRect();
     return { text: (th.textContent || '').trim(), right: r.right };
   }));
@@ -123,6 +135,16 @@ async function shoot(name, { dark }) {
     const h = fold.find((x) => x.text.startsWith(prefix));
     if (!h) throw new Error(`${name}: "${prefix}" column missing`);
     if (h.right > 1440) throw new Error(`${name}: "${prefix}" column is cut by the 1440 viewport edge (right=${Math.round(h.right)})`);
+  }
+  // portal#2253 item 4, seeded leg only: the migration must have woven the
+  // unseen Finish by column in right after Start by (its default home), not
+  // appended it at the far end where the fold check above would fail it.
+  if (savedArrangement) {
+    const startByIdx = headers.findIndex((h) => h.startsWith('Start by'));
+    const finishByIdx = headers.findIndex((h) => h.startsWith('Finish by'));
+    if (finishByIdx !== startByIdx + 1) {
+      throw new Error(`${name}: saved arrangement did not migrate (Finish by at ${finishByIdx}, Start by at ${startByIdx}): ${JSON.stringify(headers)}`);
+    }
   }
   // portal#2248 review: the mark is task-level, in the Status cell — never
   // under Start by ("— overdue" pointed at the one arm a started task can
@@ -162,11 +184,29 @@ async function shoot(name, { dark }) {
   await context.close();
 }
 
-// try/finally (portal#2248 review, Gil P3 5): a failed assertion must not
+// try/finally (portal#2248 review P3): a failed assertion must not
 // leave the vite server and the browser to process-exit cleanup.
+// The third leg (portal#2253 item 4) seeds a saved arrangement saved before
+// the Finish by column existed — deadlines dragged ahead of the people
+// columns — and proves the migration places the column at its default home,
+// inside the 1440 fold, on a real layout.
+const savedArrangement = {
+  'hadron:views:v1:app-tasks:board': JSON.stringify([{
+    id: 'v1', listKey: 'app-tasks:board', name: 'Pre-2248 layout',
+    view: {
+      sorting: [{ id: 'updated', desc: true }], columnFilters: [], globalFilter: '',
+      columnVisibility: { created: false, tags: false, id: false },
+      columnOrder: ['status', 'title', 'startBy', 'owner', 'assignee', 'subtasks', 'updated'],
+      columnSizing: {}, pagination: { pageIndex: 0, pageSize: 25 },
+    },
+    isDefault: true, createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z',
+  }]),
+  'hadron:views:v1:active:app-tasks:board': 'v1',
+};
 try {
   await shoot('1440-light-board', { dark: false });
   await shoot('1440-dark-board', { dark: true });
+  await shoot('1440-light-board-saved-arrangement', { dark: false, savedArrangement });
   console.log(JSON.stringify(results, null, 1));
 } finally {
   await browser.close();
