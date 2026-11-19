@@ -73,6 +73,14 @@ describe('App Runs manual server table', () => {
     const m = mount(section({ runs: [{ ...run('spawn'), triggerKind: 'SPAWN' }] })); await tick(8);
     expect(m.target.querySelector('tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('Spawn');
   });
+  it('renders well-shaped unknown enums as Unknown: raw in a neutral chip, borrowing no known state (#1766)', async () => {
+    const m = mount(section({ runs: [{ ...run('paused'), status: 'PAUSED', triggerKind: 'FUTURE_KIND' }] })); await tick(8);
+    const chip = m.target.querySelector('tbody tr td:nth-child(1) span') as HTMLElement;
+    expect(chip.textContent?.trim()).toBe('Unknown: PAUSED');
+    expect(chip.className).toContain('border-zinc-300');
+    expect(chip.className).not.toContain('amber');
+    expect(m.target.querySelector('tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('Unknown: FUTURE_KIND');
+  });
   it('keeps a held filter when the next choice changes sorting', async () => {
     const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
     const m = mount(); await tick(8);
@@ -380,12 +388,13 @@ describe('App Runs manual server table', () => {
     const m = mount(section({ statuses: [...statuses] as never })); await tick(8);
     expect(pressed(m.target, 'All')).toBe(all); expect(pressed(m.target, 'Active')).toBe(active);
   });
-  it('chip and checkbox labels come from t(), and an unknown status renders raw', async () => {
+  it('chip and checkbox labels come from t(), and an unknown status renders Unknown: raw (#1766)', async () => {
     stubbed.keys['runs.status.RUNNING'] = 'Läuft';
     const m = mount(section({ runs: [{ ...run('r1'), status: 'RUNNING' }, { ...run('r2'), status: 'PAUSED' as never }] })); await tick(8);
     expect(statusBox(m.target, 'Läuft')).toBeTruthy();
     const chips = [...m.target.querySelectorAll('tbody tr td:first-child span')].map(x => x.textContent?.trim());
-    expect(chips).toEqual(['Läuft', 'PAUSED']);
+    // #1766 (merged over #2286): an unknown status never renders bare — the reader sees it is unknown.
+    expect(chips).toEqual(['Läuft', 'Unknown: PAUSED']);
   });
 
 });

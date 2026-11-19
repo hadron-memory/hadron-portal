@@ -38,8 +38,13 @@
     { id: 'actions', header: t('runs.col.open', 'Open'), enableSorting: false, enableHiding: false, size: 140, minSize: 140 },
   ];
   // portal#2286: labels go through t() so they can be localized; a status with no key renders raw.
+  // portal#1766: a status this build doesn't know is NOT a key-less known status — it renders
+  // `Unknown: {raw}`, borrowing no known state's label (same contract as runStatusLabel in
+  // $lib/flow/runs, composed here because this table localizes known statuses #2286-style).
   const STATUS_LABELS: Record<string, string> = { PENDING: 'Pending', RUNNING: 'Running', COMPLETED: 'Completed', FAILED: 'Failed', TIMED_OUT: 'Timed out', CANCELLED: 'Cancelled' };
-  const statusLabel = (status: string) => t(`runs.status.${status}`, Object.hasOwn(STATUS_LABELS, status) ? STATUS_LABELS[status] : status);
+  const statusLabel = (status: string) => (RUN_STATUSES as readonly string[]).includes(status)
+    ? t(`runs.status.${status}`, Object.hasOwn(STATUS_LABELS, status) ? STATUS_LABELS[status] : status)
+    : t('runs.unknown', 'Unknown: {raw}', { raw: status });
   const SORT_LABELS: Record<RunsQuery['sort'], string> = { createdAt: 'Created', startedAt: 'Started', finishedAt: 'Finished', status: 'Status' };
   const sortSummary = $derived.by(() => {
     const sort = t(`runs.sort.${controls.sort}`, SORT_LABELS[controls.sort] ?? controls.sort);
