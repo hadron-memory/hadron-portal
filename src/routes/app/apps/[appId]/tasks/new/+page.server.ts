@@ -11,6 +11,7 @@ import {
   MEMORIES_QUERY,
 } from '$lib/server/queries';
 import { canonicalTaskId, loadTasksApp, loadWriteCandidates } from '$lib/server/agent-tasks';
+import { TASK_NOT_FOUND_MESSAGE } from '$lib/server/task-not-found';
 import {
   formValues,
   impersonationRefusal,
@@ -78,10 +79,10 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   const fromRaw = url.searchParams.get('from');
   if (fromRaw) {
     const seg = resolveSegment(fromRaw, app.urn);
-    if (seg.kind === 'unknown') throw error(404, 'Task not found');
+    if (seg.kind === 'unknown') throw error(404, TASK_NOT_FOUND_MESSAGE);
     const srcData = await client.request<{ agentTask: AgentTaskDetail | null }>(AGENT_TASK_DETAIL_QUERY, { id: seg.ref });
     const src = srcData.agentTask;
-    if (!src) throw error(404, 'Task not found');
+    if (!src) throw error(404, TASK_NOT_FOUND_MESSAGE);
     if (src.appId !== app.id) {
       // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
       await parent();
@@ -214,7 +215,7 @@ async function cloneTask(fd: FormData, values: Record<string, string | string[]>
     // form and every value they typed, with the neutral "Task not found" (no existence
     // oracle). Any other fault is the uncertain line, like any write's resolution read.
     if (isHttpError(e) && e.status === 404) {
-      return writeFailure('clone', cloneRefusal({ kind: 'refused', code: 'TASK_NOT_FOUND', message: 'Task not found' }), values);
+      return writeFailure('clone', cloneRefusal({ kind: 'refused', code: 'TASK_NOT_FOUND', message: TASK_NOT_FOUND_MESSAGE }), values);
     }
     return writeFailure('clone', { kind: 'uncertain' }, values);
   }

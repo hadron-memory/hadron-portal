@@ -92,7 +92,7 @@ async function loadPage(search = '') {
 }
 describe('App display-list request boundaries (#1758)', () => {
   it('defaults worklog to one page of 20 while retaining its real total', async () => {
-    const result = await loadPage();
+    const result = await loadPage('?tab=worklog');
     expect(calls.filter(c => c.name === 'TeamWorkItems').map(c => c.variables)).toEqual([
       expect.objectContaining({ appRef: APP_ID, limit: 20, offset: 0 }),
     ]);
@@ -100,7 +100,7 @@ describe('App display-list request boundaries (#1758)', () => {
     expect(result.worklogTotal).toBe(41);
   });
   it('does not drain 201 configs on first load: asks for 20 and preserves the count', async () => {
-    const result = await loadPage();
+    const result = await loadPage('?tab=ai-configs');
     expect(calls.filter(c => c.name === 'AiServiceConfigs').map(c => c.variables)).toEqual([
       expect.objectContaining({ ownerType: 'APP', ownerId: APP_ID, limit: 20, offset: 0 }),
     ]);
@@ -121,26 +121,31 @@ describe('App display-list request boundaries (#1758)', () => {
     expect(result.appConfigs).toEqual(configs.slice(20, 40));
     expect(result.appConfigs).toHaveLength(20);
   });
+  // portal#2240: each list is its own tab's read now, so each is opened on its tab.
   it('defaults the Memory/Flows and legacy chat-root lists to independent pages of 20', async () => {
-    const result = await loadPage('?tab=runs');
-    expect(calls.filter(c => c.name === 'AppNodesPage').map(c => c.variables)).toEqual([
-      expect.objectContaining({ appRef: APP_ID, limit: 20, offset: 0 }),
-    ]);
-    expect(calls.filter(c => c.name === 'AppChatRootsPage').map(c => c.variables)).toEqual([
-      expect.objectContaining({ appRef: APP_ID, limit: 20, offset: 0 }),
-    ]);
+    const runs = await loadPage('?tab=runs');
     expect(calls.filter(c => c.name === 'AppFlowsPage').map(c => c.variables)).toEqual([
       expect.objectContaining({ appRef: APP_ID, limit: 20, offset: 0 }),
     ]);
     expect(calls.filter(c => c.name === 'AppNodes')).toHaveLength(1); // complete Flow graph, not the display list
+    expect(runs.runsPanel).toMatchObject({ flowsPage: { offset: 0, count: 20, total: 45 } });
+    expect(runs.runsPanel).not.toHaveProperty('flowsCapped');
+    calls.length = 0;
+    const memory = await loadPage('?tab=memory');
+    expect(calls.filter(c => c.name === 'AppNodesPage').map(c => c.variables)).toEqual([
+      expect.objectContaining({ appRef: APP_ID, limit: 20, offset: 0 }),
+    ]);
+    expect(memory.appNodes).toHaveLength(20);
+    expect(memory.appNodesPage).toMatchObject({ offset: 0, count: 20, total: 45 });
+    expect(memory).not.toHaveProperty('appNodesCapped');
+    calls.length = 0;
+    const chats = await loadPage('?tab=chats');
+    expect(calls.filter(c => c.name === 'AppChatRootsPage').map(c => c.variables)).toEqual([
+      expect.objectContaining({ appRef: APP_ID, limit: 20, offset: 0 }),
+    ]);
     expect(calls.filter(c => c.name === 'AppChatRoots')).toEqual([]);
-    expect(result.appNodes).toHaveLength(20);
-    expect(result.appNodesPage).toMatchObject({ offset: 0, count: 20, total: 45 });
-    expect(result.chatRootsPage).toMatchObject({ offset: 0, count: 20, total: 25 });
-    expect(result.runsPanel).toMatchObject({ flowsPage: { offset: 0, count: 20, total: 45 } });
-    expect(result).not.toHaveProperty('appNodesCapped');
-    expect(result).not.toHaveProperty('chatsCapped');
-    expect(result.runsPanel).not.toHaveProperty('flowsCapped');
+    expect(chats.chatRootsPage).toMatchObject({ offset: 0, count: 20, total: 25 });
+    expect(chats).not.toHaveProperty('chatsCapped');
   });
   // #1929 LOCAL P3 / QA F4: a Flows pager over EVERY App node shows "No flows on
   // this page" whenever docs sort first. Flows page their own runnable-only window
@@ -150,12 +155,15 @@ describe('App display-list request boundaries (#1758)', () => {
     expect(calls.filter(c => c.name === 'AppFlowsPage').map(c => c.variables)).toEqual([
       expect.objectContaining({ appRef: APP_ID, limit: 20, offset: 20 }),
     ]);
-    expect(calls.find(c => c.name === 'AppNodesPage')?.variables).toMatchObject({ limit: 20, offset: 40 });
     expect(result.runsPanel).toMatchObject({ flowsPage: { offset: 20, count: 20, total: 45 } });
     const next = (result.runsPanel as { flowsPage: { nextHref: string | null } }).flowsPage.nextHref!;
     expect(new URL(next, 'https://x.test').searchParams.get('flowsOffset')).toBe('40');
     expect(new URL(next, 'https://x.test').searchParams.get('appNodesOffset')).toBe('40');
     expect(APP_FLOWS_PAGE_QUERY).toMatch(/isRunnable:\s*true/);
+    // The Memory tab's node pages move on their own offset (portal#2240: on their own tab).
+    calls.length = 0;
+    await loadPage('?tab=memory&flowsOffset=20&appNodesOffset=40');
+    expect(calls.find(c => c.name === 'AppNodesPage')?.variables).toMatchObject({ limit: 20, offset: 40 });
   });
   it('reads no Flows page outside the Runs tab', async () => {
     await loadPage('?tab=memory');
@@ -185,12 +193,16 @@ describe('App display-list request boundaries (#1758)', () => {
   });
 
   it('continues each App node list by its own URL offset', async () => {
+    // portal#2240: the chat-root list is the Chats tab's read, so each list is
+    // continued on its own tab, from the same URL offsets.
     const result = await loadPage('?tab=memory&appNodesOffset=20&chatRootsOffset=20');
     expect(calls.find(c => c.name === 'AppNodesPage')?.variables).toMatchObject({ limit: 20, offset: 20 });
-    expect(calls.find(c => c.name === 'AppChatRootsPage')?.variables).toMatchObject({ limit: 20, offset: 20 });
     expect(result.appNodes).toEqual(nodes.slice(20, 40));
     expect(result.appNodesPage).toMatchObject({ offset: 20, count: 20, total: 45 });
-    expect(result.chatRootsPage).toMatchObject({ offset: 20, count: 5, total: 25 });
+    calls.length = 0;
+    const chats = await loadPage('?tab=chats&appNodesOffset=20&chatRootsOffset=20');
+    expect(calls.find(c => c.name === 'AppChatRootsPage')?.variables).toMatchObject({ limit: 20, offset: 20 });
+    expect(chats.chatRootsPage).toMatchObject({ offset: 20, count: 5, total: 25 });
   });
   it('resolves a legacy chat deep link outside the current root page', async () => {
     const result = await loadPage('?tab=chats&chat=chats%3A24');

@@ -132,7 +132,10 @@ jobs:
       - name: Check Task integrations focus ring
         run: pnpm test:task-integrations-focus
 
-      # portal#1675: the ApplyAgentTickers result region paints a focus ring after a keyboard apply.
+      # portal#1675/#1745: the ApplyAgentTickers result region paints a focus ring after a
+      # real keyboard apply (Enter on the submit button, the real enhance round trip to a
+      # faked /__apply POST — keyboard modality survives the async round trip; a pointer-driven
+      # apply stays ring-free).
       - name: Check ApplyAgentTickers focus ring
         run: pnpm test:apply-agent-tickers-focus
 
