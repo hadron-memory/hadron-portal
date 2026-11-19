@@ -419,19 +419,32 @@
   // pending set IS the applied filter, so the resting view is unchanged.
   const shownHeads = $derived(toggleBase.kind === 'teams' ? toggleBase.headRefs : []);
   const pressedHeads = $derived(new Set(shownHeads));
+  // #2250 round 4 (Gil F4): one state, one view. While a request is pending,
+  // the pressed state follows the PENDING choice (as the chips already do);
+  // the applied view's invalidity is stale information about the view being
+  // replaced and must not fight it until the read lands.
+  const allPressed = $derived(toggleBase.kind === 'none' && (!filterInvalid || filterFocusRequest !== null));
   // A head's label is a post-time DISPLAY snapshot: it can collide and go
   // stale, so it is looked up for display only, never used as identity. With a
   // multi-head selection (#1482) each selected head is labelled from the first
   // loaded row that stamps it; a head whose filtered read is empty has no row
   // to label it and falls back to the generic name.
+  // #2250 round 4 (Gil F1): the map is keyed over the heads the reader can
+  // SEE — the PENDING set while a request is in flight, not the applied one
+  // that lags by a read — and a head this click ADDED is seeded with the
+  // clicked tag's label (the request keeps it), so the optimistic chip
+  // never reads as its opaque head ref while the read is pending.
   const activeTeamLabels = $derived.by(() => {
     const labels = new Map<string, string>();
-    if (filter.kind !== 'teams') return labels;
-    const heads = new Set(filter.headRefs);
+    const heads = new Set(shownHeads);
     for (const m of shownMessages) {
       for (const tag of m.teamTags ?? []) {
         if (heads.has(tag.headId) && !labels.has(tag.headId)) labels.set(tag.headId, tag.label);
       }
+    }
+    const request = filterFocusRequest;
+    if (request?.addedHead && request.label && !labels.has(request.addedHead)) {
+      labels.set(request.addedHead, request.label);
     }
     return labels;
   });
@@ -476,10 +489,16 @@
   // every other entry. Say the limit in the live region rather than
   // navigating to an unchanged filter and announcing a change that never
   // happened.
+  let capAnnouncementFlip = false;
   function announceCapReached() {
+    // #2250 round 4 (Gil F3): a live region announces CHANGES — setting the
+    // same string again is silent, so a second blocked click (or a second
+    // blocked tag) gave a screen-reader user nothing. Flip a zero-width
+    // mark each time so every refusal is a change the region re-announces.
+    capAnnouncementFlip = !capAnnouncementFlip;
     filterAnnouncement = t('app.team-chat.filter.cap-reached', 'At most {max} teams can be selected.', {
       max: TEAM_HEAD_REFS_MAX,
-    });
+    }) + (capAnnouncementFlip ? ' \u200b' : '');
     onFilterAnnouncement?.(filterAnnouncement);
   }
   function rememberFilterFocus(event: FocusEvent) {
@@ -492,19 +511,21 @@
   // NAMED — the added head's own chip, or the removed chip's neighbour — and
   // never defaults to chip 1. Head refs are HEAD_REF_PATTERN-constrained (no
   // quotes or backslashes), so the quoted attribute selector is safe.
+  function chipInBar(head: string | undefined): HTMLElement | null {
+    if (!head || !filterBarEl) return null;
+    return filterBarEl.querySelector<HTMLElement>(`[data-head="${head.replace(/["\\]/g, '\\$&')}"]`);
+  }
   function focusTargetFor(requested: TeamChatFilterFocusRequest): HTMLElement | null {
     const bar = filterBarEl;
     if (!bar) return null;
-    const chipOf = (head: string | undefined) =>
-      head ? bar.querySelector<HTMLElement>(`[data-head="${head.replace(/["\\]/g, '\\$&')}"]`) : null;
     if (requested.addedHead) {
-      const own = chipOf(requested.addedHead);
+      const own = chipInBar(requested.addedHead);
       if (own) return own;
     }
     if (requested.removedHead) {
       const idx = requested.baseHeadRefs.indexOf(requested.removedHead);
       for (const neighbour of [requested.baseHeadRefs[idx + 1], requested.baseHeadRefs[idx - 1]]) {
-        const el = chipOf(neighbour);
+        const el = chipInBar(neighbour);
         if (el) return el;
       }
       // No neighbour remains: the set emptied (or its chips are gone) — the
@@ -529,11 +550,24 @@
     void tick().then(() => {
       if (cancelled || !messagesEl || filterFocusRequest !== requested || filterKey !== applied) return;
       if (failed || requested.key !== applied) {
-        // Consume failed and abandoned choices silently: the existing error
-        // UI explains them. No success announcement now or on later history.
-        filterAnnouncement = '';
-        onFilterAnnouncement?.('');
+        // #2250 round 4 (Gil F2): a failed or abandoned choice is consumed
+        // without a SUCCESS announcement (the existing error UI explains the
+        // failure) — but not invisibly. The optimistic chip change unmounted
+        // the control the reader had focus on; when the revert re-renders,
+        // give focus back (the restored chip for a removal, the opener for
+        // an add or bulk clear, when still connected) and say the filter did
+        // not change, so a keyboard reader is not left on <body> over a
+        // revert they cannot see. Focus is only taken back from <body>: a
+        // reader who moved elsewhere keeps their focus.
+        filterAnnouncement = t('app.team-chat.filter.reverted', 'The team filter did not change.');
+        onFilterAnnouncement?.(filterAnnouncement);
         filterFocusRequest = null;
+        void tick().then(() => {
+          if (filterFocusRequest || !filterBarEl) return;
+          if (document.activeElement !== document.body) return;
+          if (requested.removedHead) chipInBar(requested.removedHead)?.focus();
+          else if (requested.opener instanceof HTMLElement && requested.opener.isConnected) requested.opener.focus();
+        });
         return;
       }
       const selected = focusTargetFor(requested) ?? composerEl;
@@ -904,13 +938,13 @@
       <div role="group" aria-labelledby="team-chat-filter-label" class="flex flex-wrap items-center gap-1">
         <button
           type="button"
-          aria-pressed={toggleBase.kind === 'none' && !filterInvalid}
+          aria-pressed={allPressed}
           onclick={() => selectTeam(NO_TEAM_FILTER)}
-          class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border px-2 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 {toggleBase.kind === 'none' && !filterInvalid
+          class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border px-2 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 {allPressed
             ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-200'
             : 'border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
         >
-          {#if toggleBase.kind === 'none' && !filterInvalid}<Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />{/if}
+          {#if allPressed}<Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />{/if}
           {t('app.team-chat.filter.all', 'All messages')}
         </button>
         {#if shownHeads.length > 0}
@@ -1186,7 +1220,7 @@
                         : capReached
                           ? t('app.team-chat.filter.cap-reached', 'At most {max} teams can be selected.', { max: TEAM_HEAD_REFS_MAX })
                           : t('app.team-chat.tag.filter', 'Show messages with this team tag')}
-                      class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 text-zinc-600 enabled:hover:bg-zinc-200 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-pressed:border-indigo-500 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:enabled:hover:bg-zinc-700 dark:aria-pressed:border-indigo-400 dark:aria-pressed:bg-indigo-950 dark:aria-pressed:text-indigo-200"
+                      class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 text-zinc-600 not-aria-disabled:hover:bg-zinc-200 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-pressed:border-indigo-500 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:not-aria-disabled:hover:bg-zinc-700 dark:aria-pressed:border-indigo-400 dark:aria-pressed:bg-indigo-950 dark:aria-pressed:text-indigo-200"
                     >{#if pressed}<Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />{/if}{tag.label}</button>
                   {/each}
                 </span>
