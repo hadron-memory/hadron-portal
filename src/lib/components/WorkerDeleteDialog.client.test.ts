@@ -239,7 +239,7 @@ it('portal#2260 R3 (Gil P2): a same-ID worker object re-supply cannot wipe the l
   // (routes/app/workers/[id]/+page.svelte), and the uncertain leg's own
   // invalidateAll re-runs that page's load — so a same-ID object replacement
   // is not a target change. The reset effect must key on the scalar id
-  // (review:identity-reset-tracks-scalar-not-loader-object): reading worker.id
+  // (hrn:node:hadronmemory.com:hadron-portal:review:identity-reset-tracks-scalar-not-loader-object): reading worker.id
   // through the prop object re-fires the reset on the re-supply and wipes the
   // latch ~after it shows, re-enabling the naive retry that would re-post a
   // possibly-committed delete and read WORKER_NOT_FOUND as a refusal.
