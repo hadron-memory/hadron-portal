@@ -86,7 +86,7 @@ describe('#2043 saved run and chat outcomes stay separate', () => {
   ] as const;
   it.each(cases)('%s has closed copy independent of run success', (status, ok, headline) => {
     const v = testResultView({ ...result(), chat: { status } });
-    expect(v.saved).toBe(true);
+    expect(v.labelledLegs).toBe(true);
     expect(v.ok).toBe(true);
     expect(v.chat).toMatchObject({ ok, headline });
   });

@@ -5084,6 +5084,24 @@ export const TEST_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
   }
 `;
 
+// #2217: the same Test without the chat leg. Sent only after a server that
+// predates `chatProbe` rejected the document above, so the Run row still shows.
+export const TEST_AI_SERVICE_CONFIG_RUN_ONLY_MUTATION = /* GraphQL */ `
+  mutation TestAiServiceConfigRunOnly($id: ID!, $override: AiServiceConfigTestOverride) {
+    testAiServiceConfig(id: $id, override: $override) {
+      ok
+      provider
+      model
+      endpoint
+      apiStyle
+      used { provider model endpoint apiStyle key }
+      latencyMs
+      reply
+      error { code message transient }
+    }
+  }
+`;
+
 // ---------------------------------------------------------------------------
 // #942 — Channel management (spec 049 phase 4). An App's Channels, the App's
 // default, and the caller's WRITE standing on the App's shared memory (the
