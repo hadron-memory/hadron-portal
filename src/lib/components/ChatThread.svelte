@@ -42,6 +42,8 @@
     hasOlder = false,
     onLoadOlder,
     showSeq = false,
+    loadFailed = false,
+    onRetry,
   }: {
     messages?: ChatThreadMessage[];
     basePath: string;
@@ -58,6 +60,11 @@
      *  and every other consumer of this component — the node page's inline
      *  Chat tab, agent chats — is unchanged. */
     showSeq?: boolean;
+    /** #1828: the read of this thread was REJECTED. Shown instead of the empty-thread wording, which
+     *  would announce a long thread whose reads are failing as a fresh, empty conversation. */
+    loadFailed?: boolean;
+    /** #1828: the page's own recovery path (reload the page data); rendered as the Retry button. */
+    onRetry?: () => void | Promise<void>;
     /** #793: is there history before the loaded window? Drives scroll-up. */
     hasOlder?: boolean;
     /** #793: fetch the page BEFORE the current window. The route owns HOW to
@@ -80,6 +87,20 @@
   // poll, and for the same reason.
   let older = $state<ChatThreadMessage[]>([]);
   let loadingOlder = $state(false);
+  /** #1828: a Retry is in flight; the button is disabled so a double click cannot stack reloads. */
+  let retrying = $state(false);
+  async function retry() {
+    if (retrying || !onRetry) return;
+    retrying = true;
+    try {
+      await onRetry();
+    } catch (e) {
+      // Still down: the failed-load state stays; the button re-enables below for another try.
+      console.warn('[chat] retry after a failed load failed:', e);
+    } finally {
+      retrying = false;
+    }
+  }
   let olderExhausted = $state(false);
   $effect(() => {
     messages;
@@ -274,7 +295,21 @@
         {t('chat.start-of-conversation', 'Start of the conversation')}
       </p>
     {/if}
-    {#if shownMessages.length === 0}
+    {#if shownMessages.length === 0 && loadFailed}
+      <div class="flex items-center justify-center h-full text-center" role="alert" data-testid="chat-load-failed">
+        <div class="space-y-3">
+          <p class="text-zinc-500 dark:text-zinc-400">{t('chat.load-failed', "Couldn't load this conversation.")}</p>
+          {#if onRetry}
+            <button
+              type="button"
+              onclick={retry}
+              disabled={retrying}
+              class="rounded-md bg-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-300 disabled:opacity-50 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600"
+            >{retrying ? t('chat.retrying', 'Retrying…') : t('chat.retry', 'Retry')}</button>
+          {/if}
+        </div>
+      </div>
+    {:else if shownMessages.length === 0}
       <div class="flex items-center justify-center h-full text-center">
         <div>
           <p class="text-zinc-500 dark:text-zinc-400">No messages yet</p>

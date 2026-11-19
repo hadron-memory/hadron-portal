@@ -14,8 +14,10 @@ describe('document page states', () => {
     expect(nodes).toContain('too many specs');
     expect(nodes).toContain('limit is 300');
     expect(bytes).not.toContain('too many specs');
-    expect(bytes).not.toContain('limit is 300');
+    // F8 (#2271): the byte limit names its cap like the node limit does, in its own unit.
+    expect(bytes).toContain('limit is 300 bytes');
     expect(bytes).toMatch(/too large/);
+    expect(html({ state: 'too-large', cap: null, limit: 'bytes' })).not.toContain('limit is');
     expect(links).toMatch(/too many links/);
     expect(links).not.toContain('too many specs');
     expect(unknown).not.toContain('too many specs');

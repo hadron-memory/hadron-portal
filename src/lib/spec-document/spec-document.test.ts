@@ -14,10 +14,14 @@ describe('specDocumentFilename', () => {
   it('replaces each colon with a hyphen and adds .md', () => expect(specDocumentFilename('cor:agt:110')).toBe('cor-agt-110.md'));
   it('keeps case and dots', () => expect(specDocumentFilename('Fx:1.2')).toBe('Fx-1.2.md'));
   it('strips path separators, controls and quotes', () => {
-    expect(specDocumentFilename('../a/b\\c"d\r\ne')).toBe('-.-a-b-c-d--e.md');
+    expect(specDocumentFilename('../a/b\\c"d\r\ne')).toBe('_.-a-b-c-d--e.md');
   });
-  it('never starts with a dot and never is empty', () => {
-    expect(specDocumentFilename('..')).toBe('-..md');
+  it('never starts with a dot or a dash (a dash-led name reads as a command-line option) and never is empty', () => {
+    expect(specDocumentFilename('..')).toBe('_..md');
+    expect(specDocumentFilename('.hidden')).toBe('_hidden.md');
+    expect(specDocumentFilename('-rf')).toBe('_rf.md');
+    expect(specDocumentFilename(':a')).toBe('_a.md');
+    expect(specDocumentFilename('--help')).toBe('_-help.md');
     expect(specDocumentFilename('')).toBe('spec-document.md');
   });
 });

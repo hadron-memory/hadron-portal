@@ -29,6 +29,8 @@
         {t('spec-document.too-large-cap', 'This feature has too many specs to show as one document (the limit is {cap}).', { cap: doc.cap })}
       {:else if doc.limit === 'links'}
         {t('spec-document.too-many-links', 'This feature has too many links to show as one document.')}
+      {:else if doc.limit === 'bytes' && doc.cap}
+        {t('spec-document.too-large-bytes-cap', 'This feature is too large to show as one document (the limit is {cap} bytes).', { cap: doc.cap })}
       {:else}
         {t('spec-document.too-large', 'This feature is too large to show as one document.')}
       {/if}

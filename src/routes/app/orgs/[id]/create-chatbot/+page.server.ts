@@ -75,7 +75,7 @@ export const actions: Actions = {
       });
       const systemMemoryId = systemResult.createMemory.id;
       await client.request(UPDATE_MEMORY_MUTATION, {
-        id: systemMemoryId, name: systemDisplayName,
+        ref: systemMemoryId, name: systemDisplayName,
       });
 
       // 2. Optionally create the knowledge memory (read-only domain content)
@@ -89,16 +89,16 @@ export const actions: Actions = {
         });
         knowledgeMemoryId = knowledgeResult.createMemory.id;
         await client.request(UPDATE_MEMORY_MUTATION, {
-          id: knowledgeMemoryId, name: knowledgeMemoryName,
+          ref: knowledgeMemoryId, name: knowledgeMemoryName,
         });
       }
 
       // 3. Create the agent
       const agentResult = await client.request<{ createAgent: { id: string } }>(CREATE_AGENT_MUTATION, {
-        orgId: params.id,
+        orgRef: params.id,
         name: agentSlug || agentName,
         description: agentDescription,
-        systemMemoryId,
+        systemMemoryRef: systemMemoryId,
         visibility,
       });
       const agentId = agentResult.createAgent.id;

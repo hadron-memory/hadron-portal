@@ -221,6 +221,12 @@ describe('App Keys tab row ⋯ menu (#1020)', () => {
     expect(items.map((i) => [i.tagName, i.textContent?.trim()])).toEqual([['BUTTON', 'Copy ID'], ['BUTTON', 'Revoke']]);
   });
 
+  it('a viewer who cannot manage keys is offered Copy ID and no Revoke', async () => {
+    const target = await mountTab('keys', { viewerManages: { kind: 'known', manages: false } });
+    const items = openMenu(target, 'Actions for key abc123');
+    expect(items.map((i) => i.textContent?.trim())).toEqual(['Copy ID']);
+  });
+
   it('Copy ID writes the PICKED key\'s full ID to the clipboard', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });

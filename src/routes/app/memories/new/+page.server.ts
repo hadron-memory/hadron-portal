@@ -38,7 +38,7 @@ export const actions: Actions = {
       // when it differs (best-effort, mirrors the org create flow).
       if (displayName && displayName !== name) {
         await gqlClient(locals.token)
-          .request(UPDATE_MEMORY_MUTATION, { id: result.createMemory.id, name: displayName })
+          .request(UPDATE_MEMORY_MUTATION, { ref: result.createMemory.id, name: displayName })
           .catch(() => {});
       }
       redirect(303, `/app/memories/${result.createMemory.id}`);
