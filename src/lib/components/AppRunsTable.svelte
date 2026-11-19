@@ -38,7 +38,7 @@
   ];
   // portal#2286: labels go through t() so they can be localized; a status with no key renders raw.
   const STATUS_LABELS: Record<string, string> = { PENDING: 'Pending', RUNNING: 'Running', COMPLETED: 'Completed', FAILED: 'Failed', TIMED_OUT: 'Timed out', CANCELLED: 'Cancelled' };
-  const statusLabel = (status: string) => t(`runs.status.${status}`, STATUS_LABELS[status] ?? status);
+  const statusLabel = (status: string) => t(`runs.status.${status}`, Object.hasOwn(STATUS_LABELS, status) ? STATUS_LABELS[status] : status);
   const SORT_LABELS: Record<RunsQuery['sort'], string> = { createdAt: 'Created', startedAt: 'Started', finishedAt: 'Finished', status: 'Status' };
   const sortSummary = $derived.by(() => {
     const sort = t(`runs.sort.${controls.sort}`, SORT_LABELS[controls.sort] ?? controls.sort);
@@ -47,6 +47,9 @@
       : (controls.dir === 'asc' ? t('runs.order.time-asc', 'oldest first') : t('runs.order.time-desc', 'newest first'));
     return t('runs.sort-summary', 'Sorted by {sort}, {order}', { sort, order });
   });
+  // The panel above explains an unfiltered-empty SERVED page once; when it is not showing that (the first read failed and Retry
+  // recovered to empty), the table owns the one message, keyed on the same served `initial` the panel reads.
+  const panelExplains = $derived(!initial.failed && initial.total === 0 && initial.statuses.length === 0);
   const ACTIVE = ['PENDING', 'RUNNING'];
   const allPressed = $derived(controls.statuses.length === 0);
   const activePressed = $derived(controls.statuses.length === ACTIVE.length && ACTIVE.every(x => controls.statuses.includes(x as never)));
@@ -117,9 +120,10 @@
   </fieldset>
   <p data-testid="runs-sort-summary" class="text-sm text-zinc-600 dark:text-zinc-300">{sortSummary}</p>
   {#if section.failed}<div role="alert"><p>{t('runs.read-failed', 'Could not load runs. Try again.')}</p><button type="button" disabled={pending} onclick={retry} class="min-h-11 rounded border border-zinc-300 bg-white px-3 text-zinc-900 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">{t('runs.retry', 'Retry')}</button></div>
-  {:else if section.total === 0 && section.statuses.length}<p>{t('runs.empty.filtered', 'No runs with this status yet.')}</p>{/if}
-  <!-- portal#2286: the unfiltered empty case is explained once, by the panel above (the trigger explainer). -->
-  {#if !section.failed && !(section.total === 0 && !section.statuses.length)}<p>{t('runs.pager.total', 'Total:')} {section.total}</p>{/if}
+  {:else if section.total === 0 && section.statuses.length}<p>{t('runs.empty.filtered', 'No runs with this status yet.')}</p>
+  {:else if section.total === 0 && !panelExplains}<p>{t('runs.empty.title', 'No runs yet.')}</p>{/if}
+  <!-- portal#2286: the unfiltered empty case is explained once: by the panel above when the page was served empty, else by the line above. -->
+  {#if !section.failed && !(section.total === 0 && !section.statuses.length && panelExplains)}<p>{t('runs.pager.total', 'Total:')} {section.total}</p>{/if}
   <DataTable containCells {table} listKey="app-runs-server" showSearch={false} showPageSize={false} initialColumnsOnly={section.explicitState} sortButtons={true} searchPlaceholder="" searchAriaLabel="">
     {#snippet cell(c, run)}
       {#if c.column.id === 'status'}<span class="inline-block max-w-full rounded px-2 py-1 [overflow-wrap:anywhere] {statusChipClass(run.status)}">{statusLabel(run.status)}</span>

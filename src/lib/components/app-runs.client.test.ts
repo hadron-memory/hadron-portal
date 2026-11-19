@@ -254,6 +254,20 @@ describe('App Runs manual server table', () => {
     expect(text).not.toContain('Runs start from a trigger');
     expect(text).not.toContain('No runs yet');
   });
+  it('a failed first read that Retry recovers to an empty unfiltered list still states "no runs" once', async () => {
+    setStubPage('http://localhost/app/apps/app-1?tab=runs', { appId: 'app-1' });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply(section({ runs: [], total: 0, page: 1 }))));
+    const m = mountComponent(AppRunsPanel as never, { data: await panelData({ failed: true }), form: null } as never); cleanup.push(m.unmount); await tick(8);
+    find(m.target, 'Retry').click(); await tick(24);
+    const text = m.target.textContent ?? '';
+    expect(text).not.toContain('Could not load runs');
+    expect((text.match(/No runs yet\./g) ?? []).length + (text.match(/Runs start from a trigger/g) ?? []).length).toBe(1);
+  });
+  it('an inherited Object.prototype key is not a status label', async () => {
+    const m = mount(section({ runs: [{ ...run('x'), status: 'constructor' as never }] })); await tick(8);
+    expect(m.target.textContent).toContain('constructor');
+    expect(m.target.textContent).not.toContain('function Object');
+  });
   it.each([
     ['createdAt', 'desc', 'Sorted by Created, newest first'], ['createdAt', 'asc', 'Sorted by Created, oldest first'],
     ['startedAt', 'asc', 'Sorted by Started, oldest first'], ['finishedAt', 'desc', 'Sorted by Finished, newest first'],
