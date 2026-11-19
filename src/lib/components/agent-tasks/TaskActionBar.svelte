@@ -132,10 +132,27 @@
   const candidates = $derived(pickers.kind === 'ok' ? pickers.value : EMPTY_PICKERS);
   const roles = $derived(pickers.kind === 'ok' ? pickers.value.roles : []);
   const families = $derived(pickers.kind === 'ok' ? pickers.value.families : []);
+  // The page reuses this bar across tasks: another App's workers, people and roles never carry over.
+  let pickersApp: string | null = null;
+  $effect(() => {
+    const app = task.appId;
+    untrack(() => {
+      const moved = pickersApp !== null && app !== pickersApp;
+      pickersApp = app;
+      if (moved) {
+        pickers = { kind: 'idle' };
+        // A panel that needs the options is still open on the new task: read them for this App now.
+        if (open === 'assign' || open === 'reassign' || open === 'edit') void ensurePickers();
+      }
+    });
+  });
   async function ensurePickers() {
     if (pickers.kind === 'ok' || pickers.kind === 'loading') return;
     pickers = { kind: 'loading' };
+    const forApp = task.appId;
     const read = await loadPickers();
+    // The reader moved to a task in another App while this read ran: its options are not theirs to see.
+    if (task.appId !== forApp) return;
     pickers = read.kind === 'ok' ? { kind: 'ok', value: read.value } : { kind: 'failed' };
   }
 

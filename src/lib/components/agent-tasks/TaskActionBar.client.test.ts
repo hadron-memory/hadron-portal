@@ -662,3 +662,27 @@ describe('TaskActionBar: Clone (portal#2161)', () => {
     expect(root.textContent).toContain('Viewing as Mike');
   });
 });
+
+describe('TaskActionBar pickers across Apps (Gil P3 on #2263)', () => {
+  it('another App\'s options are read again, never carried over from the first App', async () => {
+    const reads: string[] = [];
+    const props = reactiveProps({
+      task: task(), canWrite: true, impersonating: null, openChildren: { count: 0, capped: false },
+      loadPickers: async () => {
+        reads.push('read');
+        return { kind: 'ok' as const, value: { ...candidates, roles: [], families: [] } };
+      },
+      loadMemories: async () => ({ kind: 'ok' as const, value: [] }),
+    } as Record<string, unknown>);
+    const m = mountComponent(TaskActionBar as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(4);
+    button(m.target, 'Reassign…').click();
+    await tick(6);
+    expect(reads).toHaveLength(1);
+
+    props.task = task({ id: 't2', appId: 'app-2' }); // a cross-App parent or blocker link
+    await tick(6);
+    expect(reads).toHaveLength(2); // the open panel reads the new App's options at once
+  });
+});

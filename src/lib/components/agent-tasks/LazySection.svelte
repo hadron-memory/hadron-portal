@@ -66,15 +66,21 @@
     };
   });
 
-  // Another task in the same component: forget the answer and wait to be shown again.
+  // Another task in the same component: abort a read still in flight, forget any answer, and wait to be
+  // shown again. It acts whether or not an answer has landed: a read in flight for task A must never fill
+  // task B's section (the page reuses this component across tasks).
+  let seen: string | null = null;
   $effect(() => {
     const id = taskId;
     untrack(() => {
-      if (answeredFor && id !== answeredFor) {
+      if (seen !== null && id !== seen) {
+        ctl?.abort();
+        ctl = null;
         read = null;
         answeredFor = '';
         watch();
       }
+      seen = id;
     });
   });
 </script>
