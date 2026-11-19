@@ -214,11 +214,20 @@ describe('A derived agent on the Agents tab (#1684)', () => {
 });
 
 describe('App Keys tab row ⋯ menu (#1020)', () => {
-  it('offers Revoke as the only menu item, with no inline Revoke button', async () => {
+  it('offers Copy ID and Revoke as menu items, with no inline Revoke button', async () => {
     const target = await mountTab('keys');
     expect(target.textContent).not.toContain('Revoke');
     const items = openMenu(target, 'Actions for key abc123');
-    expect(items.map((i) => [i.tagName, i.textContent?.trim()])).toEqual([['BUTTON', 'Revoke']]);
+    expect(items.map((i) => [i.tagName, i.textContent?.trim()])).toEqual([['BUTTON', 'Copy ID'], ['BUTTON', 'Revoke']]);
+  });
+
+  it('Copy ID writes the PICKED key\'s full ID to the clipboard', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const target = await mountTab('keys');
+    openMenu(target, 'Actions for key abc123').find((i) => i.textContent?.trim() === 'Copy ID')!.click();
+    await tick(2);
+    expect(writeText).toHaveBeenCalledWith('k1');
   });
 
   it('Revoke confirms, then submits the hidden revokeKey form for the PICKED key', async () => {

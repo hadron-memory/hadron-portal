@@ -432,19 +432,22 @@
       : t('app.client.setup.ask', 'Setup files contain a new App key, so only people who manage this App can download them. Ask one of its owners.');
   });
   const keyControlsUnknownNote = () => t('app.keys.manager-unknown', 'Couldn’t check whether you can manage this App’s keys. If you can’t, the change will be refused.');
+  // The full ID is 32 characters, too wide for the grid; the cell shows head and tail, the title attribute the whole.
+  const shortKeyId = (id: string) => (id.length > 16 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id);
   const appKeyColumns: PortalColumnDef<AppKey>[] = [
-    { accessorKey: 'label', header: t('app.keys.column.label', 'Label'), enableHiding: false, size: 200 },
-    { accessorKey: 'keyPreview', header: t('app.keys.column.preview', 'Preview'), size: 120 },
-    { accessorFn: (row) => keyDateMs(row.createdAt), id: 'createdAt', header: t('app.keys.column.created', 'Created'), size: 170 },
-    { accessorFn: (row) => keyDateMs(row.lastUsedAt), id: 'lastUsedAt', header: t('app.keys.column.last-used', 'Last used'), size: 170 },
+    { accessorKey: 'id', header: t('app.keys.column.id', 'ID'), size: 140 },
+    { accessorKey: 'label', header: t('app.keys.column.label', 'Name'), enableHiding: false, size: 190 },
+    { accessorKey: 'keyPreview', header: t('app.keys.column.preview', 'Preview'), size: 185 },
+    { accessorFn: (row) => keyDateMs(row.createdAt), id: 'createdAt', header: t('app.keys.column.created', 'Created'), size: 190 },
+    { accessorFn: (row) => keyDateMs(row.lastUsedAt), id: 'lastUsedAt', header: t('app.keys.column.last-used', 'Last used'), size: 150 },
     // portal#1099 — what each key may do (hrn:node:hadronmemory.com:specs:cor:aut:010:03). The field is
     // readable only by whoever manages the App, so the column exists only when
     // the server answered the scopes read; for anyone else it isn't there at
     // all, never an empty chip. Read-only: giving and taking back scopes is S7b.
     ...(untrack(() => tabData.keyScopes?.kind === 'ok')
-      ? [{ id: 'scopes', accessorFn: (row: AppKey) => keyScopesText(row.id), header: t('app.keys.column.scopes', 'Scopes'), enableSorting: false, size: 220 } satisfies PortalColumnDef<AppKey>]
+      ? [{ id: 'scopes', accessorFn: (row: AppKey) => keyScopesText(row.id), header: t('app.keys.column.scopes', 'Scopes'), enableSorting: false, size: 90 } satisfies PortalColumnDef<AppKey>]
       : []),
-    { id: 'actions', header: t('app.keys.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
+    { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 56 },
   ];
   const appKeyFmt: Record<string, (v: unknown) => string> = {
     label: (v) => (v as string | null) ?? '—',
@@ -2196,6 +2199,7 @@
     await tick();
     installAgentFormEl?.requestSubmit();
   }
+  const copyKeyId = (id: string) => navigator.clipboard.writeText(id).catch((e) => console.error('Failed to copy key ID', e));
   async function revokeAppKey(key: { id: string }) {
     if ($revokeKeySubmitting) return;
     if (!confirm(t('app.keys.revoke.confirm', 'Revoke this key? This cannot be undone.'))) return;
@@ -3825,7 +3829,6 @@
            columns fit on a desktop instead of scrolling inside a narrow box. -->
       <section data-testid="app-keys-section">
         <div class="max-w-2xl">
-        <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">{t('app.keys.heading', 'App Keys')}</h2>
         <p class="mb-4 text-sm text-zinc-500">
           App Keys are long-lived server secrets. Store them in your backend environment —
           never in client-side code.
@@ -3844,9 +3847,9 @@
              is no room for a 200px input beside the button, so the same
              button stacks under the input at full width. -->
         <div class="@container mb-5">
-        <form method="POST" action="?/createKey" use:createKeyEnhance class="grid grid-cols-1 gap-x-2 @sm:grid-cols-[minmax(200px,1fr)_auto]" novalidate>
+        <form method="POST" action="?/createKey" use:createKeyEnhance class="grid max-w-md grid-cols-1 gap-x-2 @sm:grid-cols-[minmax(200px,1fr)_auto]" novalidate>
           <input type="hidden" name="_kind" value={$createKeyForm._kind} />
-          <label for="label" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300 @sm:col-start-1 @sm:row-start-1">Label (optional)</label>
+          <label for="label" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300 @sm:col-start-1 @sm:row-start-1">{t('app.keys.name.label', 'Name')}</label>
           <input id="label" type="text" name="label" placeholder="e.g. production-backend"
             bind:value={$createKeyForm.label} class="{inputClass} @sm:self-center @sm:col-start-1 @sm:row-start-2" />
           {#if createKeyActionError}
@@ -3884,8 +3887,10 @@
             maxHeight="max(200px, calc(100vh - 30rem))"
           >
             {#snippet cell(cell, key)}
-              {#if cell.column.id === 'keyPreview'}
-                <span class="font-mono text-xs text-zinc-500">{key.keyPreview}</span>
+              {#if cell.column.id === 'id'}
+                <span class="block truncate font-mono text-xs text-zinc-500" title={key.id}>{shortKeyId(key.id)}</span>
+              {:else if cell.column.id === 'keyPreview'}
+                <span class="block truncate font-mono text-xs text-zinc-500" title={key.keyPreview}>{key.keyPreview}</span>
               {:else if cell.column.id === 'scopes'}
                 {@const scopes = keyScopesOf(key.id)}
                 {#if scopes.length === 0}
@@ -3901,15 +3906,16 @@
                 <!-- #1020: Revoke lives in the row's ⋯ menu; the browser
                      confirm and the hidden form below the table carry what
                      the per-row form did. portal#1153: absent when withheld. -->
-                {#if keyControls !== 'withheld'}
                 <NodeActionsMenu
-                  actions={[{ id: 'revoke', label: t('app.keys.revoke', 'Revoke'), danger: true }]}
-                  onselect={() => revokeAppKey(key)}
+                  actions={[
+                    { id: 'copy-id', label: t('app.keys.copy-id', 'Copy ID') },
+                    ...(keyControls !== 'withheld' ? [{ id: 'revoke', label: t('app.keys.revoke', 'Revoke'), danger: true }] : []),
+                  ]}
+                  onselect={(id) => (id === 'copy-id' ? copyKeyId(key.id) : revokeAppKey(key))}
                   label={t('app.keys.actions.label', 'Actions for key {key}', { key: key.keyPreview })}
                   fixed
                   compact
                 />
-                {/if}
               {:else}
                 {@const f = appKeyFmt[cell.column.id]}
                 <div class="truncate">{f ? f(cell.getValue()) : (cell.getValue() ?? '—')}</div>
