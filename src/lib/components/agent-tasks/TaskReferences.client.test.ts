@@ -38,10 +38,10 @@ afterEach(() => {
 
 async function openEdit(references: unknown[] = [], nodeMemories: unknown = { kind: 'ok', value: [{ id: 'm1', name: 'Team KB', urn: 'hrn:mem:acme.com:team', visibility: null }] }) {
   const p = reactiveProps<Record<string, unknown>>({
-    task: task(references), canWrite: true, impersonating: null, candidates: { workers: [], people: [] },
-    roles: [], families: [], openChildren: { count: 0, capped: false }, appUrn: 'hrn:app:acme.com:team',
+    task: task(references), canWrite: true, impersonating: null, loadPickers: async () => ({ kind: 'ok' as const, value: { workers: [], people: [], roles: [], families: [] } }),
+    openChildren: { count: 0, capped: false }, appUrn: 'hrn:app:acme.com:team',
     // portal#1576: the NODE picker's memory stage (the page streams this).
-    nodeMemories,
+    loadMemories: async () => (nodeMemories instanceof Promise ? await nodeMemories : nodeMemories) as never,
   });
   const m = mountComponent(TaskActionBar as never, p as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);

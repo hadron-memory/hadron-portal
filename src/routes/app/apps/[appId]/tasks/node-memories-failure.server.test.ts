@@ -42,6 +42,7 @@ vi.mock('$lib/server/agent-tasks', () => ({
   loadReview: async () => ({ kind: 'ok', value: { readiness: null, seat: null } }),
   loadAncestors: async () => ({ ancestors: [], truncated: false }),
   canonicalTaskId: (id: string) => id,
+  canonicalTaskRef: async () => ({ appId: 'app-1', taskId: 'AT1' }),
   loadReferences: async () => [],
 }));
 vi.mock('$lib/server/task-planning', () => ({ taskDependencies: async () => [], taskClonesPage: async () => ({ kind: 'ok', value: { items: [], total: 0, hasMore: false } }) }));
@@ -64,14 +65,11 @@ describe('a failed node-picker memories read is a failure value, not an empty li
     await expect(result.nodeMemories).resolves.toEqual({ kind: 'failed' });
   });
 
-  it('tasks/[taskId]: nodeMemories resolves {kind:"failed"} when the memories read fails — the page still loads', async () => {
-    const { load } = await import('./[taskId]/+page.server');
-    const result = (await load({ params: { appId: 'app-1', taskId: 'AT1' }, locals, url: new URL('https://x/') } as never)) as {
-      task: typeof task;
-      nodeMemories: Promise<{ kind: string }>;
-    };
-    expect(result.task.id).toContain('AT1');
-    await expect(result.nodeMemories).resolves.toEqual({ kind: 'failed' });
+  // portal#2261: the task page no longer reads memories at load; the sections endpoint reads them when the node picker opens.
+  it('tasks/[taskId] sections: memories answer {kind:"failed"} (a value, status 200) when the read fails', async () => {
+    const { GET } = await import('./[taskId]/sections/+server');
+    const r = (await GET({ params: { appId: 'app-1', taskId: 'AT1' }, locals, url: new URL('https://x/sections?section=memories') } as never)) as Response;
+    expect(await r.json()).toEqual({ kind: 'failed' });
   });
 
   it('a failed read warns server-side (the log is the only trace — nothing rejects anywhere)', async () => {
@@ -103,12 +101,10 @@ describe('an impersonation session reads no memory list (#1588 QA F2)', () => {
     expect(request.mock.calls.some(([q]) => q === MEMORIES_QUERY)).toBe(false);
   });
 
-  it('tasks/[taskId]: the same gate — no MEMORIES_QUERY on an impersonated load', async () => {
-    const { load } = await import('./[taskId]/+page.server');
-    const result = (await load({ params: { appId: 'app-1', taskId: 'AT1' }, locals: impersonating, url: new URL('https://x/') } as never)) as {
-      nodeMemories: Promise<{ kind: string; value?: unknown[] }>;
-    };
-    await expect(result.nodeMemories).resolves.toEqual({ kind: 'ok', value: [] });
+  it('tasks/[taskId] sections: the same gate — no MEMORIES_QUERY for an impersonated viewer', async () => {
+    const { GET } = await import('./[taskId]/sections/+server');
+    const r = (await GET({ params: { appId: 'app-1', taskId: 'AT1' }, locals: impersonating, url: new URL('https://x/sections?section=memories') } as never)) as Response;
+    expect(await r.json()).toEqual({ kind: 'ok', value: [] });
     expect(request.mock.calls.some(([q]) => q === MEMORIES_QUERY)).toBe(false);
   });
 });

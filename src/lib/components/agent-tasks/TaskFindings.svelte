@@ -37,14 +37,15 @@
     initial,
     appUrn = null,
     canWrite = false,
-    nodeMemories = { kind: 'ok', value: [] },
+    loadMemories,
   }: {
     appId: string;
     taskId: string;
     initial: Promise<FindingsRead> | FindingsRead;
     appUrn?: string | null;
     canWrite?: boolean;
-    nodeMemories?: Promise<MemoriesRead> | MemoriesRead;
+    /** portal#2261: reads the NODE picker's memories when that picker opens; a failed read is the VALUE {kind:'failed'}. */
+    loadMemories?: () => Promise<MemoriesRead>;
   } = $props();
 
   type View = { kind: 'loading' } | { kind: 'no-result' } | { kind: 'unavailable' } | { kind: 'failed' } | { kind: 'page'; page: FindingsPage };
@@ -376,7 +377,7 @@
           </div>
           {#if refusal?.kind === 'invalid' && (refusal.field === 'disposition' || refusal.field === 'findingId')}<p role="alert" class="text-xs text-red-700 dark:text-red-300">{refusal.message}</p>{/if}
         </fieldset>
-        <TaskReferencesEditor app={{ id: appId, urn: appUrn }} {nodeMemories} initial={editing.refs} idPrefix="dispose" single invalid={refusal?.kind === 'invalid' && refusal.field === 'references' ? refusal.message : null} />
+        <TaskReferencesEditor app={{ id: appId, urn: appUrn }} {loadMemories} initial={editing.refs} idPrefix="dispose" single invalid={refusal?.kind === 'invalid' && refusal.field === 'references' ? refusal.message : null} />
         <p id="dispose-authority" class="text-xs text-zinc-600 dark:text-zinc-300">{t('app.tasks.disposition.authority', 'Saving replaces any earlier disposition of this finding. The server checks whether you may record it.')}</p>
         <div class="flex flex-wrap items-center gap-2">
           <button type="submit" disabled={saving} class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400">{t('app.tasks.disposition.save', 'Save')}</button>

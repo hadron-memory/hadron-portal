@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { taskChoiceStatus } from '$lib/agent-tasks/planning';
+  import { canSetPriority, taskChoiceStatus } from '$lib/agent-tasks/planning';
   import TaskHandle from './TaskHandle.svelte';
   import { onDestroy, tick, untrack } from 'svelte';
   import { page } from '$app/stores';
@@ -36,7 +36,7 @@
     });
   });
   onDestroy(() => { generation++; relationGeneration++; });
-  const canPriority = $derived(canWrite && task.handle !== 'AT0' && ['BACKLOG', 'PENDING', 'STARTED'].includes(task.status));
+  const canPriority = $derived(canSetPriority(task, canWrite));
   const canBlockers = $derived(canWrite && task.handle !== 'AT0' && ['BACKLOG', 'PENDING'].includes(task.status));
   type Relation = TaskChoice & { direction: 'blockedBy' | 'blocks' };
   type Direction = 'blockedBy' | 'blocks';
