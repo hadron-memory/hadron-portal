@@ -87,6 +87,20 @@
   // poll, and for the same reason.
   let older = $state<ChatThreadMessage[]>([]);
   let loadingOlder = $state(false);
+  /** #1828: a Retry is in flight; the button is disabled so a double click cannot stack reloads. */
+  let retrying = $state(false);
+  async function retry() {
+    if (retrying || !onRetry) return;
+    retrying = true;
+    try {
+      await onRetry();
+    } catch (e) {
+      // Still down: the failed-load state stays; the button re-enables below for another try.
+      console.warn('[chat] retry after a failed load failed:', e);
+    } finally {
+      retrying = false;
+    }
+  }
   let olderExhausted = $state(false);
   $effect(() => {
     messages;
@@ -288,9 +302,10 @@
           {#if onRetry}
             <button
               type="button"
-              onclick={() => onRetry?.()}
-              class="rounded-md bg-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-300 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600"
-            >{t('chat.retry', 'Retry')}</button>
+              onclick={retry}
+              disabled={retrying}
+              class="rounded-md bg-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-300 disabled:opacity-50 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600"
+            >{retrying ? t('chat.retrying', 'Retrying…') : t('chat.retry', 'Retry')}</button>
           {/if}
         </div>
       </div>

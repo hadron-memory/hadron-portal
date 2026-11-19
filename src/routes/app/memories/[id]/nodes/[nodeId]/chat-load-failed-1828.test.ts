@@ -59,11 +59,11 @@ describe.each([
 
   it('control: a successful read is not flagged', async () => {
     mockLoadChatMessages.mockResolvedValue(PAGE);
-    expect((await run())[flag]).not.toBe(true);
+    expect((await run())[flag]).toBe(false);
   });
 
   it('control: a genuinely empty thread is not a failure', async () => {
     mockLoadChatMessages.mockResolvedValue({ messages: [], total: 0, hasOlder: false, offset: 0 });
-    expect((await run())[flag]).not.toBe(true);
+    expect((await run())[flag]).toBe(false);
   });
 });
