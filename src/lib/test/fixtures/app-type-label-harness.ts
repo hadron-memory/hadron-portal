@@ -11,14 +11,13 @@
  * would, and clicks the Settings card's Edit button to see the options.
  */
 import { mount, unmount } from 'svelte';
-import { setStubPage } from '$lib/test/stubs/app-stores';
 import Page from '../../../routes/app/apps/[appId]/+page.svelte';
-import { pageData } from '../../../routes/app/apps/[appId]/app-page.fixture';
+import { appTypePageData } from './app-type-page-data';
 
 export interface HarnessOptions {
   /** Which panel to open: the Profile tab or the Settings tab (read-only view). */
   tab: 'profile' | 'settings';
-  /** The App type to render ('FUTURE' proves the raw-value fallback). */
+  /** The App type to render. The raw-value fallback for an unknown value is pinned in the client lane. */
   appType: string;
 }
 
@@ -28,7 +27,7 @@ declare global {
   }
 }
 
-window.fetch = (async (input: RequestInfo | URL) => {
+window.fetch = (async () => {
   // Everything (the team chat poll among them): degraded-but-ok, as in the
   // client-lane tests, so nothing here depends on poll timing.
   return new Response(JSON.stringify({ items: [], total: 0, loadFailed: true }), {
@@ -37,16 +36,7 @@ window.fetch = (async (input: RequestInfo | URL) => {
 }) as typeof fetch;
 
 window.__mountAppTypePage = async ({ tab, appType }: HarnessOptions) => {
-  const url = `/app/apps/a1?tab=${tab}`;
-  setStubPage(`https://example.test${url}`, { appId: 'a1' });
-  window.history.replaceState({}, '', url);
-  const base = await pageData();
-  const data = {
-    ...base,
-    app: { ...base.app, appType },
-    initialTab: tab,
-    canManageApp: true,
-  };
+  const data = await appTypePageData(tab, appType);
   const target = document.createElement('div');
   target.className = 'p-4';
   document.body.appendChild(target);

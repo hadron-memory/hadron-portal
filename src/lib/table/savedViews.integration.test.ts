@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { makeHeadlessTable } from '$lib/table/headlessTable';
 import type { PortalColumnDef, PortalTable } from '$lib/table/features';
-import { extractView, applyView, serializeView } from './savedView';
+import { extractView, applyView, serializeView, mergeMissingColumns } from './savedView';
 import { resolveInitialView } from './viewStore';
 import { LocalStorageViewStore } from './localStorageViewStore';
-import { createViewFrom, overwriteView, applyAndActivate, removeAndResolve } from './viewActions';
+import { createViewFrom, overwriteView, applyAndActivate, removeAndResolve, migrateStoredView } from './viewActions';
 
 // End-to-end at the data layer: drives the REAL LocalStorageViewStore + REAL
 // table-core instance + applyView through the user flows, with "reload"
@@ -159,5 +159,80 @@ describe('US4 — delete with fallback', () => {
     expect(res.activeId).toBeNull();
     expect(await store.list(KEY)).toHaveLength(0);
     expect(t.atoms.sorting.get()).toEqual([]); // table.reset() restored built-in
+  });
+});
+
+describe('portal#2253 item 4 — a saved arrangement predating a column', () => {
+  const boardDefault = ['status', 'title', 'priority', 'startBy', 'finishBy', 'owner', 'assignee', 'subtasks', 'updated'];
+
+  it('merges a missing column in right after its closest surviving predecessor', () => {
+    // The board case: Finish by added after Start by; the saved (dragged) order
+    // predates it. Bare table-core appends it behind Updated, past the fold.
+    expect(mergeMissingColumns(boardDefault, ['status', 'title', 'priority', 'owner', 'assignee', 'subtasks', 'startBy', 'updated']))
+      .toEqual(['status', 'title', 'priority', 'owner', 'assignee', 'subtasks', 'startBy', 'finishBy', 'updated']);
+  });
+
+  it('weaves SEVERAL missing columns in, in their default order', () => {
+    // A saved order from before BOTH deadline columns existed.
+    expect(mergeMissingColumns(boardDefault, ['status', 'title', 'priority', 'owner', 'assignee', 'subtasks', 'updated']))
+      .toEqual(['status', 'title', 'priority', 'startBy', 'finishBy', 'owner', 'assignee', 'subtasks', 'updated']);
+  });
+
+  it('keeps an empty saved order empty (natural order self-migrates)', () => {
+    expect(mergeMissingColumns(boardDefault, [])).toEqual([]);
+  });
+
+  it('returns the saved order untouched when nothing is missing (no rewrite)', () => {
+    const saved = [...boardDefault].reverse(); // every id present, dragged around
+    expect(mergeMissingColumns(boardDefault, saved)).toBe(saved);
+  });
+
+  it('preserves stale ids (columns since removed) in place', () => {
+    // 'b' enters right after 'a' (its closest surviving predecessor); 'gone'
+    // stays between 'a' and 'c', where the user had it.
+    expect(mergeMissingColumns(['a', 'b', 'c'], ['a', 'gone', 'c'])).toEqual(['a', 'b', 'gone', 'c']);
+  });
+
+  it('enters at the front when no predecessor survives (a new first column)', () => {
+    expect(mergeMissingColumns(['new', 'a', 'b'], ['a', 'b'])).toEqual(['new', 'a', 'b']);
+  });
+
+  it('migrateStoredView persists the merge once, applies it, and stays un-modified', async () => {
+    const storage = fakeStorage();
+    const store = new LocalStorageViewStore(storage);
+    // v1 of a list: three columns; the user dragged Type ahead of Name and saved.
+    const t1 = makeTable();
+    t1.setColumnOrder(['nodeType', 'name', 'description']);
+    await createViewFrom(store, t1, KEY, 'Old layout', true);
+
+    // v2 ships a URN column at a default position after Type (and Name).
+    type RowV2 = Row & { urn: string };
+    const t2 = makeHeadlessTable<RowV2>({
+      data: DATA.map((d) => ({ ...d, urn: 'u' })),
+      columns: [
+        { accessorKey: 'name', header: 'Name' },
+        { accessorKey: 'nodeType', header: 'Type' },
+        { accessorKey: 'urn', header: 'URN' },
+        { accessorKey: 'description', header: 'Description' },
+      ] as PortalColumnDef<RowV2>[],
+      globalFilterFn: 'includesString',
+    });
+
+    // The mount-time read path: resolve, migrate, persist. URN's immediate
+    // default predecessor is Type, so it enters right after the user's Type —
+    // not appended behind Description.
+    const stored = resolveInitialView(await store.list(KEY), null)!;
+    const migrated = await migrateStoredView(store, t2, KEY, stored);
+    expect(migrated.view.columnOrder).toEqual(['nodeType', 'urn', 'name', 'description']);
+    // Persisted: a re-read sees the merged order, and migration is now identity.
+    const reread = resolveInitialView(await store.list(KEY), null)!;
+    expect(reread.view.columnOrder).toEqual(['nodeType', 'urn', 'name', 'description']);
+    await expect(migrateStoredView(store, t2, KEY, reread)).resolves.toBe(reread);
+
+    // Applying it lands URN at its default position, and the live state equals
+    // the stored view — the isModified compare stays quiet after a migration.
+    applyView(t2, migrated.view);
+    expect(t2.getVisibleLeafColumns().map((c) => c.id)).toEqual(['nodeType', 'urn', 'name', 'description']);
+    expect(serializeView(extractView(t2.store.get()))).toEqual(serializeView(migrated.view));
   });
 });

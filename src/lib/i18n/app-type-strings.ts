@@ -13,26 +13,34 @@
  * stable `app.type.*` ids.
  */
 
+import type { z } from 'zod';
+import type { appSettingsSchema } from '../../routes/app/apps/[appId]/schema';
 import { t } from './t';
 
-const LABELS: Record<string, () => string> = {
+type AppType = z.infer<typeof appSettingsSchema>['appType'];
+
+// `satisfies` makes a new enum value without a label a compile error here, not
+// only a failing test; the keys stay literal so `Object.keys` below is typed.
+const LABELS = {
   WORKSTATION: (): string => t('app.type.workstation', '💻 Workstation'),
   CHATBOT: (): string => t('app.type.chatbot', '💬 Chatbot'),
   AGENT: (): string => t('app.type.agent', '🤖 Agent'),
   AUTOMATION: (): string => t('app.type.automation', '⚙️ Automation'),
   CLOUD: (): string => t('app.type.cloud', '☁️ Cloud'),
   IOT: (): string => t('app.type.iot', '📡 IoT'),
-};
+} satisfies Record<AppType, () => string>;
 
 /** The six App types, in the Settings select's order. */
-export const APP_TYPE_VALUES = Object.keys(LABELS) as unknown as readonly string[];
+export const APP_TYPE_VALUES: readonly AppType[] = Object.freeze(Object.keys(LABELS) as AppType[]);
 
 /**
  * The label an App type renders with (icon included), or the raw value when
  * it has no label. The only state that reaches the fallback is a value from a
  * newer server the portal's z.enum has not caught up with; it renders as the
- * raw token, never blank.
+ * raw token, never blank (null and undefined render as an empty string).
+ * Own keys only: `toString` or `__proto__` must not resolve off the prototype.
  */
-export function appTypeLabel(value: string): string {
-  return LABELS[value]?.() ?? value;
+export function appTypeLabel(value: string | null | undefined): string {
+  if (value == null) return '';
+  return Object.hasOwn(LABELS, value) ? LABELS[value as AppType]() : value;
 }

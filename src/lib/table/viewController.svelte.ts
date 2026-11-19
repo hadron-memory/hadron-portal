@@ -3,10 +3,10 @@
 // (the ViewTabs component is a thin shell over it).
 import type { PortalTable } from '$lib/table/features';
 import type { RowData } from '@tanstack/table-core';
-import { extractView, extractTableView, applyView, serializeView } from './savedView';
+import { extractView, extractTableView, applyView, serializeView, mergeMissingColumns } from './savedView';
 import { type ViewStore, type SavedViewRecord, resolveInitialView } from './viewStore';
 import { localStorageViewStore } from './localStorageViewStore';
-import { createViewFrom, overwriteView, applyAndActivate, removeAndResolve, duplicateView } from './viewActions';
+import { createViewFrom, overwriteView, applyAndActivate, removeAndResolve, duplicateView, persistMergeBestEffort } from './viewActions';
 import { savedViewsStrings as s } from '$lib/i18n/saved-views-strings';
 
 export interface ViewController {
@@ -51,17 +51,40 @@ export function createViewController<T extends RowData>(args: {
 
   async function init() {
     await refresh();
-    const target = resolveInitialView(views, await store.getActiveId(listKey));
-    if (target) {
+    const resolved = resolveInitialView(views, await store.getActiveId(listKey));
+    if (resolved) {
+      // portal#2253 item 4: migrate a stored arrangement that predates a
+      // column (the missing id merges in at its default position) and persist
+      // the merge, so the view applies cleanly and never reads as permanently
+      // modified. The persist is BEST-EFFORT (portal#2274 P2): a quota-full
+      // store throws on write, and that must not stop the mount from applying
+      // the merged arrangement — the same fallback migrateStoredView uses, via
+      // the shared helper. The no-op path stays SYNCHRONOUS — every list mounts
+      // through here, and one extra await shifts mount timing for all of them
+      // (picker-inner-layers pinned the old hop count).
+      let target = resolved;
+      const merged = mergeMissingColumns(
+        table.getAllLeafColumns().map((c) => c.id),
+        resolved.view.columnOrder,
+      );
+      if (merged !== resolved.view.columnOrder) {
+        target = await persistMergeBestEffort(store, listKey, resolved, { ...resolved.view, columnOrder: merged });
+        views = views.map((v) => (v.id === target.id ? target : v));
+      }
       applyView(table, target.view, { columnsOnly: args.initialColumnsOnly, initial: true });
       activeId = target.id;
     }
   }
 
   async function select(id: string) {
-    const v = views.find((x) => x.id === id);
-    if (!v) return;
-    await applyAndActivate(store, table, listKey, v); // discards unsaved tweaks (FR-007)
+    const current = views.find((x) => x.id === id);
+    if (!current) return;
+    // applyAndActivate migrates and returns the merged record; swapping it
+    // into local state keeps isModified comparing against the merged
+    // arrangement, not the pre-merge stored one — one migrate per select,
+    // not two (portal#2274 P3).
+    const v = await applyAndActivate(store, table, listKey, current); // discards unsaved tweaks (FR-007)
+    if (v !== current) views = views.map((x) => (x.id === id ? v : x));
     activeId = id;
   }
 

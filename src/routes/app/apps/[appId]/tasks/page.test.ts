@@ -185,11 +185,10 @@ function taskPage(over: Record<string, unknown> = {}) {
   return render(TaskPage as never, {
     props: {
       data: { app, task: detail(), ancestors: [], ancestorsTruncated: false,
-        canWrite: true, impersonating: null, created: false, candidates: { workers: [], people: [] },
-        tree: { kind: 'ok', value: { rows: [detail()], capped: false } },
-        history: { kind: 'ok', value: { events: [], capped: false } }, review: { kind: 'ok', value: { readiness: null, seat: null } },
-        // portal#2161: the loader's Clones read, optional like the review above.
-        clones: { kind: 'ok', value: { items: [], total: 0, hasMore: false } }, ...over },
+        canWrite: true, impersonating: null, created: false,
+        // portal#2261: the first screen only. History, Review, Clones, the relations, the findings and the pickers
+        // are read when shown (sections.client.test.ts), so a server render holds their loading lines, never their rows.
+        tree: { kind: 'ok', value: { rows: [detail()], capped: false } }, ...over },
     },
   } as never).body;
 }
@@ -229,7 +228,8 @@ describe('task page', () => {
       const section = html.slice(html.indexOf('id="task-properties"'), html.indexOf('id="subtasks"'));
       expect(section).not.toMatch(/inherit/i);
       expect(section).not.toMatch(/<(form|input|button|textarea)\b/);
-      expect([...html.matchAll(/<form[^>]*action="([^"]+)"/g)].map((m) => m[1])).toEqual(['?/priority']);
+      // portal#2261: the priority form lives in the deferred relations section (sections.client.test.ts).
+      expect([...html.matchAll(/<form[^>]*action="([^"]+)"/g)].map((m) => m[1])).toEqual(['?/priority']); // the no-JS priority form (portal#2263 P2#4)
     });
   });
 
@@ -238,7 +238,7 @@ describe('task page', () => {
     expect(html).toContain('hadron team task get t1');
     expect(html).toContain('No subtasks');
     expect(html).toContain('You can change a task you own, or any task if you manage the App.');
-    expect([...html.matchAll(/<form[^>]*action="([^"]+)"/g)].map((match) => match[1])).toEqual(['?/priority']);
+    expect([...html.matchAll(/<form[^>]*action="([^"]+)"/g)].map((match) => match[1])).toEqual(['?/priority']); // the no-JS priority form (portal#2263 P2#4)
     expect(html).not.toMatch(/\bPark\b/);
   });
 
@@ -285,24 +285,6 @@ describe('task page', () => {
     expect(taskPage()).not.toContain('Showing the first 1000 tasks in this tree');
   });
 
-  it('an open alarm reads as an Alarm with the CLI acknowledge line, and no button', () => {
-    const html = taskPage({
-      history: { kind: 'ok', value: { capped: false, events: [
-        { id: 'e1', type: 'task.created', severity: null, createdAt: '2026-10-15T10:00:00Z', actor: holger, actorRunId: null, subjectWorker: null, payload: {}, acknowledgedAt: null, acknowledgedBy: null, wakes: null },
-        { id: 'e2', type: 'stall.not-started', severity: 'ALARM', createdAt: '2026-10-15T11:00:00Z', actor: null, actorRunId: null, subjectWorker: dara, payload: { windowMinutes: 60 }, acknowledgedAt: null, acknowledgedBy: null,
-          wakes: [{ chainIndex: 0, dueAt: '2026-10-15T11:00:00Z', wokenAt: '2026-10-15T11:00:00Z', owner: holger }] },
-        { id: 'e3', type: 'host.operation.failed', severity: null, createdAt: '2026-10-15T12:00:00Z', actor: null, actorRunId: null, subjectWorker: null, payload: {}, acknowledgedAt: null, acknowledgedBy: null, wakes: null },
-      ] } },
-    });
-    expect(html).toContain('created this task');
-    expect(html).toMatch(/data-alarm="true"/);
-    expect(html).toContain('Not started');
-    expect(html).toContain('Not acknowledged');
-    expect(html).toContain('hadron team alarm ack e2');
-    expect(html).toContain('This kind of event isn’t described in the portal yet.');
-    expect(html).not.toMatch(/<button[^>]*>\s*Acknowledge/);
-  });
-
   // Uma's P2-1 on #1127: an inline <a class="truncate"> never truncates, so a
   // long Source URL pushed the page sideways. Each source element is a block
   // bounded by its cell, and the facts' value tracks may shrink.
@@ -310,22 +292,6 @@ describe('task page', () => {
     const html = taskPage({ task: detail({ source: 'https://example.com/' + 'x'.repeat(300) }) });
     expect(html).toMatch(/<a href="https:\/\/example\.com\/x+"[^>]*class="block max-w-full truncate/);
     expect(html).toContain('md:grid-cols-[max-content_minmax(0,1fr)_max-content_minmax(0,1fr)]');
-  });
-
-  it('names a person the task already knows in its history', () => {
-    const html = taskPage({
-      task: detail({ assignee: holger }),
-      history: { kind: 'ok', value: { capped: false, events: [
-        { id: 'e1', type: 'task.assigned', severity: null, createdAt: '2026-10-15T10:00:00Z', actor: holger, actorRunId: null, subjectWorker: null, payload: { assignee: { userId: 'u1' } }, acknowledgedAt: null, acknowledgedBy: null, wakes: null },
-      ] } },
-    });
-    expect(html).toContain('assigned it to Holger');
-  });
-
-  it('a failed history is an alert while the facts still render', () => {
-    const html = taskPage({ history: { kind: 'failed' } });
-    expect(html).toContain('Couldn’t load the history.');
-    expect(html).toContain('Ship it');
   });
 });
 
@@ -545,14 +511,9 @@ describe('task page: Review section (portal#1697)', () => {
   const H = 'c'.repeat(40);
   const review = { kind: 'ok', value: { readiness: { ready: true, head: H, slots: [] }, seat: null } };
 
-  it('sits above Properties, which stays', () => {
-    const html = taskPage({ review, task: task({ properties: { 'pr.head': H } }) });
-    expect(html).toContain('Ready at cccccccc');
-    expect(html.indexOf('task-review-heading')).toBeLessThan(html.indexOf('Properties'));
-    expect(html).toContain('pr.head');
-  });
-
-  it('a task with no review answer has no Review section', () => {
-    expect(taskPage()).not.toContain('task-review-heading');
+  it('a task whose review has not been read shows no Review section, only its loading line', () => {
+    const html = taskPage();
+    expect(html).not.toContain('task-review-heading');
+    expect(html).toContain('Loading review…');
   });
 });

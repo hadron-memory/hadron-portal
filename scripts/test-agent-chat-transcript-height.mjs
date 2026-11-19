@@ -7,7 +7,7 @@ import { createServer } from 'vite';
 import { chromium } from 'playwright';
 
 const source = await readFile('src/routes/app/apps/[appId]/+page.svelte', 'utf8');
-const branchAt = source.indexOf('{#if data.selectedChatKey === AGENT_CHAT_KEY}');
+const branchAt = source.indexOf('{#if tabData.selectedChatKey === AGENT_CHAT_KEY}');
 assert(branchAt >= 0, 'Agent chat branch not found');
 const wrapper = source.slice(branchAt).match(/<div class="([^"]*)" style="([^"]*)">\s*\{#if appChatRender === 'agent-chat'/);
 assert(wrapper && wrapper[1].includes('flex-col'), 'Agent chat route wrapper not found');

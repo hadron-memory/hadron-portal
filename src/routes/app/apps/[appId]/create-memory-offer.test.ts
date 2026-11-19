@@ -54,7 +54,7 @@ async function loadAs(canManage: boolean) {
     locals: { token: 'tok', user: { id: 'user-1' } },
     parent: async () => ({}),
     depends: () => {},
-    url: new URL('http://localhost/app/apps/app-1'),
+    url: new URL('http://localhost/app/apps/app-1?tab=memory'),
   } as unknown as Parameters<typeof load>[0])) as Record<string, unknown>;
 }
 
@@ -112,7 +112,7 @@ it('org-App loader keeps creation-panel description rows distinct from the full 
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
       depends: () => {},
-      url: new URL('http://localhost/app/apps/app-1'),
+      url: new URL('http://localhost/app/apps/app-1?tab=memory'),
     } as unknown as Parameters<typeof load>[0])) as Record<string, unknown>;
     // description rows: this App's org memories only, descriptions intact
     expect(result.appMemories).toEqual([orgRows[0]]);

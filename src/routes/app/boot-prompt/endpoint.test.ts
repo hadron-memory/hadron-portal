@@ -28,6 +28,22 @@ describe('compile endpoint', () => {
     expect(response.status).toBe(400); expect(request).not.toHaveBeenCalled();
     expect(setHeaders).toHaveBeenCalledWith({ 'Cache-Control': 'private, no-store' });
   });
+  // #2210: GraphQL Int is signed 32-bit, so the server cannot accept a larger revNo.
+  describe('provenance revision upper bound (#2210)', () => {
+    const read = (revision: string) => GET({ url: new URL(`https://portal.invalid/app/boot-prompt?node=c&revision=${revision}`), locals: { token: 'viewer' }, setHeaders: vi.fn() } as never);
+    it('the largest GraphQL Int is forwarded as the revision', async () => {
+      request.mockResolvedValueOnce({ compiledPromptProvenance: { items: [], total: 0, hasMore: false, pruned: false } });
+      expect((await read('2147483647')).status).toBe(200);
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(request.mock.calls[0][1]).toMatchObject({ revNo: 2147483647 });
+    });
+    it.each(['2147483648', '1e300'])('revision=%s is refused 400 before any upstream call', async (revision) => {
+      const response = await read(revision);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ failed: true });
+      expect(request).not.toHaveBeenCalled();
+    });
+  });
   it('marks viewer-specific reads private and uncacheable', async () => {
     request.mockResolvedValueOnce({ app: { id: 'a', appAgents: [{ agent: { id: 'g' }, bootPromptRef: null }] } }).mockResolvedValueOnce({ installMemory: null });
     const setHeaders = vi.fn();

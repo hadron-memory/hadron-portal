@@ -36,6 +36,21 @@ const $lib = resolve(__dirname, 'src/lib');
 // impossible rather than merely unconfigured.
 export default defineConfig({
   test: {
+    // portal#2253 item 1: pin the suite's timezone before any module loads, so
+    // a date rendered anywhere in a test is the same date on every host. Set
+    // here rather than in a test file's module body: static imports hoist above
+    // such an assignment (a module-level `Intl.DateTimeFormat` keeps the host
+    // zone), it leaks into later files in the same worker, and it throws in
+    // browser-mode vitest where `process` may be unshimmed. Locales stay
+    // unpinned — every formatter under test passes an explicit locale
+    // (fmtRunTime pins 'en-US'). HADRON_TEST_TZ opts a run into a specific
+    // zone instead (same shape as HADRON_TEST_MAX_WORKERS): the NodeList
+    // midnight-boundary wrapper spawns its child with
+    // HADRON_TEST_TZ=America/Los_Angeles — config `env` would otherwise
+    // override the zone the child asks for.
+    env: {
+      TZ: process.env.HADRON_TEST_TZ ?? 'UTC',
+    },
     // Hugo's #28704: a host can cap the worker pool with HADRON_TEST_MAX_WORKERS
     // (a positive integer); unset, vitest's default is unchanged.
     maxWorkers: testMaxWorkers(process.env.HADRON_TEST_MAX_WORKERS),
