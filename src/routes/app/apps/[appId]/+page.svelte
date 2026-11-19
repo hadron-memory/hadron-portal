@@ -1287,6 +1287,11 @@
     const current = untrack(() => activeTab);
     if (!tabs.some((tab) => tab.id === current)) activeTab = tabs[0]?.id ?? 'memory';
   });
+  // portal#2292: the label the tab strip shows for the active tab (so a locale change moves both). The
+  // default tab (Chats, what the URL carries without `?tab=`) leads with nothing; it becomes Profile if
+  // #2241 makes Profile the default, and this is the one line to change then.
+  const TITLE_UNLABELLED_TAB: TabId = 'chats';
+  const tabTitleLabel = $derived(activeTab === TITLE_UNLABELLED_TAB ? '' : (tabs.find((tab) => tab.id === activeTab)?.label ?? ''));
   // "Read once at init" is not enough on its own: SvelteKit REUSES this
   // component for a query-only navigation, so a same-App link to
   // `?tab=chats&chat=chats:team&view=full` followed from the Worklog tab
@@ -2420,7 +2425,9 @@
 </script>
 
 
-<svelte:head><title>{app.name} · Apps · {org ? `${org.name} · ` : ''}Hadron</title></svelte:head>
+<!-- portal#2292: the shown tab's label leads the title, so browser tabs, history entries and screen-reader
+     announcements tell the tabs apart. The tab with no `?tab=` (Chats) keeps the title the page always had. -->
+<svelte:head><title>{tabTitleLabel ? `${tabTitleLabel} · ` : ''}{app.name} · Apps · {org ? `${org.name} · ` : ''}Hadron</title></svelte:head>
 <!-- Escape leaves the maximised team chat. Bound at the window so it works
      from the composer, the thread and the button alike. -->
 <svelte:window onkeydown={onWindowKeydown} />
