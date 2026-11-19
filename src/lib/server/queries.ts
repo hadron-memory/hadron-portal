@@ -2015,7 +2015,7 @@ export const DELETE_MEMORY_SUBSCRIPTION_MUTATION = /* GraphQL */ `
 
 export const CREATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation CreateAgent($orgRef: ID, $name: String!, $description: String, $systemMemoryRef: ID, $visibility: AgentVisibility) {
+  mutation CreateAgent($orgRef: ID!, $name: String!, $description: String, $systemMemoryRef: ID, $visibility: AgentVisibility) {
     createAgent(orgRef: $orgRef, name: $name, description: $description, systemMemoryRef: $systemMemoryRef, visibility: $visibility) { ...AgentFields }
   }
 `;
