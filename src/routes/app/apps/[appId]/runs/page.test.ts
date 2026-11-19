@@ -97,7 +97,7 @@ describe('runs list (#478)', () => {
         failure: { code: 'MAX_HOPS_EXCEEDED' },
       },
     ]);
-    expect(body).toContain('COMPLETED');
+    expect(body).toContain('Completed');
     expect(body).toContain('Manual');
     expect(body).toContain('Schedule · morning-digest');
     expect(body).toContain('classify');
@@ -108,7 +108,8 @@ describe('runs list (#478)', () => {
 
   it('teaches triggers in the unfiltered empty state', async () => {
     const body = await renderPage([]);
-    expect(body).toContain('No runs yet');
+    expect(body).toContain('Runs start from a trigger');
+    expect(body).not.toContain('No runs yet');
     expect(body).toContain('schedule');
     expect(body).toContain('Test flow');
   });
