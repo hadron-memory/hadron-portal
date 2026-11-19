@@ -26,21 +26,47 @@ const EXPECTED: Record<string, string> = {
  * `.prefault()` wraps the enum, so the members sit on `def.innerType.options`
  * (`.options` forwarding is not present under the test-runner's resolution).
  */
-const enumValues = (): string[] =>
-  (appSettingsSchema.shape.appType as unknown as { def: { innerType: { options: string[] } } }).def.innerType.options;
+const enumValues = (): string[] => {
+  const field = appSettingsSchema.shape.appType as unknown as { def?: { innerType?: { options?: string[] } } };
+  const options = field.def?.innerType?.options;
+  if (!Array.isArray(options)) {
+    throw new Error('appType is no longer a prefault-wrapped z.enum: update enumValues() in app-type-strings.test.ts');
+  }
+  return [...options];
+};
 
 describe('app type label source (#2249)', () => {
   it('every appType enum value maps to its label', () => {
-    expect(enumValues().sort()).toEqual(Object.keys(EXPECTED).sort());
+    expect([...enumValues()].sort()).toEqual(Object.keys(EXPECTED).sort());
     for (const value of enumValues()) expect(appTypeLabel(value)).toBe(EXPECTED[value]);
   });
 
   it('APP_TYPE_VALUES carries exactly the enum values, in the Settings select order', () => {
     expect([...APP_TYPE_VALUES].sort()).toEqual([...enumValues()].sort());
-    expect(APP_TYPE_VALUES[0]).toBe('WORKSTATION');
+    expect([...APP_TYPE_VALUES]).toEqual(['WORKSTATION', 'CHATBOT', 'AGENT', 'AUTOMATION', 'CLOUD', 'IOT']);
+  });
+
+  it('sorting what enumValues() returns never reorders the schema\'s live options array', () => {
+    // The pre-#2254 call site did enumValues().sort(), which sorts zod's own
+    // array. The order is pinned literally (not read back through the helper,
+    // which could not fail), so handing out the live array turns this red.
+    enumValues().sort().reverse();
+    const live = (appSettingsSchema.shape.appType as unknown as { def: { innerType: { options: string[] } } }).def.innerType.options;
+    expect([...live]).toEqual(['WORKSTATION', 'CHATBOT', 'AGENT', 'AUTOMATION', 'CLOUD', 'IOT']);
   });
 
   it('an unknown value falls back to the raw value', () => {
     expect(appTypeLabel('FUTURE')).toBe('FUTURE');
+  });
+
+  it.each(['toString', '__proto__', 'constructor', 'hasOwnProperty'])(
+    'the Object.prototype key %s falls back to the raw value, never a function result or a throw',
+    (key) => {
+      expect(appTypeLabel(key)).toBe(key);
+    },
+  );
+
+  it.each([undefined, null])('%s renders as an empty string, never undefined', (value) => {
+    expect(appTypeLabel(value as unknown as string)).toBe('');
   });
 });
