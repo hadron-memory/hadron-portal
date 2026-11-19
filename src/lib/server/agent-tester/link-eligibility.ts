@@ -21,7 +21,9 @@ export async function testerLinkEligibility(
   canManage: boolean | null,
   orgs: Organization[],
 ): Promise<boolean | null> {
-  if (canManage !== true) return canManage;
+  // Only the boolean true proves management (the Tester's canManageStrict is
+  // `canManage === true`). false stays false; null and anything else is unknown.
+  if (canManage !== true) return canManage === false ? false : null;
   // #2187: the Tester's own two-step reach (resolve-agent findVisibleAgent): the
   // caller's org agents list first (a PERSONAL Agent only to its creator), then
   // the owned-by-me list. `orgs` is the list the page already loaded, so the

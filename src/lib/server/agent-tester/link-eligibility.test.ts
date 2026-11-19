@@ -69,9 +69,9 @@ describe('Tester link owner scope (#2100)', () => {
 
     // #2187 (Marco #118995): only the boolean true is eligible, like the Tester's
     // canManageStrict (`canManage === true`); any other truthy value is not proof.
-    it.each([1, 'true', {}, 'yes'])('treats a truthy non-true management value (%j) as not proven, with no lookup', async (manage) => {
-      expect(await testerLinkEligibility(client, orgOwned, manage as never, orgsWith(['target']))).toBe(manage);
-      expect(await testerLinkEligibility(client, personal, manage as never, [])).toBe(manage);
+    it.each([1, 'true', {}, 'yes', undefined])('treats a non-boolean management value (%j) as unknown (null), with no lookup', async (manage) => {
+      expect(await testerLinkEligibility(client, orgOwned, manage as never, orgsWith(['target']))).toBeNull();
+      expect(await testerLinkEligibility(client, personal, manage as never, [])).toBeNull();
       expect(request).not.toHaveBeenCalled();
     });
 
