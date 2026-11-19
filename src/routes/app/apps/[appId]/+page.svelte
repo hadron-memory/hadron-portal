@@ -1287,6 +1287,15 @@
     const current = untrack(() => activeTab);
     if (!tabs.some((tab) => tab.id === current)) activeTab = tabs[0]?.id ?? 'memory';
   });
+  // portal#2292: the shown tab's label leads the document title, so browser tabs, history entries and
+  // screen-reader announcements tell the tabs apart. The tab a plain App URL (no `?tab=`) opens keeps
+  // today's title; it is the page default at the `activeTab` init above, and moves with it (#2241).
+  const DEFAULT_TAB: TabId = 'chats';
+  const tabTitleLead = $derived.by(() => {
+    if (activeTab === DEFAULT_TAB) return '';
+    const label = tabs.find((tab) => tab.id === activeTab)?.label;
+    return label ? `${label} · ` : '';
+  });
   // "Read once at init" is not enough on its own: SvelteKit REUSES this
   // component for a query-only navigation, so a same-App link to
   // `?tab=chats&chat=chats:team&view=full` followed from the Worklog tab
@@ -2420,7 +2429,7 @@
 </script>
 
 
-<svelte:head><title>{app.name} · Apps · {org ? `${org.name} · ` : ''}Hadron</title></svelte:head>
+<svelte:head><title>{tabTitleLead}{app.name} · Apps · {org ? `${org.name} · ` : ''}Hadron</title></svelte:head>
 <!-- Escape leaves the maximised team chat. Bound at the window so it works
      from the composer, the thread and the button alike. -->
 <svelte:window onkeydown={onWindowKeydown} />
