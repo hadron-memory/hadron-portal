@@ -76,7 +76,16 @@ const HEADING = /^H[1-6]$/;
  * (hrn:node:hadronmemory.com:specs:cor:spc:030:02); the assigned anchors are unique across the document, so a
  * repeated id means an authored copy exists. The copy that precedes a heading
  * is the server's; failing that, the first stands. Every other copy loses its
- * id, so no jump can land on authored text instead of its part.
+ * id.
+ *
+ * BEST EFFORT, by construction: this settles an authored copy that does not
+ * look like the server's block (the common clash). An authored copy that
+ * mimics the server's exact shape (its own anchor block, a blank line, then a
+ * heading) and comes first is indistinguishable from the server's by anything
+ * in the rendered HTML, so it wins; the rendered document carries no
+ * information an author cannot forge. Closing that needs the server to
+ * neutralise authored ids that match SPEC_ANCHOR_ID, which is a server change,
+ * not a client one. The limit is pinned in the renderer tests.
  */
 function precedesHeading(anchor: Element): boolean {
   const host = anchor.parentElement;
@@ -100,7 +109,8 @@ function resolveDuplicateAnchors(root: Element): void {
 
 /**
  * The page owns the only h1 (its title); the document's own `#` and every level
- * below it move down one, so relative levels hold and h6 stays h6.
+ * below it move down one. h6 has nowhere to go, so an authored h5 and h6 both
+ * end as h6: every other relative level holds.
  */
 function shiftHeadingsDown(root: Element): void {
   for (const h of [...root.querySelectorAll('h1,h2,h3,h4,h5')]) {

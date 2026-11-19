@@ -43,6 +43,16 @@ describe('spec document anchors', () => {
     expect(kept[0].parentElement?.nextElementSibling?.tagName).toBe('H3');
     expect(kept[0].parentElement?.nextElementSibling?.textContent).toBe('Part A');
   });
+  // F1 known limit (Gemma BLIND P2-1): an authored copy that mimics the server's
+  // anchor-block-then-heading shape and comes first cannot be told from the server's
+  // by the rendered HTML. Pinned so the limit is a stated fact, not a surprise; closing
+  // it is a server change (neutralise authored ids that match the anchor shape).
+  it('KNOWN LIMIT: an authored copy that mimics the anchor-then-heading shape and comes first keeps the id', () => {
+    const host = render('<a id="fx-1-a"></a>\n\n## Authored\n\n<a id="fx-1-a"></a>\n\n## Part A');
+    const kept = [...host.querySelectorAll('a[id="fx-1-a"]')];
+    expect(kept).toHaveLength(1);
+    expect(kept[0].parentElement?.nextElementSibling?.textContent).toBe('Authored');
+  });
   it('an authored anchor after the server anchor of the same id is the one dropped', () => {
     const host = render('<a id="fx-1-a"></a>\n\n## Part A\n\n<a id="fx-1-a"></a>\n\nauthored');
     const kept = [...host.querySelectorAll('a[id="fx-1-a"]')];
@@ -110,7 +120,9 @@ describe('spec document links and markup safety', () => {
   });
   it.each(['sibling/page', 'hrn:node:o.test:m:cor:agt:110', 'urn:x'])('an authored scheme-less or raw-URN href %j renders as dead text, the portal\'s call', (u) => {
     const host = render(`[x](${u})`);
-    expect(host.querySelector('a')?.hasAttribute('href') ?? false).toBe(false);
+    const dead = host.querySelector('a');
+    expect(dead).not.toBeNull();
+    expect(dead?.hasAttribute('href')).toBe(false);
     expect(host.textContent).toContain('x');
   });
   it('strips scripts, handlers and style elements as the node path does', () => {
@@ -122,6 +134,10 @@ describe('spec document links and markup safety', () => {
     const host = render('# T\n\n## U\n\n### V\n\n###### W\n\nplain target and [x](#fx-1-a)');
     expect([...host.querySelectorAll('h1,h2,h3,h4,h5,h6')].map((h) => h.tagName)).toEqual(['H2', 'H3', 'H4', 'H6']);
     expect(host.querySelector('h1')).toBeNull();
+  });
+  it('an authored h5 and h6 both end as h6: h6 has nowhere to go, every other level shifts by one', () => {
+    const host = render('##### five\n\n###### six');
+    expect([...host.querySelectorAll('h1,h2,h3,h4,h5,h6')].map((h) => h.tagName)).toEqual(['H6', 'H6']);
   });
   it('does not regroup or sort the server order', () => {
     const host = render('<a id="fx-3-a"></a>\n\n## Z\n\n<a id="fx-1-a"></a>\n\n## A\n\n<a id="fx-2-a"></a>\n\n## M');

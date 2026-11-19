@@ -63,6 +63,16 @@ describe('document load', () => {
     serve(() => { throw refusal('FORBIDDEN'); });
     await expect(run()).rejects.toBeTruthy();
   });
+  it('FORBIDDEN and UNAUTHENTICATED reach the error page from BOTH queries, while a *_NOT_FOUND stays not-found', async () => {
+    for (const code of ['FORBIDDEN', 'UNAUTHENTICATED']) {
+      mockRequest.mockImplementation(async () => { throw refusal(code); });
+      await expect(run()).rejects.toBeTruthy();
+      serve(() => { throw refusal(code); });
+      await expect(run()).rejects.toBeTruthy();
+    }
+    serve(() => { throw refusal('NODE_NOT_FOUND'); });
+    expect((await run()).document).toEqual({ state: 'not-found' });
+  });
   it('redirects to the node memory when the URL names a different one', async () => {
     serve(() => ({ specDocument: { loc: 'x', markdown: '' } }), specNode({ memoryId: 'mem-2' }));
     await expect(run()).rejects.toMatchObject({ status: 303, location: '/app/memories/mem-2/nodes/node-1/document' });
