@@ -70,21 +70,42 @@ export function extractTableView<T extends RowData>(table: PortalTable<T>): Save
  * never breaks the list (spec FR-013 / SC-005). Requires the table to have the
  * global-filter feature wired (all grid lists do).
  */
+export function applyView<T extends RowData>(table: PortalTable<T>, view: SavedView, options: { columnsOnly?: boolean; initial?: boolean } = {}): void {
+  const server = (table.options?.meta as { applyServerView?: (view: SavedView, options?: { initial?: boolean }) => void } | undefined)?.applyServerView;
+  if (!options.columnsOnly) {
+    if (server) {
+      if (options.initial) server(view, { initial: true });
+      else server(view);
+    }
+    else {
+      table.setSorting(view.sorting ?? []);
+      table.setColumnFilters(view.columnFilters ?? []);
+      table.setGlobalFilter(view.globalFilter ?? '');
+    }
+  }
+  table.setColumnVisibility(view.columnVisibility ?? {});
+  table.setColumnOrder(view.columnOrder ?? []);
+  table.setColumnSizing(view.columnSizing ?? {});
+  // Land on the first page, keeping the view's page SIZE — see extractView.
+  if (!options.columnsOnly && !server) table.setPagination({ pageIndex: 0, pageSize: view.pagination?.pageSize ?? 25 });
+}
+
 /**
  * Merge a saved column order with the list's current default order
  * (portal#2253 item 4): ids the saved order does not name (columns added after
  * the view was saved) enter at their DEFAULT position — immediately after the
- * closest preceding default-order id the saved arrangement still has — instead
- * of table-core's bare append at the far end, where a deadline column lands
- * past the fold and reads as clipped.
+ * closest preceding default-order id, including one merged in by an earlier
+ * iteration (so several new columns keep their default relative order) —
+ * instead of table-core's bare append at the far end, where a deadline column
+ * lands past the fold and reads as clipped. A missing id with NO surviving
+ * predecessor at all (a column added before everything else) enters at the
+ * front, its default position.
  *
  * An EMPTY saved order stays empty: it means "natural order", which already
  * self-updates as columns are added, and freezing it into an explicit list
- * would pin today's arrangement on a user who never dragged anything. A
- * missing id with NO surviving predecessor (a column added before everything
- * else) enters at the front — its default position. Ids the table no longer
- * knows are preserved in place (inert, and table-core ignores them) so the
- * merge never discards a user's arrangement.
+ * would pin today's arrangement on a user who never dragged anything. Ids the
+ * table no longer knows are preserved in place (inert, and table-core ignores
+ * them) so the merge never discards a user's arrangement.
  */
 export function mergeMissingColumns(
   defaultOrder: readonly string[],
@@ -104,26 +125,6 @@ export function mergeMissingColumns(
     out.splice(anchor + 1, 0, id);
   }
   return out;
-}
-
-export function applyView<T extends RowData>(table: PortalTable<T>, view: SavedView, options: { columnsOnly?: boolean; initial?: boolean } = {}): void {
-  const server = (table.options?.meta as { applyServerView?: (view: SavedView, options?: { initial?: boolean }) => void } | undefined)?.applyServerView;
-  if (!options.columnsOnly) {
-    if (server) {
-      if (options.initial) server(view, { initial: true });
-      else server(view);
-    }
-    else {
-      table.setSorting(view.sorting ?? []);
-      table.setColumnFilters(view.columnFilters ?? []);
-      table.setGlobalFilter(view.globalFilter ?? '');
-    }
-  }
-  table.setColumnVisibility(view.columnVisibility ?? {});
-  table.setColumnOrder(view.columnOrder ?? []);
-  table.setColumnSizing(view.columnSizing ?? {});
-  // Land on the first page, keeping the view's page SIZE — see extractView.
-  if (!options.columnsOnly && !server) table.setPagination({ pageIndex: 0, pageSize: view.pagination?.pageSize ?? 25 });
 }
 
 /** Turn a saved view into a partial PortalTableState usable as `initialState`. */

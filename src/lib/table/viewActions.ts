@@ -5,7 +5,7 @@
 import type { PortalTable } from '$lib/table/features';
 import type { RowData } from '@tanstack/table-core';
 import { extractTableView, applyView, normalizeView, mergeMissingColumns } from './savedView';
-import type { ViewStore, SavedViewRecord } from './viewStore';
+import { type ViewStore, type SavedViewRecord, ViewStorageError } from './viewStore';
 
 /** The list's current default column order — the definition order of its
  * leaf columns (no list ships a non-empty initial columnOrder). */
@@ -20,6 +20,12 @@ function defaultColumnOrder<T extends RowData>(table: PortalTable<T>): string[] 
  * would leave the view permanently "modified" (Save/Reset popping on every
  * load) for a change the user never made. Returns the record unchanged when
  * the merge is a no-op, so callers can skip both the write and the state swap.
+ *
+ * The persist is BEST-EFFORT: the store's contract is that reads degrade while
+ * writes throw (quota exceeded, storage disabled), and a failing write must
+ * not stop the saved arrangement from applying — the merged record is returned
+ * in memory and the next mount re-attempts the merge. Anything that is not a
+ * ViewStorageError is a real bug and still throws.
  */
 export async function migrateStoredView<T extends RowData>(
   store: ViewStore,
@@ -29,7 +35,13 @@ export async function migrateStoredView<T extends RowData>(
 ): Promise<SavedViewRecord> {
   const columnOrder = mergeMissingColumns(defaultColumnOrder(table), record.view.columnOrder);
   if (columnOrder === record.view.columnOrder) return record;
-  return store.update(listKey, record.id, { view: { ...record.view, columnOrder } });
+  const merged = { ...record.view, columnOrder };
+  try {
+    return await store.update(listKey, record.id, { view: merged });
+  } catch (e) {
+    if (e instanceof ViewStorageError) return { ...record, view: merged };
+    throw e;
+  }
 }
 
 /** Create a view from the table's current arrangement; first view becomes default. */
