@@ -413,7 +413,10 @@ describe('TeamChatThread team filter — pending toggles, cap, focus, chip ident
     // navigating — the guard is the reachable path, not dead code.
     (blocked[0] as HTMLButtonElement).click();
     expect(onSelectTeam).not.toHaveBeenCalled();
-    await tick(2);
+    // Round 5: the cap announcement is clear-then-set — the empty region must
+    // FLUSH before the clean text lands, so the text is one microtask later
+    // than the round-4 synchronous set.
+    await tick(3);
     expect(q(m, 'team-chat-filter-status')?.textContent).toContain('At most 20 teams can be selected.');
   });
 
@@ -626,25 +629,28 @@ describe('TeamChatThread team filter — pending labels, revert focus, cap re-an
     expect(q(m, 'team-chat-filter-status')?.textContent).toContain('did not change');
   });
 
-  it('announces the cap again on a second blocked click — the live region sees a change (F3)', async () => {
+  it('announces the cap again on a second blocked click — cleared first, then the clean text (F3; round 5: clear-then-set)', async () => {
+    const onFilterAnnouncement = vi.fn();
     const full = Array.from({ length: 20 }, (_, i) => `head-full${i}`);
     const m = await mountThread({
       messages: [message(1, { teamTags: [{ headId: full[0], label: 'team.zero' }, ADA] }), message(2, { teamTags: [ADA] })],
-      total: 2, filter: { kind: 'teams', headRefs: full }, onSelectTeam: vi.fn(),
+      total: 2, filter: { kind: 'teams', headRefs: full }, onSelectTeam: vi.fn(), onFilterAnnouncement,
     });
     const blocked = qa(m, 'team-chat-tag').find((el) => el.getAttribute('aria-disabled') === 'true') as HTMLButtonElement;
     blocked.click();
-    await tick(2);
-    const first = q(m, 'team-chat-filter-status')?.textContent ?? '';
-    expect(first).toContain('At most 20 teams can be selected.');
+    await tick(3);
     blocked.click();
-    await tick(2);
-    const second = q(m, 'team-chat-filter-status')?.textContent ?? '';
-    expect(second).toContain('At most 20 teams can be selected.');
-    // An unchanged text node is not re-announced by a live region: the
-    // second blocked click must produce a CHANGED string, or a screen-
-    // reader user hears nothing the second time.
-    expect(second).not.toBe(first);
+    await tick(3);
+    const calls = onFilterAnnouncement.mock.calls.map((c) => c[0] as string);
+    const caps = calls.filter((c) => c.includes('At most 20 teams'));
+    expect(caps).toHaveLength(2);
+    // An unchanged text node is not re-announced by a live region. Round 4
+    // forced the change with a zero-width mark; round 5 clears the region
+    // ('') and flushes before setting the identical clean text again — the
+    // same re-announcement, with no invisible characters in any consumer's
+    // string.
+    expect(calls[calls.lastIndexOf(caps[1]) - 1]).toBe('');
+    expect(calls.join('')).not.toMatch(/[​‌‍﻿]/);
   });
 
   it('a pending All choice reads as pressed even while the applied view is invalid (F4)', async () => {
@@ -664,3 +670,219 @@ describe('TeamChatThread team filter — pending labels, revert focus, cap re-an
     expect(allButton(m).getAttribute('aria-pressed')).toBe('true');
   });
 });
+
+describe('TeamChatThread team filter — abandoned vs failed, clean re-announce, bulk-clear revert, seed isolation (round 5, Gil N1-N4/N6, Georgia P3s)', () => {
+  const chipOf = (m: Mounted<Record<string, unknown>>, head: string) =>
+    m.target.querySelector(`[data-testid="team-chat-filter-active"][data-head="${head}"]`) as HTMLButtonElement | null;
+  const tagOf = (m: Mounted<Record<string, unknown>>, head: string) =>
+    m.target.querySelector(`[data-testid="team-chat-tag"][data-head="${head}"]`) as HTMLButtonElement | null;
+  const allButton = (m: Mounted<Record<string, unknown>>) =>
+    [...m.target.querySelectorAll<HTMLButtonElement>('[data-testid="team-chat-filter"] button')]
+      .find((b) => b.textContent?.includes('All messages'))!;
+  const REFUSAL = { code: 'TEAM_HEAD_REFUSED', message: 'refused' };
+
+  it('N1: an ABANDONED request — the route applied a different filter — consumes silently, no false "did not change", no focus take', async () => {
+    const onFilterAnnouncement = vi.fn();
+    const props = reactiveProps<Record<string, unknown>>({
+      messages: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [BO] })],
+      total: 2, filter: { kind: 'teams', headRefs: ['head-ada'] },
+      // The key is what establishes the bindable write-back: a `$bindable`
+      // prop only syncs child→parent through a field the parent passed, and
+      // the route (the real parent) mutates `navigation` on the very object
+      // the component created — reached here through the same write-back.
+      filterFocusRequest: null,
+      onFilterAnnouncement,
+      onSelectTeam: (_next: TeamChatFilter) => { /* goto in flight */ },
+    });
+    const m = await mountThread(props);
+    document.body.append(m.target);
+    (tagOf(m, 'head-bo') as HTMLButtonElement).click(); // request pending; optimistic set {ada,bo}
+    await tick(2);
+    expect(chipOf(m, 'head-bo')).not.toBeNull();
+    // The route's goto completes but lands on a DIFFERENT applied filter
+    // (canonicalization, back/forward): navigation complete, key mismatch,
+    // no failure. "The team filter did not change" would be FALSE here — it
+    // changed, just not to what was asked — and a focus restore could target
+    // a chip from a base that no longer applies.
+    props.filter = { kind: 'untagged' };
+    (props.filterFocusRequest as { navigation?: string }).navigation = 'complete';
+    await tick(4);
+    expect(document.body.textContent).not.toContain('did not change');
+    expect(onFilterAnnouncement.mock.calls.map((c) => c[0])).not.toContain('The team filter did not change.');
+    expect(document.activeElement).toBe(document.body); // focus never taken
+    expect(props.filterFocusRequest).toBeNull(); // consumed
+  });
+
+  it('N2: the re-announce mechanism never leaks invisible marks — every callback string is clean, and a repeat clears first', async () => {
+    const onFilterAnnouncement = vi.fn();
+    const full = Array.from({ length: 20 }, (_, i) => `head-full${i}`);
+    const props = reactiveProps<Record<string, unknown>>({
+      messages: [message(1, { teamTags: [{ headId: full[0], label: 'team.zero' }, ADA] }), message(2, { teamTags: [ADA] })],
+      total: 2, filter: { kind: 'teams', headRefs: full },
+      onFilterAnnouncement, onSelectTeam: vi.fn(),
+    });
+    const m = await mountThread(props);
+    const blocked = qa(m, 'team-chat-tag').find((el) => el.getAttribute('aria-disabled') === 'true') as HTMLButtonElement;
+    blocked.click(); await tick(3);
+    blocked.click(); await tick(4);
+    const calls = onFilterAnnouncement.mock.calls.map((c) => c[0] as string);
+    // Every string a consumer receives is clean: no zero-width marks, ever.
+    expect(codes(calls)).not.toContain('​');
+    expect(calls.filter((c) => c.includes('At most 20 teams'))).toHaveLength(2);
+    // The repeat was forced as a CHANGE: the region was cleared ('') before
+    // the identical text was set again, so the live region re-announces it.
+    const firstMsg = calls.findIndex((c) => c.includes('At most 20 teams'));
+    expect(calls[firstMsg + 1]).toBe('');
+    expect(calls[firstMsg + 2]).toContain('At most 20 teams');
+  });
+
+  it('N4: a second failed read re-announces the revert — the repeated sentence clears first', async () => {
+    const onFilterAnnouncement = vi.fn();
+    const props = reactiveProps<Record<string, unknown>>({
+      messages: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [BO] })],
+      total: 2, filter: { kind: 'teams', headRefs: ['head-ada', 'head-bo'] },
+      onFilterAnnouncement,
+      onSelectTeam: (_next: TeamChatFilter) => { /* the read never lands */ },
+      refusal: null,
+    });
+    const m = await mountThread(props);
+    document.body.append(m.target);
+    chipOf(m, 'head-bo')!.click(); await tick(2); // optimistic removal
+    props.refusal = REFUSAL; await tick(6); // first failure: revert announced
+    const first = onFilterAnnouncement.mock.calls.map((c) => c[0] as string);
+    expect(first.at(-1)).toContain('did not change');
+    // A second failed choice over the SAME applied base announces the SAME
+    // sentence — a plain re-set is silent in a live region.
+    props.refusal = null; await tick(2);
+    chipOf(m, 'head-bo')!.click(); await tick(2);
+    props.refusal = REFUSAL; await tick(6);
+    const calls = onFilterAnnouncement.mock.calls.map((c) => c[0] as string);
+    const reverts = calls
+      .map((c, i) => [i, c] as const)
+      .filter(([, c]) => c.includes('did not change')) as Array<[number, string]>;
+    expect(reverts).toHaveLength(2);
+    expect(calls[reverts[1][0] - 1]).toBe(''); // cleared before the repeat
+  });
+
+  it('N3: a failed BULK CLEAR reverts visibly — focus comes back to the All button, which the clear itself cannot unmount', async () => {
+    const props = reactiveProps<Record<string, unknown>>({
+      messages: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [BO] })],
+      total: 2, filter: { kind: 'teams', headRefs: ['head-ada', 'head-bo'] },
+      onSelectTeam: (_next: TeamChatFilter) => { /* the read never lands */ },
+      refusal: null,
+    });
+    const m = await mountThread(props);
+    document.body.append(m.target);
+    const all = allButton(m);
+    all.focus(); // a real click focuses its control; jsdom's click() does not
+    all.click(); await tick(2); // optimistic bulk clear: chips gone
+    expect(chipOf(m, 'head-ada')).toBeNull();
+    props.refusal = REFUSAL; await tick(6);
+    // The opener of a bulk clear is the All button, rendered OUTSIDE the
+    // chips' conditional, so it survives the clear and the revert: the
+    // reader is returned to it, not stranded on <body>.
+    expect(chipOf(m, 'head-ada')).not.toBeNull();
+    expect(document.activeElement).toBe(allButton(m));
+  });
+
+  it('N6a/Georgia-P3a: the clicked tag\'s label seeds the chip when no supplied row labels the added head mid-pending', async () => {
+    const props = reactiveProps<Record<string, unknown>>({
+      messages: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [BO] })],
+      total: 2, filter: { kind: 'teams', headRefs: ['head-ada'] },
+      onSelectTeam: (_next: TeamChatFilter) => { /* the read never lands */ },
+    });
+    const m = await mountThread(props);
+    (tagOf(m, 'head-bo') as HTMLButtonElement).click(); // adds head-bo, seed 'team.bo'
+    await tick(2);
+    // The route re-supplies the APPLIED read's rows while the new read is
+    // still in flight, and that read does not include the clicked row: the
+    // seed is the only label source left for the optimistic chip.
+    props.messages = [message(1, { teamTags: [ADA] })];
+    await tick(3);
+    const chip = chipOf(m, 'head-bo')!;
+    expect(chip.textContent).toContain('team.bo');
+    expect(chip.textContent).not.toContain('head-bo');
+  });
+
+  it('N6b: a row that DOES label the added head wins over the seed', async () => {
+    const props = reactiveProps<Record<string, unknown>>({
+      messages: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [BO] })],
+      total: 2, filter: { kind: 'teams', headRefs: ['head-ada'] },
+      onSelectTeam: (_next: TeamChatFilter) => { /* the read never lands */ },
+    });
+    const m = await mountThread(props);
+    (tagOf(m, 'head-bo') as HTMLButtonElement).click(); // seed 'team.bo'
+    await tick(2);
+    // The supplied rows now label head-bo differently: the loaded row is the
+    // display snapshot — the seed is a fallback, never an override.
+    props.messages = [message(1, { teamTags: [ADA] }), message(2, { teamTags: [{ headId: 'head-bo', label: 'team.row-bo' }] })];
+    await tick(3);
+    expect(chipOf(m, 'head-bo')!.textContent).toContain('team.row-bo');
+    expect(chipOf(m, 'head-bo')!.textContent).not.toContain('team.bo');
+  });
+
+  it('N10: focus is never yanked from a reader who moved off <body> before a failed read reverts', async () => {
+    const props = reactiveProps<Record<string, unknown>>({
+      messages: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [BO] })],
+      total: 2, filter: { kind: 'teams', headRefs: ['head-ada', 'head-bo'] },
+      onSelectTeam: (_next: TeamChatFilter) => { /* the read never lands */ },
+      refusal: null,
+    });
+    const m = await mountThread(props);
+    document.body.append(m.target);
+    chipOf(m, 'head-bo')!.click(); await tick(2);
+    // The reader moved to a control OUTSIDE the filter's revert targets
+    // (the untagged toggle) while the read was in flight.
+    const elsewhere = [...m.target.querySelectorAll<HTMLButtonElement>('[data-testid="team-chat-filter"] button')]
+      .find((b) => b.textContent?.includes('No team tag'))!;
+    elsewhere.focus();
+    props.refusal = REFUSAL; await tick(8);
+    expect(document.activeElement).toBe(elsewhere); // kept
+  });
+
+  it('N10: teardown between the revert and its focus restore neither throws nor focuses', async () => {
+    const rejections = captureUnhandledRejections();
+    const props = reactiveProps<Record<string, unknown>>({
+      messages: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [BO] })],
+      total: 2, filter: { kind: 'teams', headRefs: ['head-ada', 'head-bo'] },
+      onSelectTeam: (_next: TeamChatFilter) => { /* the read never lands */ },
+      refusal: null,
+    });
+    const m = await mountThread(props);
+    document.body.append(m.target);
+    chipOf(m, 'head-bo')!.click(); await tick(2);
+    props.refusal = REFUSAL; await tick(3); // the revert ran; focus restore is scheduled
+    m.unmount();
+    mounted.splice(mounted.indexOf(m), 1);
+    await tick(4);
+    expect(rejections()).toEqual([]);
+  });
+
+  it('N10: a failed All choice un-presses once the revert consumes the request', async () => {
+    const props = reactiveProps<Record<string, unknown>>({
+      messages: [message(1, { teamTags: [ADA] })], total: 1,
+      filter: { kind: 'teams', headRefs: ['head-ada'] },
+      filterInvalid: true,
+      onSelectTeam: (_next: TeamChatFilter) => { /* the read never lands */ },
+      refusal: null,
+    });
+    const m = await mountThread(props);
+    allButton(m).click(); await tick(2);
+    expect(allButton(m).getAttribute('aria-pressed')).toBe('true'); // pending (round-4 F4)
+    props.refusal = REFUSAL; await tick(6);
+    // The read failed and the request is consumed: the pressed state falls
+    // back to the applied (invalid) view, where nothing is pressed.
+    expect(allButton(m).getAttribute('aria-pressed')).toBe('false');
+  });
+});
+
+function codes(strings: string[]): string[] {
+  return strings.flatMap((s) => (s.match(/[​‌‍﻿]/g) ?? []));
+}
+function captureUnhandledRejections(): () => unknown[] {
+  const seen: unknown[] = [];
+  const onUnhandled = (e: PromiseRejectionEvent) => seen.push(e.reason);
+  process.on('unhandledRejection', () => {});
+  window.addEventListener('unhandledrejection', onUnhandled);
+  return () => { window.removeEventListener('unhandledrejection', onUnhandled); return seen; };
+}
