@@ -46,6 +46,36 @@ describe('AgentChat notices with long names (#2093)', () => {
   });
 });
 
+describe('stage toast bolds the two stage names (#2226)', () => {
+  it('wraps from and to in <strong> while textContent still equals the title', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (i: RequestInfo | URL) => {
+      const u = String(i);
+      if (u.includes('/list')) return json({ chats: [CHAT] });
+      if (u.includes('/start')) return json({ chatId: 'chats:c1', conversationName: 'intro', stageName: 'stage-one', welcomeMessage: null, welcomeError: null, scope: 'private' });
+      if (u.includes('/turn')) return json(TURN);
+      throw new Error(`unexpected fetch: ${u}`);
+    }));
+    const m = mountComponent(AgentChat, { agentId: 'a' });
+    const button = (re: RegExp) => [...document.querySelectorAll('button')].find((b) => re.test(b.textContent ?? ''));
+    await vi.waitFor(() => expect(button(/new chat/i)).toBeDefined());
+    button(/new chat/i)!.click();
+    await vi.waitFor(() => expect(document.querySelector('textarea')).not.toBeNull());
+    const box = document.querySelector('textarea') as HTMLTextAreaElement;
+    box.value = 'hi'; box.dispatchEvent(new Event('input', { bubbles: true })); await tick();
+    await vi.waitFor(() => expect(button(/send/i)).toBeDefined());
+    button(/send/i)!.click();
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="stage-toast"]')).not.toBeNull());
+    const toast = document.querySelector('[data-testid="stage-toast"]') as HTMLElement;
+    // The pre-#2208 emphasis: exactly the from and to names carry it, nothing else.
+    const strongs = [...toast.querySelectorAll('strong')];
+    expect(strongs.map((s) => s.textContent)).toEqual(['stage-one', LONG]);
+    // <strong> adds no text: the clamp/equality invariant of #2093 is untouched.
+    expect(toast.getAttribute('title')).toBe(toast.textContent?.trim());
+    expect(toast.getAttribute('title')).toContain(LONG);
+    m.unmount();
+  });
+});
+
 describe('refused-stage note copy (#2184)', () => {
   it('leads with what stays true (same step, message saved) and puts the name last', async () => {
     const REFUSED = { ...TURN, stageTransitioned: false, newStageName: null, conversationCompleted: null, detourReturned: false, rejectedNextStage: LONG };

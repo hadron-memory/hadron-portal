@@ -1666,7 +1666,7 @@ describe('worklog loading (#733)', () => {
 
   it('passes ref, kind and tool filters through to the server', async () => {
     stubAll({ teamWorkItems: { items: [], total: 0 } });
-    await loadWithUrl('?worklogRef=owner/repo%23371&worklogKind=pr&worklogTool=github');
+    await loadWithUrl('?tab=worklog&worklogRef=owner/repo%23371&worklogKind=pr&worklogTool=github');
     const call = mockRequest.mock.calls.find((c) => c[0] === TEAM_WORK_ITEMS_QUERY);
     expect(call?.[1]).toMatchObject({
       appRef: 'app-1',
@@ -1681,7 +1681,7 @@ describe('worklog loading (#733)', () => {
   // unfiltered list.
   it('drops an invalid kind rather than forwarding it into a server error', async () => {
     stubAll({ teamWorkItems: { items: [], total: 0 } });
-    const result = await loadWithUrl('?worklogKind=pull-request');
+    const result = await loadWithUrl('?tab=worklog&worklogKind=pull-request');
     const call = mockRequest.mock.calls.find((c) => c[0] === TEAM_WORK_ITEMS_QUERY);
     expect(call?.[1].kind).toBeUndefined();
     // And the echoed-back filter must not claim a filter that was never applied.
@@ -1690,7 +1690,7 @@ describe('worklog loading (#733)', () => {
 
   it('reports a failed worklog fetch as an error, not as an empty worklog', async () => {
     stubAll(new Error('worklog exploded'));
-    const result = await loadWithUrl('');
+    const result = await loadWithUrl('?tab=worklog');
     expect(result.worklogError).toBe(true);
     expect(result.worklog).toEqual([]);
   });
@@ -1698,14 +1698,14 @@ describe('worklog loading (#733)', () => {
   // Negative case for the above (hrn:node:hadronmemory.com:hadron-portal:review:guard-must-be-proven-to-fail).
   it('reports a genuinely empty worklog with no error flag', async () => {
     stubAll({ teamWorkItems: { items: [], total: 0 } });
-    const result = await loadWithUrl('');
+    const result = await loadWithUrl('?tab=worklog');
     expect(result.worklogError).toBe(false);
     expect(result.worklogTotal).toBe(0);
   });
 
   it('carries the server total through, not the fetched count', async () => {
     stubAll({ teamWorkItems: { items: [{ nodeId: 'n1' }], total: 412 } });
-    const result = await loadWithUrl('');
+    const result = await loadWithUrl('?tab=worklog');
     expect((result.worklog as unknown[]).length).toBe(1);
     expect(result.worklogTotal).toBe(412);
   });
@@ -1869,7 +1869,7 @@ describe('canManageApp (#1106)', () => {
       locals: { token: 'tok', user },
       parent: async () => ({}),
       depends: () => {},
-      url: new URL('http://localhost/app/apps/app-1'),
+      url: new URL('http://localhost/app/apps/app-1?tab=agents'),
     } as unknown as Parameters<typeof load>[0])) as Record<string, unknown>;
   }
 
@@ -1967,7 +1967,7 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
     mockFetchAllItems.mockResolvedValue([]);
   }
 
-  async function loadAndCatch() {
+  async function loadAndCatch(search = '?tab=agents') {
     const { load } = await import('./+page.server');
     try {
       return {
@@ -1977,7 +1977,7 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
           locals: { token: 'tok', user: { id: 'user-1' } },
           parent: async () => ({}),
           depends: () => {},
-          url: new URL('http://localhost/app/apps/app-1'),
+          url: new URL(`http://localhost/app/apps/app-1${search}`),
         } as unknown as Parameters<typeof load>[0]),
       };
     } catch (e) {
@@ -2136,16 +2136,24 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
         mockRequest.mockImplementation((query, ...rest) =>
           query === APP_MEMBERS_QUERY ? never : base(query, ...rest),
         );
-        const pending = loadAndCatch();
-        // The loader's own awaits (dynamic import, the org lookup) must reach the
-        // bounded requests before the clock can fire them.
-        for (let i = 0; i < 20; i++) await vi.advanceTimersByTimeAsync(OPTIONAL_LIST_TIMEOUT_MS);
-        const { thrown, result } = await pending;
-        expect(thrown).toBeUndefined();
-        const r = result as { availableAgentsError: boolean; membersError: boolean; availableAgents: unknown[] };
-        expect(r.availableAgentsError).toBe(true);
-        expect(r.membersError).toBe(true);
-        expect(r.availableAgents).toEqual([]);
+        // portal#2240: the picker is the Agents tab's read and the roster the
+        // Human Team tab's, so each is opened on its own tab; the bound holds
+        // on both.
+        const settle = async (search: string) => {
+          const pending = loadAndCatch(search);
+          // The loader's own awaits (dynamic import, the org lookup) must reach the
+          // bounded requests before the clock can fire them.
+          for (let i = 0; i < 20; i++) await vi.advanceTimersByTimeAsync(OPTIONAL_LIST_TIMEOUT_MS);
+          return pending;
+        };
+        const agents = await settle('?tab=agents');
+        expect(agents.thrown).toBeUndefined();
+        const a = agents.result as { availableAgentsError: boolean; availableAgents: unknown[] };
+        expect(a.availableAgentsError).toBe(true);
+        expect(a.availableAgents).toEqual([]);
+        const members = await settle('?tab=members');
+        expect(members.thrown).toBeUndefined();
+        expect((members.result as { membersError: boolean }).membersError).toBe(true);
       } finally {
         vi.useRealTimers();
       }
@@ -2212,7 +2220,7 @@ describe('load: key inventory (portal#1068)', () => {
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
       depends: () => {},
-      url: new URL('http://localhost/app/apps/app-1'),
+      url: new URL('http://localhost/app/apps/app-1?tab=keys'),
     } as unknown as Parameters<typeof load>[0])) as { app: { id: string }; appKeys: unknown; viewerManages: unknown };
   }
   it('the App query selects no keys field', () => {
@@ -2315,7 +2323,7 @@ describe('load: Human Team roster states (portal#1148)', () => {
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
       depends: () => {},
-      url: new URL('http://localhost/app/apps/app-1'),
+      url: new URL('http://localhost/app/apps/app-1?tab=members'),
     } as unknown as Parameters<typeof load>[0])) as { members: unknown[]; membersError: boolean; membersWithheld: boolean };
   }
   it('members: null is withheld — not an error, not an empty roster', async () => {
