@@ -45,6 +45,7 @@ describe('assetSearchExtras', () => {
 
 describe('runSearchExtras', () => {
   const row: RunSearchFields = {
+    status: 'PAUSED',
     started: 'Sep 6, 08:00',
     startedRaw: '2026-09-06T08:00:00.000Z',
     duration: '1m 4s',
@@ -68,5 +69,21 @@ describe('runSearchExtras', () => {
     expect(duration('1m 4s')).toBe(true);
     // The elapsed millis are still matched, since that IS the accessor value.
     expect(duration('64000')).toBe(true);
+  });
+
+  // #1766 — the status cell renders `Unknown: {raw}` while the accessor keeps
+  // the raw enum name (the status-filter buttons match membership against it),
+  // so the word "Unknown" is on screen and invisible to search unless the
+  // extras carry the rendered label.
+  it('finds a run by the status label the chip shows, not only the enum name', () => {
+    const status = (needle: string) =>
+      filter({ getValue: () => row.status, original: row }, 'status', needle);
+    expect(status('unknown')).toBe(true);
+    expect(status('Unknown: PAUSED')).toBe(true);
+    // The accessor value — what a reader pastes from a GraphQL response —
+    // still matches on its own.
+    expect(status('PAUSED')).toBe(true);
+    // And this is not a match-everything fix.
+    expect(status('RUNNING')).toBe(false);
   });
 });

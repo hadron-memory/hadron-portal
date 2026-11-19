@@ -72,7 +72,6 @@ beforeEach(() => {
       case 'AppTeamRoster': return { teamRoster: { workers: [] } };
       case 'AppBootPointers': case 'AppInstallMarks': return { app: { id: APP_ID, appAgents: [] } };
       case 'TeamStopSignals': return { teamStopSignals: { signals: [], pageInfo: { hasNextPage: false, endCursor: null } } };
-      case 'AppProperties': return { app: { properties: {} } };
       case 'AppChatbotAiConfig': return { app: { id: APP_ID, chatbotAiConfigId: null } };
       case 'AppMemoryScope': return { appMemoryScope: { items: [], total: 0 } };
       case 'MyAgents': return { agents: { items: [], total: 0 } };

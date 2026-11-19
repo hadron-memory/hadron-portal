@@ -101,7 +101,6 @@ import type {
 } from '$lib/types';
 import { loadAppKeyScopes } from '$lib/server/tickers';
 import { loadAppKeys, loadViewerManages } from '$lib/server/app-keys';
-import { loadAppProperties, saveTaskIntegrations } from '$lib/server/app-properties';
 import type { Actions, PageServerLoad } from './$types';
 import {
   createAppMemorySchema,
@@ -823,7 +822,7 @@ export async function _loadAppPage(
   // read below can tell whether the banner needs worker names.
   const liveStopsP = mode.frame ? loadLiveStops(client, app.id) : Promise.resolve(null);
   let staffLoaded = false;
-  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, viewerManages, teamRoster, bootPointers, installMarks, liveStops, appProperties] = await Promise.all([
+  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, viewerManages, teamRoster, bootPointers, installMarks, liveStops] = await Promise.all([
     !wants('appNodes') ? Promise.resolve({ items: [] as MemoryNode[], total: 0, hasMore: false }) : client
       .request<{ appNodesPage: { items: MemoryNode[]; total: number; hasMore: boolean } }>(APP_NODES_PAGE_QUERY, {
         appRef: params.appId, limit: APP_DISPLAY_PAGE_SIZE, offset: appNodesOffset,
@@ -969,9 +968,6 @@ export async function _loadAppPage(
     // portal#1139: the stops in effect, for the banner, in its OWN classified request
     // (never throws): a stop read that fails must not take the App page with it.
     liveStopsP,
-    // portal#1607: the App's properties (task integrations), in their OWN classified request
-    // so a server without the fields cannot take the App page with it.
-    wants('properties') ? loadAppProperties(client, app.id) : Promise.resolve(null),
   ]);
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
     superValidate<AppSettingsForm>(
@@ -1238,7 +1234,6 @@ export async function _loadAppPage(
     keyScopes,
     appKeys,
     viewerManages,
-    appProperties,
     appSettingsForm,
     addAgentForm,
     createKeyForm,
@@ -1359,9 +1354,6 @@ export const actions: Actions = {
     }
   },
 
-  // portal#1607: replace the App's task integrations (setAppProperties, whole replace).
-  saveTaskIntegrations: async ({ request, params, locals }) =>
-    ({ taskIntegrationsResult: await saveTaskIntegrations(gqlClient(locals.token), params.appId, await request.formData()) }),
   addAgent: async ({ request, params, locals }) => {
     const form = await superValidate<AddAgentForm>(
       await request.formData(),

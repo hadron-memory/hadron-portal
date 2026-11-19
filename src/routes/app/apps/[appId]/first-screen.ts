@@ -49,7 +49,6 @@ export const READ_GROUP_KEYS = {
   appKeys: ['appKeys'],
   keyScopes: ['keyScopes'],
   aiConfigs: ['appConfigs', 'configsPage', 'configsError'],
-  properties: ['appProperties'],
   runs: ['runsPanel'],
   templates: ['templatesPanel'],
 } as const satisfies Record<string, readonly string[]>;
@@ -69,7 +68,7 @@ export const TAB_READS: Record<AppTabId, readonly ReadGroup[]> = {
   memory: ['appNodes', 'memoryScope', 'appMemories', 'canManage'],
   keys: ['appKeys', 'keyScopes'],
   'ai-configs': ['aiConfigs'],
-  settings: ['staff', 'chatbotConfig', 'chatConfigs', 'properties', 'canManage', 'memoryScope'],
+  settings: ['staff', 'chatbotConfig', 'chatConfigs', 'canManage', 'memoryScope'],
   'node-role-templates': ['templates'],
   // The Client tab's plugin grid (canManage) and its key status (appKeys).
   client: ['canManage', 'appKeys'],

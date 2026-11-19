@@ -134,6 +134,53 @@ describe('app runs load(): a no-access viewer (#1130)', () => {
   });
 });
 
+describe('app runs load(): forward-compatible response enums (#1766)', () => {
+  // The rows below carry enum members the CURRENT server schema cannot emit —
+  // deliberately. That is the contract #1766 implements: a portal older than
+  // its server must still render the page. Every other field copies the real
+  // APP_RUNS_QUERY response shape, so only the enum is hypothetical.
+  const gqlRow = (id: string, over: Record<string, unknown> = {}) => ({
+    id, status: 'COMPLETED', triggerKind: 'MANUAL', entryNodeUrn: 'hrn:node:acme.com::flows::entry',
+    createdAt: '2026-10-01T10:00:00.000Z', startedAt: null, finishedAt: null, failure: null, eventData: null, ...over,
+  });
+
+  async function loadRows(items: unknown[], total = items.length) {
+    // Scoped and restored: this file's beforeEach only resets mockRequest, so
+    // a warn spy left mockImplementation'd here would keep silencing (and
+    // recording) warns for every later test in the file.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      mockRequest.mockImplementation(async (query: string) => {
+        if (query === APP_QUERY || query === AGENT_TASKS_APP_QUERY) return { app };
+        if (query === APP_RUNS_QUERY) return { appRuns: { items, total } };
+        throw new Error(`unexpected query: ${query.slice(0, 60)}`);
+      });
+      const { loadAppRunsPage } = await import('$lib/server/app-runs-page');
+      return await loadAppRunsPage(
+        { request: mockRequest } as never,
+        'app-1',
+        new URL('https://example.test/app/apps/app-1/runs').searchParams,
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  }
+
+  it('serves every row of a page holding well-shaped unknown status/trigger values', async () => {
+    const items = Array.from({ length: 20 }, (_, i) =>
+      gqlRow(`r-${i}`, i === 0 ? { status: 'PAUSED' } : i === 1 ? { triggerKind: 'FUTURE_KIND' } : {}));
+    const r = await loadRows(items, 20);
+    expect(r.failed).toBe(false);
+    expect(r.runs).toHaveLength(20);
+  });
+
+  it('a malformed row still fails the whole page, serving no runs', async () => {
+    const r = await loadRows([gqlRow('bad', { status: 42 })]);
+    expect(r.failed).toBe(true);
+    expect(r.runs).toEqual([]);
+  });
+});
+
 describe('app runs legacy panel paging (#1881)', () => {
   it('uses a runnable-only appNodesPage at the requested offset and carries navigation instead of a cap', async () => {
     const pageCalls: Record<string, unknown>[] = [];

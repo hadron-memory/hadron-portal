@@ -53,7 +53,7 @@ describe('TaskExternalId', () => {
     [
       'nested under another field',
       (q: string) =>
-        q.replace(/^\s*externalId\n/m, '').replace('result { outcome summary evidence }', 'result { outcome summary evidence externalId }'),
+        q.replace(/^\s*externalId\n/m, '').replace('result { outcome summary evidence ', 'result { outcome summary evidence externalId '),
     ],
   ])('does not count externalId %s as selected', (_name, rewrite) => {
     const mutant = mutate(rewrite);

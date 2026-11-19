@@ -1423,6 +1423,11 @@ type AgentTaskResult {
   """One word: succeeded, failed, or a word the team chooses."""
   outcome: String!
   summary: String
+
+  """
+  #4414: the role tasks (runnable instruction nodes) the assignee followed, in the order given, each with its URN and the revision it had at finish (hrn:node:hadronmemory.com:specs:cor:agt:050:30). Null when the finish gave none. Not the previous task.
+  """
+  workedFromRoleTaskRefs: [AgentTaskRoleTaskRef!]
 }
 
 input AgentTaskResultInput {
@@ -1438,6 +1443,20 @@ input AgentTaskResultInput {
   """
   outcome: String!
   summary: String
+
+  """
+  #4414: optional role tasks followed: node ids or URNs, at most 10, each a live runnable node you may read, none twice (hrn:node:hadronmemory.com:specs:cor:agt:050:30). Anything else refuses TASK_ROLE_TASK_REFS_INVALID, one answer for a node you may not read and one that does not exist, and the task stays started. Omitted/null: none, as before.
+  """
+  workedFromRoleTaskRefs: [ID!]
+}
+
+"""
+#4414: one role task an assignee followed, kept as it was when the task finished.
+"""
+type AgentTaskRoleTaskRef {
+  nodeId: ID!
+  revision: Int!
+  urn: String!
 }
 
 """
