@@ -1,6 +1,20 @@
 // portal#2201: real AgentChat + compiled CSS, synthetic one-chat/two-message API.
 // Read the route's actual wrapper rather than maintaining a second height rule.
 // No provider calls, no auth; independent QA also checks the signed-in route.
+//
+// Limits (portal#2215). The 3px margin on the content-box bounds below is the
+// slack this probe tolerates between the modeled shell and the real route. These
+// are NOT tested here, and nothing in a green run says they hold:
+//  - Safari: no WebKit leg; Chromium only, so Safari viewport and toolbar
+//    metrics (dynamic viewport units, safe areas) are unchecked.
+//  - Text zoom and browser font-size settings: every leg runs at default size.
+//  - Landscape phones: the cases are portrait widths; 320x460 only simulates
+//    less visible height, not a rotated device.
+//  - The virtual keyboard: it is not opened, so the visible height with a
+//    keyboard up is unchecked.
+//  - Translated strings: the long chat-title and config-name fixtures stress
+//    width in English; they establish no localization coverage for button or
+//    label text in other languages.
 import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import { createServer } from 'vite';
@@ -22,6 +36,8 @@ const cases = [
   { width: 1366, height: 657, minContent: 0, unchanged: true },
   { width: 320, height: 460, minContent: 120 },
 ];
+// The stress variant swaps in a very long AI config name; it runs the full matrix.
+const variants = [{ name: 'default', longConfigName: false }, { name: 'long-config', longConfigName: true }];
 const shots = process.env.AGENT_CHAT_SHOTS;
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, plugins: [{
   name: 'height-probe-navigation', enforce: 'pre',
@@ -68,7 +84,7 @@ try {
   assert(css.length > 1000);
   browser = await chromium.launch({ headless: true });
   if (shots) await mkdir(shots, { recursive: true });
-  for (const { width, height, minContent, unchanged } of cases) {
+  for (const variant of variants) for (const { width, height, minContent, unchanged } of cases) {
     for (const dark of [false, true]) for (const coarse of [false, true]) {
       const context = await browser.newContext({ viewport: { width, height }, hasTouch: coarse });
       try {
@@ -92,10 +108,10 @@ try {
             <div class="min-w-0 flex-1">
             <div id="chat-wrapper" class="${cls}" style="${style}"><div id="panel" class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden"></div></div></div></div>`;
         }, { css, dark, cls: wrapper[1], style: wrapper[2] });
-        await page.evaluate(async () => {
+        await page.evaluate(async (longConfigName) => {
           const { mountAgentChat } = await import('/src/lib/test/fixtures/agent-chat-phone-harness.ts');
-          window.__chat = mountAgentChat(document.getElementById('panel'), { transcriptHeight: true, shortTitle: true });
-        });
+          window.__chat = mountAgentChat(document.getElementById('panel'), { transcriptHeight: true, longConfigName });
+        }, variant.longConfigName);
         await page.locator('[data-chat-row]').click();
         const latest = page.getByText('Yes, let’s plan the next session.', { exact: true });
         await latest.waitFor();
@@ -105,7 +121,7 @@ try {
         // than inferring that from a full-page screenshot.
         await page.locator('textarea').evaluate(el => el.scrollIntoView({ block: 'end', behavior: 'instant' }));
         const m = await latest.evaluate(measure);
-        const label = `${width}x${height}/${dark ? 'dark' : 'light'}/${coarse ? 'coarse' : 'fine'}`;
+        const label = `${variant.name}/${width}x${height}/${dark ? 'dark' : 'light'}/${coarse ? 'coarse' : 'fine'}`;
         console.log(label, JSON.stringify(m));
         results.push({ label, ...m });
         assert(m.content >= minContent, `${label}: transcript content is ${m.content}px`);
@@ -126,6 +142,11 @@ try {
           assert.deepEqual({ panel: m.panel, scroller: m.scroller }, { panel: before.panel, scroller: before.scroller }, `${label}: main layout changed`);
         }
         if (width === 948) assert.equal(m.panel, 620);
+        if (variant.longConfigName) {
+          // The long fixture must actually be on the page, not silently ignored.
+          const { LONG_CONFIG_NAME } = await page.evaluate(() => import('/src/lib/test/fixtures/agent-chat-phone-harness.ts').then(m => ({ LONG_CONFIG_NAME: m.LONG_CONFIG_NAME })));
+          assert.equal(await page.locator('#agent-chat-ai-config option').first().textContent().then(t => t?.includes(LONG_CONFIG_NAME)), true, `${label}: long config name not rendered`);
+        }
         assert(await page.getByLabel('AI config').isVisible(), `${label}: AI config hidden`);
         assert(await page.getByRole('button', { name: 'Send', exact: true }).isVisible(), `${label}: Send hidden`);
         assert.deepEqual(errors, [], `${label}: browser diagnostics`);

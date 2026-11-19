@@ -7,6 +7,8 @@ import AgentChat from '$lib/components/AgentChat.svelte';
 import { navigationCalls } from '$lib/test/stubs/app-navigation';
 
 export const LONG_TOKEN = 'unbroken'.repeat(24);
+/** portal#2215: an AI config name far wider than a phone, to stress the composer row. */
+export const LONG_CONFIG_NAME = 'Regional volunteer onboarding assistant with extended context and scheduling tools'.repeat(2);
 const CHATS = [
   {
     id: 'chat-a',
@@ -70,7 +72,7 @@ const json = (body: unknown, status = 200) =>
  * of the chats, so the row actions can be driven end to end; their calls are
  * counted as `title` and `delete`, never as `writes`.
  */
-export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boolean; rowActions?: boolean; shortTitle?: boolean; transcriptHeight?: boolean } = {}): AgentChatFixture {
+export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boolean; rowActions?: boolean; shortTitle?: boolean; transcriptHeight?: boolean; longConfigName?: boolean } = {}): AgentChatFixture {
   const chats = (options.transcriptHeight ? CHATS.slice(0, 1) : CHATS).map((c) => ({ ...c }));
   const messages = options.transcriptHeight
     ? [{ role: 'user', content: 'Can we plan the next session?', seq: 1 },
@@ -178,7 +180,7 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
       appId: 'app-fixture',
       uploadMemoryId: 'memory-fixture',
       aiChoices: [
-        { value: 'default', name: 'Default', provider: 'synthetic', model: 'fixture-model', isDefault: true, unavailableReason: null },
+        { value: 'default', name: options.longConfigName ? LONG_CONFIG_NAME : 'Default', provider: 'synthetic', model: 'fixture-model', isDefault: !options.longConfigName, unavailableReason: null },
       ] as never,
     },
   });
