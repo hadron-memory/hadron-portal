@@ -16,7 +16,7 @@
   // portal#2249: one source for the App type's labels — Profile row, Settings
   // read-only row and the Settings options render these so they cannot drift.
   import { APP_TYPE_VALUES, appTypeLabel } from '$lib/i18n/app-type-strings';
-  import { tick, untrack, onDestroy } from 'svelte';
+  import { tick, untrack, onDestroy, flushSync } from 'svelte';
   import { applyAction } from '$app/forms';
   import { page } from '$app/stores';
   import { dropNamedActions } from './app-list-pages';
@@ -362,6 +362,9 @@
   const castHeads = $derived(sortedStaff.filter((w) => !w.retiredAt));
   const selectedCastHead = $derived(castHeads.find((w) => w.id === $castWorkerForm.reportsTo) ?? null);
   let castOpen = $state(false);
+  // portal#1796: the "Cast a worker" opener. The composer closes on a clean cast and takes the
+  // focused Cast button with it, so focus is handed back here (see onUpdated).
+  let castOpener: HTMLButtonElement | undefined = $state();
   // App the in-flight cast was submitted for, and whether its post-cast roster refresh failed.
   // Generation fence: bumped every time the composer's context is LEFT (App change), so a result
   // that began in an earlier visit to the same App (A -> B -> A) is as stale as one from B.
@@ -1786,12 +1789,19 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    // portal#1796: the Cast button is aria-disabled while casting, so this is what refuses a second
+    // submit. Named here, not left to the library default, because the safety property rests on it.
+    multipleSubmits: 'prevent',
     // Fence by originating App (hrn:node:hadronmemory.com:hadron-portal:review:superforms-late-result-crosses-entity-navigation):
     // this page component is REUSED across /apps/A -> /apps/B, so A's slow answer
     // must not close B's composer, empty B's draft or print "Worker cast." on B.
     // The cast itself is already committed server-side; only its application to
     // the screen is dropped (never replayed).
     onSubmit: ({ formElement }) => {
+      // portal#1796: the Cast button is aria-disabled while casting, not disabled, so it keeps
+      // keyboard focus and no longer blocks a second activation itself. The double-submit guard
+      // is Superforms' multipleSubmits: 'prevent' (set above), which cancels a second submit
+      // BEFORE this hook runs; scripts/test-cast-submit-focus.mjs pins that one request goes out.
       castAttemptGeneration = castGeneration;
       castRequestGeneration.set(formElement, castGeneration);
       castRefreshFailed = false;
@@ -1842,6 +1852,15 @@
           { taint: false },
         );
         castOpen = false;
+        // portal#1796: the Cast button held focus and has just unmounted with the composer,
+        // which would drop focus to <body>. Hand it to the opener, unless the reader has
+        // already moved focus somewhere real while the request was out.
+        // flushSync, not await tick(): no extra microtask turn before the refresh below, whose
+        // timing the late-result race tests pin.
+        flushSync();
+        if (attempt === castGeneration && (!document.activeElement || document.activeElement === document.body)) {
+          castOpener?.focus();
+        }
         try {
           await invalidateAll();
           // portal#2243 F1: after ruling 0273 the reload carries the roster
@@ -3038,6 +3057,7 @@
         <div class="flex shrink-0 items-center gap-2">
           <button
             type="button"
+            bind:this={castOpener}
             onclick={() => (castOpen = !castOpen)}
             aria-expanded={castOpen}
             class="rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
@@ -3285,8 +3305,8 @@
           <div class="flex gap-3">
             <button
               type="submit"
-              disabled={$castWorkerSubmitting}
-              class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+              aria-disabled={$castWorkerSubmitting}
+              class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 aria-disabled:hover:bg-amber-500 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
             >
               {$castWorkerSubmitting ? t('app.staff.casting', 'Casting…') : t('app.staff.cast.submit', 'Cast')}
             </button>
