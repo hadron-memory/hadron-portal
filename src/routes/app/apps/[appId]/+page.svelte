@@ -1077,9 +1077,17 @@
   // is dropped, so an older answer can never clobber the page state a newer
   // one was fetched for (F2).
   let rosterFetchEpoch = 0;
+  // The endpoint bounds its own read at 8 s (OPTIONAL_LIST_TIMEOUT_MS in
+  // roster/+server.ts); this is the transport's bound and must stay above it,
+  // or the client gives up on an answer the server is still entitled to send.
+  // roster-fetch.client.test.ts pins the pair.
   const ROSTER_FETCH_TIMEOUT_MS = 10_000;
+  // The request in flight, so a newer ask or a teardown ends it rather than
+  // leaving it to run out its timer (portal#2282).
+  let rosterFetchCtl: AbortController | null = null;
   function startRosterFetch(appId: string, opts: { supersedeData?: boolean } = {}) {
     const epoch = ++rosterFetchEpoch;
+    rosterFetchCtl?.abort();
     rosterSupersedesData = opts.supersedeData ? data : null;
     rosterFetchedForApp = appId;
     rosterFetch = { appId, read: { kind: 'loading' } };
@@ -1096,6 +1104,7 @@
       // timer rather than `AbortSignal.timeout`: the timer is the one a test
       // can drive.
       const ctl = new AbortController();
+      rosterFetchCtl = ctl;
       const timer = setTimeout(() => ctl.abort(), ROSTER_FETCH_TIMEOUT_MS);
       try {
         const res = await fetch(`/app/apps/${appId}/roster`, { signal: ctl.signal });
@@ -1116,11 +1125,19 @@
         // transport failure or timeout: keep the failed read
       } finally {
         clearTimeout(timer);
+        if (rosterFetchCtl === ctl) rosterFetchCtl = null;
       }
       if (epoch !== rosterFetchEpoch) return;
       rosterFetch = { appId, read };
     })();
   }
+  // Teardown: end the request and make its late answer stale, so nothing
+  // writes page state after the component is gone.
+  onDestroy(() => {
+    rosterFetchEpoch++;
+    rosterFetchCtl?.abort();
+    rosterFetchCtl = null;
+  });
   $effect(() => {
     if (activeTab !== 'staff') return;
     const appId = app.id;
@@ -3361,16 +3378,16 @@
           </div>
         {/if}
         {#if teamRoster?.kind === 'failed'}
-          <p role="status" class="flex items-center gap-2 text-xs text-zinc-500">
-            {t('app.staff.roster.failed', 'Task and pause state could not be loaded.')}
+          <div class="flex items-center gap-2 text-xs text-zinc-500">
+            <p role="status">{t('app.staff.roster.failed', 'Task and pause state could not be loaded.')}</p>
             <!-- portal#2246 item 1: a failed read is final for the visit unless asked again. -->
-            <button type="button" onclick={() => startRosterFetch(app.id, { supersedeData: true })} class="rounded-md border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.staff.roster.retry', 'Try again')}</button>
-          </p>
+            <button type="button" onclick={() => { if (teamRoster?.kind === 'failed') startRosterFetch(app.id, { supersedeData: true }); }} class="rounded-md border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.staff.roster.retry', 'Try again')}</button>
+          </div>
         {:else if teamRoster?.kind === 'signedOut'}
-          <p role="status" class="text-xs text-zinc-500">
-            {t('app.staff.roster.signed-out', 'Your session has ended, so task and pause state could not be loaded.')}
+          <div class="flex items-center gap-2 text-xs text-zinc-500">
+            <p role="status">{t('app.staff.roster.signed-out', 'Your session has ended, so task and pause state could not be loaded.')}</p>
             <a href={`/signin?redirect=${encodeURIComponent(`${$page.url.pathname}${$page.url.search}`)}`} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.staff.roster.sign-in', 'Sign in')}</a>
-          </p>
+          </div>
         {:else if teamRoster?.kind === 'hidden'}
           <p role="status" class="text-xs text-zinc-500">{t('app.staff.roster.hidden', 'Task and pause state are not shown to you.')}</p>
         {/if}

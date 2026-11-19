@@ -39,6 +39,7 @@ import { setStubPage } from '$lib/test/stubs/app-stores';
 import { resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import type { TeamRosterRead } from '$lib/server/app-team-roster';
+import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import type { z } from 'zod';
 import Page from './+page.svelte';
 import { castWorkerSchema, releaseWorkerSchema, type ReleaseWorkerMessage } from './schema';
@@ -49,6 +50,7 @@ afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  rosterSignals.length = 0;
   resetNavigationCalls();
   resetNavigationGuards();
   window.history.replaceState({}, '', '/');
@@ -75,9 +77,10 @@ function stubFetch(gate: { read: (href: string) => TeamRosterRead | Promise<Team
   const calls: string[] = [];
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (url: string | URL) => {
+    vi.fn(async (url: string | URL, init?: RequestInit) => {
       const href = String(url);
       calls.push(href);
+      if (href.endsWith('/roster') && init?.signal) rosterSignals.push(init.signal);
       if (href.endsWith('/roster')) return { ok: true, json: async () => gate.read(href) } as Response;
       return { ok: true, json: async () => ({ items: [], total: 0, loadFailed: true }) } as Response;
     }),
@@ -85,6 +88,7 @@ function stubFetch(gate: { read: (href: string) => TeamRosterRead | Promise<Team
   return calls;
 }
 
+const rosterSignals: AbortSignal[] = [];
 const rosterCalls = (calls: string[]) => calls.filter((c) => c.endsWith('/roster'));
 
 /** The fetch → json → validate → assign chain is several microtask hops past
@@ -267,12 +271,15 @@ describe('AI Team roster: re-asked after a roster-invalidating action (portal#22
 
     // App-to-App navigation while a1's ask is still in flight: the page
     // component is reused and a2's ask starts (and lands) immediately.
+    // portal#2282: starting a2's ask ends a1's request, not just its write.
+    expect(rosterSignals[0].aborted).toBe(false);
     props.data = {
       ...base,
       app: { ...(base.app as Record<string, unknown>), id: 'a2' },
     };
     await settled(3);
     expect(target.querySelector('#panel-staff')!.textContent).toContain('Ship the roster refresh');
+    expect(rosterSignals[0].aborted).toBe(true);
 
     // a1's answer lands LAST: it must be dropped, not written over a2's.
     releaseA1(rosterOk);
@@ -284,7 +291,7 @@ describe('AI Team roster: re-asked after a roster-invalidating action (portal#22
 
 /**
  * portal#2246 — follow-ups from the #2243 review: a failed roster read is
- * retryable (items 1), a hung connection resolves to the failed notice (2),
+ * retryable (item 1), a hung connection resolves to the failed notice (2),
  * a lapsed session offers sign-in rather than the generic notice (3), and the
  * confirmed-cast leg of the re-ask is pinned (6).
  */
@@ -329,7 +336,7 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
   it('item 2: a hung roster connection resolves to the failed notice within 10 s', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
-      stubRosterResponses((_n, init) =>
+      const calls = stubRosterResponses((_n, init) =>
         new Promise<Response>((_resolve, reject) => {
           // A connection that never sends a byte: only an abort ends it.
           init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
@@ -340,9 +347,17 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
       await tick(3);
       expect(target.querySelector('#panel-staff')!.textContent).toContain('Loading');
 
-      await vi.advanceTimersByTimeAsync(10_500);
+      // The client bound sits above the endpoint's own 8 s bound (portal#2282):
+      // it must not give up on an answer the server may still send.
+      expect(OPTIONAL_LIST_TIMEOUT_MS).toBeLessThan(10_000);
+      await vi.advanceTimersByTimeAsync(9_500);
+      await tick(3);
+      expect(target.querySelector('#panel-staff')!.textContent).toContain('Loading');
+
+      await vi.advanceTimersByTimeAsync(1_000);
       await tick(3);
       expect(target.querySelector('#panel-staff')!.textContent).toContain('Task and pause state could not be loaded');
+      expect(rosterCalls(calls)).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }
@@ -357,8 +372,61 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
     const panel = target.querySelector('#panel-staff')!;
     const link = [...panel.querySelectorAll('a')].find((a) => a.getAttribute('href')?.startsWith('/signin'));
     expect(link).toBeDefined();
-    expect(link!.getAttribute('href')).toContain('redirect=');
+    // The way back in lands on the page the reader was on (the stub page URL).
+    expect(link!.getAttribute('href')).toBe(`/signin?redirect=${encodeURIComponent('/app/apps/a1?tab=chats')}`);
     expect(panel.textContent).not.toContain('Task and pause state could not be loaded');
+    // A lapsed session is not retryable: no Try again, and the link sits outside the status text.
+    expect(retryButton(panel)).toBeUndefined();
+    expect(link!.closest('[role="status"]')).toBeNull();
+  });
+
+  it('portal#2282: the retry control sits outside the status text, shows loading, and a double click asks once', async () => {
+    let release!: (r: Response) => void;
+    const calls = stubRosterResponses((n) =>
+      n === 0 ? json(200, { kind: 'failed' }) : new Promise<Response>((resolve) => { release = resolve; }),
+    );
+    const target = await mountPage({ teamRoster: null });
+    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await settled(3);
+    const panel = target.querySelector('#panel-staff')!;
+    const retry = retryButton(panel)!;
+    expect(retry.closest('[role="status"]')).toBeNull();
+    retry.click();
+    retry.click();
+    await settled(3);
+    expect(rosterCalls(calls)).toHaveLength(2);
+    expect(retryButton(panel)).toBeUndefined();
+    expect(panel.textContent).toContain('Loading');
+    release(json(200, rosterOk));
+    await settled(3);
+    expect(panel.textContent).toContain('Fix the login handoff');
+  });
+
+  it('portal#2282: a 401 on a retried fetch takes the signed-out branch', async () => {
+    stubRosterResponses((n) => (n === 0 ? json(200, { kind: 'failed' }) : json(401, { kind: 'failed' })));
+    const target = await mountPage({ teamRoster: null });
+    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await settled(3);
+    const panel = target.querySelector('#panel-staff')!;
+    retryButton(panel)!.click();
+    await settled(3);
+    expect([...panel.querySelectorAll('a')].some((a) => a.getAttribute('href')?.startsWith('/signin'))).toBe(true);
+    expect(retryButton(panel)).toBeUndefined();
+  });
+
+  it('portal#2282: teardown aborts the request in flight', async () => {
+    const signals: AbortSignal[] = [];
+    stubRosterResponses((_n, init) => {
+      signals.push(init!.signal!);
+      return new Promise<Response>(() => {});
+    });
+    const target = await mountPage({ teamRoster: null });
+    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await settled(3);
+    expect(signals).toHaveLength(1);
+    expect(signals[0].aborted).toBe(false);
+    mounted.pop()!.unmount();
+    expect(signals[0].aborted).toBe(true);
   });
 
   it('item 6: a confirmed cast re-asks /roster and shows the fresh read', async () => {
