@@ -635,18 +635,18 @@ export const actions: Actions = {
     // membership-gated and best-effort). Sending null therefore failed the
     // WHOLE save, visibility included. Omitting the variable makes the
     // resolver skip the field; a real first-attach still sends the id.
-    const systemMemoryId = form.data.systemMemoryId || undefined;
+    const systemMemoryRef = form.data.systemMemoryId || undefined;
     const visibility = form.data.visibility || undefined;
     // #712: send the role VERBATIM, including ''. Blank clears it server-side.
     const { personaRole } = form.data;
     try {
       await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {
-        ref: params.id, name, urn: urnSlug, description, systemMemoryId, visibility,
+        ref: params.id, name, urn: urnSlug, description, systemMemoryRef, visibility,
         personaRole,
       });
 
       // If a system memory was selected, ensure it has the chatbot scaffold
-      if (systemMemoryId) {
+      if (systemMemoryRef) {
         // hadron-server#460: create-only scaffold. The whole block is gated
         // on `conversations` being absent, and every call swallows errors —
         // so on a partially-scaffolded memory a NodeLocConflictError just
@@ -660,25 +660,25 @@ export const actions: Actions = {
         const client = gqlClient(locals.token);
         const agentDisplayName = name ?? 'Agent';
         // Check if conversations parent exists; create scaffold if missing
-        const hasConversations = await client.request<{ node: { id: string } | null }>(NODE_Q, { ref: 'conversations', memoryRef: systemMemoryId }).catch(() => ({ node: null }));
+        const hasConversations = await client.request<{ node: { id: string } | null }>(NODE_Q, { ref: 'conversations', memoryRef: systemMemoryRef }).catch(() => ({ node: null }));
 
         if (!hasConversations.node) {
           // conversations parent
           await client.request(CREATE, { input: {
-            memoryId: systemMemoryId, loc: 'conversations', name: 'conversations', nodeType: 'system',
+            memoryId: systemMemoryRef, loc: 'conversations', name: 'conversations', nodeType: 'system',
             description: 'Conversation designs',
           }}).catch(() => {});
 
           // setup conversation
           await client.request(CREATE, { input: {
-            memoryId: systemMemoryId, loc: 'conversations:setup', name: 'setup', nodeType: 'system',
+            memoryId: systemMemoryRef, loc: 'conversations:setup', name: 'setup', nodeType: 'system',
             description: 'First-time user setup',
             data: { isSetup: true, stageOrder: ['onboard'] },
           }}).catch(() => {});
 
           // onboard stage
           await client.request(CREATE, { input: {
-            memoryId: systemMemoryId, loc: 'conversations:setup:onboard', name: 'onboard', nodeType: 'system',
+            memoryId: systemMemoryRef, loc: 'conversations:setup:onboard', name: 'onboard', nodeType: 'system',
             description: 'Onboarding stage',
             data: {
               promptRef: 'prompts:setup:onboard',
@@ -688,27 +688,27 @@ export const actions: Actions = {
 
           // prompts parent
           await client.request(CREATE, { input: {
-            memoryId: systemMemoryId, loc: 'prompts', name: 'prompts', nodeType: 'system',
+            memoryId: systemMemoryRef, loc: 'prompts', name: 'prompts', nodeType: 'system',
             description: 'Prompt templates',
           }}).catch(() => {});
 
           await client.request(CREATE, { input: {
-            memoryId: systemMemoryId, loc: 'prompts:setup', name: 'setup', nodeType: 'system',
+            memoryId: systemMemoryRef, loc: 'prompts:setup', name: 'setup', nodeType: 'system',
           }}).catch(() => {});
 
           await client.request(CREATE, { input: {
-            memoryId: systemMemoryId, loc: 'prompts:setup:onboard', name: 'onboard', nodeType: 'system',
+            memoryId: systemMemoryRef, loc: 'prompts:setup:onboard', name: 'onboard', nodeType: 'system',
             content: `You are ${agentDisplayName}.\n\nWelcome the user and learn about them.\nAsk for their name to get started.\n\nRespond using the 'respond' tool.`,
           }}).catch(() => {});
 
           // partials
           await client.request(CREATE, { input: {
-            memoryId: systemMemoryId, loc: 'prompts:partials', name: 'partials', nodeType: 'system',
+            memoryId: systemMemoryRef, loc: 'prompts:partials', name: 'partials', nodeType: 'system',
             description: 'Shared prompt fragments',
           }}).catch(() => {});
 
           await client.request(CREATE, { input: {
-            memoryId: systemMemoryId, loc: 'prompts:partials:metadata-spec', name: 'metadata-spec', nodeType: 'system',
+            memoryId: systemMemoryRef, loc: 'prompts:partials:metadata-spec', name: 'metadata-spec', nodeType: 'system',
             content: "Always respond using the 'respond' tool. Include:\n- message: your response to the user\n- data: any new information you learned\n- next_stage: null to stay, or the next stage name to transition",
           }}).catch(() => {});
         }

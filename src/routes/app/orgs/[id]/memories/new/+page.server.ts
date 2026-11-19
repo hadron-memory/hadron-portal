@@ -79,7 +79,7 @@ export const actions: Actions = {
       // If display name differs from slug, update the name
       if (displayName && displayName !== name) {
         await gqlClient(locals.token).request(UPDATE_MEMORY_MUTATION, {
-          id: result.createMemory.id, name: displayName,
+          ref: result.createMemory.id, name: displayName,
         }).catch(() => {}); // best-effort
       }
       // #556: land back on the tab that shows the memory just created — personal

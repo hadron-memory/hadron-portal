@@ -86,7 +86,7 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(UPDATE_MEMORY_MUTATION, {
-        id: params.id,
+        ref: params.id,
         source: blankToNull(form.data.source),
         readBranch: blankToNull(form.data.readBranch),
         writeBranch: blankToNull(form.data.writeBranch),
