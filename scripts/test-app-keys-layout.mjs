@@ -2,9 +2,8 @@
 // and the key table filling the tab panel. portal#1487 adds the Grant scope
 // dialog (row ⋯ menu → showModal): fits the viewport at every width, host
 // field helper UNDER the field, and the empty-host refusal rendering inside
-// the still-open dialog.
-// and the key table filling the tab panel. Real Chromium, the compiled app
-// CSS, and the REAL `/app/apps/[appId]/+page.svelte` inside a copy of the
+// the still-open dialog. Real Chromium, the compiled app CSS, and the REAL
+// `/app/apps/[appId]/+page.svelte` inside a copy of the
 // `/app` shell (sidebar `w-48 hidden sm:flex`, gutters, `min-w-0 flex-1`
 // content column). Synthetic data from
 // src/lib/test/fixtures/app-keys-layout-harness.ts: no server, no key minted,

@@ -6,7 +6,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { page, setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationCalls, navigationHooks, navigationGuards, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { kitAppliedResults, resetKitAppliedResults, submitEnhanced, submitEnhancedWithResult, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
+import { kitAppliedResults, resetKitAppliedResults, submitEnhanced, submitEnhancedWithResult, submitEnhancedWithRawResult, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatFilter } from '$lib/team-chat-filter';
@@ -1371,7 +1371,7 @@ describe('App Keys Scopes column (portal#1099)', () => {
     // opens, so a textContent check would pass vacuously).
     const panel = await mountKeys({ kind: 'hidden' }, { viewerManages: { kind: 'known', manages: false } });
     expect(panel.querySelector('button[aria-label^="Actions for key"]')).toBeNull();
-    expect(panel.textContent).toContain('Only people who manage this App can create or revoke its keys');
+    expect(panel.textContent).toContain('Only people who manage this App can mint, revoke and scope its keys');
   });
 });
 
@@ -1538,6 +1538,85 @@ describe('App key scope grant dialog (portal#1487)', () => {
     expect(reopened.querySelector('[data-testid="grant-scope-error"]')).toBeNull();
     expect(scopeSelect(reopened).value).toBe('attention:deliver');
     expect(hostInput(reopened)).toBeNull();
+  });
+
+  // ── review on #1487: the dialog must not lock, and must not leak across Apps ──
+
+  it('a transport failure frees the dialog and says the grant is unconfirmed', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    // Exactly what kit's enhance hands superforms when the fetch rejects.
+    await submitEnhancedWithRawResult(grantForm(dialog), { type: 'error', status: 500, error: new Error('boom') });
+    flushSync(); await tick(2);
+    // The outcome is unknown, so the dialog STAYS and says so beside the form
+    // that ran — claiming neither that it landed nor that it was refused.
+    expect(document.querySelector('dialog[open]')).toBeTruthy();
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toContain('could not be confirmed');
+    // …and the submit ENDS: no 'Granting…', Cancel usable again. The stuck
+    // modal this replaces never cleared $grantKeyScopeSubmitting.
+    const submit = [...dialog.querySelectorAll('button')].find((b) => b.type === 'submit')!;
+    expect(submit.textContent).toContain('Grant');
+    expect(submit.disabled).toBe(false);
+    expect([...dialog.querySelectorAll('button')].find((b) => b.textContent?.includes('Cancel'))!.disabled).toBe(false);
+  });
+
+  // The page component survives /apps/A -> /apps/B (same route id), and
+  // `grantScopeKey` is $state — so the dialog must be fenced to the App it
+  // was opened on, or showModal() reopens the departed App's dialog on B's
+  // Keys tab and a Grant there would write A's key.
+  describe('the open dialog is fenced to one App (#1487 review)', () => {
+    const KEY_A = { id: 'k1', label: 'router', keyPreview: 'hk_ab…yz', createdAt: '2026-10-01T12:00:00.000Z', lastUsedAt: null, revokedAt: null };
+    const KEY_B = { id: 'k2', label: 'laptop', keyPreview: 'hk_cd…wv', createdAt: '2026-10-02T12:00:00.000Z', lastUsedAt: null, revokedAt: null };
+    async function keysDataFor(appId: string, key: typeof KEY_A) {
+      setStubPage(`https://example.test/app/apps/${appId}?tab=keys`, { appId });
+      const data = await pageData();
+      return {
+        ...data, initialTab: 'keys', app: { ...data.app, id: appId },
+        appKeys: { kind: 'ok', keys: [key] }, keyScopes: { kind: 'ok', byKey: {} },
+      };
+    }
+    async function mountAppKeys() {
+      const props = reactiveProps({ data: await keysDataFor('a1', KEY_A), form: null });
+      const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(2);
+      return { m, props };
+    }
+    const moveTo = async (props: { data: unknown }, appId: string, key: typeof KEY_A) => {
+      props.data = await keysDataFor(appId, key);
+      await tick(3);
+    };
+
+    it('does not follow the reader onto another App’s Keys tab', async () => {
+      const { m, props } = await mountAppKeys();
+      await openGrant(m.target);
+      expect(document.querySelector('dialog[open]')).toBeTruthy();
+      await moveTo(props, 'a2', KEY_B);
+      // The dialog for A's key is GONE — not open, not in the DOM at all —
+      // and A's key never reads on B's tab.
+      expect(document.querySelector('dialog[open]')).toBeNull();
+      expect(m.target.querySelector('[data-testid="grant-scope-dialog"]')).toBeNull();
+      expect(m.target.textContent).not.toContain('hk_ab…yz');
+      // What B offers is B's own key, with a fresh form reset for it.
+      const dialog = await openGrant(m.target);
+      expect(dialog.textContent).toContain('hk_cd…wv');
+      expect(new FormData(grantForm(dialog)).get('keyId')).toBe('k2');
+      expect(scopeSelect(dialog).value).toBe('attention:deliver');
+    });
+
+    it('A’s late grant answer says nothing on B and refreshes nothing there', async () => {
+      const { m, props } = await mountAppKeys();
+      const dialog = await openGrant(m.target);
+      const delayed = await submitEnhancedDeferred(grantForm(dialog));
+      await moveTo(props, 'a2', KEY_B);
+      const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'attention:deliver', hostId: '' }, zod4(grantAppKeyScopeSchema));
+      f.message = { type: 'success', text: 'Scope granted.' };
+      await delayed.finish({ type: 'success', status: 200, data: { form: f } });
+      flushSync(); await tick(4);
+      expect(m.target.textContent).not.toContain('Scope granted.');
+      expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
+      expect(document.querySelector('dialog[open]')).toBeNull();
+    });
   });
 });
 
@@ -2069,7 +2148,7 @@ describe('App AI configuration readback lifecycle', () => {
 // /api/create-app-key. A manager refusal must reach the reader as the rule,
 // not as "Failed to create client key." with the reason dropped.
 describe('Client tab: a refused key mint (#1068)', () => {
-  const MANAGERS_ONLY = 'Only people who manage this App can create or revoke its keys: its owners and, for an organization’s App, that organization’s owners and admins.';
+  const MANAGERS_ONLY = 'Only people who manage this App can mint, revoke and scope its keys: its owners and, for an organization’s App, that organization’s owners and admins.';
 
   async function mountClient(fetchImpl: (url: string) => Promise<Response>) {
     setStubPage('https://example.test/app/apps/a1?tab=client', { appId: 'a1' });
@@ -2176,11 +2255,11 @@ describe('Client tab: the plugin grid follows canManageApp (#1106)', () => {
 
 // portal#1153 (hadron-server#2109): App.viewerManages hides the key controls and nothing else.
 describe('key controls follow App.viewerManages (portal#1153)', () => {
-  const MANAGERS = 'Only people who manage this App can create or revoke its keys';
+  const MANAGERS = 'Only people who manage this App can mint, revoke and scope its keys';
   const COMBINED = 'Only people who manage this App can see, create or revoke its keys';
   const HIDDEN = 'Only the App’s managers can see its keys.';
   const UNKNOWN = 'Couldn’t check whether you can manage this App’s keys. If you can’t, the change will be refused.';
-  const IMPERSONATION = 'This is a read-only impersonation session, so it can’t create or revoke keys.';
+  const IMPERSONATION = 'This is a read-only impersonation session, so it can’t mint, revoke or scope keys.';
   const FAILED = 'Couldn’t load this App’s keys.';
   const key = {
     id: 'k1', label: 'router', keyPreview: 'hk_ab…yz',

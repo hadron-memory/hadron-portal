@@ -9,14 +9,14 @@ import { t } from '$lib/i18n/t';
 export const APP_KEY_MANAGERS_ONLY = () =>
   t(
     'app.key.error.managers-only',
-    'Only people who manage this App can create or revoke its keys: its owners and, for an organization’s App, that organization’s owners and admins.',
+    'Only people who manage this App can mint, revoke and scope its keys: its owners and, for an organization’s App, that organization’s owners and admins.',
   );
 
 /** An admin impersonating a user is read-only (IMPERSONATION_READ_ONLY), so it never mints a key. */
 export const APP_KEY_IMPERSONATION_READ_ONLY = () =>
   t(
     'app.key.error.impersonation',
-    'This is a read-only impersonation session, so it can’t create or revoke keys.',
+    'This is a read-only impersonation session, so it can’t mint, revoke or scope keys.',
   );
 
 // portal#1487 — the two answers a scope grant can refuse besides the audience

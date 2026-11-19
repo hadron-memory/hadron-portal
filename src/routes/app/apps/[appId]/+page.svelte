@@ -1032,7 +1032,7 @@
   // tab to Chats. Seeding from the result makes the server render, the effects
   // and the `enter` re-sync agree.
   function tabForActionResult(result: unknown, current: TabId | null): TabId | null {
-    if (submittedForm<CreateAppKeyForm>(result, 'createKey') || submittedForm<RevokeAppKeyForm>(result, 'revokeKey')) {
+    if (submittedForm<CreateAppKeyForm>(result, 'createKey') || submittedForm<RevokeAppKeyForm>(result, 'revokeKey') || submittedForm<GrantAppKeyScopeForm>(result, 'grantKeyScope')) {
       // The Client tab lists the same keys and shares the revoke action, so a
       // revoke made THERE stays there.
       return current === 'client' ? 'client' : 'keys';
@@ -1765,8 +1765,30 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
-    onResult: ({ result }) => {
+    // The submit is stamped with the App it belongs to, so a grant begun on
+    // A cannot land its answer on B after the page component is reused.
+    onSubmit: () => {
+      grantScopeAttemptGeneration = grantScopeGeneration;
+    },
+    onResult: ({ result, cancel }) => {
+      if (grantScopeAttemptGeneration !== grantScopeGeneration) {
+        // The grant began on an App the reader has since left; its answer
+        // belongs to that App and says nothing here.
+        cancel();
+        return;
+      }
       if (result.type === 'success') grantScopeKey = null;
+    },
+    // Superforms' default onError rethrows, which would leave the dialog
+    // locked on 'Granting…' (Cancel disabled, Escape prevented) forever. The
+    // request failed, so whether the scope landed isn't known — say that, and
+    // let the submit end. Same shape as the install form's onError above.
+    onError: () => {
+      if (grantScopeAttemptGeneration !== grantScopeGeneration) return;
+      grantKeyScopeMessage.set({
+        type: 'error',
+        text: t('app.keys.grant.unconfirmed', 'The grant could not be confirmed. Reload the page to check before trying again.'),
+      });
     },
   });
 
@@ -1798,6 +1820,27 @@
       },
     };
   }
+
+  // The page component SURVIVES /apps/A → /apps/B (same route), and
+  // `grantScopeKey` is $state: without this fence the departed App's key
+  // would still be selected on B — the {#if} re-renders the dialog,
+  // showModal() reopens it, and a Grant there would write A's key from B's
+  // Keys tab. Same fence as `agentLinkContextApp` above.
+  let grantScopeContextApp = untrack(() => data.app.id);
+  let grantScopeGeneration = 0;
+  let grantScopeAttemptGeneration = -1;
+  $effect(() => {
+    if (app.id === grantScopeContextApp) return;
+    grantScopeContextApp = app.id;
+    grantScopeGeneration += 1;
+    // Discard the departed App's dialog, form fields and outcomes together.
+    untrack(() => {
+      grantScopeKey = null;
+      grantKeyScopeForm.update(() => ({ _kind: 'grantKeyScope', keyId: '', scope: 'attention:deliver' as const, hostId: '' }), { taint: false });
+      grantKeyScopeErrors.set({});
+      grantKeyScopeMessage.set(undefined);
+    });
+  });
 
   const initialDeleteAppForm = untrack(() => submittedForm<DeleteAppForm>(form, 'deleteApp') as DeleteAppSuperform | null ?? data.deleteAppForm);
   const {
