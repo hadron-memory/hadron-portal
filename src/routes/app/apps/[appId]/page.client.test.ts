@@ -2406,6 +2406,44 @@ describe('Cast role follows the selected Agent (#1319)', () => {
     }
   });
 
+  // portal#1796: a `disabled` submit button drops keyboard focus to <body> in Chromium (the real
+  // proof is scripts/test-cast-submit-focus.mjs); jsdom cannot see that, so this pins the contract
+  // that proof relies on: while casting the button is aria-disabled and NOT disabled.
+  it('keeps the Cast button focusable (aria-disabled, not disabled) while casting', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+    const data = await pageData();
+    Object.assign(data.app, { agents: [{ id: 'agent-a', name: 'Portal Engineer', urn: 'hrn:agent:acme.com:portal', personaRole: 'portal-engineer' }] });
+    data.initialTab = 'staff';
+    Object.assign(data.castWorkerForm.data, { agentId: 'agent-a', name: 'Probe', reporting: 'none' });
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cast a worker')!.click();
+    await tick(2);
+    const form = m.target.querySelector<HTMLFormElement>('form[action="?/castWorker"]')!;
+    const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    expect(submit.getAttribute('aria-disabled')).not.toBe('true');
+    submit.focus();
+    const pending = await submitEnhancedDeferred(form);
+    await tick(2);
+    expect(submit.textContent).toContain('Casting');
+    expect(submit.getAttribute('aria-disabled')).toBe('true');
+    expect(submit.disabled).toBe(false);
+    expect(document.activeElement).toBe(submit);
+    const id = form.querySelector<HTMLInputElement>('input[name="__superform_id"]')!.value;
+    await pending.finish({
+      type: 'failure', status: 409,
+      data: { form: { id, valid: false, posted: true, errors: {}, data: { agentId: 'agent-a', name: 'Probe', reporting: 'none' }, message: { type: 'error', text: 'That name is already taken.' } } },
+    });
+    await tick(3);
+    // A refused cast keeps the composer open with the typed name, shows the refusal, and is
+    // submittable again (aria-disabled cleared).
+    expect(m.target.querySelector('[data-testid="cast-answer-alert"]')!.textContent).toContain('That name is already taken.');
+    expect(m.target.querySelector<HTMLInputElement>('form[action="?/castWorker"] [name="name"]')!.value).toBe('Probe');
+    expect(submit.getAttribute('aria-disabled')).not.toBe('true');
+    expect(document.activeElement).toBe(submit);
+  });
+
   it.each([null, '', '   '])('shows an explicit no-role state for a restored selected Agent with role %j', async (personaRole) => {
     setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
     const data = await pageData();

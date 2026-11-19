@@ -144,6 +144,11 @@ jobs:
       - name: Check ApplyAgentTickers focus ring
         run: pnpm test:apply-agent-tickers-focus
 
+      # portal#1796: keyboard focus stays on the Cast button while casting and lands on the
+      # "Cast a worker" opener after a clean cast (a disabled submit button dropped it to <body>).
+      - name: Check Cast submit focus
+        run: pnpm test:cast-submit-focus
+
       # portal#1756: real App/worker prompt components at 390px and 1280px;
       # synthetic transport only, including a concealed ID that must never render.
       - name: Check boot prompt layout and concealed provenance
