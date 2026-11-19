@@ -13,10 +13,12 @@
   import { t } from '$lib/i18n/t';
   import { readSection, type TaskSection } from '$lib/agent-tasks/sections';
 
-  let { appId, taskId, section, children, label = t('app.tasks.section.loading', 'Loading…') }: {
+  let { appId, taskId, section, version, children, label = t('app.tasks.section.loading', 'Loading…') }: {
     appId: string;
     taskId: string;
     section: TaskSection;
+    /** Changes whenever the page's data is refreshed (a write on the same task): a section already shown re-reads. */
+    version?: unknown;
     children: Snippet<[T]>;
     label?: string;
   } = $props();
@@ -68,10 +70,15 @@
 
   // Another task in the same component: abort a read still in flight, forget any answer, and wait to be
   // shown again. It acts whether or not an answer has landed: a read in flight for task A must never fill
-  // task B's section (the page reuses this component across tasks).
+  // task B's section (the page reuses this component across tasks). It runs before the DOM updates, so
+  // `children` never renders task A's answer against task B's props.
+  // The same task with fresh page data (an assign, an edit, a blocker, a priority change) re-reads a section
+  // that was already shown, in place, so History and Review never keep the answer from before the write.
   let seen: string | null = null;
-  $effect(() => {
+  let seenVersion: unknown = undefined;
+  $effect.pre(() => {
     const id = taskId;
+    const v = version;
     untrack(() => {
       if (seen !== null && id !== seen) {
         ctl?.abort();
@@ -79,8 +86,11 @@
         read = null;
         answeredFor = '';
         watch();
+      } else if (seen !== null && v !== seenVersion && read !== null) {
+        void load();
       }
       seen = id;
+      seenVersion = v;
     });
   });
 </script>

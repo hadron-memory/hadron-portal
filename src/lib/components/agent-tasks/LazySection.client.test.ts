@@ -3,8 +3,8 @@
  * flight for task A must never fill task B's section.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createRawSnippet } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { answerSnippet } from '$lib/test/answerSnippet.svelte';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import LazySection from './LazySection.svelte';
 
@@ -41,7 +41,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const children = createRawSnippet<[{ kind: string }]>((answer) => ({ render: () => `<span data-answer>${answer().kind}</span>` }));
+const children = answerSnippet;
 
 async function mountSection(taskId: string) {
   const props = reactiveProps({ appId: 'app-1', taskId, section: 'history', children } as Record<string, unknown>);
@@ -90,5 +90,36 @@ describe('LazySection across tasks', () => {
     shown();
     await tick(6);
     expect(pending[1].url).toContain('/tasks/B/sections');
+  });
+});
+
+describe('LazySection after a write on the same task (Jonas P2, #2263)', () => {
+  it('an answered section re-reads in place when the page data is refreshed', async () => {
+    const { props, root } = await mountSection('A');
+    props.version = { n: 1 };
+    await tick(6);
+    shown();
+    await tick(6);
+    pending[0].answer('before-write');
+    await tick(6);
+    expect(answer(root)).toBe('before-write');
+
+    props.version = { n: 2 }; // a write invalidated the page: the same task, fresh data
+    await tick(6);
+    expect(pending).toHaveLength(2);
+    expect(pending[1].url).toContain('/tasks/A/sections');
+    expect(answer(root)).toBe('before-write'); // the old answer stays until the new one lands
+    pending[1].answer('after-write');
+    await tick(6);
+    expect(answer(root)).toBe('after-write');
+  });
+
+  it('a section nobody has looked at does not read on a refresh', async () => {
+    const { props } = await mountSection('A');
+    props.version = { n: 1 };
+    await tick(6);
+    props.version = { n: 2 };
+    await tick(6);
+    expect(pending).toHaveLength(0);
   });
 });

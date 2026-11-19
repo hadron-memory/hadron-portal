@@ -162,7 +162,7 @@
     </div>
   </div>
 
-  <LazySection appId={data.app.id} taskId={task.id} section="dependencies" label={t('app.tasks.dependencies.loading', 'Loading blocker relations…')}>
+  <LazySection appId={data.app.id} taskId={task.id} version={data.task} section="dependencies" label={t('app.tasks.dependencies.loading', 'Loading blocker relations…')}>
     {#snippet children(dependencies: DependenciesRead)}
       <TaskPlanning {task} appId={data.app.id} canWrite={data.canWrite} {dependencies} />
     {/snippet}
@@ -306,7 +306,7 @@
   </section>
 
   <!-- portal#2161: the tasks cloned from this one, paged; nothing renders when the list is empty. -->
-  <LazySection appId={data.app.id} taskId={task.id} section="clones" label={t('app.tasks.clones.loading', 'Loading clones…')}>
+  <LazySection appId={data.app.id} taskId={task.id} version={data.task} section="clones" label={t('app.tasks.clones.loading', 'Loading clones…')}>
     {#snippet children(initial: TaskRead<TaskClonesPage>)}
       <TaskClones {initial} appId={data.app.id} taskId={task.id} {basePath} />
     {/snippet}
@@ -314,7 +314,7 @@
 
   <!-- portal#1637: a finished task's immutable findings, right after the Result they belong to. No result, no section. -->
   {#if task.result}
-    <LazySection appId={data.app.id} taskId={task.id} section="findings" label={t('app.tasks.findings.loading', 'Loading findings…')}>
+    <LazySection appId={data.app.id} taskId={task.id} version={data.task} section="findings" label={t('app.tasks.findings.loading', 'Loading findings…')}>
       {#snippet children(initial: FindingsRead)}
         <TaskFindings appId={data.app.id} appUrn={data.app.urn ?? null} taskId={task.id} {initial} canWrite={data.canWrite} {loadMemories} />
       {/snippet}
@@ -324,7 +324,7 @@
   <TaskHandBack handBack={task.handBack} />
 
   <!-- portal#1697: above Properties, whose pr.* and review.* keys are mirrors of what this section reads. -->
-  <LazySection appId={data.app.id} taskId={task.id} section="review" label={t('app.tasks.review.loading', 'Loading review…')}>
+  <LazySection appId={data.app.id} taskId={task.id} version={data.task} section="review" label={t('app.tasks.review.loading', 'Loading review…')}>
     {#snippet children(review: TaskReviewOutcome)}
       <TaskReview
         {review}
@@ -367,7 +367,7 @@
     <div class="mb-2 flex items-center justify-between gap-2">
       <h2 id="history-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tasks.history', 'History')}</h2>
     </div>
-    <LazySection appId={data.app.id} taskId={task.id} section="history" label={t('app.tasks.history.loading', 'Loading history…')}>
+    <LazySection appId={data.app.id} taskId={task.id} version={data.task} section="history" label={t('app.tasks.history.loading', 'Loading history…')}>
       {#snippet children(history: HistoryRead)}
         {#if history.kind === 'ok'}
           {#if history.value.events.length > 8}
