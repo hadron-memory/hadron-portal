@@ -50,6 +50,27 @@ describe('#2220 subscribe form', () => {
     expect(button(root, /Change/)).toBeDefined();
   });
 
+  // portal#2230: the opener is named by the "Organization" label plus its own action text.
+  it('the org opener button is named "Organization" + its action, before and after a pick', async () => {
+    const root = await open();
+    const accessibleName = (b: HTMLElement) =>
+      (b.getAttribute('aria-labelledby') ?? '')
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((id) => root.ownerDocument.getElementById(id)?.textContent?.trim() ?? '')
+        .join(' ');
+    const opener = () => root.querySelector<HTMLButtonElement>('#subOrgId')!;
+    expect(accessibleName(opener())).toContain('Organization');
+    expect(accessibleName(opener())).toContain('Choose organization');
+    opener().click();
+    await tick();
+    const dialog = document.querySelector('[role=dialog]')!;
+    [...dialog.querySelectorAll<HTMLButtonElement>('button[aria-label]')].find((b) => /Beta/.test(b.getAttribute('aria-label') ?? ''))!.click();
+    await tick();
+    expect(accessibleName(opener())).toContain('Organization');
+    expect(accessibleName(opener())).toContain('Change');
+  });
+
   it('with no administered organization there is no Add form, only an explanation', async () => {
     const root = await open({ targets: [] });
     expect(root.querySelector('form[action="?/subscribe"]')).toBeNull();
