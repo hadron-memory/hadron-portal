@@ -8,10 +8,13 @@ import type { PageServerLoad } from './$types';
  * #1720: a spec node's assembled document. READ ONLY: two queries, no
  * mutation, no write, mint or approval call.
  *
- * Every answer the server gives for "nothing here for you" (an unreadable
- * memory, a missing one, a loc with no live spec) is the same `not-found`
- * state, and so are a node that is not a spec and a node the caller cannot
- * read: the view discloses no more than the server's answer. The Markdown is
+ * Every `*_NOT_FOUND` the server gives for "nothing here for you" (an
+ * unreadable memory, a missing one, a loc with no live spec) is the same
+ * `not-found` state, and so are a node the server returns as absent and a node
+ * that is not a spec: the view discloses no more than the server's answer. A
+ * refusal this view does not word itself (FORBIDDEN, UNAUTHENTICATED, anything
+ * unclassified) is NOT folded into not-found: it is rethrown to the error
+ * page, which is what the server's own answer is. The Markdown is
  * returned UNCHANGED; it is sanitized and rendered in the browser only, after
  * mount (a synchronous marked parse here would stall every user on the
  * portal's Node process).

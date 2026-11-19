@@ -17,9 +17,9 @@ export function isSpecRole(role: string | null | undefined): boolean {
   return role.split('.', 1)[0] === 'spec';
 }
 
-/** `<loc with : as ->.md`, safe as a download name. Never empty, never dot-led. */
+/** `<loc with : as ->.md`, safe as a download name. Never empty, never dot- or dash-led (a leading `-` reads as a command-line option). */
 export function specDocumentFilename(loc: string): string {
-  const base = loc.replace(/[^A-Za-z0-9._]/g, '-').replace(/^\./, '-');
+  const base = loc.replace(/[^A-Za-z0-9._]/g, '-').replace(/^[.-]/, '_');
   return `${base === '' ? 'spec-document' : base}.md`;
 }
 

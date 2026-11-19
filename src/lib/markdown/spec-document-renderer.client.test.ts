@@ -33,6 +33,25 @@ describe('spec document anchors', () => {
     const host = render('<div id="a-b">x</div>\n\n<a id="c-d" href="https://x.test">t</a>\n\n<a id="e-f">child</a>\n\n<a id="g-h" class="k"></a>\n\n<span id="i-j"></span>\n\n<h2 id="k-l">h</h2>');
     expect(host.querySelector('[id]')).toBeNull();
   });
+  // F1 (#2271): ruling 0206 and hrn:node:hadronmemory.com:specs:cor:spc:030:02: the server's assigned anchors are unique across the document and its anchor
+  // line sits directly before the part's heading; an authored copy of the same id in a body
+  // must never be the one that survives when it comes first.
+  it('an authored anchor that precedes the server anchor of the same id cannot take its id', () => {
+    const host = render('<a id="fx-1-a"></a>\n\nauthored text\n\n<a id="fx-1-a"></a>\n\n## Part A\n\nsee [a](#fx-1-a)');
+    const kept = [...host.querySelectorAll('a[id="fx-1-a"]')];
+    expect(kept).toHaveLength(1);
+    expect(kept[0].parentElement?.nextElementSibling?.tagName).toBe('H3');
+    expect(kept[0].parentElement?.nextElementSibling?.textContent).toBe('Part A');
+  });
+  it('an authored anchor after the server anchor of the same id is the one dropped', () => {
+    const host = render('<a id="fx-1-a"></a>\n\n## Part A\n\n<a id="fx-1-a"></a>\n\nauthored');
+    const kept = [...host.querySelectorAll('a[id="fx-1-a"]')];
+    expect(kept).toHaveLength(1);
+    expect(kept[0].parentElement?.nextElementSibling?.tagName).toBe('H3');
+  });
+  it('the anchor allowlist is exactly the 0206 shape the portal already enforced (neither widened nor narrowed here)', () => {
+    expect(SPEC_ANCHOR_ID.source).toBe('^[A-Za-z0-9][A-Za-z0-9._]*(?:-[A-Za-z0-9._]*)+$');
+  });
   it('keeps only the first of a duplicated anchor', () => {
     const host = render('<a id="fx-1-a"></a>\n\n<a id="fx-1-a"></a>');
     expect(host.querySelectorAll('[id]').length).toBe(1);
@@ -75,18 +94,38 @@ describe('spec document links and markup safety', () => {
     const host = render('[a](https://x.test/p) [b](mailto:a@x.test) [c](#fx-1-a) [d](/app/u/hrn:node:o:m:l)');
     expect([...host.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['https://x.test/p', 'mailto:a@x.test', '#fx-1-a', '/app/u/hrn:node:o:m:l']);
   });
+  // F2 (#2271): the three link forms hrn:node:hadronmemory.com:specs:cor:spc:030:02 fixes for the server's output, pinned one by one.
+  it('form 1, a jump to a part, stays a fragment link', () => {
+    const host = render('<a id="fx-1-a"></a>\n\n## A\n\n[go](#fx-1-a)');
+    expect(host.querySelector('a[href="#fx-1-a"]')?.textContent).toBe('go');
+  });
+  it('form 2, a wikilink outside the document, stays an absolute portal link', () => {
+    const host = render('[Name](https://portal.example:5173/app/u/hrn:node:o.test:m:cor:agt:110)');
+    expect(host.querySelector('a')?.getAttribute('href')).toBe('https://portal.example:5173/app/u/hrn:node:o.test:m:cor:agt:110');
+  });
+  it('form 3, plain text for an unreadable or missing target, stays text', () => {
+    const host = render('see Unreadable Target and also Missing One here');
+    expect(host.querySelector('a')).toBeNull();
+    expect(host.textContent).toContain('Unreadable Target');
+  });
+  it.each(['sibling/page', 'hrn:node:o.test:m:cor:agt:110', 'urn:x'])('an authored scheme-less or raw-URN href %j renders as dead text, the portal\'s call', (u) => {
+    const host = render(`[x](${u})`);
+    expect(host.querySelector('a')?.hasAttribute('href') ?? false).toBe(false);
+    expect(host.textContent).toContain('x');
+  });
   it('strips scripts, handlers and style elements as the node path does', () => {
     const host = render('<script>alert(1)</script>\n\n<style>body{display:none}</style>\n\n<img src="x" onerror="alert(2)">');
     expect(host.querySelector('script,style')).toBeNull();
     expect(host.querySelector('img')?.hasAttribute('onerror')).toBe(false);
   });
-  it('keeps heading levels, and a plain text link target stays text', () => {
-    const host = render('# T\n\n## U\n\n### V\n\nplain target and [x](#fx-1-a)');
-    expect([...host.querySelectorAll('h1,h2,h3')].map((h) => h.tagName)).toEqual(['H1', 'H2', 'H3']);
+  it('shifts every heading one level down, so the page title stays the only h1 and relative levels hold', () => {
+    const host = render('# T\n\n## U\n\n### V\n\n###### W\n\nplain target and [x](#fx-1-a)');
+    expect([...host.querySelectorAll('h1,h2,h3,h4,h5,h6')].map((h) => h.tagName)).toEqual(['H2', 'H3', 'H4', 'H6']);
+    expect(host.querySelector('h1')).toBeNull();
   });
   it('does not regroup or sort the server order', () => {
     const host = render('<a id="fx-3-a"></a>\n\n## Z\n\n<a id="fx-1-a"></a>\n\n## A\n\n<a id="fx-2-a"></a>\n\n## M');
-    expect([...host.querySelectorAll('h2')].map((h) => h.textContent)).toEqual(['Z', 'A', 'M']);
+    expect([...host.querySelectorAll('h3')].map((h) => h.textContent)).toEqual(['Z', 'A', 'M']);
     expect([...host.querySelectorAll('a[id]')].map((a) => a.id)).toEqual(['fx-3-a', 'fx-1-a', 'fx-2-a']);
   });
 });
