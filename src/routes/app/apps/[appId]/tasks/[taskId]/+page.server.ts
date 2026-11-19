@@ -13,6 +13,7 @@ import {
   MAKE_AGENT_TASK_READY_MUTATION,
   PARK_AGENT_TASK_MUTATION,
   REASSIGN_AGENT_TASK_MUTATION,
+  ROLE_TASK_NAME_QUERY,
   UPDATE_AGENT_TASK_MUTATION,
 } from '$lib/server/queries';
 import { canonicalTaskId, loadAncestors, loadTasksApp, loadTree } from '$lib/server/agent-tasks';
@@ -76,9 +77,13 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   const tree = await loadTree(client, task.id);
   const crumbs = await loadAncestors(client, task.parentTaskId);
 
+  const roleTaskNames = await loadRoleTaskNames(client, task.result?.workedFromRoleTaskRefs);
+
   return {
     app,
     task,
+    // portal#2245: name by node id for the role tasks followed; absent ids show the URN leaf.
+    roleTaskNames,
     // The tree's first row is the task itself; the view shows what is below it.
     tree,
     ancestors: crumbs.ancestors,
@@ -91,6 +96,31 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
     created: url.searchParams.get('created') === '1',
   };
 };
+
+/**
+ * portal#2245: the live names of the role tasks a finished task followed. The result
+ * stores the URN and revision but no name. Each read stands alone and ANY failure (a
+ * node the viewer can no longer read, a deleted one, a transport error) leaves that id
+ * out, so the row falls back to the URN leaf. No second request asks why, and the page
+ * never fails on it. Sequential, like the reads above: at most ten, none when the
+ * task has no refs.
+ */
+async function loadRoleTaskNames(
+  client: ReturnType<typeof gqlClient>,
+  refs: { nodeId: string }[] | null | undefined,
+): Promise<Record<string, string>> {
+  const names: Record<string, string> = {};
+  for (const ref of refs ?? []) {
+    if (ref.nodeId in names) continue;
+    try {
+      const res = await client.request<{ node: { name: string | null } | null }>(ROLE_TASK_NAME_QUERY, { ref: ref.nodeId });
+      if (res.node?.name) names[ref.nodeId] = res.node.name;
+    } catch {
+      /* the fallback is the same for every cause */
+    }
+  }
+  return names;
+}
 
 /**
  * portal#1090 — the task page's writes (design §3, §4). Each calls its own
