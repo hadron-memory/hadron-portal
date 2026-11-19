@@ -1936,6 +1936,14 @@ export const NODE_REVISIONS_PROVENANCE_PAGE_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#2245: a role task's name for the task page's Result block. raw: true —
+// only the name is wanted, so nothing is template-compiled.
+export const ROLE_TASK_NAME_QUERY = /* GraphQL */ `
+  query RoleTaskName($ref: ID!) {
+    node(ref: $ref, raw: true) { id name }
+  }
+`;
+
 // #1001: the live content a revision's diff ends at, when that revision is the
 // newest snapshot. raw: true — the text as authored, never template-compiled.
 export const NODE_LIVE_CONTENT_QUERY = /* GraphQL */ `
@@ -5610,7 +5618,10 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
       finishedAt
       cancelledAt
       closeSessionWhenDone
-      result { outcome summary evidence }
+      # portal#2245 (hadron-server#4414): the role-task refs on result need a server serving
+      # 46865d36a or later — a server without the field rejects this whole read, so the
+      # portal must deploy after it, like the references below.
+      result { outcome summary evidence workedFromRoleTaskRefs { nodeId urn revision } }
       sessionEndRequest { requestedAt dueAt resolution resolvedAt }
       # portal#1571 (hadron-server#2651): like the references below, needs a server serving
       # 1475888f or later — a server without the field rejects this whole read, so the portal
