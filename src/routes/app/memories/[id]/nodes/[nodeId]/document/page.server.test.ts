@@ -46,7 +46,7 @@ describe('document load', () => {
     mockRequest.mockImplementation(async () => { throw refusal('SPEC_CORPUS_ENCRYPTED_UNSUPPORTED'); });
     expect((await run()).document).toEqual({ state: 'encrypted' });
     mockRequest.mockImplementation(async () => { throw refusal('FORBIDDEN'); });
-    await expect(run()).rejects.toBeTruthy();
+    await expect(run()).rejects.toMatchObject(refusal('FORBIDDEN'));
   });
   it('never asks the server for a document of a non-spec node', async () => {
     serve(() => { throw new Error('unreached'); }, specNode({ role: null }));
@@ -61,14 +61,14 @@ describe('document load', () => {
   });
   it('lets an unclassified failure reach the error page', async () => {
     serve(() => { throw refusal('FORBIDDEN'); });
-    await expect(run()).rejects.toBeTruthy();
+    await expect(run()).rejects.toMatchObject(refusal('FORBIDDEN'));
   });
   it('FORBIDDEN and UNAUTHENTICATED reach the error page from BOTH queries, while a *_NOT_FOUND stays not-found', async () => {
     for (const code of ['FORBIDDEN', 'UNAUTHENTICATED']) {
       mockRequest.mockImplementation(async () => { throw refusal(code); });
-      await expect(run()).rejects.toBeTruthy();
+      await expect(run()).rejects.toMatchObject(refusal(code));
       serve(() => { throw refusal(code); });
-      await expect(run()).rejects.toBeTruthy();
+      await expect(run()).rejects.toMatchObject(refusal(code));
     }
     serve(() => { throw refusal('NODE_NOT_FOUND'); });
     expect((await run()).document).toEqual({ state: 'not-found' });

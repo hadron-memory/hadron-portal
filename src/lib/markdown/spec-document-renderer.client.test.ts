@@ -43,7 +43,7 @@ describe('spec document anchors', () => {
     expect(kept[0].parentElement?.nextElementSibling?.tagName).toBe('H3');
     expect(kept[0].parentElement?.nextElementSibling?.textContent).toBe('Part A');
   });
-  // F1 known limit (Gemma BLIND P2-1): an authored copy that mimics the server's
+  // F1 known limit: an authored copy that mimics the server's
   // anchor-block-then-heading shape and comes first cannot be told from the server's
   // by the rendered HTML. Pinned so the limit is a stated fact, not a surprise; closing
   // it is a server change (neutralise authored ids that match the anchor shape).
