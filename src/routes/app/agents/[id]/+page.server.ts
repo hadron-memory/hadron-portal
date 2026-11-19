@@ -33,7 +33,6 @@ import { grantedAgents, type InstallableAgent, type OrgAgentPool } from '$lib/se
 import { withTimeout, OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import {
   AGENT_QUERY,
-  ORGANIZATIONS_QUERY,
   ORG_SYSTEM_MEMORIES_QUERY,
   GRAPH_NODES_QUERY,
   AGENT_APPS_QUERY,

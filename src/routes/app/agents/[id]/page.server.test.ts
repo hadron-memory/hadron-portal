@@ -253,7 +253,7 @@ describe('/app/agents/[id] loader', () => {
     expect(result.canOpenTester).toBe(listed);
   });
 
-  it('#2187: the org read is the Tester\'s own loadTesterOrgs call (ORGANIZATIONS_QUERY, paged)', async () => {
+  it('#2187: the page reads organizations with ORGANIZATIONS_QUERY, paged from offset 0', async () => {
     routeMock({ agent: { data: { agent: agentInA } }, myOrgs: { data: { organizations: [orgA] } } });
     const event = ev({ agentId: agentInA.id });
     Object.assign(event.locals, { user: { id: 'viewer', roles: ['ADMIN'] } });
