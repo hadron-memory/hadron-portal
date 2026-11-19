@@ -3277,6 +3277,8 @@
             canPost={canPostChat}
             hasOlder={data.chatHasOlder ?? false}
             onLoadOlder={loadOlderChat}
+            loadFailed={data.chatLoadFailed ?? false}
+            onRetry={() => invalidateAll()}
             heightClass="h-[calc(100vh-24rem)] min-h-[24rem]"
           />
         {/key}
