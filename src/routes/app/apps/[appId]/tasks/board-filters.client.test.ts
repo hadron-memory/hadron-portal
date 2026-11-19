@@ -67,8 +67,11 @@ describe('one Overdue note, not two (portal#1434 item 3)', () => {
     expect(guidance(m).textContent).toContain('Overdue applies to Active, Queued and All tasks.');
     expect(m.target.querySelector('[data-testid=overdue-dropped]')).toBeNull();
   });
-  it('offered: the guidance line defines overdue', async () => {
-    expect(guidance(await mount({ filter: 'active' })).textContent).toContain('start-by time has passed');
+  it('offered: the guidance line states the server rule exactly (portal#2244 + portal#2248 review: Gil P2 1, Jonas P2 2)', async () => {
+    const text = guidance(await mount({ filter: 'active' })).textContent;
+    expect(text).toContain('a pending task past its start-by, or a pending or started task past its finish-by');
+    expect(text).toContain('Backlog and ended tasks are never overdue');
+    expect(text).not.toContain('The server decides.');
   });
 });
 

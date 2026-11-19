@@ -71,6 +71,7 @@ describe('board GET search (#1400)', () => {
       id: `t${i}`, handle: `AT0.${i + 1}`, priority: 1, blocked: false, title: `Task ${i}`, description: i === 205 ? 'Hidden NeEdLe %_\\' : '',
       status: 'FINISHED', parentTaskId: null, queued: false,
       waitingOnChildren: false, source: null, owner: { id: 'u1', kind: 'USER', name: 'Test', urn: null }, assignee: null, startBy: null,
+      finishBy: null, overdue: false,
       createdAt: '2026-10-29T00:00:00Z', updatedAt: null, tags: [],
     }));
     const run = async (document: string, text: string, status = ['FINISHED']) => graphql({ schema, source: document,

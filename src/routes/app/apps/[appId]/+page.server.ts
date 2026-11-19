@@ -24,7 +24,7 @@ import { readAppInstallMarks } from '$lib/server/app-install-marks';
 import { pointerAction, readAppPointers } from '$lib/server/boot-prompt-pointer';
 import { appAgentPointerKey } from '$lib/boot-prompt-pointer';
 import { lookupOwn } from '$lib/lookup';
-import { loadAppTeamRoster } from '$lib/server/app-team-roster';
+import { loadAppTeamRoster, type TeamRosterRead } from '$lib/server/app-team-roster';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError, extractGqlErrorCode, gqlErrorBody, isDefiniteRefusal } from '$lib/server/gqlError';
 import { loadOrgDetail } from '$lib/server/org-detail';
@@ -78,7 +78,7 @@ import {
 import { loadTeamChatTail, teamChatRefusalOf } from '$lib/server/team-chat';
 import { NO_TEAM_FILTER, parseTeamParam } from '$lib/team-chat-filter';
 import { chatMessageNodeTypes, loadChatMessages } from '$lib/server/team-chat';
-import { resolveTabIntent } from './tab-intent';
+import { resolveTabIntent, shouldLoadTeamRoster } from './tab-intent';
 import { loadTemplatesPanel } from './templates-panel';
 import {
   addMember,
@@ -907,7 +907,25 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
     loadViewerManages(client, app.id),
     // portal#1168 (hadron-server#2178): the grid's Task and Paused state, one
     // bulk read in its own classified request so its failure cannot take the page.
-    loadAppTeamRoster(client, app.id),
+    //
+    // portal#2238 (ruling 0273): the roster is on the critical path for the
+    // AI Team tab's first screen ONLY. Every other open starts NO roster
+    // request — in prod teamRoster took 30-60 s or failed, and awaiting it
+    // here for every tab hung the whole page and piled a long read onto the
+    // exhausted DB pool on each open. A reader who switches to AI Team
+    // afterwards gets the roster from the page's own bounded first-show fetch
+    // (roster/+server.ts). Bounded here too: even a ?tab=staff open must not
+    // wait on teamRoster longer than the members fetch's 8 s optional-list
+    // bound; a hang maps to the same { kind: 'failed' } the grid already
+    // degrades to. Not a streamed promise: streaming would still START the
+    // call on every open, which is the defect.
+    shouldLoadTeamRoster(initialTab)
+      ? withTimeout(
+          loadAppTeamRoster(client, app.id),
+          OPTIONAL_LIST_TIMEOUT_MS,
+          { kind: 'failed' } satisfies TeamRosterRead,
+        )
+      : Promise.resolve(null),
     // portal#1142 S8: the installs' boot-prompt pointers, for the Agents tab.
     readAppPointers(client, app.id),
     readAppInstallMarks(client, app.id),

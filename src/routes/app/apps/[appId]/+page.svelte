@@ -13,6 +13,9 @@
   import StopBanner from '$lib/components/stops/StopBanner.svelte';
   import { rosterOf } from '$lib/withheld';
   import { publicServerBaseUrl } from '$lib/public-server-base-url';
+  // portal#2249: one source for the App type's labels — Profile row, Settings
+  // read-only row and the Settings options render these so they cannot drift.
+  import { APP_TYPE_VALUES, appTypeLabel } from '$lib/i18n/app-type-strings';
   import { tick, untrack, onDestroy } from 'svelte';
   import { applyAction } from '$app/forms';
   import { page } from '$app/stores';
@@ -218,8 +221,39 @@
   // null = the fetch failed, which is NOT the same as "no staff" — the empty
   // state must not claim an App has no workers when we simply couldn't ask.
   const staff = $derived(data.staff);
-  // portal#1168: Task and Paused, one bulk read joined by worker id.
-  const teamRoster = $derived(data.teamRoster);
+  // portal#1168 / portal#2238: Task and Paused, one bulk read joined by
+  // worker id. The loader brings it only for an initial ?tab=staff open —
+  // ruling 0273: an App page loads only what its first screen renders, so
+  // every other open starts NO roster request. On a client-side switch to
+  // AI Team the page fetches it itself, once per visit, from
+  // `roster/+server.ts` (the effect by `activeTab` below). `loading` exists
+  // only on that path: while the fetch runs the grid shows a neutral loading
+  // state, and 'Not available' only once the read failed or timed out (the
+  // #2238 body's UX line). The loader's half of the union is taken from
+  // PageData rather than re-declared (or imported from $lib/server, which
+  // components do not reach into even for types): the entry shape stays the
+  // server's RosterEntry, exactly what `rosterEntry` below hands the grid.
+  type PageRosterRead = NonNullable<PageData['teamRoster']> | { kind: 'loading' };
+  // `$state.raw`: plain fetched JSON, and a deep proxy here would break the
+  // identity discipline the roster-refresh state below depends on
+  // (hrn:node:hadronmemory.com:hadron-portal:findings:svelte-state-proxy-breaks-roster-generation-identity).
+  let rosterFetch = $state.raw<{ appId: string; read: PageRosterRead } | null>(null);
+  // Which App this visit already asked for: switching tabs back and forth
+  // must not re-ask, and a real navigation to another App starts fresh.
+  let rosterFetchedForApp = $state.raw<string | null>(null);
+  // portal#2243 F1: when an action's refresh (a stale-hold refusal, a
+  // confirmed cast) re-asks the roster, the `data` object current at that
+  // moment is the loader snapshot the answer supersedes. While `data` is
+  // still that object — the invalidation failed and left it in place — the
+  // fetch's read outranks `data.teamRoster`, which is exactly the stale read
+  // being replaced. Any load that replaces `data` ends the supersession:
+  // a roster that load brings is at least as fresh as the fetch's.
+  let rosterSupersedesData = $state.raw<unknown>(null);
+  const teamRoster = $derived<PageRosterRead | null>(
+    rosterFetch && rosterFetch.appId === app.id && data === rosterSupersedesData
+      ? rosterFetch.read
+      : data.teamRoster ?? (rosterFetch && rosterFetch.appId === app.id ? rosterFetch.read : null),
+  );
   // portal#1492: the loader's one clock, so server render and hydration agree on every age.
   // portal#1495 P3: that instant seeds a display clock that advances every 30 s
   // in the browser (server-relative offset, cleared on destroy, no requests) —
@@ -1001,6 +1035,59 @@
       return tabForActionResult(form, initial) ?? initial ?? 'chats';
     }),
   );
+  // portal#2238: the AI Team tab's first show fetches the roster ONCE per
+  // visit, and only when the page load did not already bring it (an initial
+  // ?tab=staff open did — its loader read is `data.teamRoster`, which this
+  // guard prefers over anything fetched here). Tab switches are client state
+  // (`activeTab = id`, no navigation), so this effect is the only thing that
+  // moves the roster onto a non-initial AI Team view. `data.teamRoster`, not
+  // a local flag, is the "already have it" test: a load that re-runs with the
+  // roster on the URL wins, and one that re-runs without it keeps the answer
+  // this visit already fetched instead of re-asking the exhausted pool.
+  // portal#2238 / portal#2243 F1+F2 — one primitive for every roster ask: the
+  // first-show fetch this effect starts, and the post-action re-asks below (a
+  // stale-hold refusal, a confirmed cast). `supersedeData` marks the answer as
+  // fresher than the loader snapshot current when it started (see
+  // `rosterSupersedesData` above). A monotonic epoch guards the write: a fetch
+  // that finishes after a newer ask started — a re-ask after an action, or
+  // another App's ask after an App-to-App navigation reused this component —
+  // is dropped, so an older answer can never clobber the page state a newer
+  // one was fetched for (F2).
+  let rosterFetchEpoch = 0;
+  function startRosterFetch(appId: string, opts: { supersedeData?: boolean } = {}) {
+    const epoch = ++rosterFetchEpoch;
+    rosterSupersedesData = opts.supersedeData ? data : null;
+    rosterFetchedForApp = appId;
+    rosterFetch = { appId, read: { kind: 'loading' } };
+    void (async () => {
+      // The endpoint already degrades every failure and timeout to
+      // { kind: 'failed' }; the catches here are for the transport not
+      // reaching it. Anything that is not a readable roster (say an HTML
+      // error page) is a failure too, so the grid falls back rather than
+      // rendering a phantom state.
+      let read: PageRosterRead = { kind: 'failed' };
+      try {
+        const res = await fetch(`/app/apps/${appId}/roster`);
+        const body: unknown = res.ok ? await res.json().catch(() => null) : null;
+        const kind = (body as { kind?: unknown } | null)?.kind;
+        if (kind === 'ok' && body && typeof (body as { byWorker?: unknown }).byWorker === 'object') {
+          read = body as PageRosterRead;
+        } else if (kind === 'hidden' || kind === 'failed') {
+          read = { kind };
+        }
+      } catch {
+        // transport failure: keep the failed read
+      }
+      if (epoch !== rosterFetchEpoch) return;
+      rosterFetch = { appId, read };
+    })();
+  }
+  $effect(() => {
+    if (activeTab !== 'staff') return;
+    const appId = app.id;
+    if (data.teamRoster || rosterFetchedForApp === appId) return;
+    startRosterFetch(appId);
+  });
   // #1795: an action's invalidateAll can use Kit's pre-navigation URL and
   // answer AFTER a ?tab=runs navigation supplied this section. Retain that
   // fresh payload through an old-URL refresh which has no Runs section at all.
@@ -1030,6 +1117,10 @@
     ),
   );
   const tabs = $derived<{ id: TabId; label: string }[]>([
+    // portal#2241: the App's own identity at a glance, read-only (edits stay in Settings). Left-most
+    // and always present; it renders only from the App read the frame already makes, so it adds no
+    // request (ruling 0273). The page default is still Chats: Profile-as-default awaits Holger.
+    { id: 'profile', label: t('app.tabs.profile', 'Profile') },
     // #744: ONE "Chats" tab over every conversation the App has — the team
     // chat, any 1:1 chats, and the agent conversation — with a selector inside.
     //
@@ -1634,6 +1725,12 @@
         castOpen = false;
         try {
           await invalidateAll();
+          // portal#2243 F1: after ruling 0273 the reload carries the roster
+          // only for a ?tab=staff URL, so on a client-switched AI Team view
+          // the newly cast worker's cells would read "Not available" until a
+          // full page load. When the reload did bring one it is fresh — ask
+          // only when it did not.
+          if (!data.teamRoster) startRosterFetch(app.id, { supersedeData: true });
         } catch {
           // The worker WAS cast; only the roster read failed. Never retry the mint.
           if (attempt === castGeneration) castRefreshFailed = true;
@@ -1694,8 +1791,25 @@
     // row, clicks again, and asserts the same dead holder — a refusal that
     // cannot be satisfied by doing what it says. Refetch so the next click is
     // made against what is actually there.
+    //
+    // portal#2243 F1: the invalidation alone stopped being enough — after
+    // ruling 0273 the loader brings the roster only for an initial ?tab=staff,
+    // so on a client-switched AI Team view it reloads everything EXCEPT the
+    // row the refusal was about. The invalidation still runs (a ?tab=staff
+    // URL's load re-reads the roster fresh); when it did not bring one — or
+    // it rejected, leaving the pre-refusal snapshot in place — the page asks
+    // the roster endpoint itself, superseding that snapshot.
     onUpdated: ({ form: updated }) => {
-      if (rosterIsStale(updated.message)) void invalidateAll();
+      if (!rosterIsStale(updated.message)) return;
+      void (async () => {
+        const dataBefore = data;
+        try {
+          await invalidateAll();
+        } catch {
+          // The reload failed; the roster fetch below is the fallback.
+        }
+        if (data === dataBefore || !data.teamRoster) startRosterFetch(app.id, { supersedeData: true });
+      })();
     },
   });
 
@@ -2286,6 +2400,76 @@
     ...(data.viewerManages?.kind === 'known' && data.viewerManages.manages ? [{ id: 'grants', label: t('app.tabs.grants', 'Grants'), href: `/app/apps/${app.id}/grants` }] : []),
     { id: 'automations', label: t('app.tabs.automations', 'Automations'), href: `/app/apps/${app.id}/automations` }
   ]} active={activeTab} label={t('app.tabs-label', 'App sections')} onselect={(id) => { void focusTab(id as TabId); }} />
+
+  <!-- ───────────── PROFILE TAB (#2241) ─────────────
+       The App's OWN identity (not the viewer's, not a member's), read only from the App the page
+       already holds — no new query, no form, no action. Edits stay in Settings. A count the server
+       WITHHOLDS (`null`, portal#1148) shows "—", never 0. -->
+  {#if activeTab === 'profile'}
+    <div id="panel-profile" role="tabpanel" aria-labelledby="tab-profile" tabindex="0" class="min-w-0 space-y-6 focus-visible:outline-2 focus-visible:outline-indigo-500">
+      <section class="max-w-lg">
+        <h2 class="break-words font-semibold text-zinc-900 dark:text-white">{app.name}</h2>
+        <div class="mt-1"><Urn value={app.urn} type="app" /></div>
+        <div class="mt-4 divide-y divide-zinc-200 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
+          <div class="px-5 py-3">
+            <span class="text-sm text-zinc-500">{t('app.profile.description', 'Description')}</span>
+            <p data-testid="profile-description" class="mt-1 break-words text-sm text-zinc-900 dark:text-white">{app.description || '—'}</p>
+          </div>
+          <div class="flex items-center justify-between gap-4 px-5 py-3">
+            <span class="text-sm text-zinc-500">{t('app.profile.type', 'Type')}</span>
+            <span data-testid="profile-type" class="text-sm font-medium text-zinc-900 dark:text-white">{appTypeLabel(app.appType)}</span>
+          </div>
+          <div class="flex items-center justify-between gap-4 px-5 py-3">
+            <span class="text-sm text-zinc-500">{t('app.profile.owner', 'Owner organization')}</span>
+            {#if org}
+              <div class="min-w-0 text-right">
+                <a class="break-words text-sm text-indigo-600 hover:underline dark:text-indigo-400" href="/app/orgs/{encodeURIComponent(org.id)}">{org.name}</a>
+                {#if org.urn}<div class="mt-1"><Urn value={org.urn} type="org" /></div>{/if}
+              </div>
+            {:else}
+              <span class="text-sm text-zinc-900 dark:text-white">—</span>
+            {/if}
+          </div>
+          <div class="flex items-center justify-between gap-4 px-5 py-3">
+            <span class="text-sm text-zinc-500">{t('app.profile.created', 'Created')}</span>
+            <span class="text-sm text-zinc-900 dark:text-white">{formatDate(app.createdAt)}</span>
+          </div>
+          <div class="flex items-center justify-between gap-4 px-5 py-3">
+            <span class="text-sm text-zinc-500">{t('app.profile.updated', 'Updated')}</span>
+            <span class="text-sm text-zinc-900 dark:text-white">{formatDate(app.updatedAt)}</span>
+          </div>
+          <div class="flex items-center justify-between gap-4 px-5 py-3">
+            <span class="text-sm text-zinc-500">{t('app.profile.expires', 'Expires')}</span>
+            <span data-testid="profile-expires" class="text-sm text-zinc-900 dark:text-white">{formatDate(app.expiresAt)}</span>
+          </div>
+          <div class="min-w-0 space-y-1 px-5 py-3">
+            <span class="text-sm text-zinc-500">{t('app.profile.installed-agent', 'Installed Agent')}</span>
+            {#if app.agent}
+              <div class="min-w-0">
+                <a class="break-words text-sm text-indigo-600 hover:underline dark:text-indigo-400" href="/app/agents/{encodeURIComponent(app.agent.id)}">{app.agent.name}</a>
+                <Urn value={app.agent.urn} type="agent" linked />
+              </div>
+            {:else}
+              <p class="text-sm text-zinc-900 dark:text-white">—</p>
+            {/if}
+          </div>
+          <div class="flex items-center justify-between gap-4 px-5 py-3">
+            <span class="text-sm text-zinc-500">{t('app.profile.agent-count', 'Linked agents')}</span>
+            <span data-testid="profile-agent-count" class="text-sm font-medium text-zinc-900 dark:text-white">{app.agents == null ? '—' : app.agents.length}</span>
+          </div>
+          <div class="flex items-center justify-between gap-4 px-5 py-3">
+            <span class="text-sm text-zinc-500">{t('app.profile.member-count', 'Members')}</span>
+            <span data-testid="profile-member-count" class="text-sm font-medium text-zinc-900 dark:text-white">{app.memberCount == null ? '—' : app.memberCount}</span>
+          </div>
+        </div>
+        {#if data.canManageApp === true}
+          <p class="mt-4">
+            <button type="button" data-testid="profile-edit-in-settings" class="text-sm text-indigo-600 hover:underline dark:text-indigo-400" onclick={() => void focusTab('settings')}>{t('app.profile.edit-in-settings', 'Edit in Settings')}</button>
+          </p>
+        {/if}
+      </section>
+    </div>
+  {/if}
 
   <!-- ───────────── CHATS TAB (#744) ─────────────
        Every conversation the App has, behind one selector: the agent chat, the
@@ -3119,7 +3303,14 @@
               <TerminalStatus badge={terminalBadgeOf(worker)} now={terminalNow} compact />
             {:else if cell.column.id === 'task'}
               {@const task = rosterEntry(worker.id)?.currentTask}
-              {#if !rosterEntry(worker.id)}
+              {#if teamRoster?.kind === 'loading'}
+                <!-- portal#2238: the first-show roster fetch is running. Neutral
+                     loading, not the failure text — 'Not available' below is
+                     earned by a read that failed, timed out, or came back
+                     without this worker, and showing it here would call a
+                     two-second fetch a failure. -->
+                <span class="text-xs text-zinc-500">{t('app.staff.roster.loading', 'Loading…')}</span>
+              {:else if !rosterEntry(worker.id)}
                 <!-- Failed, withheld, or a worker the read did not return: never the "no task" dash. -->
                 <span class="text-xs text-zinc-500">{t('app.staff.na', 'Not available')}</span>
               {:else if rosterEntry(worker.id)?.currentTaskUnavailable}
@@ -3711,12 +3902,9 @@
                 <label for="appType" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
                 <select id="appType" name="appType" bind:value={$appSettingsForm.appType}
                   class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                  <option value="WORKSTATION">💻 Workstation</option>
-                  <option value="CHATBOT">💬 Chatbot</option>
-                  <option value="AGENT">🤖 Agent</option>
-                  <option value="AUTOMATION">⚙️ Automation</option>
-                  <option value="CLOUD">☁️ Cloud</option>
-                  <option value="IOT">📡 IoT</option>
+                  {#each APP_TYPE_VALUES as appTypeValue (appTypeValue)}
+                    <option value={appTypeValue}>{appTypeLabel(appTypeValue)}</option>
+                  {/each}
                 </select>
               </div>
               <div>
@@ -3797,7 +3985,7 @@
           <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
             <div class="flex items-center justify-between px-5 py-3">
               <span class="text-sm text-zinc-500">Type</span>
-              <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.appType}</span>
+              <span data-testid="settings-type" class="text-sm font-medium text-zinc-900 dark:text-white">{appTypeLabel(app.appType)}</span>
             </div>
             <div class="flex items-center justify-between px-5 py-3">
               <span class="text-sm text-zinc-500">Role</span>
