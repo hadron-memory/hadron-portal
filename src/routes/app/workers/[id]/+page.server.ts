@@ -482,6 +482,10 @@ export const actions: Actions = {
       redirect(303, rosterHref);
     } catch (e: unknown) {
       if (e && typeof e === 'object' && 'location' in e) throw e;
+      // portal#2227 — the closed transport record for a lost delete (ruling
+      // 0247): exactly three fields, never any part of the exception. Same as
+      // retireWorker above; the helper itself filters to transport failures.
+      logAppActionTransportFailure('delete', e);
       // WORKER_IN_USE is answered with the portal's own fixed sentence and
       // FORBIDDEN with the same staffing sentence retireWorker uses above
       // (one gate, one voice); the roster keeps the server sentences. Both

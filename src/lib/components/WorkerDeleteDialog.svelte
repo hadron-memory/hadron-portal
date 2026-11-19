@@ -13,14 +13,25 @@
   let confirmed = $state(false);
   let pending = $state(false);
   let deleted = $state(false);
+  let uncertain = $state(false);
   let failure = $state<string | null>(null);
   let failureHref = $state<string | null>(null);
   let generation = 0;
   let alive = true;
+  // portal#2260 round 3 (Gil P2 / Celine P2,
+  // hrn:node:hadronmemory.com:hadron-portal:review:identity-reset-tracks-scalar-not-loader-object)
+  // — the reset boundary is the target's IDENTITY, so the effect keys on a
+  // separately derived SCALAR, never on the id read through the prop object:
+  // the worker page re-supplies a fresh object literal whenever its load
+  // re-runs (which the uncertain leg's own invalidateAll does), and an
+  // object-read re-fires the reset on that same-ID re-supply, wiping the
+  // latch and its sentence right after they show. The derived primitive
+  // compares equal on same-ID replacement; only a real target change resets.
+  const targetWorkerId = $derived(worker.id);
   $effect(() => {
-    worker.id; // A new target is a new confirmation, even if a response is in flight.
+    targetWorkerId; // A new target is a new confirmation, even if a response is in flight.
     generation++;
-    confirmed = false; pending = false; deleted = false; failure = null; failureHref = null;
+    confirmed = false; pending = false; deleted = false; uncertain = false; failure = null; failureHref = null;
   });
   onMount(() => {
     const opener = document.activeElement;
@@ -30,8 +41,24 @@
   onDestroy(() => { alive = false; generation++; });
   function close() { if (!pending) { confirmed = false; onclose(); } }
 
+  // portal#2260 round 1 (Gil F4,
+  // hrn:node:hadronmemory.com:hadron-portal:review:bindable-flag-stale-and-explain-disabled)
+  // — one source of truth for WHY Submit is off, evaluated in field order, so
+  // the disabled state and its explanation cannot diverge. pending (the
+  // status line) and deleted (the dialog is closing, or its refresh-failure
+  // text already speaks) disable without a reason of their own.
+  const submitDisabledReason = $derived.by(() => {
+    // portal#2260 round 3 (Gil P3): when latched, the role=alert sentence
+    // already carries the reload instruction — the reason states only WHY
+    // Submit is off, so the reader is not told the same guidance twice.
+    if (uncertain) return t('app.staff.delete.paused', 'Delete is paused — the outcome is unknown.');
+    if (!confirmed) return t('app.staff.delete.attestation-required', 'Check the attestation to enable Delete.');
+    return null;
+  });
+  const submitDisabled = $derived(pending || deleted || submitDisabledReason !== null);
+
   const submit: SubmitFunction = ({ cancel, formData }) => {
-    if (!confirmed || pending || deleted || formData.get('confirmation') !== WORKER_DELETE_CONFIRMATION) { cancel(); return; }
+    if (!confirmed || pending || deleted || uncertain || formData.get('confirmation') !== WORKER_DELETE_CONFIRMATION) { cancel(); return; }
     const mine = generation, workerId = worker.id;
     const current = () => alive && generation === mine && worker.id === workerId;
     pending = true; failure = null;
@@ -71,21 +98,52 @@
       const answer = result.type === 'success' || result.type === 'failure'
         ? (result.data as { deleteWorkerResult?: DeleteWorkerResult } | undefined)?.deleteWorkerResult : null;
       if (!answer || answer.workerRef !== workerId) {
-        failure = t('app.staff.delete.unconfirmed', 'Deletion was not confirmed. Refresh the roster before trying again.'); pending = false; return;
-      }
-      if (!answer.ok) {
-        failure = answer.message; pending = false; return;
-      }
-      deleted = true;
-      try {
-        // No optimistic roster mutation: only an authoritative re-read removes a row.
-        await invalidateAll();
-        if (!current()) return;
-        pending = false; onclose();
-      } catch {
-        if (!current()) return;
+        // portal#2260 round 1 (Gil F1) — no usable answer about THIS worker
+        // (the fetch itself died and Kit handed us a bare `error` result,
+        // the data lacked the result, or the answer was about another
+        // worker) is an unknown outcome exactly like a 502 uncertain answer:
+        // the delete may already have committed, so the leg latches instead
+        // of re-enabling the naive retry that would re-post it and read
+        // WORKER_NOT_FOUND as a refusal.
+        // portal#2260 round 3 (Gil P3): this deliberately includes error
+        // results that are provably pre-commit (e.g. a CSRF 403 rejected
+        // before the action ran) — Kit's `error` result does not distinguish
+        // them from a post-commit transport loss, so the conservative latch
+        // is the contract; reload is the release.
+        uncertain = true;
+        failure = t('app.staff.delete.uncertain', 'The delete may have succeeded. Reload to see the current state.');
         pending = false;
-        failure = t('app.staff.delete.refresh-failed', 'The worker was deleted, but the roster could not refresh. Reload the page.');
+      } else if (!answer.ok) {
+        failure = answer.message;
+        // portal#2227 — an uncertain answer latches Submit exactly like the
+        // redirect leg above: the delete may already have committed, so a
+        // plain retry would re-post it and read WORKER_NOT_FOUND as a
+        // refusal. The sentence says reload-first; Cancel/Escape still
+        // release the dialog.
+        if (answer.uncertain) uncertain = true;
+        pending = false;
+      } else {
+        deleted = true;
+        try {
+          // No optimistic roster mutation: only an authoritative re-read removes a row.
+          await invalidateAll();
+          if (!current()) return;
+          pending = false; onclose();
+        } catch {
+          if (!current()) return;
+          pending = false;
+          failure = t('app.staff.delete.refresh-failed', 'The worker was deleted, but the roster could not refresh. Reload the page.');
+        }
+        return;
+      }
+      if (uncertain) {
+        // portal#2260 round 1 (Gil F3) — resolve the uncertainty ourselves,
+        // best effort: an authoritative re-read removes the row if the delete
+        // committed, so Cancel does not land the reader on a stale roster
+        // whose Delete button is the retry hazard two clicks away (and
+        // Georgia's P3 reload link is answered by the page doing it). A
+        // failed refresh changes nothing — the sentence already says reload.
+        try { await invalidateAll(); } catch { /* best effort only */ }
       }
     };
   };
@@ -110,9 +168,10 @@
     </label>
     {#if failure}<p role="alert" class="break-words text-sm text-red-700 dark:text-red-300">{failure}{#if failureHref} <a class="underline" href={failureHref}>{t('app.staff.delete.open-roster', 'Open the roster')}</a>{/if}</p>{/if}
     {#if pending}<p role="status" class="text-sm">{t('app.staff.delete.pending', 'Deleting the selected worker…')}</p>{/if}
+    {#if submitDisabledReason}<p id="delete-submit-reason" class="text-sm text-zinc-600 dark:text-zinc-300">{submitDisabledReason}</p>{/if}
     <div class="flex flex-wrap justify-end gap-3">
       <button bind:this={cancelButton} type="button" onclick={close} disabled={pending} class="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600">{t('app.staff.delete.cancel', 'Cancel')}</button>
-      <button type="submit" disabled={!confirmed || pending || deleted} class="rounded-md bg-red-700 px-3 py-2 text-sm text-white disabled:opacity-50">{t('app.staff.delete.submit', 'Delete verified-unused worker')}</button>
+      <button type="submit" disabled={submitDisabled} aria-describedby={submitDisabledReason ? 'delete-submit-reason' : undefined} class="rounded-md bg-red-700 px-3 py-2 text-sm text-white disabled:opacity-50">{t('app.staff.delete.submit', 'Delete verified-unused worker')}</button>
     </div>
   </form>
 </dialog>
