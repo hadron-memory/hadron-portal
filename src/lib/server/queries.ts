@@ -6138,6 +6138,39 @@ export const APP_CASTABLE_AGENTS_QUERY = /* GraphQL */ `
   }
 `;
 
+/**
+ * #1720 — just enough of a node to decide whether it can open as a document
+ * and to name the citation to build it for: its memory, loc, name and role.
+ * Read-only; the view never selects content.
+ */
+export const SPEC_DOCUMENT_NODE_QUERY = /* GraphQL */ `
+  query SpecDocumentNode($ref: ID!) {
+    node(ref: $ref) {
+      id
+      urn
+      memoryId
+      loc
+      name
+      role
+    }
+  }
+`;
+
+/**
+ * #1720 (hadron-server#1302 / #3535, merged 07d96c78) — a Feature's specs as ONE
+ * deterministic Markdown document. The portal reads `markdown` and `loc` only;
+ * `entries` is not selected. Every client shows the string unchanged
+ * (hrn:node:hadronmemory.com:specs:cor:spc:030:02).
+ */
+export const SPEC_DOCUMENT_QUERY = /* GraphQL */ `
+  query SpecDocument($memoryRef: ID!, $loc: String!) {
+    specDocument(memoryRef: $memoryRef, loc: $loc) {
+      loc
+      markdown
+    }
+  }
+`;
+
 // #1908: isolated usage reads, never placed on a shared App fragment.
 export const APP_USAGE_ACCOUNTS_QUERY = /* GraphQL */ `
   query AppUsageAccounts($appRef: ID!) {
