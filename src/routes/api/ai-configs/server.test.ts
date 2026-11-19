@@ -235,6 +235,50 @@ describe('POST /api/ai-configs', () => {
     expect(JSON.stringify(body)).not.toContain('sk-synthetic-966');
   });
 
+  // #2217: an older server rejects `chatProbe` at validation, before any provider call.
+  const validation = (message: string, extra: Record<string, unknown> = {}) => ({ message, extensions: { code: 'GRAPHQL_VALIDATION_FAILED' }, ...extra });
+  const rejected = (...errors: unknown[]) => Object.assign(new Error('GraphQL Error'), { response: { errors } });
+  const unknownArg = validation('Unknown argument "chatProbe" on field "Mutation.testAiServiceConfig".');
+  const unknownChat = validation('Cannot query field "chat" on type "AiServiceConfigTestResult".');
+
+  it('testSaved: an older server that rejects chatProbe gets the same Test without it, and shows the Run row only', async () => {
+    mockRequest.mockRejectedValueOnce(rejected(unknownArg, unknownChat)).mockResolvedValueOnce({ testAiServiceConfig: RESULT });
+    const { POST } = await import('./+server');
+    const res = await POST(ev({ body: { action: 'testSaved', id: 'cfg-org-1', override: { model: 'glm-5.4' } } }));
+    expect(res.status).toBe(200);
+    const body = await jsonOf(res);
+    expect(body.result).toEqual(RESULT);
+    expect(body.result.chat).toBeUndefined();
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+    expect(mockRequest.mock.calls[0][0]).toContain('chatProbe: true');
+    expect(mockRequest.mock.calls[1][0]).not.toContain('chatProbe');
+    expect(mockRequest.mock.calls[1][0]).not.toContain('chat {');
+    expect(mockRequest.mock.calls[1][1]).toEqual(mockRequest.mock.calls[0][1]);
+  });
+
+  it.each([
+    ['a rate limit', rejected({ message: 'slow down', extensions: { code: 'RATE_LIMITED' } }), 429],
+    ['a resolver error', rejected({ message: 'Unknown argument "chatProbe" on field "x".', path: ['testAiServiceConfig'], extensions: { code: 'INTERNAL' } }), 500],
+    ['the argument error mixed with another', rejected(unknownArg, validation('Cannot query field "other" on type "Query".')), 500],
+    ['only the chat field error', rejected(unknownChat), 500],
+    ['a transport error', new Error('ECONNRESET'), 500],
+  ])('testSaved: %s is not absence of chatProbe: one call, a closed failure, no retry', async (_n, err, status) => {
+    mockRequest.mockRejectedValueOnce(err);
+    const { POST } = await import('./+server');
+    const res = await POST(ev({ body: { action: 'testSaved', id: 'cfg-org-1' } }));
+    expect(res.status).toBe(status);
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(await jsonOf(res))).not.toMatch(/ECONNRESET|slow down|chatProbe/);
+  });
+
+  it('testSaved: a failing retry is a closed error too', async () => {
+    mockRequest.mockRejectedValueOnce(rejected(unknownArg)).mockRejectedValueOnce(new Error('boom sk-synthetic-2217'));
+    const { POST } = await import('./+server');
+    const res = await POST(ev({ body: { action: 'testSaved', id: 'cfg-org-1' } }));
+    expect(res.status).toBe(500);
+    expect(await jsonOf(res)).toEqual({ error: 'The test could not run.' });
+  });
+
   it('testSaved: forwards only the values the user changed or typed', async () => {
     mockRequest.mockResolvedValueOnce({ testAiServiceConfig: RESULT });
     const { POST } = await import('./+server');

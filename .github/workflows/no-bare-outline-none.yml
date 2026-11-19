@@ -1,0 +1,52 @@
+# #1745 — fail on an `outline-none`/`outline-hidden` suppression beside
+# `focus-visible:outline*`, unless it is focus-scoped AND the same list re-states
+# the outline STYLE under focus-visible with the suppression's own extra variants
+# (`focus-visible:outline-solid` & co.; `dark:focus:outline-none` needs
+# `dark:focus-visible:outline-solid`).
+#
+# Tailwind 4's `outline-none` (and `outline-hidden`, which adds only a
+# forced-colors fallback) sets `--tw-outline-style: none`, and every
+# `outline*` utility draws with `outline-style: var(--tw-outline-style)` — bare
+# `focus-visible:outline` included, which emits that variable plus a 1px width.
+# When one element carries both, the computed outline style on `:focus-visible`
+# stays `none` and the focus ring never paints — the a11y intent of the class
+# list is silently inverted. Width/colour utilities do not save a scoped
+# suppression: `focus:outline-none focus-visible:outline-2` still computes `none`
+# on `:focus-visible` (Gaia P2-1, portal#1751 BLIND review) — only a STYLE
+# utility (`focus-visible:outline-solid`, `-dashed`, `-dotted`, `-double`)
+# re-states it, and only when conditioned like the suppression (a `dark:`/`md:`
+# restatement beside a plain suppression exists solely inside that condition, and
+# the reverse pairing loses the conditioned scheme/viewport — verified in the
+# compiled css, Gaia P3-1 at P2 grade, portal#1751 BLIND delta). A suppression
+# scoped to `focus-visible` itself is refused outright: any restatement beside it
+# shares the variant, and tailwind's utility sort order decides — outline-none sorts
+# after dashed/dotted/double but before solid in the compiled css, so the pair's
+# outcome flips by which style utility is picked. It shipped twice (#1619: the Task
+# integrations heading;
+# #1675: the ApplyAgentTickers result region), and jsdom cannot see it (it
+# computes no Tailwind cascade), so both times every component test stayed green.
+# The Chromium focus probes pin the two fixed surfaces; this gate stops the NEXT
+# one at the spelling, anywhere in `src/`.
+#
+# Shaped like `safe-interpolation`, `grid-filters` and `no-bare-loc-citations`:
+# a small, app-independent gate in its own job so it reports separately from
+# `ci`. It checks the tree as it stands, not the diff — the whole tree is clean
+# as of #1745, so a file that regresses is caught even if the offending line was
+# not the one touched.
+name: no-bare-outline-none
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  no-bare-outline-none:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: An outline-none/outline-hidden suppression must not sit beside focus-visible outline utilities without a restated style
+        run: node scripts/check-outline-none.mjs

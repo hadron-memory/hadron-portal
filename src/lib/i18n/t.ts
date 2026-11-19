@@ -72,3 +72,46 @@ export function splitAt(message: string, name: string): [string, string] {
   const i = message.indexOf(token);
   return i < 0 ? [message, ''] : [message.slice(0, i), message.slice(i + token.length)];
 }
+
+/**
+ * A message split around the named placeholders so a caller can render markup
+ * (e.g. <strong>) where the translator put each marked value — the
+ * multi-placeholder sibling of splitAt, under the same rule (portal#1415): a
+ * sentence stays ONE message, not lead/key/tail fragments that freeze word
+ * order. Marked values come back as their own segments; unmarked placeholders
+ * substitute into the surrounding text.
+ *
+ * Substitution is single-pass like fill: values are never rescanned for
+ * placeholders, and an unknown or null/undefined placeholder stays standing in
+ * a text segment. Joining every segment's text is byte-identical to
+ * fill(message, vars) — the caller's plain-text rendering (a `title`) and its
+ * marked rendering can be built from the same message and cannot drift apart
+ * (portal#2226: the stage toast's visible line vs its title).
+ *
+ * Empty text never becomes a segment, wherever it would occur — a leading,
+ * trailing or inner empty literal (a message that starts or ends with a
+ * placeholder) and an empty value alike (portal#2262).
+ */
+export type MarkedSegment = { text: string; marked?: boolean };
+
+export function fillMarked(message: string, vars: TemplateVars, markedKeys: readonly string[]): MarkedSegment[] {
+  const marked = new Set(markedKeys);
+  const out: MarkedSegment[] = [];
+  const push = (text: string, isMarked = false) => {
+    if (!text) return; // no empty segments, not even a leading one (#2262)
+    const last = out[out.length - 1];
+    if (!isMarked && last && !last.marked) last.text += text;
+    else out.push(isMarked ? { text, marked: true } : { text });
+  };
+  let consumed = 0;
+  for (const match of message.matchAll(PLACEHOLDER)) {
+    const value = vars[match[1]];
+    if (value === null || value === undefined) continue; // stays standing, as in fill
+    const literal = message.slice(consumed, match.index);
+    consumed = match.index + match[0].length;
+    push(literal);
+    push(String(value), marked.has(match[1]));
+  }
+  push(message.slice(consumed));
+  return out;
+}

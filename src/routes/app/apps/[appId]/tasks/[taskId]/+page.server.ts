@@ -1,14 +1,8 @@
-import { taskClonesPage, taskDependencies } from '$lib/server/task-planning';
-import { taskFindingsPage } from '$lib/server/task-findings';
-import type { FindingsRead } from '$lib/agent-tasks/findings';
-import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout';
 import { readTaskPriority } from '$lib/agent-tasks/planning';
 import { error, redirect, isHttpError } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { fetchAllItems } from '$lib/server/paginate';
 import {
   AGENT_TASK_DETAIL_QUERY,
-  MEMORIES_QUERY,
   SET_AGENT_TASK_PRIORITY_MUTATION,
   ADD_AGENT_TASK_BLOCKER_MUTATION,
   REMOVE_AGENT_TASK_BLOCKER_MUTATION,
@@ -21,7 +15,8 @@ import {
   REASSIGN_AGENT_TASK_MUTATION,
   UPDATE_AGENT_TASK_MUTATION,
 } from '$lib/server/queries';
-import { canonicalTaskId, loadAncestors, loadHistory, loadReview, loadTasksApp, loadTree, loadWriteCandidates } from '$lib/server/agent-tasks';
+import { canonicalTaskId, loadAncestors, loadTasksApp, loadTree } from '$lib/server/agent-tasks';
+import { TASK_NOT_FOUND_MESSAGE } from '$lib/server/task-not-found';
 import {
   classifyWriteError,
   formValues,
@@ -36,11 +31,7 @@ import { taskEditPatch } from '$lib/agent-tasks/edit';
 import { parseHandBack } from '$lib/agent-tasks/hand-back';
 import { readDispositionForm } from '$lib/agent-tasks/dispositions';
 import type { AgentTaskDetail } from '$lib/agent-tasks/types';
-import type { MemoriesRead } from '$lib/node-choices';
 import type { Actions, PageServerLoad } from './$types';
-
-// portal#1576 step 2: the NODE reference picker's memory rows (see the load).
-type PickMemory = { id: string; name: string; urn: string; visibility: string | null };
 
 /**
  * portal#1052 — one task: its facts, its subtask tree and its history
@@ -62,10 +53,10 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   // forwarded to the server's own resolver; another App's qualified handle is
   // unknown before any task read, same as a task that does not exist.
   const seg = resolveSegment(params.taskId, app.urn);
-  if (seg.kind === 'unknown') throw error(404, 'Task not found');
+  if (seg.kind === 'unknown') throw error(404, TASK_NOT_FOUND_MESSAGE);
   const taskData = await client.request<{ agentTask: AgentTaskDetail | null }>(AGENT_TASK_DETAIL_QUERY, { id: seg.ref });
   const task = taskData.agentTask;
-  if (!task) throw error(404, 'Task not found');
+  if (!task) throw error(404, TASK_NOT_FOUND_MESSAGE);
 
   // A task resolves by id alone; one reached under another App's URL moves to
   // its own (the runs/[runId] pattern).
@@ -78,67 +69,24 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   // portal#1090: an impersonation session writes nothing, so it gets no bar
   // and no picker read. Everyone else gets the bar; the server decides.
   const canWrite = !locals.impersonation;
-  const [tree, history, review, crumbs, candidates, clones] = await Promise.all([
-    loadTree(client, task.id),
-    loadHistory(client, app.id, task.id),
-    // portal#1697: optional like the relations; a slow read costs the section, never the page.
-    withTimeout(loadReview(client, app.id, task.id), OPTIONAL_LIST_TIMEOUT_MS, { kind: 'failed' } as const),
-    loadAncestors(client, task.parentTaskId),
-    canWrite ? loadWriteCandidates(client, app.id) : Promise.resolve({ workers: [], people: [], peopleWithheld: false, peopleFailed: false, roles: [], families: [] }),
-    // portal#2161: the first page of this task's clones, optional like the dependencies — a slow or
-    // failed read costs the Clones section, never the page, and reads as unknown, never as none.
-    withTimeout(taskClonesPage(client, app.id, task.id, 0), OPTIONAL_LIST_TIMEOUT_MS, { kind: 'failed' } as const),
-  ]);
+  // portal#2261: the first screen only — the task's facts (read above), its subtask tree and the
+  // breadcrumb's ancestors. History, Review, Clones, the blocker relations, the findings, the
+  // assignee/requirement pickers and the memories list read when they are shown (see ./sections).
+  // They run one after the other: one page open never holds more than one pool connection.
+  const tree = await loadTree(client, task.id);
+  const crumbs = await loadAncestors(client, task.parentTaskId);
 
   return {
     app,
     task,
-    // portal#1392: the relations are optional; a read that hasn't answered within the
-    // optional-list budget becomes the existing unknown state ("reload to try again"),
-    // never empty relations. The request itself is not cancelled, only no longer waited for.
-    dependencies: await withTimeout(taskDependencies(client, app.id, task.id), OPTIONAL_LIST_TIMEOUT_MS, { kind: 'failed' } as const),
-    // portal#1637: the first page of the immutable findings, STREAMED so a slow or failed read costs the
-    // section and never the page. Only a task with a result is asked; a failure arrives as a VALUE
-    // ({kind:'failed'}), never empty and never a rejection (the #1588 pageerror class).
-    findings: (task.result
-      ? withTimeout(taskFindingsPage(client, app.id, task.id, 0), OPTIONAL_LIST_TIMEOUT_MS, { kind: 'failed' } as FindingsRead).catch((): FindingsRead => ({ kind: 'failed' }))
-      : Promise.resolve({ kind: 'no-result' } as FindingsRead)),
     // The tree's first row is the task itself; the view shows what is below it.
     tree,
-    history,
-    review,
-    // portal#2161: the task's clones (first page), for the Clones section.
-    clones,
     ancestors: crumbs.ancestors,
     ancestorsTruncated: crumbs.truncated,
     canWrite,
     // portal#1571: who is signed in, so Hand back is offered only to the started task's own assignee.
     viewerId: locals.user?.id ?? null,
     impersonating: locals.impersonation ? (locals.user?.name ?? locals.user?.email ?? locals.user?.id ?? null) : null,
-    candidates: { workers: candidates.workers, people: candidates.people, peopleWithheld: candidates.peopleWithheld, peopleFailed: candidates.peopleFailed },
-    // portal#1357: the Edit details panel's requirement pickers.
-    roles: candidates.roles,
-    families: candidates.families,
-    // portal#1576 step 2: the NODE reference picker's memory stage — the
-    // viewer's readable memories (server-scoped MEMORIES_QUERY, the #512
-    // Move-dialog precedent), STREAMED so it never blocks the page. An
-    // impersonation session writes nothing, so it reads no list either.
-    // portal#1585 (QA P2): a failed read must reach the picker as a FAILURE,
-    // never as [] — an empty list made "the read failed" read as "you can
-    // read nothing".
-    // portal#1588 (QA F2): the failure streams as a VALUE ({kind:'failed'}),
-    // never a rejection — a rejecting stream fires an uncaught pageerror
-    // during kit's parse-time deserialization, before any component can
-    // attach. Warned server-side, the page still loads, the editor branches.
-    nodeMemories: canWrite
-      ? fetchAllItems<PickMemory>(client, MEMORIES_QUERY, 'memories').then(
-          (memories): MemoriesRead => ({ kind: 'ok', value: memories }),
-          (e): MemoriesRead => {
-            console.warn('[task-detail] node-picker memory list failed:', e);
-            return { kind: 'failed' };
-          },
-        )
-      : Promise.resolve({ kind: 'ok', value: [] } as MemoriesRead),
     // tasks/new redirects here with ?created=1 (design §6).
     created: url.searchParams.get('created') === '1',
   };

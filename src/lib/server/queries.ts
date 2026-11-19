@@ -4679,6 +4679,18 @@ export const APP_RUN_ENVELOPE_QUERY = /* GraphQL */ `
   }
 `;
 
+// The per-hop trail (hadron-server#538, #482). Its own query for the same reason
+// as the envelope: on a server without AppRun.hops the selection is invalid and
+// would error the whole run query, so the loader degrades it to "unavailable".
+export const APP_RUN_HOPS_QUERY = /* GraphQL */ `
+  query AppRunHops($ref: ID!) {
+    appRun(ref: $ref) {
+      id
+      hops
+    }
+  }
+`;
+
 // The kill switch (guarded server-side: only a still-RUNNING/PENDING row
 // transitions; a raced terminal state survives in the audit log).
 export const CANCEL_APP_RUN_MUTATION = /* GraphQL */ `
@@ -5068,6 +5080,24 @@ export const TEST_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
       reply
       error { code message transient }
       chat { status }
+    }
+  }
+`;
+
+// #2217: the same Test without the chat leg. Sent only after a server that
+// predates `chatProbe` rejected the document above, so the Run row still shows.
+export const TEST_AI_SERVICE_CONFIG_RUN_ONLY_MUTATION = /* GraphQL */ `
+  mutation TestAiServiceConfigRunOnly($id: ID!, $override: AiServiceConfigTestOverride) {
+    testAiServiceConfig(id: $id, override: $override) {
+      ok
+      provider
+      model
+      endpoint
+      apiStyle
+      used { provider model endpoint apiStyle key }
+      latencyMs
+      reply
+      error { code message transient }
     }
   }
 `;
@@ -6123,6 +6153,39 @@ export const CHANGE_WORKER_AGENT_MUTATION = /* GraphQL */ `
 export const APP_CASTABLE_AGENTS_QUERY = /* GraphQL */ `
   query AppCastableAgents($ref: ID!) {
     app(ref: $ref) { id appAgents { agent { id name urn description personaRole } } }
+  }
+`;
+
+/**
+ * #1720 — just enough of a node to decide whether it can open as a document
+ * and to name the citation to build it for: its memory, loc, name and role.
+ * Read-only; the view never selects content.
+ */
+export const SPEC_DOCUMENT_NODE_QUERY = /* GraphQL */ `
+  query SpecDocumentNode($ref: ID!) {
+    node(ref: $ref) {
+      id
+      urn
+      memoryId
+      loc
+      name
+      role
+    }
+  }
+`;
+
+/**
+ * #1720 (hadron-server#1302 / #3535, merged 07d96c78) — a Feature's specs as ONE
+ * deterministic Markdown document. The portal reads `markdown` and `loc` only;
+ * `entries` is not selected. Every client shows the string unchanged
+ * (hrn:node:hadronmemory.com:specs:cor:spc:030:02).
+ */
+export const SPEC_DOCUMENT_QUERY = /* GraphQL */ `
+  query SpecDocument($memoryRef: ID!, $loc: String!) {
+    specDocument(memoryRef: $memoryRef, loc: $loc) {
+      loc
+      markdown
+    }
   }
 `;
 

@@ -68,9 +68,12 @@ function safeClassNames(raw: string): string {
 
 let nodePurifier: ReturnType<typeof DOMPurify> | null = null;
 
-function purifier(): ReturnType<typeof DOMPurify> {
-  if (nodePurifier) return nodePurifier;
-  const instance = DOMPurify(window);
+/**
+ * The style/class/input rules every portal Markdown path shares. One installer,
+ * so the dedicated spec-document sanitizer (#1720) cannot drift from the node
+ * path on what an authored style, class or input may do.
+ */
+export function installNoteHooks(instance: ReturnType<typeof DOMPurify>): void {
   instance.addHook('uponSanitizeAttribute', (node, attribute) => {
     if (attribute.attrName === 'style') {
       attribute.attrValue = safeInlineStyle(attribute.attrValue, node.ownerDocument);
@@ -88,6 +91,14 @@ function purifier(): ReturnType<typeof DOMPurify> {
     node.setAttribute('disabled', '');
     node.removeAttribute('src');
   });
+}
+
+export { NOTE_TAGS, NOTE_ATTRIBUTES };
+
+function purifier(): ReturnType<typeof DOMPurify> {
+  if (nodePurifier) return nodePurifier;
+  const instance = DOMPurify(window);
+  installNoteHooks(instance);
   nodePurifier = instance;
   return instance;
 }

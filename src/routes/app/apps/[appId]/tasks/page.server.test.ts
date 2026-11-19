@@ -3,7 +3,6 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AGENT_ALARMS_QUERY, AGENT_ALARMS_IN_EFFECT_QUERY, AGENT_TASK_DETAIL_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_TREE_QUERY, AGENT_TASKS_APP_QUERY, PULL_REQUEST_READINESS_QUERY, TASK_REVIEW_EVENTS_QUERY, AGENT_TASKS_BOARD_QUERY, AGENT_TASK_REF_QUERY, TASK_DEPENDENCIES_QUERY, TEAM_COMPOSITION_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
-import { markStreamHandled } from '$lib/mark-stream-handled';
 import { selectsFieldPath } from '$lib/test/graphql-selection';
 
 const request = vi.fn();
@@ -154,14 +153,17 @@ async function loadDetail(taskId = 't1') {
     // portal#1090: the loader reads ?created=1 from the URL.
     url: new URL('http://localhost/app/apps/app-1/tasks/t1'),
   } as never)) as Record<string, unknown>;
-  // Amended for portal#1585: the memories stream now REJECTS through to the
-  // picker's stage instead of the loader swallowing it to [], and per-test
-  // mocks here do not answer MEMORIES_QUERY (these tests exercise the other
-  // reads). Mark the streamed rejection handled so it cannot fail the run
-  // as an unhandled error; the memories-failure behaviour itself is pinned
-  // in node-memories-failure.server.test.ts.
-  markStreamHandled(r.nodeMemories as Promise<unknown>);
   return r;
+}
+
+// portal#2261: every section but the facts, the tree and the breadcrumb is read by the sections endpoint when
+// it is shown. The endpoint resolves the canonical task through AGENT_TASK_REF_QUERY first, like the findings one.
+async function loadSection(section: string, taskId = 't1') {
+  const inner = request.getMockImplementation() as (q: string, v?: unknown) => Promise<unknown>;
+  request.mockImplementation(async (q: string, v?: unknown) => (q === AGENT_TASK_REF_QUERY ? { agentTask: { id: 't1', appId: 'app-1' } } : inner(q, v)));
+  const { GET } = await import('./[taskId]/sections/+server');
+  const r = (await GET({ params: { appId: 'app-1', taskId }, locals: { token: 'tok', user: { id: 'u1' }, impersonation: null }, url: new URL(`http://localhost/s?section=${section}`) } as never)) as Response;
+  return r.json() as Promise<Record<string, unknown>>;
 }
 
 describe('views (slice 2)', () => {
@@ -289,7 +291,7 @@ describe('task loader', () => {
     await expect(loadDetail()).rejects.toThrow('down');
   });
 
-  it('a failed history leaves the facts and the tree in place', async () => {
+  it('a failed history is the section’s own failed value; the facts and the tree still load', async () => {
     request.mockImplementation(async (q: string) => {
       if (q === AGENT_TASKS_APP_QUERY) return { app };
       if (q === AGENT_TASK_DETAIL_QUERY) return { agentTask: detail() };
@@ -300,7 +302,7 @@ describe('task loader', () => {
     const r = await loadDetail();
     expect(r.task).toMatchObject({ id: 't1' });
     expect(r.tree).toMatchObject({ kind: 'ok' });
-    expect(r.history).toEqual({ kind: 'failed' });
+    expect(await loadSection('history')).toEqual({ kind: 'failed' });
   });
 });
 
@@ -321,10 +323,12 @@ describe('task loader: handles', () => {
       if (q === TASK_DEPENDENCIES_QUERY) return { agentTask: { id: 't1', appId: app.id, blockedBy: page, blocks: page } };
       return asked(q, detail({ handle: 'AT3.405' }));
     });
-    const r = await loadDetail('AT3.405');
+    await loadDetail('AT3.405');
     expect(request).toHaveBeenCalledWith(AGENT_TASK_DETAIL_QUERY, { id: 'hrn:agenttask:acme.com:team:AT3.405' });
+    // The first load asks no relations; the section does, by the canonical id.
+    expect(request.mock.calls.some((c) => c[0] === TASK_DEPENDENCIES_QUERY)).toBe(false);
+    expect(await loadSection('dependencies', 'AT3.405')).toEqual({ kind: 'ok', value: { blockedBy: page, blocks: page } });
     expect(request).toHaveBeenCalledWith(TASK_DEPENDENCIES_QUERY, { id: 't1', offset: 0 });
-    expect(r.dependencies).toEqual({ kind: 'ok', value: { blockedBy: page, blocks: page } });
   });
 
   it('a raw id is forwarded unchanged (bookmarks keep working)', async () => {
@@ -384,18 +388,16 @@ describe('task loader: Review section (portal#1697)', () => {
       return { agentTask: null };
     });
 
-  it('asks readiness once per load, by the canonical id, and hands back the answer', async () => {
+  it('asks readiness once per section read, by the canonical id, and hands back the answer', async () => {
     mock(() => ({ pullRequestReadiness: readiness }));
-    const r = await loadDetail('AT3.405');
-    expect(r.review).toEqual({ kind: 'ok', value: { readiness, seat: null } });
+    expect(await loadSection('review', 'AT3.405')).toEqual({ kind: 'ok', value: { readiness, seat: null } });
     expect(request.mock.calls.filter((c) => c[0] === PULL_REQUEST_READINESS_QUERY)).toEqual([[PULL_REQUEST_READINESS_QUERY, { taskRef: 't1', head: H }]]);
   });
 
   it('a refused read costs the section, not the page', async () => {
     mock(() => { throw gqlError('INTERNAL'); });
-    const r = await loadDetail();
-    expect(r.review).toEqual({ kind: 'failed' });
-    expect(r.task).toMatchObject({ id: 't1' });
+    expect(await loadSection('review')).toEqual({ kind: 'failed' });
+    expect((await loadDetail()).task).toMatchObject({ id: 't1' });
   });
 });
 

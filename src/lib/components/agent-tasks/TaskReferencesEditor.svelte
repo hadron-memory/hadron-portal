@@ -47,6 +47,7 @@
   let {
     app,
     nodeMemories = { kind: 'ok', value: [] },
+    loadMemories,
     initial = [],
     idPrefix,
     replaces = false,
@@ -64,6 +65,13 @@
      * picker to its failure stage (#1576 step 2, #1585).
      */
     nodeMemories?: Promise<MemoriesRead> | MemoriesRead;
+    /**
+     * portal#2261: instead of a list handed in, read it WHEN the node picker opens (the task page's first
+     * load carries no memories). A failed read degrades the picker to its failure stage and is read again
+     * the next time the picker opens; while it loads the picker is not mounted, so it never shows an empty
+     * list for "still loading" (#1585).
+     */
+    loadMemories?: () => Promise<MemoriesRead>;
     initial?: TaskReference[];
     /** `new` or `edit`: every id in here starts with it. */
     idPrefix: string;
@@ -88,6 +96,19 @@
   let picking = $state(false);
   let pickedNode = $state<NodeChoice | null>(null);
   let nodePicking = $state(false);
+  let lazyMemories = $state.raw<{ kind: 'idle' } | { kind: 'loading' } | MemoriesRead>({ kind: 'idle' });
+  $effect(() => {
+    const picking = nodePicking;
+    untrack(() => {
+      if (!loadMemories) return;
+      if (picking && lazyMemories.kind === 'idle') {
+        lazyMemories = { kind: 'loading' };
+        void loadMemories().then((read) => (lazyMemories = read), () => (lazyMemories = { kind: 'failed' }));
+      } else if (!picking && lazyMemories.kind === 'failed') {
+        lazyMemories = { kind: 'idle' };
+      }
+    });
+  });
   // Clear removes the button that had focus; without a home to return to,
   // focus falls to <body> and a keyboard user loses their place in the form
   // (#1582 BLIND P3). The trigger stays mounted, so it is that home.
@@ -285,6 +306,15 @@
   {#if app.urn}
     <SelectTask appId={app.id} includeEnded bind:open={picking} onselect={(choice: TaskChoice) => (picked = choice)} />
   {/if}
+  {#if loadMemories}
+    {#if lazyMemories.kind === 'ok'}
+      <SelectNode memories={lazyMemories.value} bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
+    {:else if lazyMemories.kind === 'failed'}
+      <SelectNode memories={[]} memoriesFailed bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
+    {:else if nodePicking}
+      <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.nodes.picker.memories-loading', 'Loading your memories…')}</p>
+    {/if}
+  {:else}
   {#await Promise.resolve(nodeMemories) then read}
     {#if read.kind === 'ok'}
       <SelectNode memories={read.value} bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
@@ -294,4 +324,5 @@
   {:catch}
     <SelectNode memories={[]} memoriesFailed bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
   {/await}
+  {/if}
 </fieldset>

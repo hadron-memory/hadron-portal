@@ -19,6 +19,7 @@ import { setStubPage } from '$lib/test/stubs/app-stores';
 import { resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import Page from './+page.svelte';
+import { everyTabRead } from './app-page.fixture';
 import {
   addAgentSchema, addAppMemberSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
   deleteAppSchema, ensureAppMemberSchema, releaseWorkerSchema, removeAppAgentSchema,
@@ -56,6 +57,8 @@ async function mountTab(tab: string, over: { app?: Record<string, unknown>; data
     addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema,
   ] as never);
   const data = {
+    // portal#2240: every tab already read, as before the first-screen load.
+    ...everyTabRead(),
     app: {
       id: 'a1', urn: 'hrn:app:acme.com:team', name: 'Team', appType: 'WORKSTATION', role: 'OWNER',
       surfaces: [], agentId: 'ag1', availableMemberRoles: ['reader'], agent: { ...agentOne, installationPolicy: { memberRoles: ['reader'], maxMembers: 'unlimited' } },

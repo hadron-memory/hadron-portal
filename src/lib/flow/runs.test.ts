@@ -7,6 +7,9 @@ import {
   fmtRunTime,
   isCancellable,
   parseApiDate,
+  parseHops,
+  fmtHopTokens,
+  fmtHopDuration,
   runDuration,
   visibleEnvelope,
 } from './runs';
@@ -78,5 +81,59 @@ describe('fmtRunTime', () => {
   it('renders a pinned-locale datetime and dashes missing values', () => {
     expect(fmtRunTime(null)).toBe('—');
     expect(fmtRunTime('2026-07-07T10:00:00.000Z')).toMatch(/Jul/);
+  });
+});
+
+describe('parseHops (#482)', () => {
+  const hop = (over: Record<string, unknown> = {}) => ({
+    node: 'hrn:node:acme.com:flows:classify',
+    edgeOut: 'next',
+    startedAt: 1790848800000,
+    finishedAt: 1790848802500,
+    tokensSpent: 120,
+    ...over,
+  });
+
+  it('absent, non-array and malformed trails are unavailable, never invented as zero hops', () => {
+    for (const raw of [null, undefined, {}, 'x', 7, [null], [1], [hop({ node: '' })], [hop({ node: 3 })], [hop({ tokensSpent: -1 })], [hop({ tokensSpent: 'many' })], [hop({ startedAt: 'nope' })], [hop({ finishedAt: Number.NaN })], [hop({ startedAt: -5 })], [hop({ startedAt: Infinity })], [hop({ finishedAt: -1 })], [hop(), hop({ startedAt: 'nope' })], [hop(), hop({ finishedAt: Number.NaN })], [hop({ edgeOut: 4 })]]) {
+      expect(parseHops(raw)).toEqual({ state: 'unavailable' });
+    }
+  });
+
+  it('one malformed element makes the whole trail unavailable', () => {
+    expect(parseHops([hop(), hop({ node: null })])).toEqual({ state: 'unavailable' });
+  });
+
+  it('an empty array is a real, empty trail (distinct from unavailable)', () => {
+    expect(parseHops([])).toEqual({ state: 'ready', hops: [] });
+  });
+
+  it('keeps completed hops in order, edgeOut belongs to the row it is on, tokens null is unknown and 0 is real', () => {
+    const r = parseHops([hop({ tokensSpent: null }), hop({ node: 'hrn:node:acme.com:flows:reply', edgeOut: null, tokensSpent: 0 })]);
+    expect(r.state).toBe('ready');
+    if (r.state !== 'ready') throw new Error('unreachable');
+    expect(r.hops.map((h) => h.node)).toEqual(['hrn:node:acme.com:flows:classify', 'hrn:node:acme.com:flows:reply']);
+    expect(r.hops[0].edgeOut).toBe('next');
+    expect(r.hops[1].edgeOut).toBeNull();
+    expect(r.hops[0].tokensSpent).toBeNull();
+    expect(r.hops[1].tokensSpent).toBe(0);
+  });
+
+  it('accepts the producer wire shape: epoch-millisecond numbers (hadron-server appRuns.ts), normalised to ISO; ISO strings too', () => {
+    const r = parseHops([hop(), hop({ startedAt: '2026-10-01T10:00:00.000Z', finishedAt: '2026-10-01T10:00:02.000Z' })]);
+    expect(r.state).toBe('ready');
+    if (r.state !== 'ready') throw new Error('unreachable');
+    expect(r.hops[0].startedAt).toBe('2026-10-01T10:00:00.000Z');
+    expect(fmtHopDuration(r.hops[0].startedAt, r.hops[0].finishedAt)).toBe('3s');
+    expect(r.hops[1].startedAt).toBe('2026-10-01T10:00:00.000Z');
+  });
+
+  it('formats unknown tokens and durations as unknown, zero as 0', () => {
+    expect(fmtHopTokens(null)).toBe('—');
+    expect(fmtHopTokens(0)).toBe('0');
+    expect(fmtHopTokens(1234)).toBe('1,234');
+    expect(fmtHopDuration('2026-10-01T10:00:00.000Z', '2026-10-01T10:00:02.500Z')).toBe('3s');
+    expect(fmtHopDuration('2026-10-01T10:00:00.000Z', null)).toBe('—');
+    expect(fmtHopDuration('2026-10-01T10:00:05.000Z', '2026-10-01T10:00:00.000Z')).toBe('—');
   });
 });
