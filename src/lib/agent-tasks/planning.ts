@@ -14,3 +14,8 @@ export function readTaskPriority(value: FormDataEntryValue | null): number | und
 export function taskChoiceStatus(status: string): string {
   return taskStateLabel(taskDisplayState({ status: status as AgentTaskRow['status'], queued: false }), status);
 }
+
+/** The priority form's eligibility: the page's no-JS fallback and the planning section share one rule. */
+export function canSetPriority(task: { handle: string; status: string }, canWrite: boolean): boolean {
+  return canWrite && task.handle !== 'AT0' && ['BACKLOG', 'PENDING', 'STARTED'].includes(task.status);
+}

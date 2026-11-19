@@ -229,7 +229,7 @@ describe('task page', () => {
       expect(section).not.toMatch(/inherit/i);
       expect(section).not.toMatch(/<(form|input|button|textarea)\b/);
       // portal#2261: the priority form lives in the deferred relations section (sections.client.test.ts).
-      expect([...html.matchAll(/<form[^>]*action="([^"]+)"/g)].map((m) => m[1])).toEqual([]);
+      expect([...html.matchAll(/<form[^>]*action="([^"]+)"/g)].map((m) => m[1])).toEqual(['?/priority']); // the no-JS priority form (portal#2263 P2#4)
     });
   });
 
@@ -238,7 +238,7 @@ describe('task page', () => {
     expect(html).toContain('hadron team task get t1');
     expect(html).toContain('No subtasks');
     expect(html).toContain('You can change a task you own, or any task if you manage the App.');
-    expect([...html.matchAll(/<form[^>]*action="([^"]+)"/g)].map((match) => match[1])).toEqual([]);
+    expect([...html.matchAll(/<form[^>]*action="([^"]+)"/g)].map((match) => match[1])).toEqual(['?/priority']); // the no-JS priority form (portal#2263 P2#4)
     expect(html).not.toMatch(/\bPark\b/);
   });
 

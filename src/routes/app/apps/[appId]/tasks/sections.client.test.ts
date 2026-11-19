@@ -166,10 +166,14 @@ describe('task page: sections read when shown (portal#2261)', () => {
     answers.dependencies = { kind: 'ok', value: { blockedBy: { items: [], hasMore: false }, blocks: { items: [], hasMore: false } } };
     const m = mount();
     await tick(5);
-    expect(m.target.querySelectorAll('form[action="?/priority"]')).toHaveLength(0);
+    // Before the section is shown the priority form is already there as a native form (no-JS fallback).
+    const fallback = m.target.querySelector('form[action="?/priority"]');
+    expect(fallback).not.toBeNull();
     show('Loading blocker relations…');
     await tick(8);
     expect([...m.target.querySelectorAll('form')].map((f) => f.getAttribute('action'))).toEqual(['?/priority']);
+    // The section replaced the fallback: one form, and it is the planning section's own.
+    expect(m.target.contains(fallback)).toBe(false);
   });
 
   it('findings are asked only for a task with a result', async () => {

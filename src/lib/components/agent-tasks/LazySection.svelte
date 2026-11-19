@@ -13,12 +13,14 @@
   import { t } from '$lib/i18n/t';
   import { readSection, type TaskSection } from '$lib/agent-tasks/sections';
 
-  let { appId, taskId, section, version, children, label = t('app.tasks.section.loading', 'Loading…') }: {
+  let { appId, taskId, section, version, children, placeholder, label = t('app.tasks.section.loading', 'Loading…') }: {
     appId: string;
     taskId: string;
     section: TaskSection;
     /** Changes whenever the page's data is refreshed (a write on the same task): a section already shown re-reads. */
     version?: unknown;
+    /** Shown instead of the plain label until the answer lands, and kept for a reader without JS (portal#2263 P2#4). */
+    placeholder?: Snippet;
     children: Snippet<[T]>;
     label?: string;
   } = $props();
@@ -98,6 +100,8 @@
 <div bind:this={host}>
   {#if read !== null}
     {@render children(read as T)}
+  {:else if placeholder}
+    {@render placeholder()}
   {:else}
     <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{label}</p>
   {/if}

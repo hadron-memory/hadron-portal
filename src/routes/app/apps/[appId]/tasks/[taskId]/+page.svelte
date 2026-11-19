@@ -22,6 +22,7 @@
   import { fmtRunTime } from '$lib/flow/runs';
   import { splitAt, t } from '$lib/i18n/t';
   import { outcomeClass, sourceKind, taskDisplayState } from '$lib/agent-tasks/status';
+  import TaskPriorityFallback from '$lib/components/agent-tasks/TaskPriorityFallback.svelte';
   import LazySection from '$lib/components/agent-tasks/LazySection.svelte';
   import { readSection } from '$lib/agent-tasks/sections';
   import type { FindingsRead } from '$lib/agent-tasks/findings';
@@ -163,6 +164,9 @@
   </div>
 
   <LazySection appId={data.app.id} taskId={task.id} version={data.task} section="dependencies" label={t('app.tasks.dependencies.loading', 'Loading blocker relations…')}>
+    {#snippet placeholder()}
+      <TaskPriorityFallback {task} canWrite={data.canWrite} label={t('app.tasks.dependencies.loading', 'Loading blocker relations…')} />
+    {/snippet}
     {#snippet children(dependencies: DependenciesRead)}
       <TaskPlanning {task} appId={data.app.id} canWrite={data.canWrite} {dependencies} />
     {/snippet}
