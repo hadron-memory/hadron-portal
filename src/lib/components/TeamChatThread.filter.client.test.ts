@@ -574,3 +574,93 @@ describe('TeamChatThread team filter — optimistic pending set and reachable ca
     expect(document.activeElement).toBe(chipOf(m, 'head-bo'));
   });
 });
+
+describe('TeamChatThread team filter — pending labels, revert focus, cap re-announce, invalid edge (round 4, Gil F1–F4)', () => {
+  const chipOf = (m: Mounted<Record<string, unknown>>, head: string) =>
+    m.target.querySelector(`[data-testid="team-chat-filter-active"][data-head="${head}"]`) as HTMLButtonElement | null;
+  const tagOf = (m: Mounted<Record<string, unknown>>, head: string) =>
+    m.target.querySelector(`[data-testid="team-chat-tag"][data-head="${head}"]`) as HTMLButtonElement | null;
+  const allButton = (m: Mounted<Record<string, unknown>>) =>
+    [...m.target.querySelectorAll<HTMLButtonElement>('[data-testid="team-chat-filter"] button')]
+      .find((b) => b.textContent?.includes('All messages'))!;
+
+  it('labels the PENDING-added chip with the clicked tag\'s label, never its raw head ref (F1)', async () => {
+    // No write-back: the route read is still in flight, but the chip the
+    // reader SEES for the just-added head must carry the clicked tag's
+    // label — it was known at click time (the request keeps it) and an
+    // opaque head ref as the visible text and accessible name serves
+    // nobody, sighted or not.
+    const onSelectTeam = vi.fn();
+    const m = await mountThread({
+      messages: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [BO] })],
+      total: 2, filter: { kind: 'teams', headRefs: ['head-ada'] }, onSelectTeam,
+    });
+    (tagOf(m, 'head-bo') as HTMLButtonElement).click();
+    await tick(2);
+    const chip = chipOf(m, 'head-bo')!;
+    expect(chip.getAttribute('aria-label')).toBe('Remove team.bo from the filter');
+    expect(chip.textContent).toContain('team.bo');
+    expect(chip.textContent).not.toContain('head-bo');
+  });
+
+  it('a failed read reverts visibly: the chip returns, focus comes back to it, and the revert is announced (F2)', async () => {
+    const props = reactiveProps<Record<string, unknown>>({
+      messages: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [BO] })],
+      total: 2, filter: { kind: 'teams', headRefs: ['head-ada', 'head-bo'] },
+      refusal: null,
+      onSelectTeam: (_next: TeamChatFilter) => { /* the read never lands */ },
+    });
+    const m = await mountThread(props);
+    document.body.append(m.target);
+    chipOf(m, 'head-bo')!.click(); // optimistic removal — the focused chip leaves the DOM
+    await tick(2);
+    expect(chipOf(m, 'head-bo')).toBeNull();
+    // The read fails: the route answers with a typed refusal, not new props.
+    props.refusal = { code: 'TEAM_HEAD_REFUSED', message: 'refused' };
+    await tick(6);
+    // The revert restored the chip — and the reader is not dropped on
+    // <body> over a change they cannot see: focus comes back to the
+    // restored chip and the live region says the filter did not change.
+    expect(chipOf(m, 'head-bo')).not.toBeNull();
+    expect(document.activeElement).toBe(chipOf(m, 'head-bo'));
+    expect(q(m, 'team-chat-filter-status')?.textContent).toContain('did not change');
+  });
+
+  it('announces the cap again on a second blocked click — the live region sees a change (F3)', async () => {
+    const full = Array.from({ length: 20 }, (_, i) => `head-full${i}`);
+    const m = await mountThread({
+      messages: [message(1, { teamTags: [{ headId: full[0], label: 'team.zero' }, ADA] }), message(2, { teamTags: [ADA] })],
+      total: 2, filter: { kind: 'teams', headRefs: full }, onSelectTeam: vi.fn(),
+    });
+    const blocked = qa(m, 'team-chat-tag').find((el) => el.getAttribute('aria-disabled') === 'true') as HTMLButtonElement;
+    blocked.click();
+    await tick(2);
+    const first = q(m, 'team-chat-filter-status')?.textContent ?? '';
+    expect(first).toContain('At most 20 teams can be selected.');
+    blocked.click();
+    await tick(2);
+    const second = q(m, 'team-chat-filter-status')?.textContent ?? '';
+    expect(second).toContain('At most 20 teams can be selected.');
+    // An unchanged text node is not re-announced by a live region: the
+    // second blocked click must produce a CHANGED string, or a screen-
+    // reader user hears nothing the second time.
+    expect(second).not.toBe(first);
+  });
+
+  it('a pending All choice reads as pressed even while the applied view is invalid (F4)', async () => {
+    const props = reactiveProps<Record<string, unknown>>({
+      messages: [message(1, { teamTags: [ADA] })], total: 1,
+      filter: { kind: 'teams', headRefs: ['head-ada'] },
+      filterInvalid: true,
+      onSelectTeam: (_next: TeamChatFilter) => { /* the read never lands */ },
+    });
+    const m = await mountThread(props);
+    expect(allButton(m).getAttribute('aria-pressed')).toBe('false'); // invalid view: nothing is pressed
+    allButton(m).click();
+    await tick(2);
+    // One state, one view: the pending choice is what the reader just did;
+    // the stale invalidity of the view being replaced must not fight the
+    // chips (which already reflect the request) until the read lands.
+    expect(allButton(m).getAttribute('aria-pressed')).toBe('true');
+  });
+});
