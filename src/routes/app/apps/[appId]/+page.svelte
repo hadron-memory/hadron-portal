@@ -1438,6 +1438,9 @@
   let templatesLeaveMessage = $state<string | null>(null);
   // #2288: set only when the navigation THIS choice owns rejects; cleared by the next choice (a landing always follows one).
   let tabNavigationFailed = $state(false);
+  // The page component is reused across [appId]; a failure belongs to the App it happened on. The guard
+  // in focusTab only sets it while app.id === appId, so this never clears a failure of the current App.
+  $effect.pre(() => { void app.id; tabNavigationFailed = false; });
   function syncTabParam(id: TabId) {
     const url = new URL(window.location.href);
     if (url.searchParams.get('tab') === id) return;

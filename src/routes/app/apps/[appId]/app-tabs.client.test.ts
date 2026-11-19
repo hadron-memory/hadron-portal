@@ -511,6 +511,28 @@ describe('App tab navigation failure feedback (#2288)', () => {
     expect(alerts(fresh)).toHaveLength(1);
   });
 
+  it('a failure on one App is gone when the page is reused for another, and stays gone on return', async () => {
+    const target = await mountTab('chats');
+    navigationHooks.onGoto = async () => { throw new Error('navigation rejected'); };
+    await pick(target, 'runs');
+    expect(alerts(target)).toHaveLength(1);
+    const data = lastProps.data as Record<string, unknown>;
+    const app = data.app as Record<string, unknown>;
+    setStubPage('https://example.test/app/apps/a2?tab=chats', { appId: 'a2' });
+    lastProps.data = { ...data, app: { ...app, id: 'a2', urn: 'hrn:app:acme.com:other' } };
+    flushSync();
+    await tick(4);
+    expect(alerts(target)).toHaveLength(0);
+    setStubPage('https://example.test/app/apps/a1?tab=chats', { appId: 'a1' });
+    lastProps.data = data;
+    flushSync();
+    await tick(4);
+    expect(alerts(target)).toHaveLength(0);
+    // control: a failure on the App now shown still reports
+    await pick(target, 'runs');
+    expect(alerts(target)).toHaveLength(1);
+  });
+
   it('the next tab choice clears the alert and a successful landing keeps it clear', async () => {
     const target = await mountTab('chats');
     navigationHooks.onGoto = async () => { throw new Error('navigation rejected'); };
