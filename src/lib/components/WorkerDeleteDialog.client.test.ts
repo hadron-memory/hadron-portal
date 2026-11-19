@@ -227,6 +227,50 @@ it('portal#2260 F3: a failed best-effort refresh cannot unlatch Submit or leak t
   expect(document.querySelector('[role=alert]')?.textContent).toContain('may have succeeded');
   expect(document.body.textContent).not.toContain('refresh unavailable');
 });
+const uncertain502 = () => ({
+  type: 'failure' as const, status: 502,
+  data: { deleteWorkerResult: { ok: false, workerRef: 'one', code: null, uncertain: true, message: 'The delete may have succeeded. Reload to see the current state.' } },
+});
+it('portal#2260 R3 (Gil P2): a same-ID worker object re-supply cannot wipe the latch, its message, or the retry guard', async () => {
+  const { props } = open(); await tick(); await check();
+  await submitEnhancedWithRawResult(form(), uncertain502()); flushSync(); await tick();
+  expect(document.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled).toBe(true);
+  // The worker page passes the dialog a FRESH object literal on every render
+  // (routes/app/workers/[id]/+page.svelte), and the uncertain leg's own
+  // invalidateAll re-runs that page's load — so a same-ID object replacement
+  // is not a target change. The reset effect must key on the scalar id
+  // (review:identity-reset-tracks-scalar-not-loader-object): reading worker.id
+  // through the prop object re-fires the reset on the re-supply and wipes the
+  // latch ~after it shows, re-enabling the naive retry that would re-post a
+  // possibly-committed delete and read WORKER_NOT_FOUND as a refusal.
+  props.worker = worker(); flushSync(); await tick(); await tick();
+  expect(document.querySelector('[role=alert]')?.textContent).toContain('may have succeeded');
+  expect(document.querySelector<HTMLInputElement>('input[type=checkbox]')!.checked).toBe(true);
+  expect(document.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled).toBe(true);
+  // Even re-attested, the retry stays cancelled: the outcome is still unknown.
+  expect((await submitEnhanced(form())).cancelled).toBe(true);
+});
+it('portal#2260 R3 (Celine P2): the latch survives the refresh round trip that re-renders the worker page', async () => {
+  const { props } = open(); await tick(); await check();
+  // Celine's browser leg: the latch resets ~300ms after it shows, because the
+  // F3 best-effort invalidateAll re-runs the worker page's load, which
+  // re-supplies a fresh worker object (same id) when it resolves. Wire the
+  // re-supply INTO the refresh so the pin exercises the real timing shape,
+  // not just a bare prop assignment.
+  navigationHooks.onInvalidateAll = async () => { props.worker = worker(); await tick(); };
+  await submitEnhancedWithRawResult(form(), uncertain502()); flushSync(); await tick(); await tick();
+  expect(document.querySelector('[role=alert]')?.textContent).toContain('may have succeeded');
+  expect(document.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled).toBe(true);
+});
+it('portal#2260 R3 (Gil P3): the latched dialog says the reload instruction exactly once', async () => {
+  open(); await tick(); await check();
+  await submitEnhancedWithRawResult(form(), uncertain502()); flushSync(); await tick();
+  // The role=alert sentence already carries the reload instruction; the
+  // paused reason used to repeat it, so a screen-reader heard the same
+  // guidance twice in a row.
+  const text = document.body.textContent ?? '';
+  expect(text.match(/Reload to see the current state/g)?.length ?? 0).toBe(1);
+});
 it('portal#2260 F4: a disabled Submit carries its reason programmatically, in field order', async () => {
   open(); await tick();
   // Unmet attestation is the reason while the box is unchecked…
