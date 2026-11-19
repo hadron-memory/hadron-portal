@@ -625,7 +625,7 @@ describe('memories-list syncAll action', () => {
       },
     });
     // The real SYNC_MEMORY_MUTATION response carries MemoryFields' syncStatus.
-    mockRequest.mockResolvedValueOnce({ syncMemory: { ref: 'mem-1', syncStatus: 'OK', lastSyncReport: null, lastSyncedAt: '2026-10-26T01:02:03.000Z' } });
+    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'mem-1', syncStatus: 'OK', lastSyncReport: null, lastSyncedAt: '2026-10-26T01:02:03.000Z' } });
     mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'mem-3', syncStatus: 'OK', lastSyncReport: null, lastSyncedAt: '2026-10-26T01:02:03.000Z' } });
 
     const result = await runAction('syncAll', {});
