@@ -26,7 +26,7 @@ describe('Tester link owner scope (#2100)', () => {
   });
 
   it.each([false, null])('does not ask for ownership when management is %s', async (manage) => {
-    expect(await testerLinkEligibility(client, personal, manage)).toBe(manage);
+    expect(await testerLinkEligibility(client, personal, manage, [])).toBe(manage);
     expect(request).not.toHaveBeenCalled();
   });
 
@@ -62,9 +62,9 @@ describe('Tester link owner scope (#2100)', () => {
       expect(await testerLinkEligibility(client, orgOwned, true, orgs)).toBe(true);
     });
 
-
-    it.each([false, null])('keeps %s when management is not proven', async (manage) => {
+    it.each([false, null])('keeps %s when management is not proven, with no lookup at all', async (manage) => {
       expect(await testerLinkEligibility(client, orgOwned, manage, orgsWith(['target']))).toBe(manage);
+      expect(request).not.toHaveBeenCalled();
     });
 
     it('makes no request when the org list shows the Agent', async () => {
@@ -75,19 +75,19 @@ describe('Tester link owner scope (#2100)', () => {
 
   it('admits the owner through ownedByMe, including a platform admin who owns it', async () => {
     request.mockResolvedValue({ agents: { items: [{ id: personal.id }], total: 1 } });
-    expect(await testerLinkEligibility(client, personal, true)).toBe(true);
+    expect(await testerLinkEligibility(client, personal, true, [])).toBe(true);
     expect(request).toHaveBeenCalledWith(TESTER_OWNED_AGENT_IDS_QUERY, { limit: 200, offset: 0 });
   });
 
   it.each([{ items: [] }, { items: [{ id: 'other-agent' }] }])('does not treat a manager as owner from $items', async ({ items }) => {
     request.mockResolvedValue({ agents: { items, total: items.length } });
-    expect(await testerLinkEligibility(client, personal, true)).toBe(false);
+    expect(await testerLinkEligibility(client, personal, true, [])).toBe(false);
   });
 
   it('finds an owner on a later short page rather than silently hiding the link', async () => {
     request.mockResolvedValueOnce({ agents: { items: [{ id: 'other' }], total: 2 } })
       .mockResolvedValueOnce({ agents: { items: [{ id: personal.id }], total: 2 } });
-    expect(await testerLinkEligibility(client, personal, true)).toBe(true);
+    expect(await testerLinkEligibility(client, personal, true, [])).toBe(true);
     expect(request.mock.calls.map(([, vars]) => vars)).toEqual([{ limit: 200, offset: 0 }, { limit: 200, offset: 1 }]);
   });
 
@@ -95,7 +95,8 @@ describe('Tester link owner scope (#2100)', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     if (later) request.mockResolvedValueOnce({ agents: { items: [{ id: 'other' }], total: 2 } });
     request.mockRejectedValueOnce(new Error('private upstream details'));
-    expect(await testerLinkEligibility(client, personal, true)).toBeNull();
+    expect(await testerLinkEligibility(client, personal, true, [])).toBeNull();
     expect(warn).toHaveBeenCalledWith('[agent-page] Tester ownership read failed; link eligibility unknown');
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('private upstream details');
   });
 });

@@ -1,5 +1,6 @@
 import { installMarksOf, type AppAgentInstall } from '$lib/app-install-marks';
 import { testerLinkEligibility } from '$lib/server/agent-tester/link-eligibility';
+import { loadTesterOrgs } from '$lib/server/agent-tester/resolve-agent';
 import { memberRolesFormId, UNSCOPED_MEMBER_ROLES_FORM_ID } from './member-roles-form-id';
 import { loadAgentExtensions, loadSystemMemoryIdentity } from '$lib/server/agent-profile';
 import { agentBaseSchema, agentIndexRefsSchema } from './inheritance-schema';
@@ -134,7 +135,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   let org: Organization | null = null;
   let orgs: Organization[] = [];
   if (agent.organizationId) {
-    orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
+    orgs = await loadTesterOrgs(client);
     org = orgs.find((o) => o.id === agent.organizationId) ?? null;
   }
 

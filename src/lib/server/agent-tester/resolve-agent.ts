@@ -40,6 +40,16 @@ export async function requireTesterAgent(
 }
 
 /**
+ * The caller's organizations with their agents, exactly as the Tester reads
+ * them. The Agent page's loader and the Tester's lookup both call this, so the
+ * Tester link and the Tester cannot drift apart (portal#2187). A failed read
+ * throws: nothing downstream may treat it as an empty list.
+ */
+export function loadTesterOrgs(client: ReturnType<typeof gqlClient>): Promise<Organization[]> {
+  return fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
+}
+
+/**
  * The Tester's org-Agent reach, as a pure predicate over the caller's
  * `organizations { agents }` list (a PERSONAL Agent appears only to its
  * creator). Shared with the Agent page's link eligibility, which already holds
@@ -60,7 +70,7 @@ async function findVisibleAgent(
   client: ReturnType<typeof gqlClient>,
   agentId: string,
 ): Promise<{ agent: TesterAgent; org: Organization | null } | null> {
-  const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
+  const orgs = await loadTesterOrgs(client);
   const inOrg = findOrgListedAgent(orgs, agentId);
   if (inOrg) return inOrg;
 

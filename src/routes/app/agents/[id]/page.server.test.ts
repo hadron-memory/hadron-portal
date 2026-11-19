@@ -253,6 +253,21 @@ describe('/app/agents/[id] loader', () => {
     expect(result.canOpenTester).toBe(listed);
   });
 
+  it('#2187: the org read is the Tester\'s own loadTesterOrgs call (ORGANIZATIONS_QUERY, paged)', async () => {
+    routeMock({ agent: { data: { agent: agentInA } }, myOrgs: { data: { organizations: [orgA] } } });
+    const event = ev({ agentId: agentInA.id });
+    Object.assign(event.locals, { user: { id: 'viewer', roles: ['ADMIN'] } });
+    await (await importLoad())(event);
+    expect(mockRequest).toHaveBeenCalledWith(ORGANIZATIONS_QUERY, expect.objectContaining({ offset: 0 }));
+  });
+
+  it('#2187: a failed org read rejects the page load; it never reaches the link as an empty list', async () => {
+    routeMock({ agent: { data: { agent: agentInA } }, myOrgs: { error: new Error('org outage') } });
+    const event = ev({ agentId: agentInA.id });
+    Object.assign(event.locals, { user: { id: 'viewer', roles: ['ADMIN'] } });
+    await expect((await importLoad())(event)).rejects.toThrow('org outage');
+  });
+
   it('#1226: a failed Nodes-tab read (any page) is agentNodesError, not an empty memory', async () => {
     routeMock({
       agent: { data: { agent: { ...agentInA, memoryItems: [{ memory: { id: 'mem-1' }, role: 'read' }] } } },

@@ -19,7 +19,7 @@ export async function testerLinkEligibility(
   client: GraphQLClient,
   agent: { id: string; organizationId: string | null },
   canManage: boolean | null,
-  orgs: Organization[] = [],
+  orgs: Organization[],
 ): Promise<boolean | null> {
   if (canManage !== true) return canManage;
   // #2187: the Tester's own two-step reach (resolve-agent findVisibleAgent): the
