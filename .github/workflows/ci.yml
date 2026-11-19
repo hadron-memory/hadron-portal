@@ -139,6 +139,11 @@ jobs:
       - name: Check ApplyAgentTickers focus ring
         run: pnpm test:apply-agent-tickers-focus
 
+      # portal#1796: keyboard focus stays on the Cast button while casting and lands on the
+      # "Cast a worker" opener after a clean cast (a disabled submit button dropped it to <body>).
+      - name: Check Cast submit focus
+        run: pnpm test:cast-submit-focus
+
       # portal#1676: Task integrations' touch targets and overflow at 390px and 1280px.
       - name: Check Task integrations layout
         run: pnpm test:task-integrations-layout
