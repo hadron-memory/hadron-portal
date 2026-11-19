@@ -5640,7 +5640,7 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
       finishedAt
       cancelledAt
       closeSessionWhenDone
-      # portal#2245 (hadron-server#4414): workedFromRoleTaskRefs needs a server serving
+      # portal#2245 (hadron-server#4414): the role-task refs on result need a server serving
       # 46865d36a or later — a server without the field rejects this whole read, so the
       # portal must deploy after it, like the references below.
       result { outcome summary evidence workedFromRoleTaskRefs { nodeId urn revision } }
