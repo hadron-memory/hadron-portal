@@ -4,6 +4,7 @@
  * confirm-gated submit and the dialog mount all live in the component
  * lifecycle a server render never mounts (#795).
  */
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent } from '$lib/test/mountComponent';
@@ -163,6 +164,24 @@ it('delete opens the roster’s shared dialog with an unchecked attestation', ()
     const form = dialog!.querySelector('form')!;
     expect(form.getAttribute('action')).toBe('?/deleteWorker');
     expect(form.querySelector('input[name="workerRef"]')?.getAttribute('value')).toBe('w-a');
+  } finally { mounted.unmount(); }
+});
+
+// portal#2223 F8a — one guard keeps a dialog opened for worker A from
+// re-targeting worker B when the route reuses this page (the `deleteTarget`
+// reset effect). Pinned here because it is the only guard.
+it('closes a delete dialog opened for worker A when the route moves to worker B', () => {
+  const props = reactiveProps<Record<string, unknown>>({ data: dataFor(worker()), form: null });
+  const mounted = mountComponent(Page, props as never);
+  try {
+    flushSync();
+    openMenu(mounted.target);
+    ([...mounted.target.querySelectorAll('[role="menuitem"]')].find(el => el.textContent?.trim() === 'Delete verified-unused worker') as HTMLElement).click();
+    flushSync();
+    expect(mounted.target.querySelector('dialog[aria-labelledby="delete-worker-title"]')).not.toBeNull();
+    props.data = dataFor(worker({ id: 'w-b', name: 'Bea', urn: 'hrn:worker:hadronmemory.com:team:w-b' }), { retireKey: 'w-b' });
+    flushSync();
+    expect(mounted.target.querySelector('dialog[aria-labelledby="delete-worker-title"]')).toBeNull();
   } finally { mounted.unmount(); }
 });
 

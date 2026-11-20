@@ -1,5 +1,5 @@
 import { profileWorker, workerInternalsVisible } from '$lib/worker-profile';
-import { error, fail, redirect } from '@sveltejs/kit';
+import { error, fail, isRedirect, redirect } from '@sveltejs/kit';
 import { ClientError } from 'graphql-request';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
@@ -481,7 +481,7 @@ export const actions: Actions = {
       }
       redirect(303, rosterHref);
     } catch (e: unknown) {
-      if (e && typeof e === 'object' && 'location' in e) throw e;
+      if (isRedirect(e)) throw e;
       // portal#2227 — the closed transport record for a lost delete (ruling
       // 0247): exactly three fields, never any part of the exception. Same as
       // retireWorker above; the helper itself filters to transport failures.

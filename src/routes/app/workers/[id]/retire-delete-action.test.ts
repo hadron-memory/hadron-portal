@@ -136,6 +136,26 @@ describe('worker page deleteWorker action (portal#2205)', () => {
     request.mockResolvedValueOnce({ deleteWorker: true });
     await expect(invokeDelete()).rejects.toMatchObject({ status: 303, location: '/app/apps' });
   });
+  // portal#2223 F5 — the redirect target is best-effort: a failed WorkerApp
+  // lookup (a throw, or a masked null worker) never fails or blocks the delete.
+  it.each([
+    ['the lookup throws', (r: typeof request) => r.mockRejectedValueOnce(new Error('lookup down'))],
+    ['the lookup answers a null worker', (r: typeof request) => r.mockResolvedValueOnce({ worker: null })],
+  ])('still deletes and falls back to /app/apps when %s', async (_name, lookup) => {
+    lookup(request);
+    request.mockResolvedValueOnce({ deleteWorker: true });
+    await expect(invokeDelete()).rejects.toMatchObject({ status: 303, location: '/app/apps' });
+    expect(request).toHaveBeenNthCalledWith(2, expect.stringContaining('mutation DeleteWorker'), { workerRef: 'worker-one', confirmNoExternalAttribution: true });
+  });
+  // portal#2223 F3 — only a real Kit redirect is rethrown. An unrelated throw
+  // that merely carries a `location` property is a failed delete, not a redirect.
+  it('does not rethrow a non-redirect error that happens to carry a location', async () => {
+    request.mockResolvedValueOnce({ worker: { id: 'worker-one', app: { id: 'app-one' } } });
+    request.mockRejectedValueOnce(Object.assign(new Error('boom'), { location: '/somewhere' }));
+    const result = await invokeDelete();
+    expect(result.status).toBe(502);
+    expect(result.data.deleteWorkerResult).toMatchObject({ ok: false, uncertain: true });
+  });
   it('does not claim success when the server does not confirm deletion', async () => {
     request.mockResolvedValueOnce({ worker: { app: { id: 'app-one' } } });
     request.mockResolvedValueOnce({ deleteWorker: false });

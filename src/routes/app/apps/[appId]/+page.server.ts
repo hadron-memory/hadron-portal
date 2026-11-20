@@ -526,22 +526,6 @@ const TEAM_CHAT_POST_ERRORS: Record<string, () => string> = {
   ),
 };
 
-/**
- * The `extensions.code` of a graphql-request ClientError, when it carries one.
- *
- * Returns null for a transport-level failure (no GraphQL errors payload) and
- * for any code that isn't a string, so callers fall through to the server's own
- * message rather than mislabelling an outage as a user mistake
- * (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
- */
-function gqlErrorCode(e: unknown): string | null {
-  const errors = (e as { response?: { errors?: Array<{ extensions?: { code?: unknown } }> } })
-    ?.response?.errors;
-  if (!Array.isArray(errors) || errors.length === 0) return null;
-  const code = errors[0]?.extensions?.code;
-  return typeof code === 'string' ? code : null;
-}
-
 function slugOfUrn(urn: string): string {
   const idx = urn.lastIndexOf(':');
   return idx >= 0 ? urn.slice(idx + 1) : urn;
@@ -1382,7 +1366,7 @@ export const actions: Actions = {
       logAppActionTransportFailure('install_link', e);
       return message(
         form,
-        { type: 'error', text: lookupOwn(ADD_AGENT_ERRORS, gqlErrorCode(e))?.() ?? extractGqlError(e, 'Failed to add agent', [], { transport: 'fallback' }) },
+        { type: 'error', text: lookupOwn(ADD_AGENT_ERRORS, extractGqlErrorCode(e))?.() ?? extractGqlError(e, 'Failed to add agent', [], { transport: 'fallback' }) },
         { status: 500 },
       );
     }
@@ -1475,7 +1459,7 @@ export const actions: Actions = {
       // inherited one returns a callable that `known()` below would invoke,
       // putting `{}` into a user-facing error slot instead of the server's own
       // message. Same shape as the asset copy table fixed in #833.
-      const known = lookupOwn(CAST_WORKER_ERRORS, gqlErrorCode(e));
+      const known = lookupOwn(CAST_WORKER_ERRORS, extractGqlErrorCode(e));
       return message(
         form,
         {
@@ -1529,7 +1513,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       logAppActionTransportFailure('team_chat_post', e);
       // #835 — as above: wire-supplied key, so guard the lookup.
-      const known = lookupOwn(TEAM_CHAT_POST_ERRORS, gqlErrorCode(e));
+      const known = lookupOwn(TEAM_CHAT_POST_ERRORS, extractGqlErrorCode(e));
       return message(
         form,
         {
@@ -1591,7 +1575,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       // The server's real refusal for this write is WAKE_SETTINGS_FORBIDDEN
       // (Riana, Charles on #1237); FORBIDDEN is the generic gate code.
-      const code = gqlErrorCode(e);
+      const code = extractGqlErrorCode(e);
       const forbidden = code === 'FORBIDDEN' || code === 'WAKE_SETTINGS_FORBIDDEN';
       return fail(forbidden ? 403 : 500, { pauseResult: { ok: false as const, workerId, message: forbidden
         ? t('app.staff.pause.error.forbidden', 'You can’t pause or unpause this worker. Only the worker, its holder or an App manager can.')
@@ -1655,7 +1639,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       logAppActionTransportFailure('retire', e);
       // Same staffing gate as castWorker, so the same legible refusal.
-      const forbidden = gqlErrorCode(e) === 'FORBIDDEN';
+      const forbidden = extractGqlErrorCode(e) === 'FORBIDDEN';
       return message(
         form,
         {
@@ -1702,7 +1686,7 @@ export const actions: Actions = {
 
       // Same staffing gate as castWorker/retireWorker, so the same legible
       // refusal rather than a raw GraphQL error.
-      const forbidden = gqlErrorCode(e) === 'FORBIDDEN';
+      const forbidden = extractGqlErrorCode(e) === 'FORBIDDEN';
       return message(
         form,
         {
