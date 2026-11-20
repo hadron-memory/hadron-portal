@@ -1,6 +1,9 @@
 // portal#2135: App page, Keys tab — Generate Key centered on the label INPUT,
-// and the key table filling the tab panel. Real Chromium, the compiled app
-// CSS, and the REAL `/app/apps/[appId]/+page.svelte` inside a copy of the
+// and the key table filling the tab panel. portal#1487 adds the Grant scope
+// dialog (row ⋯ menu → showModal): fits the viewport at every width, host
+// field helper UNDER the field, and the empty-host refusal rendering inside
+// the still-open dialog. Real Chromium, the compiled app CSS, and the REAL
+// `/app/apps/[appId]/+page.svelte` inside a copy of the
 // `/app` shell (sidebar `w-48 hidden sm:flex`, gutters, `min-w-0 flex-1`
 // content column). Synthetic data from
 // src/lib/test/fixtures/app-keys-layout-harness.ts: no server, no key minted,
@@ -37,6 +40,19 @@ const MUTANTS = {
   'hidden-overflow': [/<section data-testid="app-keys-section">/, '<section data-testid="app-keys-section" class="[&_[data-testid=data-table-scroller]]:!overflow-hidden">'],
   // never stack: the inline row is forced at every width
   'no-stack': [/grid grid-cols-1 gap-x-2 @sm:/, 'grid grid-cols-[minmax(200px,1fr)_auto] gap-x-2 @sm:'],
+  // portal#1487: the grant dialog loses its viewport clamp — wider than a
+  // phone screen, so the within-viewport check must catch it
+  'dialog-unclamped': [/w-\[calc\(100%-2rem\)\]/, 'w-[40rem]'],
+  // portal#1487 review: the teardown no longer restores focus to the ⋯
+  // trigger, so close drops focus to <body> — the Cancel/Escape/keyboard
+  // legs must catch it. (The patterns match the COMPILED module the plugin
+  // sees — the Svelte compiler flattens if/else to one line — so they stay
+  // whitespace- and quote-tolerant; a non-match aborts the run below.)
+  'no-focus-restore': [/if \(grantScopeTriggerEl && grantScopeTriggerEl\.isConnected\) grantScopeTriggerEl\.focus\(\);\s*else document\.getElementById\(['"]panel-keys['"]\)\?\.focus\(\);/, ''],
+  // portal#1487 review: the fallback landing spot is gone, so a close whose
+  // captured trigger is detached (the success path re-renders the rows)
+  // drops focus to <body> — the detached-trigger leg must catch it
+  'no-focus-fallback': [/\s*else document\.getElementById\(['"]panel-keys['"]\)\?\.focus\(\);/, ''],
 };
 const mutantName = process.env.KEYS_MUTANT ?? null;
 if (mutantName && !MUTANTS[mutantName]) throw new Error(`KEYS_MUTANT must be one of ${Object.keys(MUTANTS).join(', ')}`);
@@ -258,6 +274,157 @@ try {
     } finally { await page.close(); }
   }
 
+  // portal#1487: the Grant scope dialog on the same real page — opened from
+  // a row's ⋯ menu, real showModal in real Chromium (top layer, dimmed
+  // backdrop). One leg per width/theme walks the reader's whole path:
+  // attention:deliver (no host field) → host:operate (host field with its
+  // helper UNDER the field) → the empty-host refusal (real client validation
+  // running in the real browser: the alert renders inside the still-open
+  // dialog and the submit un-sticks).
+  for (const width of WIDTHS) for (const dark of [false, true]) {
+    const leg = `grant/${width}/${dark ? 'dark' : 'light'}`;
+    const { page, errors } = await open(browser, origin, css, { width, dark, state: 'default' });
+    try {
+      const check = (ok, msg) => { if (!ok) failures.push(`${leg}: ${msg}`); };
+      const shot = (state) => process.env.KEYS_SHOTS
+        ? page.screenshot({ path: `${process.env.KEYS_SHOTS}/grant-${width}-${dark ? 'dark' : 'light'}-${state}.png` })
+        : Promise.resolve();
+      await page.locator('#panel-keys tbody tr:last-child td:last-child button').click();
+      await page.getByRole('menuitem', { name: /Grant scope/ }).click();
+      await page.locator('dialog[open][data-testid="grant-scope-dialog"]').waitFor();
+
+      // attention:deliver — the default scope asks for no host, and the
+      // dialog (with its backdrop) fits the viewport at every width.
+      const deliver = await page.evaluate(() => {
+        const d = document.querySelector('dialog[open]');
+        const b = d.getBoundingClientRect();
+        return {
+          left: b.left, right: b.right, top: b.top, bottom: b.bottom, vw: innerWidth, vh: innerHeight,
+          backdrop: getComputedStyle(d, '::backdrop').backgroundColor,
+          title: d.querySelector('#grant-scope-title')?.textContent ?? '',
+          preview: d.querySelector('span.font-mono')?.textContent ?? '',
+          host: !!d.querySelector('input[name="hostId"]'),
+          overflow: document.scrollingElement.scrollWidth - document.scrollingElement.clientWidth,
+        };
+      });
+      check(deliver.title === 'Grant a scope', `dialog title "${deliver.title}"`);
+      check(deliver.preview === PREVIEWS[2], `dialog shows the row's key "${deliver.preview}", not ${PREVIEWS[2]}`);
+      check(!deliver.host, 'attention:deliver shows a host field');
+      check(deliver.left >= -0.5 && deliver.right <= deliver.vw + 0.5, `dialog escapes the viewport horizontally (${deliver.left.toFixed(1)}..${deliver.right.toFixed(1)} of ${deliver.vw})`);
+      check(deliver.top >= -0.5 && deliver.bottom <= deliver.vh + 0.5, `dialog escapes the viewport vertically (${deliver.top.toFixed(1)}..${deliver.bottom.toFixed(1)} of ${deliver.vh})`);
+      check(deliver.backdrop !== 'rgba(0, 0, 0, 0)', `backdrop is not dimmed (${deliver.backdrop})`);
+      check(deliver.overflow <= 0, `page overflows horizontally by ${deliver.overflow}px`);
+      await shot('deliver');
+
+      // host:operate — the host field appears with its helper text UNDER the
+      // field (the label stays a plain label).
+      await page.selectOption('dialog[open] select[name="scope"]', 'host:operate');
+      const operate = await page.evaluate(() => {
+        const d = document.querySelector('dialog[open]');
+        const input = d.querySelector('input[name="hostId"]');
+        const label = d.querySelector('label[for="grant-host"]');
+        const helper = input.nextElementSibling;
+        const ib = input.getBoundingClientRect(), lb = label.getBoundingClientRect(), hb = helper.getBoundingClientRect();
+        return {
+          inputW: ib.width, inputTop: ib.top, inputBottom: ib.bottom,
+          labelBottom: lb.bottom, helperTop: hb.top, helperText: helper.textContent,
+          label: label.textContent.trim(),
+        };
+      });
+      check(operate.label === 'Host', `host label is "${operate.label}", not the plain "Host"`);
+      check(operate.labelBottom <= operate.inputTop + 0.5, 'host label is not above the field');
+      check(operate.helperTop >= operate.inputBottom - 0.5, 'helper text is not under the field');
+      check(operate.helperText.includes('A host key reaches one host.'), `helper text "${operate.helperText}"`);
+      check(operate.inputW >= 180, `host field ${operate.inputW.toFixed(1)}px < 180px`);
+      await shot('operate');
+
+      // The empty-host refusal: client validation cancels the submit, the
+      // server's place is taken by the local sentence, the dialog STAYS open
+      // and the submit never locks on "Granting…". The harness aliases
+      // $app/forms to the recorder stub (a real click is inert by design —
+      // kit is not there), so this drives superforms' own recorded submit
+      // callback the way kit would, then flushes the macrotask superforms
+      // renders its validation on.
+      const refusal = await page.evaluate(async () => {
+        const { submitEnhanced } = await import('/src/lib/test/stubs/app-forms.ts');
+        const d = document.querySelector('dialog[open]');
+        const { cancelled } = await submitEnhanced(d.querySelector('form'));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const alert = d.querySelector('[data-testid="grant-scope-error"]');
+        const ab = alert.getBoundingClientRect(), db = d.getBoundingClientRect();
+        const submit = [...d.querySelectorAll('button')].find((b) => b.type === 'submit');
+        return {
+          cancelled, text: alert.textContent, open: d.open, disabled: submit.disabled,
+          within: ab.left >= db.left - 0.5 && ab.right <= db.right + 0.5,
+          overflow: document.scrollingElement.scrollWidth - document.scrollingElement.clientWidth,
+        };
+      });
+      check(refusal.cancelled, 'the empty-host grant was not cancelled client-side');
+      check(refusal.open, 'the dialog closed on the refused submit');
+      check(refusal.text.includes('Name the host this key may operate.'), `refusal text "${refusal.text}"`);
+      check(refusal.within, 'the refusal text escapes the dialog box');
+      check(!refusal.disabled, 'the submit stuck on "Granting…"');
+      check(refusal.overflow <= 0, `page overflows horizontally by ${refusal.overflow}px`);
+      await shot('refusal');
+
+      // portal#1487 review (real Chromium): every close path — the Cancel
+      // button AND Escape, by mouse AND by keyboard — restores focus to the
+      // row's ⋯ trigger, never to <body>. The {#if} unmounts the node before
+      // the action's destroy() runs, so the browser's own close() restore
+      // fails on a detached dialog; the action captures
+      // document.activeElement at showModal() and refocuses it. (Keyboard
+      // opens ride the menu's own close order — it refocuses the trigger
+      // BEFORE calling onselect — so the captured element is the trigger
+      // there too.)
+      const trigger = '#panel-keys tbody tr:last-child button[aria-label^="Actions for key"]';
+      const focusAfterClose = async () => {
+        await page.locator('dialog[data-testid="grant-scope-dialog"]').waitFor({ state: 'detached' });
+        return page.evaluate((sel) => ({
+          onTrigger: document.activeElement === document.querySelector(sel),
+          onBody: document.activeElement === document.body || document.activeElement === null,
+        }), trigger);
+      };
+      await page.locator('dialog[open] button', { hasText: 'Cancel' }).click();
+      const afterCancel = await focusAfterClose();
+      check(afterCancel.onTrigger && !afterCancel.onBody, `focus after Cancel is ${afterCancel.onTrigger ? 'the ⋯ trigger' : afterCancel.onBody ? '<body>' : 'elsewhere'}`);
+      await page.locator(trigger).click();
+      await page.getByRole('menuitem', { name: /Grant scope/ }).click();
+      await page.locator('dialog[open][data-testid="grant-scope-dialog"]').waitFor();
+      await page.keyboard.press('Escape');
+      const afterEscape = await focusAfterClose();
+      check(afterEscape.onTrigger && !afterEscape.onBody, `focus after Escape is ${afterEscape.onTrigger ? 'the ⋯ trigger' : afterEscape.onBody ? '<body>' : 'elsewhere'}`);
+      // The same chain by KEYBOARD ONLY: Enter on the trigger opens the menu
+      // (it focuses its first item — Copy ID), ArrowDown reaches Grant
+      // scope, Enter chooses it, Escape closes. If the menu's
+      // refocus-before-onselect order ever breaks, the captured element
+      // stops being the trigger and this leg goes red.
+      await page.locator(trigger).focus();
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('Enter');
+      await page.locator('dialog[open][data-testid="grant-scope-dialog"]').waitFor();
+      await page.keyboard.press('Escape');
+      const afterKeyEscape = await focusAfterClose();
+      check(afterKeyEscape.onTrigger && !afterKeyEscape.onBody, `focus after keyboard Escape is ${afterKeyEscape.onTrigger ? 'the ⋯ trigger' : afterKeyEscape.onBody ? '<body>' : 'elsewhere'}`);
+      // The success path re-renders the table rows, so the captured trigger
+      // can be gone when the dialog unmounts. Removing the row outright
+      // stands in for that: the teardown owes a landing spot — the Keys tab
+      // panel (#panel-keys, a focusable region boundary) — never <body>.
+      await page.locator(trigger).click();
+      await page.getByRole('menuitem', { name: /Grant scope/ }).click();
+      await page.locator('dialog[open][data-testid="grant-scope-dialog"]').waitFor();
+      await page.evaluate((sel) => document.querySelector(sel)?.closest('tr')?.remove(), trigger);
+      await page.keyboard.press('Escape');
+      await page.locator('dialog[data-testid="grant-scope-dialog"]').waitFor({ state: 'detached' });
+      const fallback = await page.evaluate(() => ({
+        id: document.activeElement?.id ?? '',
+        onBody: document.activeElement === document.body || document.activeElement === null,
+      }));
+      check(fallback.id === 'panel-keys' && !fallback.onBody, `focus after a detached trigger is ${fallback.id ? `#${fallback.id}` : fallback.onBody ? '<body>' : 'elsewhere'}`);
+      check(errors.length === 0, `page errors: ${errors.join(' | ')}`);
+    } finally { await page.close(); }
+  }
+
   // List chrome still works on the widened table (once, at desktop).
   if (WIDTHS.includes(1440)) {
     const { page } = await open(browser, origin, css, { width: 1440, dark: false, state: 'default' });
@@ -305,5 +472,5 @@ if (failures.length) {
   console.error(`FAIL (${failures.length})${mutantName ? ` with mutant ${mutantName}` : ''}:\n  ${failures.join('\n  ')}`);
   process.exit(1);
 }
-console.log(`PASS: app keys layout${mutantName ? ` (mutant ${mutantName} survived!)` : ''} — ${WIDTHS.length} widths × 2 themes × ${STATES.length} states`);
+console.log(`PASS: app keys layout${mutantName ? ` (mutant ${mutantName} survived!)` : ''} — ${WIDTHS.length} widths × 2 themes × ${STATES.length} states + grant dialog (${WIDTHS.length} widths × 2 themes × deliver/operate/refusal)`);
 if (mutantName) process.exit(2);
