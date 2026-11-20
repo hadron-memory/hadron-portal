@@ -248,6 +248,10 @@ try {
   browser = await chromium.launch({ headless: true });
   {
     const probe = await browser.newPage();
+    probe.navigations = 0;
+    probe.leg = 'probe';
+    opened.push(probe);
+    probe.on('framenavigated', (f) => { if (f === probe.mainFrame()) probe.navigations += 1; });
     await probe.route('**/__keys_fixture', (r) => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>App keys fixture</title>' }));
     await probe.goto(new URL('/__keys_fixture', origin).href);
     PREVIEWS = await probe.evaluate(async () => (await import('/src/lib/test/fixtures/app-keys-layout-harness.ts')).PREVIEWS);
@@ -408,7 +412,10 @@ const reloads = opened.filter((pg) => pg.navigations !== 1).map((pg) => `${pg.le
 if (mutantFailure) unsound(mutantFailure);
 if (reloads.length) unsound(`the page reloaded under a leg (a dependency Vite met late? run again from a cold cache)\n  ${reloads.join('\n  ')}`);
 if (mutantName && !mutantApplied && !thrown) unsound(`mutant ${mutantName} never reached the page source`);
-if (thrown) throw thrown;
+// An error the harness itself threw (timeout, browser crash, a mutant that
+// does not compile) is not a verdict either: left to propagate it exits 1,
+// the code a killed mutant gives, so it would read as a kill.
+if (thrown) unsound(`harness error: ${thrown.stack ?? thrown.message ?? thrown}`);
 if (failures.length) {
   console.error(`FAIL (${failures.length})${mutantName ? ` with mutant ${mutantName}` : ''}:\n  ${failures.join('\n  ')}`);
   process.exit(1);
