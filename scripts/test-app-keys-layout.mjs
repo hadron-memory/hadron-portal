@@ -40,12 +40,12 @@ const MUTANTS = {
   // form; 4.2.1 compiles the prefix form too, so this is spelling only)
   'hidden-overflow': [[/<section data-testid="app-keys-section">/, '<section data-testid="app-keys-section" class="[&_[data-testid=data-table-scroller]]:overflow-hidden!">']],
   // never stack: the inline row is forced at every width
-  'no-stack': [[/grid grid-cols-1 gap-x-2 @sm:/, 'grid grid-cols-[minmax(200px,1fr)_auto] gap-x-2 @sm:']],
+  'no-stack': [[/grid max-w-md grid-cols-1 gap-x-2 @sm:/, 'grid max-w-md grid-cols-[minmax(200px,1fr)_auto] gap-x-2 @sm:']],
   // the preview back to the #2137 state: a narrow column, and the value free to
   // break mid-token instead of staying on one line
   'preview-wrap': [
-    [/header: t\('app\.keys\.column\.preview', 'Preview'\), size: \d+/, "header: t('app.keys.column.preview', 'Preview'), size: 70"],
-    [/class="block truncate font-mono text-xs text-zinc-500" title=\{key\.keyPreview\}/, 'class="block break-all font-mono text-xs text-zinc-500" title={key.keyPreview}'],
+    [/(header: t\('app\.keys\.column\.preview', 'Preview'\),\s*size: )\d+/, (_, head) => `${head}70`],
+    [/block truncate font-mono text-xs text-zinc-500/g, 'block break-all font-mono text-xs text-zinc-500'],
   ],
 };
 const mutantName = process.env.KEYS_MUTANT ?? null;
@@ -151,6 +151,9 @@ function geometry() {
     pageOverflow: doc.scrollWidth - doc.clientWidth,
     buttonText: button.textContent.trim(), buttonDisabled: button.disabled,
     buttonBg: getComputedStyle(button).backgroundColor,
+    // Computed colours come back as oklch(); a 1x1 canvas resolves any of them to sRGB.
+    buttonRgb: [getComputedStyle(button).color, getComputedStyle(button).backgroundColor].map((c) => { const x = document.createElement('canvas').getContext('2d'); x.fillStyle = c; x.fillRect(0, 0, 1, 1); return [...x.getImageData(0, 0, 1, 1).data].slice(0, 3); }),
+    buttonOpacity: getComputedStyle(button).opacity,
     coarse: matchMedia('(pointer: coarse)').matches,
   };
 }
@@ -188,6 +191,8 @@ async function open(browser, origin, css, { width, dark, state, savedView, scope
   // nothing. Count main-frame navigations: the one goto below is the only one a
   // leg may have. This does not depend on what Vite chooses to log.
   page.navigations = 0;
+  page.leg = `${width}/${dark ? 'dark' : 'light'}/${state}${scopes ? `/scopes-${scopes}` : ''}${savedView ? '/saved-view' : ''}`;
+  opened.push(page);
   page.on('framenavigated', (f) => { if (f === page.mainFrame()) page.navigations += 1; });
   if (process.env.KEYS_DEBUG) page.on('console', (m) => console.log('console:', m.type(), m.text()));
   await page.route('**/__keys_fixture', (r) => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>App keys fixture</title>' }));
@@ -226,11 +231,14 @@ async function open(browser, origin, css, { width, dark, state, savedView, scope
   return { page, errors };
 }
 
+// WCAG contrast of two opaque [r, g, b] colours.
+const luminance = (rgb) => { const [r, g, b] = rgb.map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+const contrast = (a, b) => { const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05); };
 const near = (a, b, tol = 1) => Math.abs(a - b) <= tol;
 // Each reload of a leg's page is an unsound run (see open()), kept apart from
 // the assertion failures so it can exit 3 and be reported first.
-const reloads = [];
-const noteReloads = (leg, page) => { if (page.navigations !== 1) reloads.push(`${leg}: page navigated ${page.navigations} times (expected 1)`); };
+// Every page is checked once, at the end, so a leg that threw is checked too.
+const opened = [];
 let browser;
 let thrown = null;
 try {
@@ -288,8 +296,15 @@ try {
       // a deliberate regression pin, not derived from a token: the page sets
       // this exact #fb8500 inline, and if it is ever re-themed this value must
       // be changed on purpose, in the same PR, with the new colour's contrast.
-      check(g.buttonBg === 'rgb(251, 133, 0)', `button fill ${g.buttonBg}`);
+      if (state !== 'generating') check(g.buttonBg === 'rgb(251, 133, 0)', `button fill ${g.buttonBg}`);
       if (state === 'generating') check(g.buttonDisabled && g.buttonText === 'Generating...', `generating state: ${g.buttonDisabled} "${g.buttonText}"`);
+      // The disabled label stays readable: its own colours, no opacity fade (a
+      // 50% fade measured 1.97:1 in dark and 1.59:1 in light), at least 3:1.
+      if (state === 'generating') {
+        check(g.buttonOpacity === '1', `generating button is faded (opacity ${g.buttonOpacity})`);
+        const ratio = contrast(...g.buttonRgb);
+        check(ratio >= 3, `generating label contrast ${ratio.toFixed(2)}:1 < 3:1 (rgb(${g.buttonRgb[0]}) on rgb(${g.buttonRgb[1]}))`);
+      }
       else check(!g.buttonDisabled && g.buttonText === '+ Generate Key', `idle state: ${g.buttonDisabled} "${g.buttonText}"`);
       if (state === 'error') check(g.error !== null, 'error state rendered no alert');
 
@@ -317,7 +332,6 @@ try {
       check(g.note === null, 'failed note shown although the scopes read answered');
       check(errors.length === 0, `page errors: ${errors.join(' | ')}`);
       if (process.env.KEYS_SHOTS) await page.screenshot({ path: `${process.env.KEYS_SHOTS}/keys-${width}-${dark ? 'dark' : 'light'}-${state}.png`, fullPage: true });
-      noteReloads(leg, page);
     } finally { await page.close(); }
   }
 
@@ -339,7 +353,6 @@ try {
       } else check(g.note === null, 'a viewer who may not see scopes got a failed note');
       check(g.pageOverflow <= 0, `page overflows horizontally by ${g.pageOverflow}px`);
       check(errors.length === 0, `page errors: ${errors.join(' | ')}`);
-      noteReloads(leg, page);
     } finally { await page.close(); }
   }
 
@@ -363,7 +376,6 @@ try {
       await label.click();
       assert.ok(['ascending', 'descending'].includes(await label.getAttribute('aria-sort')), 'Name header sorts');
       assert.equal(errors.length, 0, `page errors: ${errors.join(' | ')}`);
-      noteReloads('1440/chrome', page);
     } catch (e) { failures.push(`1440/chrome: ${e.message}`); } finally { await page.close(); }
 
     // A deliberately wide saved view keeps its widths and scrolls; nothing clamps it.
@@ -380,7 +392,6 @@ try {
       const r = await wide.page.evaluate(reach, 'tbody tr:last-child td:last-child button');
       if (!(r.found && r.left >= -1 && r.right >= -1)) failures.push('1440/saved-wide: actions not reachable');
       if (wide.errors.length) failures.push(`1440/saved-wide: page errors: ${wide.errors.join(' | ')}`);
-      noteReloads('1440/saved-wide', wide.page);
     } finally { await wide.page.close(); }
   }
 } catch (e) {
@@ -390,12 +401,14 @@ try {
   await server.close();
 }
 
+// Soundness first: an unapplied mutant or a reload means the verdict below is
+// not about the page, and it must not look like a mutant being killed. This
+// comes before a thrown error too, since a reload is what makes a leg throw.
+const reloads = opened.filter((pg) => pg.navigations !== 1).map((pg) => `${pg.leg}: page navigated ${pg.navigations} times (expected 1)`);
 if (mutantFailure) unsound(mutantFailure);
-if (thrown) throw thrown;
-// Soundness first: a reload or an unapplied mutant means the verdict below is
-// not about the page, and it must not look like a mutant being killed.
 if (reloads.length) unsound(`the page reloaded under a leg (a dependency Vite met late? run again from a cold cache)\n  ${reloads.join('\n  ')}`);
-if (mutantName && !mutantApplied) unsound(`mutant ${mutantName} never reached the page source`);
+if (mutantName && !mutantApplied && !thrown) unsound(`mutant ${mutantName} never reached the page source`);
+if (thrown) throw thrown;
 if (failures.length) {
   console.error(`FAIL (${failures.length})${mutantName ? ` with mutant ${mutantName}` : ''}:\n  ${failures.join('\n  ')}`);
   process.exit(1);
