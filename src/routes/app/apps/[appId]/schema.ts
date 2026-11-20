@@ -1,4 +1,5 @@
 import { t } from '$lib/i18n/t';
+import { APP_TYPES } from '$lib/app-type';
 import { z } from 'zod';
 
 const agentToolsField = z.preprocess(
@@ -12,7 +13,7 @@ export const appSettingsSchema = z.object({
   _kind: z.literal('updateApp').default('updateApp'),
   name: z.string().trim().min(1, 'Name is required').prefault(''),
   urn: z.string().trim().min(1, 'URN slug is required').prefault(''),
-  appType: z.enum(['WORKSTATION', 'CHATBOT', 'AGENT', 'AUTOMATION', 'CLOUD', 'IOT']).prefault('WORKSTATION'),
+  appType: z.enum(APP_TYPES).prefault('WORKSTATION'),
   role: z.enum(['OWNER', 'ADMIN', 'CONTRIBUTOR', 'READER']).prefault('READER'),
   description: z.string().trim().default(''),
   createUserPermission: z.enum(['DENY', 'EXPLICIT', 'IMPLICIT']).prefault('DENY'),

@@ -14,7 +14,7 @@
   import { publicServerBaseUrl } from '$lib/public-server-base-url';
   // portal#2249: one source for the App type's labels — Profile row, Settings
   // read-only row and the Settings options render these so they cannot drift.
-  import { APP_TYPE_VALUES, appTypeLabel } from '$lib/i18n/app-type-strings';
+  import { APP_TYPE_VALUES, appTypeIcon, appTypeLabel } from '$lib/i18n/app-type-strings';
   import { tick, untrack, onDestroy, flushSync } from 'svelte';
   import { applyAction } from '$app/forms';
   import { page } from '$app/stores';
@@ -2158,7 +2158,6 @@
   }
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
-  const typeIcon: Record<string, string> = { WORKSTATION: '💻', CHATBOT: '💬', CLOUD: '☁️', IOT: '📡', AGENT: '🤖', AUTOMATION: '⚙️' };
 
   // ── Client tab state ────────────────────────────────────────────────
   const AGENT_TOOL_OPTIONS = [
@@ -2476,7 +2475,7 @@
     <div class="mt-2 flex items-start justify-between gap-4">
       <div>
         <h1 class="flex items-center gap-2 text-2xl font-bold text-zinc-900 dark:text-white">
-          <span>{typeIcon[app.appType] ?? '🔑'}</span>
+          <span>{appTypeIcon(app.appType)}</span>
           <span><span class="text-zinc-400 font-normal">App:</span> {app.name}</span>
         </h1>
         <div class="mt-1"><Urn value={app.urn} type="app" /></div>
