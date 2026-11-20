@@ -21,7 +21,7 @@
     {#each references as ref, i (i)}
       {@const link = referenceLink(ref, app)}
       <li data-reference-kind={ref.kind} class="flex min-w-0 flex-wrap items-baseline gap-x-2 text-xs">
-        <span class="shrink-0 font-medium text-zinc-600 dark:text-zinc-300">{referenceKindLabel(ref.kind)}</span>
+        <span class="shrink-0 font-medium text-zinc-600 dark:text-zinc-300">{referenceKindLabel(ref.kind)}:</span>
         {#if ref.label}<span class="min-w-0 text-zinc-800 [overflow-wrap:anywhere] dark:text-zinc-100">{neutralizeFormatChars(ref.label)}</span>{/if}
         {#if link.kind === 'href'}
           <a

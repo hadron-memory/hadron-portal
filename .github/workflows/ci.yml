@@ -163,6 +163,11 @@ jobs:
       - name: Check TaskHistory link layout
         run: pnpm test:task-history-links-layout
 
+      # portal#1643/#2121: the Findings section and its disposition form, mounted in
+      # real Chromium with compiled CSS at 390px and 1280px, light and dark.
+      - name: Check Findings dispositions layout
+        run: pnpm test:task-findings-dispositions-layout
+
       # portal#1700: the Nodes tab reads one bounded page per action and keeps its DOM windowed (real Chromium).
       - name: Check Nodes tab lazy reads
         run: pnpm test:nodes-tab-lazy
