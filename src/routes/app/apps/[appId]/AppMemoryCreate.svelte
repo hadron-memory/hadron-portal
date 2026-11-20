@@ -17,7 +17,7 @@
   });
   const inputClass = 'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white';
   // Closed until asked for, but a submission that came back (an error to fix, or the link to what was created) must stay in view.
-  let open = $state(untrack(() => $message !== undefined || ($errors.name?.length ?? 0) > 0));
+  let open = $state(untrack(() => ($errors.name?.length ?? 0) > 0));
 </script>
 <details bind:open class="group max-w-xl" data-testid="app-memory-create">
   <summary class="flex cursor-pointer list-none items-center gap-2 text-lg font-semibold text-zinc-900 hover:text-zinc-700 dark:text-white dark:hover:text-zinc-200 [&::-webkit-details-marker]:hidden">

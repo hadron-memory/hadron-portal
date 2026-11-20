@@ -15,6 +15,7 @@ it('a success identifies and links the created memory, and keeps the form open t
  const posted={...initial,posted:true,message:{type:'success' as const,text:'Memory created.',created}};
  const m=mountComponent(AppMemoryCreate as never,{initial,result:{form:posted}} as never);
  try{await tick();const result=m.target.querySelector('[role=status]')!;
+ expect(m.target.querySelector('details')!.open).toBe(true);
  expect(result.textContent).toContain('New notes');
  expect(result.querySelector('a')?.getAttribute('href')).toBe('/app/memories/new-id');
  expect(result.querySelector('[title="hrn:mem:acme.com:new-notes"]')).not.toBeNull();
