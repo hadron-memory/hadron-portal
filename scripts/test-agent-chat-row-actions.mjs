@@ -623,7 +623,9 @@ try {
         await p.locator('[data-chat-row="chats:b"]').click();
         await p.locator('#panel main textarea:enabled').waitFor();
         await p.evaluate(() => window.__releaseTitle());
-        await p.locator('#panel main').getByText('Rename refused', { exact: true }).waitFor({ timeout: 2000 })
+        // Only that the refusal has landed: which pane shows it while a chat is
+        // open is not this leg's contract, where it shows after Back is.
+        await p.locator('#panel').getByText('Rename refused', { exact: true }).first().waitFor({ state: 'attached', timeout: 2000 })
           .catch(() => assert.fail(`${leg}: held rename refusal: the error never arrived`));
         await p.getByRole('button', { name: 'Back to chats' }).click();
         await p.getByRole('button', { name: `Rename chat ${A}`, exact: true }).waitFor();
@@ -650,6 +652,7 @@ try {
         await field.press('Enter');
         await p.locator('#panel main').getByText('Rename refused', { exact: true }).waitFor({ timeout: 2000 })
           .catch(() => assert.fail(`${leg}: refused rename with a chat open: the conversation error is not shown`));
+        assert.equal(await p.evaluate(() => window.__chat.calls.title), 1, `${leg}: refused rename with a chat open: one title request`);
         assert.equal(await p.locator('#panel aside').getByText('Rename refused').count(), 0, `${leg}: refused rename with a chat open: the list must not repeat it`);
         assert.deepEqual(f.errors, [], `${leg}: page errors (failed rename, chat open)`);
         await f.context.close();

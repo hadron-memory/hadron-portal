@@ -129,6 +129,7 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
   };
   let titleGate: Promise<void> | null = null;
   const holdTitle = () => {
+    if (!options.rowActions) throw new Error('holdTitle requires rowActions');
     let release = () => {};
     titleGate = new Promise<void>((resolve) => (release = resolve));
     return () => {
@@ -138,6 +139,7 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
   };
   let titleFailure = false;
   const failTitle = () => {
+    if (!options.rowActions) throw new Error('failTitle requires rowActions');
     titleFailure = true;
   };
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
