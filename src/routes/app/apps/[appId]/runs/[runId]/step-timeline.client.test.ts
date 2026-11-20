@@ -78,6 +78,56 @@ async function mountPage(runId = 'run-1') {
 const rows = (m: Mounted<Record<string, unknown>>) => m.target.querySelectorAll('[data-testid="hop-row"]');
 const text = (m: Mounted<Record<string, unknown>>) => m.target.textContent ?? '';
 
+describe('run detail loader reads (portal#2339 #2, #3)', () => {
+  it('the envelope and hops reads are in flight together, not one after the other', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const started: string[] = [];
+    mockRequest.mockImplementation(async (doc: string) => {
+      if (doc === APP_QUERY || doc === AGENT_TASKS_APP_QUERY) return { app: APP };
+      if (doc === APP_RUN_QUERY) return { appRun: baseRun() };
+      if (doc === APP_RUN_ENVELOPE_QUERY) { started.push('envelope'); await gate; return { appRun: { id: 'run-1', data: null } }; }
+      if (doc === APP_RUN_HOPS_QUERY) { started.push('hops'); return { appRun: { id: 'run-1', hops: [] } }; }
+      throw new Error('unexpected');
+    });
+    const p = load({ params: { appId: 'app-1', runId: 'run-1' }, locals: { token: 'tok' } } as never);
+    for (let i = 0; i < 10; i++) await tick();
+    expect(started).toEqual(['envelope', 'hops']); // hops did not wait for the envelope
+    release(); await p;
+  });
+  it('a failed envelope read does not take the trail with it, and the reverse', async () => {
+    const base = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation(async (doc: string, ...r: unknown[]) => {
+      if (doc === APP_RUN_ENVELOPE_QUERY) throw new Error('boom');
+      return base(doc, ...r);
+    });
+    hopsAnswer = [hop()];
+    const d = (await load({ params: { appId: 'app-1', runId: 'run-1' }, locals: { token: 'tok' } } as never)) as Record<string, any>;
+    expect(d.envelopeSupported).toBe(false);
+    expect(d.trail).toMatchObject({ supported: true, raw: [expect.anything()] });
+  });
+  it('only a schema without AppRun.hops is logged as a server without #538; any other failure is logged as itself', async () => {
+    const warn = vi.mocked(console.warn);
+    const read = async () => {
+      warn.mockClear();
+      await load({ params: { appId: 'app-1', runId: 'run-1' }, locals: { token: 'tok' } } as never);
+      return warn.mock.calls.map(c => String(c[0])).filter(l => l.startsWith('[run-detail]')).join('\n');
+    };
+    hopsError = true;
+    expect(await read()).toContain('not supported by this server');
+    hopsError = false;
+    const base = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation(async (doc: string, ...r: unknown[]) => {
+      if (doc === APP_RUN_HOPS_QUERY) throw new TypeError('socket hang up');
+      return base(doc, ...r);
+    });
+    const line = await read();
+    expect(line).toContain('hops fetch failed');
+    expect(line).toContain('TypeError');
+    expect(line).not.toContain('#538');
+  });
+});
+
 describe('run step timeline (portal#482)', () => {
   it('renders one row per completed hop, in order, with duration, tokens and the edge taken FROM it', async () => {
     hopsAnswer = [hop(), hop({ node: REPLY, edgeOut: null, tokensSpent: 0, finishedAt: 1790848805000, startedAt: 1790848803000 })];
@@ -211,6 +261,39 @@ describe('run step timeline (portal#482)', () => {
     m.props.data = { ...data, trail: { runId: 'run-1', supported: true, raw: [hop(), hop({ node: REPLY, edgeOut: null })] } };
     await settle();
     expect(rows(m)).toHaveLength(2);
+  });
+
+  it('a CANCELLED run shows where it stopped, apart from the rows (portal#2339 #5)', async () => {
+    runOver = { status: 'CANCELLED', curNodeUrn: CURRENT };
+    hopsAnswer = [hop()];
+    const m = await mountPage();
+    const cur = m.target.querySelector('[data-testid="timeline-current"]');
+    expect(cur?.textContent).toContain('Cancelled at');
+    expect(cur?.textContent).toContain('summarise');
+  });
+
+  describe('long trails (portal#2339 #11)', () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => hop({ node: `hrn:node:acme.com:flows:step-${i + 1}` }));
+    const numbers = (m: Mounted<Record<string, unknown>>) => [...rows(m)].map(r => r.querySelector('span')?.textContent);
+    it('a trail within the cap renders whole with no control', async () => {
+      hopsAnswer = many(100);
+      const m = await mountPage();
+      expect(rows(m)).toHaveLength(100);
+      expect(m.target.querySelector('[data-testid="hop-expand"]')).toBeNull();
+    });
+    it('past the cap shows the first and last 50, keeps true step numbers, and expands on demand', async () => {
+      hopsAnswer = many(120);
+      const m = await mountPage();
+      expect(rows(m)).toHaveLength(100);
+      expect(numbers(m).slice(48, 52)).toEqual(['49', '50', '71', '72']);
+      expect(rows(m)[0].textContent).toContain('step-1');
+      expect(rows(m)[99].textContent).toContain('step-120');
+      const expand = m.target.querySelector('[data-testid="hop-expand"]') as HTMLButtonElement;
+      expect(expand.textContent).toContain('Show all 120 steps');
+      expand.click(); await settle();
+      expect(rows(m)).toHaveLength(120);
+      expect(m.target.querySelector('[data-testid="hop-expand"]')).toBeNull();
+    });
   });
 
   it('a well-shaped unknown status/trigger renders Unknown: raw in a neutral chip and offers no kill switch (#1766)', async () => {
