@@ -12,6 +12,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, type Mounted } from '$lib/test/mountComponent';
 import Harness from '$lib/test/DataTableFillHarness.svelte';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import appLayout from '../../../routes/app/+layout.svelte?raw';
 
 const FOOTER_PX = 40;
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -116,5 +118,24 @@ describe('DataTable fills the window (portal#2193)', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('measures when a bounded list becomes a filling one', () => {
+    const props = reactiveProps({ rows: 60, headerHeight: 120, bounded: true } as Record<string, unknown>);
+    const m = mountComponent(Harness as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    flushSync();
+    const scroller = m.target.querySelector<HTMLElement>('[data-testid="data-table-scroller"]')!;
+    expect(scroller.style.maxHeight).toBe('max(200px, 40vh)');
+    props.bounded = false;
+    flushSync();
+    expect(capPx(scroller)).toBe(800 - 120 - FOOTER_PX);
+  });
+
+  it('layout contract: no ancestor of a page\'s table scrolls inside the app shell, so the document scrolls', () => {
+    // DataTable measures against the document (body observer, window height). The shell's only
+    // internal scroller is the sidebar nav; if the content column ever scrolls, this must change.
+    const scrolling = appLayout.split('\n').filter((line) => /overflow-(y-)?(auto|scroll)/.test(line) && !line.includes('<nav') && !line.includes('`flex-1 min-h-0 overflow-y-auto`'));
+    expect(scrolling).toEqual([]);
   });
 });

@@ -68,6 +68,14 @@ describe('fillViewport (action)', () => {
     return { editor, footer };
   }
 
+  it('counts an ancestor\'s bottom margin as space under the node (#2327 QA)', () => {
+    const { editor, footer } = build({ top: 250, footerHeight: 40, footerMargin: 8, padding: 32 });
+    editor.parentElement!.style.marginBottom = '16px';
+    fillViewport(editor, footer);
+    // 900 - 250 - (40 + 8) - (32 + 16)
+    expect(editor.style.height).toBe('554px');
+  });
+
   it('sets the height from the measured top, footer and page padding', () => {
     const { editor, footer } = build({ top: 250, footerHeight: 40, footerMargin: 8, padding: 32 });
     const handle = fillViewport(editor, footer);

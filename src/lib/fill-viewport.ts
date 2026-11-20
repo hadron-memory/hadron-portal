@@ -40,7 +40,7 @@ function px(value: string): number {
 }
 
 /**
- * The space the page puts under `node`: the bottom padding and border of every
+ * The space the page puts under `node`: the bottom padding, border and margin of every
  * ancestor. That is the layout's gutter (`py-8` on the app shell today),
  * measured rather than restated, so a layout change cannot silently leave the
  * Save row half off-screen.
@@ -55,7 +55,8 @@ function trailingSpace(node: HTMLElement): number {
       cs.borderBottomStyle === 'none' || cs.borderBottomStyle === 'hidden' || !cs.borderBottomStyle
         ? 0
         : px(cs.borderBottomWidth);
-    total += px(cs.paddingBottom) + border;
+    // An ancestor's bottom margin sits under the node just as its padding does (QA, #2327).
+    total += px(cs.paddingBottom) + border + px(cs.marginBottom);
   }
   return total;
 }
