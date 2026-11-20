@@ -253,6 +253,46 @@ describe('/app/agents/[id] loader', () => {
     expect(result.canOpenTester).toBe(listed);
   });
 
+  // #2183: the helper tests pin these skip paths; these pin the loader wiring
+  // (what it passes the helper), so a regression there fails here too.
+  it('#2183: an org manager of a listed org Agent gets the Tester without the ownership read', async () => {
+    routeMock({
+      agent: { data: { agent: agentInA } },
+      myOrgs: { data: { organizations: [{ ...orgA, agents: [agentInA] }] } },
+    });
+    const fallback = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation(async (query, vars) => {
+      if (query === SELF_CAN_MANAGE_QUERY) return { effectiveAccess: { canManage: true } };
+      return fallback(query, vars);
+    });
+    const event = ev({ agentId: agentInA.id });
+    Object.assign(event.locals, { user: { id: 'viewer', roles: ['ADMIN'] } });
+    const result = await (await importLoad())(event) as { canOpenTester: boolean | null };
+    expect(result.canOpenTester).toBe(true);
+    expect(mockRequest.mock.calls.some(([q]) => q === TESTER_OWNED_AGENT_IDS_QUERY)).toBe(false);
+  });
+
+  it.each([
+    { label: 'false', answer: { effectiveAccess: { canManage: false } }, expected: false },
+    { label: 'null', answer: { effectiveAccess: { canManage: null } }, expected: null },
+    { label: 'a failed read', answer: new Error('access outage'), expected: null },
+  ])('#2183: management $label skips the ownership read and reports canOpenTester=$expected', async ({ answer, expected }) => {
+    routeMock({ agent: { data: { agent: personalAgent } } });
+    const fallback = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation(async (query, vars) => {
+      if (query === SELF_CAN_MANAGE_QUERY) {
+        if (answer instanceof Error) throw answer;
+        return answer;
+      }
+      return fallback(query, vars);
+    });
+    const event = ev({ agentId: personalAgent.id });
+    Object.assign(event.locals, { user: { id: 'viewer', roles: ['ADMIN'] } });
+    const result = await (await importLoad())(event) as { canOpenTester: boolean | null };
+    expect(result.canOpenTester).toBe(expected);
+    expect(mockRequest.mock.calls.some(([q]) => q === TESTER_OWNED_AGENT_IDS_QUERY)).toBe(false);
+  });
+
   it('#2187: the page reads organizations with ORGANIZATIONS_QUERY, paged from offset 0', async () => {
     routeMock({ agent: { data: { agent: agentInA } }, myOrgs: { data: { organizations: [orgA] } } });
     const event = ev({ agentId: agentInA.id });
