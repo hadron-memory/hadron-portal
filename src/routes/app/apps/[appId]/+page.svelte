@@ -150,7 +150,7 @@
   import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker, AiServiceConfig } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import { resolveTabIntent, type AppTabId } from './tab-intent';
-  import { READ_GROUP_KEYS, TAB_READS } from './first-screen';
+  import { DEFAULT_TAB, READ_GROUP_KEYS, TAB_READS } from './first-screen';
   import AppNodeRoleTemplates from './AppNodeRoleTemplates.svelte';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
@@ -1066,7 +1066,7 @@
     // unbootstrapped, because that is how the first message gets posted.
     untrack(() => {
       const initial = (data.initialTab as TabId | null) ?? null;
-      return tabForActionResult(form, initial) ?? initial ?? 'chats';
+      return tabForActionResult(form, initial) ?? initial ?? DEFAULT_TAB;
     }),
   );
   // portal#2238: the AI Team tab's first show fetches the roster ONCE per
@@ -1336,9 +1336,9 @@
     if (!tabs.some((tab) => tab.id === current)) activeTab = tabs[0]?.id ?? 'memory';
   });
   // portal#2292: the label the tab strip shows for the active tab (so a locale change moves both). The
-  // default tab (Chats, what the URL carries without `?tab=`) leads with nothing; it becomes Profile if
-  // #2241 makes Profile the default, and this is the one line to change then.
-  const TITLE_UNLABELLED_TAB: TabId = 'chats';
+  // default tab (what the URL carries without `?tab=`) leads with nothing. portal#2308: it is the loader's
+  // own DEFAULT_TAB, not a copy, so a new default (#2241) moves the title with the tab it opens on.
+  const TITLE_UNLABELLED_TAB: TabId = DEFAULT_TAB;
   const tabTitleLabel = $derived(activeTab === TITLE_UNLABELLED_TAB ? '' : (tabs.find((tab) => tab.id === activeTab)?.label ?? ''));
   // "Read once at init" is not enough on its own: SvelteKit REUSES this
   // component for a query-only navigation, so a same-App link to
@@ -1367,7 +1367,7 @@
       // data (`data.initialTab`) on the tab that was LOADED. Back lands on such an entry, so the address
       // bar is the truthful source; the loader's tab applies when the URL names none.
       const urlTab = resolveTabIntent(new URL(window.location.href).searchParams).initialTab;
-      activeTab = ((urlTab ?? data.initialTab) as TabId | null) ?? 'chats';
+      activeTab = ((urlTab ?? data.initialTab) as TabId | null) ?? DEFAULT_TAB;
     }
     // #2164: `?view=full` is shallow-rewritten the same way, so it follows the address bar too. On a real
     // navigation the loader read the same URL through the same function, so the two agree; only a
