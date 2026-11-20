@@ -624,7 +624,7 @@ export const actions: Actions = {
     // so the redirect is reachable; fall back to the active-org redirector.
     const orgId = form.data.organizationId;
     try {
-      await gqlClient(locals.token).request(DELETE_MEMORY_MUTATION, { id: params.id });
+      await gqlClient(locals.token).request(DELETE_MEMORY_MUTATION, { ref: params.id });
       redirect(303, orgId ? `/app/orgs/${encodeURIComponent(orgId)}/memories` : '/app/memories');
     } catch (e: unknown) {
       // Re-throw SvelteKit's redirect-as-thrown-exception so it isn't

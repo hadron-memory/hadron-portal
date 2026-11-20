@@ -159,7 +159,7 @@ describe('POST /api/agent-chat/fixtures/run', () => {
     expect(res.status).toBe(200);
     expect(mockResolveChatAi).toHaveBeenCalledTimes(1);
     const startVars = mockRequest.mock.calls.find((c) => c[0] === START_CHAT_MUTATION)![1];
-    expect(startVars).toEqual({ agentId: 'agent-aaa', conversationName: null, scope: 'private', isTestRun: true, llmModel: 'model-X' });
+    expect(startVars).toEqual({ agentRef: 'agent-aaa', conversationName: null, scope: 'private', isTestRun: true, llmModel: 'model-X' });
     const resolution = await mockResolveChatAi.mock.results[0].value;
     expect(mockRunChatTurn).toHaveBeenCalledTimes(2);
     expect(mockRunChatTurn.mock.calls.map((c) => c[0].ai)).toEqual([resolution, resolution]);
@@ -201,7 +201,7 @@ describe('POST /api/agent-chat/fixtures/run', () => {
     expect(res.status).toBe(200);
     expect((await res.json()).summary.totalRuns).toBe(1);
     expect(mockRequest).toHaveBeenCalledWith(FIXTURE_NODES_QUERY, { limit: 500, offset: 0, memoryIds: ['sys-mem-a'] });
-    expect(mockRequest).toHaveBeenCalledWith(START_CHAT_MUTATION, expect.objectContaining({ agentId: 'agent-personal' }));
+    expect(mockRequest).toHaveBeenCalledWith(START_CHAT_MUTATION, expect.objectContaining({ agentRef: 'agent-personal' }));
   });
 
   it('does not send a fixture message or accept a baseline after an ended welcome', async () => {

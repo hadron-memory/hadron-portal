@@ -163,8 +163,8 @@ describe('memory subscriptions subscribe action', () => {
     expect(superFormFrom(result)?.valid).toBe(true);
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Subscription added.' });
     expect(mockRequest).toHaveBeenCalledWith(CREATE_MEMORY_SUBSCRIPTION_MUTATION, {
-      memoryId: 'memory-1',
-      orgId: 'org-1',
+      memoryRef: 'memory-1',
+      orgRef: 'org-1',
       role: 'CONTRIBUTOR',
     });
   });
@@ -178,13 +178,13 @@ describe('memory subscriptions subscribe action', () => {
     await runSubscribe({ orgId: 'org-2', role: 'OWNER' });
 
     expect(mockRequest).toHaveBeenNthCalledWith(1, CREATE_MEMORY_SUBSCRIPTION_MUTATION, {
-      memoryId: 'memory-1',
-      orgId: 'org-1',
+      memoryRef: 'memory-1',
+      orgRef: 'org-1',
       role: 'READER',
     });
     expect(mockRequest).toHaveBeenNthCalledWith(2, CREATE_MEMORY_SUBSCRIPTION_MUTATION, {
-      memoryId: 'memory-1',
-      orgId: 'org-2',
+      memoryRef: 'memory-1',
+      orgRef: 'org-2',
       role: 'READER',
     });
   });
@@ -258,8 +258,8 @@ describe('memory subscriptions unsubscribe action', () => {
     expect(superFormFrom(result)?.valid).toBe(true);
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Subscription removed.' });
     expect(mockRequest).toHaveBeenCalledWith(DELETE_MEMORY_SUBSCRIPTION_MUTATION, {
-      memoryId: 'memory-1',
-      orgId: 'org-1',
+      memoryRef: 'memory-1',
+      orgRef: 'org-1',
     });
   });
 

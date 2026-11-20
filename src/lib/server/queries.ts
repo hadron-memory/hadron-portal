@@ -1438,8 +1438,8 @@ export const RELEASE_WORKER_MUTATION = /* GraphQL */ `
 `;
 
 export const ENSURE_APP_MEMBER_MUTATION = /* GraphQL */ `
-  mutation EnsureAppMember($appId: ID!, $userId: ID!, $role: String!) {
-    ensureAppMember(appId: $appId, userId: $userId, role: $role) {
+  mutation EnsureAppMember($appRef: ID!, $userRef: ID!, $role: String!) {
+    ensureAppMember(appRef: $appRef, userRef: $userRef, role: $role) {
       appId
       userId
       role
@@ -1451,8 +1451,8 @@ export const ENSURE_APP_MEMBER_MUTATION = /* GraphQL */ `
 `;
 
 export const REMOVE_APP_MEMBER_MUTATION = /* GraphQL */ `
-  mutation RemoveAppMember($appId: ID!, $userId: ID!) {
-    removeAppMember(appId: $appId, userId: $userId)
+  mutation RemoveAppMember($appRef: ID!, $userRef: ID!) {
+    removeAppMember(appRef: $appRef, userRef: $userRef)
   }
 `;
 
@@ -1518,8 +1518,8 @@ export const UPDATE_ORGANIZATION_MUTATION = /* GraphQL */ `
 `;
 
 export const DELETE_ORGANIZATION_MUTATION = /* GraphQL */ `
-  mutation DeleteOrganization($id: ID!) {
-    deleteOrganization(id: $id)
+  mutation DeleteOrganization($ref: ID!) {
+    deleteOrganization(ref: $ref)
   }
 `;
 
@@ -1549,8 +1549,8 @@ export const STOP_IMPERSONATION_MUTATION = /* GraphQL */ `
 `;
 
 export const ADD_MEMBER_MUTATION = /* GraphQL */ `
-  mutation AddOrgMember($orgId: ID!, $userId: ID!, $role: Role!) {
-    addOrgMember(orgId: $orgId, userId: $userId, role: $role) {
+  mutation AddOrgMember($orgRef: ID!, $userRef: ID!, $role: Role!) {
+    addOrgMember(orgRef: $orgRef, userRef: $userRef, role: $role) {
       id role canInvite createdAt
       user { id handle githubUsername name avatarUrl email }
     }
@@ -1558,8 +1558,8 @@ export const ADD_MEMBER_MUTATION = /* GraphQL */ `
 `;
 
 export const UPDATE_MEMBER_MUTATION = /* GraphQL */ `
-  mutation UpdateOrgMember($orgId: ID!, $userId: ID!, $role: Role!) {
-    updateOrgMember(orgId: $orgId, userId: $userId, role: $role) {
+  mutation UpdateOrgMember($orgRef: ID!, $userRef: ID!, $role: Role!) {
+    updateOrgMember(orgRef: $orgRef, userRef: $userRef, role: $role) {
       id role
       user { id handle githubUsername name avatarUrl email }
     }
@@ -1567,8 +1567,8 @@ export const UPDATE_MEMBER_MUTATION = /* GraphQL */ `
 `;
 
 export const REMOVE_MEMBER_MUTATION = /* GraphQL */ `
-  mutation RemoveOrgMember($orgId: ID!, $userId: ID!) {
-    removeOrgMember(orgId: $orgId, userId: $userId)
+  mutation RemoveOrgMember($orgRef: ID!, $userRef: ID!) {
+    removeOrgMember(orgRef: $orgRef, userRef: $userRef)
   }
 `;
 
@@ -1578,11 +1578,11 @@ export const REMOVE_MEMBER_MUTATION = /* GraphQL */ `
 
 export const CREATE_USER_INVITATION_MUTATION = /* GraphQL */ `
   mutation CreateUserInvitation(
-    $orgId: ID!, $memberRole: Role!, $name: String, $email: String,
+    $orgRef: ID!, $memberRole: Role!, $name: String, $email: String,
     $githubUsername: String, $maxActivations: Int, $expiresInDays: Int
   ) {
     createUserInvitation(
-      orgId: $orgId, memberRole: $memberRole, name: $name, email: $email,
+      orgRef: $orgRef, memberRole: $memberRole, name: $name, email: $email,
       githubUsername: $githubUsername, maxActivations: $maxActivations, expiresInDays: $expiresInDays
     ) {
       id slug memberRole name email githubUsername maxActivations expiresAt createdAt
@@ -1620,7 +1620,7 @@ export const ACCEPT_INVITATION_MUTATION = /* GraphQL */ `
 export const CREATE_MEMORY_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
   mutation CreateMemory(
-    $orgId: ID!, $name: String!, $shortDescription: String, $description: String,
+    $orgRef: ID!, $name: String!, $shortDescription: String, $description: String,
     $tags: [String!], $license: String,
     $category0: String, $category1: String, $category2: String,
     $iconUrl: String, $heroUrl: String, $homeUrl: String,
@@ -1628,7 +1628,7 @@ export const CREATE_MEMORY_MUTATION = /* GraphQL */ `
     $visibility: MemoryVisibility, $memoryClass: MemoryClass = knowledge
   ) {
     createMemory(
-      orgId: $orgId, name: $name, shortDescription: $shortDescription, description: $description,
+      orgRef: $orgRef, name: $name, shortDescription: $shortDescription, description: $description,
       tags: $tags, license: $license,
       category0: $category0, category1: $category1, category2: $category2,
       iconUrl: $iconUrl, heroUrl: $heroUrl, homeUrl: $homeUrl,
@@ -1713,7 +1713,7 @@ export const MEMORY_TRANSFER_ACCESS_QUERY = /* GraphQL */ `
 `;
 
 export const DELETE_MEMORY_MUTATION = /* GraphQL */ `
-  mutation DeleteMemory($id: ID!) { deleteMemory(id: $id) }
+  mutation DeleteMemory($ref: ID!) { deleteMemory(ref: $ref) }
 `;
 
 // #695 (server #882, merged in server #883): operator recovery for embeddings
@@ -1936,6 +1936,14 @@ export const NODE_REVISIONS_PROVENANCE_PAGE_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#2245: a role task's name for the task page's Result block. raw: true —
+// only the name is wanted, so nothing is template-compiled.
+export const ROLE_TASK_NAME_QUERY = /* GraphQL */ `
+  query RoleTaskName($ref: ID!) {
+    node(ref: $ref, raw: true) { id name }
+  }
+`;
+
 // #1001: the live content a revision's diff ends at, when that revision is the
 // newest snapshot. raw: true — the text as authored, never template-compiled.
 export const NODE_LIVE_CONTENT_QUERY = /* GraphQL */ `
@@ -1975,27 +1983,27 @@ export const CLEAR_NODE_HISTORY_MUTATION = /* GraphQL */ `
 
 export const SYNC_MEMORY_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
-  mutation SyncMemory($id: ID!) {
-    syncMemory(id: $id) { ...MemoryFields lastSyncReport }
+  mutation SyncMemory($ref: ID!) {
+    syncMemory(ref: $ref) { ...MemoryFields lastSyncReport }
   }
 `;
 
 export const PUSH_MEMORY_TO_GIT_MUTATION = /* GraphQL */ `
-  mutation PushMemoryToGit($id: ID!) {
-    pushMemoryToGit(id: $id)
+  mutation PushMemoryToGit($ref: ID!) {
+    pushMemoryToGit(ref: $ref)
   }
 `;
 
 export const SET_MEMORY_SOURCE_TOKEN_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
-  mutation SetMemorySourceToken($id: ID!, $token: String!, $expiresAt: String) {
-    setMemorySourceToken(id: $id, token: $token, expiresAt: $expiresAt) { ...MemoryFields }
+  mutation SetMemorySourceToken($ref: ID!, $token: String!, $expiresAt: String) {
+    setMemorySourceToken(ref: $ref, token: $token, expiresAt: $expiresAt) { ...MemoryFields }
   }
 `;
 
 export const CREATE_MEMORY_SUBSCRIPTION_MUTATION = /* GraphQL */ `
-  mutation CreateMemorySubscription($memoryId: ID!, $orgId: ID!, $role: Role!) {
-    createMemorySubscription(memoryId: $memoryId, orgId: $orgId, role: $role) {
+  mutation CreateMemorySubscription($memoryRef: ID!, $orgRef: ID!, $role: Role!) {
+    createMemorySubscription(memoryRef: $memoryRef, orgRef: $orgRef, role: $role) {
       id role createdAt
       memory { id name }
       organization { id name urn }
@@ -2004,8 +2012,8 @@ export const CREATE_MEMORY_SUBSCRIPTION_MUTATION = /* GraphQL */ `
 `;
 
 export const DELETE_MEMORY_SUBSCRIPTION_MUTATION = /* GraphQL */ `
-  mutation DeleteMemorySubscription($memoryId: ID!, $orgId: ID!) {
-    deleteMemorySubscription(memoryId: $memoryId, orgId: $orgId)
+  mutation DeleteMemorySubscription($memoryRef: ID!, $orgRef: ID!) {
+    deleteMemorySubscription(memoryRef: $memoryRef, orgRef: $orgRef)
   }
 `;
 
@@ -2251,28 +2259,6 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
 export const APP_VIEWER_MANAGES_QUERY = /* GraphQL */ `
   query AppViewerManages($ref: ID!) {
     app(ref: $ref) { id viewerManages }
-  }
-`;
-
-/**
- * portal#1607 — the App's properties (hrn:node:hadronmemory.com:specs:cor:dmo:050:20), in their OWN request so a
- * server without the fields, or a refusal, cannot take the App page with it.
- * `propertiesRevision` is null only for a caller who may not read properties;
- * `properties` is also null for an App that has none yet, so only the revision
- * tells the two apart.
- */
-export const APP_PROPERTIES_QUERY = /* GraphQL */ `
-  query AppProperties($ref: ID!) {
-    app(ref: $ref) { id properties propertiesRevision }
-  }
-`;
-
-export const SET_APP_PROPERTIES_MUTATION = /* GraphQL */ `
-  mutation SetAppProperties($appRef: String!, $expectedRevision: Int, $properties: JSON) {
-    setAppProperties(appRef: $appRef, expectedRevision: $expectedRevision, properties: $properties) {
-      id
-      propertiesRevision
-    }
   }
 `;
 
@@ -2577,7 +2563,7 @@ export const CHAT_HISTORY_QUERY = /* GraphQL */ `
 
 export const START_CHAT_MUTATION = /* GraphQL */ `
   mutation StartChat(
-    $agentId: ID!
+    $agentRef: ID!
     $conversationName: String
     $scope: ChatScope
     $isTestRun: Boolean
@@ -2585,7 +2571,7 @@ export const START_CHAT_MUTATION = /* GraphQL */ `
     $aiConfigChoice: String
   ) {
     startChat(
-      agentId: $agentId
+      agentRef: $agentRef
       conversationName: $conversationName
       scope: $scope
       isTestRun: $isTestRun
@@ -2779,40 +2765,40 @@ export const DELETE_EDGE_MUTATION = /* GraphQL */ `
 // ---------------------------------------------------------------------------
 
 export const CREATE_REVISION_MUTATION = /* GraphQL */ `
-  mutation CreateRevision($agentId: ID!, $description: String) {
-    createRevision(agentId: $agentId, description: $description) {
+  mutation CreateRevision($agentRef: ID!, $description: String) {
+    createRevision(agentRef: $agentRef, description: $description) {
       revisionLoc label published createdAt
     }
   }
 `;
 
 export const PUBLISH_REVISION_MUTATION = /* GraphQL */ `
-  mutation PublishRevision($agentId: ID!, $revisionLoc: String!, $versionLabel: String) {
-    publishRevision(agentId: $agentId, revisionLoc: $revisionLoc, versionLabel: $versionLabel) {
+  mutation PublishRevision($agentRef: ID!, $revisionLoc: String!, $versionLabel: String) {
+    publishRevision(agentRef: $agentRef, revisionLoc: $revisionLoc, versionLabel: $versionLabel) {
       revisionLoc label published createdAt
     }
   }
 `;
 
 export const RESTORE_REVISION_MUTATION = /* GraphQL */ `
-  mutation RestoreRevision($agentId: ID!, $revisionLoc: String!) {
-    restoreRevision(agentId: $agentId, revisionLoc: $revisionLoc) {
+  mutation RestoreRevision($agentRef: ID!, $revisionLoc: String!) {
+    restoreRevision(agentRef: $agentRef, revisionLoc: $revisionLoc) {
       revisionLoc label published createdAt
     }
   }
 `;
 
 export const ACQUIRE_EDITOR_LOCK_MUTATION = /* GraphQL */ `
-  mutation AcquireEditorLock($agentId: ID!) {
-    acquireEditorLock(agentId: $agentId) {
+  mutation AcquireEditorLock($agentRef: ID!) {
+    acquireEditorLock(agentRef: $agentRef) {
       locked lockedBy expiresAt
     }
   }
 `;
 
 export const RELEASE_EDITOR_LOCK_MUTATION = /* GraphQL */ `
-  mutation ReleaseEditorLock($agentId: ID!) {
-    releaseEditorLock(agentId: $agentId)
+  mutation ReleaseEditorLock($agentRef: ID!) {
+    releaseEditorLock(agentRef: $agentRef)
   }
 `;
 
@@ -3050,22 +3036,22 @@ export const USAGE_EVENTS_QUERY = /* GraphQL */ `
 
 export const LINK_GITHUB_APP_MUTATION = /* GraphQL */ `
   ${ORG_FIELDS}
-  mutation LinkGithubApp($orgId: ID!, $installationId: Int!) {
-    linkGithubApp(orgId: $orgId, installationId: $installationId) { ...OrgFields }
+  mutation LinkGithubApp($orgRef: ID!, $installationId: Int!) {
+    linkGithubApp(orgRef: $orgRef, installationId: $installationId) { ...OrgFields }
   }
 `;
 
 export const UPDATE_ORG_GITHUB_APP_MUTATION = /* GraphQL */ `
   ${ORG_FIELDS}
-  mutation UpdateOrgGithubApp($orgId: ID!, $appId: String!, $privateKey: String!) {
-    updateOrgGithubApp(orgId: $orgId, appId: $appId, privateKey: $privateKey) { ...OrgFields }
+  mutation UpdateOrgGithubApp($orgRef: ID!, $appId: String!, $privateKey: String!) {
+    updateOrgGithubApp(orgRef: $orgRef, appId: $appId, privateKey: $privateKey) { ...OrgFields }
   }
 `;
 
 export const UNLINK_GITHUB_APP_MUTATION = /* GraphQL */ `
   ${ORG_FIELDS}
-  mutation UnlinkGithubApp($orgId: ID!) {
-    unlinkGithubApp(orgId: $orgId) { ...OrgFields }
+  mutation UnlinkGithubApp($orgRef: ID!) {
+    unlinkGithubApp(orgRef: $orgRef) { ...OrgFields }
   }
 `;
 
@@ -5632,7 +5618,10 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
       finishedAt
       cancelledAt
       closeSessionWhenDone
-      result { outcome summary evidence }
+      # portal#2245 (hadron-server#4414): the role-task refs on result need a server serving
+      # 46865d36a or later — a server without the field rejects this whole read, so the
+      # portal must deploy after it, like the references below.
+      result { outcome summary evidence workedFromRoleTaskRefs { nodeId urn revision } }
       sessionEndRequest { requestedAt dueAt resolution resolvedAt }
       # portal#1571 (hadron-server#2651): like the references below, needs a server serving
       # 1475888f or later — a server without the field rejects this whole read, so the portal

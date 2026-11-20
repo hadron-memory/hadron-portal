@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { findOutlineNoneTrap, scanFiles, sourceFilesUnder } from './check-outline-none.mjs';
+import {
+  EXCLUDED_EXTS,
+  SCANNED_EXTS,
+  extensionsUnder,
+  findOutlineNoneTrap,
+  scanFiles,
+  sourceFilesUnder,
+  unclassifiedExtensions,
+} from './check-outline-none.mjs';
 
 /**
  * #1745 — the gate's own test. Both directions are pinned: the broken spelling IS
@@ -214,6 +223,76 @@ describe('scanFiles over the real repo', () => {
     const findings = scanFiles(files, () => mutant);
     expect(findings).toHaveLength(1);
     expect(findings[0].reason).toBe('noRestatement');
+  });
+});
+
+/**
+ * portal#2264 — the guard's extension pre-filter is enumerated and proven, not assumed
+ * (hrn:node:hadronmemory.com:hadron-portal:review:ci-gate-prefilter-must-be-proven).
+ */
+describe('the scanned-extension pre-filter', () => {
+  const root = resolve(join(import.meta.dirname, '..'));
+  const src = join(root, 'src');
+
+  it('classifies every extension the repo ships under src/ as scanned or excluded-with-a-reason', () => {
+    expect(extensionsUnder(src).length).toBeGreaterThan(3); // the walk saw the tree
+    expect(unclassifiedExtensions(src)).toEqual([]);
+  });
+
+  it('scans markup the app ships: src/app.html is read', () => {
+    expect(SCANNED_EXTS).toContain('.html');
+    expect(sourceFilesUnder(src)).toContain(join(src, 'app.html'));
+  });
+
+  it('every excluded extension states why, and no scanned extension is also excluded', () => {
+    for (const [ext, why] of Object.entries(EXCLUDED_EXTS)) {
+      expect(why.length, ext).toBeGreaterThan(20);
+      expect(SCANNED_EXTS, ext).not.toContain(ext);
+    }
+  });
+
+  it('proves the silence: no file in an excluded extension carries an outline suppression token at all', () => {
+    const excluded = Object.keys(EXCLUDED_EXTS);
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir)) {
+        const path = join(dir, entry);
+        if (statSync(path).isDirectory()) walk(path);
+        else if (excluded.some((e) => path.endsWith(e)) && /outline-(?:none|hidden)/.test(readFileSyncOrNull(path) ?? '')) hits.push(path);
+      }
+    };
+    walk(src);
+    expect(hits).toEqual([]);
+  });
+
+  describe('mutants in a scratch tree', () => {
+    const trap = '<h2 tabindex="-1" class="outline-none focus-visible:outline-2">x</h2>\n';
+    const withScratch = (name: string, body: string, run: (dir: string) => void) => {
+      const dir = mkdtempSync(join(tmpdir(), 'outline-none-2264-'));
+      try {
+        mkdirSync(join(dir, 'nested'));
+        writeFileSync(join(dir, 'nested', name), body);
+        run(dir);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+
+    it('a bare outline-none in a scratch .html turns the scan red', () => {
+      withScratch('page.html', trap, (dir) => {
+        const findings = scanFiles(sourceFilesUnder(dir), (f) => readFileSyncOrNull(f));
+        expect(findings).toHaveLength(1);
+        expect(findings[0].file).toMatch(/page\.html$/);
+      });
+    });
+
+    it('a file in an extension nobody classified turns the classification red', () => {
+      withScratch('Widget.vue', trap, (dir) => {
+        expect(unclassifiedExtensions(dir)).toEqual(['.vue']);
+        // …and the scan itself would have passed it by: the gap the classification closes.
+        expect(scanFiles(sourceFilesUnder(dir), (f) => readFileSyncOrNull(f))).toEqual([]);
+      });
+    });
   });
 });
 

@@ -72,7 +72,7 @@ export const actions: Actions = {
 
     try {
       const result = await gqlClient(locals.token).request<{ createMemory: { id: string } }>(CREATE_MEMORY_MUTATION, {
-        orgId: params.id, name, shortDescription, description, tags, license,
+        orgRef: params.id, name, shortDescription, description, tags, license,
         category0, category1, category2, iconUrl, heroUrl, homeUrl,
         source, readBranch, writeBranch, visibility, memoryClass,
       });

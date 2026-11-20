@@ -78,8 +78,8 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(CREATE_MEMORY_SUBSCRIPTION_MUTATION, {
-        memoryId: params.id,
-        orgId: form.data.orgId,
+        memoryRef: params.id,
+        orgRef: form.data.orgId,
         role: form.data.role,
       });
       return message(form, { type: 'success', text: t('subscriptions.added', 'Subscription added.') });
@@ -104,8 +104,8 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(DELETE_MEMORY_SUBSCRIPTION_MUTATION, {
-        memoryId: params.id,
-        orgId: form.data.orgId,
+        memoryRef: params.id,
+        orgRef: form.data.orgId,
       });
       return message(form, { type: 'success', text: t('subscriptions.removed', 'Subscription removed.') });
     } catch (e: unknown) {

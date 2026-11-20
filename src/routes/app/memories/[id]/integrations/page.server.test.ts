@@ -253,7 +253,7 @@ describe('memory integrations command actions', () => {
 
     expect(superFormFrom(result)?.valid).toBe(true);
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Memory synced.' });
-    expect(mockRequest).toHaveBeenCalledWith(SYNC_MEMORY_MUTATION, { id: 'memory-1' });
+    expect(mockRequest).toHaveBeenCalledWith(SYNC_MEMORY_MUTATION, { ref: 'memory-1' });
   });
 
   it('rejects sync POSTs with the wrong form discriminator', async () => {
@@ -328,7 +328,7 @@ describe('memory integrations command actions', () => {
 
     expect(superFormFrom(result)?.valid).toBe(true);
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Pushed to Git.' });
-    expect(mockRequest).toHaveBeenCalledWith(PUSH_MEMORY_TO_GIT_MUTATION, { id: 'memory-1' });
+    expect(mockRequest).toHaveBeenCalledWith(PUSH_MEMORY_TO_GIT_MUTATION, { ref: 'memory-1' });
   });
 
   it('rejects push POSTs with the wrong form discriminator', async () => {
