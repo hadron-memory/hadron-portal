@@ -1093,6 +1093,23 @@ describe('grantKeyScope action', () => {
     expect(result.data.form.message).toEqual({ type: 'error', text: serverText });
   });
 
+  // LOCAL review F3: a malformed host is BAD_USER_INPUT, which the refusal
+  // map does not know — per hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only it stays
+  // the generic branch: a 500 whose text is still the server's own message,
+  // passed through untranslated (never the generic fallback, never dropped).
+  it('a BAD_USER_INPUT refusal passes the server’s message through as a 500', async () => {
+    const serverText = 'hostId: not a valid host id';
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: serverText, extensions: { code: 'BAD_USER_INPUT' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: 'not-a-host' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: serverText });
+  });
+
   // Acceptance 5: the audience refusals. A participant who does not manage the
   // App, a worker session and an App key all answer FORBIDDEN — the portal
   // cannot and does not distinguish them; an impersonating admin is blocked

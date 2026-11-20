@@ -1468,7 +1468,7 @@ describe('App key scope grant dialog (portal#1487)', () => {
     expect(label.textContent?.trim()).toBe('Host');
     const help = document.getElementById('grant-host')!.nextElementSibling!;
     expect(help.textContent).toContain('A host key reaches one host.');
-    // attention:operand hides it again — no host argument travels for a
+    // attention:deliver hides it again — no host argument travels for a
     // scope the server grants without one.
     await chooseScope(dialog, 'attention:deliver');
     expect(hostInput(dialog)).toBeNull();

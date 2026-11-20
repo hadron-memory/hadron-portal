@@ -1807,16 +1807,22 @@
     if ($grantKeyScopeSubmitting) return;
     grantScopeKey = null;
   }
-  // showModal gives the dialog the top layer and focus containment; close()
-  // returns focus to the menu trigger (the browser's own restore). The
-  // action's teardown closes a dialog that is still open (the {#if} below
-  // unmounts it on every close path).
+  // showModal gives the dialog the top layer and focus containment. Focus
+  // RESTORE is the action's own job: the {#if} below unmounts the node on
+  // every close path BEFORE destroy() runs, so the browser's own close()
+  // restore finds a detached dialog and focus falls to <body> (LOCAL review
+  // F1, real Chromium). Capture the trigger before showModal() moves focus
+  // into the dialog, and refocus it on teardown if it still exists — after a
+  // cross-App fence the departed App's trigger is gone, and then focus stays
+  // wherever the browser left it.
   function grantScopeDialogAction(el: HTMLDialogElement) {
+    const restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     el.showModal();
     el.querySelector<HTMLSelectElement>('select[name="scope"]')?.focus();
     return {
       destroy() {
         if (el.open) el.close();
+        if (restoreFocus && restoreFocus.isConnected) restoreFocus.focus();
       },
     };
   }
@@ -4092,7 +4098,8 @@
         {/if}
 
         <!-- portal#1487 — Grant scope. Native dialog (showModal: top layer +
-             contained focus; close restores focus to the menu trigger).
+             contained focus; the action's teardown closes it and restores
+             focus to the menu trigger).
              Escape is refused while a grant is in flight, so the write cannot
              be abandoned mid-submit. The refusal text sits beside the form
              that ran; the key is shown once — label, preview beneath. -->
@@ -4128,12 +4135,19 @@
               {#if $grantKeyScopeForm.scope === 'host:operate'}
                 <div>
                   <label for="grant-host" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.keys.grant.host', 'Host')}</label>
-                  <input id="grant-host" type="text" name="hostId" bind:value={$grantKeyScopeForm.hostId} class={inputClass} autocomplete="off" />
-                  <p class="mt-1 text-xs text-zinc-500">{t('app.keys.grant.host-help', 'The id of the one host this key may operate. A host key reaches one host.')}</p>
+                  <!-- The refusal text renders ONCE, in the alert region below
+                       (grantKeyScopeActionError folds the field errors into
+                       it); the input points AT it, per the castAgentId pattern
+                       above (aria-invalid + describedby on whichever shows). -->
+                  <input id="grant-host" type="text" name="hostId" bind:value={$grantKeyScopeForm.hostId}
+                    aria-invalid={!!$grantKeyScopeErrors.hostId}
+                    aria-describedby={$grantKeyScopeErrors.hostId ? 'grant-scope-error' : 'grant-host-help'}
+                    class={inputClass} autocomplete="off" />
+                  <p id="grant-host-help" class="mt-1 text-xs text-zinc-500">{t('app.keys.grant.host-help', 'The id of the one host this key may operate. A host key reaches one host.')}</p>
                 </div>
               {/if}
               {#if grantKeyScopeActionError}
-                <p role="alert" data-testid="grant-scope-error" class="break-words text-sm text-red-700 dark:text-red-300">{grantKeyScopeActionError}</p>
+                <p role="alert" id="grant-scope-error" data-testid="grant-scope-error" class="break-words text-sm text-red-700 dark:text-red-300">{grantKeyScopeActionError}</p>
               {/if}
               <div class="flex flex-wrap justify-end gap-3">
                 <button type="button" onclick={closeGrantScope} disabled={$grantKeyScopeSubmitting} class="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600">{t('app.keys.grant.cancel', 'Cancel')}</button>

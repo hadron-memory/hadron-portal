@@ -43,6 +43,10 @@ const MUTANTS = {
   // portal#1487: the grant dialog loses its viewport clamp — wider than a
   // phone screen, so the within-viewport check must catch it
   'dialog-unclamped': [/w-\[calc\(100%-2rem\)\]/, 'w-[40rem]'],
+  // portal#1487 LOCAL F1: the teardown no longer restores focus to the ⋯
+  // trigger, so close drops focus to <body> — the Cancel/Escape legs must
+  // catch it
+  'no-focus-restore': [/if \(restoreFocus && restoreFocus\.isConnected\) restoreFocus\.focus\(\);/, ''],
 };
 const mutantName = process.env.KEYS_MUTANT ?? null;
 if (mutantName && !MUTANTS[mutantName]) throw new Error(`KEYS_MUTANT must be one of ${Object.keys(MUTANTS).join(', ')}`);
@@ -311,7 +315,7 @@ try {
       await page.selectOption('dialog[open] select[name="scope"]', 'host:operate');
       const operate = await page.evaluate(() => {
         const d = document.querySelector('dialog[open]');
-        const input = d.querySelector('input[name="grant-host"]') ?? d.querySelector('input[name="hostId"]');
+        const input = d.querySelector('input[name="hostId"]');
         const label = d.querySelector('label[for="grant-host"]');
         const helper = input.nextElementSibling;
         const ib = input.getBoundingClientRect(), lb = label.getBoundingClientRect(), hb = helper.getBoundingClientRect();
@@ -356,6 +360,30 @@ try {
       check(!refusal.disabled, 'the submit stuck on "Granting…"');
       check(refusal.overflow <= 0, `page overflows horizontally by ${refusal.overflow}px`);
       await shot('refusal');
+
+      // portal#1487 LOCAL F1 (real Chromium): every close path — the Cancel
+      // button AND Escape — restores focus to the row's ⋯ trigger, never to
+      // <body>. The {#if} unmounts the node before the action's destroy()
+      // runs, so the browser's own close() restore fails on a detached
+      // dialog; the action captures document.activeElement at showModal()
+      // and refocuses it.
+      const trigger = '#panel-keys tbody tr:last-child button[aria-label^="Actions for key"]';
+      const focusAfterClose = async () => {
+        await page.locator('dialog[data-testid="grant-scope-dialog"]').waitFor({ state: 'detached' });
+        return page.evaluate((sel) => ({
+          onTrigger: document.activeElement === document.querySelector(sel),
+          onBody: document.activeElement === document.body || document.activeElement === null,
+        }), trigger);
+      };
+      await page.locator('dialog[open] button', { hasText: 'Cancel' }).click();
+      const afterCancel = await focusAfterClose();
+      check(afterCancel.onTrigger && !afterCancel.onBody, `focus after Cancel is ${afterCancel.onTrigger ? 'the ⋯ trigger' : afterCancel.onBody ? '<body>' : 'elsewhere'}`);
+      await page.locator(trigger).click();
+      await page.getByRole('menuitem', { name: /Grant scope/ }).click();
+      await page.locator('dialog[open][data-testid="grant-scope-dialog"]').waitFor();
+      await page.keyboard.press('Escape');
+      const afterEscape = await focusAfterClose();
+      check(afterEscape.onTrigger && !afterEscape.onBody, `focus after Escape is ${afterEscape.onTrigger ? 'the ⋯ trigger' : afterEscape.onBody ? '<body>' : 'elsewhere'}`);
       check(errors.length === 0, `page errors: ${errors.join(' | ')}`);
     } finally { await page.close(); }
   }
