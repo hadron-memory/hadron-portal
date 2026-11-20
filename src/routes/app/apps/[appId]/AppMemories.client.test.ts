@@ -7,13 +7,13 @@ import {viewStorageErrorMessages} from '$lib/table/viewStore';
 import {savedViewsStrings} from '$lib/i18n/saved-views-strings';
 import {createAppMemorySchema} from './schema';
 import AppMemories from './AppMemories.svelte';
+import AppMemoryCreate from './AppMemoryCreate.svelte';
 
-it('a success identifies and links the created memory even when its row is outside the visible list',async()=>{
+it('a success identifies and links the created memory, and keeps the form open to show it',async()=>{
  const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
  const created={id:'new-id',urn:'hrn:mem:acme.com:new-notes',name:'New notes'};
  const posted={...initial,posted:true,message:{type:'success' as const,text:'Memory created.',created}};
- const memories=Array.from({length:11},(_,i)=>({id:`m${i}`,urn:`hrn:mem:acme.com:m${i}`,name:`Existing ${i}`,description:null,appId:'a'}));
- const m=mountComponent(AppMemories as never,{initial,result:{form:posted},memories,canCreate:true} as never);
+ const m=mountComponent(AppMemoryCreate as never,{initial,result:{form:posted}} as never);
  try{await tick();const result=m.target.querySelector('[role=status]')!;
  expect(result.textContent).toContain('New notes');
  expect(result.querySelector('a')?.getAttribute('href')).toBe('/app/memories/new-id');
@@ -23,6 +23,27 @@ it('a success identifies and links the created memory even when its row is outsi
 
 // #1451 Ask 2: a user-owned App's rows come from appMemoryScope, which carries
 // no description, so the column would show a dash for a memory that has one.
+it('the create form is collapsed until asked for, and says so in its caption',async()=>{
+ const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
+ const m=mountComponent(AppMemoryCreate as never,{initial,result:null} as never);
+ try{await tick();
+ const details=m.target.querySelector('details')!;
+ expect(details.open).toBe(false);
+ expect(details.querySelector('summary')!.textContent).toContain('Add a memory');
+ expect(details.querySelector('input[name=name]')).not.toBeNull();
+ }finally{m.unmount();}
+});
+
+it('a submission that failed validation keeps the form open on its error',async()=>{
+ const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
+ const failed={...initial,valid:false,posted:true,errors:{name:['Name is required']}};
+ const m=mountComponent(AppMemoryCreate as never,{initial,result:{form:failed}} as never);
+ try{await tick();
+ expect(m.target.querySelector('details')!.open).toBe(true);
+ expect(m.target.textContent).toContain('Name is required');
+ }finally{m.unmount();}
+});
+
 it.each([[true,true],[false,false]])('showDescription=%s puts the Description column in the table: %s',async(showDescription,present)=>{
  const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
  // non-null description so the present direction proves the column renders

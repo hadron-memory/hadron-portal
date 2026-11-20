@@ -140,6 +140,7 @@
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import AppMemories from './AppMemories.svelte';
+  import AppMemoryCreate from './AppMemoryCreate.svelte';
   import AppMembersPanel from './AppMembersPanel.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
@@ -1292,7 +1293,7 @@
     // information too.
     { id: 'worklog', label: t('app.tabs.worklog', 'Worklog') },
     { id: 'runs', label: t('app.tabs.runs', 'Runs') },
-    { id: 'memory', label: 'Memory' },
+    { id: 'memory', label: t('app.tabs.memory', 'Memories') },
     // #1007/#1008: App Keys and AI Service Configs were sections at the foot of
     // Settings, below the App form, its agents and its memories. Each is a list
     // a reader comes for on its own, so each gets its own tab — and its own
@@ -3871,7 +3872,7 @@
     <div id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     {#if data.createMemoryForm}
       {#key app.id}
-        <AppMemories memories={tabData.appMemories ?? null} canCreate={tabData.canCreateMemory === true} showDescription={!!app.organizationId} initial={data.createMemoryForm} result={form} />
+        <AppMemories memories={tabData.appMemories ?? null} showDescription={!!app.organizationId} />
       {/key}
     {/if}
     <!-- #1043 interim: primary-agent links cannot establish the viewer's
@@ -3889,6 +3890,11 @@
       serverPage={tabData.appNodesPage ?? null}
       pageLabel={t('app.memory-node.pages', 'Memory node pages')}
     />
+    {#if data.createMemoryForm && tabData.canCreateMemory === true}
+      {#key app.id}
+        <div class="mt-6"><AppMemoryCreate initial={data.createMemoryForm} result={form} /></div>
+      {/key}
+    {/if}
     </div>
   {/if}
 
