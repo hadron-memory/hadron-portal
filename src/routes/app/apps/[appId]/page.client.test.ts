@@ -1,12 +1,12 @@
 /** Mounted App-page coverage for team chat roster reactivity (#979). */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { page, setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationCalls, navigationHooks, navigationGuards, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { kitAppliedResults, resetKitAppliedResults, submitEnhanced, submitEnhancedWithResult, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
+import { kitAppliedResults, resetKitAppliedResults, submitEnhanced, submitEnhancedWithResult, submitEnhancedWithRawResult, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatFilter } from '$lib/team-chat-filter';
@@ -17,7 +17,7 @@ import { resetAiConfigRecoveryForTests } from '$lib/components/ai-config-recover
 import { message, pageData, runsPanel } from './app-page.fixture';
 import {
   createAppMemorySchema, addAgentSchema, castWorkerSchema, removeAppAgentSchema,
-  revokeAppKeySchema, addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema,
+  revokeAppKeySchema, grantAppKeyScopeSchema, addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema,
 } from './schema';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -1326,10 +1326,10 @@ describe('App Keys Scopes column (portal#1099)', () => {
     id: 'k1', label: 'router', keyPreview: 'hk_ab…yz',
     createdAt: '2026-10-01T12:00:00.000Z', lastUsedAt: null, revokedAt: null,
   };
-  async function mountKeys(keyScopes: unknown) {
+  async function mountKeys(keyScopes: unknown, over: Record<string, unknown> = {}) {
     setStubPage('https://example.test/app/apps/a1?tab=keys', { appId: 'a1' });
     const data = await pageData();
-    const props = reactiveProps({ data: { ...data, initialTab: 'keys', appKeys: { kind: 'ok', keys: [key] }, keyScopes }, form: null });
+    const props = reactiveProps({ data: { ...data, initialTab: 'keys', appKeys: { kind: 'ok', keys: [key] }, keyScopes, ...over }, form: null });
     const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
@@ -1363,9 +1363,330 @@ describe('App Keys Scopes column (portal#1099)', () => {
     expect(panel.textContent).toContain('router');
   });
 
-  it('offers no scope write', async () => {
-    const panel = await mountKeys({ kind: 'ok', byKey: { k1: [] } });
-    expect(panel.textContent).not.toMatch(/Give scope|Take scope back/);
+  it('offers no scope write to a reader the server refuses', async () => {
+    // portal#1153: a viewer who does not manage the App still sees the keys
+    // table, but the row menu loses its WRITES — Revoke and the portal#1487
+    // grant control with it — leaving Copy ID, and the withheld line names
+    // the audience. The OPENED menu is the guard (its items are not in the
+    // DOM until it opens).
+    const panel = await mountKeys({ kind: 'hidden' }, { viewerManages: { kind: 'known', manages: false } });
+    (panel.querySelector('button[aria-label^="Actions for key"]') as HTMLButtonElement).click();
+    await tick(2);
+    const items = [...document.querySelectorAll('[role="menuitem"]')].map((i) => i.textContent?.trim());
+    expect(items).toEqual(['Copy ID']);
+    expect(panel.textContent).toContain('Only people who manage this App can mint, revoke and scope its keys');
+  });
+});
+
+// portal#1487 — giving a live key one scope of the closed list
+// (hrn:node:hadronmemory.com:specs:cor:aut:010:03) from a dialog the row's ⋯ menu opens. The server is the
+// gate; every refusal text below is the server's own, shown beside the form.
+describe('App key scope grant dialog (portal#1487)', () => {
+  const key = {
+    id: 'k1', label: 'router', keyPreview: 'hk_ab…yz',
+    createdAt: '2026-10-01T12:00:00.000Z', lastUsedAt: null, revokedAt: null,
+  };
+  // jsdom's <dialog> has no real showModal/close; stub both for this suite
+  // (the WorkerDeleteDialog suite's pattern).
+  let oldShow: PropertyDescriptor | undefined, oldClose: PropertyDescriptor | undefined;
+  beforeAll(() => {
+    oldShow = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'showModal');
+    oldClose = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'close');
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.open = true; } });
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value() { this.open = false; } });
+  });
+  afterAll(() => {
+    for (const [k, old] of [['showModal', oldShow], ['close', oldClose]] as const) {
+      if (old) Object.defineProperty(HTMLDialogElement.prototype, k, old);
+      else Reflect.deleteProperty(HTMLDialogElement.prototype, k);
+    }
+  });
+  async function mountKeys(keyScopes: unknown = { kind: 'ok', byKey: { k1: [] } }) {
+    setStubPage('https://example.test/app/apps/a1?tab=keys', { appId: 'a1' });
+    const data = await pageData();
+    const m = mountComponent(Page as never, {
+      data: { ...data, initialTab: 'keys', appKeys: { kind: 'ok', keys: [key] }, keyScopes },
+      form: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    // The page root, not #panel-keys: the shared success line sits above the
+    // tabs, outside the panel.
+    return m.target;
+  }
+  async function openGrant(panel: Element) {
+    (panel.querySelector('button[aria-label^="Actions for key"]') as HTMLButtonElement).click();
+    await tick(2);
+    const item = [...document.querySelectorAll('[role="menuitem"]')].find((b) => b.textContent?.includes('Grant scope')) as HTMLButtonElement | undefined;
+    if (!item) throw new Error('no Grant scope menu item');
+    item.click();
+    await tick(2);
+    const dialog = document.querySelector('dialog[open]');
+    if (!dialog) throw new Error('the grant dialog did not open');
+    return dialog;
+  }
+  const scopeSelect = (dialog: Element) => dialog.querySelector<HTMLSelectElement>('select[name="scope"]')!;
+  const hostInput = (dialog: Element) => dialog.querySelector<HTMLInputElement>('input[name="hostId"]');
+  const chooseScope = async (dialog: Element, value: string) => {
+    const select = scopeSelect(dialog);
+    select.value = value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+    await tick();
+  };
+  const grantForm = (dialog: Element) => dialog.querySelector('form')!;
+  // A user types into the host field: set the value AND fire the input event,
+  // so the bound store carries it. Setting .value alone leaves the store at
+  // its reset '' — the local empty-host refusal then cancels the submit and
+  // the server's answer below never arrives.
+  const typeHost = (dialog: Element, value: string) => {
+    const host = hostInput(dialog)!;
+    host.value = value;
+    host.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+  };
+
+  it('opens from the row menu naming the key, with no host field for attention:deliver', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    expect(dialog.getAttribute('aria-labelledby')).toBe('grant-scope-title');
+    expect(dialog.textContent).toContain('Grant a scope');
+    // The key once: label, preview beneath (an App key has no URN).
+    expect(dialog.textContent).toContain('router');
+    expect(dialog.textContent).toContain('hk_ab…yz');
+    expect(scopeSelect(dialog).value).toBe('attention:deliver');
+    expect(hostInput(dialog)).toBeNull();
+    expect(grantForm(dialog).getAttribute('action')).toBe('?/grantKeyScope');
+    expect(new FormData(grantForm(dialog)).get('keyId')).toBe('k1');
+  });
+
+  it('host:operate asks for the host with helper text under the field, and only then', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    const host = hostInput(dialog)!;
+    expect(host).toBeTruthy();
+    // Plain label (no parenthesised instruction), helper text UNDER the field.
+    const label = dialog.querySelector('label[for="grant-host"]')!;
+    expect(label.textContent?.trim()).toBe('Host');
+    const help = document.getElementById('grant-host-help')!;
+    expect(help.textContent).toContain('A host key reaches one host.');
+    // attention:deliver hides it again — no host argument travels for a
+    // scope the server grants without one.
+    await chooseScope(dialog, 'attention:deliver');
+    expect(hostInput(dialog)).toBeNull();
+  });
+
+  it('the host input names its help by id and goes invalid with the error (#1487 review: aria wiring)', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    const host = hostInput(dialog)!;
+    // Standing state: described-by names the help (looked up by its id, not
+    // by DOM position), the input is not invalid, and no alert is showing.
+    expect(host.getAttribute('aria-describedby')).toBe('grant-host-help');
+    expect(document.getElementById('grant-host-help')?.textContent).toContain('A host key reaches one host.');
+    expect(host.getAttribute('aria-invalid')).not.toBe('true');
+    expect(document.getElementById('grant-scope-error')).toBeNull();
+    // An empty-host submit is refused client-side: the field error marks the
+    // input invalid, described-by KEEPS the help and ADDS the alert id, and
+    // every named id resolves to a live element in the document.
+    host.value = '';
+    await submitEnhanced(grantForm(dialog), true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    flushSync(); await tick(2);
+    expect(host.getAttribute('aria-invalid')).toBe('true');
+    const describedBy = host.getAttribute('aria-describedby')!.split(/\s+/);
+    expect(describedBy).toContain('grant-host-help');
+    expect(describedBy).toContain('grant-scope-error');
+    for (const id of describedBy) expect(document.getElementById(id), `id ${id} does not resolve`).toBeTruthy();
+  });
+
+
+  it('refuses an empty host in the dialog and sends nothing', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    hostInput(dialog)!.value = '';
+    const { cancelled } = await submitEnhanced(grantForm(dialog), true);
+    expect(cancelled).toBe(true);
+    // The local refusal runs through superforms' own failure handling on a
+    // setTimeout(0): flush the macrotask before the DOM can show it.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    flushSync(); await tick(2);
+    expect(dialog.querySelector('[role="alert"]')?.textContent).toContain('Name the host this key may operate.');
+    // The refused submit also ENDS: the dialog never locks on 'Granting…'.
+    const submit = [...dialog.querySelectorAll('button')].find((b) => b.type === 'submit')!;
+    expect(submit.disabled).toBe(false);
+    expect(submit.textContent).toContain('Grant');
+  });
+
+  it('a HOST_CONFLICT refusal keeps the dialog open with the server’s own sentence', async () => {
+    const serverText = 'This key already operates as host h-1. A host key reaches one host: revoke host:operate first, or use another key.';
+    const panel = await mountKeys({ kind: 'ok', byKey: { k1: [{ scope: 'host:operate', hostId: 'h-1', grantedAt: 'x' }] } });
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    typeHost(dialog, 'h-2');
+    const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
+    f.message = { type: 'error', text: serverText };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 409, data: { form: f } });
+    flushSync(); await tick(2);
+    // The refusal sits beside the form that ran; the dialog stays; the held
+    // grant (host h-1) is untouched on the tab.
+    expect(document.querySelector('dialog[open]')).toBeTruthy();
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe(serverText);
+    // It arrived as a form message, not as errors.hostId — the host input is
+    // still marked invalid and still names help AND alert (it is the
+    // dialog's one free-text field).
+    const host = hostInput(dialog)!;
+    expect(host.getAttribute('aria-invalid')).toBe('true');
+    expect(host.getAttribute('aria-describedby')).toBe('grant-host-help grant-scope-error');
+    expect(panel.querySelector('[data-testid="key-scopes"]')?.textContent).toContain('host:operate · h-1');
+  });
+
+  it('a success closes the dialog and announces the granted scope', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    const trigBefore = document.querySelector('button[aria-label^="Actions for key"]') as HTMLElement;
+    // jsdom's settle path blurs focus set inside a flush (activeElement is
+    // <body> by assertion time even when the teardown focused the trigger —
+    // the same env blur leaves <body> at the action's mount), so this lane
+    // pins the teardown's TARGET by spy; the real-browser focus mechanics
+    // are the layout script's Cancel/Escape/keyboard legs.
+    const trigFocus = vi.spyOn(trigBefore, 'focus');
+    const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'attention:deliver', hostId: '' }, zod4(grantAppKeyScopeSchema));
+    f.message = { type: 'success', text: 'Scope granted.' };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'success', status: 200, data: { form: f } });
+    flushSync(); await tick(2);
+    expect(document.querySelector('dialog[open]')).toBeNull();
+    expect(panel.textContent).toContain('Scope granted.');
+    // The success close returns focus to the ⋯ trigger that opened the
+    // dialog, whose row still stands here (jsdom does not re-render rows).
+    expect(trigFocus).toHaveBeenCalled();
+  });
+
+  it('a success whose row is gone lands focus on the Keys tab panel, never <body>', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    const trigBefore = document.querySelector('button[aria-label^="Actions for key"]') as HTMLElement;
+    // The success path invalidates the page and the table re-renders its
+    // rows — the captured ⋯ trigger can be detached by the time the dialog
+    // unmounts. Stand in for that by removing the row outright.
+    const tabPanel = document.getElementById('panel-keys')!;
+    const trigFocus = vi.spyOn(trigBefore, 'focus');
+    const panelFocus = vi.spyOn(tabPanel, 'focus');
+    trigBefore.closest('tr')!.remove();
+    const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'attention:deliver', hostId: '' }, zod4(grantAppKeyScopeSchema));
+    f.message = { type: 'success', text: 'Scope granted.' };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'success', status: 200, data: { form: f } });
+    flushSync(); await tick(2);
+    expect(document.querySelector('dialog[open]')).toBeNull();
+    // A detached trigger cannot take focus — the teardown owes the close a
+    // landing spot, and it is the Keys tab panel (a focusable region
+    // boundary), never <body>. (Target pinned by spy: the env blurs
+    // activeElement after the flush; the real-browser detached-trigger leg
+    // is in the layout script.)
+    expect(trigFocus).not.toHaveBeenCalled();
+    expect(panelFocus).toHaveBeenCalled();
+  });
+
+  it('a refusal from an earlier key never reads as this one’s answer', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    typeHost(dialog, 'h-2');
+    const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
+    f.message = { type: 'error', text: 'This key already operates as host h-1.' };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 409, data: { form: f } });
+    flushSync(); await tick(2);
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')).toBeTruthy();
+    // Cancel, reopen: the form is reset for the key — no stale refusal, no
+    // stale host.
+    (dialog.querySelector('button[type="button"]') as HTMLButtonElement).click();
+    flushSync(); await tick(2);
+    const reopened = await openGrant(panel);
+    expect(reopened.querySelector('[data-testid="grant-scope-error"]')).toBeNull();
+    expect(scopeSelect(reopened).value).toBe('attention:deliver');
+    expect(hostInput(reopened)).toBeNull();
+  });
+
+  // ── review on #1487: the dialog must not lock, and must not leak across Apps ──
+
+  it('a transport failure frees the dialog and says the grant is unconfirmed', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    // Exactly what kit's enhance hands superforms when the fetch rejects.
+    await submitEnhancedWithRawResult(grantForm(dialog), { type: 'error', status: 500, error: new Error('boom') });
+    flushSync(); await tick(2);
+    // The outcome is unknown, so the dialog STAYS and says so beside the form
+    // that ran — claiming neither that it landed nor that it was refused.
+    expect(document.querySelector('dialog[open]')).toBeTruthy();
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toContain('could not be confirmed');
+    // …and the submit ENDS: no 'Granting…', Cancel usable again. The stuck
+    // modal this replaces never cleared $grantKeyScopeSubmitting.
+    const submit = [...dialog.querySelectorAll('button')].find((b) => b.type === 'submit')!;
+    expect(submit.textContent).toContain('Grant');
+    expect(submit.disabled).toBe(false);
+    expect([...dialog.querySelectorAll('button')].find((b) => b.textContent?.includes('Cancel'))!.disabled).toBe(false);
+  });
+
+  // The page component survives /apps/A -> /apps/B (same route id), and
+  // `grantScopeKey` is $state — so the dialog must be fenced to the App it
+  // was opened on, or showModal() reopens the departed App's dialog on B's
+  // Keys tab and a Grant there would write A's key.
+  describe('the open dialog is fenced to one App (#1487 review)', () => {
+    const KEY_A = { id: 'k1', label: 'router', keyPreview: 'hk_ab…yz', createdAt: '2026-10-01T12:00:00.000Z', lastUsedAt: null, revokedAt: null };
+    const KEY_B = { id: 'k2', label: 'laptop', keyPreview: 'hk_cd…wv', createdAt: '2026-10-02T12:00:00.000Z', lastUsedAt: null, revokedAt: null };
+    async function keysDataFor(appId: string, key: typeof KEY_A) {
+      setStubPage(`https://example.test/app/apps/${appId}?tab=keys`, { appId });
+      const data = await pageData();
+      return {
+        ...data, initialTab: 'keys', app: { ...data.app, id: appId },
+        appKeys: { kind: 'ok', keys: [key] }, keyScopes: { kind: 'ok', byKey: {} },
+      };
+    }
+    async function mountAppKeys() {
+      const props = reactiveProps({ data: await keysDataFor('a1', KEY_A), form: null });
+      const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(2);
+      return { m, props };
+    }
+    const moveTo = async (props: { data: unknown }, appId: string, key: typeof KEY_A) => {
+      props.data = await keysDataFor(appId, key);
+      await tick(3);
+    };
+
+    it('does not follow the reader onto another App’s Keys tab', async () => {
+      const { m, props } = await mountAppKeys();
+      await openGrant(m.target);
+      expect(document.querySelector('dialog[open]')).toBeTruthy();
+      await moveTo(props, 'a2', KEY_B);
+      // The dialog for A's key is GONE — not open, not in the DOM at all —
+      // and A's key never reads on B's tab.
+      expect(document.querySelector('dialog[open]')).toBeNull();
+      expect(m.target.querySelector('[data-testid="grant-scope-dialog"]')).toBeNull();
+      expect(m.target.textContent).not.toContain('hk_ab…yz');
+      // What B offers is B's own key, with a fresh form reset for it.
+      const dialog = await openGrant(m.target);
+      expect(dialog.textContent).toContain('hk_cd…wv');
+      expect(new FormData(grantForm(dialog)).get('keyId')).toBe('k2');
+      expect(scopeSelect(dialog).value).toBe('attention:deliver');
+    });
+
+    it('A’s late grant answer says nothing on B and refreshes nothing there', async () => {
+      const { m, props } = await mountAppKeys();
+      const dialog = await openGrant(m.target);
+      const delayed = await submitEnhancedDeferred(grantForm(dialog));
+      await moveTo(props, 'a2', KEY_B);
+      const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'attention:deliver', hostId: '' }, zod4(grantAppKeyScopeSchema));
+      f.message = { type: 'success', text: 'Scope granted.' };
+      await delayed.finish({ type: 'success', status: 200, data: { form: f } });
+      flushSync(); await tick(4);
+      expect(m.target.textContent).not.toContain('Scope granted.');
+      expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
+      expect(document.querySelector('dialog[open]')).toBeNull();
+    });
   });
 });
 
@@ -1897,7 +2218,7 @@ describe('App AI configuration readback lifecycle', () => {
 // /api/create-app-key. A manager refusal must reach the reader as the rule,
 // not as "Failed to create client key." with the reason dropped.
 describe('Client tab: a refused key mint (#1068)', () => {
-  const MANAGERS_ONLY = 'Only people who manage this App can create or revoke its keys: its owners and, for an organization’s App, that organization’s owners and admins.';
+  const MANAGERS_ONLY = 'Only people who manage this App can mint, revoke and scope its keys: its owners and, for an organization’s App, that organization’s owners and admins.';
 
   async function mountClient(fetchImpl: (url: string) => Promise<Response>) {
     setStubPage('https://example.test/app/apps/a1?tab=client', { appId: 'a1' });
@@ -2004,11 +2325,11 @@ describe('Client tab: the plugin grid follows canManageApp (#1106)', () => {
 
 // portal#1153 (hadron-server#2109): App.viewerManages hides the key controls and nothing else.
 describe('key controls follow App.viewerManages (portal#1153)', () => {
-  const MANAGERS = 'Only people who manage this App can create or revoke its keys';
+  const MANAGERS = 'Only people who manage this App can mint, revoke and scope its keys';
   const COMBINED = 'Only people who manage this App can see, create or revoke its keys';
   const HIDDEN = 'Only the App’s managers can see its keys.';
   const UNKNOWN = 'Couldn’t check whether you can manage this App’s keys. If you can’t, the change will be refused.';
-  const IMPERSONATION = 'This is a read-only impersonation session, so it can’t create or revoke keys.';
+  const IMPERSONATION = 'This is a read-only impersonation session, so it can’t mint, revoke or scope keys.';
   const FAILED = 'Couldn’t load this App’s keys.';
   const key = {
     id: 'k1', label: 'router', keyPreview: 'hk_ab…yz',

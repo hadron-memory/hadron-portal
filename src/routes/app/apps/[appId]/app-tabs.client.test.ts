@@ -23,7 +23,7 @@ import { everyTabRead } from './app-page.fixture';
 import {
   addAgentSchema, addAppMemberSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
   deleteAppSchema, ensureAppMemberSchema, releaseWorkerSchema, removeAppAgentSchema,
-  removeAppMemberSchema, retireWorkerSchema, revokeAppKeySchema, updateAppAgentToolsSchema,
+  removeAppMemberSchema, retireWorkerSchema, revokeAppKeySchema, grantAppKeyScopeSchema, updateAppAgentToolsSchema,
 } from './schema';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -49,10 +49,10 @@ async function mountTab(tab: string, over: { app?: Record<string, unknown>; data
   setStubPage(over.url ?? `https://example.test/app/apps/a1?tab=${tab}`, { appId: 'a1' });
   window.history.replaceState({}, '', `/app/apps/a1?tab=${tab}`);
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm,
-    revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm,
-    postTeamChatMessageForm, addMemberForm, ensureMemberForm, removeMemberForm] = await forms([
+    revokeKeyForm, grantKeyScopeForm, deleteAppForm, castWorkerForm, retireWorkerForm,
+    releaseWorkerForm, postTeamChatMessageForm, addMemberForm, ensureMemberForm, removeMemberForm] = await forms([
     appSettingsSchema, addAgentSchema, createAppKeySchema, removeAppAgentSchema,
-    updateAppAgentToolsSchema, revokeAppKeySchema, deleteAppSchema, castWorkerSchema,
+    updateAppAgentToolsSchema, revokeAppKeySchema, grantAppKeyScopeSchema, deleteAppSchema, castWorkerSchema,
     retireWorkerSchema, releaseWorkerSchema, postTeamChatMessageSchema,
     addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema,
   ] as never);
@@ -75,7 +75,7 @@ async function mountTab(tab: string, over: { app?: Record<string, unknown>; data
     chatConfigs: [], appConfigs: [], worklog: [], worklogTotal: 0, worklogError: false,
     currentUserId: 'u1', user: { id: 'u1' }, bootPointerAppKey: 'a1',
     appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm,
-    revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm,
+    revokeKeyForm, grantKeyScopeForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm,
     postTeamChatMessageForm, addMemberForm, ensureMemberForm, removeMemberForm,
     ...over.data,
   };
