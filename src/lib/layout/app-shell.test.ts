@@ -22,7 +22,8 @@ describe('app shell shared with the AgentChat layout oracle', () => {
   });
 
   it('binds the oracle shell elements to app-shell.ts', () => {
-    const source = oracle();
+    const text = oracle();
+    const source = text.slice(text.lastIndexOf('async ({ css, dark }) => {'), text.lastIndexOf('{ css, dark },'));
     expect(source, 'oracle must import app-shell.ts through Vite').toContain("import('/src/lib/layout/app-shell.ts')");
     expect(source, 'oracle row must use app-shell.ts').toContain('${shell.APP_SHELL_ROW}');
     expect(source, 'oracle nav must use app-shell.ts').toContain('${shell.appShellNavClass(null)}');
