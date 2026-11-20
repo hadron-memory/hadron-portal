@@ -15,13 +15,15 @@ vi.mock('@sveltejs/kit/hooks', () => ({
       )(event),
 }));
 
-import { env } from '$env/dynamic/public';
+import { env as publicEnv } from '$env/dynamic/public';
 import { handle } from './hooks.server';
 
 // The pure helper is pinned in $lib/server/csp-handoff.test.ts. What those
 // tests cannot see is whether the handle sequence CALLS it: replacing the
 // append in runtimeCsp with a pass-through left 158 tests green (#2084,
 // Gemma's mutant on #2081). So these drive the real exported `handle`.
+// The typed public env marks documented vars as required; the stub is a plain record.
+const env = publicEnv as Record<string, string | undefined>;
 const BASE = "default-src 'self'; form-action 'self'; frame-ancestors 'none'";
 
 function event(): RequestEvent {
