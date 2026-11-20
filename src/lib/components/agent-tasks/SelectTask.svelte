@@ -100,7 +100,7 @@
       {#if repeated}<p role="status">{t('app.tasks.picker.changed', 'The list changed while loading. Some tasks may be missing; close and reopen to refresh, or use an exact lookup.')}</p>{/if}
       {#if pending}<p role="status">{t('app.tasks.picker.loading', 'Loading tasks…')}</p>{/if}
       {#if exactDone && !pending && !failed && exactItems.length === 0}<p role="status">{t('app.tasks.picker.unavailable', 'No available task found in this App.')}</p>{/if}
-      <DataTable {table} listKey="task-picker:open" bind:globalFilter={query} searchPlaceholder={t('app.tasks.picker.search', 'Filter loaded tasks…')} searchAriaLabel={t('app.tasks.picker.search', 'Filter loaded tasks…')} maxHeight="35vh">
+      <DataTable {table} listKey="task-picker:open" bind:globalFilter={query} searchPlaceholder={t('app.tasks.picker.search', 'Filter loaded tasks…')} searchAriaLabel={t('app.tasks.picker.search', 'Filter loaded tasks…')} bounded>
         {#snippet cell(cell, row)}
           {#if cell.column.id === 'choose'}<button type="button" class="rounded bg-indigo-600 px-2 py-1 text-white" onclick={() => { onselect(row); open = false; }}>{t('app.tasks.picker.select', 'Select')}</button>
           {:else if cell.column.id === 'handle'}<TaskHandle handle={row.handle} />

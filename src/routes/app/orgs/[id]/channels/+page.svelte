@@ -82,7 +82,6 @@
           searchPlaceholder={t('org.channels.search', 'Search channels…')}
           searchAriaLabel={t('org.channels.search', 'Search channels…')}
           bind:globalFilter
-          maxHeight="max(200px, calc(100vh - 34rem))"
         >
           {#snippet cell(cell, row)}
             {#if cell.column.id === 'name'}

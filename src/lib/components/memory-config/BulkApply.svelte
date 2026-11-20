@@ -139,7 +139,7 @@
     </div>
   </div>
   {#if rows.length}
-    <DataTable {table} listKey="node-role-template-bulk-apply" bind:globalFilter={search} maxHeight="max(240px, calc(100vh - 16rem))" fitOnPhone searchPlaceholder={t('config.bulk.search', 'Search memories…')} searchAriaLabel={t('config.bulk.search', 'Search memories…')}>
+    <DataTable {table} listKey="node-role-template-bulk-apply" bind:globalFilter={search} fitOnPhone searchPlaceholder={t('config.bulk.search', 'Search memories…')} searchAriaLabel={t('config.bulk.search', 'Search memories…')}>
       {#snippet cell(_cell, row)}
         <div class="flex min-w-0 flex-col gap-2 whitespace-normal sm:flex-row sm:justify-between sm:gap-4">
           <div class="min-w-0 sm:w-1/2">

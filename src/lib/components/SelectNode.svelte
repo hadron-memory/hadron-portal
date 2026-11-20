@@ -261,7 +261,7 @@
         {/if}
         {#if pending}<p role="status">{t('app.nodes.picker.loading', 'Loading nodes…')}</p>{/if}
 
-        <DataTable {table} listKey="node-picker:open" showSearch={false} searchPlaceholder="" searchAriaLabel="" maxHeight="35vh">
+        <DataTable {table} listKey="node-picker:open" showSearch={false} searchPlaceholder="" searchAriaLabel="" bounded>
           {#snippet cell(cell, row)}
             <div class="flex min-w-0 items-center gap-3">
               <div class="min-w-0 flex-1">

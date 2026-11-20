@@ -89,7 +89,6 @@
       searchPlaceholder={t('app.automations.search', 'Search automations…')}
       searchAriaLabel={t('app.automations.search', 'Search automations…')}
       bind:globalFilter
-      maxHeight="max(240px, calc(100vh - 24rem))"
     >
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'name'}

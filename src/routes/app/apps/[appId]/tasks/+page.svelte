@@ -396,7 +396,6 @@
         searchPlaceholder=""
         searchAriaLabel=""
         showSearch={false}
-        maxHeight="max(240px, calc(100vh - 22rem))"
       >
         {#snippet cell(cell, row)}
           {#if cell.column.id === 'status'}

@@ -95,7 +95,7 @@
     filters = { ref: '', kind: '', tool: '' },
     showFilters = true,
     listKey,
-    maxHeight = 'max(200px, calc(100vh - 30rem))',
+    bounded = false,
   }: {
     serverPage?: ListPageNavigation;
     items?: TeamWorkItem[];
@@ -117,7 +117,7 @@
      * worker and the other is not.
      */
     listKey: string;
-    maxHeight?: string;
+    bounded?: boolean;
   } = $props();
 
   const truncated = $derived(total > items.length);
@@ -377,7 +377,7 @@
       {table}
       showFooter={!serverPage}
       {listKey}
-      {maxHeight}
+      {bounded}
       bind:globalFilter
       searchPlaceholder={t('app.worklog.search', 'Search these records…')}
       searchAriaLabel={t('app.worklog.search.aria', 'Search the worklog records on this page')}

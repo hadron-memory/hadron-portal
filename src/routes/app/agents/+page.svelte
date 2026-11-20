@@ -99,7 +99,6 @@
       searchPlaceholder={t('my-agents.search', 'Search agents…')}
       searchAriaLabel={t('my-agents.search', 'Search agents…')}
       bind:globalFilter
-      maxHeight="max(200px, calc(100vh - 21rem))"
     >
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'name'}

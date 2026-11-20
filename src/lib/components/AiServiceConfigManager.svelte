@@ -1417,7 +1417,6 @@
       searchPlaceholder={pagination ? t('ai-config.search.page', 'Search configs on this page…') : t('ai-config.search.placeholder', 'Search configs...')}
       searchAriaLabel={pagination ? t('ai-config.search.page.aria', 'Search AI provider configs on this page') : t('ai-config.search.aria-label', 'Search AI provider configs')}
       bind:globalFilter={configFilter}
-      maxHeight="max(200px, calc(100vh - 30rem))"
     >
       {#snippet cell(cell, c)}
         <!-- Dim content, never the row: row opacity traps its fixed menu below later rows (#1867). -->

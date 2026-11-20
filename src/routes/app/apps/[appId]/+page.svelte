@@ -3448,7 +3448,6 @@
           searchPlaceholder={t('app.staff.search.placeholder', 'Search worker agents...')}
           searchAriaLabel={t('app.staff.search.aria-label', 'Search worker agents')}
           bind:globalFilter={staffFilter}
-          maxHeight="max(200px, calc(100vh - 30rem))"
           rowClass={(w) => (w.retiredAt ? 'opacity-60' : '')}
         >
           {#snippet cell(cell, worker)}
@@ -3670,7 +3669,6 @@
           searchPlaceholder={t('app.agents.search.placeholder', 'Search agents...')}
           searchAriaLabel={t('app.agents.search.aria-label', 'Search agents')}
           bind:globalFilter={agentsFilter}
-          maxHeight="max(200px, calc(100vh - 30rem))"
         >
           {#snippet cell(cell, agent)}
             {#if cell.column.id === 'name'}
@@ -3957,7 +3955,6 @@
             searchPlaceholder={t('app.keys.search.placeholder', 'Search keys...')}
             searchAriaLabel={t('app.keys.search.aria-label', 'Search app keys')}
             bind:globalFilter={appKeyFilter}
-            maxHeight="max(200px, calc(100vh - 30rem))"
           >
             {#snippet cell(cell, key)}
               {#if cell.column.id === 'id'}

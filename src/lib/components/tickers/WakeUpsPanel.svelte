@@ -191,7 +191,6 @@
           searchPlaceholder={t('worker.wake.search', 'Search subscriptions…')}
           searchAriaLabel={t('worker.wake.search', 'Search subscriptions…')}
           bind:globalFilter
-          maxHeight="max(200px, calc(100vh - 30rem))"
         >
           {#snippet cell(cell, row)}
             {#if cell.column.id === 'ticker'}

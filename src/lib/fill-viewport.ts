@@ -45,7 +45,7 @@ function px(value: string): number {
  * measured rather than restated, so a layout change cannot silently leave the
  * Save row half off-screen.
  */
-function trailingSpace(node: HTMLElement): number {
+export function trailingSpace(node: HTMLElement): number {
   let total = 0;
   for (let el = node.parentElement; el && el !== document.documentElement; el = el.parentElement) {
     const cs = getComputedStyle(el);
@@ -69,6 +69,12 @@ function trailingSpace(node: HTMLElement): number {
  * changes size. A write happens only when the height actually changes, which
  * is what stops the observer from re-triggering itself.
  */
+export function measureBelow(node: HTMLElement, footer?: HTMLElement | null): number {
+  let below = trailingSpace(node);
+  if (footer) below += footer.offsetHeight + px(getComputedStyle(footer).marginTop);
+  return below;
+}
+
 export function fillViewport(node: HTMLElement, footer?: HTMLElement | null) {
   let current = footer ?? null;
 

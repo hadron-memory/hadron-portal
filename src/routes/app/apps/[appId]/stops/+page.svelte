@@ -158,7 +158,6 @@
         searchPlaceholder={t('app.stops.search', 'Search stops…')}
         searchAriaLabel={t('app.stops.search', 'Search stops…')}
         bind:globalFilter
-        maxHeight="max(240px, calc(100vh - 26rem))"
       >
         {#snippet cell(cell, row)}
           {#if cell.column.id === 'state'}
