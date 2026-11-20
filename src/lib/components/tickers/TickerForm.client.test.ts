@@ -10,7 +10,7 @@ import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/tes
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import TickerForm from './TickerForm.svelte';
 import TickerDelete from './TickerDelete.svelte';
-import { announcedStatusRegion, announcedStatusText } from '$lib/test/announcedStatusText';
+import { announcedStatusRegion, firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 
 const stored = { id: 'tk-1', name: 'standup', cadenceSeconds: 600, reasons: ['READ_TEAM_CHANNEL'] };
 
@@ -75,7 +75,7 @@ describe('TickerForm (create)', () => {
     expect(root.querySelector('form [role="alert"]')?.textContent).toContain(`“${message}”`);
     expect(root.querySelector('form [role="alert"]')?.textContent).toContain('TICKER_LIMIT_REACHED');
     expect(field(root, 'name').value).toBe('standup');
-    expect(announcedStatusText(root)).toBeNull();
+    expect(firstPopulatedStatusText(root)).toBeNull();
     expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
   });
 
@@ -155,7 +155,7 @@ describe('TickerForm (create)', () => {
     await tick(3);
     // The status line says warnings follow (for a screen reader), as a separate sentence.
     expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
-    expect(announcedStatusText(root)).toContain('Created standup. 1 warning below.');
+    expect(firstPopulatedStatusText(root)).toContain('Created standup. 1 warning below.');
     const box = root.querySelector('[data-testid="task-warnings"]')!;
     expect(box.textContent).toContain(unmappedWarning.text);
     expect(box.querySelector('[data-warning-code="ticker.code.unmapped"] code')?.textContent).toBe('ticker.code.unmapped');
@@ -170,7 +170,7 @@ describe('TickerForm (create)', () => {
     });
     await tick(3);
     expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
-    expect(announcedStatusText(root)).toContain('Created standup.');
+    expect(firstPopulatedStatusText(root)).toContain('Created standup.');
     expect(root.querySelector('[data-testid="task-warnings"]')).toBeNull();
   });
 
@@ -182,7 +182,7 @@ describe('TickerForm (create)', () => {
     });
     await tick(3);
     expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
-    expect(announcedStatusText(root)).toContain('also reported an error');
+    expect(firstPopulatedStatusText(root)).toContain('also reported an error');
     expect(root.querySelector('[data-testid="task-warnings"]')).not.toBeNull();
     expect(root.querySelector('a[href*="/tickers/"]')).toBeNull();
   });
@@ -195,7 +195,7 @@ describe('TickerForm (create)', () => {
     });
     await tick(3);
     expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
-    expect(announcedStatusText(root)).toContain('also reported an error');
+    expect(firstPopulatedStatusText(root)).toContain('also reported an error');
     expect(root.querySelector('a[href="/app/apps/app-1/tickers/tk-9"]')).not.toBeNull();
   });
 
@@ -206,7 +206,7 @@ describe('TickerForm (create)', () => {
       data: { action: 'create', ok: true, ticker: null, committedWithError: false, warnings: [unmappedWarning], more: 0 },
     });
     await tick(3);
-    const text = announcedStatusText(root) ?? '';
+    const text = firstPopulatedStatusText(root) ?? '';
     expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
     expect(text).toContain('Ticker created.');
     expect(text).not.toContain('Saved');
@@ -228,7 +228,7 @@ describe('TickerForm (create)', () => {
     await tick(3);
     expect(root.querySelector('[data-testid="task-warnings"]')).toBeNull();
     expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
-    expect(announcedStatusText(root)).toContain('Created next.');
+    expect(firstPopulatedStatusText(root)).toContain('Created next.');
   });
 
   it('an uncertain outcome says so, never "failed", and shows no success', async () => {
@@ -236,7 +236,7 @@ describe('TickerForm (create)', () => {
     await submitEnhancedWithResult(formOf(root), { type: 'failure', status: 502, data: { action: 'create', refusal: { kind: 'uncertain' } } });
     await tick(3);
     expect(root.textContent).toContain('The change may or may not have gone through. Reload to check.');
-    expect(announcedStatusText(root)).toBeNull();
+    expect(firstPopulatedStatusText(root)).toBeNull();
   });
 
   it('the consent refusal renders the portal’s sentence, which names neither reason alone', async () => {
@@ -278,7 +278,7 @@ describe('TickerForm (edit)', () => {
     await tick(3);
     expect(field(m.target, 'cadenceSeconds').value).toBe('301');
     expect(idleStatusAtMount(m.target), 'the region existed, empty, before the result').toContain(announcedStatusRegion(m.target));
-    expect(announcedStatusText(m.target)).toContain('Saved');
+    expect(firstPopulatedStatusText(m.target)).toContain('Saved');
   });
 
   // Gizelle's READ P2 on #1601: the draft typed during a pending update survives (the reader's newer
@@ -306,7 +306,7 @@ describe('TickerForm (edit)', () => {
   it('a success over a draft typed while it was pending keeps the draft and does NOT say the fields are the stored values', async () => {
     const root = await editWithDraftDuringRequest(true);
     expect(field(root, 'name').value).toBe('unsaved-next-draft');
-    const status = announcedStatusText(root) ?? '';
+    const status = firstPopulatedStatusText(root) ?? '';
     expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
     expect(status).toContain('Saved');
     expect(status).not.toContain('stored values');
@@ -317,7 +317,7 @@ describe('TickerForm (edit)', () => {
     const root = await editWithDraftDuringRequest(false);
     expect(field(root, 'name').value).toBe('saved-name');
     expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
-    expect(announcedStatusText(root)).toContain('Saved. These are the stored values.');
+    expect(firstPopulatedStatusText(root)).toContain('Saved. These are the stored values.');
   });
 
   it('another ticker reseeds: nothing typed for the first survives', async () => {

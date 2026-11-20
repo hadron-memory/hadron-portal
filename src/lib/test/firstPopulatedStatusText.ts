@@ -14,7 +14,7 @@
  * being announced. See
  * `hrn:node:hadronmemory.com:hadron-portal:review:persistent-live-region-retargets-generic-alert-queries`.
  */
-export function announcedStatusText(scope: Element | Document): string | null {
+export function firstPopulatedStatusText(scope: Element | Document): string | null {
   for (const region of scope.querySelectorAll<HTMLElement>('[role="status"]')) {
     const text = region.textContent?.trim() ?? '';
     if (text) return text;

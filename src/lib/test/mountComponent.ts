@@ -1,6 +1,6 @@
 import { flushSync, mount, unmount } from 'svelte';
 import type { Component } from 'svelte';
-import { idleStatusRegions } from './announcedStatusText';
+import { idleStatusRegions } from './firstPopulatedStatusText';
 
 /**
  * Mount a component into a real DOM for a `*.client.test.ts` (#795).

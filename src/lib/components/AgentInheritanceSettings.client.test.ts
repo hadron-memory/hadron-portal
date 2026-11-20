@@ -6,7 +6,7 @@ import { agentBaseSchema, agentIndexRefsSchema } from '../../routes/app/agents/[
 import { mountComponent, tick, type Mounted, idleStatusAtMount } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import Component from './AgentInheritanceSettings.svelte';
-import { announcedStatusRegion, announcedStatusText } from '$lib/test/announcedStatusText';
+import { announcedStatusRegion, firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 let mounted: Mounted<Record<string, unknown>> | undefined;
 afterEach(() => { mounted?.unmount(); mounted = undefined; });
 const candidates = [
@@ -191,13 +191,13 @@ it('shows the current parent and resets successful writes to reloaded defaults',
   expect(root.querySelector('a[href="/app/u/hrn:agent:example.com:base"]')).toBeNull();
   expect(baseForm(root).textContent).toContain('None');
   expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
-  expect(announcedStatusText(root)).toBe('Base Agent saved.');
+  expect(firstPopulatedStatusText(root)).toBe('Base Agent saved.');
   p.actionData = { form: { ...p.indexRefsForm, valid: true, data: { ...p.indexRefsForm.data, tasksOperation: 'clear', tasksIndexRef: 'old-index' }, message: { type: 'success', text: 'Index references saved.' } } };
   flushSync(); await tick();
   expect(root.querySelector<HTMLSelectElement>('select[name="tasksOperation"]')!.value).toBe('keep');
   expect(root.querySelector<HTMLInputElement>('input[name="tasksIndexRef"]')!.value).toBe('');
   expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
-  expect(announcedStatusText(root)).toBe('Index references saved.');
+  expect(firstPopulatedStatusText(root)).toBe('Index references saved.');
 });
 
 it.each(['licensed', 'public'])('#1278 picks a granted %s parent through the same Save form', async (id) => {

@@ -92,7 +92,7 @@ describe('portal#2344: status regions are persistent, not the only child of an {
     expect(soleChildStatusRegions('<LiveRegion>{#if saved}<p class="x">{saved}</p>{/if}</LiveRegion>')).toBe(0);
     expect(soleChildStatusRegions('<p role="status">{message}</p>')).toBe(0);
     expect(soleChildStatusRegions("{#if saved}<p role='status'>{saved}</p>{/if}")).toBe(1);
-    expect(soleChildStatusRegions('{#if a}<p title="role=&quot;status&quot;">x</p>{/if}')).toBe(0);
+    expect(soleChildStatusRegions('{#if a}<p title=\'role="status"\'>x</p>{/if}')).toBe(0);
     expect(soleChildStatusRegions('<!-- {#if a}<p role="status">x</p>{/if} -->')).toBe(0);
   });
 

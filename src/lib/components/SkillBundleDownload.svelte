@@ -233,26 +233,26 @@
             )}
           </p>
         {/if}
+        {#if report.notForHostUnknown}
+          <p data-testid="bundle-other-host-unknown" class="text-xs text-amber-700 dark:text-amber-400">
+            {t(
+              'tasks.bundle.other-host-unknown',
+              'Tasks exported only for another host could not be checked, so some may be missing from this list: {detail}',
+              { detail: report.notForHostUnknown },
+            )}
+          </p>
+        {/if}
       </div>
     {/if}
   </LiveRegion>
 
-  {#if report}
+  {#if report && (report.version || report.leftOut.length > 0 || report.unrecognized.length > 0)}
     <div class="mt-2 space-y-2 text-sm">
       {#if report.version}
         <p class="text-xs text-zinc-500 dark:text-zinc-400" data-testid="skill-bundle-version">
           {t('tasks.bundle.version', 'Plugin version {version}. A later download gets a new version only if the plugin’s contents changed.', {
             version: report.version,
           })}
-        </p>
-      {/if}
-      {#if report.notForHostUnknown}
-        <p class="text-xs text-amber-700 dark:text-amber-400">
-          {t(
-            'tasks.bundle.other-host-unknown',
-            'Tasks exported only for another host could not be checked, so some may be missing from this list: {detail}',
-            { detail: report.notForHostUnknown },
-          )}
         </p>
       {/if}
       {#if report.leftOut.length > 0}

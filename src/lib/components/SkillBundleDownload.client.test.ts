@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { exportSaves } from '$lib/skill-export-saves.svelte';
 import SkillBundleDownload from './SkillBundleDownload.svelte';
-import { announcedStatusText } from '$lib/test/announcedStatusText';
+import { announcedStatusRegion, firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 
 type Props = { orgId: string; checkedCount: number; truncated?: boolean; shown?: number };
 
@@ -67,7 +67,7 @@ const downloadButtons = (t: HTMLElement) =>
  */
 async function reportRendered(target: HTMLElement) {
   await vi.waitFor(() => {
-    if (!announcedStatusText(target)) throw new Error('report not rendered yet');
+    if (!firstPopulatedStatusText(target)) throw new Error('report not rendered yet');
   });
 }
 
@@ -128,6 +128,10 @@ describe('SkillBundleDownload — the left-out report (@codex on #890)', () => {
     await reportRendered(target);
     expect(target.textContent).toContain('could not be checked');
     expect(target.textContent).toContain('host "claudeSkill" unavailable');
+    // portal#2344: the warning is announced WITH the outcome, so it sits in the same status region.
+    const warning = target.querySelector('[data-testid="bundle-other-host-unknown"]')!;
+    expect(warning.closest('[role="status"]')).not.toBeNull();
+    expect(warning.closest('[role="status"]')).toBe(announcedStatusRegion(target));
     // The download itself still happened — an export runs to the end.
     expect(target.textContent).toContain('Prepared acme-skills-codex.zip');
   });
@@ -139,7 +143,10 @@ describe('SkillBundleDownload — incomplete scope (#1689)', () => {
     const { target } = panel({ orgId: 'org-1', checkedCount: 2 });
     downloadButtons(target).find((b) => b.textContent?.includes('Codex'))!.click();
     await reportRendered(target);
-    expect(target.querySelector('[data-testid="bundle-scope-incomplete"]')).not.toBeNull();
+    const warning = target.querySelector('[data-testid="bundle-scope-incomplete"]')!;
+    expect(warning).not.toBeNull();
+    expect(warning.closest('[role="status"]')).toBe(announcedStatusRegion(target));
+    expect(warning.querySelector('[role="status"]')).toBeNull();
     expect(target.textContent).toContain('Prepared acme-skills-codex.zip');
   });
 
@@ -257,7 +264,7 @@ describe('#1077 distinct download refusal', () => {
     downloadButtons(target).find((b) => b.textContent?.includes(host === 'codexSkill' ? 'Codex' : 'Claude'))!.click();
     await vi.waitFor(() => expect(target.querySelector('[role="alert"]')?.textContent).toContain('Downloading tasks requires Contributor access or higher in this organization.'));
     expect(target.textContent).not.toContain('private provider detail');
-    expect(announcedStatusText(target)).toBeNull();
+    expect(firstPopulatedStatusText(target)).toBeNull();
     expect(URL.createObjectURL).not.toHaveBeenCalled();
     expect(downloadButtons(target).every((b) => !b.disabled)).toBe(true);
   });

@@ -12,7 +12,7 @@ import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/tes
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { HAND_BACK_TEXT_MAX, parseHandBack } from '$lib/agent-tasks/hand-back';
 import TaskActionBar from './TaskActionBar.svelte';
-import { announcedStatusText, announcedStatusRegion, idleStatusRegions } from '$lib/test/announcedStatusText';
+import { firstPopulatedStatusText, announcedStatusRegion, idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
 
 const dara = { id: 'w1', kind: 'WORKER' as const, name: 'Dara', urn: 'hrn:worker:acme.com:team:dara' };
 const holger = { id: 'u1', kind: 'USER' as const, name: 'Holger', urn: null };
@@ -307,7 +307,7 @@ describe('TaskActionBar', () => {
 
     it('counts what the cap left out in the focused line', async () => {
       const root = await reassign({ action: 'reassign', ok: true, committedWithError: false, more: 2, warnings: [{ code: 'c', text: 't' }] });
-      expect(announcedStatusText(root)).toBe('Assigned. 3 warnings below.');
+      expect(firstPopulatedStatusText(root)).toBe('Assigned. 3 warnings below.');
     });
 
     // Gene's P2 on #1216: the page reuses this bar across tasks. A result is
@@ -441,7 +441,7 @@ describe('TaskActionBar', () => {
       await tick(3);
       expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
       expect(root.querySelector('#task-panel-handBack')).toBeNull();
-      expect(announcedStatusText(root)).toContain('Handed back: it’s back in the queue.');
+      expect(firstPopulatedStatusText(root)).toContain('Handed back: it’s back in the queue.');
     });
 
     it('after the reload (PENDING, no assignee) the bar no longer offers hand-back', async () => {

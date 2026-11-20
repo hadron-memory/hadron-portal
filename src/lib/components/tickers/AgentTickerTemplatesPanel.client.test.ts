@@ -12,7 +12,7 @@ import { beginEnhanced, submitEnhanced, submitEnhancedWithResult } from '$lib/te
 import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import Panel from './AgentTickerTemplatesPanel.svelte';
-import { announcedStatusRegion, announcedStatusText } from '$lib/test/announcedStatusText';
+import { announcedStatusRegion, firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 
 const quiet = { timezone: 'Europe/Berlin', windows: [{ days: [6, 7], from: '22:00', to: '08:00' }] };
 const standup = { id: 'tpl-1', name: 'standup', cadenceSeconds: 600, quietHours: null, reasons: ['READ_TEAM_CHANNEL'], relevance: 'ALL', revision: 4, tickCode: 'standup', updatedAt: null };
@@ -181,7 +181,7 @@ describe('outcomes', () => {
     expect(alert?.textContent).toContain(`“${message}”`);
     expect(alert?.textContent).toContain('TICKER_TEMPLATE_NAME_TAKEN');
     expect(field(updateForm(root) as never, 'name').value).toBe('nightly');
-    expect(announcedStatusText(root)).toBeNull();
+    expect(firstPopulatedStatusText(root)).toBeNull();
     expect(invalidations()).toBe(0);
   });
 
@@ -223,7 +223,7 @@ describe('outcomes', () => {
     await submitEnhancedWithResult(updateForm(root), { type: 'failure', status: 502, data: { action: 'updateTickerTemplate', refusal: { kind: 'uncertain' } } });
     await tick(3);
     expect(root.textContent).toContain('The change may or may not have gone through. Reload to check.');
-    expect(announcedStatusText(root)).toBeNull();
+    expect(firstPopulatedStatusText(root)).toBeNull();
   });
 
   it('a success reloads, then shows the STORED values from the re-read, not the typed ones, and focuses the status', async () => {
@@ -249,7 +249,7 @@ describe('outcomes', () => {
     await submitEnhancedWithResult(createForm(root)!, { type: 'success', status: 200, data: { action: 'createTickerTemplate', ok: true } });
     await tick(3);
     expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
-    expect(announcedStatusText(root)).toContain('from now on');
+    expect(firstPopulatedStatusText(root)).toContain('from now on');
   });
 
   it('an edited template that is gone after the reload drops back to the add form', async () => {
@@ -284,14 +284,12 @@ describe('route change and late results', () => {
     await tick(3);
     await deliver({ type: 'success', status: 200, data: { action: 'createTickerTemplate', ok: true } });
     await tick(3);
-    // The create form's own save-result region must still be empty: a stale result may not land
-    // in it. Assert that region by itself, so the empty-state status elsewhere on the page (which
-    // carries role=status and text from load) cannot mask it.
-    const form = createForm(root)!;
-    const results = [...form.querySelectorAll<HTMLElement>('[role="status"]')];
-    expect(results.length).toBeGreaterThan(0);
-    for (const region of results) expect(region.textContent?.trim()).toBe('');
-    expect(root.textContent).not.toMatch(/saved|created|from now on/i);
+    // The create form has exactly one status region, its save result: it must still be empty.
+    const results = createForm(root)!.querySelectorAll<HTMLElement>('[role="status"]');
+    expect(results).toHaveLength(1);
+    expect(results[0].textContent?.trim()).toBe('');
+    // The page's empty state is a separate status; check it on its own.
+    expect(root.querySelector('[data-testid="agent-ticker-templates-empty"]')?.textContent).toContain('No ticker templates yet.');
     expect(invalidations()).toBe(0);
   });
 });
