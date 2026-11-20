@@ -1,6 +1,6 @@
 // #2082: mounts the real ConversationInfoPanel for scripts/test-conversation-panel-buttons-layout.mjs.
 // A stored start condition and a goal are seeded so Save, Clear and Save goals all render.
-import { flushSync, mount, unmount } from 'svelte';
+import { flushSync, mount, unmount, type ComponentProps } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import ConversationInfoPanel from '../../components/flow/ConversationInfoPanel.svelte';
@@ -16,7 +16,7 @@ export async function mountPanel(target: HTMLElement, withCondition: boolean): P
     id: 'c1', loc, label: 'Demo', isSetup: false, isFallback: false, startOrder: 2, startTotal: 4,
     entryCondition, goalDescriptions: ['Greet'], goalSignals: [], stages: [],
   };
-  const props = {
+  const props: ComponentProps<typeof ConversationInfoPanel> = {
     conversation,
     goalsForm: await superValidate(conversationGoalsDefaults({ loc, goalDescriptions: ['Greet'], goalSignals: [] }, 'mem-1'), zod4(conversationGoalsSchema), { errors: false }),
     goalsSaved: null, goalsError: null,
@@ -28,7 +28,7 @@ export async function mountPanel(target: HTMLElement, withCondition: boolean): P
     moveError: null, publishState: 'unknown',
     onClose: () => {}, onSelectNode: () => {},
   };
-  const panel = mount(ConversationInfoPanel, { target, props: props as never });
+  const panel = mount(ConversationInfoPanel, { target, props });
   flushSync();
   return () => unmount(panel);
 }

@@ -116,6 +116,19 @@ describe('entry condition', () => {
     expect(t.querySelector('button[value="clear"]')?.textContent).toContain('Clear');
   });
 
+  // portal#2091, hrn:node:hadronmemory.com:specs:cor:brd:010:01: Clear gets a hover and pressed background on
+  // the neutral ramp for both themes, never the warm accent (reserved for the
+  // call to action, which is Save).
+  it('gives Clear a neutral hover and pressed background in both themes', async () => {
+    const t = await open({ entryCondition: { '==': [{ var: 'memory.a' }, 1] } });
+    const cls = (t.querySelector('button[value="clear"]') as HTMLElement).className.split(/\s+/);
+    for (const c of ['hover:bg-zinc-100', 'active:bg-zinc-200', 'dark:hover:bg-zinc-800', 'dark:active:bg-zinc-700']) {
+      expect(cls).toContain(c);
+    }
+    expect(cls.filter((c) => /(^|:)(hover|active):bg-/.test(c) && !/zinc|neutral|gray/.test(c))).toEqual([]);
+    expect(cls.join(' ')).not.toMatch(/orange|amber|fb8500/);
+  });
+
   it('offers no chat.* or message.data.* variable in the builder', async () => {
     const t = await open({ entryCondition: { '==': [{ var: 'memory.a' }, 1] } });
     const options = [...t.querySelectorAll('datalist option')].map((o) => (o as HTMLOptionElement).value);

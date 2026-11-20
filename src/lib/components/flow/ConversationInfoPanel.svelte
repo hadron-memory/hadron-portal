@@ -350,7 +350,7 @@
               name="intent"
               value="clear"
               disabled={$startSubmitting}
-              class="min-h-11 rounded-lg px-2 text-xs text-zinc-600 hover:underline dark:text-zinc-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900 dark:focus-visible:outline-white disabled:opacity-50"
+              class="min-h-11 rounded-lg px-2 text-xs text-zinc-600 hover:bg-zinc-100 hover:underline active:bg-zinc-200 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:active:bg-zinc-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900 dark:focus-visible:outline-white disabled:opacity-50"
             >
               {t('conversation.infoPanel.start.clear', 'Clear')}
             </button>
