@@ -16,6 +16,7 @@
   // read-only row and the Settings options render these so they cannot drift.
   import { APP_TYPE_VALUES, appTypeIcon, appTypeLabel } from '$lib/i18n/app-type-strings';
   import { tick, untrack, onDestroy, flushSync } from 'svelte';
+  import { copyText } from '$lib/clipboard';
   import { ROSTER_FETCH_TIMEOUT_MS } from '$lib/roster-fetch';
   import { applyAction } from '$app/forms';
   import { page } from '$app/stores';
@@ -2423,7 +2424,28 @@
     await tick();
     installAgentFormEl?.requestSubmit();
   }
-  const copyKeyId = (id: string) => navigator.clipboard.writeText(id).catch((e) => console.error('Failed to copy key ID', e));
+  // portal#2330: Copy ID answers the person who chose it. copyText never throws
+  // (no clipboard on plain HTTP, or a refused write), so the failure is said
+  // here rather than lost in the console.
+  let keyIdCopyStatus = $state<'copied' | 'failed' | null>(null);
+  // The latest request owns the status: a slower earlier write that settles late
+  // must neither replace the newer answer nor restart its dismissal timer. The
+  // sequence also keys the message so a repeat of the same outcome re-announces.
+  let keyIdCopySeq = $state(0);
+  let keyIdCopyTimer: ReturnType<typeof setTimeout> | undefined;
+  onDestroy(() => clearTimeout(keyIdCopyTimer));
+  async function copyKeyId(id: string) {
+    const seq = ++keyIdCopySeq;
+    // A new request retires the previous answer at once: the sequence key would
+    // otherwise remount the old message while this write is still pending.
+    keyIdCopyStatus = null;
+    clearTimeout(keyIdCopyTimer);
+    const ok = await copyText(id);
+    if (seq !== keyIdCopySeq) return;
+    keyIdCopyStatus = ok ? 'copied' : 'failed';
+    clearTimeout(keyIdCopyTimer);
+    keyIdCopyTimer = setTimeout(() => { keyIdCopyStatus = null; }, 3000);
+  }
   async function revokeAppKey(key: { id: string }) {
     if ($revokeKeySubmitting) return;
     if (!confirm(t('app.keys.revoke.confirm', 'Revoke this key? This cannot be undone.'))) return;
@@ -2702,7 +2724,7 @@
       <div class="flex items-center gap-2">
         <code class="flex-1 overflow-x-auto rounded bg-white px-3 py-2 font-mono text-xs text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100">{newRawKey}</code>
         <button type="button"
-          onclick={() => { navigator.clipboard.writeText(newRawKey); }}
+          onclick={() => { void copyText(newRawKey); }}
           class="rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-600">
           Copy
         </button>
@@ -4112,6 +4134,17 @@
             <p role="status" class="mb-3 text-xs text-amber-700 dark:text-amber-300">{t('app.keys.scopes.failed', 'Couldn’t load what these keys may do, so the Scopes column isn’t shown.')}</p>
           {/if}
         </div>
+        <!-- portal#2330: the region stays mounted so the answer to Copy ID is announced. -->
+        <div role="status" data-testid="key-copy-status" class="mb-0">
+          {#key keyIdCopySeq}
+          {#if keyIdCopyStatus === 'copied'}
+            <p class="mb-3 text-sm text-green-700 dark:text-green-300">{t('app.keys.copy-id.copied', 'Key ID copied.')}</p>
+          {:else if keyIdCopyStatus === 'failed'}
+            <p class="mb-3 text-sm text-red-700 dark:text-red-300">{t('app.keys.copy-id.failed', 'Couldn’t copy the key ID. This browser isn’t allowing clipboard access here.')}</p>
+          {/if}
+          {/key}
+        </div>
+
         {#if keysState === 'hidden'}
           <!-- portal#1153: the reason line above already covers this fact for the Keys tab. -->
         {:else if keysState === 'failed'}
