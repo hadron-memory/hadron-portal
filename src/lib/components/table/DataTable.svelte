@@ -22,7 +22,7 @@
 <script lang="ts" generics="T extends RowData">
   import type { PortalCell, PortalTable } from '$lib/table/features';
   import type { RowData } from '@tanstack/table-core';
-  import { onMount, untrack, type Snippet } from 'svelte';
+  import { untrack, type Snippet } from 'svelte';
   import ViewTabs from './ViewTabs.svelte';
   import ColumnToggle from './ColumnToggle.svelte';
   import TableFrame from './TableFrame.svelte';
@@ -116,25 +116,52 @@
     });
     if (next !== fillPx) fillPx = next;
   }
-  let observer: ResizeObserver | undefined;
-  onMount(() => {
-    measureFill();
-    // The header above can change height (a banner, wrapped filters, tabs) and the window can be
-    // resized: re-measure on either, so no page needs to guess.
-    observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measureFill);
-    observer?.observe(document.body);
-    if (footerEl) observer?.observe(footerEl);
-    window.addEventListener('resize', measureFill);
-    return () => { observer?.disconnect(); observer = undefined; window.removeEventListener('resize', measureFill); };
-  });
-  // The footer comes and goes (`showFooter`), and `bounded` can flip: measure again, and watch
-  // whichever footer is there now.
+  /** The elements before the scroller in the DOM, among its own siblings and those of each
+   *  ancestor up to the body: the page header, banners and tabs a header growth would come from.
+   *  Also returns the parents whose child lists decide that set. A header that grows moves the
+   *  scroller down without resizing the body (already at its minimum height) or the footer, so
+   *  only these can notice. */
+  function precedingLayoutSiblings(el: HTMLElement): { siblings: HTMLElement[]; parents: HTMLElement[] } {
+    const siblings: HTMLElement[] = [];
+    const parents: HTMLElement[] = [];
+    for (let node: HTMLElement | null = el; node && node !== document.body; node = node.parentElement) {
+      if (node.parentElement) parents.push(node.parentElement);
+      for (let sibling = node.previousElementSibling; sibling; sibling = sibling.previousElementSibling) {
+        if (sibling instanceof HTMLElement) siblings.push(sibling);
+      }
+    }
+    return { siblings, parents };
+  }
+  // Fill mode only: a bounded table keeps one fixed height, so it neither observes nor listens.
+  // The header above can change height (a banner, wrapped filters, tabs) and the window can be
+  // resized: re-measure on either, so no page needs to guess. A banner that mounts or unmounts
+  // above after setup changes which elements to watch, so child-list changes on the ancestors'
+  // parents re-run the registration. The footer comes and goes (`showFooter`) and `bounded` can
+  // flip: the effect re-registers for whichever is there now.
   $effect(() => {
+    if (bounded) return;
+    const scroller = scrollerEl;
     const footer = footerEl;
-    void bounded;
-    untrack(() => {
-      if (footer) observer?.observe(footer);
+    return untrack(() => {
       measureFill();
+      const resizes = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measureFill);
+      resizes?.observe(document.body);
+      if (footer) resizes?.observe(footer);
+      const watched = new Set<HTMLElement>();
+      const watchAbove = () => {
+        if (!scroller || !resizes) return;
+        const next = new Set(precedingLayoutSiblings(scroller).siblings);
+        for (const el of watched) if (!next.has(el)) { resizes.unobserve(el); watched.delete(el); }
+        for (const el of next) if (!watched.has(el)) { resizes.observe(el); watched.add(el); }
+      };
+      watchAbove();
+      let mutations: MutationObserver | undefined;
+      if (scroller && typeof MutationObserver !== 'undefined') {
+        mutations = new MutationObserver(() => { watchAbove(); measureFill(); });
+        for (const parent of precedingLayoutSiblings(scroller).parents) mutations.observe(parent, { childList: true });
+      }
+      window.addEventListener('resize', measureFill);
+      return () => { resizes?.disconnect(); mutations?.disconnect(); window.removeEventListener('resize', measureFill); };
     });
   });
   const scrollerMaxHeight = $derived(bounded ? BOUNDED_MAX_HEIGHT : fillPx !== null ? `${fillPx}px` : 'max(200px, calc(100vh - 23rem))');

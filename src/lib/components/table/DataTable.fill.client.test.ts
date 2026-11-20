@@ -6,15 +6,14 @@
  *
  * Two pins: a table that overflows ends at the window bottom less the footer (red on main, where
  * the cap was a per-page `calc(100vh - Nrem)`), and a table of few rows is as tall as its rows
- * and is never stretched to the window.
+ * and is never stretched to the window. Scroll ownership and the footer after a layout change are
+ * asserted in real Chromium by scripts/test-data-table-fill-layout.mjs (portal#2367).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, type Mounted } from '$lib/test/mountComponent';
 import Harness from '$lib/test/DataTableFillHarness.svelte';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import appLayout from '../../../routes/app/+layout.svelte?raw';
-import rootLayout from '../../../routes/+layout.svelte?raw';
 
 const FOOTER_PX = 40;
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -44,6 +43,25 @@ function mountTable(props: Record<string, unknown>) {
   return m.target.querySelector<HTMLElement>('[data-testid="data-table-scroller"]')!;
 }
 const capPx = (el: HTMLElement) => parseFloat(el.style.maxHeight);
+
+/** A ResizeObserver that, like the real one, calls back only for elements that were observed and
+ *  then resized: `resized(el)` is that element changing size. */
+function fakeObserver() {
+  const instances: Array<{ cb: () => void; targets: Set<Element> }> = [];
+  vi.stubGlobal('ResizeObserver', class {
+    cb: () => void;
+    targets = new Set<Element>();
+    constructor(cb: () => void) { this.cb = cb; instances.push(this); }
+    observe(el: Element) { this.targets.add(el); }
+    unobserve(el: Element) { this.targets.delete(el); }
+    disconnect() { this.targets.clear(); }
+  });
+  return {
+    get observed() { return instances.flatMap((i) => [...i.targets]); },
+    live() { return instances.flatMap((i) => [...i.targets]); },
+    resized(el: Element) { for (const i of instances) if (i.targets.has(el)) i.cb(); },
+  };
+}
 
 describe('DataTable fills the window (portal#2193)', () => {
   it('pin 1, overflowing: the scroller ends at the window bottom less the footer, under a header of any height', () => {
@@ -90,12 +108,90 @@ describe('DataTable fills the window (portal#2193)', () => {
     expect(capPx(mountTable({ rows: 60, headerHeight: 700 }))).toBe(320);
   });
 
-  it('bounded keeps one fixed height and never measures', () => {
-    const scroller = mountTable({ rows: 60, headerHeight: 120, bounded: true });
-    expect(scroller.style.maxHeight).toBe('max(200px, 40vh)');
-    window.dispatchEvent(new Event('resize'));
-    flushSync();
-    expect(scroller.style.maxHeight).toBe('max(200px, 40vh)');
+  it('bounded keeps one fixed height and registers no observer or resize listener', () => {
+    const fake = fakeObserver();
+    const add = vi.spyOn(window, 'addEventListener');
+    try {
+      const scroller = mountTable({ rows: 60, headerHeight: 120, bounded: true });
+      expect(fake.observed).toEqual([]);
+      expect(add.mock.calls.filter(([type]) => type === 'resize')).toEqual([]);
+      expect(scroller.style.maxHeight).toBe('max(200px, 40vh)');
+      window.dispatchEvent(new Event('resize'));
+      flushSync();
+      expect(scroller.style.maxHeight).toBe('max(200px, 40vh)');
+    } finally {
+      add.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('switching modes both ways: filling starts observing, bounded stops and disconnects', () => {
+    const fake = fakeObserver();
+    try {
+      const props = reactiveProps({ rows: 60, headerHeight: 120, bounded: false } as Record<string, unknown>);
+      const m = mountComponent(Harness as never, props as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      flushSync();
+      const scroller = m.target.querySelector<HTMLElement>('[data-testid="data-table-scroller"]')!;
+      expect(fake.live()).toContain(document.body);
+      props.bounded = true;
+      flushSync();
+      expect(fake.live()).toEqual([]);
+      expect(scroller.style.maxHeight).toBe('max(200px, 40vh)');
+      // A resize while bounded changes nothing.
+      (window as unknown as { innerHeight: number }).innerHeight = 1000;
+      window.dispatchEvent(new Event('resize'));
+      flushSync();
+      expect(scroller.style.maxHeight).toBe('max(200px, 40vh)');
+      props.bounded = false;
+      flushSync();
+      expect(fake.live()).toContain(document.body);
+      expect(capPx(scroller)).toBe(1000 - 120 - FOOTER_PX);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('a header above that grows, with no body or footer resize, keeps the footer inside the window', () => {
+    const fake = fakeObserver();
+    try {
+      const scroller = mountTable({ rows: 60, headerHeight: 120 });
+      const header = document.querySelector<HTMLElement>('[data-testid="page-header"]')!;
+      const footer = document.querySelector<HTMLElement>('[data-testid="table-footer"]')!;
+      header.dataset.height = '320'; // the header wrapped onto more lines
+      // A real ResizeObserver reports only the elements that changed size: here, the header.
+      fake.resized(header);
+      flushSync();
+      expect(footer).not.toBeNull();
+      expect(320 + capPx(scroller) + FOOTER_PX).toBeLessThanOrEqual(800);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('a banner that mounts above after setup is watched and measured, and one that unmounts stops being watched', async () => {
+    const fake = fakeObserver();
+    try {
+      const scroller = mountTable({ rows: 60, headerHeight: 120 });
+      const header = document.querySelector<HTMLElement>('[data-testid="page-header"]')!;
+      const before = capPx(scroller);
+      // Mounted after setup, with the body and footer keeping their size.
+      const banner = document.createElement('div');
+      banner.setAttribute('data-testid', 'banner');
+      header.before(banner);
+      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(fake.live()).toContain(banner);
+      header.dataset.height = '200'; // the header shifts the table down with the banner present
+      fake.resized(banner);
+      flushSync();
+      expect(capPx(scroller)).toBe(before - 80);
+      banner.remove();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(fake.live()).not.toContain(banner);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('re-measures when the layout above changes size (ResizeObserver), and watches body and footer', () => {
@@ -131,24 +227,5 @@ describe('DataTable fills the window (portal#2193)', () => {
     props.bounded = false;
     flushSync();
     expect(capPx(scroller)).toBe(800 - 120 - FOOTER_PX);
-  });
-
-  it('layout contract: no element of the root or app shell other than the sidebar (aside and its nav) scrolls, clips or fixes its height, so the document scrolls', () => {
-    // DataTable measures against the document (body observer, window height). If a wrapper of the
-    // content ever scrolls or clips (overflow-*, h-screen and friends, an inline overflow or 100vh
-    // height), this must change. Every tag's class and style are read, comments stripped, so a
-    // token in prose or on another line cannot hide or fake one.
-    const SCROLLS = /\boverflow(-[xy])?-(auto|scroll|hidden|clip)\b|(?<!min-)\b(max-)?h-(screen|dvh|svh|lvh)\b|\bfixed\b/;
-    const INLINE = /overflow(-[xy])?\s*:\s*(auto|scroll|hidden|clip)|(^|;)\s*height\s*:\s*(calc\()?100d?vh/;
-    const offenders: string[] = [];
-    for (const [file, source] of [['+layout.svelte', rootLayout], ['app/+layout.svelte', appLayout]] as const) {
-      const markup = source.replace(/<!--[\s\S]*?-->/g, '').replace(/<script[\s\S]*?<\/script>/g, '');
-      for (const [, tag, attrs] of markup.matchAll(/<([a-zA-Z][\w-]*)\b([^>]*)>/g)) {
-        const cls = /class="([^"]*)"/.exec(attrs)?.[1] ?? '';
-        const style = /style="([^"]*)"/.exec(attrs)?.[1] ?? '';
-        if ((SCROLLS.test(cls) || INLINE.test(style)) && tag !== 'nav' && tag !== 'aside') offenders.push(`${file}: <${tag}> ${cls} ${style}`.trim());
-      }
-    }
-    expect(offenders).toEqual([]);
   });
 });
