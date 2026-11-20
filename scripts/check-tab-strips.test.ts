@@ -787,7 +787,13 @@ describe('the repository as it stands', () => {
     walk(parse(source, { modern: true }).fragment);
     return count;
   }
-  it('pins every shared-row adoption by parsed invocation, not a comment or import', () => {
+  // portal#2347: same class as the repo walk above — this it() re-parses
+  // every scanned route file through the Svelte parser (sharedCalls inside
+  // the filter), which crossed vitest's 5000ms default on a loaded CI runner
+  // (portal#2346 run at 31d133d4) with the assertion never failing on
+  // content. This test's own budget, not the suite's — a genuinely hung test
+  // elsewhere still trips the default.
+  it('pins every shared-row adoption by parsed invocation, not a comment or import', { timeout: 30_000 }, () => {
     const adopted = scan().filter(row => row.file.startsWith('src/routes/') && sharedCalls(readFileSync(row.file, 'utf8')) > 0).map(row => row.file).sort();
     expect(adopted).toEqual(SHARED_ROWS);
     for (const file of SHARED_ROWS) expect(sharedCalls(readFileSync(file, 'utf8'))).toBe(1);
