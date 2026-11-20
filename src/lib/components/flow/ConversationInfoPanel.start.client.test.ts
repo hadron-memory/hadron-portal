@@ -116,7 +116,7 @@ describe('entry condition', () => {
     expect(t.querySelector('button[value="clear"]')?.textContent).toContain('Clear');
   });
 
-  // portal#2091 / cor:brd:010:01: Clear gets a hover and pressed background on
+  // portal#2091, hrn:node:hadronmemory.com:specs:cor:brd:010:01: Clear gets a hover and pressed background on
   // the neutral ramp for both themes, never the warm accent (reserved for the
   // call to action, which is Save).
   it('gives Clear a neutral hover and pressed background in both themes', async () => {
