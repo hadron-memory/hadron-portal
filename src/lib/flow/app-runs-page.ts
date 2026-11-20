@@ -38,5 +38,15 @@ function isWellShapedEnumName(v: unknown): v is string {
 export function isRunsSection(value: unknown): value is RunsSection {
   if (!value || typeof value !== 'object') return false;
   const s = value as RunsSection;
-  return Number.isSafeInteger(s.page) && s.page >= 1 && Number.isSafeInteger(s.total) && s.total >= 0 && typeof s.failed === 'boolean' && typeof s.explicitState === 'boolean' && RUN_SORTS.includes(s.sort) && ['asc', 'desc'].includes(s.dir) && Array.isArray(s.statuses) && s.statuses.every(x => RUN_STATUSES.includes(x)) && Array.isArray(s.runs) && s.runs.length <= RUNS_PAGE_SIZE && s.runs.every(r => r && typeof r.id === 'string' && isWellShapedEnumName(r.status) && typeof r.entryNodeUrn === 'string' && isWellShapedEnumName(r.triggerKind) && typeof r.createdAt === 'string' && (r.startedAt === null || typeof r.startedAt === 'string') && (r.finishedAt === null || typeof r.finishedAt === 'string') && (r.failure === null || typeof r.failure === 'object') && (r.eventData === null || typeof r.eventData === 'object'));
+  return Number.isSafeInteger(s.page) && s.page >= 1 && Number.isSafeInteger(s.total) && s.total >= 0 && typeof s.failed === 'boolean' && typeof s.explicitState === 'boolean' && RUN_SORTS.includes(s.sort) && ['asc', 'desc'].includes(s.dir) && Array.isArray(s.statuses) && s.statuses.every(x => RUN_STATUSES.includes(x)) && Array.isArray(s.runs) && s.runs.length <= RUNS_PAGE_SIZE && s.runs.every(isAppRunRow);
+}
+
+/**
+ * One run row as the runs tables read it. Shared by the per-app page guard above and the org-wide loader,
+ * so both refuse the same malformed row (a null `entryNodeUrn` would otherwise throw in `entryNodeLabel`).
+ */
+export function isAppRunRow(r: unknown): r is AppRun {
+  if (!r || typeof r !== 'object') return false;
+  const x = r as AppRun;
+  return typeof x.id === 'string' && isWellShapedEnumName(x.status) && typeof x.entryNodeUrn === 'string' && isWellShapedEnumName(x.triggerKind) && typeof x.createdAt === 'string' && (x.startedAt === null || typeof x.startedAt === 'string') && (x.finishedAt === null || typeof x.finishedAt === 'string') && (x.failure === null || typeof x.failure === 'object') && (x.eventData === null || typeof x.eventData === 'object');
 }
