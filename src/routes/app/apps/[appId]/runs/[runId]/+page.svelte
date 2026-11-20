@@ -216,7 +216,7 @@
   <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="run-timeline-heading">
     <h2 id="run-timeline-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('run.timeline', 'Step timeline')}</h2>
     <p class="mt-1 text-xs text-zinc-400">
-      {t('run.timeline.hint', 'Steps the run has completed, in order. The step in progress, or the one that failed, is not listed until it completes.')}
+      {t('run.timeline.hint', 'Steps the run has completed, in order. The step in progress, or the one that failed, is shown below the list, not as a step.')}
     </p>
     {#if trail.state === 'unavailable'}
       <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{t('run.timeline.unavailable', 'Step trail unavailable for this run.')}</p>
