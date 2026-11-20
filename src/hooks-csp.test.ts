@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { RequestEvent } from '@sveltejs/kit';
 
 vi.mock('$app/environment', () => import('$lib/test/stubs/app-environment-ssr'));
@@ -49,8 +49,13 @@ async function cspFor(base: string | null): Promise<string | null> {
 }
 
 describe('runtime CSP wiring in the handle sequence (#2084)', () => {
+  const originalServerUrl = env.PUBLIC_SERVER_URL;
   beforeEach(() => {
     delete env.PUBLIC_SERVER_URL;
+  });
+  afterEach(() => {
+    if (originalServerUrl === undefined) delete env.PUBLIC_SERVER_URL;
+    else env.PUBLIC_SERVER_URL = originalServerUrl;
   });
 
   it('adds the public server origin to form-action on a document response', async () => {
