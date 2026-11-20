@@ -143,4 +143,43 @@ describe('org App Runs load()', () => {
     expect(result.runs).toHaveLength(1);
     expect(result.appNames).toEqual({});
   });
+
+  // Defence in depth: the SDL says entryNodeUrn is String! and the client rejects any GraphQL error, so a real
+  // server cannot send these. A contract-violating or future-nullable server must still degrade to the failure
+  // banner (the per-app sibling does, via isRunsSection), never throw during render and 500 the whole list.
+  it.each([
+    ['a null entryNodeUrn', { ...run, entryNodeUrn: null }],
+    ['a missing entryNodeUrn', (({ entryNodeUrn: _drop, ...rest }) => rest)(run)],
+    ['a non-string status', { ...run, status: 7 }],
+    ['a row that is not an object', null],
+  ])('a malformed row (%s) is the failure banner, never a 500 and never an empty success', async (_label, bad) => {
+    routeQueries({ runs: { items: [run, bad], total: 2 } });
+
+    const result = await runLoad();
+
+    expect(result.failed).toBe(true);
+    expect(result.runs).toEqual([]);
+    expect(result.total).toBe(0);
+    expect(errorSpy).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['items that are not an array', { items: null, total: 0 }],
+    ['a total that is not a count', { items: [run], total: -1 }],
+    ['a page with no items field', { total: 1 }],
+  ])('a malformed page (%s) is the failure banner', async (_label, runs) => {
+    routeQueries({ runs: runs as never });
+
+    expect((await runLoad()).failed).toBe(true);
+  });
+
+  it('a full window of well-formed rows (more than one per-app page) still loads', async () => {
+    const window = Array.from({ length: 200 }, (_, i) => ({ ...run, id: `run-${i}` }));
+    routeQueries({ runs: { items: window, total: 200 } });
+
+    const result = await runLoad();
+
+    expect(result.failed).toBe(false);
+    expect(result.runs).toHaveLength(200);
+  });
 });

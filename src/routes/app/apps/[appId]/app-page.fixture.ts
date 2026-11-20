@@ -5,7 +5,7 @@ import type { TeamChatMessage } from '$lib/types';
 import { runAppFlowSchema } from './runs/schema';
 import {
   createAppMemorySchema, addAgentSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
-  deleteAppSchema, releaseWorkerSchema, removeAppAgentSchema, retireWorkerSchema,
+  deleteAppSchema, grantAppKeyScopeSchema, releaseWorkerSchema, removeAppAgentSchema, retireWorkerSchema,
   revokeAppKeySchema, updateAppAgentToolsSchema,
 } from './schema';
 import { TAB_PAYLOAD_KEYS } from './first-screen';
@@ -30,10 +30,10 @@ export const everyTabRead = (): Record<string, undefined> => Object.fromEntries(
 
 export async function pageData() {
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm,
-    updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm,
+    updateAgentToolsForm, revokeKeyForm, grantKeyScopeForm, deleteAppForm, castWorkerForm,
     retireWorkerForm, releaseWorkerForm, postTeamChatMessageForm] = await Promise.all([
     appSettingsSchema, addAgentSchema, createAppKeySchema, removeAppAgentSchema,
-    updateAppAgentToolsSchema, revokeAppKeySchema, deleteAppSchema, castWorkerSchema,
+    updateAppAgentToolsSchema, revokeAppKeySchema, grantAppKeyScopeSchema, deleteAppSchema, castWorkerSchema,
     retireWorkerSchema, releaseWorkerSchema, postTeamChatMessageSchema,
   ].map((schema) => superValidate(zod4(schema), { errors: false })));
   return {
@@ -55,7 +55,7 @@ export async function pageData() {
     chatConfigs: [], appConfigs: [], worklog: [], worklogTotal: 0, worklogError: false,
     currentUserId: 'u1',
     appSettingsForm, addAgentForm, createKeyForm, removeAgentForm,
-    updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm,
+    updateAgentToolsForm, revokeKeyForm, grantKeyScopeForm, deleteAppForm, castWorkerForm,
     retireWorkerForm, releaseWorkerForm, postTeamChatMessageForm,
   };
 }
