@@ -77,7 +77,7 @@
         {:else if seed}<RuleReference state={seed[`${field}State`]} urn={seed[field]} />
         {:else}<RuleReference state="NONE" urn={null} />{/if}
         <div class="flex flex-wrap gap-2">
-          <button type="button" onclick={() => { choosing = field; pickerOpen = true; }} class="min-h-11 rounded border px-3">{t('config.change', 'Change…')}</button>
+          <button type="button" onclick={() => { choosing = field; pickerOpen = true; }} aria-haspopup="dialog" aria-expanded={pickerOpen} class="min-h-11 rounded border px-3">{t('config.change', 'Change…')}</button>
           <button type="button" onclick={() => setReference(field, null)} class="min-h-11 rounded border px-3">{t('config.clear', 'Clear')}</button>
         </div>
         {#if failure?.field === field || failure?.field === `${field}Ref`}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}

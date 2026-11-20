@@ -60,7 +60,7 @@
         </div>
       {/if}
       <div class="flex flex-wrap items-center gap-2">
-        <button type="button" onclick={() => (pickerOpen = true)} class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+        <button type="button" onclick={() => (pickerOpen = true)} aria-haspopup="dialog" aria-expanded={pickerOpen} class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
           {pick ? t('worker.change-agent.choose-other', 'Choose another') : t('worker.change-agent.choose', 'Choose agent')}
         </button>
         <button type="submit" disabled={!pick || submitting} class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">

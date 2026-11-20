@@ -252,7 +252,7 @@
         <div class="space-y-1">
           <span class={labelClass}>{t('app.tasks.ref.target.task', 'Task')}</span>
           <div class="flex flex-wrap items-center gap-2">
-            <button type="button" onclick={() => (picking = true)} class="rounded-md border border-zinc-300 px-3 py-1 text-sm text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('app.tasks.ref.choose-task', 'Choose a task…')}</button>
+            <button type="button" onclick={() => (picking = true)} aria-haspopup="dialog" aria-expanded={picking} class="rounded-md border border-zinc-300 px-3 py-1 text-sm text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('app.tasks.ref.choose-task', 'Choose a task…')}</button>
             {#if picked}
               <span class="min-w-0 text-sm text-zinc-800 [overflow-wrap:anywhere] dark:text-zinc-100">{picked.title}</span>
               <TaskHandle handle={picked.handle} />
@@ -266,7 +266,7 @@
         <div class="space-y-1">
           <span class={labelClass}>{t('app.tasks.ref.target.node', 'Node')}</span>
           <div class="flex flex-wrap items-center gap-2">
-            <button type="button" onclick={() => (nodePicking = true)} bind:this={chooseNodeTrigger} class="rounded-md border border-zinc-300 px-3 py-1 text-sm text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('app.tasks.ref.choose-node', 'Choose a node…')}</button>
+            <button type="button" onclick={() => (nodePicking = true)} aria-haspopup="dialog" aria-expanded={nodePicking} bind:this={chooseNodeTrigger} class="rounded-md border border-zinc-300 px-3 py-1 text-sm text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('app.tasks.ref.choose-node', 'Choose a node…')}</button>
             {#if pickedNode}
               <span class="min-w-0 text-sm text-zinc-800 [overflow-wrap:anywhere] dark:text-zinc-100">{pickedNode.name}</span>
               <span class="min-w-0 font-mono text-xs text-zinc-500 [overflow-wrap:anywhere] dark:text-zinc-400">{pickedNode.loc}</span>
