@@ -241,7 +241,7 @@ try {
       if (state === 'error') check(g.error !== null, 'error state rendered no alert');
 
       // Preview, Scopes and the actions menu stay reachable inside the scroller.
-      for (const [what, sel] of [['preview', 'tbody tr:first-child td:nth-child(2) span.font-mono'], ['scopes', '[data-testid="key-scopes"]'], ['actions', 'tbody tr:last-child td:last-child button']]) {
+      for (const [what, sel] of [['preview', 'tbody tr:first-child td:nth-child(3) span.font-mono'], ['scopes', '[data-testid="key-scopes"]'], ['actions', 'tbody tr:last-child td:last-child button']]) {
         const r = await page.evaluate(reach, sel);
         check(r.found, `${what} cell not rendered`);
         if (r.found) check(r.left >= -1 && r.right >= -1, `${what} not reachable (left ${r.left.toFixed(1)}, right ${r.right.toFixed(1)})`);
@@ -274,9 +274,9 @@ try {
       assert.ok(await page.locator('#panel-keys [data-testid="table-header"]').locator('summary').filter({ hasText: /Columns/ }).count() === 1, 'column toggle present');
       const header = await page.evaluate(() => { const h = document.querySelector('#panel-keys [data-testid="table-header"]').getBoundingClientRect(); const s = document.querySelector('#panel-keys [data-testid="data-table-scroller"]').getBoundingClientRect(); return { h: h.width, s: s.width }; });
       assert.ok(near(header.h, header.s), `open table header ${header.h}px matches the table ${header.s}px`);
-      const label = page.locator('#panel-keys th').filter({ hasText: /^Label/ });
+      const label = page.locator('#panel-keys th').filter({ hasText: /^Name/ });
       await label.click();
-      assert.ok(['ascending', 'descending'].includes(await label.getAttribute('aria-sort')), 'Label header sorts');
+      assert.ok(['ascending', 'descending'].includes(await label.getAttribute('aria-sort')), 'Name header sorts');
     } catch (e) { failures.push(`1440/chrome: ${e.message}`); } finally { await page.close(); }
 
     // A deliberately wide saved view keeps its widths and scrolls; nothing clamps it.
@@ -284,10 +284,10 @@ try {
     try {
       const g = await wide.page.evaluate(() => {
         const s = document.querySelector('#panel-keys [data-testid="data-table-scroller"]');
-        const th = [...s.querySelectorAll('th')].find((t) => t.textContent.trim().startsWith('Label'));
+        const th = [...s.querySelectorAll('th')].find((t) => t.textContent.trim().startsWith('Name'));
         return { label: th.getBoundingClientRect().width, scroll: s.scrollWidth, client: s.clientWidth, pageOverflow: document.scrollingElement.scrollWidth - document.scrollingElement.clientWidth };
       });
-      if (!near(g.label, 700)) failures.push(`1440/saved-wide: Label column ${g.label}px, saved 700px`);
+      if (!near(g.label, 700)) failures.push(`1440/saved-wide: Name column ${g.label}px, saved 700px`);
       if (!(g.scroll > g.client)) failures.push('1440/saved-wide: wide saved view does not scroll internally');
       if (g.pageOverflow > 0) failures.push(`1440/saved-wide: page overflows by ${g.pageOverflow}px`);
       const r = await wide.page.evaluate(reach, 'tbody tr:last-child td:last-child button');
