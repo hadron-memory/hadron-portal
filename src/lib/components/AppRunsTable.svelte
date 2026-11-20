@@ -78,10 +78,15 @@
   function query(change: Partial<RunsQuery>): RunsQuery { return { page: controls.page, statuses: controls.statuses, sort: controls.sort, dir: controls.dir, ...change }; }
   async function navigate(next: RunsQuery, replaceState = false) {
     const id = ++epoch, ref = appRef;
-    intent = next; announcement = ''; pending = true; const mine = awaitingServe = ++serveToken;
+    intent = next; announcement = ''; pending = true;
+    const mine = ++serveToken;
+    awaitingServe = mine;
     try { await goto(runsHref(ref, next), { replaceState, keepFocus: true, noScroll: true }); }
     catch { if (alive && id === epoch && ref === appRef) { awaitingServe = 0; announcement = t('runs.navigation-failed', 'Could not open this runs page. Try again.'); } }
-    finally { if (awaitingServe === mine) awaitingServe = 0; if (alive && id === epoch && ref === appRef) { intent = null; pending = false; } }
+    finally {
+      if (awaitingServe === mine) awaitingServe = 0;
+      if (alive && id === epoch && ref === appRef) { intent = null; pending = false; }
+    }
   }
   const table = createSvelteTable<AppRun>({
     get data() { return section.runs; }, columns, defaultColumn: { minSize: 40 }, getRowId: r => r.id,
