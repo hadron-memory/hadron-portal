@@ -6,7 +6,7 @@
   import GrantHistory from "./GrantHistory.svelte";
   import GrantStatus from "./GrantStatus.svelte";
   import Urn from "$lib/components/Urn.svelte";
-  import type { Grant, Holder } from "$lib/grants/types";
+  import { grantError, type Grant, type Holder } from "$lib/grants/types";
   let {
     grant,
     holder,
@@ -105,10 +105,7 @@
           refusal =
             result.type === "failure" && typeof result.data?.error === "string"
               ? result.data.error
-              : t(
-                  "grants.error.generic",
-                  "The grant request could not be completed. Refresh before trying again.",
-                );
+              : grantError(null);
       } finally {
         if (mine === attempts) busy = false;
         finish?.();
