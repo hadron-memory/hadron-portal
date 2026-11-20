@@ -6,13 +6,13 @@
  * and the save goes through a spied `saveBase64Download`.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mountComponent, type Mounted } from '$lib/test/mountComponent';
+import { mountComponent, type Mounted, idleStatusAtMount } from '$lib/test/mountComponent';
 
 const saved = vi.fn();
 vi.mock('$lib/save-download', () => ({ saveBase64Download: (...a: unknown[]) => saved(...a) }));
 
 import NodeSkillExport from './NodeSkillExport.svelte';
-import { announcedStatusText } from '$lib/test/announcedStatusText';
+import { announcedStatusRegion, announcedStatusText } from '$lib/test/announcedStatusText';
 
 type Props = { endpoint: string; hosts: string[] };
 const mounted: Array<Mounted<Props>> = [];
@@ -98,6 +98,7 @@ describe('NodeSkillExport — the report', () => {
     buttons(target)[0].click();
     await reportRendered(target);
     expect(saved).not.toHaveBeenCalled();
+    expect(idleStatusAtMount(target), 'the region existed, empty, before the result').toContain(announcedStatusRegion(target));
     expect(announcedStatusText(target)).toContain('sign in required');
     expect(target.textContent).not.toContain('Try again shortly');
   });
@@ -112,6 +113,7 @@ describe('NodeSkillExport — the report', () => {
     buttons(target)[0].click();
     await reportRendered(target);
     expect(saved).not.toHaveBeenCalled();
+    expect(idleStatusAtMount(target), 'the region existed, empty, before the result').toContain(announcedStatusRegion(target));
     expect(announcedStatusText(target)).toContain(text);
     expect(target.textContent).not.toContain('Try again shortly');
   });

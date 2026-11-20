@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { announcedStatusText } from './announcedStatusText';
+import { announcedStatusRegion, announcedStatusText, idleStatusRegions } from './announcedStatusText';
 
 const dom = (html: string) => { const d = document.createElement('div'); d.innerHTML = html; return d; };
 
@@ -13,5 +13,19 @@ describe('announcedStatusText', () => {
   it('ignores alert regions and a page with no region', () => {
     expect(announcedStatusText(dom('<div role="alert">Failed</div>'))).toBeNull();
     expect(announcedStatusText(dom('<p>plain</p>'))).toBeNull();
+  });
+
+  it('idleStatusRegions + announcedStatusRegion pin a region that already existed', () => {
+    const root = dom('<div role="status"></div>');
+    const idle = idleStatusRegions(root);
+    expect(idle).toHaveLength(1);
+    idle[0].textContent = 'Saved.';
+    expect(idle).toContain(announcedStatusRegion(root));
+  });
+  it('a region mounted afterwards is not among the idle ones', () => {
+    const root = dom('<p>nothing yet</p>');
+    const idle = idleStatusRegions(root);
+    root.insertAdjacentHTML('beforeend', '<div role="status">Saved.</div>');
+    expect(idle).not.toContain(announcedStatusRegion(root));
   });
 });

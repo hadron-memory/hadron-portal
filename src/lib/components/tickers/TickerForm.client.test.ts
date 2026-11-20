@@ -4,13 +4,13 @@
  * nothing reports a write that did not land.
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { mountComponent, tick, type Mounted, idleStatusAtMount } from '$lib/test/mountComponent';
 import { beginEnhanced, submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import TickerForm from './TickerForm.svelte';
 import TickerDelete from './TickerDelete.svelte';
-import { announcedStatusText, announcedStatusRegion } from '$lib/test/announcedStatusText';
+import { announcedStatusRegion, announcedStatusText } from '$lib/test/announcedStatusText';
 
 const stored = { id: 'tk-1', name: 'standup', cadenceSeconds: 600, reasons: ['READ_TEAM_CHANNEL'] };
 
@@ -154,6 +154,7 @@ describe('TickerForm (create)', () => {
     });
     await tick(3);
     // The status line says warnings follow (for a screen reader), as a separate sentence.
+    expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
     expect(announcedStatusText(root)).toContain('Created standup. 1 warning below.');
     const box = root.querySelector('[data-testid="task-warnings"]')!;
     expect(box.textContent).toContain(unmappedWarning.text);
@@ -168,6 +169,7 @@ describe('TickerForm (create)', () => {
       data: { action: 'create', ok: true, ticker: { id: 'tk-9', name: 'standup' }, committedWithError: false, warnings: [], more: 0 },
     });
     await tick(3);
+    expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
     expect(announcedStatusText(root)).toContain('Created standup.');
     expect(root.querySelector('[data-testid="task-warnings"]')).toBeNull();
   });
@@ -179,6 +181,7 @@ describe('TickerForm (create)', () => {
       data: { action: 'create', ok: true, ticker: null, committedWithError: true, warnings: [unmappedWarning], more: 0 },
     });
     await tick(3);
+    expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
     expect(announcedStatusText(root)).toContain('also reported an error');
     expect(root.querySelector('[data-testid="task-warnings"]')).not.toBeNull();
     expect(root.querySelector('a[href*="/tickers/"]')).toBeNull();
@@ -191,6 +194,7 @@ describe('TickerForm (create)', () => {
       data: { action: 'create', ok: true, ticker: { id: 'tk-9', name: 'standup' }, committedWithError: true, warnings: [], more: 0 },
     });
     await tick(3);
+    expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
     expect(announcedStatusText(root)).toContain('also reported an error');
     expect(root.querySelector('a[href="/app/apps/app-1/tickers/tk-9"]')).not.toBeNull();
   });
@@ -203,6 +207,7 @@ describe('TickerForm (create)', () => {
     });
     await tick(3);
     const text = announcedStatusText(root) ?? '';
+    expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
     expect(text).toContain('Ticker created.');
     expect(text).not.toContain('Saved');
   });
@@ -222,6 +227,7 @@ describe('TickerForm (create)', () => {
     await finish({ type: 'success', status: 200, data: { action: 'create', ok: true, ticker: { id: 'tk-10', name: 'next' }, committedWithError: false, warnings: [], more: 0 } });
     await tick(3);
     expect(root.querySelector('[data-testid="task-warnings"]')).toBeNull();
+    expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
     expect(announcedStatusText(root)).toContain('Created next.');
   });
 
@@ -271,6 +277,7 @@ describe('TickerForm (edit)', () => {
     props.ticker = { ...stored, cadenceSeconds: 301 };
     await tick(3);
     expect(field(m.target, 'cadenceSeconds').value).toBe('301');
+    expect(idleStatusAtMount(m.target), 'the region existed, empty, before the result').toContain(announcedStatusRegion(m.target));
     expect(announcedStatusText(m.target)).toContain('Saved');
   });
 
@@ -300,6 +307,7 @@ describe('TickerForm (edit)', () => {
     const root = await editWithDraftDuringRequest(true);
     expect(field(root, 'name').value).toBe('unsaved-next-draft');
     const status = announcedStatusText(root) ?? '';
+    expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
     expect(status).toContain('Saved');
     expect(status).not.toContain('stored values');
     expect(status).toContain('not saved yet');
@@ -308,6 +316,7 @@ describe('TickerForm (edit)', () => {
   it('with no newer draft the success still says these are the stored values (control)', async () => {
     const root = await editWithDraftDuringRequest(false);
     expect(field(root, 'name').value).toBe('saved-name');
+    expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
     expect(announcedStatusText(root)).toContain('Saved. These are the stored values.');
   });
 

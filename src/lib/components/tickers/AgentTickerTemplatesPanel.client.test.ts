@@ -7,12 +7,12 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';
-import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { mountComponent, tick, type Mounted, idleStatusAtMount } from '$lib/test/mountComponent';
 import { beginEnhanced, submitEnhanced, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import Panel from './AgentTickerTemplatesPanel.svelte';
-import { announcedStatusText, announcedStatusRegion } from '$lib/test/announcedStatusText';
+import { announcedStatusRegion, announcedStatusText } from '$lib/test/announcedStatusText';
 
 const quiet = { timezone: 'Europe/Berlin', windows: [{ days: [6, 7], from: '22:00', to: '08:00' }] };
 const standup = { id: 'tpl-1', name: 'standup', cadenceSeconds: 600, quietHours: null, reasons: ['READ_TEAM_CHANNEL'], relevance: 'ALL', revision: 4, tickCode: 'standup', updatedAt: null };
@@ -248,6 +248,7 @@ describe('outcomes', () => {
     const root = await mountPanel();
     await submitEnhancedWithResult(createForm(root)!, { type: 'success', status: 200, data: { action: 'createTickerTemplate', ok: true } });
     await tick(3);
+    expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
     expect(announcedStatusText(root)).toContain('from now on');
   });
 

@@ -6,12 +6,12 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';
-import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { mountComponent, tick, type Mounted, idleStatusAtMount } from '$lib/test/mountComponent';
 import { beginEnhanced, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { holdInvalidateAll, navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import DeliverySettingsPanel from './DeliverySettingsPanel.svelte';
-import { announcedStatusText, announcedStatusRegion } from '$lib/test/announcedStatusText';
+import { announcedStatusRegion, announcedStatusText } from '$lib/test/announcedStatusText';
 
 const stored = { batchWindowSeconds: 120, busyDelaySeconds: 600, stuckWindowSeconds: 900 };
 const ok = (over: Record<string, unknown> = {}) => ({ kind: 'ok' as const, value: { ...stored, ...over } });
@@ -230,6 +230,7 @@ describe('DeliverySettingsPanel', () => {
       expect(announcedStatusText(root)).toBeNull();
       await deliverB({ type: 'success', status: 200, data: { action: 'delivery', ok: true } });
       await tick(3);
+      expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
       expect(announcedStatusText(root)).toContain('Saved');
       expect(root.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
     });

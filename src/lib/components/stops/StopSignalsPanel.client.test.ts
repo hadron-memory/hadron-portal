@@ -10,12 +10,12 @@
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';
-import { captureUnhandledRejections, mountComponent, tick, wait, type Mounted } from '$lib/test/mountComponent';
+import { captureUnhandledRejections, mountComponent, tick, wait, type Mounted, idleStatusAtMount } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { beginEnhanced, submitEnhanced } from '$lib/test/stubs/app-forms';
 import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import Panel from './StopSignalsPanel.svelte';
-import { announcedStatusText } from '$lib/test/announcedStatusText';
+import { announcedStatusRegion, announcedStatusText } from '$lib/test/announcedStatusText';
 
 // Node re-reads process.env.TZ on assignment (tzset), POSIX only — CI is Linux.
 // Restored in afterAll so a reused worker doesn't leak the zone to other files.
@@ -265,6 +265,7 @@ describe('after a submit', () => {
     await tick(3);
     expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
     expect(root.querySelector('dialog')).toBeNull();
+    expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
     expect(announcedStatusText(root)).toContain('Stop set');
     expect(root.querySelector<HTMLSelectElement>('#stop-worker')!.value).toBe('');
   });

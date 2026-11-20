@@ -30,3 +30,17 @@ export function announcedStatusRegion(scope: Element | Document): HTMLElement | 
   }
   return null;
 }
+
+/**
+ * The `role="status"` regions that exist right now and are empty. Take this
+ * BEFORE the action under test: a region that speaks afterwards must be one of
+ * these, i.e. it already existed, empty, and only its content changed. A
+ * conditionally mounted region is not in this list, which is the defect.
+ *
+ *     const idle = idleStatusRegions(root);
+ *     …act…
+ *     expect(idle).toContain(announcedStatusRegion(root));
+ */
+export function idleStatusRegions(scope: Element | Document): HTMLElement[] {
+  return [...scope.querySelectorAll<HTMLElement>('[role="status"]')].filter((r) => !r.textContent?.trim());
+}
