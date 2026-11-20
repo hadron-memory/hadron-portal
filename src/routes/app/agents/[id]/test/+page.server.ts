@@ -24,8 +24,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   // server's own `startChat` refusal stays authoritative.
   const resolved = await requireTesterAgent(client, locals.user?.id, params.id).catch((e: unknown) => {
     // An HttpError below skips handleError's log, so keep the diagnosis: the
-    // server's error code only, never its message (graphql-request packs the request into it).
-    console.error('[agent-tester] lookup failed:', extractGqlErrorCode(e) ?? 'no code');
+    // server's error code, or the error's class name when it has none; never its
+    // message (graphql-request packs the request into it).
+    console.error('[agent-tester] lookup failed:', extractGqlErrorCode(e) ?? (e instanceof Error ? e.name : typeof e));
     throw error(500, t('agent-tester.load-failed', 'The Agent Tester could not be loaded. Please try again.'));
   });
   if (!resolved) throw error(404, 'Agent not found or no longer available');

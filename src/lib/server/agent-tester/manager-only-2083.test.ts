@@ -280,7 +280,9 @@ describe('Tester page load', () => {
     ['manage read', SELF_CAN_MANAGE_QUERY],
   ])('a failed %s answers the fixed Tester 500, with no upstream text', async (_name, failing) => {
     route('manager', 'personal');
-    const routed = mockRequest.getMockImplementation()!;
+    const routed = mockRequest.getMockImplementation();
+    expect(routed).toBeTypeOf('function');
+    if (!routed) return;
     mockRequest.mockImplementation(async (q: string, v?: Record<string, unknown>) => {
       if (q === failing) throw new Error('upstream 503');
       return routed(q, v);
@@ -292,5 +294,42 @@ describe('Tester page load', () => {
     expect(JSON.stringify(err)).not.toContain('upstream 503');
     expect(mockResolveChatAi).not.toHaveBeenCalled();
     expect(startChatCalls()).toBe(0);
+  });
+
+  // portal#2106 row 5: the log names the error's class when the server gave no
+  // code, and never carries the message (graphql-request packs the request in it).
+  describe('the lookup-failure log', () => {
+    const failWith = async (err: unknown) => {
+      route('manager', 'personal');
+      const routed = mockRequest.getMockImplementation();
+      expect(routed).toBeTypeOf('function');
+      mockRequest.mockImplementation(async (q: string, v?: Record<string, unknown>) => {
+        if (q === ORGANIZATIONS_QUERY) throw err;
+        return routed!(q, v);
+      });
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        await load(locals()).catch(() => null);
+        return spy.mock.calls.map((c) => c.map(String).join(' ')).join('\n');
+      } finally {
+        spy.mockRestore();
+      }
+    };
+
+    it('logs TypeError for a non-GraphQL failure, never its message', async () => {
+      const logged = await failWith(new TypeError('INJECTED-SECRET-REQUEST-BODY'));
+      expect(logged).toContain('TypeError');
+      expect(logged).not.toContain('INJECTED-SECRET-REQUEST-BODY');
+      expect(logged).not.toContain('no code');
+    });
+
+    it('still logs the GraphQL error code', async () => {
+      const gql = Object.assign(new Error('INJECTED-SECRET-REQUEST-BODY'), {
+        response: { errors: [{ message: 'INJECTED-SECRET-REQUEST-BODY', extensions: { code: 'FORBIDDEN' } }] },
+      });
+      const logged = await failWith(gql);
+      expect(logged).toContain('FORBIDDEN');
+      expect(logged).not.toContain('INJECTED-SECRET-REQUEST-BODY');
+    });
   });
 });
