@@ -2,6 +2,7 @@ import {it,expect,vi} from 'vitest';
 import {superValidate} from 'sveltekit-superforms/server';
 import {zod4} from 'sveltekit-superforms/adapters';
 import {mountComponent,tick} from '$lib/test/mountComponent';
+import {submitEnhancedWithResult,resetKitAppliedResults} from '$lib/test/stubs/app-forms';
 import {viewStorageErrorText} from '$lib/test/viewStorageErrorText';
 import {viewStorageErrorMessages} from '$lib/table/viewStore';
 import {savedViewsStrings} from '$lib/i18n/saved-views-strings';
@@ -20,6 +21,38 @@ it('a success identifies and links the created memory, and keeps the form open t
  expect(result.querySelector('a')?.getAttribute('href')).toBe('/app/memories/new-id');
  expect(result.querySelector('[title="hrn:mem:acme.com:new-notes"]')).not.toBeNull();
  }finally{m.unmount();}
+});
+
+// portal#2366 (BLIND F2 of #2363): the test above MOUNTS with a success result
+// already present, so it never crosses the transition. This one starts from a
+// collapsed form, opens it, drives the recorded enhanced submit, hands it the
+// success result the server would send, and watches the SAME mounted form.
+it('an enhanced submit that succeeds keeps the opened form open and shows the created memory',async()=>{
+ const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
+ const created={id:'new-id',urn:'hrn:mem:acme.com:new-notes',name:'New notes'};
+ const m=mountComponent(AppMemoryCreate as never,{initial,result:null} as never);
+ try{await tick();
+ const details=m.target.querySelector('details')!;
+ expect(details.open).toBe(false);
+ expect(m.target.querySelector('[role=status]')).toBeNull();
+ details.open=true;details.dispatchEvent(new Event('toggle'));await tick();
+ expect(details.open).toBe(true);
+ const name=m.target.querySelector<HTMLInputElement>('input[name=name]')!;
+ name.value='New notes';name.dispatchEvent(new Event('input',{bubbles:true}));await tick();
+ const form=m.target.querySelector('form')!;
+ const posted={...initial,valid:true,posted:true,data:{...initial.data,name:'New notes'},message:{type:'success' as const,text:'Memory created.',created}};
+ const {cancelled}=await submitEnhancedWithResult(form,{type:'success',status:200,data:{form:posted}});
+ expect(cancelled).toBe(false);
+ await tick(3);
+ const result=m.target.querySelector('[role=status]');
+ expect(result).not.toBeNull();
+ expect(result!.textContent).toContain('New notes');
+ expect(result!.querySelector('a')?.getAttribute('href')).toBe('/app/memories/new-id');
+ expect(result!.querySelector('[title="hrn:mem:acme.com:new-notes"]')).not.toBeNull();
+ // the control: the form this result landed in is still the one the reader opened
+ expect(m.target.querySelector('details')).toBe(details);
+ expect(details.open).toBe(true);
+ }finally{m.unmount();resetKitAppliedResults();}
 });
 
 it('the create form is collapsed until asked for, and says so in its caption',async()=>{
