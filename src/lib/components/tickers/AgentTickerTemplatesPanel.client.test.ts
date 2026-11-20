@@ -249,7 +249,11 @@ describe('outcomes', () => {
     await submitEnhancedWithResult(createForm(root)!, { type: 'success', status: 200, data: { action: 'createTickerTemplate', ok: true } });
     await tick(3);
     expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
-    expect(announcedStatusRegion(root), 'the speaking region is the save-result region').toBe(saveResultRegion(createForm(root)!));
+    const result = saveResultRegion(createForm(root)!);
+    expect(result, 'the save-result region exists').not.toBeNull();
+    expect(result!.getAttribute('role')).toBe('status');
+    expect(result!.textContent).toContain('from now on');
+    expect(announcedStatusRegion(root), 'the speaking region is the save-result region').toBe(result);
     expect(firstPopulatedStatusText(root)).toContain('from now on');
   });
 
@@ -263,8 +267,8 @@ describe('outcomes', () => {
   });
 });
 
-/** The create/edit form's save-result status: the region rendered directly before its submit button. */
-const saveResultRegion = (form: Element) => form.querySelector<HTMLElement>('[role="status"] + button[type="submit"]')?.previousElementSibling as HTMLElement | null ?? null;
+/** The form's save-result status, selected by its own identity and never by position. */
+const saveResultRegion = (form: Element) => form.querySelector<HTMLElement>('[data-testid="agent-ticker-template-save-result"]');
 
 describe('route change and late results', () => {
   it('another Agent reseeds: nothing typed for the first survives', async () => {
@@ -288,10 +292,7 @@ describe('route change and late results', () => {
     await tick(3);
     await deliver({ type: 'success', status: 200, data: { action: 'createTickerTemplate', ok: true } });
     await tick(3);
-    // The save-result region is the status region the form renders directly before its submit
-    // button. Select it by that, not by "the only status in the form", so a different empty status
-    // cannot stand in for it; the success test above shows the same selector finds the region
-    // that speaks.
+    // The save-result region is selected by its own data-testid, with no positional fallback.
     const result = saveResultRegion(createForm(root)!);
     expect(result, 'the save-result region exists').not.toBeNull();
     expect(result!.getAttribute('role')).toBe('status');

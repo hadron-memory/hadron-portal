@@ -12,6 +12,9 @@
 
   not `{#if saved}<div role="status" class="rounded-lg border ...">…</div>{/if}`.
 
+  A call site may pass `data-*` attributes (e.g. `data-testid`) so a test can select this exact
+  region; role and aria-live cannot be overridden.
+
   The wrapper carries no styling of its own, so an idle region draws nothing. It
   also drops its margin while empty (`empty:m-0`), so a `space-y-*` parent does
   not leave a blank gap where it sits. A flex/grid `gap` parent still counts it
@@ -23,7 +26,12 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
 
-  let { children, class: className = '', id }: { children?: Snippet; class?: string; id?: string } = $props();
+  let {
+    children,
+    class: className = '',
+    id,
+    ...rest
+  }: { children?: Snippet; class?: string; id?: string; [attr: `data-${string}`]: string | undefined } = $props();
 </script>
 
-<div role="status" aria-live="polite" {id} class="empty:m-0 {className}">{@render children?.()}</div>
+<div {...rest} role="status" aria-live="polite" {id} class="empty:m-0 {className}">{@render children?.()}</div>

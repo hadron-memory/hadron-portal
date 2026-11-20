@@ -321,7 +321,7 @@
       </button>
     {/if}
   {/if}
-  <LiveRegion>
+  <LiveRegion data-testid="agent-ticker-template-save-result">
     {#if status}
       <p bind:this={statusLine} tabindex="-1" class="text-sm font-medium text-green-700 dark:text-green-300">{status}</p>
     {/if}
