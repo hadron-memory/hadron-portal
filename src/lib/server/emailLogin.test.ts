@@ -199,6 +199,9 @@ describe('startBoundMagicLink: bounded call and a confirmed send (portal#1528)',
       status: 504,
       error: emailSignInStrings.unconfirmed(),
     });
+    // The helper's own text can't catch its instruction being dropped, so pin
+    // the same-browser instruction literally.
+    expect(emailSignInStrings.unconfirmed()).toContain('open it in this browser');
   });
 
   it.each([

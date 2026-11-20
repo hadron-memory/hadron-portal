@@ -547,7 +547,13 @@ try {
       await label.click();
       assert.ok(['ascending', 'descending'].includes(await label.getAttribute('aria-sort')), 'Name header sorts');
       assert.equal(errors.length, 0, `page errors: ${errors.join(' | ')}`);
-    } catch (e) { failures.push(`1440/chrome: ${e.message}`); } finally { await page.close(); }
+    } catch (e) {
+      // Only a failed assertion is a verdict. A Playwright timeout, a closed
+      // page or a browser crash is the harness failing, so it propagates to
+      // the outer catch and exits UNSOUND (3), never the 1 a killed mutant gives.
+      if (!(e instanceof assert.AssertionError)) throw e;
+      failures.push(`1440/chrome: ${e.message}`);
+    } finally { await page.close(); }
 
     // A deliberately wide saved view keeps its widths and scrolls; nothing clamps it.
     const wide = await open(browser, origin, css, { width: 1440, dark: false, state: 'default', savedView: { label: 700, scopes: 400 } });
