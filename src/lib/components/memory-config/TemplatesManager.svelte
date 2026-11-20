@@ -161,7 +161,7 @@
       <h2 class="text-xl font-semibold">{t('config.apply-name', 'Apply “{name}”', { name: chosen.name })}</h2>
       {#if failure}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}
       {#if memory}<p>{memory.name}</p><Urn value={memory.urn} linked />{/if}
-      <button type="button" disabled={pending} onclick={() => memoryPicker = true} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.choose-memory', 'Choose memory…')}</button>
+      <button type="button" disabled={pending} onclick={() => memoryPicker = true} aria-haspopup="dialog" aria-expanded={memoryPicker} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.choose-memory', 'Choose memory…')}</button>
       {#if memoryPicker}<SelectMemory {memories} bind:open={memoryPicker} onselect={(m) => { memory = m; preview = null; previewStale = false; }} />{/if}
       {#if memoriesFailed}<p role="alert">{t('config.memories-failed', 'Memories could not be loaded. Reload the page to try again.')}</p>{/if}
       <button type="button" disabled={!memory || pending} onclick={() => apply(true)} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{previewStale ? t('config.preview-again', 'Preview again') : t('config.preview', 'Preview')}</button>

@@ -545,6 +545,8 @@
                     <input type="hidden" name={"parameter:" + parameter.name} value={picked?.id ?? ""} />
                     <button type="button" onclick={() => { pickerParameter = parameter.name; pickerAction = chosenAction!.name; picker = true; }}
                       aria-label={t("grants.choose-parameter", "Choose a node… {name}", { name: parameter.name })}
+                      aria-haspopup="dialog"
+                      aria-expanded={picker}
                       class="mt-2 min-h-11 rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700">{t("grants.choose-node", "Choose a node…")}</button>
                   </div>
                 {/each}
