@@ -39,13 +39,15 @@ import { setStubPage } from '$lib/test/stubs/app-stores';
 import { resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import type { TeamRosterRead } from '$lib/server/app-team-roster';
-import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
+import { ROSTER_FETCH_TIMEOUT_MS } from '$lib/roster-fetch';
 import type { z } from 'zod';
 import Page from './+page.svelte';
 import { castWorkerSchema, releaseWorkerSchema, type ReleaseWorkerMessage } from './schema';
 import { pageData } from './app-page.fixture';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
+/** The signal of every roster request, in order; cleared after each test. */
+const rosterSignals: AbortSignal[] = [];
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
   vi.unstubAllGlobals();
@@ -88,7 +90,6 @@ function stubFetch(gate: { read: (href: string) => TeamRosterRead | Promise<Team
   return calls;
 }
 
-const rosterSignals: AbortSignal[] = [];
 const rosterCalls = (calls: string[]) => calls.filter((c) => c.endsWith('/roster'));
 
 /** The fetch → json → validate → assign chain is several microtask hops past
@@ -272,6 +273,7 @@ describe('AI Team roster: re-asked after a roster-invalidating action (portal#22
     // App-to-App navigation while a1's ask is still in flight: the page
     // component is reused and a2's ask starts (and lands) immediately.
     // portal#2282: starting a2's ask ends a1's request, not just its write.
+    expect(rosterSignals).toHaveLength(1);
     expect(rosterSignals[0].aborted).toBe(false);
     props.data = {
       ...base,
@@ -279,6 +281,7 @@ describe('AI Team roster: re-asked after a roster-invalidating action (portal#22
     };
     await settled(3);
     expect(target.querySelector('#panel-staff')!.textContent).toContain('Ship the roster refresh');
+    expect(rosterSignals.length).toBeGreaterThanOrEqual(1);
     expect(rosterSignals[0].aborted).toBe(true);
 
     // a1's answer lands LAST: it must be dropped, not written over a2's.
@@ -347,10 +350,9 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
       await tick(3);
       expect(target.querySelector('#panel-staff')!.textContent).toContain('Loading');
 
-      // The client bound sits above the endpoint's own 8 s bound (portal#2282):
-      // it must not give up on an answer the server may still send.
-      expect(OPTIONAL_LIST_TIMEOUT_MS).toBeLessThan(10_000);
-      await vi.advanceTimersByTimeAsync(9_500);
+      // The margin over the endpoint's own bound is pinned in roster-critical-path.test.ts
+      // (this file imports no server module); here the timers follow the client constant.
+      await vi.advanceTimersByTimeAsync(ROSTER_FETCH_TIMEOUT_MS - 500);
       await tick(3);
       expect(target.querySelector('#panel-staff')!.textContent).toContain('Loading');
 
@@ -375,9 +377,16 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
     const panel = target.querySelector('#panel-staff')!;
     const link = [...panel.querySelectorAll('a')].find((a) => a.getAttribute('href')?.startsWith('/signin'));
     expect(link).toBeDefined();
-    // The way back in lands on the tab the reader is on now (the address bar, which
-    // Kit's shallow replaceState keeps current while $page.url goes stale), not the loaded tab.
-    expect(link!.getAttribute('href')).toBe(`/signin?redirect=${encodeURIComponent('/app/apps/a1?tab=staff')}`);
+    // portal#2310: the link makes no render-time read of the address bar. It carries the plain
+    // /signin until clicked, so nothing in the signed-out branch depends on `window`.
+    expect(link!.getAttribute('href')).toBe('/signin');
+    // The way back in is the address bar AT THE CLICK (Kit's shallow replaceState keeps it current
+    // while $page.url goes stale and nothing re-renders), not the loaded tab and not the render:
+    // move it again after the link is on screen, then click (jsdom has no navigation to follow).
+    window.history.replaceState({}, '', '/app/apps/a1?tab=staff&view=later');
+    link!.addEventListener('click', (e) => e.preventDefault());
+    (link as HTMLElement).click();
+    expect(link!.getAttribute('href')).toBe(`/signin?redirect=${encodeURIComponent('/app/apps/a1?tab=staff&view=later')}`);
     expect(panel.textContent).not.toContain('Task and pause state could not be loaded');
     // A lapsed session is not retryable: no Try again, and the link sits outside the status text.
     expect(retryButton(panel)).toBeUndefined();
