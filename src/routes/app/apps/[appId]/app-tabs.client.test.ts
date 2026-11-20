@@ -13,10 +13,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
-import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { captureUnhandledRejections, mountComponent, tick, wait, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
+import { navigationGuards, navigationHooks, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import Page from './+page.svelte';
 import { everyTabRead } from './app-page.fixture';
@@ -454,5 +454,150 @@ describe('App Grants discovery', () => {
   ] as const)('only offers the section for an affirmative manager read (%j)', async (viewerManages, offered) => {
     const target = await mountTab('agents', { data: { viewerManages } });
     expect(!!target.querySelector('a[href="/app/apps/a1/grants"]')).toBe(offered);
+  });
+});
+
+// portal#2288: a tab choice whose OWN navigation rejects says so, next to the strip.
+// The negative pins end on a control rejection that must show the alert, so each is red on main
+// (where no alert exists at all) and cannot pass by the alert simply being absent.
+describe('App tab navigation failure feedback (#2288)', () => {
+  const MESSAGE = 'Could not open this tab. Try again.';
+  const alerts = (target: HTMLElement) =>
+    [...target.querySelectorAll('[role="alert"]')].filter((el) => el.textContent?.includes(MESSAGE));
+  const pick = async (target: HTMLElement, id: string) => {
+    target.querySelector<HTMLButtonElement>(`#tab-${id}`)!.click();
+    await wait(20);
+    await tick(4);
+  };
+  const deferred = () => {
+    let reject!: (e: unknown) => void, resolve!: () => void;
+    const promise = new Promise<void>((res, rej) => { resolve = res; reject = rej; });
+    return { promise, reject, resolve };
+  };
+
+  it('shows the alert when the Runs navigation rejects, keeps the tab and keeps focus on the strip', async () => {
+    const target = await mountTab('chats');
+    navigationHooks.onGoto = async () => { throw new Error('navigation rejected'); };
+    target.querySelector<HTMLButtonElement>('#tab-chats')!.focus();
+    // `onselect` runs `void focusTab(id)`: the rethrown rejection must be absorbed by focusTab's own catch.
+    const rejections = await captureUnhandledRejections(async () => { await pick(target, 'runs'); });
+    expect(rejections).toEqual([]);
+    expect(alerts(target)).toHaveLength(1);
+    expect(target.querySelector('#tab-chats')?.getAttribute('aria-selected')).toBe('true');
+    expect(target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('false');
+    expect(target.querySelector('[role="tablist"]')?.contains(document.activeElement)).toBe(true);
+  });
+
+  it('a superseded choice whose goto rejects shows no alert', async () => {
+    const target = await mountTab('chats');
+    const first = deferred();
+    let calls = 0;
+    navigationHooks.onGoto = () => (++calls === 1 ? first.promise : undefined);
+    await pick(target, 'runs');
+    await pick(target, 'node-role-templates'); // supersedes the held Runs choice
+    first.reject(new Error('navigation rejected'));
+    await wait(20);
+    await tick(4);
+    expect(alerts(target)).toHaveLength(0);
+    // control: the choice that still owns the epoch does show it
+    navigationHooks.onGoto = async () => { throw new Error('navigation rejected'); };
+    await pick(target, 'runs');
+    expect(alerts(target)).toHaveLength(1);
+  });
+
+  it('a goto rejecting after teardown shows no alert and throws nothing', async () => {
+    const target = await mountTab('chats');
+    const held = deferred();
+    navigationHooks.onGoto = () => held.promise;
+    await pick(target, 'runs');
+    const first = mounted.pop()!;
+    const rejections = await captureUnhandledRejections(async () => {
+      first.unmount();
+      held.reject(new Error('navigation rejected'));
+      await wait(20);
+      await tick(4);
+    });
+    expect(rejections).toEqual([]);
+    expect(document.body.textContent).not.toContain(MESSAGE);
+    // control: a fresh mount's own rejection still shows the alert
+    const fresh = await mountTab('chats');
+    navigationHooks.onGoto = async () => { throw new Error('navigation rejected'); };
+    await pick(fresh, 'runs');
+    expect(alerts(fresh)).toHaveLength(1);
+  });
+
+  it('a failure on one App is gone when the page is reused for another, and stays gone on return', async () => {
+    const target = await mountTab('chats');
+    navigationHooks.onGoto = async () => { throw new Error('navigation rejected'); };
+    await pick(target, 'runs');
+    expect(alerts(target)).toHaveLength(1);
+    const data = lastProps.data as Record<string, unknown>;
+    const app = data.app as Record<string, unknown>;
+    setStubPage('https://example.test/app/apps/a2?tab=chats', { appId: 'a2' });
+    lastProps.data = { ...data, app: { ...app, id: 'a2', urn: 'hrn:app:acme.com:other' } };
+    flushSync();
+    await tick(4);
+    expect(alerts(target)).toHaveLength(0);
+    setStubPage('https://example.test/app/apps/a1?tab=chats', { appId: 'a1' });
+    lastProps.data = data;
+    flushSync();
+    await tick(4);
+    expect(alerts(target)).toHaveLength(0);
+    // control: a failure on the App now shown still reports
+    await pick(target, 'runs');
+    expect(alerts(target)).toHaveLength(1);
+  });
+
+  it('the next tab choice clears the alert and a successful landing keeps it clear', async () => {
+    const target = await mountTab('chats');
+    navigationHooks.onGoto = async () => { throw new Error('navigation rejected'); };
+    await pick(target, 'runs');
+    expect(alerts(target)).toHaveLength(1);
+    const held = deferred();
+    navigationHooks.onGoto = () => held.promise;
+    await pick(target, 'runs');
+    expect(alerts(target)).toHaveLength(0); // cleared on the choice, before it settles
+    held.resolve();
+    await wait(20);
+    await tick(4);
+    expect(alerts(target)).toHaveLength(0);
+    expect(target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it.each(['popstate', 'link'] as const)('a %s navigation that changes the tab without a choice clears the alert', async (type) => {
+    const target = await mountTab('chats');
+    navigationHooks.onGoto = async () => { throw new Error('navigation rejected'); };
+    await pick(target, 'runs');
+    expect(alerts(target)).toHaveLength(1);
+    // Back/Forward or a same-App `?tab=` link: no tab choice, the address bar names another tab.
+    window.history.replaceState({}, '', '/app/apps/a1?tab=agents');
+    const guards = navigationGuards.filter((g) => g.fn === 'afterNavigate');
+    expect(guards.length).toBeGreaterThan(0);
+    for (const g of guards) {
+      (g.callback as (nav: unknown) => void)({
+        type, from: null, willUnload: false, delta: type === 'popstate' ? -1 : undefined,
+        to: { params: { appId: 'a1' }, route: { id: '/app/apps/[appId]' }, url: new URL(window.location.href) },
+        complete: Promise.resolve(),
+      });
+    }
+    flushSync();
+    await tick(4);
+    expect(alerts(target)).toHaveLength(0);
+    // control: a failure after that still reports
+    await pick(target, 'runs');
+    expect(alerts(target)).toHaveLength(1);
+  });
+
+  it('clicking the Runs tab you are already on clears the alert and still starts no navigation (#2290)', async () => {
+    const target = await mountTab('runs');
+    let gotos = 0;
+    navigationHooks.onGoto = async () => { gotos++; throw new Error('navigation rejected'); };
+    await pick(target, 'node-role-templates'); // a failed choice made from Runs
+    expect(alerts(target)).toHaveLength(1);
+    expect(gotos).toBe(1);
+    await pick(target, 'runs'); // the tab already shown: a no-op that acknowledges the alert
+    expect(alerts(target)).toHaveLength(0);
+    expect(gotos).toBe(1);
+    expect(target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
   });
 });

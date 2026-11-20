@@ -1357,6 +1357,10 @@
     // It is not keyed on `$page.url`: Kit's shallow `replaceState` (which writes the canonical pair) leaves
     // `page.url` on the old href, so that key never cleared the banner outside a stubbed harness.
     legacyChatResolvedForApp = null;
+    // #2288: a failed tab choice belongs to the tab strip as it was. Back/Forward and a same-App `?tab=`
+    // link change the tab without a choice, so the alert must not outlive them. A rejected goto never
+    // reaches this callback, so it cannot clear the failure it just reported.
+    tabNavigationFailed = false;
     if (!(nav.type === 'enter' && form)) {
       // #1943: local tabs now rewrite `?tab=` by shallow replaceState, which leaves the entry's loader
       // data (`data.initialTab`) on the tab that was LOADED. Back lands on such an entry, so the address
@@ -1488,6 +1492,11 @@
   // clears the manager's copy of the question so its own route guard does not ask a second time.
   // If we then do not land on the chosen tab, the question is put back with the draft.
   let templatesLeaveMessage = $state<string | null>(null);
+  // #2288: set only when the navigation THIS choice owns rejects; cleared by the next choice (a landing always follows one).
+  let tabNavigationFailed = $state(false);
+  // The page component is reused across [appId]; a failure belongs to the App it happened on. The guard
+  // in focusTab only sets it while app.id === appId, so this never clears a failure of the current App.
+  $effect.pre(() => { void app.id; tabNavigationFailed = false; });
   function syncTabParam(id: TabId) {
     const url = new URL(window.location.href);
     if (url.searchParams.get('tab') === id) return;
@@ -1496,6 +1505,9 @@
   }
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
+    // #2288: any tab choice, including the no-op click on the Runs tab you are already on, ends the
+    // alert of the last failed one. Before the return below so that click acknowledges it too.
+    tabNavigationFailed = false;
     // portal#2290: the tab you are already on is not a request to leave it. Page, status and sort are
     // the reader's place in the list; returning before `++tabNavigation` also leaves any navigation in
     // flight alone. Reaching Runs from another tab still opens it clean. Runs only, deliberately: Uma's
@@ -1535,7 +1547,14 @@
         ownNavigationHref = new URL(href, window.location.href).href;
         tabNavigationHref = ownNavigationHref;
         tabNavigationCancelled = false;
-        await goto(href, { keepFocus: true, noScroll: true });
+        try {
+          await goto(href, { keepFocus: true, noScroll: true });
+        } catch (e) {
+          // #2288: only the choice that still owns the epoch, on the same App and not torn down, reports it.
+          // (`mine === tabNavigation` already implies not torn down; `tabAlive` states it.)
+          if (tabAlive && mine === tabNavigation && app.id === appId) tabNavigationFailed = true;
+          throw e;
+        }
         // A cancelled navigation resolves without a commit: keep the current tab.
         if (tabNavigationCancelled) return;
       }
@@ -2709,6 +2728,9 @@
     ...(data.viewerManages?.kind === 'known' && data.viewerManages.manages ? [{ id: 'grants', label: t('app.tabs.grants', 'Grants'), href: `/app/apps/${app.id}/grants` }] : []),
     { id: 'automations', label: t('app.tabs.automations', 'Automations'), href: `/app/apps/${app.id}/automations` }
   ]} active={activeTab} label={t('app.tabs-label', 'App sections')} onselect={(id) => { void focusTab(id as TabId); }} />
+  {#if tabNavigationFailed}
+    <p role="alert" class="mt-2 text-sm text-red-700 dark:text-red-400">{t('app.tabs.navigation-failed', 'Could not open this tab. Try again.')}</p>
+  {/if}
 
   <!-- ───────────── PROFILE TAB (#2241) ─────────────
        The App's OWN identity (not the viewer's, not a member's), read only from the App the page
@@ -3592,7 +3614,6 @@
           searchPlaceholder={t('app.staff.search.placeholder', 'Search worker agents...')}
           searchAriaLabel={t('app.staff.search.aria-label', 'Search worker agents')}
           bind:globalFilter={staffFilter}
-          maxHeight="max(200px, calc(100vh - 30rem))"
           rowClass={(w) => (w.retiredAt ? 'opacity-60' : '')}
         >
           {#snippet cell(cell, worker)}
@@ -3814,7 +3835,6 @@
           searchPlaceholder={t('app.agents.search.placeholder', 'Search agents...')}
           searchAriaLabel={t('app.agents.search.aria-label', 'Search agents')}
           bind:globalFilter={agentsFilter}
-          maxHeight="max(200px, calc(100vh - 30rem))"
         >
           {#snippet cell(cell, agent)}
             {#if cell.column.id === 'name'}
@@ -4109,7 +4129,6 @@
             searchPlaceholder={t('app.keys.search.placeholder', 'Search keys...')}
             searchAriaLabel={t('app.keys.search.aria-label', 'Search app keys')}
             bind:globalFilter={appKeyFilter}
-            maxHeight="max(200px, calc(100vh - 30rem))"
           >
             {#snippet cell(cell, key)}
               {#if cell.column.id === 'id'}

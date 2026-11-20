@@ -87,7 +87,7 @@
   {table}
   {listKey}
   bind:globalFilter
-  maxHeight="max(160px, 40vh)"
+  bounded
   {searchPlaceholder}
   {searchAriaLabel}
 >

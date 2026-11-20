@@ -444,7 +444,6 @@
         searchPlaceholder={t('app.ticker.subscribers.search', 'Search subscribers…')}
         searchAriaLabel={t('app.ticker.subscribers.search', 'Search subscribers…')}
         bind:globalFilter
-        maxHeight="max(200px, calc(100vh - 30rem))"
       >
         {#snippet cell(cell, row)}
           {#if cell.column.id === 'worker'}

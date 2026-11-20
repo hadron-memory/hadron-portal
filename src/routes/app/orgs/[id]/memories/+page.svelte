@@ -492,7 +492,6 @@
         searchPlaceholder={t('org-memories.search.placeholder', 'Search memories...')}
         searchAriaLabel={t('org-memories.search.aria-label', 'Search memories')}
         bind:globalFilter={personalGlobalFilter}
-        maxHeight="max(200px, calc(100vh - 26rem))"
         cell={memoryCell}
       />
     {/if}
@@ -527,7 +526,6 @@
         searchPlaceholder={t('org-memories.search.placeholder', 'Search memories...')}
         searchAriaLabel={t('org-memories.search.aria-label', 'Search memories')}
         bind:globalFilter
-        maxHeight="max(200px, calc(100vh - 26rem))"
         cell={memoryCell}
       />
     {/if}

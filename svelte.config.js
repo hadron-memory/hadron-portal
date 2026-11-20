@@ -12,7 +12,8 @@ const serverOrigin = new URL(process.env.PUBLIC_SERVER_URL ?? 'http://localhost:
 // Asset uploads PUT the file bytes from the BROWSER straight to a presigned
 // object-store URL, so the store's origin must also be in connect-src — but
 // that origin is RUNTIME config (#700): it is appended to this header by the
-// cspAssetStorage handle in src/hooks.server.ts, reading
+// runtimeCsp handle in src/hooks.server.ts (which also adds the public server
+// origin to form-action, #1716), reading
 // PUBLIC_ASSET_STORAGE_ORIGIN from $env/dynamic/public. Baking it here at
 // build time made a Doppler-only change invisible to Docker's cached build
 // and an unset value a silently narrower CSP.

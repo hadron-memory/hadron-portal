@@ -4068,7 +4068,6 @@
             searchPlaceholder="Search edges..."
             searchAriaLabel="Search edges"
             bind:globalFilter={edgeFilter}
-            maxHeight="max(200px, calc(100vh - 22rem))"
           >
             {#snippet cell(cell, r)}
               {#if cell.column.id === 'direction'}
@@ -4203,9 +4202,8 @@
           <p class="mb-2 text-xs text-red-500">{historyError}</p>
         {/if}
         <!-- space-y-3 spaces DataTable's search-row / table / pagination-footer
-             (the footer would otherwise sit flush against the table). A deeper
-             maxHeight offset keeps the footer above the fold — the History table
-             sits low on the node page (breadcrumb + header + tabs + this row). -->
+             (the footer would otherwise sit flush against the table). The table
+             sizes itself to the space under it, wherever it sits on the page. -->
         <div class="space-y-3">
           <DataTable
             table={revisionTable}
@@ -4214,7 +4212,6 @@
             showSearch={false}
             searchPlaceholder={t('node.history.search', 'Search history…')}
             searchAriaLabel={t('node.history.search', 'Search history…')}
-            maxHeight="max(200px, calc(100vh - 28rem))"
           >
           {#snippet cell(cell, r)}
             {#if cell.column.id === 'when'}
@@ -4287,7 +4284,6 @@
               searchPlaceholder={t('node.history.removals.search', 'Search removed edges…')}
               searchAriaLabel={t('node.history.removals.search', 'Search removed edges…')}
               bind:globalFilter={removalFilter}
-              maxHeight="max(200px, calc(100vh - 28rem))"
             >
             {#snippet cell(cell, r)}
               {#if cell.column.id === 'when'}

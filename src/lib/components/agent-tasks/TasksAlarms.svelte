@@ -271,7 +271,6 @@
     searchPlaceholder={t('app.tasks.alarms.search', 'Search this page…')}
     searchAriaLabel={t('app.tasks.alarms.search', 'Search this page…')}
     bind:globalFilter
-    maxHeight="max(240px, calc(100vh - 26rem))"
   >
     {#snippet cell(cell, row)}
       {@const a = row.alarm}

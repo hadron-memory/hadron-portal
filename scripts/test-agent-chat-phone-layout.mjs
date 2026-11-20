@@ -8,8 +8,22 @@
 // and the element that holds focus, never class names.
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
+
+// Fail before measuring if either consumer bypasses the shared source. Without
+// this, a stale literal shell can keep passing while the production shell drifts.
+const layoutSource = readFileSync('src/routes/app/+layout.svelte', 'utf8');
+const oracleSource = readFileSync('scripts/test-agent-chat-phone-layout.mjs', 'utf8');
+assert.match(layoutSource, /<div\s+class=\{APP_SHELL_ROW\}>/, 'layout row must use app-shell.ts');
+assert.match(layoutSource, /<aside\s+class=\{appShellNavClass\(menuOpen\)\}/, 'layout nav must use app-shell.ts');
+assert.match(layoutSource, /<div\s+class=\{APP_SHELL_CONTENT\}>/, 'layout content must use app-shell.ts');
+const fixture = oracleSource.slice(oracleSource.lastIndexOf('async ({ css, dark }) => {'), oracleSource.lastIndexOf('{ css, dark },'));
+assert(fixture.includes("import('/src/lib/layout/app-shell.ts')"), 'oracle must import app-shell.ts');
+assert(fixture.includes('class="${shell.APP_SHELL_ROW}"'), 'oracle row must use app-shell.ts');
+assert(fixture.includes('class="${shell.appShellNavClass(null)}"'), 'oracle nav must use app-shell.ts');
+assert(fixture.includes('class="${shell.APP_SHELL_CONTENT}"'), 'oracle content must use app-shell.ts');
 
 const server = await createServer({
   server: { host: '127.0.0.1', port: 0 },
@@ -82,6 +96,7 @@ try {
   const origin = server.resolvedUrls.local[0];
   const css = await (await fetch(new URL('src/app.css?direct', origin))).text();
   assert(css.length > 1000, 'compiled app.css was not served');
+  assert(css.includes('.w-48') && css.includes('.sm\\:px-6'), 'compiled app.css must include app-shell.ts width and gutter utilities');
   browser = await chromium.launch({ headless: true });
   if (shots) await mkdir(shots, { recursive: true });
 
@@ -105,7 +120,8 @@ try {
       try {
         await page.goto(new URL(`/__chat_fixture${query}`, origin).href);
         await page.evaluate(
-          ({ css, dark }) => {
+          async ({ css, dark }) => {
+            const shell = await import('/src/lib/layout/app-shell.ts');
             document.head.innerHTML += `<style>${css}</style>`;
             document.documentElement.classList.toggle('dark', dark);
             document.body.className = 'bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
@@ -115,9 +131,9 @@ try {
             // Without the nav the panel is ~200px wider than on the real page
             // at 640-900, which hid a 26px composer
             // (https://github.com/hadron-memory/hadron-portal/pull/2090#issuecomment-6843123916).
-            document.body.innerHTML = `<div class="flex gap-4 px-4 py-8 sm:gap-8 sm:px-6">
-              <aside class="w-48 shrink-0 flex-col hidden sm:flex"><nav>Nav</nav></aside>
-              <div class="min-w-0 flex-1">
+            document.body.innerHTML = `<div class="${shell.APP_SHELL_ROW}">
+              <aside class="${shell.appShellNavClass(null)}"><nav>Nav</nav></aside>
+              <div class="${shell.APP_SHELL_CONTENT}">
                 <div class="flex flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
                   <div id="panel" class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden"></div>
                 </div></div></div>`;

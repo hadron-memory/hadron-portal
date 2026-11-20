@@ -189,7 +189,6 @@
         searchPlaceholder={t('app.tickers.search', 'Search tickers…')}
         searchAriaLabel={t('app.tickers.search', 'Search tickers…')}
         bind:globalFilter
-        maxHeight="max(240px, calc(100vh - 26rem))"
       >
         {#snippet cell(cell, row)}
           {#if cell.column.id === 'name'}

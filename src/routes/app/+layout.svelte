@@ -6,6 +6,7 @@
   import OrgSwitcher from '$lib/components/OrgSwitcher.svelte';
   import ImpersonationBanner from '$lib/components/ImpersonationBanner.svelte';
   import { buildNavItems } from '$lib/nav';
+  import { APP_SHELL_ROW, APP_SHELL_CONTENT, appShellNavClass } from '$lib/layout/app-shell';
   let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
 
   // Nodes/Graph share the persistent memory browser. Keep that sibling outlet
@@ -58,7 +59,7 @@
 <!-- #740: gutters and gap tighten below `sm`. At 375px the old fixed
      `px-6`/`gap-8` spent 80px of 375 on whitespace before the content column
      saw a single pixel. -->
-<div class="flex gap-4 px-4 py-8 sm:gap-8 sm:px-6">
+<div class={APP_SHELL_ROW}>
   <!-- Sidebar — sticky, sized to the available height; the nav scrolls
        internally (`flex-1 min-h-0 overflow-y-auto`) while the account block
        stays pinned at the bottom (`shrink-0`) on long pages (#231/#245).
@@ -78,9 +79,7 @@
        min==max height collapses to a plain `height`. -->
   {#if menuOpen !== false}
     <aside
-      class="sticky top-8 self-start w-48 shrink-0 flex-col {menuOpen === null
-        ? 'hidden sm:flex'
-        : 'flex'}"
+      class={appShellNavClass(menuOpen)}
       style="--sidebar-offset: 8rem; height: calc(100vh - var(--sidebar-offset)); height: calc(100dvh - var(--sidebar-offset));"
     >
       <div class="mb-4 flex items-center justify-end shrink-0">
@@ -174,7 +173,7 @@
   {/if}
 
   <!-- Content -->
-  <div class="min-w-0 flex-1">
+  <div class={APP_SHELL_CONTENT}>
     <NodeAdvice advice={data.nodeAdvice ?? []} />
     <!-- #339: key the outlet on the route id. Svelte 5 / Kit 2 don't tear down
          the previous page in this {@render children()} outlet when the child

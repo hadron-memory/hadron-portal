@@ -182,7 +182,7 @@
           searchPlaceholder={t('app.tasks.composition.lanes.search', 'Search the lanes…')}
           searchAriaLabel={t('app.tasks.composition.lanes.search', 'Search the lanes…')}
           bind:globalFilter={laneFilter}
-          maxHeight="max(240px, calc(50vh - 8rem))"
+          bounded
           rowAttrs={(r) => ({ 'data-lane': r.lane.coordinator?.id ?? 'unassigned' })}
         >
           {#snippet cell(cell, row)}
@@ -221,7 +221,7 @@
           searchPlaceholder={t('app.tasks.composition.workers.search', 'Search the workers…')}
           searchAriaLabel={t('app.tasks.composition.workers.search', 'Search the workers…')}
           bind:globalFilter={workerFilter}
-          maxHeight="max(240px, calc(100vh - 24rem))"
+          bounded
           rowAttrs={(r) => ({ 'data-worker': r.member.worker.id, 'data-bound': String(r.member.bound), 'data-live-session': String(r.member.liveSession) })}
         >
           {#snippet cell(cell, row)}

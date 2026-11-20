@@ -40,10 +40,14 @@ function px(value: string): number {
 }
 
 /**
- * The space the page puts under `node`: the bottom padding and border of every
+ * The space the page puts under `node`: the bottom padding, border and margin of every
  * ancestor. That is the layout's gutter (`py-8` on the app shell today),
  * measured rather than restated, so a layout change cannot silently leave the
  * Save row half off-screen.
+ *
+ * Margins that would collapse (a parent's and its last child's) are still counted once per
+ * ancestor. That over-reserves by at most the collapsed amount, which errs towards
+ * the node ending a little above the window bottom rather than the page scrolling.
  */
 function trailingSpace(node: HTMLElement): number {
   let total = 0;
@@ -55,9 +59,23 @@ function trailingSpace(node: HTMLElement): number {
       cs.borderBottomStyle === 'none' || cs.borderBottomStyle === 'hidden' || !cs.borderBottomStyle
         ? 0
         : px(cs.borderBottomWidth);
-    total += px(cs.paddingBottom) + border;
+    // An ancestor's bottom margin sits under the node just as its padding does (QA, #2327).
+    total += px(cs.paddingBottom) + border + px(cs.marginBottom);
   }
   return total;
+}
+
+/**
+ * Everything that must stay visible under `node`: the layout's trailing gutter, plus the
+ * footer's height and top margin when there is one. Shared by `fillViewport` and DataTable.
+ */
+export function measureBelow(node: HTMLElement, footer?: HTMLElement | null): number {
+  let below = trailingSpace(node);
+  if (footer) {
+    const margins = getComputedStyle(footer);
+    below += footer.offsetHeight + px(margins.marginTop) + px(margins.marginBottom);
+  }
+  return below;
 }
 
 /**
@@ -75,11 +93,7 @@ export function fillViewport(node: HTMLElement, footer?: HTMLElement | null) {
   const resize = () => {
     const rect = node.getBoundingClientRect();
     const top = rect.top + window.scrollY;
-    let below = trailingSpace(node);
-    if (current) {
-      below += current.offsetHeight + px(getComputedStyle(current).marginTop);
-    }
-    const next = fillHeight({ viewportHeight: window.innerHeight, top, below });
+    const next = fillHeight({ viewportHeight: window.innerHeight, top, below: measureBelow(node, current) });
     if (Math.abs(node.offsetHeight - next) > 1) node.style.height = `${next}px`;
   };
 

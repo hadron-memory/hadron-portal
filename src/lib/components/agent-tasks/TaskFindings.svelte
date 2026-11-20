@@ -327,7 +327,7 @@
         <button type="button" class="ml-2 {btn}" aria-disabled={dispPending} onclick={() => { if (!dispPending) void loadDispositions(); }}>{t('app.tasks.disposition.retry', 'Retry')}</button>
       </p>
     {/if}
-    <DataTable {table} listKey="tasks:immutable-findings" showSearch={false} showFooter={false} searchPlaceholder={t('app.tasks.findings', 'Findings')} searchAriaLabel={t('app.tasks.findings', 'Findings')} maxHeight="32rem">
+    <DataTable {table} listKey="tasks:immutable-findings" showSearch={false} showFooter={false} searchPlaceholder={t('app.tasks.findings', 'Findings')} searchAriaLabel={t('app.tasks.findings', 'Findings')} bounded>
       {#snippet cell(c, row)}
         {#if c.column.id === 'text'}
           {@render literal(row.text, 'finding-text', 'select-text whitespace-pre-wrap break-words text-zinc-800 dark:text-zinc-200')}
