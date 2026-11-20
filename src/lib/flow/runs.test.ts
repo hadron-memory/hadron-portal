@@ -83,6 +83,16 @@ describe('forward-compatible response enums (#1766)', () => {
     }
   });
 
+  it('one contract for the table and the chips: a caller supplies the known-status words, the unknown branch stays shared (#2315)', () => {
+    const known = (s: string) => `«${s}»`;
+    for (const status of RUN_STATUSES) expect(runStatusLabel(status, known)).toBe(`«${status}»`);
+    // an unknown status borrows no known label, and never reaches the caller's mapper — including names that exist on Object.prototype
+    for (const raw of ['PAUSED', 'constructor', 'toString', '']) {
+      expect(runStatusLabel(raw, known)).toBe(runStatusLabel(raw));
+      expect(runStatusLabel(raw, known)).toBe(`Unknown: ${raw}`);
+    }
+  });
+
   it('an unknown trigger kind renders Unknown: raw, not a capitalised guess', () => {
     expect(describeTrigger({ triggerKind: 'FUTURE_KIND', eventData: null })).toBe('Unknown: FUTURE_KIND');
   });
