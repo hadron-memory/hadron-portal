@@ -602,6 +602,38 @@ try {
         assert.deepEqual(f.errors, [], `${leg}: page errors (failed rename after Back)`);
         await f.context.close();
       }
+      // A rename raised from the list stays list-origin when the pane changes
+      // before the refusal arrives: read at initiation, not at response time.
+      if (narrow) {
+        const f = await open(width, dark, touch);
+        const p = f.page;
+        await p.locator('[data-chat-row="chats:b"]').click();
+        await p.getByRole('button', { name: 'Back to chats' }).click();
+        const ren = p.getByRole('button', { name: `Rename chat ${A}`, exact: true });
+        await ren.waitFor();
+        await p.evaluate(() => { window.__releaseTitle = window.__chat.holdTitle(); window.__chat.failTitle(); });
+        if (touch) await ren.tap();
+        else await ren.click();
+        const field = p.locator('#panel li input[type="text"]');
+        await field.waitFor();
+        await field.fill('Refused name');
+        await field.press('Enter');
+        await p.waitForFunction(() => window.__chat.calls.title === 1, null, { timeout: 2000 });
+        // Open a chat while the refusal is still on its way, then let it land.
+        await p.locator('[data-chat-row="chats:b"]').click();
+        await p.locator('#panel main textarea:enabled').waitFor();
+        await p.evaluate(() => window.__releaseTitle());
+        await p.locator('#panel main').getByText('Rename refused', { exact: true }).waitFor({ timeout: 2000 })
+          .catch(() => assert.fail(`${leg}: held rename refusal: the error never arrived`));
+        await p.getByRole('button', { name: 'Back to chats' }).click();
+        await p.getByRole('button', { name: `Rename chat ${A}`, exact: true }).waitFor();
+        await p.getByRole('alert').filter({ hasText: 'Rename refused' }).waitFor({ timeout: 2000 })
+          .catch(() => assert.fail(`${leg}: held rename refusal: a list-origin failure stays list-origin after the pane changed, but the list shows no error`));
+        assert.equal(await p.getByRole('alert').count(), 1, `${leg}: held rename refusal: one error copy should show`);
+        assert(await p.getByRole('alert').evaluate((el) => !!el.closest('aside')), `${leg}: held rename refusal: the error should show in the list`);
+        assert.deepEqual(f.errors, [], `${leg}: page errors (held rename refusal)`);
+        await f.context.close();
+      }
       // The complement: with a conversation open beside the list (panel width
       // from `@2xl`), a refused rename still raises the conversation error.
       if (!narrow) {

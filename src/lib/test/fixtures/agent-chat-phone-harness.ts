@@ -59,6 +59,12 @@ export type AgentChatFixture = {
   failDelete: (kind: DeleteFailure) => void;
   /** Make the next turn reject as a dropped connection does, once (#2110). */
   failTurn: () => void;
+  /**
+   * Hold the next rename's answer until the returned release is called
+   * (portal#2173), so a test can change pane in between. Pair with
+   * `failTitle` to make the released answer a refusal. Needs `rowActions`.
+   */
+  holdTitle: () => () => void;
   /** Make the next rename answer 500 with `{error: TITLE_REFUSAL}`, once (portal#2173). Needs `rowActions`. */
   failTitle: () => void;
   /** The AI config name this mount seeded (the long one under `longConfigName`). */
@@ -121,6 +127,15 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
   const failTurn = () => {
     turnFailure = true;
   };
+  let titleGate: Promise<void> | null = null;
+  const holdTitle = () => {
+    let release = () => {};
+    titleGate = new Promise<void>((resolve) => (release = resolve));
+    return () => {
+      titleGate = null;
+      release();
+    };
+  };
   let titleFailure = false;
   const failTitle = () => {
     titleFailure = true;
@@ -145,6 +160,7 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
     }
     if (options.rowActions && url.includes('/api/agent-chat/title')) {
       calls.title++;
+      if (titleGate) await titleGate;
       if (titleFailure) {
         titleFailure = false;
         return json({ error: TITLE_REFUSAL }, 500);
@@ -200,5 +216,5 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
       ] as never,
     },
   });
-  return { stop: () => unmount(component), calls, navigationCalls, holdDelete, failDelete, failTurn, failTitle, configName: options.longConfigName ? LONG_CONFIG_NAME : 'Default' };
+  return { stop: () => unmount(component), calls, navigationCalls, holdDelete, failDelete, failTurn, failTitle, holdTitle, configName: options.longConfigName ? LONG_CONFIG_NAME : 'Default' };
 }
