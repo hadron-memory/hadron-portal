@@ -46,6 +46,7 @@ import {
   UNINSTALL_AGENT_FROM_APP_MUTATION,
   CREATE_APP_KEY_MUTATION,
   REVOKE_APP_KEY_MUTATION,
+  GRANT_APP_KEY_SCOPE_MUTATION,
   DELETE_APP_MUTATION,
   APP_NODES_QUERY,
   APP_NODES_PAGE_QUERY,
@@ -109,6 +110,7 @@ import {
   castWorkerSchema,
   createAppKeySchema,
   deleteAppSchema,
+  grantAppKeyScopeSchema,
   removeAppAgentSchema,
   postTeamChatMessageSchema,
   retireWorkerSchema,
@@ -133,6 +135,7 @@ type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
 type CastWorkerForm = Infer<typeof castWorkerSchema, 'zod4'>;
 type CreateAppKeyForm = Infer<typeof createAppKeySchema, 'zod4'>;
 type DeleteAppForm = Infer<typeof deleteAppSchema, 'zod4'>;
+type GrantAppKeyScopeForm = Infer<typeof grantAppKeyScopeSchema, 'zod4'>;
 type PostTeamChatMessageForm = Infer<typeof postTeamChatMessageSchema, 'zod4'>;
 type RemoveAppAgentForm = Infer<typeof removeAppAgentSchema, 'zod4'>;
 type RetireWorkerForm = Infer<typeof retireWorkerSchema, 'zod4'>;
@@ -183,6 +186,7 @@ const appSettingsFormAdapter = zod4(appSettingsSchema);
 const castWorkerFormAdapter = zod4(castWorkerSchema);
 const createAppKeyFormAdapter = zod4(createAppKeySchema);
 const deleteAppFormAdapter = zod4(deleteAppSchema);
+const grantAppKeyScopeFormAdapter = zod4(grantAppKeyScopeSchema);
 
 const postTeamChatMessageFormAdapter = zod4(postTeamChatMessageSchema);
 const removeAppAgentFormAdapter = zod4(removeAppAgentSchema);
@@ -953,7 +957,7 @@ export async function _loadAppPage(
     // (never throws): a stop read that fails must not take the App page with it.
     liveStopsP,
   ]);
-  const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
+  const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, grantKeyScopeForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
     superValidate<AppSettingsForm>(
       {
         name: appData.app.name,
@@ -993,6 +997,14 @@ export async function _loadAppPage(
     superValidate<RevokeAppKeyForm>(
       { keyId: '' },
       revokeAppKeyFormAdapter,
+      { errors: false },
+    ),
+    // portal#1487 — the grant dialog opens per key from the row menu, so every
+    // field but the scope default is replaced at open time; seeded like the
+    // revoke form so the page never renders a validation error for it.
+    superValidate<GrantAppKeyScopeForm>(
+      { keyId: '', scope: 'attention:deliver', hostId: '' },
+      grantAppKeyScopeFormAdapter,
       { errors: false },
     ),
     superValidate<DeleteAppForm>(
@@ -1224,6 +1236,7 @@ export async function _loadAppPage(
     removeAgentForm,
     updateAgentToolsForm,
     revokeKeyForm,
+    grantKeyScopeForm,
     deleteAppForm,
     castWorkerForm,
     retireWorkerForm,
@@ -1736,6 +1749,35 @@ export const actions: Actions = {
       return message(form, { type: 'success', text: t('app.key.revoked', 'Key revoked.') });
     } catch (e: unknown) {
       const { status, text } = appKeyRefusal(e, 'Failed to revoke key');
+      return message(form, { type: 'error', text }, { status });
+    }
+  },
+
+  // portal#1487 — give a live key one scope of the closed list. The action
+  // NEVER gates on a viewer fact: the server is the gate
+  // (hrn:node:hadronmemory.com:specs:cor:aut:010:03), and a crafted POST from
+  // someone it refuses meets the server's own refusal through appKeyRefusal.
+  // hostId travels only for host:operate — the server refuses a host argument
+  // on any other scope (BAD_USER_INPUT), so attention:deliver sends none.
+  grantKeyScope: async ({ request, locals }) => {
+    const form = await superValidate<GrantAppKeyScopeForm>(
+      await request.formData(),
+      grantAppKeyScopeFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
+    try {
+      await gqlClient(locals.token).request(GRANT_APP_KEY_SCOPE_MUTATION, {
+        id: form.data.keyId,
+        scope: form.data.scope,
+        ...(form.data.scope === 'host:operate' ? { hostId: form.data.hostId } : {}),
+      });
+      // A success invalidates the page, so the Scopes column re-reads and the
+      // granted scope appears on the key (acceptance 1); a repeated grant is
+      // the server's own no-op success (acceptance 4).
+      return message(form, { type: 'success', text: t('app.key.scope.granted', 'Scope granted.') });
+    } catch (e: unknown) {
+      const { status, text } = appKeyRefusal(e, 'Failed to grant the scope');
       return message(form, { type: 'error', text }, { status });
     }
   },
