@@ -6,14 +6,15 @@ import { POINTER_REGRESSION } from './cell-harness-checks.mjs';
 export const NEEDLES = {
   severityFields: 'expected 2 severity fields, found',
   wrapControlMissed: 'to escape with the severity wrap stripped',
-  vertical: 'vertical',
+  // #2169: a phrase unique to these messages, not the bare word (which any vertical-layout output would match).
+  vertical: 'vertical-cell control',
   pointerRegression: POINTER_REGRESSION,
 };
 
 export const messages = {
   severityFields: (leg, found) => `${leg}: ${NEEDLES.severityFields} ${found}`,
   wrapControlMissed: (leg, got) => `${leg}: expected rows [markers, plain] ${NEEDLES.wrapControlMissed}, got [${got.join(', ')}]`,
-  verticalPrecondition: (leg, tallest) => `${leg}: ${NEEDLES.vertical} control precondition: tallest cell ${Math.round(tallest)}px, need > 400`,
-  verticalNotDetected: leg => `${leg}: ${NEEDLES.vertical} negative control (text displaced) was not detected`,
-  verticalLeftEscape: leg => `${leg}: ${NEEDLES.vertical} control left an escape behind`,
+  verticalPrecondition: (leg, tallest) => `${leg}: ${NEEDLES.vertical} precondition: tallest cell ${Math.round(tallest)}px, need > 400`,
+  verticalNotDetected: leg => `${leg}: ${NEEDLES.vertical} negative (text displaced) was not detected`,
+  verticalLeftEscape: leg => `${leg}: ${NEEDLES.vertical} left an escape behind`,
 };
