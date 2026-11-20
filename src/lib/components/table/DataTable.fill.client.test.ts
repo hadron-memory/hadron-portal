@@ -82,8 +82,39 @@ describe('DataTable fills the window (portal#2193)', () => {
     expect(capPx(mountTable({ rows: 60, headerHeight: 120 }))).toBe(200);
   });
 
-  it('bounded keeps one fixed height and does not measure', () => {
+  it('a table that starts low on the page keeps 40% of the window, not the 200px floor', () => {
+    // 800 - 700 - 40 leaves 60px: unfloored it would collapse; the page scrolls to it instead.
+    expect(capPx(mountTable({ rows: 60, headerHeight: 700 }))).toBe(320);
+  });
+
+  it('bounded keeps one fixed height and never measures', () => {
     const scroller = mountTable({ rows: 60, headerHeight: 120, bounded: true });
     expect(scroller.style.maxHeight).toBe('max(200px, 40vh)');
+    window.dispatchEvent(new Event('resize'));
+    flushSync();
+    expect(scroller.style.maxHeight).toBe('max(200px, 40vh)');
+  });
+
+  it('re-measures when the layout above changes size (ResizeObserver), and watches body and footer', () => {
+    const observed: Element[] = [];
+    let notify: () => void = () => {};
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(cb: () => void) { notify = cb; }
+      observe(el: Element) { observed.push(el); }
+      unobserve() {}
+      disconnect() {}
+    });
+    try {
+      const scroller = mountTable({ rows: 60, headerHeight: 120 });
+      expect(observed).toContain(document.body);
+      expect(observed.some((el) => el.getAttribute('data-testid') === 'table-footer')).toBe(true);
+      const before = capPx(scroller);
+      document.querySelector<HTMLElement>('[data-testid="page-header"]')!.dataset.height = '220'; // a banner appeared
+      notify();
+      flushSync();
+      expect(capPx(scroller)).toBe(before - 100);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

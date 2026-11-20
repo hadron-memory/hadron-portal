@@ -22,12 +22,12 @@
 <script lang="ts" generics="T extends RowData">
   import type { PortalCell, PortalTable } from '$lib/table/features';
   import type { RowData } from '@tanstack/table-core';
-  import { onMount, type Snippet } from 'svelte';
+  import { onMount, untrack, type Snippet } from 'svelte';
   import ViewTabs from './ViewTabs.svelte';
   import ColumnToggle from './ColumnToggle.svelte';
   import TableFrame from './TableFrame.svelte';
   import { tableStrings } from '$lib/i18n/table-strings';
-  import { fillHeight, measureBelow } from '$lib/fill-viewport';
+  import { FILL_MIN_HEIGHT, fillHeight, measureBelow } from '$lib/fill-viewport';
 
   let {
     table,
@@ -100,20 +100,42 @@
   /** Filled height in px; null until measured (server render, first paint), when CSS stands in. */
   let fillPx = $state<number | null>(null);
   // Measured like the node page's editors (#878): the window's height, less where the scroller
-  // starts on the page, less the footer under it and the gutter the app shell leaves.
+  // starts on the page, less the footer under it and the gutter the app shell leaves. The page
+  // (the document) scrolls in the app shell, so the document's size is what changes with the
+  // header above. A table that starts low on the page, or shares it with another table, would
+  // measure to almost nothing, so the floor is the larger of 200px and 40% of the window: it
+  // then runs past the window bottom and the page scrolls to it, as before.
+  const FILL_FLOOR_RATIO = 0.4;
   function measureFill() {
     if (bounded || !scrollerEl) return;
-    const next = fillHeight({ viewportHeight: window.innerHeight, top: scrollerEl.getBoundingClientRect().top + window.scrollY, below: measureBelow(scrollerEl, footerEl) });
+    const next = fillHeight({
+      viewportHeight: window.innerHeight,
+      top: scrollerEl.getBoundingClientRect().top + window.scrollY,
+      below: measureBelow(scrollerEl, footerEl),
+      min: Math.max(FILL_MIN_HEIGHT, Math.round(window.innerHeight * FILL_FLOOR_RATIO)),
+    });
     if (next !== fillPx) fillPx = next;
   }
+  let observer: ResizeObserver | undefined;
   onMount(() => {
     measureFill();
     // The header above can change height (a banner, wrapped filters, tabs) and the window can be
     // resized: re-measure on either, so no page needs to guess.
-    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measureFill);
+    observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measureFill);
     observer?.observe(document.body);
+    if (footerEl) observer?.observe(footerEl);
     window.addEventListener('resize', measureFill);
-    return () => { observer?.disconnect(); window.removeEventListener('resize', measureFill); };
+    return () => { observer?.disconnect(); observer = undefined; window.removeEventListener('resize', measureFill); };
+  });
+  // The footer comes and goes (`showFooter`), and `bounded` can flip: measure again, and watch
+  // whichever footer is there now.
+  $effect(() => {
+    const footer = footerEl;
+    void bounded;
+    untrack(() => {
+      if (footer) observer?.observe(footer);
+      measureFill();
+    });
   });
   const scrollerMaxHeight = $derived(bounded ? BOUNDED_MAX_HEIGHT : fillPx !== null ? `${fillPx}px` : 'max(200px, calc(100vh - 23rem))');
 

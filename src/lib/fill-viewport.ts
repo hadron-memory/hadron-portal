@@ -45,7 +45,7 @@ function px(value: string): number {
  * measured rather than restated, so a layout change cannot silently leave the
  * Save row half off-screen.
  */
-export function trailingSpace(node: HTMLElement): number {
+function trailingSpace(node: HTMLElement): number {
   let total = 0;
   for (let el = node.parentElement; el && el !== document.documentElement; el = el.parentElement) {
     const cs = getComputedStyle(el);
@@ -61,6 +61,16 @@ export function trailingSpace(node: HTMLElement): number {
 }
 
 /**
+ * Everything that must stay visible under `node`: the layout's trailing gutter, plus the
+ * footer's height and top margin when there is one. Shared by `fillViewport` and DataTable.
+ */
+export function measureBelow(node: HTMLElement, footer?: HTMLElement | null): number {
+  let below = trailingSpace(node);
+  if (footer) below += footer.offsetHeight + px(getComputedStyle(footer).marginTop);
+  return below;
+}
+
+/**
  * Svelte action: keep `node` filling the viewport below it.
  *
  * `footer` is the element under the editor that must stay visible (the Save
@@ -69,23 +79,13 @@ export function trailingSpace(node: HTMLElement): number {
  * changes size. A write happens only when the height actually changes, which
  * is what stops the observer from re-triggering itself.
  */
-export function measureBelow(node: HTMLElement, footer?: HTMLElement | null): number {
-  let below = trailingSpace(node);
-  if (footer) below += footer.offsetHeight + px(getComputedStyle(footer).marginTop);
-  return below;
-}
-
 export function fillViewport(node: HTMLElement, footer?: HTMLElement | null) {
   let current = footer ?? null;
 
   const resize = () => {
     const rect = node.getBoundingClientRect();
     const top = rect.top + window.scrollY;
-    let below = trailingSpace(node);
-    if (current) {
-      below += current.offsetHeight + px(getComputedStyle(current).marginTop);
-    }
-    const next = fillHeight({ viewportHeight: window.innerHeight, top, below });
+    const next = fillHeight({ viewportHeight: window.innerHeight, top, below: measureBelow(node, current) });
     if (Math.abs(node.offsetHeight - next) > 1) node.style.height = `${next}px`;
   };
 
