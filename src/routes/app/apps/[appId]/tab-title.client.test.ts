@@ -56,7 +56,7 @@ const clientTabIds = (target: HTMLElement) =>
 describe('portal#2292: the document title leads with the shown tab', () => {
   it('names the named tabs exactly', async () => {
     const target = await mountAt(null);
-    for (const [id, label] of [['runs', 'Runs'], ['memory', 'Memory'], ['settings', 'Settings'], ['staff', 'AI Team']] as const) {
+    for (const [id, label] of [['runs', 'Runs'], ['memory', 'Memories'], ['settings', 'Settings'], ['staff', 'AI Team']] as const) {
       await select(target, id);
       expect(document.title, id).toBe(`${label} · ${TAIL}`);
     }
@@ -76,17 +76,17 @@ describe('portal#2292: the document title leads with the shown tab', () => {
     const target = await mountAt(null);
     expect(document.title).toBe(TAIL);
     await select(target, 'memory');
-    expect(document.title).toBe(`Memory · ${TAIL}`);
+    expect(document.title).toBe(`Memories · ${TAIL}`);
     await select(target, 'chats');
     expect(document.title).toBe(TAIL);
   });
 
-  it('follows activeTab through Runs, Memory and back, not the first load', async () => {
+  it('follows activeTab through Runs, Memories and back, not the first load', async () => {
     const target = await mountAt(null);
     await select(target, 'runs');
     expect(document.title).toBe(`Runs · ${TAIL}`);
     await select(target, 'memory');
-    expect(document.title).toBe(`Memory · ${TAIL}`);
+    expect(document.title).toBe(`Memories · ${TAIL}`);
     await select(target, 'runs');
     expect(document.title).toBe(`Runs · ${TAIL}`);
   });

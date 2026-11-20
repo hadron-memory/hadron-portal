@@ -21,6 +21,7 @@
     parseHops,
     type RunTrail,
     runDuration,
+    runStatusLabel,
     statusChipClass,
     visibleEnvelope,
   } from '$lib/flow/runs';
@@ -101,7 +102,7 @@
       <h1 class="flex items-center gap-3 text-xl font-bold text-zinc-900 dark:text-white">
         {t('run.title', 'Run')}
         <span class="rounded-full px-2.5 py-0.5 text-sm font-medium {statusChipClass(run.status)}">
-          {run.status}{#if live}<span class="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current align-middle"></span>{/if}
+          {runStatusLabel(run.status)}{#if live}<span class="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current align-middle"></span>{/if}
         </span>
       </h1>
       <p class="mt-1 font-mono text-xs text-zinc-500">{run.id}</p>

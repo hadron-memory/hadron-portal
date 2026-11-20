@@ -557,3 +557,107 @@ describe('AgentChat: a partial turn is reloaded, never rolled back or refilled (
     m.unmount();
   });
 });
+
+/**
+ * portal#2165 item 2: confirmDelete puts focusin / pointerdown / keydown on the
+ * document while its delete is in flight. They must come off at unmount, not
+ * whenever the request finally settles.
+ */
+describe('AgentChat: pending-delete listeners at unmount (#2165)', () => {
+  const TYPES = ['focusin', 'pointerdown', 'keydown'];
+  type Entry = { type: string; fn: unknown; capture: boolean };
+  const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  const captureOf = (o: unknown) => (typeof o === 'boolean' ? o : !!(o as AddEventListenerOptions | undefined)?.capture);
+
+  let added: Entry[];
+  let removed: Entry[];
+  let settleDelete: () => void;
+  let focusCalls: number;
+
+  beforeEach(() => {
+    added = [];
+    removed = [];
+    focusCalls = 0;
+    const add = document.addEventListener.bind(document);
+    const remove = document.removeEventListener.bind(document);
+    vi.spyOn(document, 'addEventListener').mockImplementation((type: string, fn: unknown, o?: unknown) => {
+      if (TYPES.includes(type)) added.push({ type, fn, capture: captureOf(o) });
+      return add(type, fn as EventListener, o as boolean);
+    });
+    vi.spyOn(document, 'removeEventListener').mockImplementation((type: string, fn: unknown, o?: unknown) => {
+      if (TYPES.includes(type)) removed.push({ type, fn, capture: captureOf(o) });
+      return remove(type, fn as EventListener, o as boolean);
+    });
+    vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(() => { focusCalls++; });
+    const gate = new Promise<void>((r) => (settleDelete = r));
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/agent-chat/list')) {
+        return json({ chats: [
+          { id: 'a', loc: 'chats:a', title: 'First chat', conversationName: null, stageName: null, messageCount: 1, createdAt: '2026-11-01T00:00:00Z', lastMessageAt: null, scope: 'private', createdBy: 'u', aiConfigChoice: null },
+          { id: 'b', loc: 'chats:b', title: 'Second chat', conversationName: null, stageName: null, messageCount: 1, createdAt: '2026-11-01T00:00:00Z', lastMessageAt: null, scope: 'private', createdBy: 'u', aiConfigChoice: null },
+        ] });
+      }
+      if (url.includes('/api/agent-chat/delete')) {
+        await gate;
+        return json({ ok: true });
+      }
+      return json({});
+    }));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  // Only what confirmDelete itself installs: the component owns other document
+  // listeners (e.g. a non-capture keydown) that are out of this pin's scope.
+  let baseline = 0;
+  const live = () =>
+    added.slice(baseline).filter((a) => !removed.some((r) => r.type === a.type && r.fn === a.fn && r.capture === a.capture));
+
+  async function startDelete() {
+    const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
+    await wait(30);
+    await tick();
+    document.querySelector<HTMLButtonElement>('[data-chat-delete="chats:a"]')!.click();
+    await tick();
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Delete' && b.className.includes('bg-red-600'))!;
+    baseline = added.length;
+    confirm.click();
+    await tick();
+    return m;
+  }
+
+  it('unmount removes pending-delete document listeners before fetch settles', async () => {
+    const m = await startDelete();
+    // Positive control: the three listeners really are installed while the delete is in flight.
+    expect(live().map((l) => `${l.type}:${l.capture}`).sort()).toEqual(['focusin:true', 'keydown:true', 'pointerdown:true']);
+    const installed = [...live()];
+
+    m.unmount();
+    // The delete has not answered: nothing may still be listening.
+    expect(live()).toEqual([]);
+
+    focusCalls = 0;
+    settleDelete();
+    await wait(40);
+    await tick();
+    // Settling afterwards restores no focus and does not clean up twice.
+    expect(focusCalls).toBe(0);
+    for (const l of installed) {
+      expect(removed.filter((r) => r.type === l.type && r.fn === l.fn && r.capture === l.capture)).toHaveLength(1);
+    }
+  });
+
+  it('while still mounted the listeners stay until the delete settles, then go (control)', async () => {
+    const m = await startDelete();
+    expect(live()).toHaveLength(3);
+    settleDelete();
+    await wait(40);
+    await tick();
+    expect(live()).toEqual([]);
+    m.unmount();
+  });
+});

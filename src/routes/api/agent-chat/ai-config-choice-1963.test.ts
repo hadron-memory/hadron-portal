@@ -97,7 +97,7 @@ describe('portal#1963 /start', () => {
     const res = await start({ agentId: 'agent-1', appId: 'app-1', configName: 'fast', aiConfigChoice: 'cfg-fast' });
     expect(res.status).toBe(200);
     expect(callsOf(START_CHAT_MUTATION)).toEqual([
-      { agentId: 'agent-1', conversationName: null, scope: 'private', llmModel: 'model-fast', aiConfigChoice: 'cfg-fast' },
+      { agentRef: 'agent-1', conversationName: null, scope: 'private', llmModel: 'model-fast', aiConfigChoice: 'cfg-fast' },
     ]);
     expect(mockLlm.mock.calls[0][0].model).toBe('model-fast');
   });

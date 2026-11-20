@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  RUN_STATUSES,
   defaultRunRecordUrn,
   describeTrigger,
   entryNodeLabel,
@@ -11,6 +12,9 @@ import {
   fmtHopTokens,
   fmtHopDuration,
   runDuration,
+  runStatusLabel,
+  runStatusDisplay,
+  statusChipClass,
   visibleEnvelope,
 } from './runs';
 
@@ -50,6 +54,47 @@ describe('trigger / failure / cancel helpers', () => {
     expect(isCancellable('RUNNING')).toBe(true);
     expect(isCancellable('COMPLETED')).toBe(false);
     expect(isCancellable('CANCELLED')).toBe(false);
+  });
+});
+
+describe('forward-compatible response enums (#1766)', () => {
+  it('an unknown status is unknown: its label carries the raw value, its chip borrows no known state', () => {
+    expect(runStatusDisplay('PAUSED')).toBe('unknown');
+    expect(runStatusLabel('PAUSED')).toBe('Unknown: PAUSED');
+    expect(statusChipClass('PAUSED')).not.toBe(statusChipClass('PENDING'));
+    expect(statusChipClass('PAUSED')).toContain('border-zinc-300');
+    expect(statusChipClass('PAUSED')).not.toContain('amber');
+    expect(isCancellable('PAUSED')).toBe(false);
+  });
+
+  it('every known status keeps its current display, label and class', () => {
+    const classes: Record<string, string> = {
+      PENDING: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+      RUNNING: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300',
+      COMPLETED: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
+      FAILED: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+      TIMED_OUT: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+      CANCELLED: 'bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
+    };
+    for (const status of RUN_STATUSES) {
+      expect(runStatusDisplay(status)).toBe(status);
+      expect(runStatusLabel(status)).toBe(status);
+      expect(statusChipClass(status)).toBe(classes[status]);
+    }
+  });
+
+  it('one contract for the table and the chips: a caller supplies the known-status words, the unknown branch stays shared (#2315)', () => {
+    const known = (s: string) => `«${s}»`;
+    for (const status of RUN_STATUSES) expect(runStatusLabel(status, known)).toBe(`«${status}»`);
+    // an unknown status borrows no known label, and never reaches the caller's mapper — including names that exist on Object.prototype
+    for (const raw of ['PAUSED', 'constructor', 'toString', '']) {
+      expect(runStatusLabel(raw, known)).toBe(runStatusLabel(raw));
+      expect(runStatusLabel(raw, known)).toBe(`Unknown: ${raw}`);
+    }
+  });
+
+  it('an unknown trigger kind renders Unknown: raw, not a capitalised guess', () => {
+    expect(describeTrigger({ triggerKind: 'FUTURE_KIND', eventData: null })).toBe('Unknown: FUTURE_KIND');
   });
 });
 

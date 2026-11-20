@@ -104,7 +104,7 @@
     {:else}
       <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.automations.form.what.none', 'None chosen')}</p>
     {/if}
-    <button type="button" onclick={() => (picking = true)} aria-describedby={id('what')}
+    <button type="button" onclick={() => (picking = true)} aria-haspopup="dialog" aria-expanded={picking} aria-describedby={id('what')}
       class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">
       {entry.urn ? t('app.automations.form.what.change', 'Change…') : t('app.automations.form.what.choose', 'Choose…')}
     </button>

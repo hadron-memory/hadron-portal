@@ -72,8 +72,8 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(ADD_MEMBER_MUTATION, {
-        orgId: params.id,
-        userId: form.data.userId,
+        orgRef: params.id,
+        userRef: form.data.userId,
         role: form.data.role,
       });
       return message(form, { type: 'success', text: 'Member added.' });
@@ -88,8 +88,8 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(UPDATE_MEMBER_MUTATION, {
-        orgId: params.id,
-        userId: form.data.userId,
+        orgRef: params.id,
+        userRef: form.data.userId,
         role: form.data.role,
       });
       return message(form, { type: 'success', text: 'Member updated.' });
@@ -104,8 +104,8 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(REMOVE_MEMBER_MUTATION, {
-        orgId: params.id,
-        userId: form.data.userId,
+        orgRef: params.id,
+        userRef: form.data.userId,
       });
       return message(form, { type: 'success', text: 'Member removed.' });
     } catch (e: unknown) {
@@ -125,7 +125,7 @@ export const actions: Actions = {
       const data = await gqlClient(locals.token).request<{
         createUserInvitation: { slug: string };
       }>(CREATE_USER_INVITATION_MUTATION, {
-        orgId: params.id,
+        orgRef: params.id,
         memberRole,
         name,
         email,
@@ -195,7 +195,7 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
 
     try {
-      await gqlClient(locals.token).request(REMOVE_MEMBER_MUTATION, { orgId: params.id, userId: locals.user.id });
+      await gqlClient(locals.token).request(REMOVE_MEMBER_MUTATION, { orgRef: params.id, userRef: locals.user.id });
     } catch (e: unknown) {
       return message(form, { type: 'error', text: extractGqlError(e, 'Failed to leave organization') }, { status: 500 });
     }

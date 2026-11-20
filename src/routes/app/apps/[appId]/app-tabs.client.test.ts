@@ -249,7 +249,7 @@ it('App memory filters do not infer read-only access from the primary agent', as
     app: { agent: { ...agentOne, memoryItems: [{ id: 'item1', role: 'read-write', memory: memory('roles', 'Roles') }] } },
     data: { appNodes: ['roles', 'notes'].map((id) => ({ id: `node-${id}`, memoryId: id, memory: memory(id, id === 'roles' ? 'Roles' : 'Eng Notes'), nodeType: 'info', loc: id, name: id, tags: [], outgoingEdges: [], incomingEdges: [] })) },
   });
-  const memories = [...target.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim().startsWith('Memories'));
+  const memories = [...target.querySelectorAll<HTMLButtonElement>('#panel-memory button')].find(b => b.textContent?.trim().startsWith('Memories'));
   expect(memories).toBeDefined();
   memories!.click();
   await tick(2);

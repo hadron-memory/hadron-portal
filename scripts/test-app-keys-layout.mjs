@@ -48,11 +48,11 @@ const MUTANTS = {
   // legs must catch it. (The patterns match the COMPILED module the plugin
   // sees — the Svelte compiler flattens if/else to one line — so they stay
   // whitespace- and quote-tolerant; a non-match aborts the run below.)
-  'no-focus-restore': [/if \(grantScopeTriggerEl && grantScopeTriggerEl\.isConnected\) grantScopeTriggerEl\.focus\(\);\s*else document\.getElementById\(['"]app-keys-heading['"]\)\?\.focus\(\);/, ''],
+  'no-focus-restore': [/if \(grantScopeTriggerEl && grantScopeTriggerEl\.isConnected\) grantScopeTriggerEl\.focus\(\);\s*else document\.getElementById\(['"]panel-keys['"]\)\?\.focus\(\);/, ''],
   // portal#1487 review: the fallback landing spot is gone, so a close whose
   // captured trigger is detached (the success path re-renders the rows)
   // drops focus to <body> — the detached-trigger leg must catch it
-  'no-focus-fallback': [/\s*else document\.getElementById\(['"]app-keys-heading['"]\)\?\.focus\(\);/, ''],
+  'no-focus-fallback': [/\s*else document\.getElementById\(['"]panel-keys['"]\)\?\.focus\(\);/, ''],
 };
 const mutantName = process.env.KEYS_MUTANT ?? null;
 if (mutantName && !MUTANTS[mutantName]) throw new Error(`KEYS_MUTANT must be one of ${Object.keys(MUTANTS).join(', ')}`);
@@ -257,7 +257,7 @@ try {
       if (state === 'error') check(g.error !== null, 'error state rendered no alert');
 
       // Preview, Scopes and the actions menu stay reachable inside the scroller.
-      for (const [what, sel] of [['preview', 'tbody tr:first-child td:nth-child(2) span.font-mono'], ['scopes', '[data-testid="key-scopes"]'], ['actions', 'tbody tr:last-child td:last-child button']]) {
+      for (const [what, sel] of [['preview', 'tbody tr:first-child td:nth-child(3) span.font-mono'], ['scopes', '[data-testid="key-scopes"]'], ['actions', 'tbody tr:last-child td:last-child button']]) {
         const r = await page.evaluate(reach, sel);
         check(r.found, `${what} cell not rendered`);
         if (r.found) check(r.left >= -1 && r.right >= -1, `${what} not reachable (left ${r.left.toFixed(1)}, right ${r.right.toFixed(1)})`);
@@ -394,11 +394,13 @@ try {
       const afterEscape = await focusAfterClose();
       check(afterEscape.onTrigger && !afterEscape.onBody, `focus after Escape is ${afterEscape.onTrigger ? 'the ⋯ trigger' : afterEscape.onBody ? '<body>' : 'elsewhere'}`);
       // The same chain by KEYBOARD ONLY: Enter on the trigger opens the menu
-      // (it focuses its first item, Grant scope), Enter chooses it, Escape
-      // closes. If the menu's refocus-before-onselect order ever breaks,
-      // the captured element stops being the trigger and this leg goes red.
+      // (it focuses its first item — Copy ID), ArrowDown reaches Grant
+      // scope, Enter chooses it, Escape closes. If the menu's
+      // refocus-before-onselect order ever breaks, the captured element
+      // stops being the trigger and this leg goes red.
       await page.locator(trigger).focus();
       await page.keyboard.press('Enter');
+      await page.keyboard.press('ArrowDown');
       await page.keyboard.press('Enter');
       await page.locator('dialog[open][data-testid="grant-scope-dialog"]').waitFor();
       await page.keyboard.press('Escape');
@@ -406,8 +408,8 @@ try {
       check(afterKeyEscape.onTrigger && !afterKeyEscape.onBody, `focus after keyboard Escape is ${afterKeyEscape.onTrigger ? 'the ⋯ trigger' : afterKeyEscape.onBody ? '<body>' : 'elsewhere'}`);
       // The success path re-renders the table rows, so the captured trigger
       // can be gone when the dialog unmounts. Removing the row outright
-      // stands in for that: the teardown owes a landing spot — the Keys
-      // heading — never <body>.
+      // stands in for that: the teardown owes a landing spot — the Keys tab
+      // panel (#panel-keys, a focusable region boundary) — never <body>.
       await page.locator(trigger).click();
       await page.getByRole('menuitem', { name: /Grant scope/ }).click();
       await page.locator('dialog[open][data-testid="grant-scope-dialog"]').waitFor();
@@ -418,7 +420,7 @@ try {
         id: document.activeElement?.id ?? '',
         onBody: document.activeElement === document.body || document.activeElement === null,
       }));
-      check(fallback.id === 'app-keys-heading' && !fallback.onBody, `focus after a detached trigger is ${fallback.id ? `#${fallback.id}` : fallback.onBody ? '<body>' : 'elsewhere'}`);
+      check(fallback.id === 'panel-keys' && !fallback.onBody, `focus after a detached trigger is ${fallback.id ? `#${fallback.id}` : fallback.onBody ? '<body>' : 'elsewhere'}`);
       check(errors.length === 0, `page errors: ${errors.join(' | ')}`);
     } finally { await page.close(); }
   }
@@ -439,9 +441,9 @@ try {
       assert.ok(await page.locator('#panel-keys [data-testid="table-header"]').locator('summary').filter({ hasText: /Columns/ }).count() === 1, 'column toggle present');
       const header = await page.evaluate(() => { const h = document.querySelector('#panel-keys [data-testid="table-header"]').getBoundingClientRect(); const s = document.querySelector('#panel-keys [data-testid="data-table-scroller"]').getBoundingClientRect(); return { h: h.width, s: s.width }; });
       assert.ok(near(header.h, header.s), `open table header ${header.h}px matches the table ${header.s}px`);
-      const label = page.locator('#panel-keys th').filter({ hasText: /^Label/ });
+      const label = page.locator('#panel-keys th').filter({ hasText: /^Name/ });
       await label.click();
-      assert.ok(['ascending', 'descending'].includes(await label.getAttribute('aria-sort')), 'Label header sorts');
+      assert.ok(['ascending', 'descending'].includes(await label.getAttribute('aria-sort')), 'Name header sorts');
     } catch (e) { failures.push(`1440/chrome: ${e.message}`); } finally { await page.close(); }
 
     // A deliberately wide saved view keeps its widths and scrolls; nothing clamps it.
@@ -449,10 +451,10 @@ try {
     try {
       const g = await wide.page.evaluate(() => {
         const s = document.querySelector('#panel-keys [data-testid="data-table-scroller"]');
-        const th = [...s.querySelectorAll('th')].find((t) => t.textContent.trim().startsWith('Label'));
+        const th = [...s.querySelectorAll('th')].find((t) => t.textContent.trim().startsWith('Name'));
         return { label: th.getBoundingClientRect().width, scroll: s.scrollWidth, client: s.clientWidth, pageOverflow: document.scrollingElement.scrollWidth - document.scrollingElement.clientWidth };
       });
-      if (!near(g.label, 700)) failures.push(`1440/saved-wide: Label column ${g.label}px, saved 700px`);
+      if (!near(g.label, 700)) failures.push(`1440/saved-wide: Name column ${g.label}px, saved 700px`);
       if (!(g.scroll > g.client)) failures.push('1440/saved-wide: wide saved view does not scroll internally');
       if (g.pageOverflow > 0) failures.push(`1440/saved-wide: page overflows by ${g.pageOverflow}px`);
       const r = await wide.page.evaluate(reach, 'tbody tr:last-child td:last-child button');

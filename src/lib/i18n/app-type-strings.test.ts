@@ -9,7 +9,7 @@
  * rendered in app-type-label.client.test.ts.
  */
 import { describe, expect, it } from 'vitest';
-import { APP_TYPE_VALUES, appTypeLabel } from './app-type-strings';
+import { APP_TYPE_VALUES, appTypeIcon, appTypeLabel } from './app-type-strings';
 import { appSettingsSchema } from '../../routes/app/apps/[appId]/schema';
 
 const EXPECTED: Record<string, string> = {
@@ -53,6 +53,18 @@ describe('app type label source (#2249)', () => {
     enumValues().sort().reverse();
     const live = (appSettingsSchema.shape.appType as unknown as { def: { innerType: { options: string[] } } }).def.innerType.options;
     expect([...live]).toEqual(['WORKSTATION', 'CHATBOT', 'AGENT', 'AUTOMATION', 'CLOUD', 'IOT']);
+  });
+
+  it('APP_TYPE_VALUES is frozen, so no caller can reorder the Settings options', () => {
+    expect(Object.isFrozen(APP_TYPE_VALUES)).toBe(true);
+  });
+
+  it('every enum value has its own icon, and an unknown or prototype key gets the key icon', () => {
+    const icons = ['💻', '💬', '🤖', '⚙️', '☁️', '📡'];
+    expect(APP_TYPE_VALUES.map((v) => appTypeIcon(v))).toEqual(icons);
+    for (const key of ['FUTURE', 'toString', '__proto__', 'constructor', '', null, undefined]) {
+      expect(appTypeIcon(key)).toBe('🔑');
+    }
   });
 
   it('an unknown value falls back to the raw value', () => {

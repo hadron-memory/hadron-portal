@@ -214,14 +214,30 @@ describe('A derived agent on the Agents tab (#1684)', () => {
 });
 
 describe('App Keys tab row ⋯ menu (#1020)', () => {
-  it('offers Grant scope then Revoke, with no inline buttons (portal#1487 added the grant)', async () => {
+  it('offers Copy ID, Grant scope then Revoke, with no inline Revoke button', async () => {
     const target = await mountTab('keys');
     expect(target.textContent).not.toContain('Revoke');
     const items = openMenu(target, 'Actions for key abc123');
     expect(items.map((i) => [i.tagName, i.textContent?.trim()])).toEqual([
+      ['BUTTON', 'Copy ID'],
       ['BUTTON', 'Grant scope…'],
       ['BUTTON', 'Revoke'],
     ]);
+  });
+
+  it('a viewer who cannot manage keys is offered Copy ID only — no Grant scope, no Revoke', async () => {
+    const target = await mountTab('keys', { viewerManages: { kind: 'known', manages: false } });
+    const items = openMenu(target, 'Actions for key abc123');
+    expect(items.map((i) => i.textContent?.trim())).toEqual(['Copy ID']);
+  });
+
+  it('Copy ID writes the PICKED key\'s full ID to the clipboard', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const target = await mountTab('keys');
+    openMenu(target, 'Actions for key abc123').find((i) => i.textContent?.trim() === 'Copy ID')!.click();
+    await tick(2);
+    expect(writeText).toHaveBeenCalledWith('k1');
   });
 
   it('Revoke confirms, then submits the hidden revokeKey form for the PICKED key', async () => {

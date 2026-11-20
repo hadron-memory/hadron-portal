@@ -4,6 +4,7 @@ import { selectsFieldPath } from './graphql-selection';
 
 const PROPERTIES = ['agentTask', 'properties'] as const;
 const MIN_TIER = ['agentTask', 'requirements', 'minTier'] as const;
+const ROLE_TASK_REFS = ['agentTask', 'result', 'workedFromRoleTaskRefs'] as const;
 type Rewrite = (query: string) => string;
 type Case = [name: string, rewrite: Rewrite, selected: boolean];
 
@@ -50,6 +51,22 @@ const minTierCases: Case[] = [
   ['removed', q => edit(q, /\s*\bminTier\b/, ''), false],
   ['in an inline fragment', q => edit(q, /\bminTier\b/, '... on AgentTaskRequirements { minTier }'), true],
 ];
+
+describe('portal#2245: result.workedFromRoleTaskRefs', () => {
+  it('is selected, with the three stored fields, in the real detail query', () => {
+    expect(selectsFieldPath(AGENT_TASK_DETAIL_QUERY, 'AgentTaskDetail', ROLE_TASK_REFS)).toBe(true);
+    for (const f of ['nodeId', 'urn', 'revision']) {
+      expect(selectsFieldPath(AGENT_TASK_DETAIL_QUERY, 'AgentTaskDetail', [...ROLE_TASK_REFS, f])).toBe(true);
+    }
+  });
+  it.each([
+    ['removed', (q: string) => edit(q, /\s*workedFromRoleTaskRefs \{[^}]*\}/, '')],
+    ['aliased', (q: string) => edit(q, 'workedFromRoleTaskRefs', 'x: workedFromRoleTaskRefs')],
+    ['moved out of result', (q: string) => edit(edit(q, /\s*workedFromRoleTaskRefs \{[^}]*\}/, ''), 'result {', 'workedFromRoleTaskRefs { nodeId urn revision } result {')],
+  ])('is not selected when %s', (_n, rewrite) => {
+    expect(selectsFieldPath(rewrite(AGENT_TASK_DETAIL_QUERY), 'AgentTaskDetail', ROLE_TASK_REFS)).toBe(false);
+  });
+});
 
 describe('selectsFieldPath', () => {
   it('selects both paths in the unchanged real detail query', () => {

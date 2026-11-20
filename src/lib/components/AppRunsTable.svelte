@@ -7,7 +7,7 @@
   import type { PortalColumnDef, PortalTableState } from '$lib/table/features';
   import type { SavedView } from '$lib/table/savedView';
   import { t } from '$lib/i18n/t';
-  import { RUN_STATUSES, describeTrigger, fmtRunTime, runDuration, failureCode, statusChipClass, type AppRun } from '$lib/flow/runs';
+  import { RUN_STATUSES, describeTrigger, fmtRunTime, runDuration, failureCode, runStatusLabel, statusChipClass, type AppRun, type AppRunStatus } from '$lib/flow/runs';
   import { runsHref, isRunsSection, RUNS_PAGE_SIZE, RUN_SORTS, type RunsSection, type RunsQuery } from '$lib/flow/app-runs-page';
   let { appRef, initial }: { appRef: string; initial: RunsSection } = $props();
   const mountedApp = untrack(() => appRef), mountedSection = untrack(() => initial);
@@ -26,7 +26,8 @@
     const generation = epoch;
     void tick().then(() => { if (alive && generation === epoch && document.activeElement === document.body) heading?.focus(); });
   });
-  const sorting = $derived(section.sort === 'status' || section.sort === 'startedAt' ? [{ id: section.sort, desc: section.dir === 'desc' }] : []);
+  // portal#2290: the pager and the sort header build on the request the reader is waiting on (`controls`), not the served page.
+  const sorting = $derived(controls.sort === 'status' || controls.sort === 'startedAt' ? [{ id: controls.sort, desc: controls.dir === 'desc' }] : []);
   const columns: PortalColumnDef<AppRun>[] = [
     { accessorKey: 'status', header: t('runs.col.status', 'Status'), size: 130 },
     { accessorKey: 'triggerKind', header: t('runs.col.trigger', 'Trigger'), enableSorting: false, size: 180 },
@@ -36,9 +37,10 @@
     { id: 'failure', header: t('runs.col.failure', 'Failure'), enableSorting: false, size: 220 },
     { id: 'actions', header: t('runs.col.open', 'Open'), enableSorting: false, enableHiding: false, size: 140, minSize: 140 },
   ];
-  // portal#2286: labels go through t() so they can be localized; a status with no key renders raw.
-  const STATUS_LABELS: Record<string, string> = { PENDING: 'Pending', RUNNING: 'Running', COMPLETED: 'Completed', FAILED: 'Failed', TIMED_OUT: 'Timed out', CANCELLED: 'Cancelled' };
-  const statusLabel = (status: string) => t(`runs.status.${status}`, Object.hasOwn(STATUS_LABELS, status) ? STATUS_LABELS[status] : status);
+  // portal#2286: known labels go through t() so they can be localized; a status with no key renders raw.
+  // portal#1766/#2315: the unknown branch (`Unknown: {raw}`) is runStatusLabel's own, shared with every other surface.
+  const STATUS_LABELS: Record<AppRunStatus, string> = { PENDING: 'Pending', RUNNING: 'Running', COMPLETED: 'Completed', FAILED: 'Failed', TIMED_OUT: 'Timed out', CANCELLED: 'Cancelled' };
+  const statusLabel = (status: string) => runStatusLabel(status, (s) => t(`runs.status.${s}`, STATUS_LABELS[s]));
   const SORT_LABELS: Record<RunsQuery['sort'], string> = { createdAt: 'Created', startedAt: 'Started', finishedAt: 'Finished', status: 'Status' };
   const sortSummary = $derived.by(() => {
     const sort = t(`runs.sort.${controls.sort}`, SORT_LABELS[controls.sort] ?? controls.sort);
@@ -67,9 +69,10 @@
     manualPagination: true, manualSorting: true, manualFiltering: true,
     initialState: { sorting: [{ id: 'createdAt', desc: true }], pagination: { pageIndex: 0, pageSize: 20 } },
     get rowCount() { return section.total; }, enableMultiSort: false, enableSortingRemoval: false,
-    get state() { return { sorting, columnFilters: section.statuses.length ? [{ id: 'status', value: section.statuses }] : [], pagination: { pageIndex: section.page - 1, pageSize: RUNS_PAGE_SIZE } }; },
+    // The pager and sort header follow `controls`; the status filter and the saved view still describe the served page (portal#2290 scope).
+    get state() { return { sorting, columnFilters: section.statuses.length ? [{ id: 'status', value: section.statuses }] : [], pagination: { pageIndex: controls.page - 1, pageSize: RUNS_PAGE_SIZE } }; },
     onSortingChange: updater => { const next = typeof updater === 'function' ? updater(sorting) : updater; const item = next[0]; void navigate(query({ page: 1, sort: RUN_SORTS.includes(item?.id as RunsQuery['sort']) ? item.id as RunsQuery['sort'] : 'createdAt', dir: item?.desc ? 'desc' : 'asc' })); },
-    onPaginationChange: updater => { const now = { pageIndex: section.page - 1, pageSize: RUNS_PAGE_SIZE }; const next = typeof updater === 'function' ? updater(now) : updater; if (next.pageIndex !== now.pageIndex) void navigate(query({ page: next.pageIndex + 1 })); },
+    onPaginationChange: updater => { const now = { pageIndex: controls.page - 1, pageSize: RUNS_PAGE_SIZE }; const next = typeof updater === 'function' ? updater(now) : updater; if (next.pageIndex !== now.pageIndex) void navigate(query({ page: next.pageIndex + 1 })); },
     meta: {
       getServerView: () => ({ sorting: [{ id: section.sort, desc: section.dir === 'desc' }], columnFilters: section.statuses.length ? [{ id: 'status', value: section.statuses }] : [] }),
       applyServerView: (view: SavedView, options?: { initial?: boolean }) => {

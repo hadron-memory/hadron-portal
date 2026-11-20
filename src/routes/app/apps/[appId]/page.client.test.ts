@@ -1365,12 +1365,15 @@ describe('App Keys Scopes column (portal#1099)', () => {
 
   it('offers no scope write to a reader the server refuses', async () => {
     // portal#1153: a viewer who does not manage the App still sees the keys
-    // table, but the whole row menu — Revoke and the portal#1487 grant
-    // control with it — is absent, and the withheld line names the audience.
-    // The menu BUTTON is the guard (its items are not in the DOM until it
-    // opens, so a textContent check would pass vacuously).
+    // table, but the row menu loses its WRITES — Revoke and the portal#1487
+    // grant control with it — leaving Copy ID, and the withheld line names
+    // the audience. The OPENED menu is the guard (its items are not in the
+    // DOM until it opens).
     const panel = await mountKeys({ kind: 'hidden' }, { viewerManages: { kind: 'known', manages: false } });
-    expect(panel.querySelector('button[aria-label^="Actions for key"]')).toBeNull();
+    (panel.querySelector('button[aria-label^="Actions for key"]') as HTMLButtonElement).click();
+    await tick(2);
+    const items = [...document.querySelectorAll('[role="menuitem"]')].map((i) => i.textContent?.trim());
+    expect(items).toEqual(['Copy ID']);
     expect(panel.textContent).toContain('Only people who manage this App can mint, revoke and scope its keys');
   });
 });
@@ -1562,16 +1565,16 @@ describe('App key scope grant dialog (portal#1487)', () => {
     expect(trigFocus).toHaveBeenCalled();
   });
 
-  it('a success whose row is gone lands focus on the Keys heading, never <body>', async () => {
+  it('a success whose row is gone lands focus on the Keys tab panel, never <body>', async () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);
     const trigBefore = document.querySelector('button[aria-label^="Actions for key"]') as HTMLElement;
     // The success path invalidates the page and the table re-renders its
     // rows — the captured ⋯ trigger can be detached by the time the dialog
     // unmounts. Stand in for that by removing the row outright.
-    const heading = document.getElementById('app-keys-heading')!;
+    const tabPanel = document.getElementById('panel-keys')!;
     const trigFocus = vi.spyOn(trigBefore, 'focus');
-    const headingFocus = vi.spyOn(heading, 'focus');
+    const panelFocus = vi.spyOn(tabPanel, 'focus');
     trigBefore.closest('tr')!.remove();
     const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'attention:deliver', hostId: '' }, zod4(grantAppKeyScopeSchema));
     f.message = { type: 'success', text: 'Scope granted.' };
@@ -1579,11 +1582,12 @@ describe('App key scope grant dialog (portal#1487)', () => {
     flushSync(); await tick(2);
     expect(document.querySelector('dialog[open]')).toBeNull();
     // A detached trigger cannot take focus — the teardown owes the close a
-    // landing spot, and it is the Keys heading, never <body>. (Target pinned
-    // by spy: the env blurs activeElement after the flush; the real-browser
-    // detached-trigger leg is in the layout script.)
+    // landing spot, and it is the Keys tab panel (a focusable region
+    // boundary), never <body>. (Target pinned by spy: the env blurs
+    // activeElement after the flush; the real-browser detached-trigger leg
+    // is in the layout script.)
     expect(trigFocus).not.toHaveBeenCalled();
-    expect(headingFocus).toHaveBeenCalled();
+    expect(panelFocus).toHaveBeenCalled();
   });
 
   it('a refusal from an earlier key never reads as this one’s answer', async () => {
@@ -2828,38 +2832,6 @@ describe('App memory scope inventory (#1043)', () => {
   });
   it('renders successful empty scope distinctly', async () => {
     const m=await showSettings([]);expect(m.target.textContent).toContain('No accessible memories');expect(m.target.textContent).not.toContain('OLD FIRST ONLY');
-  });
-});
-
-describe('App Settings: task integrations draft (LOCAL review of #1614, P2-2)', () => {
-  it('does not follow the person to another App: an open draft is dropped on an App change', async () => {
-    setStubPage('https://example.test/app/apps/a1?tab=settings', { appId: 'a1' });
-    const data = await pageData();
-    const props = reactiveProps({
-      data: {
-        ...data, user: { id: 'u1' }, initialTab: 'settings', staff: [],
-        appProperties: { kind: 'ok', revision: 1, properties: { taskIntegrations: [{ name: 'app-a-integration', provider: 'github', repositories: ['o/a'] }] } },
-      },
-      form: null,
-    });
-    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
-    mounted.push(m);
-    await tick(3);
-    const edit = [...m.target.querySelectorAll<HTMLButtonElement>('[data-task-integrations] button')].find((b) => b.textContent?.trim() === 'Edit')!;
-    edit.click();
-    await tick(3);
-    expect(m.target.querySelector<HTMLInputElement>('[data-task-integrations] input[type="text"]')!.value).toBe('app-a-integration');
-
-    props.data = {
-      ...props.data,
-      app: { ...props.data.app, id: 'a2', urn: 'hrn:app:acme.com:other', name: 'Other App' },
-      appProperties: { kind: 'ok', revision: 7, properties: { taskIntegrations: [{ name: 'app-b-integration', provider: 'github', repositories: ['o/b'] }] } },
-    };
-    await tick(3);
-    const section = m.target.querySelector('[data-task-integrations]')!;
-    expect(section.querySelector('form')).toBeNull();
-    expect(section.textContent).toContain('app-b-integration');
-    expect(section.textContent).not.toContain('app-a-integration');
   });
 });
 

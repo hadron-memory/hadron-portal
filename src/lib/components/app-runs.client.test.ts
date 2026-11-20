@@ -73,6 +73,14 @@ describe('App Runs manual server table', () => {
     const m = mount(section({ runs: [{ ...run('spawn'), triggerKind: 'SPAWN' }] })); await tick(8);
     expect(m.target.querySelector('tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('Spawn');
   });
+  it('renders well-shaped unknown enums as Unknown: raw in a neutral chip, borrowing no known state (#1766)', async () => {
+    const m = mount(section({ runs: [{ ...run('paused'), status: 'PAUSED', triggerKind: 'FUTURE_KIND' }] })); await tick(8);
+    const chip = m.target.querySelector('tbody tr td:nth-child(1) span') as HTMLElement;
+    expect(chip.textContent?.trim()).toBe('Unknown: PAUSED');
+    expect(chip.className).toContain('border-zinc-300');
+    expect(chip.className).not.toContain('amber');
+    expect(m.target.querySelector('tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('Unknown: FUTURE_KIND');
+  });
   it('keeps a held filter when the next choice changes sorting', async () => {
     const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
     const m = mount(); await tick(8);
@@ -173,6 +181,95 @@ describe('App Runs manual server table', () => {
     b.resolve(); await tick(8);
     expect(document.activeElement).toBe(running);
     expect(failed.checked).toBe(true); expect(running.checked).toBe(true);
+  });
+  // portal#2290 row 2: while a request is held, the request the reader waits on is the base for the next click.
+  describe('pager and sort header follow the held request (portal#2290)', () => {
+    const goto = () => navigationCalls.filter(x => x.fn === 'goto');
+    const lastUrl = () => new URL(goto().at(-1)!.args[0] as string, 'https://test');
+    it('Next from a held intent on page 1 asks page 2, never served page 3 + 1', async () => {
+      const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
+      const m = mount(); await tick(8);
+      statusBox(m.target, 'Failed').click(); await tick(4);
+      expect(lastUrl().searchParams.get('page')).toBeNull();
+      find(m.target, 'Next').click(); await tick(4);
+      expect(goto()).toHaveLength(2);
+      expect(lastUrl().searchParams.get('page')).toBe('2');
+      expect(lastUrl().searchParams.get('status')).toBe('FAILED');
+      held.resolve(); await tick(8);
+    });
+    it('Previous from a held intent on page 1 makes no request', async () => {
+      const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
+      const m = mount(); await tick(8);
+      statusBox(m.target, 'Failed').click(); await tick(4);
+      find(m.target, 'Previous').click(); await tick(4);
+      expect(goto()).toHaveLength(1);
+      held.resolve(); await tick(8);
+    });
+    it('does not disable the pager or the sort header while a request is held', async () => {
+      const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
+      const m = mount(); await tick(8);
+      find(m.target, 'Previous').click(); await tick(4);
+      expect(lastUrl().searchParams.get('page')).toBe('2');
+      for (const el of [find(m.target, 'Previous'), find(m.target, 'Next'), find(m.target, 'Started')]) {
+        expect(el.hasAttribute('disabled')).toBe(false);
+        expect(el.hasAttribute('aria-disabled')).toBe(false);
+      }
+      held.resolve(); await tick(8);
+    });
+    it('a second header click while the first is held toggles from the held sort, not the served one', async () => {
+      const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
+      const m = mount(); await tick(8);
+      find(m.target, 'Started').click(); await tick(4);
+      const first = lastUrl().searchParams.get('dir');
+      find(m.target, 'Started').click(); await tick(4);
+      expect(goto()).toHaveLength(2);
+      expect(lastUrl().searchParams.get('sort')).toBe('startedAt');
+      expect([first, lastUrl().searchParams.get('dir')]).toEqual(['desc', 'asc']);
+      held.resolve(); await tick(8);
+    });
+    it('a rejected held request rolls the pager back to the served page', async () => {
+      const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
+      const m = mount(); await tick(8);
+      statusBox(m.target, 'Failed').click(); await tick(4);
+      held.reject(new Error('offline')); await tick(8);
+      navigationHooks.onGoto = undefined;
+      find(m.target, 'Next').click(); await tick(4);
+      expect(goto()).toHaveLength(2);
+      expect(lastUrl().searchParams.get('page')).toBe('4');
+      expect(lastUrl().searchParams.get('status')).toBeNull();
+    });
+    it('an interrupted request leaves the newer request as the base, even after the older one settles', async () => {
+      const a = deferred<void>(), b = deferred<void>();
+      let call = 0; navigationHooks.onGoto = () => ++call === 1 ? a.promise : b.promise;
+      const m = mount(); await tick(8);
+      statusBox(m.target, 'Failed').click(); await tick(4);
+      statusBox(m.target, 'Running').click(); await tick(4);
+      a.resolve(); await tick(8);
+      find(m.target, 'Next').click(); await tick(4);
+      expect(goto()).toHaveLength(3);
+      expect(lastUrl().searchParams.get('page')).toBe('2');
+      expect(lastUrl().searchParams.get('status')).toBe('RUNNING,FAILED');
+      b.resolve(); await tick(8);
+    });
+    it('Previous while held steps back from the held page', async () => {
+      const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
+      const m = mount(section({ page: 5 })); await tick(8);
+      find(m.target, 'Previous').click(); await tick(4);
+      find(m.target, 'Previous').click(); await tick(4);
+      expect(goto()).toHaveLength(2);
+      expect(lastUrl().searchParams.get('page')).toBe('3');
+      held.resolve(); await tick(8);
+    });
+    it('a header sort click while a filter is held keeps the held filter', async () => {
+      const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
+      const m = mount(); await tick(8);
+      statusBox(m.target, 'Failed').click(); await tick(4);
+      find(m.target, 'Started').click(); await tick(4);
+      expect(goto()).toHaveLength(2);
+      expect(lastUrl().searchParams.get('status')).toBe('FAILED');
+      expect(lastUrl().searchParams.get('sort')).toBe('startedAt');
+      held.resolve(); await tick(8);
+    });
   });
   it('does not move a live filter focus to the heading after navigation', async () => {
     const m = mount(); await tick(8);
@@ -291,12 +388,13 @@ describe('App Runs manual server table', () => {
     const m = mount(section({ statuses: [...statuses] as never })); await tick(8);
     expect(pressed(m.target, 'All')).toBe(all); expect(pressed(m.target, 'Active')).toBe(active);
   });
-  it('chip and checkbox labels come from t(), and an unknown status renders raw', async () => {
+  it('chip and checkbox labels come from t(), and an unknown status renders Unknown: raw (#1766)', async () => {
     stubbed.keys['runs.status.RUNNING'] = 'Läuft';
     const m = mount(section({ runs: [{ ...run('r1'), status: 'RUNNING' }, { ...run('r2'), status: 'PAUSED' as never }] })); await tick(8);
     expect(statusBox(m.target, 'Läuft')).toBeTruthy();
     const chips = [...m.target.querySelectorAll('tbody tr td:first-child span')].map(x => x.textContent?.trim());
-    expect(chips).toEqual(['Läuft', 'PAUSED']);
+    // #1766 (merged over #2286): an unknown status never renders bare — the reader sees it is unknown.
+    expect(chips).toEqual(['Läuft', 'Unknown: PAUSED']);
   });
 
 });

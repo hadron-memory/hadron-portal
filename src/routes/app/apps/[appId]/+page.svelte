@@ -4,7 +4,6 @@
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import AppRunsPanel from './runs/AppRunsPanel.svelte';
   import ChatbotAiConfigSetting from './ChatbotAiConfigSetting.svelte';
-  import TaskIntegrations from './TaskIntegrations.svelte';
   import { taskHref } from '$lib/agent-tasks/handle';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
   // portal#2205: the delete dialog is shared with the worker's own page, so it
@@ -15,7 +14,7 @@
   import { publicServerBaseUrl } from '$lib/public-server-base-url';
   // portal#2249: one source for the App type's labels — Profile row, Settings
   // read-only row and the Settings options render these so they cannot drift.
-  import { APP_TYPE_VALUES, appTypeLabel } from '$lib/i18n/app-type-strings';
+  import { APP_TYPE_VALUES, appTypeIcon, appTypeLabel } from '$lib/i18n/app-type-strings';
   import { tick, untrack, onDestroy, flushSync } from 'svelte';
   import { applyAction } from '$app/forms';
   import { page } from '$app/stores';
@@ -141,6 +140,7 @@
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import AppMemories from './AppMemories.svelte';
+  import AppMemoryCreate from './AppMemoryCreate.svelte';
   import AppMembersPanel from './AppMembersPanel.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
@@ -438,19 +438,22 @@
       : t('app.client.setup.ask', 'Setup files contain a new App key, so only people who manage this App can download them. Ask one of its owners.');
   });
   const keyControlsUnknownNote = () => t('app.keys.manager-unknown', 'Couldn’t check whether you can manage this App’s keys. If you can’t, the change will be refused.');
+  // The full ID is 32 characters, too wide for the grid; the cell shows head and tail, the title attribute the whole.
+  const shortKeyId = (id: string) => (id.length > 16 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id);
   const appKeyColumns: PortalColumnDef<AppKey>[] = [
-    { accessorKey: 'label', header: t('app.keys.column.label', 'Label'), enableHiding: false, size: 200 },
-    { accessorKey: 'keyPreview', header: t('app.keys.column.preview', 'Preview'), size: 120 },
-    { accessorFn: (row) => keyDateMs(row.createdAt), id: 'createdAt', header: t('app.keys.column.created', 'Created'), size: 170 },
-    { accessorFn: (row) => keyDateMs(row.lastUsedAt), id: 'lastUsedAt', header: t('app.keys.column.last-used', 'Last used'), size: 170 },
+    { accessorKey: 'id', header: t('app.keys.column.id', 'ID'), size: 140 },
+    { accessorKey: 'label', header: t('app.keys.column.label', 'Name'), enableHiding: false, size: 190 },
+    { accessorKey: 'keyPreview', header: t('app.keys.column.preview', 'Preview'), size: 185 },
+    { accessorFn: (row) => keyDateMs(row.createdAt), id: 'createdAt', header: t('app.keys.column.created', 'Created'), size: 190 },
+    { accessorFn: (row) => keyDateMs(row.lastUsedAt), id: 'lastUsedAt', header: t('app.keys.column.last-used', 'Last used'), size: 150 },
     // portal#1099 — what each key may do (hrn:node:hadronmemory.com:specs:cor:aut:010:03). The field is
     // readable only by whoever manages the App, so the column exists only when
     // the server answered the scopes read; for anyone else it isn't there at
     // all, never an empty chip. Read-only: giving and taking back scopes is S7b.
     ...(untrack(() => tabData.keyScopes?.kind === 'ok')
-      ? [{ id: 'scopes', accessorFn: (row: AppKey) => keyScopesText(row.id), header: t('app.keys.column.scopes', 'Scopes'), enableSorting: false, size: 220 } satisfies PortalColumnDef<AppKey>]
+      ? [{ id: 'scopes', accessorFn: (row: AppKey) => keyScopesText(row.id), header: t('app.keys.column.scopes', 'Scopes'), enableSorting: false, size: 90 } satisfies PortalColumnDef<AppKey>]
       : []),
-    { id: 'actions', header: t('app.keys.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
+    { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 56 },
   ];
   const appKeyFmt: Record<string, (v: unknown) => string> = {
     label: (v) => (v as string | null) ?? '—',
@@ -1083,9 +1086,17 @@
   // is dropped, so an older answer can never clobber the page state a newer
   // one was fetched for (F2).
   let rosterFetchEpoch = 0;
+  // The endpoint bounds its own read at 8 s (OPTIONAL_LIST_TIMEOUT_MS in
+  // roster/+server.ts); this is the transport's bound and must stay above it,
+  // or the client gives up on an answer the server is still entitled to send.
+  // roster-fetch.client.test.ts pins the pair.
   const ROSTER_FETCH_TIMEOUT_MS = 10_000;
+  // The request in flight, so a newer ask or a teardown ends it rather than
+  // leaving it to run out its timer (portal#2282).
+  let rosterFetchCtl: AbortController | null = null;
   function startRosterFetch(appId: string, opts: { supersedeData?: boolean } = {}) {
     const epoch = ++rosterFetchEpoch;
+    rosterFetchCtl?.abort();
     rosterSupersedesData = opts.supersedeData ? data : null;
     rosterFetchedForApp = appId;
     rosterFetch = { appId, read: { kind: 'loading' } };
@@ -1102,6 +1113,7 @@
       // timer rather than `AbortSignal.timeout`: the timer is the one a test
       // can drive.
       const ctl = new AbortController();
+      rosterFetchCtl = ctl;
       const timer = setTimeout(() => ctl.abort(), ROSTER_FETCH_TIMEOUT_MS);
       try {
         const res = await fetch(`/app/apps/${appId}/roster`, { signal: ctl.signal });
@@ -1122,11 +1134,19 @@
         // transport failure or timeout: keep the failed read
       } finally {
         clearTimeout(timer);
+        if (rosterFetchCtl === ctl) rosterFetchCtl = null;
       }
       if (epoch !== rosterFetchEpoch) return;
       rosterFetch = { appId, read };
     })();
   }
+  // Teardown: end the request and make its late answer stale, so nothing
+  // writes page state after the component is gone.
+  onDestroy(() => {
+    rosterFetchEpoch++;
+    rosterFetchCtl?.abort();
+    rosterFetchCtl = null;
+  });
   $effect(() => {
     if (activeTab !== 'staff') return;
     const appId = app.id;
@@ -1187,7 +1207,10 @@
       if (tabCache.key !== key) { tabCache = { key, byTab: {} }; return; }
       const byTab: Partial<Record<AppTabId, TabEntry>> = {};
       for (const [id, entry] of Object.entries(tabCache.byTab) as [AppTabId, TabEntry][]) {
-        if (entry.payload) byTab[id] = { ...entry, stale: true };
+        // A first read still in flight has no payload yet: keep it, so the
+        // shown-tab effect does not start a second read beside it (portal#2256).
+        // It lands stale (its generation is behind) and is read once more.
+        if (entry.payload || entry.state === 'loading') byTab[id] = { ...entry, stale: true };
       }
       tabCache = { key, byTab };
     });
@@ -1276,7 +1299,7 @@
     // information too.
     { id: 'worklog', label: t('app.tabs.worklog', 'Worklog') },
     { id: 'runs', label: t('app.tabs.runs', 'Runs') },
-    { id: 'memory', label: 'Memory' },
+    { id: 'memory', label: t('app.tabs.memory', 'Memories') },
     // #1007/#1008: App Keys and AI Service Configs were sections at the foot of
     // Settings, below the App form, its agents and its memories. Each is a list
     // a reader comes for on its own, so each gets its own tab — and its own
@@ -1455,6 +1478,11 @@
   }
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
+    // portal#2290: the tab you are already on is not a request to leave it. Page, status and sort are
+    // the reader's place in the list; returning before `++tabNavigation` also leaves any navigation in
+    // flight alone. Reaching Runs from another tab still opens it clean. Runs only, deliberately: Uma's
+    // decision (#2289) names the Runs tab, and Templates keeps its current behaviour.
+    if (id === 'runs' && activeTab === 'runs') return;
     let asked: string | null = null;
     if (activeTab === 'node-role-templates' && id !== activeTab && templatesLeaveMessage) {
       if (!window.confirm(templatesLeaveMessage)) return;
@@ -1819,7 +1847,8 @@
   // Chromium). The captured trigger can be GONE by then — the success path
   // invalidates the page and the table re-renders its rows, and a cross-App
   // fence drops the departed App's dialog wholesale — so a detached (or
-  // absent) trigger lands on the Keys heading instead: never <body>.
+  // absent) trigger lands on the Keys TAB PANEL (#panel-keys, a focusable
+  // region boundary by its tabindex 0) instead: never <body>.
   function grantScopeDialogAction(el: HTMLDialogElement) {
     el.showModal();
     el.querySelector<HTMLSelectElement>('select[name="scope"]')?.focus();
@@ -1827,7 +1856,7 @@
       destroy() {
         if (el.open) el.close();
         if (grantScopeTriggerEl && grantScopeTriggerEl.isConnected) grantScopeTriggerEl.focus();
-        else document.getElementById('app-keys-heading')?.focus();
+        else document.getElementById('panel-keys')?.focus();
       },
     };
   }
@@ -2264,7 +2293,6 @@
   }
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
-  const typeIcon: Record<string, string> = { WORKSTATION: '💻', CHATBOT: '💬', CLOUD: '☁️', IOT: '📡', AGENT: '🤖', AUTOMATION: '⚙️' };
 
   // ── Client tab state ────────────────────────────────────────────────
   const AGENT_TOOL_OPTIONS = [
@@ -2358,6 +2386,7 @@
     await tick();
     installAgentFormEl?.requestSubmit();
   }
+  const copyKeyId = (id: string) => navigator.clipboard.writeText(id).catch((e) => console.error('Failed to copy key ID', e));
   async function revokeAppKey(key: { id: string }) {
     if ($revokeKeySubmitting) return;
     if (!confirm(t('app.keys.revoke.confirm', 'Revoke this key? This cannot be undone.'))) return;
@@ -2582,7 +2611,7 @@
     <div class="mt-2 flex items-start justify-between gap-4">
       <div>
         <h1 class="flex items-center gap-2 text-2xl font-bold text-zinc-900 dark:text-white">
-          <span>{typeIcon[app.appType] ?? '🔑'}</span>
+          <span>{appTypeIcon(app.appType)}</span>
           <span><span class="text-zinc-400 font-normal">App:</span> {app.name}</span>
         </h1>
         <div class="mt-1"><Urn value={app.urn} type="app" /></div>
@@ -3510,16 +3539,16 @@
           </div>
         {/if}
         {#if teamRoster?.kind === 'failed'}
-          <p role="status" class="flex items-center gap-2 text-xs text-zinc-500">
-            {t('app.staff.roster.failed', 'Task and pause state could not be loaded.')}
+          <div class="flex items-center gap-2 text-xs text-zinc-500">
+            <p role="status">{t('app.staff.roster.failed', 'Task and pause state could not be loaded.')}</p>
             <!-- portal#2246 item 1: a failed read is final for the visit unless asked again. -->
-            <button type="button" onclick={() => startRosterFetch(app.id, { supersedeData: true })} class="rounded-md border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.staff.roster.retry', 'Try again')}</button>
-          </p>
+            <button type="button" onclick={() => { if (teamRoster?.kind === 'failed') startRosterFetch(app.id, { supersedeData: true }); }} class="rounded-md border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.staff.roster.retry', 'Try again')}</button>
+          </div>
         {:else if teamRoster?.kind === 'signedOut'}
-          <p role="status" class="text-xs text-zinc-500">
-            {t('app.staff.roster.signed-out', 'Your session has ended, so task and pause state could not be loaded.')}
-            <a href={`/signin?redirect=${encodeURIComponent(`${$page.url.pathname}${$page.url.search}`)}`} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.staff.roster.sign-in', 'Sign in')}</a>
-          </p>
+          <div class="flex items-center gap-2 text-xs text-zinc-500">
+            <p role="status">{t('app.staff.roster.signed-out', 'Your session has ended, so task and pause state could not be loaded.')}</p>
+            <a href={`/signin?redirect=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.staff.roster.sign-in', 'Sign in')}</a>
+          </div>
         {:else if teamRoster?.kind === 'hidden'}
           <p role="status" class="text-xs text-zinc-500">{t('app.staff.roster.hidden', 'Task and pause state are not shown to you.')}</p>
         {/if}
@@ -3968,7 +3997,7 @@
     <div id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     {#if data.createMemoryForm}
       {#key app.id}
-        <AppMemories memories={tabData.appMemories ?? null} canCreate={tabData.canCreateMemory === true} showDescription={!!app.organizationId} initial={data.createMemoryForm} result={form} />
+        <AppMemories memories={tabData.appMemories ?? null} showDescription={!!app.organizationId} />
       {/key}
     {/if}
     <!-- #1043 interim: primary-agent links cannot establish the viewer's
@@ -3986,6 +4015,11 @@
       serverPage={tabData.appNodesPage ?? null}
       pageLabel={t('app.memory-node.pages', 'Memory node pages')}
     />
+    {#if data.createMemoryForm && tabData.canCreateMemory === true}
+      {#key app.id}
+        <div class="mt-6"><AppMemoryCreate initial={data.createMemoryForm} result={form} /></div>
+      {/key}
+    {/if}
     </div>
   {/if}
 
@@ -3999,11 +4033,6 @@
            columns fit on a desktop instead of scrolling inside a narrow box. -->
       <section data-testid="app-keys-section">
         <div class="max-w-2xl">
-        <!-- tabindex -1: not in the tab order — the grant dialog's teardown
-             focuses this heading when the ⋯ trigger it captured is gone (the
-             success path re-renders the rows; a cross-App fence drops the
-             dialog), so focus never falls to <body>. -->
-        <h2 id="app-keys-heading" tabindex="-1" class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">{t('app.keys.heading', 'App Keys')}</h2>
         <p class="mb-4 text-sm text-zinc-500">
           App Keys are long-lived server secrets. Store them in your backend environment —
           never in client-side code.
@@ -4022,9 +4051,9 @@
              is no room for a 200px input beside the button, so the same
              button stacks under the input at full width. -->
         <div class="@container mb-5">
-        <form method="POST" action="?/createKey" use:createKeyEnhance class="grid grid-cols-1 gap-x-2 @sm:grid-cols-[minmax(200px,1fr)_auto]" novalidate>
+        <form method="POST" action="?/createKey" use:createKeyEnhance class="grid max-w-md grid-cols-1 gap-x-2 @sm:grid-cols-[minmax(200px,1fr)_auto]" novalidate>
           <input type="hidden" name="_kind" value={$createKeyForm._kind} />
-          <label for="label" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300 @sm:col-start-1 @sm:row-start-1">Label (optional)</label>
+          <label for="label" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300 @sm:col-start-1 @sm:row-start-1">{t('app.keys.name.label', 'Name')}</label>
           <input id="label" type="text" name="label" placeholder="e.g. production-backend"
             bind:value={$createKeyForm.label} class="{inputClass} @sm:self-center @sm:col-start-1 @sm:row-start-2" />
           {#if createKeyActionError}
@@ -4062,8 +4091,10 @@
             maxHeight="max(200px, calc(100vh - 30rem))"
           >
             {#snippet cell(cell, key)}
-              {#if cell.column.id === 'keyPreview'}
-                <span class="font-mono text-xs text-zinc-500">{key.keyPreview}</span>
+              {#if cell.column.id === 'id'}
+                <span class="block truncate font-mono text-xs text-zinc-500" title={key.id}>{shortKeyId(key.id)}</span>
+              {:else if cell.column.id === 'keyPreview'}
+                <span class="block truncate font-mono text-xs text-zinc-500" title={key.keyPreview}>{key.keyPreview}</span>
               {:else if cell.column.id === 'scopes'}
                 {@const scopes = keyScopesOf(key.id)}
                 {#if scopes.length === 0}
@@ -4078,21 +4109,23 @@
               {:else if cell.column.id === 'actions'}
                 <!-- #1020: Revoke lives in the row's ⋯ menu; the browser
                      confirm and the hidden form below the table carry what
-                     the per-row form did. portal#1153: absent when withheld.
-                     portal#1487: Grant scope opens the dialog below from the
-                     same menu — the control belongs to one live key. -->
-                {#if keyControls !== 'withheld'}
+                     the per-row form did. portal#1153: the two writes are
+                     absent when withheld. portal#1487: Grant scope opens the
+                     dialog below from the same menu — the control belongs to
+                     one live key. -->
                 <NodeActionsMenu
                   actions={[
-                    { id: 'grantScope', label: t('app.keys.grant.menu', 'Grant scope…') },
-                    { id: 'revoke', label: t('app.keys.revoke', 'Revoke'), danger: true },
+                    { id: 'copy-id', label: t('app.keys.copy-id', 'Copy ID') },
+                    ...(keyControls !== 'withheld' ? [
+                      { id: 'grantScope', label: t('app.keys.grant.menu', 'Grant scope…') },
+                      { id: 'revoke', label: t('app.keys.revoke', 'Revoke'), danger: true },
+                    ] : []),
                   ]}
-                  onselect={(id, trigger) => (id === 'grantScope' ? openGrantScope(key, trigger) : revokeAppKey(key))}
+                  onselect={(id, trigger) => (id === 'copy-id' ? copyKeyId(key.id) : id === 'grantScope' ? openGrantScope(key, trigger) : id === 'revoke' ? revokeAppKey(key) : undefined)}
                   label={t('app.keys.actions.label', 'Actions for key {key}', { key: key.keyPreview })}
                   fixed
                   compact
                 />
-                {/if}
               {:else}
                 {@const f = appKeyFmt[cell.column.id]}
                 <div class="truncate">{f ? f(cell.getValue()) : (cell.getValue() ?? '—')}</div>
@@ -4416,17 +4449,6 @@
           />
         {/key}
       {/if}
-
-      <!-- portal#1607: the App's task integrations. Keyed on propertiesRevision (null = no section)
-           and viewerManages (edit controls); unknown viewerManages keeps the controls, as the key controls do. -->
-      <!-- Keyed on the App: SvelteKit reuses this page between Apps, and an open draft must not follow the person to another App. -->
-      {#key app.id}
-        <TaskIntegrations
-          read={tabData.appProperties ?? { kind: 'hidden' }}
-          manages={data.viewerManages?.kind === 'known' ? data.viewerManages.manages : null}
-          workers={tabData.staff}
-        />
-      {/key}
 
       <!-- Scope stays visible as error/empty as well as a non-empty inventory. -->
       <section class="max-w-4xl">

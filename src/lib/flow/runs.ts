@@ -2,8 +2,23 @@
  * AppRun display helpers for the runs audit surface (#478 phase 3).
  * Pure functions — the pages stay thin and this stays testable.
  */
+import { t } from '$lib/i18n/t';
 
+/** The statuses this build knows (the server's AppRunStatus enum today). */
 export type AppRunStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'TIMED_OUT' | 'CANCELLED';
+
+/** The trigger kinds this build knows (the server's AppRunTriggerKind enum today). */
+export type AppRunTriggerKind = 'SCHEDULE' | 'WEBHOOK' | 'MANUAL' | 'INTEGRATION' | 'SPAWN';
+
+/**
+ * A response value as this build may RECEIVE it (#1766): a known member, or a
+ * well-shaped enum name a newer server added. `(string & {})` keeps the known
+ * members' autocomplete without narrowing away the unknown ones. The URL
+ * filter whitelist stays typed to the KNOWN unions — the portal never SENDS an
+ * unknown enum to GraphQL.
+ */
+export type ReceivedRunStatus = AppRunStatus | (string & {});
+export type ReceivedRunTriggerKind = AppRunTriggerKind | (string & {});
 
 export interface AppRun {
   id: string;
@@ -11,7 +26,7 @@ export interface AppRun {
   appId: string;
   agentId: string | null;
   userId: string | null;
-  triggerKind: 'SCHEDULE' | 'WEBHOOK' | 'MANUAL' | 'INTEGRATION' | 'SPAWN';
+  triggerKind: ReceivedRunTriggerKind;
   triggerId: string | null;
   entryNodeUrn: string;
   eventData: Record<string, unknown> | null;
@@ -20,7 +35,7 @@ export interface AppRun {
   policy: unknown;
   budgetTokens: number | null;
   budgetActions: number | null;
-  status: AppRunStatus;
+  status: ReceivedRunStatus;
   curNodeUrn: string | null;
   parentRunId: string | null;
   failure: Record<string, unknown> | null;
@@ -36,8 +51,57 @@ export const RUN_STATUSES: ReadonlyArray<AppRunStatus> = [
   'PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'TIMED_OUT', 'CANCELLED',
 ];
 
-/** A run the kill switch can still stop. */
-export function isCancellable(status: AppRunStatus): boolean {
+export const RUN_TRIGGER_KINDS: ReadonlyArray<AppRunTriggerKind> = [
+  'SCHEDULE', 'WEBHOOK', 'MANUAL', 'INTEGRATION', 'SPAWN',
+];
+
+/**
+ * #1766 — one display state per run status, in the style of `taskDisplayState`
+ * (src/lib/agent-tasks/status.ts). Exhaustive: a status this build doesn't know
+ * is `unknown` and renders its raw value beside the word "Unknown"; no fallback
+ * branch claims a known state
+ * (hrn:node:hadronmemory.com:hadron-portal:review:widening-a-union-recruits-every-fallback).
+ */
+export type RunStatusDisplay = AppRunStatus | 'unknown';
+
+export function runStatusDisplay(status: ReceivedRunStatus): RunStatusDisplay {
+  switch (status as string) {
+    case 'PENDING':
+      return 'PENDING';
+    case 'RUNNING':
+      return 'RUNNING';
+    case 'COMPLETED':
+      return 'COMPLETED';
+    case 'FAILED':
+      return 'FAILED';
+    case 'TIMED_OUT':
+      return 'TIMED_OUT';
+    case 'CANCELLED':
+      return 'CANCELLED';
+    default:
+      return 'unknown';
+  }
+}
+
+/**
+ * The chip's word: the status itself when known, `Unknown: {raw}` when not.
+ * `known` lets a surface that localizes its known statuses (the runs table, #2286)
+ * supply those words; the unknown branch is this function's alone, so every
+ * surface shares one contract (#2315) and `known` never sees an unknown status.
+ */
+export function runStatusLabel(status: ReceivedRunStatus, known: (status: AppRunStatus) => string = (s) => s): string {
+  const display = runStatusDisplay(status);
+  return display === 'unknown' ? t('runs.unknown', 'Unknown: {raw}', { raw: status }) : known(display);
+}
+
+/**
+ * A run the kill switch can still stop — never one whose status is unknown
+ * (#1766). The detail page also polls only while this is true: an unknown
+ * status may or may not be live, and the portal claims nothing about it — the
+ * reader reloads. When a server adds a genuinely live status, teaching the
+ * portal that member (and its polling) is that upgrade's portal work.
+ */
+export function isCancellable(status: ReceivedRunStatus): boolean {
   return status === 'PENDING' || status === 'RUNNING';
 }
 
@@ -78,9 +142,14 @@ export function runDuration(run: Pick<AppRun, 'startedAt' | 'finishedAt'>): stri
   return `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
-/** Status chip Tailwind classes — green/red/amber/zinc family per outcome. */
-export function statusChipClass(status: AppRunStatus): string {
-  switch (status) {
+/**
+ * Status chip Tailwind classes — green/red/amber/zinc family per outcome. An
+ * unknown status gets the neutral outline (the agent-tasks unknown chip,
+ * src/lib/agent-tasks/status.ts:75-76): it claims no state, so it borrows no
+ * state's colour either (#1766).
+ */
+export function statusChipClass(status: ReceivedRunStatus): string {
+  switch (runStatusDisplay(status)) {
     case 'COMPLETED':
       return 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300';
     case 'FAILED':
@@ -91,14 +160,22 @@ export function statusChipClass(status: AppRunStatus): string {
     case 'CANCELLED':
       return 'bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400';
     case 'PENDING':
-    default:
       return 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300';
+    case 'unknown':
+      return 'border border-zinc-300 text-zinc-600 dark:border-zinc-600 dark:text-zinc-300';
   }
 }
 
-/** "Schedule · morning-digest" / "Manual" — trigger kind + name when known. */
+/**
+ * "Schedule · morning-digest" / "Manual" — trigger kind + name when known. A
+ * trigger kind this build doesn't know renders `Unknown: {raw}`, never a
+ * capitalised guess (#1766).
+ */
 export function describeTrigger(run: Pick<AppRun, 'triggerKind' | 'eventData'>): string {
-  const kind = run.triggerKind.charAt(0) + run.triggerKind.slice(1).toLowerCase();
+  const known = (RUN_TRIGGER_KINDS as readonly string[]).includes(run.triggerKind);
+  const kind = known
+    ? run.triggerKind.charAt(0) + run.triggerKind.slice(1).toLowerCase()
+    : t('runs.unknown', 'Unknown: {raw}', { raw: run.triggerKind });
   const name =
     run.eventData && typeof run.eventData === 'object'
       ? (run.eventData as Record<string, unknown>).scheduleName ??

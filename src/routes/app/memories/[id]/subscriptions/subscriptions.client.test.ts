@@ -84,3 +84,20 @@ describe('#2220 subscribe form', () => {
     expect(root.querySelector('[role=alert]')?.textContent).toMatch(/cannot subscribe/);
   });
 });
+
+describe('#2267 the org opener announces the dialog and its open state', () => {
+  it('declares aria-haspopup="dialog" and flips aria-expanded with the dialog', async () => {
+    const root = await open();
+    const opener = () => root.querySelector<HTMLButtonElement>('#subOrgId')!;
+    expect(opener().getAttribute('aria-haspopup')).toBe('dialog');
+    expect(opener().getAttribute('aria-expanded')).toBe('false');
+    opener().click();
+    await tick();
+    expect(opener().getAttribute('aria-expanded')).toBe('true');
+    // Picking closes the dialog; the collapsed state is announced again.
+    const dialog = document.querySelector('[role=dialog]')!;
+    [...dialog.querySelectorAll<HTMLButtonElement>('button[aria-label]')].find((b) => /Beta/.test(b.getAttribute('aria-label') ?? ''))!.click();
+    await tick();
+    expect(opener().getAttribute('aria-expanded')).toBe('false');
+  });
+});

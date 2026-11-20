@@ -320,6 +320,8 @@
         <button
           type="button"
           onclick={() => (subscribeOpen = true)}
+          aria-haspopup="dialog"
+          aria-expanded={subscribeOpen}
           disabled={$subscribeSubmitting}
           class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-50"
           style="background: #fb8500;"
