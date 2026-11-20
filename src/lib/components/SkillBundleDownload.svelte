@@ -242,6 +242,16 @@
             )}
           </p>
         {/if}
+        {#if report.leftOut.length > 0}
+          <p data-testid="bundle-left-out-summary" class="text-xs text-amber-700 dark:text-amber-400">
+            {t('tasks.bundle.skipped', 'Left out of the download ({count}):', { count: report.leftOut.length })}
+          </p>
+        {/if}
+        {#if report.unrecognized.length > 0}
+          <p data-testid="bundle-unrecognized-summary" class="text-xs text-amber-700 dark:text-amber-400">
+            {t('tasks.bundle.unrecognized.heading', 'Export keys no host reads ({count}):', { count: report.unrecognized.length })}
+          </p>
+        {/if}
       </div>
     {/if}
   </LiveRegion>
@@ -256,15 +266,9 @@
         </p>
       {/if}
       {#if report.leftOut.length > 0}
-        <p class="font-medium text-amber-700 dark:text-amber-400">
-          {t('tasks.bundle.skipped', 'Left out of the download ({count}):', { count: report.leftOut.length })}
-        </p>
         <SkillExportLeftOutTable rows={report.leftOut} />
       {/if}
       {#if report.unrecognized.length > 0}
-        <p class="font-medium text-amber-700 dark:text-amber-400">
-          {t('tasks.bundle.unrecognized.heading', 'Export keys no host reads ({count}):', { count: report.unrecognized.length })}
-        </p>
         <p class="text-xs text-zinc-500">
           {t(
             'tasks.bundle.unrecognized.help',

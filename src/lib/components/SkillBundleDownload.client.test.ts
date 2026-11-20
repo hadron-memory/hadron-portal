@@ -88,6 +88,8 @@ describe('SkillBundleDownload — the left-out report (@codex on #890)', () => {
     await reportRendered(target);
 
     expect(target.textContent).toContain('Left out of the download (2)');
+    // portal#2344: the count is announced with the outcome; the grid itself is not.
+    expect(target.querySelector('[data-testid="bundle-left-out-summary"]')!.closest('[role="status"]')).toBe(announcedStatusRegion(target));
     const rows = tableRows(target).map((r) => r.textContent ?? '');
     expect(rows).toHaveLength(2);
     expect(rows.find((r) => r.includes('broken'))).toContain('needs a description');
@@ -180,6 +182,7 @@ describe('SkillBundleDownload — export keys no host reads (server#1296)', () =
     await reportRendered(target);
 
     expect(target.textContent).toContain('Export keys no host reads (2)');
+    expect(target.querySelector('[data-testid="bundle-unrecognized-summary"]')!.closest('[role="status"]')).toBe(announcedStatusRegion(target));
     expect(unrecognizedGrid(target)).not.toBeNull();
     expect(target.textContent).toContain('What happened');
     const rows = tableRows(target).map((r) => r.textContent ?? '');
