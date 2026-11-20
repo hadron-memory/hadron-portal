@@ -116,34 +116,52 @@
     });
     if (next !== fillPx) fillPx = next;
   }
-  /** Everything laid out above the scroller that can change its top: each earlier sibling of the
-   *  scroller and of its ancestors, up to the body. A header that grows moves the scroller down
-   *  without resizing the body (already at its minimum height) or the footer, so only these see it. */
-  function elementsAbove(el: HTMLElement): HTMLElement[] {
-    const above: HTMLElement[] = [];
+  /** The elements before the scroller in the DOM, among its own siblings and those of each
+   *  ancestor up to the body: the page header, banners and tabs a header growth would come from.
+   *  Also returns the parents whose child lists decide that set. A header that grows moves the
+   *  scroller down without resizing the body (already at its minimum height) or the footer, so
+   *  only these can notice. */
+  function precedingLayoutSiblings(el: HTMLElement): { siblings: HTMLElement[]; parents: HTMLElement[] } {
+    const siblings: HTMLElement[] = [];
+    const parents: HTMLElement[] = [];
     for (let node: HTMLElement | null = el; node && node !== document.body; node = node.parentElement) {
+      if (node.parentElement) parents.push(node.parentElement);
       for (let sibling = node.previousElementSibling; sibling; sibling = sibling.previousElementSibling) {
-        if (sibling instanceof HTMLElement) above.push(sibling);
+        if (sibling instanceof HTMLElement) siblings.push(sibling);
       }
     }
-    return above;
+    return { siblings, parents };
   }
   // Fill mode only: a bounded table keeps one fixed height, so it neither observes nor listens.
   // The header above can change height (a banner, wrapped filters, tabs) and the window can be
-  // resized: re-measure on either, so no page needs to guess. The footer comes and goes
-  // (`showFooter`) and `bounded` can flip: the effect re-registers for whichever is there now.
+  // resized: re-measure on either, so no page needs to guess. A banner that mounts or unmounts
+  // above after setup changes which elements to watch, so child-list changes on the ancestors'
+  // parents re-run the registration. The footer comes and goes (`showFooter`) and `bounded` can
+  // flip: the effect re-registers for whichever is there now.
   $effect(() => {
     if (bounded) return;
     const scroller = scrollerEl;
     const footer = footerEl;
     return untrack(() => {
       measureFill();
-      const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measureFill);
-      observer?.observe(document.body);
-      if (footer) observer?.observe(footer);
-      if (scroller) for (const el of elementsAbove(scroller)) observer?.observe(el);
+      const resizes = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measureFill);
+      resizes?.observe(document.body);
+      if (footer) resizes?.observe(footer);
+      const watched = new Set<HTMLElement>();
+      const watchAbove = () => {
+        if (!scroller || !resizes) return;
+        const next = new Set(precedingLayoutSiblings(scroller).siblings);
+        for (const el of watched) if (!next.has(el)) { resizes.unobserve(el); watched.delete(el); }
+        for (const el of next) if (!watched.has(el)) { resizes.observe(el); watched.add(el); }
+      };
+      watchAbove();
+      let mutations: MutationObserver | undefined;
+      if (scroller && typeof MutationObserver !== 'undefined') {
+        mutations = new MutationObserver(() => { watchAbove(); measureFill(); });
+        for (const parent of precedingLayoutSiblings(scroller).parents) mutations.observe(parent, { childList: true });
+      }
       window.addEventListener('resize', measureFill);
-      return () => { observer?.disconnect(); window.removeEventListener('resize', measureFill); };
+      return () => { resizes?.disconnect(); mutations?.disconnect(); window.removeEventListener('resize', measureFill); };
     });
   });
   const scrollerMaxHeight = $derived(bounded ? BOUNDED_MAX_HEIGHT : fillPx !== null ? `${fillPx}px` : 'max(200px, calc(100vh - 23rem))');

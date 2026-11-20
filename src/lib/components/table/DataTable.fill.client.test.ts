@@ -169,6 +169,31 @@ describe('DataTable fills the window (portal#2193)', () => {
     }
   });
 
+  it('a banner that mounts above after setup is watched and measured, and one that unmounts stops being watched', async () => {
+    const fake = fakeObserver();
+    try {
+      const scroller = mountTable({ rows: 60, headerHeight: 120 });
+      const header = document.querySelector<HTMLElement>('[data-testid="page-header"]')!;
+      const before = capPx(scroller);
+      // Mounted after setup, with the body and footer keeping their size.
+      const banner = document.createElement('div');
+      banner.setAttribute('data-testid', 'banner');
+      header.before(banner);
+      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(fake.live()).toContain(banner);
+      header.dataset.height = '200'; // the header shifts the table down with the banner present
+      fake.resized(banner);
+      flushSync();
+      expect(capPx(scroller)).toBe(before - 80);
+      banner.remove();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(fake.live()).not.toContain(banner);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('re-measures when the layout above changes size (ResizeObserver), and watches body and footer', () => {
     const observed: Element[] = [];
     let notify: () => void = () => {};

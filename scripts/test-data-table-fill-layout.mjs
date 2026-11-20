@@ -44,7 +44,9 @@ let browser;
 try {
   await server.listen();
   const origin = server.resolvedUrls.local[0];
-  const css = await (await fetch(new URL('src/app.css?direct', origin))).text();
+  const cssResponse = await fetch(new URL('src/app.css?direct', origin));
+  assert.equal(cssResponse.status, 200, `app.css was not served (HTTP ${cssResponse.status})`);
+  const css = await cssResponse.text();
   browser = await chromium.launch({ headless: true });
   for (const [width, height] of [[390, 844], [1280, 800]]) {
     for (const dark of [false, true]) {
@@ -89,7 +91,7 @@ try {
       // A short list: the footer sits directly under the last row, not at the window bottom.
       page = await open({ rows: 2, headerHeight: 120 });
       g = await geometry(page);
-      assert.ok(g.footerTop - g.lastRowBottom <= 24, `${label}: footer directly under the last row: ${JSON.stringify(g)}`);
+      assert.ok(g.footerTop >= g.lastRowBottom - 1 && g.footerTop - g.lastRowBottom <= 24, `${label}: footer starts at or below the last row and within 24px of it: ${JSON.stringify(g)}`);
       assert.ok(g.footerBottom < g.viewport - 150, `${label}: short list footer is not pinned to the window bottom: ${JSON.stringify(g)}`);
       await page.close();
 
