@@ -26,6 +26,7 @@ const CURRENT = 'hrn:node:acme.com:flows:summarise';
 let runOver: Record<string, unknown> = {};
 let hopsAnswer: unknown = null;
 let hopsError = false;
+let hopsAnswerId = 'run-1';
 
 const baseRun = () => ({
   id: 'run-1', organizationId: 'org-1', appId: 'app-1', status: 'COMPLETED',
@@ -41,7 +42,7 @@ const hop = (over: Record<string, unknown> = {}) => ({
 });
 
 beforeEach(() => {
-  runOver = {}; hopsAnswer = null; hopsError = false;
+  runOver = {}; hopsAnswer = null; hopsError = false; hopsAnswerId = 'run-1';
   mockRequest.mockReset();
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   setStubPage('http://localhost/app/apps/app-1/runs/run-1', { appId: 'app-1', runId: 'run-1' });
@@ -51,7 +52,7 @@ beforeEach(() => {
     if (doc === APP_RUN_ENVELOPE_QUERY) return { appRun: { id: 'run-1', data: null } };
     if (doc === APP_RUN_HOPS_QUERY) {
       if (hopsError) throw new Error('Cannot query field "hops" on type "AppRun".');
-      return { appRun: { id: 'run-1', hops: hopsAnswer } };
+      return { appRun: { id: hopsAnswerId, hops: hopsAnswer } };
     }
     throw new Error(`unexpected query: ${doc.slice(0, 60)}`);
   });
@@ -63,9 +64,9 @@ async function settle() {
   for (let i = 0; i < 10; i++) await tick();
   flushSync();
 }
-async function mountPage() {
+async function mountPage(runId = 'run-1') {
   const loaded = (await load({
-    params: { appId: 'app-1', runId: 'run-1' },
+    params: { appId: 'app-1', runId },
     locals: { token: 'tok' },
   } as never)) as Record<string, unknown>;
   const props = reactiveProps<Record<string, unknown>>({ data: loaded, form: null });
@@ -99,7 +100,7 @@ describe('run step timeline (portal#482)', () => {
     expect(edge?.textContent).toBe('<b>next</b>');
     expect(edge?.querySelector('b')).toBeNull();
     expect(rows(m)[0].textContent).not.toContain('hrn:edge');
-    expect(rows(m)[0].querySelectorAll('button')).toHaveLength(2); // the step's own copy URN / URL only
+    expect(edge?.querySelector('button')).toBeNull(); // the edge itself carries no controls (the step's own Urn chip has its own)
   });
 
   it('a long unbroken routing name wraps inside its cell instead of widening the page (UX P2)', async () => {
@@ -118,6 +119,13 @@ describe('run step timeline (portal#482)', () => {
     const m = await mountPage();
     expect(rows(m)[0].textContent).toContain('—');
     expect(rows(m)[0].textContent).not.toMatch(/\b0\b/);
+  });
+
+  it('the hint says the in-progress or failed step is shown below the list, never "until it completes" (portal#2339 #4)', async () => {
+    hopsAnswer = [hop()];
+    const m = await mountPage();
+    expect(text(m)).toContain('is shown below the list, not as a step');
+    expect(text(m)).not.toContain('until it completes');
   });
 
   it('an empty trail says nothing was recorded, not that it is unavailable', async () => {
@@ -153,7 +161,9 @@ describe('run step timeline (portal#482)', () => {
     const m = await mountPage();
     expect(rows(m)).toHaveLength(1);
     expect(rows(m)[0].textContent).not.toContain('summarise');
-    expect(rows(m)[0].querySelector('.animate-pulse')).toBeNull();
+    // The live pulse is real on this page (the status chip), so its absence from the rows can fail.
+    expect(m.target.querySelector('h1 .animate-pulse')).not.toBeNull();
+    expect(m.target.querySelectorAll('[data-testid="hop-row"] .animate-pulse')).toHaveLength(0);
     const cur = m.target.querySelector('[data-testid="timeline-current"]');
     expect(cur?.textContent).toContain('In progress at');
     expect(cur?.textContent).toContain('summarise');
@@ -169,7 +179,18 @@ describe('run step timeline (portal#482)', () => {
     expect(cur?.textContent).toContain('summarise');
   });
 
-  it('a trail read for another run is never shown on this one (navigation pin)', async () => {
+  it('a hops answer naming another run is dropped by the loader: run-2 never shows run-1\'s trail', async () => {
+    runOver = { id: 'run-2' };
+    hopsAnswer = [hop()];
+    hopsAnswerId = 'run-1'; // the stale answer a late poll could deliver
+    const m = await mountPage('run-2');
+    expect(rows(m)).toHaveLength(0);
+    expect(text(m)).toContain('Step trail unavailable');
+  });
+
+  // Component-level guard only: one `load` never yields run-2 with run-1's trail, so this
+  // pins the page's own stamp check as defence in depth, not a reachable navigation.
+  it('the page refuses a trail stamped for another run (defence in depth)', async () => {
     hopsAnswer = [hop()];
     const m = await mountPage();
     expect(rows(m)).toHaveLength(1);
