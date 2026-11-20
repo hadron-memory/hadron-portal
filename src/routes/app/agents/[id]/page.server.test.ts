@@ -261,6 +261,8 @@ describe('/app/agents/[id] loader', () => {
     answer: { effectiveAccess: { canManage: boolean | null } } | Error,
     orgs: unknown[],
   ) => {
+    // Calls are judged per load: a second load in one test must not see the first's.
+    mockRequest.mockClear();
     routeMock({ agent: { data: { agent } }, myOrgs: { data: { organizations: orgs } } });
     const fallback = mockRequest.getMockImplementation()!;
     mockRequest.mockImplementation(async (query, vars) => {
@@ -302,6 +304,7 @@ describe('/app/agents/[id] loader', () => {
     // read being made for a manager); a non-manager or unknown never does.
     const out = await loadWithManagement(personalAgent, answer, [orgA]);
     expect(out).toEqual({ canOpenTester: expected, askedOwned: false });
+    expect(mockRequest).toHaveBeenCalledWith(SELF_CAN_MANAGE_QUERY, { user: 'viewer', resource: personalAgent.urn });
   });
 
   it('#2187: the page reads organizations with ORGANIZATIONS_QUERY, paged from offset 0', async () => {
