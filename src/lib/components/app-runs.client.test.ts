@@ -348,6 +348,12 @@ describe('App Runs announces the served result after a successful navigate (port
     find(m.target, 'Active').click(); await tick(8);
     expect(live(m.target).textContent).toBe('Could not open this runs page. Try again.');
   });
+  it('a navigate that serves a FAILED section reads the failure, never "0 runs" (blind P2 on #2306)', async () => {
+    const m = mount(); await tick(8);
+    await navigateAndServe(m, () => find(m.target, 'Active').click(), section({ page: 1, total: 0, failed: true, statuses: ['PENDING', 'RUNNING'], runs: [] }));
+    expect(live(m.target).textContent).toBe('Could not load runs. Try again.');
+    expect(live(m.target).textContent).not.toMatch(/\bruns?,/);
+  });
   it('a successful retry still reads exactly "Runs loaded."', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply(section({ page: 1, total: 3 }))));
     const m = mount(section({ failed: true })); find(m.target, 'Retry').click(); await tick(16);

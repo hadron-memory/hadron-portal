@@ -31,7 +31,8 @@
       const served = awaitingServe !== 0 && appRef === resource;
       awaitingServe = 0;
       epoch++; snapshot = initial; resource = appRef; section = initial; intent = null; pending = false;
-      announcement = served ? runsAnnouncement(initial) : '';
+      // A served section that failed to load is the failure, not "0 runs": the alert above says so and so does this (as retry() does).
+      announcement = served ? (initial.failed ? t('runs.read-failed', 'Could not load runs. Try again.') : runsAnnouncement(initial)) : '';
     }
   });
   onDestroy(() => { alive = false; epoch++; });
