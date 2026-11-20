@@ -73,14 +73,21 @@ function sources(dir: string): string[] {
 }
 
 /**
- * The attribute span of a tag starting at `start`: up to (and including) the
- * first `>` that is not the arrow of a `=>`. Returns null when no such `>`
- * exists before the text ends.
+ * The attribute span of a tag starting at `start`: up to (and including) its
+ * own closing `>`. A `>` inside a `{…}` expression (`{a > b}`, `{() => x}`) or
+ * inside a quoted attribute value is not the end of the tag. Returns null when
+ * no such `>` exists before the text ends.
  */
 function tagSpan(text: string, start: number): { end: number; selfClosed: boolean } | null {
+  let depth = 0;
+  let quote: string | null = null;
   for (let i = start; i < text.length; i++) {
-    if (text[i] === '=' && text[i + 1] === '>') { i++; continue; }
-    if (text[i] === '>') return { end: i + 1, selfClosed: text[i - 1] === '/' };
+    const c = text[i];
+    if (quote) { if (c === quote) quote = null; continue; }
+    if (c === '{') depth++;
+    else if (c === '}') depth = Math.max(0, depth - 1);
+    else if (depth === 0 && (c === '"' || c === "'")) quote = c;
+    else if (depth === 0 && c === '>') return { end: i + 1, selfClosed: text[i - 1] === '/' };
   }
   return null;
 }
@@ -117,33 +124,36 @@ function enclosingEachItems(text: string, index: number): string[][] {
   return stack;
 }
 
+const lineAt = (text: string, index: number) => text.slice(0, index).split('\n').length;
+
+/** Every Select* instantiation's bound open var, hard-failing on the unparseable. */
+function boundVars(text: string, path: string, problems: string[], components: string[]): string[] {
+  const vars: string[] = [];
+  for (const match of text.matchAll(/<(Select[A-Z]\w*)\b/g)) {
+    const where = `${relative(SRC, path)}:${lineAt(text, match.index!)}`;
+    if (!components.includes(match[1])) {
+      problems.push(`${where}: <${match[1]}> is not a Select*.svelte under src/lib/components`);
+      continue;
+    }
+    const span = tagSpan(text, match.index!);
+    if (!span || !span.selfClosed) {
+      problems.push(`${where}: <${match[1]}> is not a self-closed tag the scan can bound (write <${match[1]} … /> or teach the scanner)`);
+      continue;
+    }
+    const tag = text.slice(match.index!, span.end);
+    // `bind:open={x}` and the shorthand `bind:open` (which binds the variable `open`).
+    for (const binding of tag.matchAll(/\bbind:open(?:=\{([^}]*)\})?(?=[\s/>])/g)) {
+      const value = (binding[1] ?? 'open').trim();
+      if (/^[A-Za-z_$][\w$]*$/.test(value)) vars.push(value);
+      else problems.push(`${where}: bind:open={${value}} is not a plain identifier the scan can correlate (portal#2340 P3-2)`);
+    }
+  }
+  return vars;
+}
+
 describe('picker openers announce the dialog (portal#2267, per-opener since portal#2340)', () => {
   const components = pickerComponents(COMPONENTS);
   const at = (text: string, index: number) => text.slice(0, index).split('\n').length;
-
-  /** Every Select* instantiation's bound open var, hard-failing on the unparseable. */
-  function boundVars(text: string, path: string, problems: string[]): string[] {
-    const vars: string[] = [];
-    for (const match of text.matchAll(/<(Select[A-Z]\w*)\b/g)) {
-      const where = `${relative(SRC, path)}:${at(text, match.index!)}`;
-      if (!components.includes(match[1])) {
-        problems.push(`${where}: <${match[1]}> is not a Select*.svelte under src/lib/components`);
-        continue;
-      }
-      const span = tagSpan(text, match.index!);
-      if (!span || !span.selfClosed) {
-        problems.push(`${where}: <${match[1]}> is not a self-closed tag the scan can bound (write <${match[1]} … /> or teach the scanner)`);
-        continue;
-      }
-      const tag = text.slice(match.index!, span.end);
-      for (const binding of tag.matchAll(/bind:open=\{([^}]*)\}/g)) {
-        const value = binding[1].trim();
-        if (/^[A-Za-z_$][\w$]*$/.test(value)) vars.push(value);
-        else problems.push(`${where}: bind:open={${value}} is not a plain identifier the scan can correlate (portal#2340 P3-2)`);
-      }
-    }
-    return vars;
-  }
 
   /** Per-opener correlation on each button that opens a bound var. */
   function openerProblems(text: string, path: string, vars: string[]): { problems: string[]; unattributable: string[] } {
@@ -188,7 +198,7 @@ describe('picker openers announce the dialog (portal#2267, per-opener since port
     const problems: string[] = [];
     for (const path of sources(SRC)) {
       const text = readFileSync(path, 'utf8');
-      const vars = [...new Set(boundVars(text, path, problems))];
+      const vars = [...new Set(boundVars(text, path, problems, components))];
       const { problems: opener, unattributable } = openerProblems(text, path, vars);
       problems.push(...opener);
       // #2267 file-level fallback, only for vars no button could be attributed to.
@@ -214,12 +224,42 @@ describe('picker openers announce the dialog (portal#2267, per-opener since port
     // Guard against a vacuous pass: an empty walk (or a broken one that
     // flags everything) would correlate nothing.
     const problems: string[] = [];
-    const sites = sources(SRC).filter((path) => boundVars(readFileSync(path, 'utf8'), path, problems).length > 0);
+    const sites = sources(SRC).filter((path) => boundVars(readFileSync(path, 'utf8'), path, problems, components).length > 0);
     expect(problems).toEqual([]);
     expect(sites.length).toBeGreaterThan(10);
   });
 
   it('every Select* opener button announces the dialog and its own open state', () => {
     expect(scan()).toEqual([]);
+  });
+});
+
+describe('the scanner itself fails closed (portal#2340 BLIND P2s)', () => {
+  const known = ['SelectNode'];
+  const run = (text: string) => {
+    const problems: string[] = [];
+    const vars = boundVars(text, 'src/routes/x/+page.svelte', problems, known);
+    return { vars, problems };
+  };
+
+  it('does not end a tag at a > inside an attribute expression', () => {
+    const text = '<SelectNode disabled={count > 0} bind:open={picker} />';
+    expect(tagSpan(text, 0)).toEqual({ end: text.length, selfClosed: true });
+    expect(run(text)).toEqual({ vars: ['picker'], problems: [] });
+  });
+
+  it('does not end a tag at a > inside a quoted attribute value or arrow body', () => {
+    expect(run('<SelectNode title="a > b" bind:open={picker} />').vars).toEqual(['picker']);
+    expect(run('<SelectNode onpick={(n) => n.id > 0 && go(n)} bind:open={picker} />').vars).toEqual(['picker']);
+  });
+
+  it('sees the shorthand bind:open as a bound var named open', () => {
+    expect(run('<SelectNode bind:open />')).toEqual({ vars: ['open'], problems: [] });
+    expect(run('<SelectNode bind:open onpick={pick} />').vars).toEqual(['open']);
+  });
+
+  it('keeps refusing what it cannot correlate', () => {
+    expect(run('<SelectNode bind:open={state.open} />').problems).toHaveLength(1);
+    expect(run('<SelectNode bind:open={picker}></SelectNode>').problems).toHaveLength(1);
   });
 });
