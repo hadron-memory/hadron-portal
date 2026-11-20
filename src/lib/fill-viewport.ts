@@ -46,8 +46,8 @@ function px(value: string): number {
  * Save row half off-screen.
  *
  * Margins that would collapse (a parent's and its last child's) are still counted once per
- * ancestor. That over-reserves by at most the collapsed amount, so the page never scrolls
- * because of it: the node ends that much above the window bottom, never below it.
+ * ancestor. That over-reserves by at most the collapsed amount, which errs towards
+ * the node ending a little above the window bottom rather than the page scrolling.
  */
 function trailingSpace(node: HTMLElement): number {
   let total = 0;
@@ -71,7 +71,10 @@ function trailingSpace(node: HTMLElement): number {
  */
 export function measureBelow(node: HTMLElement, footer?: HTMLElement | null): number {
   let below = trailingSpace(node);
-  if (footer) below += footer.offsetHeight + px(getComputedStyle(footer).marginTop);
+  if (footer) {
+    const margins = getComputedStyle(footer);
+    below += footer.offsetHeight + px(margins.marginTop) + px(margins.marginBottom);
+  }
   return below;
 }
 

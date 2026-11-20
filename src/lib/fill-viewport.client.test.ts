@@ -89,6 +89,14 @@ describe('fillViewport (action)', () => {
     expect(editor.style.height).toBe('570px');
   });
 
+  it('counts the footer\'s own bottom margin too (#2327 QA: Org Apps still scrolled 4px)', () => {
+    const { editor, footer } = build({ top: 250, footerHeight: 40, footerMargin: 8, padding: 32 });
+    footer.style.marginBottom = '16px';
+    fillViewport(editor, footer);
+    // 900 - 250 - (40 + 8 + 16) - 32
+    expect(editor.style.height).toBe('554px');
+  });
+
   it('sets the height from the measured top, footer and page padding', () => {
     const { editor, footer } = build({ top: 250, footerHeight: 40, footerMargin: 8, padding: 32 });
     const handle = fillViewport(editor, footer);
