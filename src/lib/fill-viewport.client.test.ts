@@ -76,6 +76,19 @@ describe('fillViewport (action)', () => {
     expect(editor.style.height).toBe('554px');
   });
 
+  it('margins on nested ancestors are each counted: an over-reserve that never lets the page scroll (#2327)', () => {
+    const { editor, footer } = build({ top: 250, footerHeight: 40, footerMargin: 8, padding: 0 });
+    const inner = editor.parentElement!;
+    const outer = document.createElement('div');
+    document.body.append(outer);
+    outer.append(inner);
+    inner.style.marginBottom = '16px';
+    outer.style.marginBottom = '16px';
+    fillViewport(editor, footer);
+    // 900 - 250 - (40 + 8) - (16 + 16) = 570: collapsing would reserve only 16 (586), so this is the safe side.
+    expect(editor.style.height).toBe('570px');
+  });
+
   it('sets the height from the measured top, footer and page padding', () => {
     const { editor, footer } = build({ top: 250, footerHeight: 40, footerMargin: 8, padding: 32 });
     const handle = fillViewport(editor, footer);

@@ -14,6 +14,7 @@ import { mountComponent, type Mounted } from '$lib/test/mountComponent';
 import Harness from '$lib/test/DataTableFillHarness.svelte';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import appLayout from '../../../routes/app/+layout.svelte?raw';
+import rootLayout from '../../../routes/+layout.svelte?raw';
 
 const FOOTER_PX = 40;
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -132,10 +133,22 @@ describe('DataTable fills the window (portal#2193)', () => {
     expect(capPx(scroller)).toBe(800 - 120 - FOOTER_PX);
   });
 
-  it('layout contract: no ancestor of a page\'s table scrolls inside the app shell, so the document scrolls', () => {
-    // DataTable measures against the document (body observer, window height). The shell's only
-    // internal scroller is the sidebar nav; if the content column ever scrolls, this must change.
-    const scrolling = appLayout.split('\n').filter((line) => /overflow-(y-)?(auto|scroll)/.test(line) && !line.includes('<nav') && !line.includes('`flex-1 min-h-0 overflow-y-auto`'));
-    expect(scrolling).toEqual([]);
+  it('layout contract: no element of the root or app shell other than the sidebar (aside and its nav) scrolls, clips or fixes its height, so the document scrolls', () => {
+    // DataTable measures against the document (body observer, window height). If a wrapper of the
+    // content ever scrolls or clips (overflow-*, h-screen and friends, an inline overflow or 100vh
+    // height), this must change. Every tag's class and style are read, comments stripped, so a
+    // token in prose or on another line cannot hide or fake one.
+    const SCROLLS = /\boverflow(-[xy])?-(auto|scroll|hidden|clip)\b|(?<!min-)\b(max-)?h-(screen|dvh|svh|lvh)\b|\bfixed\b/;
+    const INLINE = /overflow(-[xy])?\s*:\s*(auto|scroll|hidden|clip)|(^|;)\s*height\s*:\s*(calc\()?100d?vh/;
+    const offenders: string[] = [];
+    for (const [file, source] of [['+layout.svelte', rootLayout], ['app/+layout.svelte', appLayout]] as const) {
+      const markup = source.replace(/<!--[\s\S]*?-->/g, '').replace(/<script[\s\S]*?<\/script>/g, '');
+      for (const [, tag, attrs] of markup.matchAll(/<([a-zA-Z][\w-]*)\b([^>]*)>/g)) {
+        const cls = /class="([^"]*)"/.exec(attrs)?.[1] ?? '';
+        const style = /style="([^"]*)"/.exec(attrs)?.[1] ?? '';
+        if ((SCROLLS.test(cls) || INLINE.test(style)) && tag !== 'nav' && tag !== 'aside') offenders.push(`${file}: <${tag}> ${cls} ${style}`.trim());
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });

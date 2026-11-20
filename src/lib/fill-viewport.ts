@@ -44,6 +44,10 @@ function px(value: string): number {
  * ancestor. That is the layout's gutter (`py-8` on the app shell today),
  * measured rather than restated, so a layout change cannot silently leave the
  * Save row half off-screen.
+ *
+ * Margins that would collapse (a parent's and its last child's) are still counted once per
+ * ancestor. That over-reserves by at most the collapsed amount, so the page never scrolls
+ * because of it: the node ends that much above the window bottom, never below it.
  */
 function trailingSpace(node: HTMLElement): number {
   let total = 0;
