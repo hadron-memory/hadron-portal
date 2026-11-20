@@ -13,7 +13,7 @@ import { everyTabRead } from './app-page.fixture';
 import {
   addAgentSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
   deleteAppSchema, releaseWorkerSchema, removeAppAgentSchema,
-  retireWorkerSchema, revokeAppKeySchema, updateAppAgentToolsSchema,
+  retireWorkerSchema, revokeAppKeySchema, grantAppKeyScopeSchema, updateAppAgentToolsSchema,
 } from './schema';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -31,11 +31,11 @@ const IMPORTER = { id: 'ag0', name: 'Alpha', urn: 'hrn:agent:acme.com:alpha' };
 
 async function pageData(initialTab: 'agents' | 'keys', agents: unknown[] = [AGENT]) {
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm,
-    updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm,
+    updateAgentToolsForm, revokeKeyForm, grantKeyScopeForm, deleteAppForm, castWorkerForm,
     retireWorkerForm, releaseWorkerForm, postTeamChatMessageForm] = await Promise.all([
     appSettingsSchema, addAgentSchema, createAppKeySchema, removeAppAgentSchema,
-    updateAppAgentToolsSchema, revokeAppKeySchema, deleteAppSchema, castWorkerSchema,
-    retireWorkerSchema, releaseWorkerSchema, postTeamChatMessageSchema,
+    updateAppAgentToolsSchema, revokeAppKeySchema, grantAppKeyScopeSchema, deleteAppSchema,
+    castWorkerSchema, retireWorkerSchema, releaseWorkerSchema, postTeamChatMessageSchema,
   ].map((schema) => superValidate(zod4(schema), { errors: false })));
   return {
     // portal#2240: every tab already read, as before the first-screen load.
@@ -54,7 +54,7 @@ async function pageData(initialTab: 'agents' | 'keys', agents: unknown[] = [AGEN
     chatConfigs: [], appConfigs: [], worklog: [], worklogTotal: 0, worklogError: false,
     currentUserId: 'u1',
     appSettingsForm, addAgentForm, createKeyForm, removeAgentForm,
-    updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm,
+    updateAgentToolsForm, revokeKeyForm, grantKeyScopeForm, deleteAppForm, castWorkerForm,
     retireWorkerForm, releaseWorkerForm, postTeamChatMessageForm,
   };
 }
@@ -214,14 +214,18 @@ describe('A derived agent on the Agents tab (#1684)', () => {
 });
 
 describe('App Keys tab row ⋯ menu (#1020)', () => {
-  it('offers Copy ID and Revoke as menu items, with no inline Revoke button', async () => {
+  it('offers Copy ID, Grant scope then Revoke, with no inline Revoke button', async () => {
     const target = await mountTab('keys');
     expect(target.textContent).not.toContain('Revoke');
     const items = openMenu(target, 'Actions for key abc123');
-    expect(items.map((i) => [i.tagName, i.textContent?.trim()])).toEqual([['BUTTON', 'Copy ID'], ['BUTTON', 'Revoke']]);
+    expect(items.map((i) => [i.tagName, i.textContent?.trim()])).toEqual([
+      ['BUTTON', 'Copy ID'],
+      ['BUTTON', 'Grant scope…'],
+      ['BUTTON', 'Revoke'],
+    ]);
   });
 
-  it('a viewer who cannot manage keys is offered Copy ID and no Revoke', async () => {
+  it('a viewer who cannot manage keys is offered Copy ID only — no Grant scope, no Revoke', async () => {
     const target = await mountTab('keys', { viewerManages: { kind: 'known', manages: false } });
     const items = openMenu(target, 'Actions for key abc123');
     expect(items.map((i) => i.textContent?.trim())).toEqual(['Copy ID']);

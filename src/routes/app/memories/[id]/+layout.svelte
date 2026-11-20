@@ -324,7 +324,7 @@
         <p class="mt-1 text-xs text-zinc-400">
           <span class="font-mono">org::slug</span> — {t('memory-actions.clone.hint', 'copies every node into a new memory. Fails if one already lives there.')}
         </p>
-        <button type="button" onclick={() => (orgPickerOpen = true)}
+        <button type="button" onclick={() => (orgPickerOpen = true)} aria-haspopup="dialog" aria-expanded={orgPickerOpen}
           class="mt-2 rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
         >{t('memory-actions.clone.select-org', 'Select org…')}</button>
         {#if cloneError}

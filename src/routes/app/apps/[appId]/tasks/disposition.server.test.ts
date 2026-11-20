@@ -6,9 +6,10 @@
  * refusal changes nothing the reader sees.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildSchema, graphql } from 'graphql';
+import { buildSchema, graphql, parse, validate } from 'graphql';
 import { readFileSync } from 'node:fs';
-import { AGENT_TASKS_APP_QUERY, AGENT_TASK_FINDING_DISPOSITIONS_QUERY, AGENT_TASK_REF_QUERY, DISPOSE_AGENT_TASK_FINDING_MUTATION } from '$lib/server/queries';
+import { fileURLToPath } from 'node:url';
+import { AGENT_TASKS_APP_QUERY, AGENT_TASKS_BOARD_QUERY, AGENT_TASK_FINDING_DISPOSITIONS_QUERY, AGENT_TASK_REF_QUERY, DISPOSE_AGENT_TASK_FINDING_MUTATION } from '$lib/server/queries';
 import { taskDispositions } from '$lib/server/task-dispositions';
 import { GET } from './[taskId]/dispositions/+server';
 
@@ -21,7 +22,7 @@ const gated = async (q: string, v?: unknown) => {
   return request(q, v);
 };
 const gqlError = (code: string, message: string) => ({ response: { errors: [{ message, extensions: { code } }] } });
-const schema = buildSchema(readFileSync('schema/schema.graphql', 'utf8'));
+const schema = buildSchema(readFileSync(fileURLToPath(new URL('../../../../../../schema/schema.graphql', import.meta.url)), 'utf8'));
 
 function writeEvent(fields: Record<string, string>, impersonation: unknown = null) {
   const fd = new FormData();
@@ -38,6 +39,19 @@ describe('DISPOSE_AGENT_TASK_FINDING_MUTATION', () => {
     expect(DISPOSE_AGENT_TASK_FINDING_MUTATION).toContain('disposeAgentTaskFinding(taskRef: $taskRef, findingId: $findingId, disposition: $disposition, reference: $reference)');
     const out = graphql({ schema, source: DISPOSE_AGENT_TASK_FINDING_MUTATION, variableValues: {}, rootValue: {} });
     return expect(out).resolves.not.toMatchObject({ errors: expect.arrayContaining([expect.objectContaining({ message: expect.stringMatching(/Cannot query|Unknown (argument|type)|Variable .* of type/) })]) });
+  });
+});
+
+describe('the disposition surfaces against the pinned SDL', () => {
+  it.each([
+    ['AGENT_TASKS_BOARD_QUERY', AGENT_TASKS_BOARD_QUERY],
+    ['AGENT_TASK_FINDING_DISPOSITIONS_QUERY', AGENT_TASK_FINDING_DISPOSITIONS_QUERY],
+  ])('%s has no validation errors', (_name, source) => {
+    expect(validate(schema, parse(source)).map((e) => e.message)).toEqual([]);
+  });
+  it('the dispositions read sizes its limit from the provider maximum, not a literal', () => {
+    expect(AGENT_TASK_FINDING_DISPOSITIONS_QUERY).toContain('findingDispositions(limit: $limit, offset: $offset)');
+    expect(AGENT_TASK_FINDING_DISPOSITIONS_QUERY).not.toMatch(/limit:\s*\d/);
   });
 });
 

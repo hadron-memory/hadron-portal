@@ -23,7 +23,7 @@ import { everyTabRead } from './app-page.fixture';
 import {
   addAgentSchema, addAppMemberSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
   deleteAppSchema, ensureAppMemberSchema, releaseWorkerSchema, removeAppAgentSchema,
-  removeAppMemberSchema, retireWorkerSchema, revokeAppKeySchema, updateAppAgentToolsSchema,
+  removeAppMemberSchema, retireWorkerSchema, revokeAppKeySchema, grantAppKeyScopeSchema, updateAppAgentToolsSchema,
 } from './schema';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -49,10 +49,10 @@ async function mountTab(tab: string, over: { app?: Record<string, unknown>; data
   setStubPage(over.url ?? `https://example.test/app/apps/a1?tab=${tab}`, { appId: 'a1' });
   window.history.replaceState({}, '', `/app/apps/a1?tab=${tab}`);
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm,
-    revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm,
-    postTeamChatMessageForm, addMemberForm, ensureMemberForm, removeMemberForm] = await forms([
+    revokeKeyForm, grantKeyScopeForm, deleteAppForm, castWorkerForm, retireWorkerForm,
+    releaseWorkerForm, postTeamChatMessageForm, addMemberForm, ensureMemberForm, removeMemberForm] = await forms([
     appSettingsSchema, addAgentSchema, createAppKeySchema, removeAppAgentSchema,
-    updateAppAgentToolsSchema, revokeAppKeySchema, deleteAppSchema, castWorkerSchema,
+    updateAppAgentToolsSchema, revokeAppKeySchema, grantAppKeyScopeSchema, deleteAppSchema, castWorkerSchema,
     retireWorkerSchema, releaseWorkerSchema, postTeamChatMessageSchema,
     addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema,
   ] as never);
@@ -75,7 +75,7 @@ async function mountTab(tab: string, over: { app?: Record<string, unknown>; data
     chatConfigs: [], appConfigs: [], worklog: [], worklogTotal: 0, worklogError: false,
     currentUserId: 'u1', user: { id: 'u1' }, bootPointerAppKey: 'a1',
     appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm,
-    revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm,
+    revokeKeyForm, grantKeyScopeForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm,
     postTeamChatMessageForm, addMemberForm, ensureMemberForm, removeMemberForm,
     ...over.data,
   };
@@ -255,6 +255,19 @@ it('App memory filters do not infer read-only access from the primary agent', as
   await tick(2);
   expect(target.textContent).toContain('Eng Notes');
   expect(target.textContent).not.toContain('(read-only)');
+});
+
+// portal#2332: the Memories tabpanel carries a heading landmark for
+// heading-keyed screen-reader navigation, visually hidden because its text
+// only echoes the tab label
+// (hrn:node:hadronmemory.com:hadron-portal:conventions:tabpanel-heading-landmark;
+// the tab keeps naming the panel via aria-labelledby).
+it('the Memories tabpanel holds an sr-only h2 echoing the tab label (#2332)', async () => {
+  const target = await mountTab('memory');
+  const heading = target.querySelector('#panel-memory h2');
+  expect(heading).not.toBeNull();
+  expect(heading!.textContent?.trim()).toBe('Memories');
+  expect(heading!.className).toContain('sr-only');
 });
 
 // portal#1881: the formerly capped lists expose user-initiated pages instead.

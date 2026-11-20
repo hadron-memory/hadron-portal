@@ -31,7 +31,6 @@ export const grantsFixture = (signing = true) => ({
     name: "Documentation team",
     urn: "hrn:app:example.test:team",
     viewerManages: true,
-    organizationId: null,
   },
   signing,
   grants: { items: [fixtureGrant], total: 1 },

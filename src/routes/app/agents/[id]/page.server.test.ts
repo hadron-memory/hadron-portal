@@ -253,6 +253,60 @@ describe('/app/agents/[id] loader', () => {
     expect(result.canOpenTester).toBe(listed);
   });
 
+  // #2183: the helper tests pin the skip paths; these pin the loader wiring (what
+  // it asks the access check and passes the helper), so a regression there
+  // fails here too. Each case answers the management query and records it.
+  const loadWithManagement = async (
+    agent: typeof agentInA | typeof personalAgent,
+    answer: { effectiveAccess: { canManage: boolean | null } } | Error,
+    orgs: unknown[],
+  ) => {
+    // Calls are judged per load: a second load in one test must not see the first's.
+    mockRequest.mockClear();
+    routeMock({ agent: { data: { agent } }, myOrgs: { data: { organizations: orgs } } });
+    const fallback = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation(async (query, vars) => {
+      if (query === SELF_CAN_MANAGE_QUERY) {
+        if (answer instanceof Error) throw answer;
+        return answer;
+      }
+      return fallback(query, vars);
+    });
+    const event = ev({ agentId: agent.id });
+    Object.assign(event.locals, { user: { id: 'viewer', roles: ['ADMIN'] } });
+    const result = await (await importLoad())(event) as { canOpenTester: boolean | null };
+    return {
+      canOpenTester: result.canOpenTester,
+      askedOwned: mockRequest.mock.calls.some(([q]) => q === TESTER_OWNED_AGENT_IDS_QUERY),
+    };
+  };
+
+  it('#2183: the loader asks the access check about the viewer and this Agent', async () => {
+    await loadWithManagement(agentInA, { effectiveAccess: { canManage: true } }, [{ ...orgA, agents: [agentInA] }]);
+    expect(mockRequest).toHaveBeenCalledWith(SELF_CAN_MANAGE_QUERY, { user: 'viewer', resource: agentInA.urn });
+  });
+
+  it('#2183: a manager of an org-listed Agent gets the Tester without the ownership read, and the manager signal decides it', async () => {
+    const listed = [{ ...orgA, agents: [agentInA] }];
+    const manager = await loadWithManagement(agentInA, { effectiveAccess: { canManage: true } }, listed);
+    expect(manager).toEqual({ canOpenTester: true, askedOwned: false });
+    // Same listed Agent, same org: only the management answer differs.
+    const notManager = await loadWithManagement(agentInA, { effectiveAccess: { canManage: false } }, listed);
+    expect(notManager).toEqual({ canOpenTester: false, askedOwned: false });
+  });
+
+  it.each([
+    { label: 'false', answer: { effectiveAccess: { canManage: false } }, expected: false },
+    { label: 'null', answer: { effectiveAccess: { canManage: null } }, expected: null },
+    { label: 'a failed read', answer: new Error('access outage'), expected: null },
+  ])('#2183: when the management check is $label the ownership read is skipped and canOpenTester=$expected', async ({ answer, expected }) => {
+    // Only a manager reaches the ownership read (the #2100 tests above pin the
+    // read being made for a manager); a non-manager or unknown never does.
+    const out = await loadWithManagement(personalAgent, answer, [orgA]);
+    expect(out).toEqual({ canOpenTester: expected, askedOwned: false });
+    expect(mockRequest).toHaveBeenCalledWith(SELF_CAN_MANAGE_QUERY, { user: 'viewer', resource: personalAgent.urn });
+  });
+
   it('#2187: the page reads organizations with ORGANIZATIONS_QUERY, paged from offset 0', async () => {
     routeMock({ agent: { data: { agent: agentInA } }, myOrgs: { data: { organizations: [orgA] } } });
     const event = ev({ agentId: agentInA.id });

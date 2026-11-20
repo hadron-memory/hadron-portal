@@ -83,10 +83,15 @@ export function runStatusDisplay(status: ReceivedRunStatus): RunStatusDisplay {
   }
 }
 
-/** The chip's word: the status itself when known, `Unknown: {raw}` when not. */
-export function runStatusLabel(status: ReceivedRunStatus): string {
+/**
+ * The chip's word: the status itself when known, `Unknown: {raw}` when not.
+ * `known` lets a surface that localizes its known statuses (the runs table, #2286)
+ * supply those words; the unknown branch is this function's alone, so every
+ * surface shares one contract (#2315) and `known` never sees an unknown status.
+ */
+export function runStatusLabel(status: ReceivedRunStatus, known: (status: AppRunStatus) => string = (s) => s): string {
   const display = runStatusDisplay(status);
-  return display === 'unknown' ? t('runs.unknown', 'Unknown: {raw}', { raw: status }) : display;
+  return display === 'unknown' ? t('runs.unknown', 'Unknown: {raw}', { raw: status }) : known(display);
 }
 
 /**
@@ -272,7 +277,7 @@ export function parseHops(raw: unknown): RunTrail {
       times.push(d.toISOString());
     }
     const tokens = o.tokensSpent ?? null;
-    if (tokens !== null && (typeof tokens !== 'number' || !Number.isFinite(tokens) || tokens < 0)) {
+    if (tokens !== null && (typeof tokens !== 'number' || !Number.isInteger(tokens) || tokens < 0)) {
       return UNAVAILABLE;
     }
     hops.push({ node: o.node, edgeOut: edgeOut as string | null, startedAt: times[0], finishedAt: times[1], tokensSpent: tokens });

@@ -83,6 +83,16 @@ describe('forward-compatible response enums (#1766)', () => {
     }
   });
 
+  it('one contract for the table and the chips: a caller supplies the known-status words, the unknown branch stays shared (#2315)', () => {
+    const known = (s: string) => `«${s}»`;
+    for (const status of RUN_STATUSES) expect(runStatusLabel(status, known)).toBe(`«${status}»`);
+    // an unknown status borrows no known label, and never reaches the caller's mapper — including names that exist on Object.prototype
+    for (const raw of ['PAUSED', 'constructor', 'toString', '']) {
+      expect(runStatusLabel(raw, known)).toBe(runStatusLabel(raw));
+      expect(runStatusLabel(raw, known)).toBe(`Unknown: ${raw}`);
+    }
+  });
+
   it('an unknown trigger kind renders Unknown: raw, not a capitalised guess', () => {
     expect(describeTrigger({ triggerKind: 'FUTURE_KIND', eventData: null })).toBe('Unknown: FUTURE_KIND');
   });
@@ -141,6 +151,13 @@ describe('parseHops (#482)', () => {
 
   it('an empty array is a real, empty trail (distinct from unavailable)', () => {
     expect(parseHops([])).toEqual({ state: 'ready', hops: [] });
+  });
+
+  it('fractional or negative token counts make the trail unavailable (whole tokens only, portal#2339 #8)', () => {
+    for (const tokensSpent of [1.5, -1, Number.NaN, Infinity]) {
+      expect(parseHops([hop({ tokensSpent })])).toEqual({ state: 'unavailable' });
+    }
+    expect(parseHops([hop({ tokensSpent: 7 })]).state).toBe('ready');
   });
 
   it('keeps completed hops in order, edgeOut belongs to the row it is on, tokens null is unknown and 0 is real', () => {
