@@ -127,3 +127,28 @@ it.each(['hrn:node:example.test:memory:node', '*', 'one,two'])('refuses non-scal
   expect(result.status).toBe(400);
   expect(request.mock.calls.some(([q]) => q.includes('mutation CreateAppGrant'))).toBe(false);
 });
+it('offers no form and submits nothing for a definition declaring one parameter name twice', async () => {
+  const dup = { ...definition, parameters: [
+    { name: 'sameNode', type: 'node-ref', refusesWildcard: true },
+    { name: 'sameNode', type: 'node-ref', refusesWildcard: false },
+  ] };
+  const html = draw([dup]);
+  expect(html).toContain('cannot be granted here');
+  expect(html).not.toContain('name="parameter:sameNode"');
+  expect(html).not.toContain('>Create</button>');
+  catalogue = [dup];
+  const { actions } = await import('./+page.server');
+  expect((await actions.create!(event({ holder: 'WORKER:worker-example', action: dup.name,
+    'parameter:sameNode': 'node-a', reason: 'Testing' }) as never) as any).status).toBe(400);
+  expect(request.mock.calls.some(([q]) => q.includes('mutation CreateAppGrant'))).toBe(false);
+});
+it('submits an empty values object for a declared action with no parameters', async () => {
+  const none = { name: 'future.none', parameters: [] as typeof definition.parameters };
+  catalogue = [none as never];
+  const { actions } = await import('./+page.server');
+  const result = await actions.create!(event({ holder: 'WORKER:worker-example', action: none.name,
+    reason: 'Testing' }) as never) as any;
+  expect(result.grant).toEqual(fixtureGrant);
+  const write = request.mock.calls.find(([q]) => q.includes('mutation CreateAppGrant'))!;
+  expect(write[1].input.values).toEqual({});
+});

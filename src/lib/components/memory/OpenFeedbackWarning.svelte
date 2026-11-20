@@ -61,7 +61,7 @@
     {table}
     {listKey}
     bind:globalFilter
-    maxHeight="max(160px, 30vh)"
+    bounded
     searchPlaceholder={t('memory.open-feedback.search', 'Search nodes with open discussions…')}
     searchAriaLabel={t('memory.open-feedback.search.aria', 'Search the nodes that have open discussions')}
   >

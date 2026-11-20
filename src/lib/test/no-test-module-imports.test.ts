@@ -71,7 +71,13 @@ function offendersIn(files: string[], read: (p: string) => string): string[] {
 }
 
 describe('no module imports a test module (portal#1573)', () => {
-  it('finds none under src/ or scripts/', () => {
+  // portal#2347: this one it() parses every source file under src/ and
+  // scripts/ (~1400 files) through ts.preProcessFile and the Svelte parser —
+  // about 2s idle but ~5s on a loaded runner, over vitest's 5000ms default
+  // and the reason three PRs' ci reran on a timeout that never failed on
+  // content. The scan's own budget is raised here, not the suite's, so a
+  // genuinely hung test elsewhere still trips the default.
+  it('finds none under src/ or scripts/', { timeout: 30_000 }, () => {
     const files = SCANNED.map((d) => join(ROOT, d))
       .filter(existsSync)
       .flatMap(walk)

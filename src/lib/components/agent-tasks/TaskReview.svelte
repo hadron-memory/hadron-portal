@@ -145,7 +145,7 @@
         searchAriaLabel=""
         showSearch={false}
         showFooter={tableRows.length > PAGE_SIZE}
-        maxHeight="max(240px, 60vh)"
+        bounded
         rowAttrs={(r) => ({ 'data-review-slot': r.slot })}
       >
         {#snippet cell(cell, row)}

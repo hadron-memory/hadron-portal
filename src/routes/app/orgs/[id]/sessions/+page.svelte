@@ -178,7 +178,6 @@
       searchPlaceholder={t('sessions.search.placeholder', 'Search sessions...')}
       searchAriaLabel={t('sessions.search.aria-label', 'Search sessions')}
       bind:globalFilter
-      maxHeight="max(200px, calc(100vh - 23rem))"
     >
       {#snippet cell(cell, session)}
         {#if cell.column.id === 'worker'}

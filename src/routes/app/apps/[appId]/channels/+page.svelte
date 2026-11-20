@@ -313,7 +313,6 @@
       searchPlaceholder={t('app.channels.search', 'Search channels…')}
       searchAriaLabel={t('app.channels.search', 'Search channels…')}
       bind:globalFilter
-      maxHeight="max(200px, calc(100vh - 30rem))"
     >
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'name'}
@@ -513,7 +512,6 @@
                   searchPlaceholder={t('app.channels.register.search', 'Search…')}
                   searchAriaLabel={t('app.channels.register.search', 'Search…')}
                   bind:globalFilter={effectiveFilter}
-                  maxHeight="max(160px, calc(100vh - 34rem))"
                 >
                   {#snippet cell(cell, row)}
                     {#if cell.column.id === 'channel' && row.channelUrn}

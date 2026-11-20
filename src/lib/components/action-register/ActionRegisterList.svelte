@@ -62,7 +62,7 @@
     {/if}
   </div>
 {:else}
-  <DataTable {table} {listKey} showSearch={false} showFooter={false} searchPlaceholder="" searchAriaLabel="" maxHeight="max(240px, calc(100vh - 26rem))">
+  <DataTable {table} {listKey} showSearch={false} showFooter={false} searchPlaceholder="" searchAriaLabel="">
     {#snippet cell(cell, row)}
       {@const kind = rowKind(row, definitionUrn)}
       {#if cell.column.id === 'code'}

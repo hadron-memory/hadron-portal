@@ -84,7 +84,6 @@
     showFooter={false}
     searchPlaceholder=""
     searchAriaLabel=""
-    maxHeight="max(200px, calc(100vh - 24rem))"
   >
     {#snippet cell(cell, row)}
       {#if cell.column.id === 'name'}

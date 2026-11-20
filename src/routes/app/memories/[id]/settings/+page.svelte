@@ -1336,7 +1336,7 @@
           </div>
           <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('memory-transfer.class-change', 'Class: {from} → {to}', { from: transferPreview.currentClass, to: transferPreview.targetClass })}</p>
           <h4 class="text-sm font-medium text-zinc-900 dark:text-white">{t('memory-transfer.dependents', 'Dependent records')}</h4>
-          <DataTable table={transferTable} listKey="memory:transfer-dependents" searchPlaceholder={t('memory-transfer.search', 'Search dependents…')} searchAriaLabel={t('memory-transfer.search', 'Search dependents…')} bind:globalFilter={transferFilter} maxHeight="320px">
+          <DataTable table={transferTable} listKey="memory:transfer-dependents" searchPlaceholder={t('memory-transfer.search', 'Search dependents…')} searchAriaLabel={t('memory-transfer.search', 'Search dependents…')} bind:globalFilter={transferFilter} bounded>
             {#snippet cell(cell, row)}
               {#if cell.column.id === 'handling'}
                 <span class={row.handling === 'REFUSE' ? 'text-red-600' : 'text-zinc-700 dark:text-zinc-300'}>{transferHandlingLabel(row.handling)}</span>

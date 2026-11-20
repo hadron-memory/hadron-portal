@@ -276,7 +276,7 @@
                 searchPlaceholder={t('worker.apply.search', 'Search the receipt…')}
                 searchAriaLabel={t('worker.apply.search', 'Search the receipt…')}
                 bind:globalFilter={createdFilter}
-                maxHeight="max(120px, 40vh)"
+                bounded
               >
                 {#snippet cell(cell, row)}
                   {#if cell.column.id === 'ticker'}
@@ -303,7 +303,7 @@
                 searchPlaceholder={t('worker.apply.search', 'Search the receipt…')}
                 searchAriaLabel={t('worker.apply.search', 'Search the receipt…')}
                 bind:globalFilter={presentFilter}
-                maxHeight="max(120px, 40vh)"
+                bounded
               >
                 {#snippet cell(cell, row)}
                   {#if cell.column.id === 'template'}<span class="break-words">{row.name}</span>{/if}

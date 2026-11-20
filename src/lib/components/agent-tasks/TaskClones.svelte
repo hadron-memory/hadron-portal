@@ -127,7 +127,7 @@
   <section aria-labelledby="clones-heading" class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" data-testid="task-clones">
     <h2 id="clones-heading" class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tasks.clones', 'Clones')}</h2>
     <div class="min-w-0">
-      <DataTable {table} listKey="task-clones" searchPlaceholder={t('app.tasks.clones.search', 'Filter loaded clones…')} searchAriaLabel={t('app.tasks.clones.search', 'Filter loaded clones…')} maxHeight="24rem">
+      <DataTable {table} listKey="task-clones" searchPlaceholder={t('app.tasks.clones.search', 'Filter loaded clones…')} searchAriaLabel={t('app.tasks.clones.search', 'Filter loaded clones…')} bounded>
         {#snippet cell(cell, row)}
           {#if cell.column.id === 'title'}<a href={taskHref(basePath, row)} class="text-indigo-700 underline dark:text-indigo-300">{row.title}</a>
           {:else if cell.column.id === 'handle'}<TaskHandle handle={row.handle} />

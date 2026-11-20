@@ -272,7 +272,6 @@
         searchPlaceholder={t('memory-share.search', 'Search people…')}
         searchAriaLabel={t('memory-share.search', 'Search people…')}
         bind:globalFilter
-        maxHeight="max(200px, calc(100vh - 28rem))"
       >
         {#snippet cell(cell, row)}
           {#if cell.column.id === 'granteeUrn'}

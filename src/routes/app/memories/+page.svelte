@@ -69,7 +69,6 @@
       : (grantor.name ?? t('my-memories.shared.grantor-unknown', 'someone'));
 
   const NAME_COL = () => t('my-memories.col.name', 'Name');
-  const tableMaxHeight = 'max(200px, calc(100vh - 21rem))';
 
   // ── My memories table ────────────────────────────────────────────────────
   interface MyMemoryRow { id: string; name: string; urn: string; class: string }
@@ -178,7 +177,6 @@
           searchPlaceholder={t('my-memories.search', 'Search memories…')}
           searchAriaLabel={t('my-memories.search', 'Search memories…')}
           bind:globalFilter={mineFilter}
-          maxHeight={tableMaxHeight}
         >
           {#snippet cell(cell, row)}
             {#if cell.column.id === 'name'}
@@ -246,7 +244,6 @@
           searchPlaceholder={t('my-memories.shared.search', 'Search shared memories…')}
           searchAriaLabel={t('my-memories.shared.search', 'Search shared memories…')}
           bind:globalFilter={sharedFilter}
-          maxHeight={tableMaxHeight}
         >
           {#snippet cell(cell, row)}
             {#if cell.column.id === 'name'}

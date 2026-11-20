@@ -277,7 +277,7 @@ export function parseHops(raw: unknown): RunTrail {
       times.push(d.toISOString());
     }
     const tokens = o.tokensSpent ?? null;
-    if (tokens !== null && (typeof tokens !== 'number' || !Number.isFinite(tokens) || tokens < 0)) {
+    if (tokens !== null && (typeof tokens !== 'number' || !Number.isInteger(tokens) || tokens < 0)) {
       return UNAVAILABLE;
     }
     hops.push({ node: o.node, edgeOut: edgeOut as string | null, startedAt: times[0], finishedAt: times[1], tokensSpent: tokens });

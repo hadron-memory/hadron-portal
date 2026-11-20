@@ -113,7 +113,6 @@
           searchPlaceholder={t('org.signing.search', 'Search boot prompts…')}
           searchAriaLabel={t('org.signing.search', 'Search boot prompts…')}
           bind:globalFilter
-          maxHeight="max(200px, calc(100vh - 34rem))"
         >
           {#snippet cell(cell, row)}
             {#if cell.column.id === 'app'}
