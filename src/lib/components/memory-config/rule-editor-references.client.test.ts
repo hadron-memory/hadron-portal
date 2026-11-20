@@ -123,3 +123,28 @@ describe('portal#1804 RuleEditor reference overrides (callback stub)', () => {
     for (const other of fields.filter(f => f !== field)) expect(m.onsave.mock.calls[0][0]).not.toHaveProperty(`${other}Ref`);
   });
 });
+
+describe('portal#2340 sibling openers: only the open field\'s Change button reports expanded', () => {
+  // Guarded lookup (issue P3-3): a bare .find(...)! would pass vacuously if
+  // the buttons vanished; name what was actually present instead.
+  const changeButtons = (root: HTMLElement) => fields.map((_, i) => {
+    const b = [...row(root, i).querySelectorAll('button')].find(b => b.textContent?.trim() === 'Change…');
+    expect(b, `no Change… button in the "${labels[i]}" row`).toBeDefined();
+    return b!;
+  });
+  it('opening one field\'s picker expands that opener and collapses its siblings', async () => {
+    const m = mount();
+    changeButtons(m.target)[0].click(); flushSync();
+    const states = changeButtons(m.target).map(b => b.getAttribute('aria-expanded'));
+    expect(states).toEqual(['true', 'false', 'false']);
+    click(m.target, 'Pick first'); await tick();
+    expect(changeButtons(m.target).map(b => b.getAttribute('aria-expanded'))).toEqual(['false', 'false', 'false']);
+  });
+  it('cancel-button dismiss collapses every sibling opener', async () => {
+    const m = mount();
+    click(row(m.target, 1), 'Change…'); flushSync();
+    expect(changeButtons(m.target).map(b => b.getAttribute('aria-expanded'))).toEqual(['false', 'true', 'false']);
+    click(m.target, 'Cancel picker'); await tick();
+    expect(changeButtons(m.target).map(b => b.getAttribute('aria-expanded'))).toEqual(['false', 'false', 'false']);
+  });
+});

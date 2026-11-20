@@ -27,6 +27,13 @@ async function open(opts: { targets?: typeof targets; form?: unknown } = {}) {
   return mounted.target;
 }
 const button = (root: HTMLElement, name: RegExp) => [...root.querySelectorAll('button')].find((b) => name.test(b.textContent ?? ''));
+// Guarded lookup (portal#2340 P3-3): a bare .find(...)!.click() fails as an
+// opaque TypeError when the picker renders no rows; fail naming the want.
+const pickerRow = (dialog: ParentNode, name: RegExp) => {
+  const b = [...dialog.querySelectorAll<HTMLButtonElement>('button[aria-label]')].find((b) => name.test(b.getAttribute('aria-label') ?? ''));
+  if (!b) throw new Error(`no picker row matching ${name}; labels present: ${[...dialog.querySelectorAll('button[aria-label]')].map((b) => JSON.stringify(b.getAttribute('aria-label'))).join(', ')}`);
+  return b;
+};
 
 describe('#2220 subscribe form', () => {
   it('has no free-text organization id field', async () => {
@@ -43,7 +50,7 @@ describe('#2220 subscribe form', () => {
     const dialog = document.querySelector('[role=dialog]')!;
     expect(dialog).not.toBeNull();
     // Each row carries its own Select button, named for its organization.
-    [...dialog.querySelectorAll<HTMLButtonElement>('button[aria-label]')].find((b) => /Beta/.test(b.getAttribute('aria-label') ?? ''))!.click();
+    pickerRow(dialog, /Beta/).click();
     await tick();
     expect(root.querySelector<HTMLInputElement>('form[action="?/subscribe"] input[name=orgId]')!.value).toBe('org-2');
     expect(root.querySelector('[title="hrn:org:beta.com"]')).not.toBeNull();
@@ -65,7 +72,7 @@ describe('#2220 subscribe form', () => {
     opener().click();
     await tick();
     const dialog = document.querySelector('[role=dialog]')!;
-    [...dialog.querySelectorAll<HTMLButtonElement>('button[aria-label]')].find((b) => /Beta/.test(b.getAttribute('aria-label') ?? ''))!.click();
+    pickerRow(dialog, /Beta/).click();
     await tick();
     expect(accessibleName(opener())).toContain('Organization');
     expect(accessibleName(opener())).toContain('Change');
@@ -96,7 +103,40 @@ describe('#2267 the org opener announces the dialog and its open state', () => {
     expect(opener().getAttribute('aria-expanded')).toBe('true');
     // Picking closes the dialog; the collapsed state is announced again.
     const dialog = document.querySelector('[role=dialog]')!;
-    [...dialog.querySelectorAll<HTMLButtonElement>('button[aria-label]')].find((b) => /Beta/.test(b.getAttribute('aria-label') ?? ''))!.click();
+    pickerRow(dialog, /Beta/).click();
+    await tick();
+    expect(opener().getAttribute('aria-expanded')).toBe('false');
+  });
+
+  // portal#2340 P3-3: the dismiss paths that could leave the bound open var
+  // stale — while one picker is open the opener must report expanded, and each
+  // dismiss returns it to collapsed with the opener still usable. (SelectOrg
+  // has no cancel button; that path is pinned in
+  // rule-editor-references.client.test.ts via the picker stub's Cancel.)
+  it('Escape dismiss returns aria-expanded to false and the opener still reopens', async () => {
+    const root = await open();
+    const opener = () => root.querySelector<HTMLButtonElement>('#subOrgId')!;
+    opener().click();
+    await tick();
+    expect(opener().getAttribute('aria-expanded')).toBe('true');
+    const dialog = document.querySelector<HTMLElement>('[role=dialog]')!;
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await tick();
+    expect(opener().getAttribute('aria-expanded')).toBe('false');
+    opener().click();
+    await tick();
+    expect(opener().getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('backdrop-click dismiss returns aria-expanded to false', async () => {
+    const root = await open();
+    const opener = () => root.querySelector<HTMLButtonElement>('#subOrgId')!;
+    opener().click();
+    await tick();
+    const dialog = document.querySelector<HTMLElement>('[role=dialog]')!;
+    const backdrop = dialog.parentElement!;
+    expect(backdrop.getAttribute('class')).toContain('fixed inset-0');
+    backdrop.click();
     await tick();
     expect(opener().getAttribute('aria-expanded')).toBe('false');
   });
