@@ -259,8 +259,9 @@ it('App memory filters do not infer read-only access from the primary agent', as
 
 // portal#2332: the Memories tabpanel carries a heading landmark for
 // heading-keyed screen-reader navigation, visually hidden because its text
-// only echoes the tab label (conventions:tabpanel-heading-landmark in the
-// portal memory; the tab keeps naming the panel via aria-labelledby).
+// only echoes the tab label
+// (hrn:node:hadronmemory.com:hadron-portal:conventions:tabpanel-heading-landmark;
+// the tab keeps naming the panel via aria-labelledby).
 it('the Memories tabpanel holds an sr-only h2 echoing the tab label (#2332)', async () => {
   const target = await mountTab('memory');
   const heading = target.querySelector('#panel-memory h2');

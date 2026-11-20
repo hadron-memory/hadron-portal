@@ -3891,7 +3891,8 @@
   {#if activeTab === 'memory' && tabShown('memory')}
     <div id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <!-- #2332: heading landmark for heading-keyed screen-reader navigation; sr-only
-         because it only echoes the tab label (conventions:tabpanel-heading-landmark). -->
+         because it only echoes the tab label
+         (hrn:node:hadronmemory.com:hadron-portal:conventions:tabpanel-heading-landmark). -->
     <h2 class="sr-only">{t('app.tabs.memory', 'Memories')}</h2>
     {#if data.createMemoryForm}
       {#key app.id}
