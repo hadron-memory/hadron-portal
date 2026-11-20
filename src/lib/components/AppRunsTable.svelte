@@ -26,7 +26,8 @@
     const generation = epoch;
     void tick().then(() => { if (alive && generation === epoch && document.activeElement === document.body) heading?.focus(); });
   });
-  const sorting = $derived(section.sort === 'status' || section.sort === 'startedAt' ? [{ id: section.sort, desc: section.dir === 'desc' }] : []);
+  // portal#2290: the pager and the sort header build on the request the reader is waiting on (`controls`), not the served page.
+  const sorting = $derived(controls.sort === 'status' || controls.sort === 'startedAt' ? [{ id: controls.sort, desc: controls.dir === 'desc' }] : []);
   const columns: PortalColumnDef<AppRun>[] = [
     { accessorKey: 'status', header: t('runs.col.status', 'Status'), size: 130 },
     { accessorKey: 'triggerKind', header: t('runs.col.trigger', 'Trigger'), enableSorting: false, size: 180 },
@@ -68,9 +69,10 @@
     manualPagination: true, manualSorting: true, manualFiltering: true,
     initialState: { sorting: [{ id: 'createdAt', desc: true }], pagination: { pageIndex: 0, pageSize: 20 } },
     get rowCount() { return section.total; }, enableMultiSort: false, enableSortingRemoval: false,
-    get state() { return { sorting, columnFilters: section.statuses.length ? [{ id: 'status', value: section.statuses }] : [], pagination: { pageIndex: section.page - 1, pageSize: RUNS_PAGE_SIZE } }; },
+    // The pager and sort header follow `controls`; the status filter and the saved view still describe the served page (portal#2290 scope).
+    get state() { return { sorting, columnFilters: section.statuses.length ? [{ id: 'status', value: section.statuses }] : [], pagination: { pageIndex: controls.page - 1, pageSize: RUNS_PAGE_SIZE } }; },
     onSortingChange: updater => { const next = typeof updater === 'function' ? updater(sorting) : updater; const item = next[0]; void navigate(query({ page: 1, sort: RUN_SORTS.includes(item?.id as RunsQuery['sort']) ? item.id as RunsQuery['sort'] : 'createdAt', dir: item?.desc ? 'desc' : 'asc' })); },
-    onPaginationChange: updater => { const now = { pageIndex: section.page - 1, pageSize: RUNS_PAGE_SIZE }; const next = typeof updater === 'function' ? updater(now) : updater; if (next.pageIndex !== now.pageIndex) void navigate(query({ page: next.pageIndex + 1 })); },
+    onPaginationChange: updater => { const now = { pageIndex: controls.page - 1, pageSize: RUNS_PAGE_SIZE }; const next = typeof updater === 'function' ? updater(now) : updater; if (next.pageIndex !== now.pageIndex) void navigate(query({ page: next.pageIndex + 1 })); },
     meta: {
       getServerView: () => ({ sorting: [{ id: section.sort, desc: section.dir === 'desc' }], columnFilters: section.statuses.length ? [{ id: 'status', value: section.statuses }] : [] }),
       applyServerView: (view: SavedView, options?: { initial?: boolean }) => {

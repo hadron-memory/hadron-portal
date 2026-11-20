@@ -248,7 +248,7 @@
      document 14px wide on a 390px phone. Wrapping keeps every control in
      flow and reachable instead. -->
 {#if showFooter}
-<div data-testid="table-footer" class="flex flex-wrap items-center justify-between gap-3">
+<div data-testid="table-footer" class="mt-3 flex flex-wrap items-center justify-between gap-3">
   <span aria-current={pageCount > 1 ? 'page' : undefined} class="text-sm text-zinc-500">{pageCount > 1 ? tableStrings.pageOf(pageIndex + 1, pageCount) : ''}</span>
   <div class="flex flex-wrap items-center gap-2">
     {#if showPageSize}<select value={pageSize} onchange={(e) => table.setPageSize(Number((e.target as HTMLSelectElement).value))}
