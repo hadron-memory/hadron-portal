@@ -6060,8 +6060,8 @@ export const AGENT_TASK_FINDINGS_QUERY = /* GraphQL */ `
  * App's task is refused rather than shown.
  */
 export const AGENT_TASK_FINDING_DISPOSITIONS_QUERY = /* GraphQL */ `
-  query AgentTaskFindingDispositions($id: ID!, $offset: Int!) {
-    agentTask(id: $id) { id appId findingDispositions(limit: 200, offset: $offset) { items { findingId disposition reference { kind target label } } total hasMore } }
+  query AgentTaskFindingDispositions($id: ID!, $limit: Int!, $offset: Int!) {
+    agentTask(id: $id) { id appId findingDispositions(limit: $limit, offset: $offset) { items { findingId disposition reference { kind target label } } total hasMore } }
   }
 `;
 
