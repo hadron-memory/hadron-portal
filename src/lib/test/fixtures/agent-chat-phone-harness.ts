@@ -59,12 +59,15 @@ export type AgentChatFixture = {
   failDelete: (kind: DeleteFailure) => void;
   /** Make the next turn reject as a dropped connection does, once (#2110). */
   failTurn: () => void;
+  /** Make the next rename answer 500 with `{error: TITLE_REFUSAL}`, once (portal#2173). Needs `rowActions`. */
+  failTitle: () => void;
   /** The AI config name this mount seeded (the long one under `longConfigName`). */
   configName: string;
 };
 
 export type DeleteFailure = 'network' | 'json' | 'text';
 export const DELETE_REFUSAL = 'Delete refused';
+export const TITLE_REFUSAL = 'Rename refused';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -118,6 +121,10 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
   const failTurn = () => {
     turnFailure = true;
   };
+  let titleFailure = false;
+  const failTitle = () => {
+    titleFailure = true;
+  };
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.includes('/api/agent-chat/list')) {
@@ -138,6 +145,10 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
     }
     if (options.rowActions && url.includes('/api/agent-chat/title')) {
       calls.title++;
+      if (titleFailure) {
+        titleFailure = false;
+        return json({ error: TITLE_REFUSAL }, 500);
+      }
       const { chatId, title } = JSON.parse(String(init?.body ?? '{}'));
       const chat = chats.find((c) => c.loc === chatId);
       if (!chat) return json({ error: 'Chat not found' }, 404);
@@ -189,5 +200,5 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
       ] as never,
     },
   });
-  return { stop: () => unmount(component), calls, navigationCalls, holdDelete, failDelete, failTurn, configName: options.longConfigName ? LONG_CONFIG_NAME : 'Default' };
+  return { stop: () => unmount(component), calls, navigationCalls, holdDelete, failDelete, failTurn, failTitle, configName: options.longConfigName ? LONG_CONFIG_NAME : 'Default' };
 }
