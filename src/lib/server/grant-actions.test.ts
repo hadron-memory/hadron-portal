@@ -25,3 +25,8 @@ it('does not swallow BAD_USER_INPUT as an empty catalogue', async () => {
   const request = vi.fn().mockRejectedValue(fault);
   await expect(readGrantActions({ request } as never, 'app')).rejects.toBe(fault);
 });
+it('fails rather than offering ambiguous metadata when page two repeats a page-one name', async () => {
+  const request = vi.fn().mockResolvedValueOnce({ grantActions: { items: [action('a')], total: 2 } })
+    .mockResolvedValueOnce({ grantActions: { items: [action('a')], total: 2 } });
+  await expect(readGrantActions({ request } as never, 'app')).rejects.toThrow('Repeated');
+});
