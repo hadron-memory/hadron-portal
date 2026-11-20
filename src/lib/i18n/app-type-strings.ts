@@ -13,11 +13,8 @@
  * stable `app.type.*` ids.
  */
 
-import type { z } from 'zod';
-import type { appSettingsSchema } from '../../routes/app/apps/[appId]/schema';
+import type { AppType } from '../app-type';
 import { t } from './t';
-
-type AppType = z.infer<typeof appSettingsSchema>['appType'];
 
 // `satisfies` makes a new enum value without a label a compile error here, not
 // only a failing test; the keys stay literal so `Object.keys` below is typed.
@@ -43,4 +40,13 @@ export const APP_TYPE_VALUES: readonly AppType[] = Object.freeze(Object.keys(LAB
 export function appTypeLabel(value: string | null | undefined): string {
   if (value == null) return '';
   return Object.hasOwn(LABELS, value) ? LABELS[value as AppType]() : value;
+}
+
+// The icon alone, for the page heading. Same own-keys-only lookup as the label:
+// a value off the prototype chain (`toString`) must not resolve to a function.
+const ICONS = { WORKSTATION: '💻', CHATBOT: '💬', AGENT: '🤖', AUTOMATION: '⚙️', CLOUD: '☁️', IOT: '📡' } satisfies Record<AppType, string>;
+
+/** The icon an App type renders with, or the generic key icon for a value the portal does not know. */
+export function appTypeIcon(value: string | null | undefined): string {
+  return value != null && Object.hasOwn(ICONS, value) ? ICONS[value as AppType] : '🔑';
 }
