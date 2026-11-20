@@ -1204,7 +1204,10 @@
       if (tabCache.key !== key) { tabCache = { key, byTab: {} }; return; }
       const byTab: Partial<Record<AppTabId, TabEntry>> = {};
       for (const [id, entry] of Object.entries(tabCache.byTab) as [AppTabId, TabEntry][]) {
-        if (entry.payload) byTab[id] = { ...entry, stale: true };
+        // A first read still in flight has no payload yet: keep it, so the
+        // shown-tab effect does not start a second read beside it (portal#2256).
+        // It lands stale (its generation is behind) and is read once more.
+        if (entry.payload || entry.state === 'loading') byTab[id] = { ...entry, stale: true };
       }
       tabCache = { key, byTab };
     });
