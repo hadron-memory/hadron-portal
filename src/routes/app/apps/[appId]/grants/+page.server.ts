@@ -78,13 +78,13 @@ export const actions: Actions = {
   approve: async (event) => {
     if (!event.locals.token || !event.locals.user?.id) redirect(303, "/signin");
     let appId = event.params.appId;
-    const refused = (status: number, message: string) =>
+    const approvalRefused = (status: number, message: string) =>
       fail(status, { error: message, operation: "approve" as const, appId });
     try {
       const app = await manage(event);
       appId = app.id;
       if (!(await deploymentOffersSigning(event.locals.token)))
-        return refused(
+        return approvalRefused(
           403,
           t(
             "grants.approve.unavailable",
@@ -92,7 +92,7 @@ export const actions: Actions = {
           ),
         );
       const ref = String((await event.request.formData()).get("ref") ?? "");
-      if (!ref) return refused(400, grantError("GRANT_NOT_FOUND"));
+      if (!ref) return approvalRefused(400, grantError("GRANT_NOT_FOUND"));
       const client = gqlClient(event.locals.token);
       const page = await client.request<{
         appGrants: { items: Grant[]; total: number };
@@ -102,7 +102,7 @@ export const actions: Actions = {
         offset: grantOffset(event.url),
       });
       if (!page.appGrants.items.some((g) => g.id === ref && g.appId === app.id))
-        return refused(
+        return approvalRefused(
           409,
           t(
             "grants.row-moved",
@@ -117,7 +117,7 @@ export const actions: Actions = {
         typeof result.requestGrantSignature?.ceremonyUrl !== "string" ||
         !result.requestGrantSignature.ceremonyUrl
       )
-        return refused(503, grantError(null));
+        return approvalRefused(503, grantError(null));
       redirect(303, result.requestGrantSignature.ceremonyUrl);
     } catch (e) {
       // Kit redirects are control flow, not failures to redact.
@@ -136,9 +136,9 @@ export const actions: Actions = {
           (r) => r.extensions?.code === code,
         );
         if (typeof entry?.message === "string")
-          return refused(400, entry.message);
+          return approvalRefused(400, entry.message);
       }
-      return refused(
+      return approvalRefused(
         isHttpError(e) ? e.status : 503,
         grantError(
           isHttpError(e) && e.status === 403 ? "GRANT_NOT_MANAGER" : null,
