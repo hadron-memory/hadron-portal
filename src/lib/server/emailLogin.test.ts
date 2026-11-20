@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('$env/dynamic/private', () => ({ env: { LOCAL_SERVER_URL: 'http://server.internal:4000' } }));
 
 import { EMAIL_LOGIN_TIMEOUT_MS, emailLoginErrorStatus, startBoundMagicLink } from './emailLogin';
+import { emailSignInStrings } from '$lib/i18n/email-sign-in-strings';
 
 type CookieSet = { name: string; value: string; opts: Record<string, unknown> };
 
@@ -196,7 +197,7 @@ describe('startBoundMagicLink: bounded call and a confirmed send (portal#1528)',
     expect(await late).toEqual({
       ok: false,
       status: 504,
-      error: "We couldn't confirm your sign-in link was sent. If it hasn't arrived in a minute, try again or use another sign-in method.",
+      error: emailSignInStrings.unconfirmed(),
     });
   });
 
