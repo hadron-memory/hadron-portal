@@ -197,7 +197,6 @@
     searchPlaceholder={t('app.tasks.roster.search', 'Search the roster…')}
     searchAriaLabel={t('app.tasks.roster.search', 'Search the roster…')}
     bind:globalFilter
-    maxHeight="max(240px, calc(100vh - 24rem))"
   >
     {#snippet cell(cell, row)}
       {@const e = row.entry}

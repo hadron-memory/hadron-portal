@@ -1173,7 +1173,6 @@
             searchPlaceholder="Search memories..."
             searchAriaLabel="Search memories"
             bind:globalFilter={memoryFilter}
-            maxHeight="max(200px, calc(100vh - 24rem))"
           >
             {#snippet cell(cell, m)}
               {#if cell.column.id === 'name'}
@@ -1334,7 +1333,6 @@
           searchPlaceholder="Search apps..."
           searchAriaLabel="Search apps"
           bind:globalFilter={appsFilter}
-          maxHeight="max(200px, calc(100vh - 20rem))"
         >
           {#snippet cell(cell, a)}
             {#if cell.column.id === 'name'}
@@ -1420,7 +1418,6 @@
         searchPlaceholder="Search bundled agents..."
         searchAriaLabel="Search bundled agents"
         bind:globalFilter={bundledFilter}
-        maxHeight="max(200px, calc(100vh - 24rem))"
       >
         {#snippet cell(cell, a)}
           {#if cell.column.id === 'name'}

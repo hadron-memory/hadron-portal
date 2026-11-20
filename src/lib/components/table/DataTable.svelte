@@ -14,17 +14,20 @@
   Chrome conventions (Hadron: findings:portal-table-chrome-conventions):
   tableStrings pagination copy, keyboard-accessible sorting (tabindex /
   valid aria-sort tokens / Enter+Space), keyboard-accessible column
-  resizing (role="separator", arrow keys), and a viewport-floored
-  max-height whose rem offset is tuned per page via the `maxHeight` prop.
+  resizing (role="separator", arrow keys), and a scroll area that sizes
+  itself: it fills from its own top edge to the bottom of the window (less
+  the footer), so no page tunes an offset (portal#2193, ruling 0276). A list
+  inside a dialog, picker or detail section passes `bounded` instead.
 -->
 <script lang="ts" generics="T extends RowData">
   import type { PortalCell, PortalTable } from '$lib/table/features';
   import type { RowData } from '@tanstack/table-core';
-  import type { Snippet } from 'svelte';
+  import { onMount, untrack, type Snippet } from 'svelte';
   import ViewTabs from './ViewTabs.svelte';
   import ColumnToggle from './ColumnToggle.svelte';
   import TableFrame from './TableFrame.svelte';
   import { tableStrings } from '$lib/i18n/table-strings';
+  import { FILL_MIN_HEIGHT, fillHeight, measureBelow } from '$lib/fill-viewport';
 
   let {
     table,
@@ -38,7 +41,7 @@
     showPageSize = true,
     initialColumnsOnly = false,
     sortButtons = false,
-    maxHeight = 'max(200px, calc(100vh - 23rem))',
+    bounded = false,
     fitOnPhone = false,
     phoneHiddenColumns = [],
     containCells = false,
@@ -61,9 +64,9 @@
     showPageSize?: boolean;
     initialColumnsOnly?: boolean;
     sortButtons?: boolean;
-    /** Scroll-container max-height. The rem offset is tuned per page to
-     *  its chrome height; keep the 200px floor (short-viewport guard). */
-    maxHeight?: string;
+    /** A list inside a dialog, picker or detail section: the scroll area keeps one fixed
+     *  height (BOUNDED_MAX_HEIGHT) instead of filling the window. Full-page lists leave it off. */
+    bounded?: boolean;
     /** Fit a SINGLE-column table and its header to the scroller on phones; desktop saved widths stay live. */
     fitOnPhone?: boolean;
     /** Column ids hidden below `sm` by CSS only (no JS visibility, so no hydration flash and
@@ -89,6 +92,52 @@
   } = $props();
 
   const active = $derived(globalFilter.trim() !== '');
+
+  /** The one bounded height, with the short-window floor. */
+  const BOUNDED_MAX_HEIGHT = 'max(200px, 40vh)';
+  let scrollerEl = $state<HTMLElement>();
+  let footerEl = $state<HTMLElement>();
+  /** Filled height in px; null until measured (server render, first paint), when CSS stands in. */
+  let fillPx = $state<number | null>(null);
+  // Measured like the node page's editors (#878): the window's height, less where the scroller
+  // starts on the page, less the footer under it and the gutter the app shell leaves. The page
+  // (the document) scrolls in the app shell, so the document's size is what changes with the
+  // header above. A table that starts low on the page, or shares it with another table, would
+  // measure to almost nothing, so the floor is the larger of 200px and 40% of the window: it
+  // then runs past the window bottom and the page scrolls to it, as before.
+  const FILL_FLOOR_RATIO = 0.4;
+  function measureFill() {
+    if (bounded || !scrollerEl) return;
+    const next = fillHeight({
+      viewportHeight: window.innerHeight,
+      top: scrollerEl.getBoundingClientRect().top + window.scrollY,
+      below: measureBelow(scrollerEl, footerEl),
+      min: Math.max(FILL_MIN_HEIGHT, Math.round(window.innerHeight * FILL_FLOOR_RATIO)),
+    });
+    if (next !== fillPx) fillPx = next;
+  }
+  let observer: ResizeObserver | undefined;
+  onMount(() => {
+    measureFill();
+    // The header above can change height (a banner, wrapped filters, tabs) and the window can be
+    // resized: re-measure on either, so no page needs to guess.
+    observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measureFill);
+    observer?.observe(document.body);
+    if (footerEl) observer?.observe(footerEl);
+    window.addEventListener('resize', measureFill);
+    return () => { observer?.disconnect(); observer = undefined; window.removeEventListener('resize', measureFill); };
+  });
+  // The footer comes and goes (`showFooter`), and `bounded` can flip: measure again, and watch
+  // whichever footer is there now.
+  $effect(() => {
+    const footer = footerEl;
+    void bounded;
+    untrack(() => {
+      if (footer) observer?.observe(footer);
+      measureFill();
+    });
+  });
+  const scrollerMaxHeight = $derived(bounded ? BOUNDED_MAX_HEIGHT : fillPx !== null ? `${fillPx}px` : 'max(200px, calc(100vh - 23rem))');
 
   /** Phone width (px) a sticky end column is clamped to below the `sm`
    * breakpoint — the one source for both the header width and the table-width
@@ -166,7 +215,7 @@
 <!-- Bounded, internally-scrolling container so the page itself doesn't
      scroll and the pagination footer below stays visible. The `<thead>`
      is sticky so column headers remain while the body scrolls. -->
-<div data-testid="data-table-scroller" class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: {maxHeight};">
+<div bind:this={scrollerEl} data-testid="data-table-scroller" class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: {scrollerMaxHeight};">
   <table class="table-fixed w-[var(--table-desktop-w)] max-sm:w-[var(--phone-table-w)] text-sm" style="--table-desktop-w: {desktopTableWidth}; --phone-table-w: {phoneTableWidth};{phoneEndColumnWidth !== undefined ? ` --phone-end-w: ${phoneEndColumnWidth}px;` : ''}">
     <thead>
       {#each table.getHeaderGroups() as headerGroup (headerGroup.id)}
@@ -248,7 +297,7 @@
      document 14px wide on a 390px phone. Wrapping keeps every control in
      flow and reachable instead. -->
 {#if showFooter}
-<div data-testid="table-footer" class="mt-3 flex flex-wrap items-center justify-between gap-3">
+<div bind:this={footerEl} data-testid="table-footer" class="mt-3 flex flex-wrap items-center justify-between gap-3">
   <span aria-current={pageCount > 1 ? 'page' : undefined} class="text-sm text-zinc-500">{pageCount > 1 ? tableStrings.pageOf(pageIndex + 1, pageCount) : ''}</span>
   <div class="flex flex-wrap items-center gap-2">
     {#if showPageSize}<select value={pageSize} onchange={(e) => table.setPageSize(Number((e.target as HTMLSelectElement).value))}

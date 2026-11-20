@@ -151,7 +151,6 @@
       searchPlaceholder={t('org-apps.search.placeholder', 'Search apps...')}
       searchAriaLabel={t('org-apps.search.aria-label', 'Search apps')}
       bind:globalFilter
-      maxHeight="max(200px, calc(100vh - 25rem))"
     >
       {#snippet cell(cell, app)}
         {#if cell.column.id === 'name'}

@@ -83,6 +83,15 @@ describe("owned Grants read", () => {
       b.grants.items = Array.from({ length: 21 }, () => b.grants.items[0]);
     expect(parseGrantList(b, scope)).toBeNull();
   });
+  it.each([
+    ["omitted", undefined],
+    ["a string", "false"],
+  ])("refuses a payload whose actionDefinitionsFailed is %s", (_k, value) => {
+    const b: any = body();
+    if (value === undefined) delete b.actionDefinitionsFailed;
+    else b.actionDefinitionsFailed = value;
+    expect(parseGrantList(b, scope)).toBeNull();
+  });
   it.each(["HTTP", "JSON", "rejection"])(
     "contains a %s failure without throwing",
     async (kind) => {

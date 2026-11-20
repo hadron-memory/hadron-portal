@@ -256,7 +256,6 @@
       searchPlaceholder={t('org-runs.search-placeholder', 'Search runs by app, trigger, or entry node…')}
       searchAriaLabel={t('org-runs.search.aria-label', 'Search runs')}
       bind:globalFilter
-      maxHeight="max(200px, calc(100vh - 24rem))"
     >
       {#snippet cell(cell, run)}
         {#if cell.column.id === 'started'}

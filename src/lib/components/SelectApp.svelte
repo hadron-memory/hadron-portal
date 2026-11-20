@@ -45,7 +45,7 @@
         <h2 class="font-semibold text-zinc-900 dark:text-white">{t('select-app.title', 'Choose an App')}</h2>
         <button type="button" onclick={() => open = false} class="rounded-md px-3 py-1 text-sm text-zinc-600 dark:text-zinc-300">{t('select-app.close', 'Close')}</button>
       </div>
-      <DataTable {table} listKey={`select-app:${scopeKey}`} bind:globalFilter={query} searchPlaceholder={t('select-app.search', 'Search Apps...')} searchAriaLabel={t('select-app.search', 'Search Apps...')} maxHeight="45vh">
+      <DataTable {table} listKey={`select-app:${scopeKey}`} bind:globalFilter={query} searchPlaceholder={t('select-app.search', 'Search Apps...')} searchAriaLabel={t('select-app.search', 'Search Apps...')} bounded>
         {#snippet cell(cell, app)}
           <!-- Keep selection in the same cell as identity: a second fixed
                column would put the primary action beyond a phone viewport. -->

@@ -64,7 +64,7 @@
   {table}
   listKey="memories:approve-all:skipped-placeholders"
   bind:globalFilter
-  maxHeight="max(160px, 40vh)"
+  bounded
   searchPlaceholder={t('memory.approve-all.search', 'Search skipped placeholders…')}
   searchAriaLabel={t('memory.approve-all.search.aria', 'Search the placeholders Approve all skipped')}
 >

@@ -166,7 +166,6 @@
       searchPlaceholder={t('orgs.search', 'Search organizations…')}
       searchAriaLabel={t('orgs.search', 'Search organizations…')}
       bind:globalFilter
-      maxHeight="max(200px, calc(100vh - 21rem))"
     >
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'name'}
