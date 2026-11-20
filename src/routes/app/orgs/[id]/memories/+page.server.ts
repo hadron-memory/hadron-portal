@@ -238,7 +238,7 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
 
     try {
-      await gqlClient(locals.token).request(DELETE_MEMORY_MUTATION, { id: form.data.id });
+      await gqlClient(locals.token).request(DELETE_MEMORY_MUTATION, { ref: form.data.id });
       return message(form, { type: 'success', text: t('org-memories.deleted', 'Memory deleted.') });
     } catch (e: unknown) {
       return message(
@@ -287,7 +287,7 @@ export const actions: Actions = {
     for (const m of memories) {
       if (!m.source) continue;
       try {
-        const res = await client.request<{ syncMemory: SyncOutcomeFields | null }>(SYNC_MEMORY_MUTATION, { id: m.id });
+        const res = await client.request<{ syncMemory: SyncOutcomeFields | null }>(SYNC_MEMORY_MUTATION, { ref: m.id });
         const { view, message: outcome } = classifySyncOutcome(res.syncMemory);
         if (outcome.type === 'error') errors.push(`${m.name}: ${outcome.text}`);
         else if (res.syncMemory?.syncStatus !== 'OK') unfinished.push(m.name);
@@ -322,8 +322,8 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(CREATE_MEMORY_SUBSCRIPTION_MUTATION, {
-        memoryId: form.data.memoryId,
-        orgId: params.id,
+        memoryRef: form.data.memoryId,
+        orgRef: params.id,
         role: form.data.role,
       });
       return message(form, { type: 'success', text: t('org-memories.subscriptions.added', 'Subscribed to memory.') });
@@ -345,8 +345,8 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(DELETE_MEMORY_SUBSCRIPTION_MUTATION, {
-        memoryId: form.data.memoryId,
-        orgId: params.id,
+        memoryRef: form.data.memoryId,
+        orgRef: params.id,
       });
       return message(form, { type: 'success', text: t('org-memories.subscriptions.removed', 'Unsubscribed from memory.') });
     } catch (e: unknown) {

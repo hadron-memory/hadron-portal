@@ -68,7 +68,7 @@ export const actions: Actions = {
       // orphan if createAgent fails before the promotion nulls it. The value is
       // moot post-promotion, so the safe floor costs nothing.
       const systemResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
-        orgId: params.id,
+        orgRef: params.id,
         name: systemMemorySlug,
         shortDescription: systemDisplayName,
         visibility: 'ORGANIZATION',
@@ -82,7 +82,7 @@ export const actions: Actions = {
       let knowledgeMemoryId: string | null = null;
       if (includeKnowledge) {
         const knowledgeResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
-          orgId: params.id,
+          orgRef: params.id,
           name: knowledgeMemorySlug,
           shortDescription: knowledgeMemoryName,
           visibility: memoryVisibility,

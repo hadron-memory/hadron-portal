@@ -84,13 +84,13 @@ describe('create chatbot action', () => {
 
     expect(result).toMatchObject({ status: 303, location: '/app/agents/agent-1' });
     expect(mockRequest).toHaveBeenCalledWith(CREATE_MEMORY_MUTATION, {
-      orgId: 'org-1',
+      orgRef: 'org-1',
       name: 'juno-system',
       shortDescription: 'Juno System',
       visibility: 'ORGANIZATION',
     });
     expect(mockRequest).toHaveBeenCalledWith(CREATE_MEMORY_MUTATION, {
-      orgId: 'org-1',
+      orgRef: 'org-1',
       name: 'juno-knowledge',
       shortDescription: 'Juno Knowledge',
       visibility: 'ORGANIZATION',

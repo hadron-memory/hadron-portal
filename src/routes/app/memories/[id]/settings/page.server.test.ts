@@ -114,7 +114,7 @@ describe("memory-detail `delete` action (spec 013)", () => {
     // Mutation invoked once with the memory id (params.id) as the id argument.
     expect(mockRequest).toHaveBeenCalledTimes(1);
     const [, vars] = mockRequest.mock.calls[0]!;
-    expect(vars).toEqual({ id: 'mem-y' });
+    expect(vars).toEqual({ ref: 'mem-y' });
   });
 
   it('encodes the submitted org id before building the redirect path', async () => {
