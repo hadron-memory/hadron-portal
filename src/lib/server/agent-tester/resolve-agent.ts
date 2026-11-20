@@ -17,15 +17,21 @@ async function canManageStrict(client: ReturnType<typeof gqlClient>, userId: str
 }
 
 /**
- * The ONE gate every Tester surface goes through (portal#2099). Resolve an agent the caller may use (portal#2083: only one the
- * caller can MANAGE, since after hadron-server#4095 `startChat` refuses a
- * non-manager the Tester has no licensed App chat home to admit). The organization list
- * preserves its original member/admin scope; ownedByMe adds only the caller's
- * own user-owned agents, including when the caller is a platform admin.
- * Public find-one reads are deliberately outside this tester access path.
- * A non-manager, or no user, is a miss (the surface's own not-found). Let
- * lookup and manage-read failures propagate so a temporary outage never becomes
- * a 404 or an admission. The server stays authoritative on every start.
+ * The ONE gate every Tester surface goes through (portal#2099).
+ *
+ * Resolve an agent the caller may use: only one the caller can MANAGE
+ * (portal#2083), since after hadron-server#4095 `startChat` refuses a
+ * non-manager and the Tester has no licensed App chat home to admit. The
+ * organization list preserves its original member/admin scope; ownedByMe adds
+ * only the caller's own user-owned agents, including when the caller is a
+ * platform admin. Public find-one reads are deliberately outside this tester
+ * access path.
+ *
+ * A non-manager, or no user, is a miss (the surface's own not-found). A failed
+ * lookup or manage read THROWS, so an outage never becomes a 404 or an
+ * admission. The API handlers let that error propagate; the Tester page load
+ * catches it and answers one fixed 500. The server stays authoritative on
+ * every start.
  */
 export async function requireTesterAgent(
   client: ReturnType<typeof gqlClient>,
