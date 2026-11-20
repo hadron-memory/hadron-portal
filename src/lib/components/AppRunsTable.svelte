@@ -7,7 +7,7 @@
   import type { PortalColumnDef, PortalTableState } from '$lib/table/features';
   import type { SavedView } from '$lib/table/savedView';
   import { t } from '$lib/i18n/t';
-  import { RUN_STATUSES, describeTrigger, fmtRunTime, runDuration, failureCode, statusChipClass, type AppRun } from '$lib/flow/runs';
+  import { RUN_STATUSES, describeTrigger, fmtRunTime, runDuration, failureCode, runStatusLabel, statusChipClass, type AppRun, type AppRunStatus } from '$lib/flow/runs';
   import { runsHref, isRunsSection, RUNS_PAGE_SIZE, RUN_SORTS, type RunsSection, type RunsQuery } from '$lib/flow/app-runs-page';
   let { appRef, initial }: { appRef: string; initial: RunsSection } = $props();
   const mountedApp = untrack(() => appRef), mountedSection = untrack(() => initial);
@@ -36,14 +36,10 @@
     { id: 'failure', header: t('runs.col.failure', 'Failure'), enableSorting: false, size: 220 },
     { id: 'actions', header: t('runs.col.open', 'Open'), enableSorting: false, enableHiding: false, size: 140, minSize: 140 },
   ];
-  // portal#2286: labels go through t() so they can be localized; a status with no key renders raw.
-  // portal#1766: a status this build doesn't know is NOT a key-less known status — it renders
-  // `Unknown: {raw}`, borrowing no known state's label (same contract as runStatusLabel in
-  // $lib/flow/runs, composed here because this table localizes known statuses #2286-style).
-  const STATUS_LABELS: Record<string, string> = { PENDING: 'Pending', RUNNING: 'Running', COMPLETED: 'Completed', FAILED: 'Failed', TIMED_OUT: 'Timed out', CANCELLED: 'Cancelled' };
-  const statusLabel = (status: string) => (RUN_STATUSES as readonly string[]).includes(status)
-    ? t(`runs.status.${status}`, Object.hasOwn(STATUS_LABELS, status) ? STATUS_LABELS[status] : status)
-    : t('runs.unknown', 'Unknown: {raw}', { raw: status });
+  // portal#2286: known labels go through t() so they can be localized; a status with no key renders raw.
+  // portal#1766/#2315: the unknown branch (`Unknown: {raw}`) is runStatusLabel's own, shared with every other surface.
+  const STATUS_LABELS: Record<AppRunStatus, string> = { PENDING: 'Pending', RUNNING: 'Running', COMPLETED: 'Completed', FAILED: 'Failed', TIMED_OUT: 'Timed out', CANCELLED: 'Cancelled' };
+  const statusLabel = (status: string) => runStatusLabel(status, (s) => t(`runs.status.${s}`, STATUS_LABELS[s]));
   const SORT_LABELS: Record<RunsQuery['sort'], string> = { createdAt: 'Created', startedAt: 'Started', finishedAt: 'Finished', status: 'Status' };
   const sortSummary = $derived.by(() => {
     const sort = t(`runs.sort.${controls.sort}`, SORT_LABELS[controls.sort] ?? controls.sort);
