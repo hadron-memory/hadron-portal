@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { parse } from 'svelte/compiler';
 import baseline from './live-region-sites.baseline.json';
 
 /**
@@ -34,47 +35,39 @@ function svelteFiles(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-/** Blank script, style and comments, keeping offsets, so only template markup is scanned. */
-function template(src: string): string {
-  const blank = (m: string) => m.replace(/[^\n]/g, ' ');
-  return src
-    .replace(/<script[\s\S]*?<\/script>/g, blank)
-    .replace(/<style[\s\S]*?<\/style>/g, blank)
-    .replace(/<!--[\s\S]*?-->/g, blank);
+type Node = { type: string; data?: string; attributes?: Attr[]; fragment?: Fragment; consequent?: Fragment; alternate?: Fragment | null; body?: Fragment; fallback?: Fragment; pending?: Fragment; then?: Fragment; catch?: Fragment; children?: Node[]; nodes?: Node[] };
+type Attr = { type: string; name?: string; value?: true | { type: string; data?: string }[] | { type: string } };
+type Fragment = { nodes: Node[] };
+
+/** True when the element carries a literal `role="status"` attribute (any quoting). */
+function hasStatusRole(node: Node): boolean {
+  return (node.attributes ?? []).some((a) => {
+    if (a.type !== 'Attribute' || a.name !== 'role' || !Array.isArray(a.value) || a.value.length !== 1) return false;
+    const v = a.value[0];
+    return v.type === 'Text' && v.data?.trim() === 'status';
+  });
 }
 
 /** How many `role="status"` elements are the only child of their own `{#if}`/`{:else}` branch. */
 export function soleChildStatusRegions(src: string): number {
-  const t = template(src);
+  const ast = parse(src, { modern: true }) as unknown as { fragment: Fragment };
   let count = 0;
-  for (let at = t.indexOf('role="status"'); at !== -1; at = t.indexOf('role="status"', at + 1)) {
-    const start = t.lastIndexOf('<', at);
-    const tag = t.slice(start + 1).match(/^[A-Za-z][\w.]*/)?.[0];
-    if (!tag) continue;
-    // End of the opening tag, skipping braces and quotes.
-    let i = at, depth = 0, quote: string | null = null;
-    for (; i < t.length; i++) {
-      const c = t[i];
-      if (quote) { if (c === quote) quote = null; continue; }
-      if (c === '"' || c === "'") quote = c;
-      else if (c === '{') depth++;
-      else if (c === '}') depth--;
-      else if (c === '>' && depth === 0) break;
+  const branch = (f: Fragment | null | undefined) => {
+    if (!f) return;
+    const kids = f.nodes.filter((n) => !(n.type === 'Text' && !n.data?.trim()) && n.type !== 'Comment');
+    if (kids.length === 1 && hasStatusRole(kids[0])) count++;
+  };
+  const walk = (n: unknown) => {
+    if (!n || typeof n !== 'object') return;
+    if (Array.isArray(n)) return n.forEach(walk);
+    const node = n as Node;
+    if (node.type === 'IfBlock') {
+      branch(node.consequent);
+      if (node.alternate && !(node.alternate.nodes.length === 1 && node.alternate.nodes[0].type === 'IfBlock')) branch(node.alternate);
     }
-    let end = i + 1;
-    if (t[i - 1] !== '/') {
-      const tokens = new RegExp(`<${tag}(?=[\\s>/])|</${tag}>`, 'g');
-      tokens.lastIndex = i + 1;
-      let open = 1, m: RegExpExecArray | null;
-      while ((m = tokens.exec(t))) {
-        if (m[0].startsWith('</')) { if (--open === 0) { end = m.index + m[0].length; break; } }
-        else open++;
-      }
-    }
-    const opensBranch = /(\{#if[^}]*\}|\{:else if[^}]*\}|\{:else\})\s*$/.test(t.slice(0, start));
-    const closesBranch = /^\s*(\{\/if\}|\{:else)/.test(t.slice(end));
-    if (opensBranch && closesBranch) count++;
-  }
+    for (const v of Object.values(node)) if (v && typeof v === 'object') walk(v);
+  };
+  walk(ast.fragment);
   return count;
 }
 
@@ -98,6 +91,8 @@ describe('portal#2344: status regions are persistent, not the only child of an {
     expect(soleChildStatusRegions('{#if a}x{:else}<p role="status">y</p>{/if}')).toBe(1);
     expect(soleChildStatusRegions('<LiveRegion>{#if saved}<p class="x">{saved}</p>{/if}</LiveRegion>')).toBe(0);
     expect(soleChildStatusRegions('<p role="status">{message}</p>')).toBe(0);
+    expect(soleChildStatusRegions("{#if saved}<p role='status'>{saved}</p>{/if}")).toBe(1);
+    expect(soleChildStatusRegions('{#if a}<p title="role=&quot;status&quot;">x</p>{/if}')).toBe(0);
     expect(soleChildStatusRegions('<!-- {#if a}<p role="status">x</p>{/if} -->')).toBe(0);
   });
 

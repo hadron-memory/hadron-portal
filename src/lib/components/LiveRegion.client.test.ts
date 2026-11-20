@@ -37,7 +37,7 @@ describe('LiveRegion', () => {
     expect(before.textContent?.trim()).toBe('');
   });
 
-  it('passes the caller class through and drops its own margin while empty', async () => {
+  it('passes the caller class through and carries the empty:m-0 class (spacing itself is checked in the browser)', async () => {
     mounted = mountComponent(LiveRegionHost as never, {} as never) as Mounted<Record<string, unknown>>;
     await tick(2);
     const cls = region(mounted.target)!.className.split(/\s+/);

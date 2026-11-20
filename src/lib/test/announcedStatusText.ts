@@ -1,5 +1,9 @@
 /**
- * The text of the first `role="status"` region that is actually announcing something.
+ * The text of the first `role="status"` region with non-empty text content.
+ *
+ * This is a DOM query, not proof of what a screen reader announced: it also sees static copy
+ * present at mount and visually hidden text. Scope it to the region under test when several
+ * status regions coexist.
  *
  * Sibling of `announcedAlertText`. Per
  * `hrn:node:hadronmemory.com:hadron-portal:review:live-region-persistent-not-conditionally-mounted`

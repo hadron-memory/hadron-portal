@@ -224,57 +224,62 @@
               {t('tasks.bundle.install-codex', 'To install it in Codex, unzip it into ~/.agents/skills — or a project’s .agents/skills folder.')}
             {/if}
           </p>
-          {#if report.version}
-            <p class="text-xs text-zinc-500 dark:text-zinc-400" data-testid="skill-bundle-version">
-              {t('tasks.bundle.version', 'Plugin version {version}. A later download gets a new version only if the plugin’s contents changed.', {
-                version: report.version,
-              })}
-            </p>
-          {/if}
         {/if}
         {#if report.scopeIncomplete}
-          <p data-testid="bundle-scope-incomplete" role="status" class="text-xs text-amber-700 dark:text-amber-400">
+          <p data-testid="bundle-scope-incomplete" class="text-xs text-amber-700 dark:text-amber-400">
             {t(
               'tasks.bundle.scope-incomplete',
               'The organization’s system memories could not be listed, so skills from them may be missing from this download and from this report. Try again shortly.',
             )}
           </p>
         {/if}
-        {#if report.notForHostUnknown}
-          <p class="text-xs text-amber-700 dark:text-amber-400">
-            {t(
-              'tasks.bundle.other-host-unknown',
-              'Tasks exported only for another host could not be checked, so some may be missing from this list: {detail}',
-              { detail: report.notForHostUnknown },
-            )}
-          </p>
-        {/if}
-        {#if report.leftOut.length > 0}
-          <p class="font-medium text-amber-700 dark:text-amber-400">
-            {t('tasks.bundle.skipped', 'Left out of the download ({count}):', { count: report.leftOut.length })}
-          </p>
-          <SkillExportLeftOutTable rows={report.leftOut} />
-        {/if}
-        {#if report.unrecognized.length > 0}
-          <p class="font-medium text-amber-700 dark:text-amber-400">
-            {t('tasks.bundle.unrecognized.heading', 'Export keys no host reads ({count}):', { count: report.unrecognized.length })}
-          </p>
-          <p class="text-xs text-zinc-500">
-            {t(
-              'tasks.bundle.unrecognized.help',
-              'Only {keys} are export keys. Any other key under exports is ignored, never read as one of them: rename it or remove it in the task’s Properties.',
-              { keys: exportKeyList() },
-            )}
-          </p>
-          <SkillExportLeftOutTable
-            rows={report.unrecognized}
-            listKey="orgs:tasks:export-unrecognized"
-            reasonHeader={t('tasks.bundle.unrecognized.column', 'What happened')}
-            searchPlaceholder={t('tasks.bundle.unrecognized.search', 'Search tasks with unused export keys…')}
-            searchAriaLabel={t('tasks.bundle.unrecognized.search.aria', 'Search the tasks whose export keys no host reads')}
-          />
-        {/if}
       </div>
     {/if}
   </LiveRegion>
+
+  {#if report}
+    <div class="mt-2 space-y-2 text-sm">
+      {#if report.version}
+        <p class="text-xs text-zinc-500 dark:text-zinc-400" data-testid="skill-bundle-version">
+          {t('tasks.bundle.version', 'Plugin version {version}. A later download gets a new version only if the plugin’s contents changed.', {
+            version: report.version,
+          })}
+        </p>
+      {/if}
+      {#if report.notForHostUnknown}
+        <p class="text-xs text-amber-700 dark:text-amber-400">
+          {t(
+            'tasks.bundle.other-host-unknown',
+            'Tasks exported only for another host could not be checked, so some may be missing from this list: {detail}',
+            { detail: report.notForHostUnknown },
+          )}
+        </p>
+      {/if}
+      {#if report.leftOut.length > 0}
+        <p class="font-medium text-amber-700 dark:text-amber-400">
+          {t('tasks.bundle.skipped', 'Left out of the download ({count}):', { count: report.leftOut.length })}
+        </p>
+        <SkillExportLeftOutTable rows={report.leftOut} />
+      {/if}
+      {#if report.unrecognized.length > 0}
+        <p class="font-medium text-amber-700 dark:text-amber-400">
+          {t('tasks.bundle.unrecognized.heading', 'Export keys no host reads ({count}):', { count: report.unrecognized.length })}
+        </p>
+        <p class="text-xs text-zinc-500">
+          {t(
+            'tasks.bundle.unrecognized.help',
+            'Only {keys} are export keys. Any other key under exports is ignored, never read as one of them: rename it or remove it in the task’s Properties.',
+            { keys: exportKeyList() },
+          )}
+        </p>
+        <SkillExportLeftOutTable
+          rows={report.unrecognized}
+          listKey="orgs:tasks:export-unrecognized"
+          reasonHeader={t('tasks.bundle.unrecognized.column', 'What happened')}
+          searchPlaceholder={t('tasks.bundle.unrecognized.search', 'Search tasks with unused export keys…')}
+          searchAriaLabel={t('tasks.bundle.unrecognized.search.aria', 'Search the tasks whose export keys no host reads')}
+        />
+      {/if}
+    </div>
+  {/if}
 </section>

@@ -284,9 +284,14 @@ describe('route change and late results', () => {
     await tick(3);
     await deliver({ type: 'success', status: 200, data: { action: 'createTickerTemplate', ok: true } });
     await tick(3);
-    // The empty-state line is present-at-load text that also carries role=status; what must be
-    // absent is any save result.
-    expect(announcedStatusText(root)).not.toMatch(/saved|created/i);
+    // The create form's own save-result region must still be empty: a stale result may not land
+    // in it. Assert that region by itself, so the empty-state status elsewhere on the page (which
+    // carries role=status and text from load) cannot mask it.
+    const form = createForm(root)!;
+    const results = [...form.querySelectorAll<HTMLElement>('[role="status"]')];
+    expect(results.length).toBeGreaterThan(0);
+    for (const region of results) expect(region.textContent?.trim()).toBe('');
+    expect(root.textContent).not.toMatch(/saved|created|from now on/i);
     expect(invalidations()).toBe(0);
   });
 });

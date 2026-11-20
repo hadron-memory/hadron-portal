@@ -78,7 +78,7 @@ async function search(target: HTMLElement, text: string) {
   await tick(2);
 }
 
-const tableRows = (t: HTMLElement) => [...t.querySelectorAll('[role="status"] tbody tr')];
+const tableRows = (t: HTMLElement) => [...t.querySelectorAll('tbody tr')];
 
 describe('SkillBundleDownload — the left-out report (@codex on #890)', () => {
   it('lists the server-refused task AND the other-host-only task, each with its reason, in one grid', async () => {
@@ -93,7 +93,10 @@ describe('SkillBundleDownload — the left-out report (@codex on #890)', () => {
     expect(rows.find((r) => r.includes('broken'))).toContain('needs a description');
     expect(rows.find((r) => r.includes('solo-task'))).toContain('Exported for Claude only.');
     // It is a grid, not a bespoke list.
-    expect(target.querySelector('[role="status"] ul')).toBeNull();
+    expect(target.querySelector('ul')).toBeNull();
+    // portal#2344: the searchable tables stay OUT of the live region, so filtering is never announced.
+    expect(target.querySelector('[role="status"] table')).toBeNull();
+    expect(target.querySelectorAll('[role="status"] [role="status"]')).toHaveLength(0);
   });
 
   it('finds a row by its URN — rendered as a chip, not the accessor — and nothing by text no row renders', async () => {
@@ -115,7 +118,7 @@ describe('SkillBundleDownload — the left-out report (@codex on #890)', () => {
     await reportRendered(target);
     expect(target.textContent).toContain('Skills in it: 1');
     expect(target.textContent).not.toContain('Left out of the download');
-    expect(target.querySelector('[role="status"] table')).toBeNull();
+    expect(target.querySelector('table')).toBeNull();
   });
 
   it('says so when the other host could not be checked, instead of implying the list is complete', async () => {
