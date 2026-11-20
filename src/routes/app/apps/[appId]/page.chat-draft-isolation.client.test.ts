@@ -127,6 +127,8 @@ describe('draft isolation across chats (#1238)', () => {
     type('ops-draft-1');
     flushSync(() => { props.data = team; });
     await tick(2);
+    // Data alone must restore the draft; the store has not landed yet.
+    expect(composer().value).toBe('team-draft-1');
     page.update((p) => ({ ...p, data: team }));
     await tick(2);
     expect(composer().value).toBe('team-draft-1');
@@ -135,7 +137,7 @@ describe('draft isolation across chats (#1238)', () => {
   });
 
   it.each([true, false])('a post to ops (success=%s) touches only the ops draft', async (success) => {
-    const { m, team, ops, show, composer, type } = await chats();
+    const { m, props, team, ops, show, composer, type } = await chats();
     type('team-draft-1');
     await show(ops);
     type('ops-draft-1');
@@ -144,9 +146,13 @@ describe('draft isolation across chats (#1238)', () => {
     result.valid = success;
     result.message = success ? { type: 'success', text: 'Posted.' } : { type: 'error', text: 'Refused; try again.' };
     await submitEnhancedWithResult(form, { type: success ? 'success' : 'failure', status: success ? 200 : 400, data: { form: result } });
+    // Kit hands the page the action result as its `form` prop.
+    flushSync(() => { props.form = { form: result }; });
     await tick(3);
+    // A never-applied failure result would leave the draft untouched too, so
+    // first prove the result was consumed: the refusal is rendered.
+    if (!success) expect(m.target.textContent).toContain('Refused; try again.');
     expect(composer().value).toBe(success ? '' : 'ops-draft-1');
-    expect(m.target.textContent).not.toContain('team-draft-1');
     await show(team);
     expect(composer().value).toBe('team-draft-1');
     await show(ops);
