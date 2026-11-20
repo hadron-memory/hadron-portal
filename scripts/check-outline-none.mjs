@@ -60,12 +60,23 @@
  *  - **Bracket variant chains** (`[&>*]:outline-none`) and **trailing modifiers**
  *    (`outline-none/50`) are not parsed as tokens.
  *
+ * ## Which FILES it reads (portal#2264: the pre-filter, enumerated and pinned)
+ *
+ * The scan walks `src/` and reads only the extensions in `SCANNED_EXTS`. Every other
+ * extension the repo ships under `src/` is named in `EXCLUDED_EXTS` with its reason, and
+ * `unclassifiedExtensions` makes a new extension (a `.vue`, a `.tsx`, an `.svg` with
+ * classes) fail the test until someone classifies it — the filter can no longer pass a
+ * file by omission. `.html` is scanned because `src/app.html` is markup the app ships and
+ * the class-attribute read applies to it unchanged. The scripts test also pins that no
+ * excluded-extension file under `src/` carries an `outline-none`/`outline-hidden` token
+ * at all, so each exclusion is proven empty today, not assumed.
+ *
  * Each is a place the broken spelling can hide; if one starts appearing in real class
  * lists, widen the read in the same PR that introduces it — the mutant test below pins
  * both directions (broken spelling flagged, main as-is clean).
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
 
 /**
  * A `focus-visible:outline*` utility that wants to DRAW: bare `focus-visible:outline`
@@ -154,8 +165,47 @@ export function findOutlineNoneTrap(line) {
   return out;
 }
 
-/** Every file under `root` with a source extension, recursively. */
-export function sourceFilesUnder(root, exts = ['.svelte', '.ts', '.js']) {
+/** The extensions the guard reads: markup and script that carry `class="…"` attributes. */
+export const SCANNED_EXTS = ['.svelte', '.ts', '.js', '.html'];
+
+/**
+ * The extensions the guard deliberately does not read, each with its reason. A new
+ * extension under `src/` must land in one of the two lists (`unclassifiedExtensions`).
+ */
+export const EXCLUDED_EXTS = {
+  '.css':
+    'stylesheets carry no class="…" attribute for this read to parse; no `@apply` of outline-none exists under src/ (pinned: no excluded file holds the token), so widen the read in the PR that adds one',
+  '.md':
+    'prose and skill text bundled as assets, never rendered as elements with class lists; pinned token-free',
+  '.yml':
+    'sample configuration data, not markup; pinned token-free',
+  '.json':
+    'wire fixtures and data, not markup; pinned token-free',
+};
+
+/** Every extension present on a file under `root`, sorted. */
+export function extensionsUnder(root) {
+  const found = new Set();
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir)) {
+      const path = join(dir, entry);
+      if (statSync(path).isDirectory()) walk(path);
+      else found.add(extname(path));
+    }
+  };
+  walk(root);
+  return [...found].sort();
+}
+
+/** Extensions under `root` that are neither scanned nor excluded-with-a-reason. */
+export function unclassifiedExtensions(root) {
+  return extensionsUnder(root).filter(
+    (e) => e && !SCANNED_EXTS.includes(e) && !Object.hasOwn(EXCLUDED_EXTS, e),
+  );
+}
+
+/** Every file under `root` with a scanned extension, recursively. */
+export function sourceFilesUnder(root, exts = SCANNED_EXTS) {
   const files = [];
   const walk = (dir) => {
     for (const entry of readdirSync(dir)) {

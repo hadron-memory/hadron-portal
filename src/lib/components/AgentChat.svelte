@@ -386,8 +386,12 @@
   // #789: this component is gone as far as the user is concerned, but its
   // in-flight work is not. Set in onDestroy and checked by syncChatIdToUrl.
   let destroyed = false;
+  // portal#2165: confirmDelete's document listeners belong to the component, not
+  // to the request. Teardown removes them at once instead of waiting for fetch.
+  const pendingDeleteStops = new Set<() => void>();
   onDestroy(() => {
     destroyed = true;
+    for (const stop of [...pendingDeleteStops]) stop();
   });
 
   function syncChatIdToUrl(chatId: string | null): void {
@@ -830,6 +834,16 @@
     document.addEventListener('focusin', moveOn, true);
     document.addEventListener('pointerdown', moveOn, true);
     document.addEventListener('keydown', moveOn, true);
+    let listening = true;
+    const stopListening = () => {
+      if (!listening) return;
+      listening = false;
+      document.removeEventListener('focusin', moveOn, true);
+      document.removeEventListener('pointerdown', moveOn, true);
+      document.removeEventListener('keydown', moveOn, true);
+      pendingDeleteStops.delete(stopListening);
+    };
+    pendingDeleteStops.add(stopListening);
     try {
       const res = await fetch('/api/agent-chat/delete', {
         method: 'POST',
@@ -870,9 +884,7 @@
           : null;
       (find('data-chat-delete', chatId) ?? (neighbour && find('data-chat-row', neighbour.loc)) ?? newChatButton)?.focus();
     } finally {
-      document.removeEventListener('focusin', moveOn, true);
-      document.removeEventListener('pointerdown', moveOn, true);
-      document.removeEventListener('keydown', moveOn, true);
+      stopListening();
     }
   }
 

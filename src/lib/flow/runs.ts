@@ -83,10 +83,15 @@ export function runStatusDisplay(status: ReceivedRunStatus): RunStatusDisplay {
   }
 }
 
-/** The chip's word: the status itself when known, `Unknown: {raw}` when not. */
-export function runStatusLabel(status: ReceivedRunStatus): string {
+/**
+ * The chip's word: the status itself when known, `Unknown: {raw}` when not.
+ * `known` lets a surface that localizes its known statuses (the runs table, #2286)
+ * supply those words; the unknown branch is this function's alone, so every
+ * surface shares one contract (#2315) and `known` never sees an unknown status.
+ */
+export function runStatusLabel(status: ReceivedRunStatus, known: (status: AppRunStatus) => string = (s) => s): string {
   const display = runStatusDisplay(status);
-  return display === 'unknown' ? t('runs.unknown', 'Unknown: {raw}', { raw: status }) : display;
+  return display === 'unknown' ? t('runs.unknown', 'Unknown: {raw}', { raw: status }) : known(display);
 }
 
 /**
