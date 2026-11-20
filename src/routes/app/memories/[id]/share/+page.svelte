@@ -376,7 +376,7 @@
           {/if}
 
           <div class="flex flex-wrap items-center gap-2">
-            <button type="button" onclick={() => (pickerOpen = true)}
+            <button type="button" onclick={() => (pickerOpen = true)} aria-haspopup="dialog" aria-expanded={pickerOpen}
               aria-describedby={createError ? undefined : 'share-picker-hint'}
               class="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-left text-sm text-zinc-900 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:hover:bg-zinc-800">
               {#if picked}

@@ -142,7 +142,7 @@ describe('portal#1754 malformed GET node', () => {
     expect(await response.json()).toEqual({ failed: true });
     expect(request).not.toHaveBeenCalled();
   });
-  it.each([['a primary key', 'node=01a1e92c5cfa75c3badb2091328545e1'], ['a URN', 'node=hrn:node:hadronmemory.com:m:a:b'], ['a 546-character qualified URN the server resolver accepts', `node=hrn:node:example.com:mem:${'a:'.repeat(260)}z`]])('%s is not refused', async (_n, query) => {
+  it.each([['a primary key', 'node=01a1e92c5cfa75c3badb2091328545e1'], ['a URN', 'node=hrn:node:hadronmemory.com:m:a:b'], ['a 546-character qualified URN', `node=hrn:node:example.com:mem:${'a:'.repeat(260)}z`]])('%s is not refused', async (_n, query) => {
     request.mockResolvedValueOnce({ compiledPromptProvenance: { items: [], total: 0, hasMore: false, pruned: false } });
     expect((await get(`${query}&revision=3`)).status).toBe(200);
     expect(request).toHaveBeenCalledOnce();

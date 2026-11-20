@@ -330,7 +330,7 @@
             {/if}
           </p>
           <div class="flex flex-wrap gap-2">
-            <button type="button" class="rounded border border-zinc-300 px-3 py-1 text-sm text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800" onclick={() => (parentPicker = true)}>{t('app.tasks.clone.parent.change', 'Change…')}</button>
+            <button type="button" class="rounded border border-zinc-300 px-3 py-1 text-sm text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800" onclick={() => (parentPicker = true)} aria-haspopup="dialog" aria-expanded={parentPicker}>{t('app.tasks.clone.parent.change', 'Change…')}</button>
             {#if parentChoice !== 'none'}
               <button type="button" data-testid="clone-parent-none" class="rounded border border-zinc-300 px-3 py-1 text-sm text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800" onclick={() => (parentChoice = 'none')}>{t('app.tasks.clone.parent.no-project', 'No project')}</button>
             {/if}
@@ -373,7 +373,7 @@
               <button type="button" class="rounded border px-2 py-1 text-sm" onclick={() => blockers = blockers.filter((id) => id !== ref)}>{blockerLabels[ref] ?? t('app.tasks.blocker.selected', 'Selected task')} · {t('app.tasks.blocker.remove', 'Remove')}</button>
             {/each}
           </div>
-          <button type="button" class="rounded border px-3 py-1 text-sm" onclick={() => taskPicker = true}>{t('app.tasks.blocker.choose', 'Choose a blocker')}</button>
+          <button type="button" class="rounded border px-3 py-1 text-sm" onclick={() => taskPicker = true} aria-haspopup="dialog" aria-expanded={taskPicker}>{t('app.tasks.blocker.choose', 'Choose a blocker')}</button>
         {/if}
       </fieldset>
 

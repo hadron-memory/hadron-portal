@@ -52,7 +52,16 @@
   const stoppedLabel = $derived(
     run.status === 'FAILED' ? t('run.timeline.failed-at', 'Failed at')
       : run.status === 'TIMED_OUT' ? t('run.timeline.timed-out-at', 'Timed out at')
+      : run.status === 'CANCELLED' ? t('run.timeline.cancelled-at', 'Cancelled at')
       : null,
+  );
+  // portal#2339 #11: a looping flow can record hundreds of hops; past the cap the middle is folded behind a control.
+  const HOP_CAP = 50;
+  let showAllHops = $state(false);
+  const hops = $derived(trail.state === 'ready' ? trail.hops : []);
+  const folded = $derived(!showAllHops && hops.length > HOP_CAP * 2);
+  const shownHops = $derived(
+    (folded ? [...hops.slice(0, HOP_CAP), ...hops.slice(-HOP_CAP)] : hops).map((hop, k) => ({ hop, n: folded && k >= HOP_CAP ? hops.length - 2 * HOP_CAP + k + 1 : k + 1, gapBefore: folded && k === HOP_CAP })),
   );
   const recordUrn = $derived(run.status === 'COMPLETED' ? defaultRunRecordUrn(run) : null);
   const initialCancelForm = untrack(() => submittedForm<CancelAppRunForm>(form, 'cancelRun') as CancelAppRunSuperform | null ?? data.cancelForm);
@@ -207,7 +216,7 @@
   <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="run-timeline-heading">
     <h2 id="run-timeline-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('run.timeline', 'Step timeline')}</h2>
     <p class="mt-1 text-xs text-zinc-400">
-      {t('run.timeline.hint', 'Steps the run has completed, in order. The step in progress, or the one that failed, is not listed until it completes.')}
+      {t('run.timeline.hint', 'Steps the run has completed, in order. The step in progress, or the one that failed, is shown below the list, not as a step.')}
     </p>
     {#if trail.state === 'unavailable'}
       <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{t('run.timeline.unavailable', 'Step trail unavailable for this run.')}</p>
@@ -215,10 +224,17 @@
       <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{t('run.timeline.empty', 'No completed steps recorded.')}</p>
     {:else}
       <ol class="mt-3 space-y-2">
-        {#each trail.hops as hop, i (i)}
+        {#each shownHops as { hop, n, gapBefore }}
+          {#if gapBefore}
+            <li class="text-center">
+              <button type="button" data-testid="hop-expand" class="text-xs font-semibold text-indigo-600 hover:underline dark:text-indigo-400" onclick={() => (showAllHops = true)}>
+                {t('run.timeline.show-all', 'Show all {n} steps', { n: hops.length })}
+              </button>
+            </li>
+          {/if}
           <li data-testid="hop-row" class="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
             <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <span class="text-xs font-semibold text-zinc-500">{i + 1}</span>
+              <span class="text-xs font-semibold text-zinc-500">{n}</span>
               <Urn value={hop.node} type="node" size={11} label={t('run.timeline.step', 'step')} />
             </div>
             <dl class="mt-2 grid gap-2 text-xs sm:grid-cols-3">

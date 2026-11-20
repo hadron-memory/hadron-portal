@@ -153,6 +153,13 @@ describe('parseHops (#482)', () => {
     expect(parseHops([])).toEqual({ state: 'ready', hops: [] });
   });
 
+  it('fractional or negative token counts make the trail unavailable (whole tokens only, portal#2339 #8)', () => {
+    for (const tokensSpent of [1.5, -1, Number.NaN, Infinity]) {
+      expect(parseHops([hop({ tokensSpent })])).toEqual({ state: 'unavailable' });
+    }
+    expect(parseHops([hop({ tokensSpent: 7 })]).state).toBe('ready');
+  });
+
   it('keeps completed hops in order, edgeOut belongs to the row it is on, tokens null is unknown and 0 is real', () => {
     const r = parseHops([hop({ tokensSpent: null }), hop({ node: 'hrn:node:acme.com:flows:reply', edgeOut: null, tokensSpent: 0 })]);
     expect(r.state).toBe('ready');

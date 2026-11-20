@@ -155,8 +155,9 @@ async function write(
     if (isHttpError(e)) throw e;
     return writeFailure(action, { kind: 'uncertain' }, values);
   }
-  const planning = action === 'handBack' || action === 'disposeFinding' || action === 'priority' || action === 'addBlocker' || action === 'removeBlocker';
-  const vars: Record<string, unknown> = { ...(planning ? { taskRef: taskId } : { taskId }), ...built.vars };
+  // These writes name the task by `taskRef` (the canonical id); the rest still send `taskId`.
+  const takesTaskRef = action === 'handBack' || action === 'disposeFinding' || action === 'priority' || action === 'addBlocker' || action === 'removeBlocker';
+  const vars: Record<string, unknown> = { ...(takesTaskRef ? { taskRef: taskId } : { taskId }), ...built.vars };
   // portal#1214: a write whose response can carry warnings keeps them.
   if (built.path) {
     const out = await taskWrite(gqlClient(locals.token), built.doc, vars, built.path);
