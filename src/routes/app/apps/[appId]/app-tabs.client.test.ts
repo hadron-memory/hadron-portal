@@ -257,6 +257,19 @@ it('App memory filters do not infer read-only access from the primary agent', as
   expect(target.textContent).not.toContain('(read-only)');
 });
 
+// portal#2332: the Memories tabpanel carries a heading landmark for
+// heading-keyed screen-reader navigation, visually hidden because its text
+// only echoes the tab label
+// (hrn:node:hadronmemory.com:hadron-portal:conventions:tabpanel-heading-landmark;
+// the tab keeps naming the panel via aria-labelledby).
+it('the Memories tabpanel holds an sr-only h2 echoing the tab label (#2332)', async () => {
+  const target = await mountTab('memory');
+  const heading = target.querySelector('#panel-memory h2');
+  expect(heading).not.toBeNull();
+  expect(heading!.textContent?.trim()).toBe('Memories');
+  expect(heading!.className).toContain('sr-only');
+});
+
 // portal#1881: the formerly capped lists expose user-initiated pages instead.
 describe('paged node lists on the App page (#1881)', () => {
   it('the Memory tab links to the next node page without a capped notice', async () => {
