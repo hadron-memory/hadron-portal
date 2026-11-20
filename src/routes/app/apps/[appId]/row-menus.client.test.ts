@@ -274,6 +274,38 @@ describe('App Keys tab row ⋯ menu (#1020)', () => {
     expect(keyCopyStatus(target)!.textContent).toContain('Couldn’t copy the key ID');
   });
 
+  it('a slow earlier Copy ID write that settles late does not overwrite the latest answer', async () => {
+    const deferred: Array<{ resolve: () => void; reject: (e: Error) => void }> = [];
+    const writeText = vi.fn(() => new Promise<void>((resolve, reject) => deferred.push({ resolve, reject })));
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const target = await mountTab('keys');
+    pickCopyId(target); // first click
+    await tick(2);
+    pickCopyId(target); // second click, while the first is still pending
+    await tick(2);
+    deferred[1].resolve(); // the newer write settles first
+    await tick(8);
+    expect(keyCopyStatus(target)!.textContent).toContain('Key ID copied');
+    deferred[0].reject(new Error('late')); // the older write fails afterwards
+    await tick(8);
+    expect(keyCopyStatus(target)!.textContent).toContain('Key ID copied');
+    expect(keyCopyStatus(target)!.textContent).not.toContain('Couldn’t');
+  });
+
+  it('a repeated Copy ID with the same outcome renders a fresh message node, so it is announced again', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
+    const target = await mountTab('keys');
+    pickCopyId(target);
+    await tick(8);
+    const first = keyCopyStatus(target)!.querySelector('p');
+    expect(first).not.toBeNull();
+    pickCopyId(target);
+    await tick(8);
+    const second = keyCopyStatus(target)!.querySelector('p');
+    expect(second).not.toBeNull();
+    expect(second).not.toBe(first);
+  });
+
   it('the Copy ID message clears itself', async () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
     const target = await mountTab('keys');

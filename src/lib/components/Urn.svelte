@@ -188,12 +188,16 @@
   // Type badge: uniform style across all types (incl. 'unknown' fallback)
   const typeBadgeClass = 'bg-slate-300 text-slate-700 dark:bg-slate-600 dark:text-slate-200';
 
+  let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+  let urlCopiedTimer: ReturnType<typeof setTimeout> | undefined;
+
   async function copy() {
     // copyText never throws (no clipboard outside secure contexts, or a refused
     // write); confirm only a copy that happened.
     if (!(await copyText(displayFullUrn))) return;
     copied = true;
-    setTimeout(() => (copied = false), 2000);
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => (copied = false), 2000);
   }
 
   async function copyUrl() {
@@ -206,7 +210,8 @@
     const shareUrl = buildResolverUrl(window.location.origin, displayFullUrn);
     if (!(await copyText(shareUrl))) return;
     urlCopied = true;
-    setTimeout(() => (urlCopied = false), 2000);
+    clearTimeout(urlCopiedTimer);
+    urlCopiedTimer = setTimeout(() => (urlCopied = false), 2000);
   }
 </script>
 

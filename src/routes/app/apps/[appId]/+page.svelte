@@ -2427,14 +2427,20 @@
   // portal#2330: Copy ID answers the person who chose it. copyText never throws
   // (no clipboard on plain HTTP, or a refused write), so the failure is said
   // here rather than lost in the console.
-  let keyIdCopy = $state<'copied' | 'failed' | null>(null);
+  let keyIdCopyStatus = $state<'copied' | 'failed' | null>(null);
+  // The latest request owns the status: a slower earlier write that settles late
+  // must neither replace the newer answer nor restart its dismissal timer. The
+  // sequence also keys the message so a repeat of the same outcome re-announces.
+  let keyIdCopySeq = $state(0);
   let keyIdCopyTimer: ReturnType<typeof setTimeout> | undefined;
   onDestroy(() => clearTimeout(keyIdCopyTimer));
   async function copyKeyId(id: string) {
+    const seq = ++keyIdCopySeq;
     const ok = await copyText(id);
-    keyIdCopy = ok ? 'copied' : 'failed';
+    if (seq !== keyIdCopySeq) return;
+    keyIdCopyStatus = ok ? 'copied' : 'failed';
     clearTimeout(keyIdCopyTimer);
-    keyIdCopyTimer = setTimeout(() => { keyIdCopy = null; }, 3000);
+    keyIdCopyTimer = setTimeout(() => { keyIdCopyStatus = null; }, 3000);
   }
   async function revokeAppKey(key: { id: string }) {
     if ($revokeKeySubmitting) return;
@@ -4126,11 +4132,13 @@
 
         <!-- portal#2330: the region stays mounted so the answer to Copy ID is announced. -->
         <div role="status" data-testid="key-copy-status" class="mb-0">
-          {#if keyIdCopy === 'copied'}
+          {#key keyIdCopySeq}
+          {#if keyIdCopyStatus === 'copied'}
             <p class="mb-3 text-sm text-green-700 dark:text-green-300">{t('app.keys.copy-id.copied', 'Key ID copied.')}</p>
-          {:else if keyIdCopy === 'failed'}
+          {:else if keyIdCopyStatus === 'failed'}
             <p class="mb-3 text-sm text-red-700 dark:text-red-300">{t('app.keys.copy-id.failed', 'Couldn’t copy the key ID. This browser isn’t allowing clipboard access here.')}</p>
           {/if}
+          {/key}
         </div>
 
         {#if tabData.keyScopes?.kind === 'failed'}
