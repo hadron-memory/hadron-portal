@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { taskChoiceStatus } from '$lib/agent-tasks/planning';
   import TaskHandle from './TaskHandle.svelte';
   import { untrack } from 'svelte';
@@ -97,7 +98,9 @@
         {#if exactDone}<button type="button" onclick={() => { exactDone = false; exactItems = []; }}>{t('app.tasks.picker.browse', 'Browse loaded tasks')}</button>{/if}
       </div>
       {#if failed}<p role="alert">{t('app.tasks.picker.failed', 'Couldn’t load tasks. Try again.')}</p><button type="button" disabled={pending} onclick={() => read(failedRequest ?? undefined)}>{t('app.tasks.retry', 'Try again')}</button>{/if}
-      {#if repeated}<p role="status">{t('app.tasks.picker.changed', 'The list changed while loading. Some tasks may be missing; close and reopen to refresh, or use an exact lookup.')}</p>{/if}
+      <LiveRegion>
+        {#if repeated}<p>{t('app.tasks.picker.changed', 'The list changed while loading. Some tasks may be missing; close and reopen to refresh, or use an exact lookup.')}</p>{/if}
+      </LiveRegion>
       {#if pending}<p role="status">{t('app.tasks.picker.loading', 'Loading tasks…')}</p>{/if}
       {#if exactDone && !pending && !failed && exactItems.length === 0}<p role="status">{t('app.tasks.picker.unavailable', 'No available task found in this App.')}</p>{/if}
       <DataTable {table} listKey="task-picker:open" bind:globalFilter={query} searchPlaceholder={t('app.tasks.picker.search', 'Filter loaded tasks…')} searchAriaLabel={t('app.tasks.picker.search', 'Filter loaded tasks…')} bounded>

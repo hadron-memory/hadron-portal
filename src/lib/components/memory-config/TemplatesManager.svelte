@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { untrack } from 'svelte';
   import { beforeNavigate } from '$app/navigation';
   import { t } from '$lib/i18n/t';
@@ -107,7 +108,9 @@
 <section class="space-y-4">
   <h1 bind:this={heading} tabindex="-1" class="text-2xl font-semibold">{t('config.templates', 'Node-role templates')}</h1>
   {#if readOnly}<p>{t('config.impersonation', 'This page is read-only while impersonating.')}</p>{/if}
-  {#if notice}<p role="status" class="text-green-700 dark:text-green-300">{notice}</p>{/if}
+  <LiveRegion>
+    {#if notice}<p class="text-green-700 dark:text-green-300">{notice}</p>{/if}
+  </LiveRegion>
   {#if failure && editing === undefined && !chosen}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}
   {#if writable}<button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => edit(null)} class="min-h-11 rounded bg-indigo-600 px-4 text-white disabled:cursor-not-allowed disabled:opacity-50">{t('config.create-template', 'Create template')}</button>{/if}
   {#if !templates.length}<p class="text-zinc-500 dark:text-zinc-400">{writable ? t('config.no-templates-yet', 'No templates yet. Create a template to get started.') : t('config.no-visible-templates', 'No templates are available to you for this owner.')}</p>{/if}

@@ -13,6 +13,7 @@
     in a status line; a refusal stays next to the submit, with the values.
 -->
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { onMount, tick, untrack } from 'svelte';
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
@@ -293,11 +294,17 @@
 {/snippet}
 
 <div class="mt-3 space-y-2">
-  {#if created && !shown}
-    <p bind:this={createdLine} tabindex="-1" role="status" class="text-sm font-medium text-green-700 dark:text-green-300">{t('app.tasks.write.done.created', 'Task created.')}</p>
-  {/if}
+  <LiveRegion>
+    {#if created && !shown}
+      <p bind:this={createdLine} tabindex="-1" class="text-sm font-medium text-green-700 dark:text-green-300">{t('app.tasks.write.done.created', 'Task created.')}</p>
+    {/if}
+  </LiveRegion>
+  <LiveRegion>
+    {#if shown}
+      <p bind:this={statusLine} tabindex="-1" class="text-sm font-medium {shown.caution ? 'text-amber-800 dark:text-amber-300' : 'text-green-700 dark:text-green-300'}">{shown.text}</p>
+    {/if}
+  </LiveRegion>
   {#if shown}
-    <p bind:this={statusLine} tabindex="-1" role="status" aria-live="polite" class="text-sm font-medium {shown.caution ? 'text-amber-800 dark:text-amber-300' : 'text-green-700 dark:text-green-300'}">{shown.text}</p>
     <TaskWarnings warnings={shown.warnings} more={shown.more} />
   {/if}
 

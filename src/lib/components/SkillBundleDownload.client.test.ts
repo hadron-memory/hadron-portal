@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { exportSaves } from '$lib/skill-export-saves.svelte';
 import SkillBundleDownload from './SkillBundleDownload.svelte';
+import { announcedStatusText } from '$lib/test/announcedStatusText';
 
 type Props = { orgId: string; checkedCount: number; truncated?: boolean; shown?: number };
 
@@ -66,7 +67,7 @@ const downloadButtons = (t: HTMLElement) =>
  */
 async function reportRendered(target: HTMLElement) {
   await vi.waitFor(() => {
-    if (!target.querySelector('[role="status"]')) throw new Error('report not rendered yet');
+    if (!announcedStatusText(target)) throw new Error('report not rendered yet');
   });
 }
 
@@ -253,7 +254,7 @@ describe('#1077 distinct download refusal', () => {
     downloadButtons(target).find((b) => b.textContent?.includes(host === 'codexSkill' ? 'Codex' : 'Claude'))!.click();
     await vi.waitFor(() => expect(target.querySelector('[role="alert"]')?.textContent).toContain('Downloading tasks requires Contributor access or higher in this organization.'));
     expect(target.textContent).not.toContain('private provider detail');
-    expect(target.querySelector('[role="status"]')).toBeNull();
+    expect(announcedStatusText(target)).toBeNull();
     expect(URL.createObjectURL).not.toHaveBeenCalled();
     expect(downloadButtons(target).every((b) => !b.disabled)).toBe(true);
   });

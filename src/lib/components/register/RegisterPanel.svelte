@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // #942 — the register: who TAKES PART in which Channel. Shared by the App
   // Channels page (App-owned rows) and the organization's Channels page
   // (org-owned rows). A row never grants access: reading and posting stay the
@@ -357,7 +358,9 @@
   {#if canManageRegister && channels.length > 0}
     <div class="border-t border-zinc-200 pt-3 dark:border-zinc-800">
       <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">{t('app.channels.register.add.title', 'Add someone to a channel')}</h3>
-      {#if addDone}<p role="status" class="mt-2 text-sm text-emerald-700 dark:text-emerald-400">{addDone}</p>{/if}
+      <LiveRegion>
+        {#if addDone}<p class="mt-2 text-sm text-emerald-700 dark:text-emerald-400">{addDone}</p>{/if}
+      </LiveRegion>
       {#if addError}<p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{addError}</p>{/if}
       <form method="POST" action="?/addAttendance" use:addEnhance novalidate class="mt-2 grid gap-3 sm:grid-cols-2">
         <input type="hidden" name="_kind" value="addAttendance" />

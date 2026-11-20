@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { canSetPriority, taskChoiceStatus } from '$lib/agent-tasks/planning';
   import TaskHandle from './TaskHandle.svelte';
   import { onDestroy, tick, untrack } from 'svelte';
@@ -212,9 +213,11 @@
     {#if directions.some((key) => relationView.kind === 'ok' && relationView.value[key].hasMore && pageFailed[key] !== 'shifted')}
       <p class="text-xs text-zinc-600 dark:text-zinc-300">{t('app.tasks.dependencies.load-guidance', 'Load more in each direction to see later relations.')}</p>
     {/if}
-    {#if loadedMore}
-      <p role="status" class="text-sm">{t('app.tasks.dependencies.concurrent', 'Relations can change while you load pages. Reload this view to check the latest relations.')} <a href={$page.url.pathname + $page.url.search} data-sveltekit-reload class="underline">{t('app.tasks.dependencies.reload-link', 'Reload this view')}</a></p>
-    {/if}
+    <LiveRegion>
+      {#if loadedMore}
+        <p class="text-sm">{t('app.tasks.dependencies.concurrent', 'Relations can change while you load pages. Reload this view to check the latest relations.')} <a href={$page.url.pathname + $page.url.search} data-sveltekit-reload class="underline">{t('app.tasks.dependencies.reload-link', 'Reload this view')}</a></p>
+      {/if}
+    </LiveRegion>
     <div class="flex flex-wrap gap-3">
       {#each directions as key}
         <div class="space-y-1">
@@ -237,7 +240,9 @@
   {/if}
   {#if canPriority || canBlockers}<p class="text-xs text-zinc-600 dark:text-zinc-300">{t('app.tasks.planning.authority', 'The server checks whether you may assign this task before saving priority or blockers.')}</p>{/if}
   {#if pending}<p role="status">{t('app.tasks.saving', 'Saving…')}</p>{/if}
-  {#if saved}<p role="status">{refreshFailed ? t('app.tasks.saved-refresh-failed', 'Saved. Reload to refresh facts.') : t('app.tasks.saved', 'Saved. Facts refreshed.')}</p>{/if}
+  <LiveRegion>
+    {#if saved}<p>{refreshFailed ? t('app.tasks.saved-refresh-failed', 'Saved. Reload to refresh facts.') : t('app.tasks.saved', 'Saved. Facts refreshed.')}</p>{/if}
+  </LiveRegion>
   {#if refreshFailed && !saved}<p role="status">{t('app.tasks.refresh-failed', 'Couldn’t refresh facts. Reload to check the current state.')}</p>{/if}
   {#if refusal}<WriteRefusalAlert {refusal} />{/if}
   <TaskWarnings {warnings} {more} />

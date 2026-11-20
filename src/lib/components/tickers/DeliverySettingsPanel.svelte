@@ -12,6 +12,7 @@
     sentence verbatim; a success reloads and shows the STORED values.
 -->
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { tick } from 'svelte';
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
@@ -156,9 +157,11 @@
         {/each}
         <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tickers.settings.who', 'Only whoever manages the App can change these settings.')}</p>
         {#if refusal}<WriteRefusalAlert {refusal} />{/if}
-        {#if status}
-          <p bind:this={statusLine} tabindex="-1" role="status" aria-live="polite" class="text-sm font-medium text-green-700 dark:text-green-300">{status}</p>
-        {/if}
+        <LiveRegion>
+          {#if status}
+            <p bind:this={statusLine} tabindex="-1" class="text-sm font-medium text-green-700 dark:text-green-300">{status}</p>
+          {/if}
+        </LiveRegion>
         <button type="submit" disabled={submitting} class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
           {submitting ? t('app.tickers.delivery.saving', 'Saving…') : t('app.tickers.delivery.save', 'Save delivery settings')}
         </button>

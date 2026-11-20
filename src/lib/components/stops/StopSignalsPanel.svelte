@@ -13,6 +13,7 @@
     unmounted.
 -->
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { onDestroy, tick } from 'svelte';
   import { enhance } from '$app/forms';
   import type { SubmitFunction } from '@sveltejs/kit';
@@ -318,9 +319,11 @@
         <p id="stop-until-help" class="mt-1 text-xs text-zinc-600 dark:text-zinc-400">{t('app.stops.until-help', 'Leave empty to stop until someone lifts it.')}</p>
       </div>
       {#if refusal}<WriteRefusalAlert {refusal} id="stop-refusal" />{/if}
-      {#if status}
-        <p bind:this={statusLine} tabindex="-1" role="status" aria-live="polite" class="text-sm font-medium text-green-700 dark:text-green-300">{status}</p>
-      {/if}
+      <LiveRegion>
+        {#if status}
+          <p bind:this={statusLine} tabindex="-1" class="text-sm font-medium text-green-700 dark:text-green-300">{status}</p>
+        {/if}
+      </LiveRegion>
       <button type="button" data-open-confirm onclick={openConfirm} disabled={pending} class="rounded-md bg-red-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-50">
         {t('app.stops.review', 'Review stop…')}
       </button>

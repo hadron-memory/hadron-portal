@@ -12,6 +12,7 @@ import { beginEnhanced, submitEnhanced, submitEnhancedWithResult } from '$lib/te
 import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import Panel from './AgentTickerTemplatesPanel.svelte';
+import { announcedStatusText, announcedStatusRegion } from '$lib/test/announcedStatusText';
 
 const quiet = { timezone: 'Europe/Berlin', windows: [{ days: [6, 7], from: '22:00', to: '08:00' }] };
 const standup = { id: 'tpl-1', name: 'standup', cadenceSeconds: 600, quietHours: null, reasons: ['READ_TEAM_CHANNEL'], relevance: 'ALL', revision: 4, tickCode: 'standup', updatedAt: null };
@@ -180,7 +181,7 @@ describe('outcomes', () => {
     expect(alert?.textContent).toContain(`“${message}”`);
     expect(alert?.textContent).toContain('TICKER_TEMPLATE_NAME_TAKEN');
     expect(field(updateForm(root) as never, 'name').value).toBe('nightly');
-    expect(root.querySelector('[role="status"]')).toBeNull();
+    expect(announcedStatusText(root)).toBeNull();
     expect(invalidations()).toBe(0);
   });
 
@@ -222,7 +223,7 @@ describe('outcomes', () => {
     await submitEnhancedWithResult(updateForm(root), { type: 'failure', status: 502, data: { action: 'updateTickerTemplate', refusal: { kind: 'uncertain' } } });
     await tick(3);
     expect(root.textContent).toContain('The change may or may not have gone through. Reload to check.');
-    expect(root.querySelector('[role="status"]')).toBeNull();
+    expect(announcedStatusText(root)).toBeNull();
   });
 
   it('a success reloads, then shows the STORED values from the re-read, not the typed ones, and focuses the status', async () => {
@@ -238,7 +239,7 @@ describe('outcomes', () => {
     expect(invalidations()).toBeGreaterThan(0);
     expect(field(updateForm(root) as never, 'name').value).toBe('daily-stored');
     expect(updateForm(root).querySelector<HTMLInputElement>('input[name="expectedRevision"]')!.value).toBe('5');
-    const status = root.querySelector('[role="status"]');
+    const status = announcedStatusRegion(root)?.firstElementChild ?? null;
     expect(status?.textContent).toContain('Saved');
     expect(document.activeElement).toBe(status);
   });
@@ -247,7 +248,7 @@ describe('outcomes', () => {
     const root = await mountPanel();
     await submitEnhancedWithResult(createForm(root)!, { type: 'success', status: 200, data: { action: 'createTickerTemplate', ok: true } });
     await tick(3);
-    expect(root.querySelector('[role="status"]')?.textContent).toContain('from now on');
+    expect(announcedStatusText(root)).toContain('from now on');
   });
 
   it('an edited template that is gone after the reload drops back to the add form', async () => {
@@ -282,7 +283,9 @@ describe('route change and late results', () => {
     await tick(3);
     await deliver({ type: 'success', status: 200, data: { action: 'createTickerTemplate', ok: true } });
     await tick(3);
-    expect(root.querySelector('p[role="status"]')).toBeNull();
+    // The empty-state line is present-at-load text that also carries role=status; what must be
+    // absent is any save result.
+    expect(announcedStatusText(root)).not.toMatch(/saved|created/i);
     expect(invalidations()).toBe(0);
   });
 });

@@ -13,6 +13,7 @@ import { submitEnhancedWithResult, beginEnhanced } from '$lib/test/stubs/app-for
 import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import TaskActionBar from './TaskActionBar.svelte';
+import { announcedStatusText } from '$lib/test/announcedStatusText';
 
 const dara = { id: 'w1', kind: 'WORKER' as const, name: 'Dara', urn: 'hrn:worker:acme.com:team:dara' };
 const holger = { id: 'u1', kind: 'USER' as const, name: 'Holger', urn: null };
@@ -198,7 +199,7 @@ describe('Edit details: results', () => {
     await tick(2);
     expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
     expect(root.querySelector('#task-panel-edit')).toBeNull();
-    expect(root.querySelector('[role="status"]')?.textContent?.trim()).toBe('Details saved.');
+    expect(announcedStatusText(root)).toBe('Details saved.');
   });
 
   it('a save with nothing changed says "No changes to save." and never "saved"', async () => {
@@ -206,7 +207,7 @@ describe('Edit details: results', () => {
     const form = await openEdit(root);
     await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { action: 'edit', ok: true, unchanged: true } });
     await tick(2);
-    const text = root.querySelector('[role="status"]')?.textContent?.trim();
+    const text = announcedStatusText(root);
     expect(text).toBe('No changes to save.');
   });
 

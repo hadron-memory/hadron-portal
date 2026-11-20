@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { untrack } from 'svelte';
   import { invalidateAll } from '$app/navigation';
   import type { Infer, SuperValidated } from 'sveltekit-superforms';
@@ -325,14 +326,15 @@
             {startConditionError ?? startConditionFieldError}
           </div>
         {/if}
-        {#if startConditionSaved}
-          <div
-            role="status"
-            class="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300"
-          >
-            {startConditionSaved}
-          </div>
-        {/if}
+        <LiveRegion>
+          {#if startConditionSaved}
+            <div
+              class="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300"
+            >
+              {startConditionSaved}
+            </div>
+          {/if}
+        </LiveRegion>
         <div class="flex items-center gap-3">
           <button
             type="submit"
@@ -386,14 +388,15 @@
           {goalsError ?? identityError}
         </div>
       {/if}
-      {#if goalsSaved}
-        <div
-          role="status"
-          class="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300"
-        >
-          {goalsSaved}
-        </div>
-      {/if}
+      <LiveRegion>
+        {#if goalsSaved}
+          <div
+            class="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300"
+          >
+            {goalsSaved}
+          </div>
+        {/if}
+      </LiveRegion>
       <div>
         <label for="convGoals" class="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
           {t('conversation.infoPanel.goals', 'Goal descriptions (one per line)')}
@@ -487,14 +490,15 @@
           {addStageError ?? addStageIdentityError}
         </div>
       {/if}
-      {#if addStageSaved}
-        <div
-          role="status"
-          class="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300"
-        >
-          {addStageSaved}
-        </div>
-      {/if}
+      <LiveRegion>
+        {#if addStageSaved}
+          <div
+            class="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300"
+          >
+            {addStageSaved}
+          </div>
+        {/if}
+      </LiveRegion>
       <div class="flex items-start gap-2">
         <div class="min-w-0 flex-1">
           <input
