@@ -240,6 +240,55 @@ describe('App Keys tab row ⋯ menu (#1020)', () => {
     expect(writeText).toHaveBeenCalledWith('k1');
   });
 
+  // portal#2330: Copy ID answers the person who chose it, and never throws.
+  const pickCopyId = (target: HTMLElement) =>
+    openMenu(target, 'Actions for key abc123').find((i) => i.textContent?.trim() === 'Copy ID')!.click();
+  const keyCopyStatus = (target: HTMLElement) => target.querySelector('[data-testid="key-copy-status"]');
+
+  it('Copy ID confirms a successful copy in a live region that was already mounted', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
+    const target = await mountTab('keys');
+    const region = keyCopyStatus(target)!;
+    expect(region.getAttribute('role')).toBe('status');
+    expect(region.textContent?.trim()).toBe('');
+    pickCopyId(target);
+    await tick(8);
+    expect(keyCopyStatus(target)).toBe(region);
+    expect(region.textContent).toContain('Key ID copied');
+  });
+
+  it('Copy ID says it failed, and does not throw, where navigator.clipboard is undefined', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+    const target = await mountTab('keys');
+    expect(() => pickCopyId(target)).not.toThrow();
+    await tick(8);
+    expect(keyCopyStatus(target)!.textContent).toContain('Couldn’t copy the key ID');
+    expect(keyCopyStatus(target)!.textContent).not.toContain('copied');
+  });
+
+  it('Copy ID says it failed when the clipboard write is refused', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) }, configurable: true });
+    const target = await mountTab('keys');
+    pickCopyId(target);
+    await tick(8);
+    expect(keyCopyStatus(target)!.textContent).toContain('Couldn’t copy the key ID');
+  });
+
+  it('the Copy ID message clears itself', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
+    const target = await mountTab('keys');
+    vi.useFakeTimers();
+    try {
+      pickCopyId(target);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(keyCopyStatus(target)!.textContent).toContain('Key ID copied');
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(keyCopyStatus(target)!.textContent?.trim()).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('Revoke confirms, then submits the hidden revokeKey form for the PICKED key', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
