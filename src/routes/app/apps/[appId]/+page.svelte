@@ -16,6 +16,7 @@
   // read-only row and the Settings options render these so they cannot drift.
   import { APP_TYPE_VALUES, appTypeIcon, appTypeLabel } from '$lib/i18n/app-type-strings';
   import { tick, untrack, onDestroy, flushSync } from 'svelte';
+  import { ROSTER_FETCH_TIMEOUT_MS } from '$lib/roster-fetch';
   import { applyAction } from '$app/forms';
   import { page } from '$app/stores';
   import { dropNamedActions } from './app-list-pages';
@@ -1083,17 +1084,21 @@
   // is dropped, so an older answer can never clobber the page state a newer
   // one was fetched for (F2).
   let rosterFetchEpoch = 0;
-  // The endpoint bounds its own read at 8 s (OPTIONAL_LIST_TIMEOUT_MS in
-  // roster/+server.ts); this is the transport's bound and must stay above it,
-  // or the client gives up on an answer the server is still entitled to send.
-  // roster-fetch.client.test.ts pins the pair.
-  const ROSTER_FETCH_TIMEOUT_MS = 10_000;
+  // The endpoint bounds its own read (OPTIONAL_LIST_TIMEOUT_MS, defined in
+  // $lib/server/with-timeout and used by roster/+server.ts); the transport's
+  // bound, ROSTER_FETCH_TIMEOUT_MS in $lib/roster-fetch, must stay above it.
+  // roster-critical-path.test.ts pins the margin.
   // The request in flight, so a newer ask or a teardown ends it rather than
   // leaving it to run out its timer (portal#2282).
   let rosterFetchCtl: AbortController | null = null;
   function startRosterFetch(appId: string, opts: { supersedeData?: boolean } = {}) {
     const epoch = ++rosterFetchEpoch;
+    // Published here, beside the abort of the one it replaces, not inside the
+    // async body below: a later ask must find this one in place however the
+    // body is ever reordered (portal#2310).
     rosterFetchCtl?.abort();
+    const ctl = new AbortController();
+    rosterFetchCtl = ctl;
     rosterSupersedesData = opts.supersedeData ? data : null;
     rosterFetchedForApp = appId;
     rosterFetch = { appId, read: { kind: 'loading' } };
@@ -1109,8 +1114,6 @@
       // lands in the catch below as the failed read. `AbortController` plus a
       // timer rather than `AbortSignal.timeout`: the timer is the one a test
       // can drive.
-      const ctl = new AbortController();
-      rosterFetchCtl = ctl;
       const timer = setTimeout(() => ctl.abort(), ROSTER_FETCH_TIMEOUT_MS);
       try {
         const res = await fetch(`/app/apps/${appId}/roster`, { signal: ctl.signal });
@@ -1136,6 +1139,21 @@
       if (epoch !== rosterFetchEpoch) return;
       rosterFetch = { appId, read };
     })();
+  }
+  // Try again. The guard is what keeps a double click to one ask: the first
+  // click turns the read to 'loading' (so the button leaves), and a click that
+  // lands before the re-render finds the state no longer 'failed' and does nothing.
+  function retryRoster() {
+    if (teamRoster?.kind === 'failed') startRosterFetch(app.id, { supersedeData: true });
+  }
+  // Sign in from the signed-out roster notice. The way back is the address bar AT THE MOMENT OF USE, not at
+  // render: Kit's shallow replaceState moves the bar without re-rendering (portal#2294), and reading
+  // window.location in the template made the link a render-time read (portal#2310). The href is set
+  // on every gesture that can precede opening or copying it (hover, focus, press, middle click,
+  // context menu, click), so a new tab or a copied link carries the return path too; the plain href is
+  // only the fallback for a gesture none of them sees.
+  function signInHref(e: Event) {
+    (e.currentTarget as HTMLAnchorElement).href = `/signin?redirect=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`;
   }
   // Teardown: end the request and make its late answer stale, so nothing
   // writes page state after the component is gone.
@@ -3419,12 +3437,12 @@
           <div class="flex items-center gap-2 text-xs text-zinc-500">
             <p role="status">{t('app.staff.roster.failed', 'Task and pause state could not be loaded.')}</p>
             <!-- portal#2246 item 1: a failed read is final for the visit unless asked again. -->
-            <button type="button" onclick={() => { if (teamRoster?.kind === 'failed') startRosterFetch(app.id, { supersedeData: true }); }} class="rounded-md border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.staff.roster.retry', 'Try again')}</button>
+            <button type="button" onclick={retryRoster} class="rounded-md border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.staff.roster.retry', 'Try again')}</button>
           </div>
         {:else if teamRoster?.kind === 'signedOut'}
           <div class="flex items-center gap-2 text-xs text-zinc-500">
             <p role="status">{t('app.staff.roster.signed-out', 'Your session has ended, so task and pause state could not be loaded.')}</p>
-            <a href={`/signin?redirect=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.staff.roster.sign-in', 'Sign in')}</a>
+            <a href="/signin" onpointerenter={signInHref} onfocus={signInHref} onpointerdown={signInHref} oncontextmenu={signInHref} onauxclick={signInHref} onclick={signInHref} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.staff.roster.sign-in', 'Sign in')}</a>
           </div>
         {:else if teamRoster?.kind === 'hidden'}
           <p role="status" class="text-xs text-zinc-500">{t('app.staff.roster.hidden', 'Task and pause state are not shown to you.')}</p>

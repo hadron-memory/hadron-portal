@@ -230,7 +230,7 @@
       {#if memory}
         <p class="text-sm">
           {t('app.nodes.picker.in-memory', 'In')} <span class="font-medium">{memory.name}</span>
-          <button type="button" class="ml-2 rounded border px-2 py-0.5 text-xs" onclick={() => { memoryPickerOpen = true; }}>{t('app.nodes.picker.change-memory', 'Change…')}</button>
+          <button type="button" class="ml-2 rounded border px-2 py-0.5 text-xs" onclick={() => { memoryPickerOpen = true; }} aria-haspopup="dialog" aria-expanded={memoryPickerOpen}>{t('app.nodes.picker.change-memory', 'Change…')}</button>
         </p>
         <div class="flex flex-wrap gap-2">
           <div class="min-w-0 grow">
@@ -289,7 +289,7 @@
         <p role="alert">{t('app.nodes.picker.memories-failed', 'Your memories couldn’t be loaded, so you can’t pick a node right now. Reload the page to try again.')}</p>
       {:else}
         <p class="text-sm text-zinc-600 dark:text-zinc-300">{t('app.nodes.picker.pick-memory', 'Pick which memory to search in first.')}</p>
-        <button type="button" class="rounded border px-3 py-1" onclick={() => { memoryPickerOpen = true; }}>{t('app.nodes.picker.choose-memory', 'Choose a memory…')}</button>
+        <button type="button" class="rounded border px-3 py-1" onclick={() => { memoryPickerOpen = true; }} aria-haspopup="dialog" aria-expanded={memoryPickerOpen}>{t('app.nodes.picker.choose-memory', 'Choose a memory…')}</button>
       {/if}
     </div>
   </div>

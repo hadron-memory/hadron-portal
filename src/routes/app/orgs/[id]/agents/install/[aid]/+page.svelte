@@ -118,7 +118,7 @@
         {#if selectedApp}
           <div class="min-w-0"><p class="font-medium text-zinc-900 dark:text-white">{selectedApp.name}</p><div class="mt-1"><Urn value={selectedApp.urn} type="app" /></div></div>
         {/if}
-        <button type="button" onclick={() => pickerOpen = true} class="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-300">{selectedApp ? t('install.existing.change', 'Change App') : t('install.existing.choose', 'Choose an App')}</button>
+        <button type="button" onclick={() => pickerOpen = true} aria-haspopup="dialog" aria-expanded={pickerOpen} class="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-300">{selectedApp ? t('install.existing.change', 'Change App') : t('install.existing.choose', 'Choose an App')}</button>
       {/if}
       {#if $existingErrors.appId?.length}<p role="alert" class="text-sm text-red-600 dark:text-red-400">{$existingErrors.appId[0]}</p>{/if}
       {#if $existingMessage}<p role={$existingMessage.type === 'error' ? 'alert' : 'status'} class="text-sm {$existingMessage.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$existingMessage.text}</p>{/if}

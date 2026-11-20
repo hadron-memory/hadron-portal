@@ -101,7 +101,7 @@
   {#if memoriesFailed}<p>{t('config.memories-failed', 'Memories could not be loaded. Reload the page to try again.')}</p>{/if}
   {#if !locked}
     <div class="flex flex-wrap items-center gap-3">
-      <button type="button" disabled={pending || selection.length >= BULK_CAP} onclick={() => { capReached = false; picker = true; }} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.bulk.add', 'Add memories…')}</button>
+      <button type="button" disabled={pending || selection.length >= BULK_CAP} onclick={() => { capReached = false; picker = true; }} aria-haspopup="dialog" aria-expanded={picker} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.bulk.add', 'Add memories…')}</button>
       <p role="status">{countNote}</p>
     </div>
     {#if picker}<SelectMemory {memories} {addedIds} keepOpen note={capReached ? t('config.bulk.cap-refused', 'One apply takes at most {cap} memories, so this one was not added.', { cap: BULK_CAP }) : countNote} bind:open={picker} onselect={add} />{/if}

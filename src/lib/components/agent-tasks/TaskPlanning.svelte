@@ -231,7 +231,7 @@
     <form method="POST" action="?/addBlocker" use:enhance={submit} class="space-y-2">
       <p class="text-sm">{t('app.tasks.waits-for', 'Waits for')}: {chosen?.title ?? t('app.tasks.blocker.none', 'No task selected')}</p>
       <input type="hidden" name="blockerTaskRef" value={chosen?.id ?? ''} />
-      <div class="flex flex-wrap gap-2"><button type="button" disabled={pending} onclick={() => picker = true} class="rounded border px-3 py-1 text-sm">{t('app.tasks.choose', 'Choose a task')}</button><button disabled={pending || !chosen} class="rounded bg-indigo-600 px-3 py-1 text-sm text-white disabled:opacity-50">{t('app.tasks.blocker.add', 'Add blocker')}</button></div>
+      <div class="flex flex-wrap gap-2"><button type="button" disabled={pending} onclick={() => picker = true} aria-haspopup="dialog" aria-expanded={picker} class="rounded border px-3 py-1 text-sm">{t('app.tasks.choose', 'Choose a task')}</button><button disabled={pending || !chosen} class="rounded bg-indigo-600 px-3 py-1 text-sm text-white disabled:opacity-50">{t('app.tasks.blocker.add', 'Add blocker')}</button></div>
     </form>
     <SelectTask {appId} bind:open={picker} onselect={(task) => chosen = task} />
   {/if}

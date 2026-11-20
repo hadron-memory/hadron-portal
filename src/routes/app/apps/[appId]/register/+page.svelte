@@ -79,7 +79,7 @@
       {:else}
         <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('action-register.choose-prompt', 'Choose an Agent to see its codes.')}</p>
       {/if}
-      <button type="button" onclick={() => (pickerOpen = true)} class="min-h-6 rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+      <button type="button" onclick={() => (pickerOpen = true)} aria-haspopup="dialog" aria-expanded={pickerOpen} class="min-h-6 rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
         {data.chosen ? t('action-register.change', 'Change…') : t('action-register.choose', 'Choose…')}
       </button>
       {#if data.options.partial}

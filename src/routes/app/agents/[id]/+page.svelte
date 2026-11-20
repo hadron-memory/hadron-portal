@@ -1225,6 +1225,8 @@
                 type="button"
                 aria-describedby={addMemoryError ? 'agentAddMemoryError' : 'agent-add-memory-label'}
                 onclick={() => selectMemoryOpen = true}
+                aria-haspopup="dialog"
+                aria-expanded={selectMemoryOpen}
                 class="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-left text-sm text-zinc-900 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:hover:bg-zinc-800 {addMemoryError ? 'border-red-500' : ''}"
               >
                 {#if $addMemoryForm.memoryId}
@@ -1313,6 +1315,7 @@
             type="button"
             onclick={() => (appOrgPickerOpen = true)}
             aria-haspopup="dialog"
+            aria-expanded={appOrgPickerOpen}
             class="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >{t('agent.apps.org-filter', 'Organization')}: {appOrgFilterName ?? t('agent.apps.org-all', 'All organizations')}</button>
           {#if appOrgFilter}
