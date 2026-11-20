@@ -14,7 +14,7 @@
   import { publicServerBaseUrl } from '$lib/public-server-base-url';
   // portal#2249: one source for the App type's labels — Profile row, Settings
   // read-only row and the Settings options render these so they cannot drift.
-  import { APP_TYPE_VALUES, appTypeLabel } from '$lib/i18n/app-type-strings';
+  import { APP_TYPE_VALUES, appTypeIcon, appTypeLabel } from '$lib/i18n/app-type-strings';
   import { tick, untrack, onDestroy, flushSync } from 'svelte';
   import { applyAction } from '$app/forms';
   import { page } from '$app/stores';
@@ -140,6 +140,7 @@
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import AppMemories from './AppMemories.svelte';
+  import AppMemoryCreate from './AppMemoryCreate.svelte';
   import AppMembersPanel from './AppMembersPanel.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
@@ -1203,7 +1204,10 @@
       if (tabCache.key !== key) { tabCache = { key, byTab: {} }; return; }
       const byTab: Partial<Record<AppTabId, TabEntry>> = {};
       for (const [id, entry] of Object.entries(tabCache.byTab) as [AppTabId, TabEntry][]) {
-        if (entry.payload) byTab[id] = { ...entry, stale: true };
+        // A first read still in flight has no payload yet: keep it, so the
+        // shown-tab effect does not start a second read beside it (portal#2256).
+        // It lands stale (its generation is behind) and is read once more.
+        if (entry.payload || entry.state === 'loading') byTab[id] = { ...entry, stale: true };
       }
       tabCache = { key, byTab };
     });
@@ -1292,7 +1296,7 @@
     // information too.
     { id: 'worklog', label: t('app.tabs.worklog', 'Worklog') },
     { id: 'runs', label: t('app.tabs.runs', 'Runs') },
-    { id: 'memory', label: 'Memory' },
+    { id: 'memory', label: t('app.tabs.memory', 'Memories') },
     // #1007/#1008: App Keys and AI Service Configs were sections at the foot of
     // Settings, below the App form, its agents and its memories. Each is a list
     // a reader comes for on its own, so each gets its own tab — and its own
@@ -2166,7 +2170,6 @@
   }
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
-  const typeIcon: Record<string, string> = { WORKSTATION: '💻', CHATBOT: '💬', CLOUD: '☁️', IOT: '📡', AGENT: '🤖', AUTOMATION: '⚙️' };
 
   // ── Client tab state ────────────────────────────────────────────────
   const AGENT_TOOL_OPTIONS = [
@@ -2485,7 +2488,7 @@
     <div class="mt-2 flex items-start justify-between gap-4">
       <div>
         <h1 class="flex items-center gap-2 text-2xl font-bold text-zinc-900 dark:text-white">
-          <span>{typeIcon[app.appType] ?? '🔑'}</span>
+          <span>{appTypeIcon(app.appType)}</span>
           <span><span class="text-zinc-400 font-normal">App:</span> {app.name}</span>
         </h1>
         <div class="mt-1"><Urn value={app.urn} type="app" /></div>
@@ -3871,7 +3874,7 @@
     <div id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     {#if data.createMemoryForm}
       {#key app.id}
-        <AppMemories memories={tabData.appMemories ?? null} canCreate={tabData.canCreateMemory === true} showDescription={!!app.organizationId} initial={data.createMemoryForm} result={form} />
+        <AppMemories memories={tabData.appMemories ?? null} showDescription={!!app.organizationId} />
       {/key}
     {/if}
     <!-- #1043 interim: primary-agent links cannot establish the viewer's
@@ -3889,6 +3892,11 @@
       serverPage={tabData.appNodesPage ?? null}
       pageLabel={t('app.memory-node.pages', 'Memory node pages')}
     />
+    {#if data.createMemoryForm && tabData.canCreateMemory === true}
+      {#key app.id}
+        <div class="mt-6"><AppMemoryCreate initial={data.createMemoryForm} result={form} /></div>
+      {/key}
+    {/if}
     </div>
   {/if}
 

@@ -35,6 +35,9 @@ async function mountTab(tab: 'profile' | 'settings', appType: string) {
   return m.target as HTMLElement;
 }
 
+// The attribute must follow whitespace: `\bvalue` also matched the tail of `data-value`.
+const LITERAL_ENUM_OPTION = /<option\b[^>]*\svalue\s*=\s*['"]?(WORKSTATION|CHATBOT|AGENT|AUTOMATION|CLOUD|IOT)\b/;
+
 describe('the App type shows its label (#2249)', () => {
   it('the Profile Type row shows the Settings option text, icon included', async () => {
     const target = await mountTab('profile', 'IOT');
@@ -74,6 +77,12 @@ describe('the App type shows its label (#2249)', () => {
     expect(pageSource).toMatch(/import\s*\{[^}]*\bAPP_TYPE_VALUES\b[^}]*\}\s*from/);
     expect(pageSource).toMatch(/\{#each\s+APP_TYPE_VALUES\s+as\b/);
     // quote-agnostic: no <option> with a literal enum value, however it is quoted
-    expect(pageSource).not.toMatch(/<option\b[^>]*\bvalue\s*=\s*['"]?(WORKSTATION|CHATBOT|AGENT|AUTOMATION|CLOUD|IOT)\b/);
+    expect(pageSource).not.toMatch(LITERAL_ENUM_OPTION);
+  });
+
+  it('the literal-option guard catches a real value attribute but not data-value', () => {
+    expect('<option value="IOT">').toMatch(LITERAL_ENUM_OPTION);
+    expect("<option class=a value='IOT'>").toMatch(LITERAL_ENUM_OPTION);
+    expect('<option data-value="IOT">').not.toMatch(LITERAL_ENUM_OPTION);
   });
 });

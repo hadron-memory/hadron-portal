@@ -172,6 +172,44 @@ describe('portal#2240: a tab the first screen did not read', () => {
     expect(keyShown(target, 'def456')).toBe(true);
   });
 
+  it('loader data changing while a first read is in flight neither drops it nor starts a second read (portal#2256)', async () => {
+    const { target, props } = await mountPage();
+    await show(target, 'keys');
+    expect(readsOf('keys')).toHaveLength(1);
+
+    props.data = await chatsFirst(); // an action's refresh lands mid-read
+    await tick(3);
+    expect(readsOf('keys')).toHaveLength(1);
+    expect(loading(target, 'keys')).toBe(true);
+
+    // The one read lands; it was begun before the new data, so it is shown and read once more.
+    readsOf('keys')[0].resolve(json(keysPayload('first')));
+    await wait(0); await tick(3);
+    expect(keyShown(target, 'first')).toBe(true);
+    expect(readsOf('keys')).toHaveLength(2);
+    readsOf('keys')[1].resolve(json(keysPayload('second')));
+    await wait(0); await tick(3);
+    expect(keyShown(target, 'second')).toBe(true);
+    expect(readsOf('keys')).toHaveLength(2);
+  });
+
+  it('an older answer never replaces a newer one after loader data changed mid-read (portal#2256)', async () => {
+    const { target, props } = await mountPage();
+    await show(target, 'keys');
+    props.data = await chatsFirst();
+    await tick(3);
+    // Newest read answers first; the older one answers last. Fixed, there is no
+    // second read yet, so the order cannot invert.
+    readsOf('keys')[1]?.resolve(json(keysPayload('second')));
+    readsOf('keys')[0].resolve(json(keysPayload('first')));
+    await wait(0); await tick(3);
+    readsOf('keys')[1]?.resolve(json(keysPayload('second')));
+    await wait(0); await tick(3);
+    // Unfixed, the older answer landed last and put 'first' back over 'second'.
+    expect(keyShown(target, 'second')).toBe(true);
+    expect(keyShown(target, 'first')).toBe(false);
+  });
+
   it('Profile, read lazily, shows one tabpanel while it loads (no duplicate #panel-profile)', async () => {
     const { target, props } = await mountPage();
     const data = await chatsFirst();

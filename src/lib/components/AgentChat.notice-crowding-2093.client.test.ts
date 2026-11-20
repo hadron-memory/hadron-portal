@@ -7,17 +7,33 @@ const LONG = 'a-very-long-conversation-name-that-runs-well-past-fifty-seven-char
 const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { 'Content-Type': 'application/json' } });
 const CHAT = { id: 'i1', loc: 'chats:c1', title: 'First chat', conversationName: 'intro', stageName: 'stage-one', messageCount: 0, createdAt: '2026-01-01T00:00:00Z', lastMessageAt: null, scope: 'private', createdBy: null };
 const TURN = { assistantMessage: 'ok', stageTransitioned: true, newStageName: LONG, conversationHandoff: null, chatEnded: false, onTrack: true, offTrackReason: null, conversationCompleted: LONG, detourReturned: true, rejectedNextStage: null, routingSkipped: false };
-afterEach(() => { vi.unstubAllGlobals(); document.body.innerHTML = ''; });
+/**
+ * The chat API as the component calls it. Each route is matched on its exact pathname (the query string is
+ * the only thing allowed to vary), and anything else throws, so a renamed or extra request fails the test instead
+ * of being answered by a substring match.
+ */
+const unexpected: string[] = [];
+function stubChatApi(turn: unknown) {
+  unexpected.length = 0;
+  const routes: Record<string, unknown> = {
+    '/api/agent-chat/list': { chats: [CHAT] },
+    '/api/agent-chat/start': { chatId: 'chats:c1', conversationName: 'intro', stageName: 'stage-one', welcomeMessage: null, welcomeError: null, scope: 'private' },
+    '/api/agent-chat/turn': turn,
+    // The ServedPrompt child's read; an empty page is the honest answer for a viewer with nothing served here.
+    '/api/served-prompts': { items: [], total: 0, offset: 0, limit: 5 },
+  };
+  vi.stubGlobal('fetch', vi.fn(async (i: RequestInfo | URL) => {
+    const { pathname } = new URL(String(i), 'http://portal.test');
+    // The component swallows a failed request, so a throw alone could go unseen: afterEach asserts this stayed empty.
+    if (!Object.hasOwn(routes, pathname)) { unexpected.push(String(i)); throw new Error(`unexpected fetch: ${String(i)}`); }
+    return json(routes[pathname]);
+  }));
+}
+afterEach(() => { vi.unstubAllGlobals(); document.body.innerHTML = ''; expect(unexpected).toEqual([]); });
 
 describe('AgentChat notices with long names (#2093)', () => {
   it('each notice wraps to at most two lines and keeps its full text', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (i: RequestInfo | URL) => {
-      const u = String(i);
-      if (u.includes('/list')) return json({ chats: [CHAT] });
-      if (u.includes('/start')) return json({ chatId: 'chats:c1', conversationName: 'intro', stageName: 'stage-one', welcomeMessage: null, welcomeError: null, scope: 'private' });
-      if (u.includes('/turn')) return json(TURN);
-      throw new Error(`unexpected fetch: ${u}`);
-    }));
+    stubChatApi(TURN);
     const m = mountComponent(AgentChat, { agentId: 'a' });
     const button = (re: RegExp) => [...document.querySelectorAll('button')].find((b) => re.test(b.textContent ?? ''));
     await vi.waitFor(() => expect(button(/new chat/i)).toBeDefined());
@@ -37,8 +53,13 @@ describe('AgentChat notices with long names (#2093)', () => {
       // Vertical padding on the clamped element lets a third line show through it; the padding belongs on the wrapper.
       expect(n.className).not.toMatch(/(^|\s)p[ytb]?-\d/);
       expect(n.getAttribute('title')).toBe(n.textContent?.trim());
-      expect(n.getAttribute('title')).toContain(LONG);
     }
+    // Exact, like the chips below: each notice's title is its whole text, not merely something containing the name.
+    expect(notes.map((n) => n.getAttribute('title'))).toEqual([
+      `Stage transitioned: stage-one → ${LONG}`,
+      `Done: ${LONG}`,
+      `Back to ${LONG}`,
+    ]);
     const chips = [...document.querySelectorAll('[data-testid="completed-conversations"] li')];
     expect(chips.length).toBeGreaterThan(0);
     for (const li of chips) { expect(li.classList.contains('truncate')).toBe(true); expect(li.getAttribute('title')).toBe(LONG); }
@@ -48,13 +69,7 @@ describe('AgentChat notices with long names (#2093)', () => {
 
 describe('stage toast bolds the two stage names (#2226)', () => {
   it('wraps from and to in <strong> while textContent still equals the title', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (i: RequestInfo | URL) => {
-      const u = String(i);
-      if (u.includes('/list')) return json({ chats: [CHAT] });
-      if (u.includes('/start')) return json({ chatId: 'chats:c1', conversationName: 'intro', stageName: 'stage-one', welcomeMessage: null, welcomeError: null, scope: 'private' });
-      if (u.includes('/turn')) return json(TURN);
-      throw new Error(`unexpected fetch: ${u}`);
-    }));
+    stubChatApi(TURN);
     const m = mountComponent(AgentChat, { agentId: 'a' });
     const button = (re: RegExp) => [...document.querySelectorAll('button')].find((b) => re.test(b.textContent ?? ''));
     await vi.waitFor(() => expect(button(/new chat/i)).toBeDefined());
@@ -79,13 +94,7 @@ describe('stage toast bolds the two stage names (#2226)', () => {
 describe('refused-stage note copy (#2184)', () => {
   it('leads with what stays true (same step, message saved) and puts the name last', async () => {
     const REFUSED = { ...TURN, stageTransitioned: false, newStageName: null, conversationCompleted: null, detourReturned: false, rejectedNextStage: LONG };
-    vi.stubGlobal('fetch', vi.fn(async (i: RequestInfo | URL) => {
-      const u = String(i);
-      if (u.includes('/list')) return json({ chats: [CHAT] });
-      if (u.includes('/start')) return json({ chatId: 'chats:c1', conversationName: 'intro', stageName: 'stage-one', welcomeMessage: null, welcomeError: null, scope: 'private' });
-      if (u.includes('/turn')) return json(REFUSED);
-      throw new Error(`unexpected fetch: ${u}`);
-    }));
+    stubChatApi(REFUSED);
     const m = mountComponent(AgentChat, { agentId: 'a' });
     const button = (re: RegExp) => [...document.querySelectorAll('button')].find((b) => re.test(b.textContent ?? ''));
     await vi.waitFor(() => expect(button(/new chat/i)).toBeDefined());

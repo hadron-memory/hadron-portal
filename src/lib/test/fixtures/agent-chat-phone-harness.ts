@@ -110,14 +110,24 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
   };
   const calls: Record<string, number> = { list: 0, resume: 0, start: 0, writes: 0, title: 0, delete: 0 };
   // A held delete answers only once released, so a test can act in between.
-  let deleteGate: Promise<void> | null = null;
+  // One hold at a time (portal#2165): a repeated hold while one is active is
+  // ignored and gets the same release, so no waiter is orphaned; a release is
+  // spent after its first call and can never clear or resolve a newer hold.
+  let deleteHold: { promise: Promise<void>; release: () => void } | null = null;
   const holdDelete = () => {
-    let release = () => {};
-    deleteGate = new Promise<void>((resolve) => (release = resolve));
-    return () => {
-      deleteGate = null;
-      release();
+    if (deleteHold) return deleteHold.release;
+    let resolve = () => {};
+    const promise = new Promise<void>((r) => (resolve = r));
+    const hold = {
+      promise,
+      release: () => {
+        if (deleteHold !== hold) return;
+        deleteHold = null;
+        resolve();
+      },
     };
+    deleteHold = hold;
+    return hold.release;
   };
   let deleteFailure: DeleteFailure | null = null;
   const failDelete = (kind: DeleteFailure) => {
@@ -175,7 +185,7 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
     }
     if (options.rowActions && url.includes('/api/agent-chat/delete')) {
       calls.delete++;
-      if (deleteGate) await deleteGate;
+      if (deleteHold) await deleteHold.promise;
       const failure = deleteFailure;
       deleteFailure = null;
       if (failure === 'network') throw new TypeError('Failed to fetch');

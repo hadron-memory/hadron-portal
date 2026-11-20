@@ -515,6 +515,23 @@ try {
         assert.equal(await p.getByRole('button', { name: `Rename chat ${A}`, exact: true }).count(), 1, `${leg} ${kind}: the chat should still be listed`);
         assert.equal(await p.evaluate(() => location.href), before, `${leg} ${kind}: the URL changed`);
         assert.equal(await p.evaluate(() => window.__chat.calls.resume), 0, `${leg} ${kind}: no chat should open`);
+        // Retry on the same retained chat (portal#2165): the refusal was one-shot,
+        // so the second attempt succeeds and focus follows the neighbour rule.
+        const again = p.getByRole('button', { name: `Delete chat ${A}`, exact: true });
+        if (touch) await again.tap();
+        else await again.click();
+        await p.getByRole('heading', { name: 'Delete this chat?' }).waitFor();
+        await p.getByRole('button', { name: 'Delete', exact: true }).click();
+        await p.getByRole('button', { name: `Rename chat ${A}`, exact: true }).waitFor({ state: 'detached' });
+        assert.equal(await p.evaluate(() => window.__chat.calls.delete), 2, `${leg} ${kind}: the retry should be the second delete call`);
+        assert.equal(await p.getByRole('button', { name: `Rename chat ${B}`, exact: true }).count(), 1, `${leg} ${kind}: only the retried chat should go`);
+        await p.waitForFunction((b) => document.activeElement?.matches('[data-chat-row]') && document.activeElement.textContent.includes(b), B, { timeout: 2000 })
+          .catch(async () => assert.fail(`${leg} ${kind}: after the retry focus is on ${JSON.stringify(await focused(p))}, not the next row`));
+        assert.deepEqual(
+          await p.evaluate(() => ({ resume: window.__chat.calls.resume, start: window.__chat.calls.start, writes: window.__chat.calls.writes })),
+          { resume: 0, start: 0, writes: 0 },
+          `${leg} ${kind}: a retried delete must not open, start or send anything`,
+        );
         assert.deepEqual(f.errors, [], `${leg} ${kind}: page errors (failed delete)`);
         await f.context.close();
       }
@@ -573,6 +590,13 @@ try {
         await p.getByRole('button', { name: 'Back to chats' }).click();
         await p.getByRole('button', { name: `Delete chat ${A}`, exact: true }).waitFor();
         assert.equal(await p.getByRole('alert').count(), 0, `${leg} after Back: a chat's own error showed in the list`);
+        // The error was hidden, not dropped (portal#2165): reopening B shows it
+        // again, once, in its pane, and the list still carries no alert for it.
+        await p.locator('[data-chat-row="chats:b"]').click();
+        await p.locator('main').getByText(MESSAGE.network, { exact: true }).waitFor({ timeout: 2000 })
+          .catch(() => assert.fail(`${leg} after Back: reopening the chat lost its own error`));
+        assert.equal(await p.locator('main').getByText(MESSAGE.network, { exact: true }).count(), 1, `${leg} after Back: the chat's error should show once on reopen`);
+        assert.equal(await p.locator('aside').getByRole('alert').count(), 0, `${leg} after Back: the reopened chat's error leaked into the list`);
         assert.deepEqual(f.errors, [], `${leg}: page errors (failed delete after Back)`);
         await f.context.close();
       }
