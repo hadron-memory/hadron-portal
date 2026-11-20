@@ -1336,6 +1336,10 @@
     // It is not keyed on `$page.url`: Kit's shallow `replaceState` (which writes the canonical pair) leaves
     // `page.url` on the old href, so that key never cleared the banner outside a stubbed harness.
     legacyChatResolvedForApp = null;
+    // #2288: a failed tab choice belongs to the tab strip as it was. Back/Forward and a same-App `?tab=`
+    // link change the tab without a choice, so the alert must not outlive them. A rejected goto never
+    // reaches this callback, so it cannot clear the failure it just reported.
+    tabNavigationFailed = false;
     if (!(nav.type === 'enter' && form)) {
       // #1943: local tabs now rewrite `?tab=` by shallow replaceState, which leaves the entry's loader
       // data (`data.initialTab`) on the tab that was LOADED. Back lands on such an entry, so the address
@@ -1480,6 +1484,9 @@
   }
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
+    // #2288: any tab choice, including the no-op click on the Runs tab you are already on, ends the
+    // alert of the last failed one. Before the return below so that click acknowledges it too.
+    tabNavigationFailed = false;
     // portal#2290: the tab you are already on is not a request to leave it. Page, status and sort are
     // the reader's place in the list; returning before `++tabNavigation` also leaves any navigation in
     // flight alone. Reaching Runs from another tab still opens it clean. Runs only, deliberately: Uma's
@@ -1492,7 +1499,6 @@
       templatesLeaveMessage = null;
     }
     let landed = false;
-    tabNavigationFailed = false;
     const mine = ++tabNavigation, appId = app.id, principalId = data.currentUserId;
     let ownNavigationHref: string | null = null;
     try {

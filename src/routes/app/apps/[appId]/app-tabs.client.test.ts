@@ -16,7 +16,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { captureUnhandledRejections, mountComponent, tick, wait, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { navigationHooks, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
+import { navigationGuards, navigationHooks, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import Page from './+page.svelte';
 import { everyTabRead } from './app-page.fixture';
@@ -466,7 +466,9 @@ describe('App tab navigation failure feedback (#2288)', () => {
     const target = await mountTab('chats');
     navigationHooks.onGoto = async () => { throw new Error('navigation rejected'); };
     target.querySelector<HTMLButtonElement>('#tab-chats')!.focus();
-    await pick(target, 'runs');
+    // `onselect` runs `void focusTab(id)`: the rethrown rejection must be absorbed by focusTab's own catch.
+    const rejections = await captureUnhandledRejections(async () => { await pick(target, 'runs'); });
+    expect(rejections).toEqual([]);
     expect(alerts(target)).toHaveLength(1);
     expect(target.querySelector('#tab-chats')?.getAttribute('aria-selected')).toBe('true');
     expect(target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('false');
@@ -546,6 +548,43 @@ describe('App tab navigation failure feedback (#2288)', () => {
     await wait(20);
     await tick(4);
     expect(alerts(target)).toHaveLength(0);
+    expect(target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it.each(['popstate', 'link'] as const)('a %s navigation that changes the tab without a choice clears the alert', async (type) => {
+    const target = await mountTab('chats');
+    navigationHooks.onGoto = async () => { throw new Error('navigation rejected'); };
+    await pick(target, 'runs');
+    expect(alerts(target)).toHaveLength(1);
+    // Back/Forward or a same-App `?tab=` link: no tab choice, the address bar names another tab.
+    window.history.replaceState({}, '', '/app/apps/a1?tab=agents');
+    const guards = navigationGuards.filter((g) => g.fn === 'afterNavigate');
+    expect(guards.length).toBeGreaterThan(0);
+    for (const g of guards) {
+      (g.callback as (nav: unknown) => void)({
+        type, from: null, willUnload: false, delta: type === 'popstate' ? -1 : undefined,
+        to: { params: { appId: 'a1' }, route: { id: '/app/apps/[appId]' }, url: new URL(window.location.href) },
+        complete: Promise.resolve(),
+      });
+    }
+    flushSync();
+    await tick(4);
+    expect(alerts(target)).toHaveLength(0);
+    // control: a failure after that still reports
+    await pick(target, 'runs');
+    expect(alerts(target)).toHaveLength(1);
+  });
+
+  it('clicking the Runs tab you are already on clears the alert and still starts no navigation (#2290)', async () => {
+    const target = await mountTab('runs');
+    let gotos = 0;
+    navigationHooks.onGoto = async () => { gotos++; throw new Error('navigation rejected'); };
+    await pick(target, 'node-role-templates'); // a failed choice made from Runs
+    expect(alerts(target)).toHaveLength(1);
+    expect(gotos).toBe(1);
+    await pick(target, 'runs'); // the tab already shown: a no-op that acknowledges the alert
+    expect(alerts(target)).toHaveLength(0);
+    expect(gotos).toBe(1);
     expect(target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
   });
 });
