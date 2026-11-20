@@ -126,6 +126,8 @@
             id="clone-target"
             type="button"
             onclick={() => (pickerOpen = true)}
+            aria-haspopup="dialog"
+            aria-expanded={pickerOpen}
             aria-describedby={targetError ? 'clone-target-error' : undefined}
             class="mt-2 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-300"
           >{selected ? t('agent.clone.target.change', 'Change') : t('agent.clone.target.choose', 'Choose organization')}</button>

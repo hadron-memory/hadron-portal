@@ -2287,6 +2287,19 @@ export const REVOKE_APP_KEY_MUTATION = /* GraphQL */ `
   }
 `;
 
+// portal#1487 — grantAppKeyScope (hadron-server#1781, #1876). id is the
+// AppKey id; hostId is sent ONLY for host:operate, which the server grants
+// for one host (hrn:node:hadronmemory.com:specs:cor:agt:070:04). The portal needs nothing back beyond the
+// write: a success invalidates the page and the Scopes column re-reads, so
+// the selection stays the id alone.
+export const GRANT_APP_KEY_SCOPE_MUTATION = /* GraphQL */ `
+  mutation GrantAppKeyScope($id: ID!, $scope: String!, $hostId: String) {
+    grantAppKeyScope(id: $id, scope: $scope, hostId: $hostId) {
+      id
+    }
+  }
+`;
+
 export const DELETE_APP_MUTATION = /* GraphQL */ `
   mutation DeleteApp($ref: ID!) { deleteApp(ref: $ref) }
 `;
@@ -6060,8 +6073,8 @@ export const AGENT_TASK_FINDINGS_QUERY = /* GraphQL */ `
  * App's task is refused rather than shown.
  */
 export const AGENT_TASK_FINDING_DISPOSITIONS_QUERY = /* GraphQL */ `
-  query AgentTaskFindingDispositions($id: ID!, $offset: Int!) {
-    agentTask(id: $id) { id appId findingDispositions(limit: 200, offset: $offset) { items { findingId disposition reference { kind target label } } total hasMore } }
+  query AgentTaskFindingDispositions($id: ID!, $limit: Int!, $offset: Int!) {
+    agentTask(id: $id) { id appId findingDispositions(limit: $limit, offset: $offset) { items { findingId disposition reference { kind target label } } total hasMore } }
   }
 `;
 

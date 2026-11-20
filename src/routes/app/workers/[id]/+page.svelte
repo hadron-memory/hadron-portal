@@ -224,9 +224,9 @@
     retireForm?.requestSubmit();
   }
 
-  // The delete dialog, shared with the App roster's staff tab. Re-keyed per
-  // worker like every control on this page, so a dialog opened for A closes
-  // (never re-targets) when the route moves to B.
+  // The delete dialog, shared with the App roster's staff tab. This effect is
+  // the one guard: a dialog opened for A closes (never re-targets) when the
+  // route moves to B.
   let deleteTarget = $state(false);
   const deleteTargetKey = $derived(worker.id);
   $effect(() => { deleteTargetKey; deleteTarget = false; });
@@ -805,16 +805,14 @@
   {/if}
 
   {#if canManageHere && deleteTarget}
-    {#key worker.id}
-      <!-- portal#2205 — the roster's own delete dialog, posting to this page's
-           ?/deleteWorker action. On success the action redirects to the App's
-           staff roster: this page's URL stops resolving, so there is nothing
-           here to invalidate back to. -->
-      <WorkerDeleteDialog
-        worker={{ id: worker.id, name: worker.name, urn: worker.urn ?? null }}
-        onclose={() => { deleteTarget = false; }}
-      />
-    {/key}
+    <!-- portal#2205 — the roster's own delete dialog, posting to this page's
+         ?/deleteWorker action. On success the action redirects to the App's
+         staff roster: this page's URL stops resolving, so there is nothing
+         here to invalidate back to. -->
+    <WorkerDeleteDialog
+      worker={{ id: worker.id, name: worker.name, urn: worker.urn ?? null }}
+      onclose={() => { deleteTarget = false; }}
+    />
   {/if}
 </div>
 

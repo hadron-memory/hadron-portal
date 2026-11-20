@@ -783,6 +783,11 @@
     renameValue = chat.title;
   }
   async function commitRename(chatId: string) {
+    // Where the rename was raised decides where a refusal shows (portal#2173):
+    // the list when it was committed from the one-pane list, else the open
+    // conversation. Read before the request, not from the pane at response
+    // time, which the person may have changed by then.
+    const fromList = phonePane === 'list';
     const title = renameValue.trim();
     renamingChatId = null;
     if (renameReturnsFocus) {
@@ -805,7 +810,7 @@
       }
       await refreshChatList();
     } catch (e) {
-      setTurnError(e instanceof Error ? e.message : 'Rename failed');
+      setTurnError(e instanceof Error ? e.message : 'Rename failed', { fromList });
     }
   }
   function cancelRename() {

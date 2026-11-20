@@ -67,7 +67,7 @@
       {/if}
       <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{t('action-register.section.asking', 'Resolved as {agent}.', { agent: agent.name })}</p>
       {#if register.apps.length > 1}
-        <button type="button" onclick={() => (pickerOpen = true)} class="mt-2 min-h-6 rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+        <button type="button" onclick={() => (pickerOpen = true)} aria-haspopup="dialog" aria-expanded={pickerOpen} class="mt-2 min-h-6 rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
           {register.app ? t('action-register.change', 'Change…') : t('action-register.choose', 'Choose…')}
         </button>
         <SelectApp apps={register.apps} scopeKey="action-register-definition" bind:open={pickerOpen} onselect={choose} />

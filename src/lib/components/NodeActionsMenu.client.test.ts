@@ -43,7 +43,9 @@ describe('NodeActionsMenu actions', () => {
     expect(target.querySelector('[role="menu"]')).not.toBeNull(); // the menu stays open
 
     [...target.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent?.trim() === 'Delete')!.click();
-    expect(onselect).toHaveBeenCalledWith('delete');
+    // (#1487 review) the menu hands its own trigger to onselect beside the
+    // id; this test only cares about the id.
+    expect(onselect).toHaveBeenCalledWith('delete', expect.any(HTMLButtonElement));
   });
 
   it('exposes its open state as data-menu-open so stacking keys on state, not on role="menu"', () => {
