@@ -253,7 +253,7 @@ async function runOneFixture(
       stageName: string | null;
     };
   }>(START_CHAT_MUTATION, {
-    agentId,
+    agentRef: agentId,
     conversationName: null,
     // Spec 019: match the test-run endpoint's posture. scope hardcoded
     // to private (no sharing a fixture run across AppMembers);

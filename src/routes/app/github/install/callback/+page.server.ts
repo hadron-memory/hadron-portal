@@ -22,7 +22,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 
   try {
     await gqlClient(locals.token).request(LINK_GITHUB_APP_MUTATION, {
-      orgId,
+      orgRef: orgId,
       installationId,
     });
   } catch (e: unknown) {

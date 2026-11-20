@@ -40,6 +40,7 @@ const message = (seq: number, over: Partial<TeamChatMessage> = {}): TeamChatMess
 });
 const ADA = { headId: 'head-ada', label: 'team.ada' };
 const BO = { headId: 'head-bo', label: 'team.bo' };
+const ZOE = { headId: 'head-zoe', label: 'team.zoe' };
 
 async function mountThread(props: Record<string, unknown>) {
   setStubPage('https://example.test/app/apps/a1', { appId: 'a1' });
@@ -111,16 +112,24 @@ describe('portal#1410 chip feedback and refusal polling', () => {
     // The parent's read lands as new props: the tail under [BO] carries no
     // row for it (its tagged messages sit older than the window).
     if(next.kind==='teams'&&next.headRefs.length===1&&next.headRefs[0]==='head-bo')props.messages=[];
+    // Once {ada, zoe} is selected the read returns only ada's row: zoe's tagged
+    // messages sit older than the window, so a later removal leaves zoe sparse.
+    if(next.kind==='teams'&&next.headRefs.length===2)props.messages=[message(1,{teamTags:[ADA]})];
   };
   const m=await mountThread(props);document.body.append(m.target);
   (qa(m,'team-chat-tag')[1] as HTMLButtonElement).click();await tick(4);
   // Sparse, but the reader JUST clicked it: the clicked label announces.
   expect(q(m,'team-chat-filter-status')?.textContent).toContain('team.bo');
   // A removal that leaves an unlabeled singleton: the generic name, never
-  // the departing head's label posing as the filter.
-  props.messages=[message(1,{teamTags:[ADA]})];
-  props.filter={kind:'teams',headRefs:['head-ada','head-zoe']};await tick(4);
+  // the departing head's label posing as the filter. The two-head selection is
+  // built by the reader's own clicks, not by writing props mid-test.
+  props.messages=[message(1,{teamTags:[ADA]}),message(3,{teamTags:[ZOE]})];await tick(2);
+  props.filter={kind:'none'};await tick(2);
   (qa(m,'team-chat-tag')[0] as HTMLButtonElement).click();await tick(4);
+  (qa(m,'team-chat-tag').find(b=>b.textContent?.includes('team.zoe')) as HTMLButtonElement).click();await tick(4);
+  expect(props.filter).toEqual({kind:'teams',headRefs:['head-ada','head-zoe']});
+  (qa(m,'team-chat-tag').find(b=>b.textContent?.includes('team.ada')) as HTMLButtonElement).click();await tick(4);
+  expect(props.filter).toEqual({kind:'teams',headRefs:['head-zoe']});
   expect(q(m,'team-chat-filter-status')?.textContent).toContain('Selected team');
   expect(q(m,'team-chat-filter-status')?.textContent).not.toContain('team.ada');
  });

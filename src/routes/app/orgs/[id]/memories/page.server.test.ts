@@ -576,7 +576,7 @@ describe('memories-list delete action', () => {
         message: { type: 'success', text: 'Memory deleted.' },
       },
     });
-    expect(mockRequest).toHaveBeenCalledWith(DELETE_MEMORY_MUTATION, { id: 'mem-1' });
+    expect(mockRequest).toHaveBeenCalledWith(DELETE_MEMORY_MUTATION, { ref: 'mem-1' });
   });
 
   it('rejects omitted delete ids before mutation', async () => {
@@ -642,8 +642,8 @@ describe('memories-list syncAll action', () => {
       // layout load so it has no parent(), but it has no business invoking
       // `exchangeConnections` either.
       [ORG_MEMORIES_TAB_QUERY, { ref: 'org-1' }],
-      [SYNC_MEMORY_MUTATION, { id: 'mem-1' }],
-      [SYNC_MEMORY_MUTATION, { id: 'mem-3' }],
+      [SYNC_MEMORY_MUTATION, { ref: 'mem-1' }],
+      [SYNC_MEMORY_MUTATION, { ref: 'mem-3' }],
     ]);
   });
 
@@ -727,8 +727,8 @@ describe('memories-list subscribe action', () => {
       },
     });
     expect(mockRequest).toHaveBeenCalledWith(CREATE_MEMORY_SUBSCRIPTION_MUTATION, {
-      memoryId: 'mem-1',
-      orgId: 'org-1',
+      memoryRef: 'mem-1',
+      orgRef: 'org-1',
       role: 'CONTRIBUTOR',
     });
   });
@@ -792,8 +792,8 @@ describe('memories-list unsubscribe action', () => {
       },
     });
     expect(mockRequest).toHaveBeenCalledWith(DELETE_MEMORY_SUBSCRIPTION_MUTATION, {
-      memoryId: 'mem-1',
-      orgId: 'org-1',
+      memoryRef: 'mem-1',
+      orgRef: 'org-1',
     });
   });
 
