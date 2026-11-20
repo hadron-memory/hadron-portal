@@ -189,7 +189,7 @@
         ? t('app.tasks.ref.target.pull-request', 'Pull request URL')
         : t('app.tasks.ref.target.url', 'URL'),
   );
-  const targetHelp = $derived(t('app.tasks.ref.target.url-help', 'The full address, starting with https://.'));
+  const targetHelp = $derived(t('app.tasks.ref.target.url-help', 'The full address, beginning with https://'));
 
   const inputClass =
     'w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100';

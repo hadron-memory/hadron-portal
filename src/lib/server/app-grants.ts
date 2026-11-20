@@ -86,7 +86,6 @@ export const GRANTS_APP = /* GraphQL */ `
       id
       name
       urn
-      organizationId
       viewerManages
     }
   }
@@ -136,7 +135,6 @@ export type GrantsApp = {
   id: string;
   name: string;
   urn: string;
-  organizationId?: string | null;
   viewerManages: boolean;
 };
 export async function requireGrantManager(

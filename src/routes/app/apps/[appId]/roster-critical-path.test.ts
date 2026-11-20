@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { APP_TEAM_ROSTER_QUERY } from '$lib/server/queries';
 import type { TeamRosterRead } from '$lib/server/app-team-roster';
 import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
+import { ROSTER_FETCH_TIMEOUT_MS } from '$lib/roster-fetch';
 
 const h = vi.hoisted(() => {
   /** Every request the stubbed client received, in order. */
@@ -155,6 +156,12 @@ describe('App page loader: the roster is off the critical path (portal#2238)', (
     await vi.advanceTimersByTimeAsync(1);
     const data = await pending;
     expect(data.teamRoster).toEqual({ kind: 'failed' });
+  });
+
+  it('the client transport bound sits above the endpoint bound, with room for the network and the JSON (portal#2282, #2310)', () => {
+    // A client that gives up first discards an answer the server is still entitled to send.
+    // The margin is pinned here (a node test may import server modules); the client test imports none.
+    expect(ROSTER_FETCH_TIMEOUT_MS - OPTIONAL_LIST_TIMEOUT_MS).toBeGreaterThanOrEqual(1_000);
   });
 
   it('a roster that errors maps to failed, not a thrown load (the existing contract, kept)', async () => {

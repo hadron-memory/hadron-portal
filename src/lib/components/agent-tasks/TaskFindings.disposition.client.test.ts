@@ -214,3 +214,67 @@ describe('the form', () => {
     expect(document.activeElement).toBe(opener);
   });
 });
+
+// portal#2121: follow-ups from the #2114 reviews.
+describe('portal#2121 follow-ups', () => {
+  const nextButton = (t: HTMLElement) => Array.from(t.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent?.trim() === 'Next')!;
+
+  it('the form repeats the finding’s own text under the question, so it is not scrolled away on a phone', async () => {
+    stub(() => reply(okSet()));
+    const m = await setup();
+    buttons(m.target)[4]!.click(); await tick(8);
+    const form = formOf(m.target);
+    expect(form.querySelector('legend')?.textContent).toContain('finding F5');
+    expect(form.querySelector('[data-testid="disposition-finding-text"]')?.textContent).toContain('text F5');
+  });
+
+  it.each([[403], [404]])('a %i on the dispositions read says they are unavailable and shows no Not yet', async (status) => {
+    stub(() => reply({}, status));
+    const m = await setup();
+    expect(m.target.querySelector('[data-testid="dispositions-unavailable"]')?.textContent).toContain('aren’t available');
+    expect(new Set(cells(m.target))).toEqual(new Set(['Unknown']));
+    expect(m.target.querySelector('[data-testid="dispositions-failed"]')).toBeNull();
+  });
+
+  it('a failed dispositions read uses the plainer line with a Retry', async () => {
+    stub(() => reply({}, 500));
+    const m = await setup();
+    const note = m.target.querySelector('[data-testid="dispositions-failed"]');
+    expect(note?.textContent).toContain('Couldn’t load the dispositions. Retry to see which findings have one.');
+    expect(note?.querySelector('button')?.textContent).toBe('Retry');
+  });
+
+  it('Record and Change stay disabled until the dispositions have loaded, and open no form', async () => {
+    const d = deferred(); stub(() => d.promise);
+    const m = await setup();
+    expect(buttons(m.target).every((b) => b.disabled)).toBe(true);
+    buttons(m.target)[0]!.click(); await tick(4);
+    expect(m.target.querySelector('[data-testid="disposition-form"]')).toBeNull();
+    d.resolve(reply(okSet(disp('F1', 'fixed')))); await tick(8);
+    expect(buttons(m.target).every((b) => !b.disabled)).toBe(true);
+    buttons(m.target)[0]!.click(); await tick(8);
+    // Seeded from the real row, not blank: a blank form could have replaced it.
+    expect(radios(m.target).find((r) => r.value === 'fixed')!.checked).toBe(true);
+  });
+
+  it.each([[500], [403]])('a dispositions read that failed (%i) offers no form either', async (status) => {
+    stub(() => reply({}, status));
+    const m = await setup();
+    expect(buttons(m.target).every((b) => b.disabled)).toBe(true);
+  });
+
+  it('“Disposition saved.” does not outlive the page it was made on', async () => {
+    let n = 0;
+    stub((url) => url.endsWith('/dispositions')
+      ? reply(n++ === 0 ? okSet() : okSet(disp('F2', 'accepted')))
+      : reply({ kind: 'page', page: { taskId: 'task', offset: 5, items: [row('F6')], total: 6, hasMore: false } }));
+    const m = await setup({ initial: { kind: 'page', page: { taskId: 'task', offset: 0, items: [row('F1'), row('F2'), row('F3'), row('F4'), row('F5')], total: 6, hasMore: true } } });
+    buttons(m.target)[1]!.click(); await tick(8);
+    radios(m.target).find((r) => r.value === 'accepted')!.click(); await tick(2);
+    await submitEnhancedWithResult(formOf(m.target), { type: 'success', status: 200, data: { action: 'disposeFinding', ok: true } }); await tick(10);
+    const status = () => m.target.querySelector('[data-testid="findings-status"]')?.textContent;
+    expect(status()).toBe('Disposition saved.');
+    nextButton(m.target).click(); await tick(10);
+    expect(status()).toBe('Showing findings 6 to 6 of 6');
+  });
+});
