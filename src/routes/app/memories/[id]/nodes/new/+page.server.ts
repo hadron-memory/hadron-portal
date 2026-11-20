@@ -14,6 +14,7 @@ import {
   createNodeStrings,
   createNodeErrorCode,
   createNodeErrorStatus,
+  isBadLocError,
   translateCreateNodeError,
 } from '$lib/i18n/create-node-strings';
 import type { Actions, PageServerLoad } from './$types';
@@ -155,7 +156,10 @@ export const actions: Actions = {
       const error = translateCreateNodeError(e);
       const status = createNodeErrorStatus(e);
       const code = createNodeErrorCode(e);
-      if (code === 'NodeLocConflictError' || code === 'InvalidLocError') {
+      // portal#2323: a bad loc is BAD_USER_INPUT with a `reason` (or the old
+      // InvalidLocError); decided BEFORE the #588 branch below, which takes
+      // every other BAD_USER_INPUT.
+      if (code === 'NodeLocConflictError' || isBadLocError(e)) {
         return setError(form, 'loc', error, { status });
       }
       // #588: a memory-schema violation (undeclared collection, missing
