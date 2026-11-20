@@ -3,7 +3,7 @@ import { grantableAction } from "$lib/grants/actions";
 import { error, fail, isHttpError, isRedirect, redirect } from "@sveltejs/kit";
 import { ClientError } from "graphql-request";
 import { gqlClient } from "$lib/server/api";
-import { extractGqlErrorCode } from "$lib/server/gqlError";
+import { classifyGqlError, extractGqlErrorCode } from "$lib/server/gqlError";
 import { deploymentOffersSigning } from "$lib/server/signing-capability";
 import { loadNodeMemories } from "$lib/server/node-memories";
 import {
@@ -47,6 +47,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       routeRef: params.appId,
       app,
       signing,
+      impersonating: !!locals.impersonation,
       ...page,
       viewerId: locals.user?.id ?? null,
       choices,
@@ -201,7 +202,24 @@ export const actions: Actions = {
       const holder = text("holder"),
         action = text("action"),
         reason = text("reason");
-      const choices = await grantChoices(gqlClient(event.locals.token), app.id);
+      let choices: Awaited<ReturnType<typeof grantChoices>>;
+      try {
+        choices = await grantChoices(gqlClient(event.locals.token), app.id);
+      } catch (e) {
+        // 503 only for an outage (transport, INTERNAL_SERVER_ERROR, or the
+        // read's own withheld-list 503). A typed refusal keeps its mapping.
+        const outage = isHttpError(e)
+          ? e.status === 503
+          : ["transport", "internal"].includes(classifyGqlError(e).kind);
+        if (!outage) throw e;
+        return bad(
+          503,
+          t(
+            "grants.choices.unavailable-create",
+            "The holder choices could not be loaded. Try again.",
+          ),
+        );
+      }
       const allowed = [
         ...choices.workers.map((w) => `WORKER:${w.id}`),
         ...choices.agents.map((a) => `AGENT:${a.id}`),

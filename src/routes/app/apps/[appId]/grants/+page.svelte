@@ -19,6 +19,7 @@
     grantReasonLimitMessage,
     type Grant,
     type GrantListPayload,
+    type Holder,
   } from "$lib/grants/types";
   import { grantableAction } from "$lib/grants/actions";
   import type { NodeChoice } from "$lib/node-choices";
@@ -155,6 +156,19 @@
     } else refreshFailed = true;
   }
   let localFailure = $state<string | null>(null);
+  // The picked holder and node are authoritative for the grant just created.
+  // The page's holder/node projection only covers the current page, so a grant
+  // created off page one, or while a refresh is pending or has failed, would
+  // otherwise render "Holder unavailable" for a holder the viewer just chose.
+  let pendingIdentity: {
+    holder: Holder | undefined;
+    nodes: Record<string, NodeChoice>;
+  } | null = null;
+  let createdIdentity = $state.raw<{
+    grantId: string;
+    holder: Holder | undefined;
+    nodes: Record<string, NodeChoice>;
+  } | null>(null);
   const submitCreate: SubmitFunction = ({ cancel }) => {
     if (creating || reading || rowWrites) {
       cancel();
@@ -172,6 +186,7 @@
     creating = true;
     refreshFailed = false;
     localFailure = null;
+    pendingIdentity = { holder: pickedHolder, nodes: { ...parameterNodes } };
     return async ({ result, update }) => {
       try {
         if (!owns()) return;
@@ -185,6 +200,16 @@
         });
         if (!owns()) return;
         if (result.type === "success") {
+          const sent = pendingIdentity;
+          const made =
+            result.type === "success" &&
+            result.data &&
+            typeof result.data === "object" &&
+            "grant" in result.data
+              ? (result.data.grant as Grant)
+              : null;
+          createdIdentity =
+            sent && made ? { grantId: made.id, ...sent } : null;
           parameterNodes = {};
           holderChoice = "";
           reason = "";
@@ -304,6 +329,34 @@
   const returned = $derived(
     created ? (grants.items.find((g) => g.id === created.id) ?? created) : null,
   );
+  // Required choices that keep Create disabled; the browser still enforces the
+  // holder and reason on submit, so only the node picks are named here.
+  const missingChoices = $derived(
+    chosenAction && grantableAction(chosenAction)
+      ? chosenAction.parameters
+          .filter((p) => !Object.hasOwn(parameterNodes, p.name))
+          .map((p) => p.name)
+      : [],
+  );
+  const returnedHolder = $derived.by(() => {
+    if (!returned) return undefined;
+    const picked =
+      createdIdentity?.grantId === returned.id ? createdIdentity.holder : undefined;
+    const kind = returned.holderKind;
+    return picked && (kind === "WORKER" || kind === "AGENT") && picked.id === returned.holderId
+      ? picked
+      : holders[grantHolderKey(returned)];
+  });
+  const returnedNode = $derived.by(() => {
+    if (!returned) return undefined;
+    const ref = grantNodeRef(returned, actionDefinitions);
+    if (ref === null) return undefined;
+    const picked =
+      createdIdentity?.grantId === returned.id
+        ? Object.values(createdIdentity.nodes).find((n) => n.id === ref)
+        : undefined;
+    return picked ?? nodes?.[ref];
+  });
   const feedback = $derived(form && "error" in form ? form.error : null);
   const field =
     "w-full min-h-11 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white";
@@ -358,11 +411,17 @@
           {now}
           grant={returned}
           {actors}
-          node={nodes?.[grantNodeRef(returned, actionDefinitions) ?? ""]}
-          holder={holders[grantHolderKey(returned)]}
+          node={returnedNode}
+          holder={returnedHolder}
         />
       </section>
     {/if}
+    {#if data.impersonating}<p role="status" class="text-sm">
+        {t(
+          "grants.impersonating",
+          "You are viewing as another person. Grants can be read here but not changed. End impersonation to revoke or create grants.",
+        )}
+      </p>{/if}
     <label class="block space-y-1 text-sm">
       <span>{t("grants.filter.scope", "Show grants on this page")}</span>
       <select
@@ -420,7 +479,9 @@
           locked={creating || reading}
           {ownershipEpoch}
           onbegin={beginRowWrite}
-          revokeAction={`?/revoke&offset=${data.offset}`}
+          revokeAction={data.impersonating
+            ? undefined
+            : `?/revoke&offset=${data.offset}`}
         />
         <GrantApproval
           grant={c.row.original}
@@ -449,7 +510,8 @@
       <span
         >{t("grants.total", "{total} grants", {
           total: grants.total,
-        })}</span
+        })}{#if refreshFailed}
+          · {t("grants.maybe-stale", "may be out of date")}{/if}</span
       >
       <a
         class="min-h-11 inline-flex items-center text-indigo-600 dark:text-indigo-300"
@@ -472,6 +534,11 @@
           "grants.approval-refresh-failed",
           "The grants could not refresh. Use Refresh to load the server’s result.",
         )}
+        <a
+          class="inline-flex min-h-11 items-center text-indigo-600 dark:text-indigo-300"
+          href={href(data.offset)}
+          data-sveltekit-reload>{t("grants.refresh", "Refresh")}</a
+        >
       </p>{/if}
     {#if data.signing}
       {#key data.app.id}
@@ -539,7 +606,7 @@
                 {#each chosenAction.parameters as parameter (parameter.name)}
                   {@const picked = Object.hasOwn(parameterNodes, parameter.name) ? parameterNodes[parameter.name] : undefined}
                   <div>
-                    <span class="text-sm">{parameter.name}</span>
+                    <span class="block text-sm">{parameter.name}</span>
                     {#if picked}<div class="mt-1 text-sm">{picked.name}</div>
                       <div class="mt-1"><Urn value={picked.urn} linked /></div>{/if}
                     <input type="hidden" name={"parameter:" + parameter.name} value={picked?.id ?? ""} />
@@ -587,20 +654,37 @@
                       },
                     )}
               </p>
-              <label class="block text-sm"
-                >{t("grants.starts-input", "Starts at (UTC, optional)")}<input
+              <div class="text-sm">
+                <label for="grant-starts"
+                  >{t("grants.starts-input", "Starts at (UTC, optional)")}</label
+                ><input
+                  id="grant-starts"
                   type="datetime-local"
                   name="startsAt"
+                  aria-describedby="grant-utc-hint"
                   class={field}
-                /></label
-              >
-              <label class="block text-sm"
-                >{t("grants.expires-input", "Expires at (UTC, optional)")}<input
+                />
+              </div>
+              <div class="text-sm">
+                <label for="grant-expires"
+                  >{t("grants.expires-input", "Expires at (UTC, optional)")}</label
+                ><input
+                  id="grant-expires"
                   type="datetime-local"
                   name="expiresAt"
+                  aria-describedby="grant-utc-hint"
                   class={field}
-                /></label
+                />
+              </div>
+              <p
+                id="grant-utc-hint"
+                class="text-sm text-zinc-600 dark:text-zinc-300"
               >
+                {t(
+                  "grants.utc-hint",
+                  "Enter times in UTC, not your local time zone.",
+                )}
+              </p>
               <label class="block text-sm"
                 >{t("grants.max-input", "Maximum uses (optional)")}<input
                   type="number"
@@ -617,7 +701,12 @@
                 >
                   {feedback}
                 </p>{/if}
-              {#if localFailure}<p role="alert">{localFailure}</p>{/if}
+              {#if localFailure}<p
+                  role="alert"
+                  class="text-sm text-red-800 dark:text-red-200"
+                >
+                  {localFailure}
+                </p>{/if}
               {#if reading}<p role="status">
                   {t("grants.refreshing", "Refreshing grants…")}
                 </p>{/if}
@@ -629,6 +718,11 @@
                     "grants.refresh-failed",
                     "Grant created, but the list could not refresh. Use Refresh to load the latest grants.",
                   )}
+                  <a
+                    class="inline-flex min-h-11 items-center text-indigo-600 dark:text-indigo-300"
+                    href={href(data.offset)}
+                    data-sveltekit-reload>{t("grants.refresh", "Refresh")}</a
+                  >
                 </p>{/if}
               <p class="text-sm text-zinc-600 dark:text-zinc-300">
                 {t(
@@ -636,7 +730,16 @@
                   "A new grant needs a signature to take effect. Creating it does not activate it.",
                 )}
               </p>
+              {#if missingChoices.length}<p
+                  id="grant-create-needs"
+                  class="text-sm text-zinc-600 dark:text-zinc-300"
+                >
+                  {t("grants.create-needs", "To create a grant, choose: {what}.", {
+                    what: missingChoices.join(", "),
+                  })}
+                </p>{/if}
               {#if chosenAction && grantableAction(chosenAction)}<button
+                aria-describedby={missingChoices.length ? "grant-create-needs" : undefined}
                 disabled={chosenAction.parameters.some((p) => !Object.hasOwn(parameterNodes, p.name)) || creating || reading || rowWrites > 0}
                 class="min-h-11 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
                 >{t("grants.create", "Create")}</button
