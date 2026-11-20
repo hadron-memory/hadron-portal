@@ -1146,11 +1146,13 @@
   function retryRoster() {
     if (teamRoster?.kind === 'failed') startRosterFetch(app.id, { supersedeData: true });
   }
-  // Sign in from the signed-out roster notice. The way back is the address bar AT THE CLICK, not at render:
-  // Kit's shallow replaceState moves the bar without re-rendering (portal#2294), and reading
-  // window.location in the template made the link a render-time read (portal#2310). The plain
-  // href is the fallback if the click handler never runs.
-  function signInClick(e: MouseEvent) {
+  // Sign in from the signed-out roster notice. The way back is the address bar AT THE MOMENT OF USE, not at
+  // render: Kit's shallow replaceState moves the bar without re-rendering (portal#2294), and reading
+  // window.location in the template made the link a render-time read (portal#2310). The href is set
+  // on every gesture that can precede opening or copying it (hover, focus, press, middle click,
+  // context menu, click), so a new tab or a copied link carries the return path too; the plain href is
+  // only the fallback for a gesture none of them sees.
+  function signInHref(e: Event) {
     (e.currentTarget as HTMLAnchorElement).href = `/signin?redirect=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`;
   }
   // Teardown: end the request and make its late answer stale, so nothing
@@ -3438,7 +3440,7 @@
         {:else if teamRoster?.kind === 'signedOut'}
           <div class="flex items-center gap-2 text-xs text-zinc-500">
             <p role="status">{t('app.staff.roster.signed-out', 'Your session has ended, so task and pause state could not be loaded.')}</p>
-            <a href="/signin" onclick={signInClick} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.staff.roster.sign-in', 'Sign in')}</a>
+            <a href="/signin" onpointerenter={signInHref} onfocus={signInHref} onpointerdown={signInHref} oncontextmenu={signInHref} onauxclick={signInHref} onclick={signInHref} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.staff.roster.sign-in', 'Sign in')}</a>
           </div>
         {:else if teamRoster?.kind === 'hidden'}
           <p role="status" class="text-xs text-zinc-500">{t('app.staff.roster.hidden', 'Task and pause state are not shown to you.')}</p>

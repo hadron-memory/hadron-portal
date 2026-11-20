@@ -387,6 +387,15 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
     link!.addEventListener('click', (e) => e.preventDefault());
     (link as HTMLElement).click();
     expect(link!.getAttribute('href')).toBe(`/signin?redirect=${encodeURIComponent('/app/apps/a1?tab=staff&view=later')}`);
+    // Not only a click: a new tab (middle click), a copied link (context menu) and a keyboard or
+    // pointer approach all precede use without a click, so each refreshes the href too (blind P3 on #2333).
+    for (const [gesture, init] of [['pointerenter', {}], ['focus', {}], ['pointerdown', {}], ['contextmenu', {}], ['auxclick', { button: 1 }]] as const) {
+      const bar = `/app/apps/a1?tab=staff&via=${gesture}`;
+      window.history.replaceState({}, '', bar);
+      link!.setAttribute('href', '/signin');
+      link!.dispatchEvent(new (gesture === 'focus' ? FocusEvent : MouseEvent)(gesture, { bubbles: gesture !== 'pointerenter' && gesture !== 'focus', ...init }));
+      expect(link!.getAttribute('href'), gesture).toBe(`/signin?redirect=${encodeURIComponent(bar)}`);
+    }
     expect(panel.textContent).not.toContain('Task and pause state could not be loaded');
     // A lapsed session is not retryable: no Try again, and the link sits outside the status text.
     expect(retryButton(panel)).toBeUndefined();
