@@ -2436,6 +2436,10 @@
   onDestroy(() => clearTimeout(keyIdCopyTimer));
   async function copyKeyId(id: string) {
     const seq = ++keyIdCopySeq;
+    // A new request retires the previous answer at once: the sequence key would
+    // otherwise remount the old message while this write is still pending.
+    keyIdCopyStatus = null;
+    clearTimeout(keyIdCopyTimer);
     const ok = await copyText(id);
     if (seq !== keyIdCopySeq) return;
     keyIdCopyStatus = ok ? 'copied' : 'failed';

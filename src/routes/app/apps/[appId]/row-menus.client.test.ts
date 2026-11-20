@@ -306,6 +306,25 @@ describe('App Keys tab row ⋯ menu (#1020)', () => {
     expect(second).not.toBe(first);
   });
 
+  it('a new Copy ID click retires the previous answer while its own write is pending', async () => {
+    const pending: Array<{ resolve: () => void; reject: (e: Error) => void }> = [];
+    const writeText = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(() => new Promise<void>((resolve, reject) => pending.push({ resolve, reject })));
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const target = await mountTab('keys');
+    pickCopyId(target);
+    await tick(8);
+    expect(keyCopyStatus(target)!.textContent).toContain('Key ID copied');
+    pickCopyId(target); // second write stays pending
+    await tick(8);
+    expect(keyCopyStatus(target)!.textContent?.trim()).toBe('');
+    pending[0].reject(new Error('denied'));
+    await tick(8);
+    expect(keyCopyStatus(target)!.textContent).toContain('Couldn’t copy the key ID');
+    expect(keyCopyStatus(target)!.textContent).not.toContain('Key ID copied');
+  });
+
   it('the Copy ID message clears itself', async () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
     const target = await mountTab('keys');
