@@ -1,10 +1,15 @@
 /**
  * portal#2099 — no Tester endpoint left out of the manager gate.
  *
- * Every route module that can start or run a chat (references
- * START_CHAT_MUTATION, resolveChatAi or runChatTurn) under src/routes/api/agent-chat/, plus
- * the Tester page load, must either import `requireTesterAgent` or be on the
- * named allowlist of production chat endpoints. A new unlisted consumer fails.
+ * Every route module under src/routes/api/agent-chat/, plus the Tester page
+ * load, that DIRECTLY references the chat symbols (START_CHAT_MUTATION,
+ * resolveChatAi or runChatTurn) must either call `requireTesterAgent(` or be on
+ * the named allowlist of production chat endpoints. A new unlisted consumer
+ * fails.
+ *
+ * Limits: the scan is textual, so it cannot see a route that starts a chat
+ * through a wrapper module that holds those symbols. Paths resolve against
+ * `process.cwd()`, so run it from the repository root (as `pnpm test` does).
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -37,7 +42,8 @@ const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').repl
 const callsGate = (file: string) => /\brequireTesterAgent\(/.test(stripComments(readFileSync(join(ROOT, file), 'utf8')));
 
 describe('every Tester chat consumer goes through requireTesterAgent', () => {
-  const consumers = chatConsumers([...walk(API), PAGE].filter((f) => !f.endsWith('.test.ts')));
+  // The page never names the chat symbols, so the detector would drop it: keep it in the set explicitly.
+  const consumers = [...new Set([...chatConsumers(walk(API).filter((f) => !f.endsWith('.test.ts'))), PAGE])];
   const rel = (p: string) => relative(ROOT, p);
 
   it('finds the known consumers (the scan is not vacuous)', () => {
@@ -55,6 +61,11 @@ describe('every Tester chat consumer goes through requireTesterAgent', () => {
       expect(consumers.map(rel)).toContain(f);
       expect(callsGate(f)).toBe(false);
     }
+  });
+
+  it('the Tester page is in the consumer set and calls requireTesterAgent(', () => {
+    expect(consumers.map(rel)).toContain(rel(PAGE));
+    expect(callsGate(rel(PAGE))).toBe(true);
   });
 
   it('the fixtures endpoints, which only touch the system memory, are gated too', () => {

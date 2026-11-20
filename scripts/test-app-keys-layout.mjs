@@ -14,12 +14,15 @@
 //
 // Setup: pnpm exec playwright install chromium
 // Run:   pnpm test:app-keys-layout
-// Knobs: KEYS_WIDTH=<px> (one width), KEYS_SHOTS=<dir> (screenshots),
+// Knobs: KEYS_WIDTH=<px> (one calibrated width), KEYS_SHOTS=<dir> (screenshots),
 //        KEYS_MUTANT=<name> (apply one source mutant; the run must FAIL).
+// Exit codes: 0 pass; 1 an assertion failed (with a mutant: it was KILLED, the
+// wanted result); 2 a mutant SURVIVED; 3 the run itself is unsound (bad knob,
+// a mutant that did not apply, the page reloaded under a leg), so no verdict.
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { createServer, createLogger } from 'vite';
+import { createServer } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
 import { chromium } from 'playwright';
@@ -31,50 +34,53 @@ const MUTANTS = {
   // the input top-pinned in the shared row (the 44px button is the row's
   // tallest item, so the BUTTON's own self-start/stretch is equivalent to
   // self-center and is not a mutant: the input's alignment is what centers)
-  'input-start': [/@sm:self-center @sm:col-start-1 @sm:row-start-2/, '@sm:self-start @sm:col-start-1 @sm:row-start-2'],
+  'input-start': [[/@sm:self-center @sm:col-start-1 @sm:row-start-2/, '@sm:self-start @sm:col-start-1 @sm:row-start-2']],
   // the button lands on the label row, not the input row
-  'button-row': [/@sm:col-start-2 @sm:row-start-2/, '@sm:col-start-2 @sm:row-start-1'],
+  'button-row': [[/@sm:col-start-2 @sm:row-start-2/, '@sm:col-start-2 @sm:row-start-1']],
   // the old 42rem cap back around the table
-  'table-capped': [/<section data-testid="app-keys-section">/, '<section data-testid="app-keys-section" class="max-w-2xl">'],
-  // "fit" by hiding the overflow instead of scrolling it
-  'hidden-overflow': [/<section data-testid="app-keys-section">/, '<section data-testid="app-keys-section" class="[&_[data-testid=data-table-scroller]]:!overflow-hidden">'],
+  'table-capped': [[/<section data-testid="app-keys-section">/, '<section data-testid="app-keys-section" class="max-w-2xl">']],
+  // "fit" by hiding the overflow instead of scrolling it (Tailwind v4 suffix
+  // form; 4.2.1 compiles the prefix form too, so this is spelling only)
+  'hidden-overflow': [[/<section data-testid="app-keys-section">/, '<section data-testid="app-keys-section" class="[&_[data-testid=data-table-scroller]]:overflow-hidden!">']],
   // never stack: the inline row is forced at every width
-  'no-stack': [/grid grid-cols-1 gap-x-2 @sm:/, 'grid grid-cols-[minmax(200px,1fr)_auto] gap-x-2 @sm:'],
+  'no-stack': [[/grid max-w-md grid-cols-1 gap-x-2 @sm:/, 'grid max-w-md grid-cols-[minmax(200px,1fr)_auto] gap-x-2 @sm:']],
+  // the preview back to the #2137 state: a narrow column, and the value free to
+  // break mid-token instead of staying on one line
+  'preview-wrap': [
+    [/(header: t\('app\.keys\.column\.preview', 'Preview'\),\s*size: )\d+/, (_, head) => `${head}70`],
+    [/block truncate font-mono text-xs text-zinc-500/g, 'block break-all font-mono text-xs text-zinc-500'],
+  ],
   // portal#1487: the grant dialog loses its viewport clamp — wider than a
   // phone screen, so the within-viewport check must catch it
-  'dialog-unclamped': [/w-\[calc\(100%-2rem\)\]/, 'w-[40rem]'],
+  'dialog-unclamped': [[/w-\[calc\(100%-2rem\)\]/, 'w-[40rem]']],
   // portal#1487 review: the teardown no longer restores focus to the ⋯
   // trigger, so close drops focus to <body> — the Cancel/Escape/keyboard
   // legs must catch it. (The patterns match the COMPILED module the plugin
   // sees — the Svelte compiler flattens if/else to one line — so they stay
   // whitespace- and quote-tolerant; a non-match aborts the run below.)
-  'no-focus-restore': [/if \(grantScopeTriggerEl && grantScopeTriggerEl\.isConnected\) grantScopeTriggerEl\.focus\(\);\s*else document\.getElementById\(['"]panel-keys['"]\)\?\.focus\(\);/, ''],
+  'no-focus-restore': [[/if \(grantScopeTriggerEl && grantScopeTriggerEl\.isConnected\) grantScopeTriggerEl\.focus\(\);\s*else document\.getElementById\(['"]panel-keys['"]\)\?\.focus\(\);/, '']],
   // portal#1487 review: the fallback landing spot is gone, so a close whose
   // captured trigger is detached (the success path re-renders the rows)
   // drops focus to <body> — the detached-trigger leg must catch it
-  'no-focus-fallback': [/\s*else document\.getElementById\(['"]panel-keys['"]\)\?\.focus\(\);/, ''],
+  'no-focus-fallback': [[/\s*else document\.getElementById\(['"]panel-keys['"]\)\?\.focus\(\);/, '']],
 };
 const mutantName = process.env.KEYS_MUTANT ?? null;
-if (mutantName && !MUTANTS[mutantName]) throw new Error(`KEYS_MUTANT must be one of ${Object.keys(MUTANTS).join(', ')}`);
+// An unsound run (bad knob, mutant that did not apply, page reloaded under a
+// leg) is not a verdict: it exits 3, never the 1 a killed mutant or a failed
+// assertion gives, so a harness fault can't pass for a mutant being caught.
+const UNSOUND = 3;
+const unsound = (msg) => { console.error(`UNSOUND: ${msg}`); process.exit(UNSOUND); };
+if (mutantName && !MUTANTS[mutantName]) unsound(`KEYS_MUTANT must be one of ${Object.keys(MUTANTS).join(', ')}`);
 let mutantApplied = false;
+let mutantFailure = null;
 const PAGE = /\/routes\/app\/apps\/\[appId\]\/\+page\.svelte$/;
 
 const stub = (name) => resolve('src/lib/test/stubs', name);
-// A late dependency re-optimization reloads the page under a mounted
-// component; measurements taken across it mean nothing. Fail loudly instead.
-const lateOptimizations = [];
-const logger = createLogger();
-const info = logger.info.bind(logger);
-logger.info = (msg, opts) => {
-  if (/new dependencies optimized|optimized dependencies changed/.test(msg)) lateOptimizations.push(msg.trim());
-  info(msg, opts);
-};
 // No SvelteKit plugin: it would resolve `$app/*` to the real runtime ahead of
 // these aliases, and the page then talks to a kit client that isn't there.
 // This is the client test lane's environment (vitest.config.ts), plus Tailwind.
 const server = await createServer({
   configFile: false,
-  customLogger: logger,
   // Own pre-bundle cache, so this run never invalidates the dev server's.
   cacheDir: 'node_modules/.vite-app-keys-layout',
   // Superforms imports `$app/*` itself; pre-bundling would resolve those
@@ -103,19 +109,33 @@ const server = await createServer({
     enforce: 'pre',
     transform(code, id) {
       if (!mutantName || !PAGE.test(id.split('?')[0])) return null;
-      const [from, to] = MUTANTS[mutantName];
-      if (!from.test(code)) throw new Error(`mutant ${mutantName} did not apply`);
+      let out = code;
+      for (const [from, to] of MUTANTS[mutantName]) {
+        if (!from.test(out)) { mutantFailure = `mutant ${mutantName} did not apply: ${from}`; throw new Error(mutantFailure); }
+        out = out.replace(from, to);
+      }
       mutantApplied = true;
-      return code.replace(from, to);
+      return out;
     },
   }],
 });
 
-const WIDTHS = process.env.KEYS_WIDTH ? [Number(process.env.KEYS_WIDTH)] : [320, 390, 768, 1024, 1440];
-// Widths at which the gate requires the inline row (button centered on input).
+// The calibrated widths. INLINE_AT is the subset where the gate requires the
+// inline row (button centered on input); a width outside CALIBRATED has no
+// stacked/inline expectation, so it is refused rather than half-checked.
+const CALIBRATED = [320, 390, 768, 1024, 1440];
 const INLINE_AT = new Set([768, 1024, 1440]);
+if (process.env.KEYS_WIDTH && !CALIBRATED.includes(Number(process.env.KEYS_WIDTH))) {
+  await server.close();
+  unsound(`KEYS_WIDTH must be one of ${CALIBRATED.join(', ')}, got ${process.env.KEYS_WIDTH}`);
+}
+const WIDTHS = process.env.KEYS_WIDTH ? [Number(process.env.KEYS_WIDTH)] : CALIBRATED;
 const STATES = ['default', 'error', 'generating'];
-const PREVIEWS = ['hdr_app_3f…9c', 'hdr_app_a1…07', 'hdr_app_5e…d2'];
+// The Scopes read's three answers, one leg each at one width: `ok` is every
+// other leg, so these two prove the column and the failed note are absent.
+const SCOPES_LEGS = ['hidden', 'failed'];
+// The previews live once, in the harness; the page reads them back from there.
+let PREVIEWS;
 const failures = [];
 
 function geometry() {
@@ -127,7 +147,19 @@ function geometry() {
   const error = form.querySelector('[role="alert"]');
   const scroller = panel.querySelector('[data-testid="data-table-scroller"]');
   const doc = document.scrollingElement;
+  // The Keys prose's own cap (the wrapper around the create row), the width a
+  // note meant to read like the other prose must stay inside.
+  const prose = form.closest('.max-w-2xl');
+  const note = [...panel.querySelectorAll('p[role="status"]')].find((p) => p.textContent.includes('what these keys may do'));
+  // Preview cells: one line box each, and the whole value showing.
+  const col = [...panel.querySelectorAll('thead th')].findIndex((th) => th.textContent.trim().startsWith('Preview'));
+  const previewCells = [...panel.querySelectorAll('tbody tr')].map((tr) => tr.children[col]?.querySelector('span.font-mono'));
+  const lineHeight = (el) => parseFloat(getComputedStyle(el).lineHeight);
   return {
+    proseWidth: prose ? prose.getBoundingClientRect().width : null,
+    note: note ? r(note) : null,
+    scopesColumn: [...panel.querySelectorAll('thead th')].some((th) => th.textContent.trim().startsWith('Scopes')),
+    previewLines: previewCells.map((el) => (el ? { lines: Math.round(el.getBoundingClientRect().height / lineHeight(el)), clipped: el.scrollWidth > el.clientWidth } : null)),
     panel: r(panel), panelContent: panel.clientWidth, form: r(form), input: r(input), button: r(button),
     error: error ? r(error) : null, scroller: r(scroller),
     scrollerClient: scroller.clientWidth, scrollerScroll: scroller.scrollWidth,
@@ -135,6 +167,9 @@ function geometry() {
     pageOverflow: doc.scrollWidth - doc.clientWidth,
     buttonText: button.textContent.trim(), buttonDisabled: button.disabled,
     buttonBg: getComputedStyle(button).backgroundColor,
+    // Computed colours come back as oklch(); a 1x1 canvas resolves any of them to sRGB.
+    buttonRgb: [getComputedStyle(button).color, getComputedStyle(button).backgroundColor].map((c) => { const x = document.createElement('canvas').getContext('2d'); x.fillStyle = c; x.fillRect(0, 0, 1, 1); return [...x.getImageData(0, 0, 1, 1).data].slice(0, 3); }),
+    buttonOpacity: getComputedStyle(button).opacity,
     coarse: matchMedia('(pointer: coarse)').matches,
   };
 }
@@ -163,10 +198,18 @@ async function settle(page) {
   });
 }
 
-async function open(browser, origin, css, { width, dark, state, savedView }) {
+async function open(browser, origin, css, { width, dark, state, savedView, scopes }) {
   const phone = width < 640;
   const page = await browser.newPage({ viewport: { width, height: 1000 }, hasTouch: phone, isMobile: false });
   const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  // A reload under a mounted component (Vite re-optimizing a dependency it met
+  // late) throws the mount away and makes every measurement after it mean
+  // nothing. Count main-frame navigations: the one goto below is the only one a
+  // leg may have. This does not depend on what Vite chooses to log.
+  page.navigations = 0;
+  page.leg = `${width}/${dark ? 'dark' : 'light'}/${state}${scopes ? `/scopes-${scopes}` : ''}${savedView ? '/saved-view' : ''}`;
+  opened.push(page);
+  page.on('framenavigated', (f) => { if (f === page.mainFrame()) page.navigations += 1; });
   if (process.env.KEYS_DEBUG) page.on('console', (m) => console.log('console:', m.type(), m.text()));
   await page.route('**/__keys_fixture', (r) => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>App keys fixture</title>' }));
   // The page's own background reads (fetch/XHR only; module requests pass through).
@@ -188,10 +231,10 @@ async function open(browser, origin, css, { width, dark, state, savedView }) {
       + '<aside class="sticky top-8 self-start w-48 shrink-0 flex-col hidden sm:flex" style="height: 600px"><nav class="text-sm">Sidebar</nav></aside>'
       + '<div class="min-w-0 flex-1" id="fixture"></div></div></main>';
   }, { css, dark, savedView });
-  await page.evaluate(async (state) => {
+  await page.evaluate(async ({ state, scopes }) => {
     const h = await import('/src/lib/test/fixtures/app-keys-layout-harness.ts');
-    window.stopKeys = await h.mountAppKeys(document.getElementById('fixture'), { error: state === 'error' });
-  }, state);
+    window.stopKeys = await h.mountAppKeys(document.getElementById('fixture'), { error: state === 'error', ...(scopes ? { scopes } : {}) });
+  }, { state, scopes });
   await page.locator('#panel-keys tbody tr').first().waitFor();
   if (state === 'generating') {
     await page.evaluate(async () => {
@@ -204,13 +247,32 @@ async function open(browser, origin, css, { width, dark, state, savedView }) {
   return { page, errors };
 }
 
+// WCAG contrast of two opaque [r, g, b] colours.
+const luminance = (rgb) => { const [r, g, b] = rgb.map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+const contrast = (a, b) => { const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05); };
 const near = (a, b, tol = 1) => Math.abs(a - b) <= tol;
+// Each reload of a leg's page is an unsound run (see open()), kept apart from
+// the assertion failures so it can exit 3 and be reported first.
+// Every page is checked once, at the end, so a leg that threw is checked too.
+const opened = [];
 let browser;
+let thrown = null;
 try {
   await server.listen();
   const origin = server.resolvedUrls.local[0];
   const css = await (await fetch(new URL('src/app.css?direct', origin))).text();
   browser = await chromium.launch({ headless: true });
+  {
+    const probe = await browser.newPage();
+    probe.navigations = 0;
+    probe.leg = 'probe';
+    opened.push(probe);
+    probe.on('framenavigated', (f) => { if (f === probe.mainFrame()) probe.navigations += 1; });
+    await probe.route('**/__keys_fixture', (r) => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>App keys fixture</title>' }));
+    await probe.goto(new URL('/__keys_fixture', origin).href);
+    PREVIEWS = await probe.evaluate(async () => (await import('/src/lib/test/fixtures/app-keys-layout-harness.ts')).PREVIEWS);
+    await probe.close();
+  }
   if (process.env.KEYS_SHOTS) await mkdir(process.env.KEYS_SHOTS, { recursive: true });
 
   for (const width of WIDTHS) for (const dark of [false, true]) for (const state of STATES) {
@@ -250,9 +312,19 @@ try {
       }
       if (width <= 390) check(!inline, 'create row did not stack at a phone width');
 
-      // States keep their label, accent fill and disabled behavior.
-      check(g.buttonBg === 'rgb(251, 133, 0)', `button fill ${g.buttonBg}`);
+      // States keep their label, accent fill and disabled behavior. The fill is
+      // a deliberate regression pin, not derived from a token: the page sets
+      // this exact #fb8500 inline, and if it is ever re-themed this value must
+      // be changed on purpose, in the same PR, with the new colour's contrast.
+      if (state !== 'generating') check(g.buttonBg === 'rgb(251, 133, 0)', `button fill ${g.buttonBg}`);
       if (state === 'generating') check(g.buttonDisabled && g.buttonText === 'Generating...', `generating state: ${g.buttonDisabled} "${g.buttonText}"`);
+      // The disabled label stays readable: its own colours, no opacity fade (a
+      // 50% fade measured 1.97:1 in dark and 1.59:1 in light), at least 3:1.
+      if (state === 'generating') {
+        check(g.buttonOpacity === '1', `generating button is faded (opacity ${g.buttonOpacity})`);
+        const ratio = contrast(...g.buttonRgb);
+        check(ratio >= 3, `generating label contrast ${ratio.toFixed(2)}:1 < 3:1 (rgb(${g.buttonRgb[0]}) on rgb(${g.buttonRgb[1]}))`);
+      }
       else check(!g.buttonDisabled && g.buttonText === '+ Generate Key', `idle state: ${g.buttonDisabled} "${g.buttonText}"`);
       if (state === 'error') check(g.error !== null, 'error state rendered no alert');
 
@@ -269,8 +341,38 @@ try {
         return [...panel.querySelectorAll('tbody tr')].map((tr) => tr.children[col]?.textContent.trim());
       });
       check(JSON.stringify(previews) === JSON.stringify(PREVIEWS), `previews ${JSON.stringify(previews)}`);
+      // The preview is one line, whole, at every width: never broken mid-value
+      // and never cut by the column; a narrow screen scrolls the table instead.
+      g.previewLines.forEach((p, i) => {
+        check(p !== null, `preview ${i} cell not rendered`);
+        if (p) { check(p.lines === 1, `preview ${i} wraps onto ${p.lines} lines`); check(!p.clipped, `preview ${i} is cut by its column`); }
+      });
+      // The default leg has the Scopes column and no failed note.
+      check(g.scopesColumn, 'Scopes column missing when the scopes read answered');
+      check(g.note === null, 'failed note shown although the scopes read answered');
       check(errors.length === 0, `page errors: ${errors.join(' | ')}`);
       if (process.env.KEYS_SHOTS) await page.screenshot({ path: `${process.env.KEYS_SHOTS}/keys-${width}-${dark ? 'dark' : 'light'}-${state}.png`, fullPage: true });
+    } finally { await page.close(); }
+  }
+
+  // The scopes read's other two answers: no Scopes column either way, and only
+  // a failed read says so, in a note that keeps the prose column's width.
+  for (const width of WIDTHS) for (const dark of [false, true]) for (const scopes of SCOPES_LEGS) {
+    const leg = `${width}/${dark ? 'dark' : 'light'}/scopes-${scopes}`;
+    const { page, errors } = await open(browser, origin, css, { width, dark, state: 'default', scopes });
+    try {
+      const g = await page.evaluate(geometry);
+      const check = (ok, msg) => { if (!ok) failures.push(`${leg}: ${msg}`); };
+      check(!g.scopesColumn, 'Scopes column shown without a scopes answer');
+      if (scopes === 'failed') {
+        check(g.note !== null, 'failed read rendered no note');
+        if (g.note) {
+          check(g.note.width <= g.proseWidth + 1, `failed note ${g.note.width.toFixed(1)}px is wider than the prose column ${g.proseWidth}px`);
+          check(g.note.right <= g.panel.right + 0.5, 'failed note is clipped by the panel');
+        }
+      } else check(g.note === null, 'a viewer who may not see scopes got a failed note');
+      check(g.pageOverflow <= 0, `page overflows horizontally by ${g.pageOverflow}px`);
+      check(errors.length === 0, `page errors: ${errors.join(' | ')}`);
     } finally { await page.close(); }
   }
 
@@ -427,7 +529,7 @@ try {
 
   // List chrome still works on the widened table (once, at desktop).
   if (WIDTHS.includes(1440)) {
-    const { page } = await open(browser, origin, css, { width: 1440, dark: false, state: 'default' });
+    const { page, errors } = await open(browser, origin, css, { width: 1440, dark: false, state: 'default' });
     try {
       const rows = () => page.locator('#panel-keys tbody tr').count();
       await page.locator('#panel-keys [data-testid="table-header-toggle"]').click();
@@ -444,6 +546,7 @@ try {
       const label = page.locator('#panel-keys th').filter({ hasText: /^Name/ });
       await label.click();
       assert.ok(['ascending', 'descending'].includes(await label.getAttribute('aria-sort')), 'Name header sorts');
+      assert.equal(errors.length, 0, `page errors: ${errors.join(' | ')}`);
     } catch (e) { failures.push(`1440/chrome: ${e.message}`); } finally { await page.close(); }
 
     // A deliberately wide saved view keeps its widths and scrolls; nothing clamps it.
@@ -459,18 +562,30 @@ try {
       if (g.pageOverflow > 0) failures.push(`1440/saved-wide: page overflows by ${g.pageOverflow}px`);
       const r = await wide.page.evaluate(reach, 'tbody tr:last-child td:last-child button');
       if (!(r.found && r.left >= -1 && r.right >= -1)) failures.push('1440/saved-wide: actions not reachable');
+      if (wide.errors.length) failures.push(`1440/saved-wide: page errors: ${wide.errors.join(' | ')}`);
     } finally { await wide.page.close(); }
   }
+} catch (e) {
+  thrown = e;
 } finally {
   await browser?.close();
   await server.close();
 }
 
-if (mutantName && !mutantApplied) throw new Error(`mutant ${mutantName} never reached the page source`);
-for (const msg of lateOptimizations) failures.push(`vite re-optimized dependencies mid-run (cold cache?): ${msg}`);
+// Soundness first: an unapplied mutant or a reload means the verdict below is
+// not about the page, and it must not look like a mutant being killed. This
+// comes before a thrown error too, since a reload is what makes a leg throw.
+const reloads = opened.filter((pg) => pg.navigations !== 1).map((pg) => `${pg.leg}: page navigated ${pg.navigations} times (expected 1)`);
+if (mutantFailure) unsound(mutantFailure);
+if (reloads.length) unsound(`the page reloaded under a leg (a dependency Vite met late? run again from a cold cache)\n  ${reloads.join('\n  ')}`);
+if (mutantName && !mutantApplied && !thrown) unsound(`mutant ${mutantName} never reached the page source`);
+// An error the harness itself threw (timeout, browser crash, a mutant that
+// does not compile) is not a verdict either: left to propagate it exits 1,
+// the code a killed mutant gives, so it would read as a kill.
+if (thrown) unsound(`harness error: ${thrown.stack ?? thrown.message ?? thrown}`);
 if (failures.length) {
   console.error(`FAIL (${failures.length})${mutantName ? ` with mutant ${mutantName}` : ''}:\n  ${failures.join('\n  ')}`);
   process.exit(1);
 }
-console.log(`PASS: app keys layout${mutantName ? ` (mutant ${mutantName} survived!)` : ''} — ${WIDTHS.length} widths × 2 themes × ${STATES.length} states + grant dialog (${WIDTHS.length} widths × 2 themes × deliver/operate/refusal)`);
+console.log(`PASS: app keys layout${mutantName ? ` (mutant ${mutantName} survived!)` : ''} — ${WIDTHS.length} widths × 2 themes × (${STATES.length} states + ${SCOPES_LEGS.length} scopes answers) + grant dialog (${WIDTHS.length} widths × 2 themes × deliver/operate/refusal)`);
 if (mutantName) process.exit(2);

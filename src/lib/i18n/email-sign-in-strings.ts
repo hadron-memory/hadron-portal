@@ -48,7 +48,7 @@ export const emailSignInStrings = {
 
   /** portal#1528: the bound fired; the send may still happen, so this never says it failed. */
   unconfirmed: (): string =>
-    t('email-sign-in.server.unconfirmed', "We couldn't confirm your sign-in link was sent. If it hasn't arrived in a minute, try again or use another sign-in method."),
+    t('email-sign-in.server.unconfirmed', "We couldn't confirm your sign-in link was sent. If it hasn't arrived in a minute, try again or use another sign-in method. If it does arrive, open it in this browser."),
   failedToSend: (): string => t('email-sign-in.server.failed', 'Failed to send email'),
   unreachable: (): string => t('email-sign-in.server.unreachable', 'Could not reach the server.'),
 };
