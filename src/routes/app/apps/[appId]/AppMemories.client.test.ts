@@ -22,8 +22,6 @@ it('a success identifies and links the created memory, and keeps the form open t
  }finally{m.unmount();}
 });
 
-// #1451 Ask 2: a user-owned App's rows come from appMemoryScope, which carries
-// no description, so the column would show a dash for a memory that has one.
 it('the create form is collapsed until asked for, and says so in its caption',async()=>{
  const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
  const m=mountComponent(AppMemoryCreate as never,{initial,result:null} as never);
@@ -45,6 +43,8 @@ it('a submission that failed validation keeps the form open on its error',async(
  }finally{m.unmount();}
 });
 
+// #1451 Ask 2: a user-owned App's rows come from appMemoryScope, which carries
+// no description, so the column would show a dash for a memory that has one.
 it.each([[true,true],[false,false]])('showDescription=%s puts the Description column in the table: %s',async(showDescription,present)=>{
  const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
  // non-null description so the present direction proves the column renders
