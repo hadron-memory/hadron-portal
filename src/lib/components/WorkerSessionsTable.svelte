@@ -81,13 +81,13 @@
      * today there is one caller, and the next one must not inherit its columns.
      */
     listKey = 'workers:sessions',
-    maxHeight = 'max(200px, calc(100vh - 30rem))',
+    bounded = false,
     onServed = undefined,
     servedId = null,
   }: {
     sessions: WorkerSession[];
     listKey?: string;
-    maxHeight?: string;
+    bounded?: boolean;
     /** portal#1665: open this session's served-prompt record. Omit it and each row shows a dash instead of a button. */
     onServed?: (sessionId: string) => void;
     /** The session whose record is open, for aria-pressed. */
@@ -249,7 +249,7 @@
 <DataTable
   {table}
   {listKey}
-  {maxHeight}
+  {bounded}
   bind:globalFilter
   searchPlaceholder={t('worker.sessions.search', 'Search worker sessions…')}
   searchAriaLabel={t('worker.sessions.search.aria', 'Search worker sessions')}

@@ -421,7 +421,6 @@
         searchPlaceholder={t('org-agents.subscribed.search.placeholder', 'Search subscriptions...')}
         searchAriaLabel={t('org-agents.subscribed.search.aria-label', 'Search subscriptions')}
         bind:globalFilter={grantsFilter}
-        maxHeight="max(200px, calc(100vh - 25rem))"
       >
         {#snippet cell(cell, grant)}
           {#if cell.column.id === 'urn'}
@@ -472,7 +471,6 @@
       searchPlaceholder={t('org-agents.search.placeholder', 'Search agents...')}
       searchAriaLabel={t('org-agents.search.aria-label', 'Search agents')}
       bind:globalFilter
-      maxHeight="max(200px, calc(100vh - 25rem))"
     >
       {#snippet cell(cell, agent)}
         {#if cell.column.id === 'name'}

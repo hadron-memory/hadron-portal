@@ -198,7 +198,7 @@
     <p role="status" class="text-sm">{t('app.tasks.dependencies.unknown', 'Blocker relations are unavailable. Reload to try again.')}</p>
   {:else}
     <div bind:this={relationTable} class="min-w-0">
-      <DataTable {table} bind:headerOpen={relationHeaderOpen} bind:globalFilter={relationFilter} listKey="task-dependencies" searchPlaceholder={t('app.tasks.dependencies.search', 'Filter loaded relations…')} searchAriaLabel={t('app.tasks.dependencies.search', 'Filter loaded relations…')} maxHeight="24rem">
+      <DataTable {table} bind:headerOpen={relationHeaderOpen} bind:globalFilter={relationFilter} listKey="task-dependencies" searchPlaceholder={t('app.tasks.dependencies.search', 'Filter loaded relations…')} searchAriaLabel={t('app.tasks.dependencies.search', 'Filter loaded relations…')} bounded>
         {#snippet cell(cell, row)}
           {#if cell.column.id === 'title'}<a href="/app/apps/{appId}/tasks/{encodeURIComponent(row.id)}" class="text-indigo-700 underline dark:text-indigo-300">{row.title}</a>
           {:else if cell.column.id === 'remove'}

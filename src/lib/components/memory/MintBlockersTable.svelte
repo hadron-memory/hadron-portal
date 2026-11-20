@@ -67,7 +67,7 @@
   {table}
   listKey="memories:mint:blockers"
   bind:globalFilter
-  maxHeight="max(160px, 40vh)"
+  bounded
   searchPlaceholder={t('memory.mint.search', 'Search blockers…')}
   searchAriaLabel={t('memory.mint.search.aria', 'Search what blocks minting')}
 >

@@ -116,7 +116,6 @@
       searchPlaceholder={t('grants.mine.search', 'Search grants')}
       searchAriaLabel={t('grants.mine.search', 'Search grants')}
       bind:globalFilter
-      maxHeight="max(200px, calc(100vh - 20rem))"
       rowAttrs={(g) => ({ 'data-testid': 'my-grant-row', 'data-grant-id': g.id })}
     >
       {#snippet cell(cell, g)}

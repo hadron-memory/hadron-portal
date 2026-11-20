@@ -273,7 +273,6 @@
       searchPlaceholder={t('app.channels.register.search', 'Search…')}
       searchAriaLabel={t('app.channels.register.search', 'Search…')}
       bind:globalFilter={attendFilter}
-      maxHeight="max(200px, calc(100vh - 30rem))"
     >
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'mode' && editingRow === row.id}

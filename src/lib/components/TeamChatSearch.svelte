@@ -195,7 +195,7 @@
   <p class="sr-only" role="status" aria-live="polite" data-testid="team-chat-search-status">{loadedMore}</p>
 
   {#if rows.length > 0}
-    <DataTable {table} listKey="app-team-chat-search" searchPlaceholder="" searchAriaLabel="" showSearch={false} maxHeight="max(200px, calc(100vh - 28rem))" rowAttrs={(r) => ({ 'data-nodeid': r.nodeId })}>
+    <DataTable {table} listKey="app-team-chat-search" searchPlaceholder="" searchAriaLabel="" showSearch={false} rowAttrs={(r) => ({ 'data-nodeid': r.nodeId })}>
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'message'}
           {#if row.body !== null}

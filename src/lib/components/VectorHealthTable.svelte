@@ -55,7 +55,7 @@
   {table}
   listKey="memory:vector-health-failed"
   bind:globalFilter
-  maxHeight="max(160px, 40vh)"
+  bounded
   searchPlaceholder={t('memory-settings.vector-health.search', 'Search failed nodes…')}
   searchAriaLabel={t('memory-settings.vector-health.search.aria', 'Search the nodes whose embedding failed')}
   rowAttrs={() => ({ 'data-testid': 'vector-health-row' })}
