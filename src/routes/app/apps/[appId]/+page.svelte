@@ -1471,6 +1471,11 @@
   }
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
+    // portal#2290: the tab you are already on is not a request to leave it. Page, status and sort are
+    // the reader's place in the list; returning before `++tabNavigation` also leaves any navigation in
+    // flight alone. Reaching Runs from another tab still opens it clean. Runs only, deliberately: Uma's
+    // decision (#2289) names the Runs tab, and Templates keeps its current behaviour.
+    if (id === 'runs' && activeTab === 'runs') return;
     let asked: string | null = null;
     if (activeTab === 'node-role-templates' && id !== activeTab && templatesLeaveMessage) {
       if (!window.confirm(templatesLeaveMessage)) return;
