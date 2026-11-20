@@ -22,7 +22,7 @@
 <script lang="ts" generics="T extends RowData">
   import type { PortalCell, PortalTable } from '$lib/table/features';
   import type { RowData } from '@tanstack/table-core';
-  import { onMount, untrack, type Snippet } from 'svelte';
+  import { untrack, type Snippet } from 'svelte';
   import ViewTabs from './ViewTabs.svelte';
   import ColumnToggle from './ColumnToggle.svelte';
   import TableFrame from './TableFrame.svelte';
@@ -116,25 +116,34 @@
     });
     if (next !== fillPx) fillPx = next;
   }
-  let observer: ResizeObserver | undefined;
-  onMount(() => {
-    measureFill();
-    // The header above can change height (a banner, wrapped filters, tabs) and the window can be
-    // resized: re-measure on either, so no page needs to guess.
-    observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measureFill);
-    observer?.observe(document.body);
-    if (footerEl) observer?.observe(footerEl);
-    window.addEventListener('resize', measureFill);
-    return () => { observer?.disconnect(); observer = undefined; window.removeEventListener('resize', measureFill); };
-  });
-  // The footer comes and goes (`showFooter`), and `bounded` can flip: measure again, and watch
-  // whichever footer is there now.
+  /** Everything laid out above the scroller that can change its top: each earlier sibling of the
+   *  scroller and of its ancestors, up to the body. A header that grows moves the scroller down
+   *  without resizing the body (already at its minimum height) or the footer, so only these see it. */
+  function elementsAbove(el: HTMLElement): HTMLElement[] {
+    const above: HTMLElement[] = [];
+    for (let node: HTMLElement | null = el; node && node !== document.body; node = node.parentElement) {
+      for (let sibling = node.previousElementSibling; sibling; sibling = sibling.previousElementSibling) {
+        if (sibling instanceof HTMLElement) above.push(sibling);
+      }
+    }
+    return above;
+  }
+  // Fill mode only: a bounded table keeps one fixed height, so it neither observes nor listens.
+  // The header above can change height (a banner, wrapped filters, tabs) and the window can be
+  // resized: re-measure on either, so no page needs to guess. The footer comes and goes
+  // (`showFooter`) and `bounded` can flip: the effect re-registers for whichever is there now.
   $effect(() => {
+    if (bounded) return;
+    const scroller = scrollerEl;
     const footer = footerEl;
-    void bounded;
-    untrack(() => {
-      if (footer) observer?.observe(footer);
+    return untrack(() => {
       measureFill();
+      const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measureFill);
+      observer?.observe(document.body);
+      if (footer) observer?.observe(footer);
+      if (scroller) for (const el of elementsAbove(scroller)) observer?.observe(el);
+      window.addEventListener('resize', measureFill);
+      return () => { observer?.disconnect(); window.removeEventListener('resize', measureFill); };
     });
   });
   const scrollerMaxHeight = $derived(bounded ? BOUNDED_MAX_HEIGHT : fillPx !== null ? `${fillPx}px` : 'max(200px, calc(100vh - 23rem))');

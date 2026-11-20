@@ -22,6 +22,7 @@
     "test:task-history-links-layout": "node scripts/test-task-history-links-layout.mjs",
     "test:boot-install-layout": "node scripts/test-boot-install-layout.mjs",
     "test:urn-compact-layout": "node scripts/test-urn-compact-layout.mjs",
+    "test:data-table-fill-layout": "node scripts/test-data-table-fill-layout.mjs",
     "test:tickers-layout": "node scripts/test-tickers-layout.mjs",
     "test:app-keys-layout": "node scripts/test-app-keys-layout.mjs",
     "test:select-node-layout": "node scripts/test-select-node-layout.mjs",

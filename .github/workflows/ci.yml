@@ -158,6 +158,11 @@ jobs:
       - name: Check compact URN keyboard and touch layout
         run: pnpm test:urn-compact-layout
 
+      # portal#2367: DataTable fill sizing and document scroll ownership in real Chromium,
+      # inside the app shell's own classes, light and dark, phone and desktop.
+      - name: Check DataTable fill layout
+        run: pnpm test:data-table-fill-layout
+
       # portal#1711: the TaskHistory link values — touch targets, wrapping and
       # overflow at 390px and 1280px, in real Chromium with compiled CSS.
       - name: Check TaskHistory link layout
