@@ -38,7 +38,15 @@ window.scenario = async ({ canWrite = true, fail = false } = {}) => {
     appId: 'app', appUrn: 'hrn:app:acme.com:team', taskId: 'task', canWrite,
     initial: { kind: 'page', page: { taskId: 'task', offset: 0, items: findings, total: 5, hasMore: false } },
   } });
-  await tick(); await new Promise(r => setTimeout(r, 150));
+  await tick();
+  // Ready when the separate dispositions read has answered (no cell still says Loading…), not after a guessed delay.
+  const start = performance.now();
+  while (performance.now() - start < 5000) {
+    const cells = [...document.querySelectorAll('[data-testid=finding-disposition]')];
+    if (cells.length && cells.every(c => !c.textContent.includes('Loading'))) return;
+    await new Promise(r => requestAnimationFrame(r));
+  }
+  throw new Error('dispositions never settled');
 };
 await window.scenario();
 window.fixtureReady = true;
@@ -76,6 +84,7 @@ try {
     const ctx = `${width}px ${dark ? 'dark' : 'light'}`;
     assert.equal(await page.locator('[data-testid=finding-disposition]').count(), 5, `five disposition cells (${ctx})`);
     const text = await page.locator('[data-testid=finding-disposition]').allTextContents();
+    assert.ok(text[0].includes('Pull request:'), `reference kind is separated from its label (${ctx}): ${text[0]}`);
     assert.ok(text[0].includes('Fixed') && text[1].includes('Accepted') && text[2].includes('Deferred') && text[3].includes('Rejected') && text[4].includes('Not yet'), `all four codes and Not yet (${ctx}): ${text}`);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `document overflow (${ctx})`);
     // The write control is the first column: on screen without scrolling the table.
@@ -96,6 +105,11 @@ try {
       const r = await b.boundingBox();
       if (r) assert.ok(r.x >= 0 && r.x + r.width <= width, `form button on screen (${ctx}): ${JSON.stringify(r)}`);
     }
+    // portal#2121: the finding's own text sits under the question, on screen, so it is not scrolled away at 390px.
+    const quoted = form.locator('[data-testid=disposition-finding-text]');
+    assert.equal((await quoted.textContent()).trim(), 'Not decided yet.', `finding text repeated in the form (${ctx})`);
+    const q = await quoted.boundingBox();
+    assert.ok(q && q.x >= 0 && q.x + q.width <= width && q.y >= 0 && q.y < 1100, `finding text on screen (${ctx}): ${JSON.stringify(q)}`);
     await shot('form', width, dark);
     await page.keyboard.press('Tab');
     assert.ok(await form.evaluate(el => el.contains(document.activeElement)), `Tab stays inside the form (${ctx})`);
