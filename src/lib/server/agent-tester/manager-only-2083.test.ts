@@ -323,6 +323,17 @@ describe('Tester page load', () => {
       expect(logged).not.toContain('no code');
     });
 
+    it('never logs a sensitive Error.name: a fixed label instead', async () => {
+      const bad = Object.assign(new Error('INJECTED-SECRET-MESSAGE'), { name: 'INJECTED-SECRET-NAME' });
+      const logged = await failWith(bad);
+      expect(logged).not.toContain('INJECTED-SECRET');
+      expect(logged).toContain('Error');
+      const sub = Object.assign(new TypeError('INJECTED-SECRET-MESSAGE'), { name: 'INJECTED-SECRET-NAME' });
+      const loggedSub = await failWith(sub);
+      expect(loggedSub).toContain('TypeError');
+      expect(loggedSub).not.toContain('INJECTED-SECRET');
+    });
+
     it('still logs the GraphQL error code', async () => {
       const gql = Object.assign(new Error('INJECTED-SECRET-REQUEST-BODY'), {
         response: { errors: [{ message: 'INJECTED-SECRET-REQUEST-BODY', extensions: { code: 'FORBIDDEN' } }] },

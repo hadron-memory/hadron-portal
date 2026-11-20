@@ -14,6 +14,19 @@ import { CREDENTIAL_UNAVAILABLE, hasRuntimeCredential } from '$lib/server/llm/ch
 import { drainFindNodes } from '$lib/server/paginate';
 import { t } from '$lib/i18n/t';
 
+const KNOWN_ERROR_CLASSES = ['TypeError', 'RangeError', 'SyntaxError', 'ReferenceError', 'EvalError', 'URIError', 'AggregateError'];
+
+/**
+ * A fixed label for a failure that carries no server code (portal#2106 row 5).
+ * `Error.name` is a writable string an upstream wrapper may fill with request
+ * details, so it is never logged: the class comes from the prototype chain's
+ * built-in constructors, and anything else is plain 'Error' (or 'non-Error').
+ */
+function errorClassLabel(e: unknown): string {
+  if (!(e instanceof Error)) return 'non-Error';
+  return KNOWN_ERROR_CLASSES.find((c) => e instanceof ((globalThis as Record<string, unknown>)[c] as new () => Error)) ?? 'Error';
+}
+
 // Spec 019 — Agent Chat Tester. Organization agents come from the caller's
 // organizations; user-owned agents come from the server's ownedByMe scope.
 // Neither list includes an unrelated private agent, so misses share one 404.
@@ -24,9 +37,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   // server's own `startChat` refusal stays authoritative.
   const resolved = await requireTesterAgent(client, locals.user?.id, params.id).catch((e: unknown) => {
     // An HttpError below skips handleError's log, so keep the diagnosis: the
-    // server's error code, or the error's class name when it has none; never its
-    // message (graphql-request packs the request into it).
-    console.error('[agent-tester] lookup failed:', extractGqlErrorCode(e) ?? (e instanceof Error ? e.name : typeof e));
+    // server's error code, or a fixed class label when it has none; never its
+    // message or `name` (graphql-request packs the request into it).
+    console.error('[agent-tester] lookup failed:', extractGqlErrorCode(e) ?? errorClassLabel(e));
     throw error(500, t('agent-tester.load-failed', 'The Agent Tester could not be loaded. Please try again.'));
   });
   if (!resolved) throw error(404, 'Agent not found or no longer available');

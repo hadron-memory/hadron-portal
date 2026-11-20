@@ -30,12 +30,19 @@ describe('asTesterManager', () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it('intercepts the organization list only when visibleAgentIds is non-empty', async () => {
+  it('passes the organization list through when visibleAgentIds is empty', async () => {
     const request = vi.fn().mockResolvedValue('passed through');
     expect(await asTesterManager(request)(ORGANIZATIONS_QUERY, { v: 1 })).toBe('passed through');
+    expect(await asTesterManager(request, { visibleAgentIds: [] })(ORGANIZATIONS_QUERY, { v: 2 })).toBe('passed through');
+    expect(request).toHaveBeenCalledTimes(2);
     expect(request).toHaveBeenCalledWith(ORGANIZATIONS_QUERY, { v: 1 });
+  });
+
+  it('intercepts the organization list, without delegating, when visibleAgentIds is non-empty', async () => {
+    const request = vi.fn();
     const res = (await asTesterManager(request, { visibleAgentIds: ['a1'] })(ORGANIZATIONS_QUERY)) as { organizations: { items: Array<{ agents: Array<{ id: string }> }> } };
     expect(res.organizations.items[0].agents.map((a) => a.id)).toEqual(['a1']);
+    expect(request).not.toHaveBeenCalled();
   });
 
   it('passes every other query through with its variables', async () => {
