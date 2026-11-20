@@ -1794,13 +1794,18 @@
 
   // The key the dialog is open for; null means closed. Opening RESETS the
   // form for the chosen key, so a refusal from an earlier attempt never
-  // reads as this one's answer.
+  // reads as this one's answer. The ⋯ trigger that opened it is stored
+  // BESIDE the key (#1487 review): the dialog's teardown owes that trigger
+  // its focus back, and an explicit capture cannot drift with the menu's
+  // own focus order the way reading document.activeElement would.
   let grantScopeKey = $state<AppKey | null>(null);
-  function openGrantScope(key: AppKey) {
+  let grantScopeTriggerEl: HTMLButtonElement | null = null;
+  function openGrantScope(key: AppKey, trigger?: HTMLButtonElement) {
     if ($grantKeyScopeSubmitting) return;
     grantKeyScopeForm.update(() => ({ _kind: 'grantKeyScope', keyId: key.id, scope: 'attention:deliver' as const, hostId: '' }), { taint: false });
     grantKeyScopeErrors.set({});
     grantKeyScopeMessage.set(undefined);
+    grantScopeTriggerEl = trigger ?? null;
     grantScopeKey = key;
   }
   function closeGrantScope() {
@@ -1810,19 +1815,19 @@
   // showModal gives the dialog the top layer and focus containment. Focus
   // RESTORE is the action's own job: the {#if} below unmounts the node on
   // every close path BEFORE destroy() runs, so the browser's own close()
-  // restore finds a detached dialog and focus falls to <body> (LOCAL review
-  // F1, real Chromium). Capture the trigger before showModal() moves focus
-  // into the dialog, and refocus it on teardown if it still exists — after a
-  // cross-App fence the departed App's trigger is gone, and then focus stays
-  // wherever the browser left it.
+  // restore finds a detached dialog and focus falls to <body> (real
+  // Chromium). The captured trigger can be GONE by then — the success path
+  // invalidates the page and the table re-renders its rows, and a cross-App
+  // fence drops the departed App's dialog wholesale — so a detached (or
+  // absent) trigger lands on the Keys heading instead: never <body>.
   function grantScopeDialogAction(el: HTMLDialogElement) {
-    const restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     el.showModal();
     el.querySelector<HTMLSelectElement>('select[name="scope"]')?.focus();
     return {
       destroy() {
         if (el.open) el.close();
-        if (restoreFocus && restoreFocus.isConnected) restoreFocus.focus();
+        if (grantScopeTriggerEl && grantScopeTriggerEl.isConnected) grantScopeTriggerEl.focus();
+        else document.getElementById('app-keys-heading')?.focus();
       },
     };
   }
@@ -1839,7 +1844,10 @@
     if (app.id === grantScopeContextApp) return;
     grantScopeContextApp = app.id;
     grantScopeGeneration += 1;
-    // Discard the departed App's dialog, form fields and outcomes together.
+    // Discard the departed App's dialog, form fields, outcomes and captured
+    // trigger together (the teardown then lands on the heading, not on
+    // another App's row).
+    grantScopeTriggerEl = null;
     untrack(() => {
       grantScopeKey = null;
       grantKeyScopeForm.update(() => ({ _kind: 'grantKeyScope', keyId: '', scope: 'attention:deliver' as const, hostId: '' }), { taint: false });
@@ -3991,7 +3999,11 @@
            columns fit on a desktop instead of scrolling inside a narrow box. -->
       <section data-testid="app-keys-section">
         <div class="max-w-2xl">
-        <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">{t('app.keys.heading', 'App Keys')}</h2>
+        <!-- tabindex -1: not in the tab order — the grant dialog's teardown
+             focuses this heading when the ⋯ trigger it captured is gone (the
+             success path re-renders the rows; a cross-App fence drops the
+             dialog), so focus never falls to <body>. -->
+        <h2 id="app-keys-heading" tabindex="-1" class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">{t('app.keys.heading', 'App Keys')}</h2>
         <p class="mb-4 text-sm text-zinc-500">
           App Keys are long-lived server secrets. Store them in your backend environment —
           never in client-side code.
@@ -4075,7 +4087,7 @@
                     { id: 'grantScope', label: t('app.keys.grant.menu', 'Grant scope…') },
                     { id: 'revoke', label: t('app.keys.revoke', 'Revoke'), danger: true },
                   ]}
-                  onselect={(id) => (id === 'grantScope' ? openGrantScope(key) : revokeAppKey(key))}
+                  onselect={(id, trigger) => (id === 'grantScope' ? openGrantScope(key, trigger) : revokeAppKey(key))}
                   label={t('app.keys.actions.label', 'Actions for key {key}', { key: key.keyPreview })}
                   fixed
                   compact
@@ -4137,11 +4149,20 @@
                   <label for="grant-host" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.keys.grant.host', 'Host')}</label>
                   <!-- The refusal text renders ONCE, in the alert region below
                        (grantKeyScopeActionError folds the field errors into
-                       it); the input points AT it, per the castAgentId pattern
-                       above (aria-invalid + describedby on whichever shows). -->
+                       it), and the input points AT it — naming the standing
+                       help AND the live alert together when one shows, so the
+                       reader never loses "what a valid host is" to the error.
+                       The alert renders on exactly grantKeyScopeActionError,
+                       the same expression describedby keys on, so the id
+                       always resolves. aria-invalid covers a refusal that
+                       arrives as a form message rather than a field error
+                       (the server's own BAD_USER_INPUT on a malformed host —
+                       the client schema stops only the empty case): the host
+                       is this dialog's one free-text field, so any error
+                       showing beside it marks it invalid. -->
                   <input id="grant-host" type="text" name="hostId" bind:value={$grantKeyScopeForm.hostId}
-                    aria-invalid={!!$grantKeyScopeErrors.hostId}
-                    aria-describedby={$grantKeyScopeErrors.hostId ? 'grant-scope-error' : 'grant-host-help'}
+                    aria-invalid={!!$grantKeyScopeErrors.hostId || !!grantKeyScopeActionError}
+                    aria-describedby={grantKeyScopeActionError ? 'grant-host-help grant-scope-error' : 'grant-host-help'}
                     class={inputClass} autocomplete="off" />
                   <p id="grant-host-help" class="mt-1 text-xs text-zinc-500">{t('app.keys.grant.host-help', 'The id of the one host this key may operate. A host key reaches one host.')}</p>
                 </div>

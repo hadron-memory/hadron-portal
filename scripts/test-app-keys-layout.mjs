@@ -43,10 +43,16 @@ const MUTANTS = {
   // portal#1487: the grant dialog loses its viewport clamp — wider than a
   // phone screen, so the within-viewport check must catch it
   'dialog-unclamped': [/w-\[calc\(100%-2rem\)\]/, 'w-[40rem]'],
-  // portal#1487 LOCAL F1: the teardown no longer restores focus to the ⋯
-  // trigger, so close drops focus to <body> — the Cancel/Escape legs must
-  // catch it
-  'no-focus-restore': [/if \(restoreFocus && restoreFocus\.isConnected\) restoreFocus\.focus\(\);/, ''],
+  // portal#1487 review: the teardown no longer restores focus to the ⋯
+  // trigger, so close drops focus to <body> — the Cancel/Escape/keyboard
+  // legs must catch it. (The patterns match the COMPILED module the plugin
+  // sees — the Svelte compiler flattens if/else to one line — so they stay
+  // whitespace- and quote-tolerant; a non-match aborts the run below.)
+  'no-focus-restore': [/if \(grantScopeTriggerEl && grantScopeTriggerEl\.isConnected\) grantScopeTriggerEl\.focus\(\);\s*else document\.getElementById\(['"]app-keys-heading['"]\)\?\.focus\(\);/, ''],
+  // portal#1487 review: the fallback landing spot is gone, so a close whose
+  // captured trigger is detached (the success path re-renders the rows)
+  // drops focus to <body> — the detached-trigger leg must catch it
+  'no-focus-fallback': [/\s*else document\.getElementById\(['"]app-keys-heading['"]\)\?\.focus\(\);/, ''],
 };
 const mutantName = process.env.KEYS_MUTANT ?? null;
 if (mutantName && !MUTANTS[mutantName]) throw new Error(`KEYS_MUTANT must be one of ${Object.keys(MUTANTS).join(', ')}`);
@@ -361,12 +367,15 @@ try {
       check(refusal.overflow <= 0, `page overflows horizontally by ${refusal.overflow}px`);
       await shot('refusal');
 
-      // portal#1487 LOCAL F1 (real Chromium): every close path — the Cancel
-      // button AND Escape — restores focus to the row's ⋯ trigger, never to
-      // <body>. The {#if} unmounts the node before the action's destroy()
-      // runs, so the browser's own close() restore fails on a detached
-      // dialog; the action captures document.activeElement at showModal()
-      // and refocuses it.
+      // portal#1487 review (real Chromium): every close path — the Cancel
+      // button AND Escape, by mouse AND by keyboard — restores focus to the
+      // row's ⋯ trigger, never to <body>. The {#if} unmounts the node before
+      // the action's destroy() runs, so the browser's own close() restore
+      // fails on a detached dialog; the action captures
+      // document.activeElement at showModal() and refocuses it. (Keyboard
+      // opens ride the menu's own close order — it refocuses the trigger
+      // BEFORE calling onselect — so the captured element is the trigger
+      // there too.)
       const trigger = '#panel-keys tbody tr:last-child button[aria-label^="Actions for key"]';
       const focusAfterClose = async () => {
         await page.locator('dialog[data-testid="grant-scope-dialog"]').waitFor({ state: 'detached' });
@@ -384,6 +393,32 @@ try {
       await page.keyboard.press('Escape');
       const afterEscape = await focusAfterClose();
       check(afterEscape.onTrigger && !afterEscape.onBody, `focus after Escape is ${afterEscape.onTrigger ? 'the ⋯ trigger' : afterEscape.onBody ? '<body>' : 'elsewhere'}`);
+      // The same chain by KEYBOARD ONLY: Enter on the trigger opens the menu
+      // (it focuses its first item, Grant scope), Enter chooses it, Escape
+      // closes. If the menu's refocus-before-onselect order ever breaks,
+      // the captured element stops being the trigger and this leg goes red.
+      await page.locator(trigger).focus();
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('Enter');
+      await page.locator('dialog[open][data-testid="grant-scope-dialog"]').waitFor();
+      await page.keyboard.press('Escape');
+      const afterKeyEscape = await focusAfterClose();
+      check(afterKeyEscape.onTrigger && !afterKeyEscape.onBody, `focus after keyboard Escape is ${afterKeyEscape.onTrigger ? 'the ⋯ trigger' : afterKeyEscape.onBody ? '<body>' : 'elsewhere'}`);
+      // The success path re-renders the table rows, so the captured trigger
+      // can be gone when the dialog unmounts. Removing the row outright
+      // stands in for that: the teardown owes a landing spot — the Keys
+      // heading — never <body>.
+      await page.locator(trigger).click();
+      await page.getByRole('menuitem', { name: /Grant scope/ }).click();
+      await page.locator('dialog[open][data-testid="grant-scope-dialog"]').waitFor();
+      await page.evaluate((sel) => document.querySelector(sel)?.closest('tr')?.remove(), trigger);
+      await page.keyboard.press('Escape');
+      await page.locator('dialog[data-testid="grant-scope-dialog"]').waitFor({ state: 'detached' });
+      const fallback = await page.evaluate(() => ({
+        id: document.activeElement?.id ?? '',
+        onBody: document.activeElement === document.body || document.activeElement === null,
+      }));
+      check(fallback.id === 'app-keys-heading' && !fallback.onBody, `focus after a detached trigger is ${fallback.id ? `#${fallback.id}` : fallback.onBody ? '<body>' : 'elsewhere'}`);
       check(errors.length === 0, `page errors: ${errors.join(' | ')}`);
     } finally { await page.close(); }
   }

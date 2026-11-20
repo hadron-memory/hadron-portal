@@ -1466,13 +1466,39 @@ describe('App key scope grant dialog (portal#1487)', () => {
     // Plain label (no parenthesised instruction), helper text UNDER the field.
     const label = dialog.querySelector('label[for="grant-host"]')!;
     expect(label.textContent?.trim()).toBe('Host');
-    const help = document.getElementById('grant-host')!.nextElementSibling!;
+    const help = document.getElementById('grant-host-help')!;
     expect(help.textContent).toContain('A host key reaches one host.');
     // attention:deliver hides it again — no host argument travels for a
     // scope the server grants without one.
     await chooseScope(dialog, 'attention:deliver');
     expect(hostInput(dialog)).toBeNull();
   });
+
+  it('the host input names its help by id and goes invalid with the error (#1487 review: aria wiring)', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    const host = hostInput(dialog)!;
+    // Standing state: described-by names the help (looked up by its id, not
+    // by DOM position), the input is not invalid, and no alert is showing.
+    expect(host.getAttribute('aria-describedby')).toBe('grant-host-help');
+    expect(document.getElementById('grant-host-help')?.textContent).toContain('A host key reaches one host.');
+    expect(host.getAttribute('aria-invalid')).not.toBe('true');
+    expect(document.getElementById('grant-scope-error')).toBeNull();
+    // An empty-host submit is refused client-side: the field error marks the
+    // input invalid, described-by KEEPS the help and ADDS the alert id, and
+    // every named id resolves to a live element in the document.
+    host.value = '';
+    await submitEnhanced(grantForm(dialog), true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    flushSync(); await tick(2);
+    expect(host.getAttribute('aria-invalid')).toBe('true');
+    const describedBy = host.getAttribute('aria-describedby')!.split(/\s+/);
+    expect(describedBy).toContain('grant-host-help');
+    expect(describedBy).toContain('grant-scope-error');
+    for (const id of describedBy) expect(document.getElementById(id), `id ${id} does not resolve`).toBeTruthy();
+  });
+
 
   it('refuses an empty host in the dialog and sends nothing', async () => {
     const panel = await mountKeys();
@@ -1506,18 +1532,58 @@ describe('App key scope grant dialog (portal#1487)', () => {
     // grant (host h-1) is untouched on the tab.
     expect(document.querySelector('dialog[open]')).toBeTruthy();
     expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe(serverText);
+    // It arrived as a form message, not as errors.hostId — the host input is
+    // still marked invalid and still names help AND alert (it is the
+    // dialog's one free-text field).
+    const host = hostInput(dialog)!;
+    expect(host.getAttribute('aria-invalid')).toBe('true');
+    expect(host.getAttribute('aria-describedby')).toBe('grant-host-help grant-scope-error');
     expect(panel.querySelector('[data-testid="key-scopes"]')?.textContent).toContain('host:operate · h-1');
   });
 
   it('a success closes the dialog and announces the granted scope', async () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);
+    const trigBefore = document.querySelector('button[aria-label^="Actions for key"]') as HTMLElement;
+    // jsdom's settle path blurs focus set inside a flush (activeElement is
+    // <body> by assertion time even when the teardown focused the trigger —
+    // the same env blur leaves <body> at the action's mount), so this lane
+    // pins the teardown's TARGET by spy; the real-browser focus mechanics
+    // are the layout script's Cancel/Escape/keyboard legs.
+    const trigFocus = vi.spyOn(trigBefore, 'focus');
     const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'attention:deliver', hostId: '' }, zod4(grantAppKeyScopeSchema));
     f.message = { type: 'success', text: 'Scope granted.' };
     await submitEnhancedWithResult(grantForm(dialog), { type: 'success', status: 200, data: { form: f } });
     flushSync(); await tick(2);
     expect(document.querySelector('dialog[open]')).toBeNull();
     expect(panel.textContent).toContain('Scope granted.');
+    // The success close returns focus to the ⋯ trigger that opened the
+    // dialog, whose row still stands here (jsdom does not re-render rows).
+    expect(trigFocus).toHaveBeenCalled();
+  });
+
+  it('a success whose row is gone lands focus on the Keys heading, never <body>', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    const trigBefore = document.querySelector('button[aria-label^="Actions for key"]') as HTMLElement;
+    // The success path invalidates the page and the table re-renders its
+    // rows — the captured ⋯ trigger can be detached by the time the dialog
+    // unmounts. Stand in for that by removing the row outright.
+    const heading = document.getElementById('app-keys-heading')!;
+    const trigFocus = vi.spyOn(trigBefore, 'focus');
+    const headingFocus = vi.spyOn(heading, 'focus');
+    trigBefore.closest('tr')!.remove();
+    const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'attention:deliver', hostId: '' }, zod4(grantAppKeyScopeSchema));
+    f.message = { type: 'success', text: 'Scope granted.' };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'success', status: 200, data: { form: f } });
+    flushSync(); await tick(2);
+    expect(document.querySelector('dialog[open]')).toBeNull();
+    // A detached trigger cannot take focus — the teardown owes the close a
+    // landing spot, and it is the Keys heading, never <body>. (Target pinned
+    // by spy: the env blurs activeElement after the flush; the real-browser
+    // detached-trigger leg is in the layout script.)
+    expect(trigFocus).not.toHaveBeenCalled();
+    expect(headingFocus).toHaveBeenCalled();
   });
 
   it('a refusal from an earlier key never reads as this one’s answer', async () => {
