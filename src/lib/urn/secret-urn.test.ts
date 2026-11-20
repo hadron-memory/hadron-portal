@@ -1,18 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { parseUrn, UrnParseError } from './parse-urn';
-
-// Temporary red-first mutant: simulate arity acceptance and a reserved app slug.
-vi.mock('./parse-urn', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./parse-urn')>();
-  return {
-    ...actual,
-    parseUrn: (input: string) => {
-      if (input === 'hrn:secret:acme.com:app:eng-team:key:extra' || input === 'hrn:secret:acme.com:app:key') return actual.parseUrn('hrn:secret:acme.com:key');
-      if (input === 'hrn:secret:acme.com:app:app:openai-key') throw new Error('app slug incorrectly reserved');
-      return actual.parseUrn(input);
-    },
-  };
-});
+import { describe, expect, it } from 'vitest';
+import { parseUrn, parseSecretUrnV2, UrnParseError } from './parse-urn';
 
 /**
  * portal#2108 (S0b): the App secret URN, through this repo's own entry point.
@@ -30,7 +17,7 @@ describe('portal#2108: App secret URN via the urn-lib-js shim', () => {
     expect(parseUrn(p.parserCanonical).parserCanonical).toBe(APP);
   });
 
-  it('leaves the org/user shape unchanged', () => {
+  it('leaves the flat org/user shape unchanged', () => {
     const p = parseUrn(FLAT);
     expect(p.type).toBe('secret');
     expect(p.parserCanonical).toBe(FLAT);
@@ -42,7 +29,8 @@ describe('portal#2108: App secret URN via the urn-lib-js shim', () => {
 
   it('accepts app as the App slug', () => {
     const parsed = parseUrn('hrn:secret:acme.com:app:app:openai-key');
-    expect(parsed).toMatchObject({ type: 'secret', appSlug: 'app' });
+    expect(parsed).toMatchObject({ type: 'secret', parserCanonical: 'hrn:secret:acme.com:app:app:openai-key' });
+    expect(parseSecretUrnV2(parsed.parserCanonical)).toMatchObject({ appSlug: 'app' });
   });
 
   it.each([
