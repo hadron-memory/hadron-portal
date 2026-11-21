@@ -157,6 +157,6 @@ describe('portal#2375: route-page action results sit in a persistent LiveRegion'
 
   it('names every converted site once (44)', () => {
     expect(LIVE_REGION_CASES.length).toBe(44);
-    expect(new Set(LIVE_REGION_CASES.map((c) => c.file + '|' + c.marker + '|' + (c.occurrence ?? 0))).size).toBe(42);
+    expect(new Set(LIVE_REGION_CASES.map((c) => c.file + '|' + c.marker + '|' + (c.occurrence ?? 0))).size).toBe(44);
   });
 });
