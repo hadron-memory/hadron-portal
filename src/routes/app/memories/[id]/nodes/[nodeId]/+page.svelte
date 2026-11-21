@@ -194,7 +194,7 @@
   // Compare the error instance, never its text: other actions still own theirs.
   let handledMetaError = $state.raw<unknown>(null);
   const pageActionError = $derived(
-    form?.error === handledMetaError || questionResult ? null : form?.error,
+    form?.error === handledMetaError || questionResultOf(form) ? null : form?.error,
   );
 
   // Inline editing. #927: each text editor is a draft based on the revision it
