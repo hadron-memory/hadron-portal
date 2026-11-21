@@ -37,7 +37,6 @@
   "src/routes/app/apps/[appId]/tasks/[taskId]/+page.svelte": 2,
   "src/routes/app/apps/[appId]/tickers/+page.svelte": 1,
   "src/routes/app/apps/[appId]/tickers/[tickerId]/+page.svelte": 1,
-  "src/routes/app/marketplace/+page.svelte": 1,
   "src/routes/app/memories/+page.svelte": 1,
   "src/routes/app/memories/[id]/+layout.svelte": 2,
   "src/routes/app/memories/[id]/integrations/+page.svelte": 1,
