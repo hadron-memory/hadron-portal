@@ -16,14 +16,19 @@
   let loadedFor = -1;
 
   const url = (after: string | null) => `/app/agents/${encodeURIComponent(agentId)}/boot-source/lint${after ? `?after=${encodeURIComponent(after)}` : ''}`;
-  const usable = (body: SourceLintRead) => body.id === nodeId;
+  // A 200 can carry any JSON behind a proxy: only an object naming this node is a page.
+  const usable = (body: SourceLintRead | null) => body?.id === nodeId;
 
   async function load() {
     loadedFor = refresh;
     lint = { kind: 'loading' };
     const result = await reader.get<SourceLintRead>(url(null));
     if (result.kind === 'superseded') return;
-    if (result.kind === 'failed' || !usable(result.body)) lint = { kind: 'failed' };
+    if (result.kind === 'failed' || !usable(result.body)) {
+      // Reopening the view reads again; a failure is not remembered as loaded.
+      loadedFor = -1;
+      lint = { kind: 'failed' };
+    }
     else if (!result.body.page) lint = { kind: 'unavailable' };
     else lint = { kind: 'ready', revision: result.body.revision, ...result.body.page, moreFailed: false };
   }
@@ -66,13 +71,16 @@
 </script>
 
 {#if lint.kind === 'failed'}
-  <p role="alert" data-boot-source-lint class="mt-3 text-sm text-red-600 dark:text-red-400">{t('boot.source-lint.failed', 'Couldn’t load warnings')}</p>
+  <div data-boot-source-lint class="mt-3 flex items-center gap-3 text-sm">
+    <p role="alert" class="text-red-600 dark:text-red-400">{t('boot.source-lint.failed', 'Couldn’t load warnings')}</p>
+    <button type="button" onclick={load} class="text-indigo-600 hover:underline dark:text-indigo-400">{t('boot.source-lint.retry', 'Retry')}</button>
+  </div>
 {:else if lint.kind === 'unavailable'}
   <p data-boot-source-lint class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{t('boot.source-lint.unavailable', 'Warnings unavailable')}</p>
 {:else if lint.kind === 'ready' && lint.items.length > 0}
   <section data-boot-source-lint class="mt-3">
-    <h3 class="text-xs font-medium text-zinc-700 dark:text-zinc-300">{t('boot.source-lint.title', 'Warnings for the saved source')}</h3>
-    <ul class="mt-1 space-y-1 text-xs text-zinc-700 dark:text-zinc-300">
+    <h3 class="border-t border-zinc-200 pt-3 text-xs font-medium text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">{t('boot.source-lint.title', 'Warnings for the saved source')}</h3>
+    <ul class="mt-1 list-disc space-y-1 pl-5 text-xs text-zinc-700 dark:text-zinc-300">
       {#each lint.items as w, i (`${w.position}:${w.kind}:${i}`)}
         <li data-lint-kind={w.kind}>
           {wording(w.kind)}

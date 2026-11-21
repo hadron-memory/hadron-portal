@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
-import { mountComponent, tick, wait, type Mounted } from '$lib/test/mountComponent';
+import { captureUnhandledRejections, mountComponent, tick, wait, type Mounted } from '$lib/test/mountComponent';
 import type { BootSourceView, SourceLintItem } from '$lib/server/boot-source';
 import Page from './+page.svelte';
 import { pageData } from './page-fixture';
@@ -108,13 +108,13 @@ describe('source lint (portal#1667)', () => {
   it('a failed read says so, and the workflow stays', async () => {
     routes(refused);
     const root = await open();
-    expect(lintBox(root)?.textContent).toBe('Couldn’t load warnings');
+    expect(lintBox(root)?.querySelector('[role=alert]')?.textContent).toBe('Couldn’t load warnings');
     expect(root.querySelectorAll('[data-boot-steps] > li')).toHaveLength(4);
   });
   it('drops a page for another node', async () => {
     routes(ok({ id: 'other', revision: 3, page: { items: [warn('RETIRED_TARGET')], total: 1, nextCursor: null } }));
     const root = await open();
-    expect(lintBox(root)?.textContent).toBe('Couldn’t load warnings');
+    expect(lintBox(root)?.querySelector('[role=alert]')?.textContent).toBe('Couldn’t load warnings');
     expect(root.querySelector('[data-lint-kind]')).toBeNull();
   });
   it('shows n of total, and Show more follows nextCursor', async () => {
@@ -201,5 +201,48 @@ describe('who sees it (portal#1667)', () => {
   it('keeps the compiled-only reader\'s view', async () => {
     const root = await open({ mode: 'compiled-only', compiled });
     expect(root.textContent).toContain('COMPILED TEXT');
+  });
+});
+
+describe('source lint read robustness (portal#1677)', () => {
+  const FAILED = 'Couldn’t load warnings';
+  it.each([['null', 'null'], ['a string', '"x"'], ['a number', '3'], ['an array', '[]']])('a 200 whose body is %s is a failed read, with no unhandled rejection', async (_n, raw) => {
+    routes(() => new Response(raw, { status: 200 }));
+    let root!: HTMLElement;
+    const caught = await captureUnhandledRejections(async () => { root = await open(); });
+    expect(caught).toEqual([]);
+    expect(lintBox(root)?.textContent).toContain(FAILED);
+  });
+  it('a failed first read is tried again when the tab is reopened', async () => {
+    let n = 0;
+    const calls = routes(() => (n++ === 0 ? refused() : page([warn('BROKEN_INCLUDE')])()));
+    const root = await open();
+    expect(lintBox(root)?.textContent).toContain(FAILED);
+    await switchTo(root, 'Tasks');
+    await switchTo(root, 'Boot prompt');
+    expect(calls.filter((u) => u.includes('/lint'))).toHaveLength(2);
+    expect(root.querySelector('[data-lint-kind="BROKEN_INCLUDE"]')).not.toBeNull();
+  });
+  it('a successful read is not repeated by reopening the tab', async () => {
+    const calls = routes(page([warn('BROKEN_INCLUDE')]));
+    const root = await open();
+    await switchTo(root, 'Tasks');
+    await switchTo(root, 'Boot prompt');
+    expect(calls.filter((u) => u.includes('/lint'))).toHaveLength(1);
+  });
+  it('Retry reads again without leaving the tab', async () => {
+    let n = 0;
+    routes(() => (n++ === 0 ? refused() : page([warn('BROKEN_INCLUDE')])()));
+    const root = await open();
+    button(root, 'Retry').click();
+    await settle();
+    expect(root.querySelector('[data-lint-kind="BROKEN_INCLUDE"]')).not.toBeNull();
+    expect(button(root, 'Retry')).toBeUndefined();
+  });
+  it('warnings are a bulleted list under a visible heading', async () => {
+    routes(page([warn('BROKEN_INCLUDE'), warn('RETIRED_TARGET')]));
+    const root = await open();
+    expect(lintBox(root)?.querySelector('h3')?.textContent).toBe('Warnings for the saved source');
+    expect(lintBox(root)?.querySelector('ul')?.className).toContain('list-disc');
   });
 });
