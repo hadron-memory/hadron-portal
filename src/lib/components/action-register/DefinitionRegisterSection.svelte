@@ -3,6 +3,7 @@
   import { page as appPage } from '$app/state';
   import SelectApp from '$lib/components/SelectApp.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import ActionRegisterList from './ActionRegisterList.svelte';
   import type { DefinitionRegister } from '$lib/action-register/definition';
   import { parseLimit, parseOffset } from '$lib/action-register/present';
@@ -74,10 +75,11 @@
       {/if}
     </div>
 
+    <LiveRegion>{#if register.index !== null && stale}<p class="text-sm text-zinc-500">{t('action-register.loading', 'Loading…')}</p>{/if}</LiveRegion>
     {#if register.index === null}
       <!-- No App chosen: nothing was asked, so nothing is empty. -->
     {:else if stale}
-      <p role="status" class="text-sm text-zinc-500">{t('action-register.loading', 'Loading…')}</p>
+      <!-- announced by the LiveRegion above -->
     {:else if register.index.kind === 'agent-not-found' || register.index.kind === 'app-not-found'}
       <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400" data-testid="register-not-available">{t('action-register.section.not-available', 'Not available for this App.')}</p>
     {:else if register.index.kind === 'failed'}

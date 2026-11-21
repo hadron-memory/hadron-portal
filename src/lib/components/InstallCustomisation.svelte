@@ -1,8 +1,8 @@
 <script lang="ts">
-  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { onMount, onDestroy } from 'svelte';
   import { t } from '$lib/i18n/t';
   import Urn from './Urn.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import DataTable from './table/DataTable.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -255,7 +255,8 @@
   <p class="mt-3 text-sm text-zinc-500">{t('customisation.served-by-pointer','Customisations reach a started agent when its boot pointer names a prompt compiled for this App or one of its workers, and that prompt’s newest approved revision was compiled with them.')}</p>
   <p class="text-sm text-zinc-500">{t('customisation.compile-only','Replacements apply when compiling for this App. Ordinary node reads are unchanged.')}</p>
   {#if canManage===false}<p class="text-sm text-zinc-500">{t('customisation.read-only','You can view these customisations. Only someone who manages this App can change them.')}</p>{/if}
-  {#if read.list.state==='loading'}<p role="status">{t('customisation.loading','Loading…')}</p>
+  <LiveRegion>{#if read.list.state==='loading'}<p>{t('customisation.loading','Loading…')}</p>{/if}</LiveRegion>
+  {#if read.list.state==='loading'}<!-- announced by the LiveRegion above -->
   {:else if read.list.state==='failed'}<p role="alert">{t('customisation.load-failed','Couldn’t load customisations.')}</p><button type="button" class={secondaryButton} disabled={busy} onclick={()=>openPage(offset,loc)}>{t('customisation.retry','Retry')}</button>
   {:else if read.list.state==='not-shown'}<p>{t('customisation.not-shown','Not shown')}</p>
   {:else if read.list.value.nodes.length===0}
@@ -283,11 +284,13 @@
   {#if loc||creating}
     <div class="mt-4 grid gap-4 md:grid-cols-2">
       <div class="min-w-0"><h4 class="font-semibold text-zinc-900 dark:text-zinc-100">{t('customisation.original','Original')}</h4>
+      <LiveRegion>{#if read.original.state==='loading'&&!creating}<p>{t('customisation.loading','Loading…')}</p>{/if}</LiveRegion>
       {#if read.original.state==='ok'&&typeof read.original.value.content==='string'&&!creating}<pre class="mt-2 whitespace-pre-wrap break-words text-sm">{read.original.value.content}</pre>
-      {:else if read.original.state==='loading'&&!creating}<p role="status">{t('customisation.loading','Loading…')}</p>
+      {:else if read.original.state==='loading'&&!creating}<!-- announced by the LiveRegion above -->
       {:else if read.original.state==='failed'&&!creating}<p role="alert">{t('customisation.original-failed','Couldn’t load the original.')}</p>
       {:else}<p class="text-sm text-zinc-500">{t('customisation.original-hidden','Original not shown')}</p>{#if loc&&!loc.startsWith('boot:')&&loc!=='boot'}<p class="text-sm text-zinc-500">{t('customisation.base-hint','An inherited base may hold this loc, or your access may not show it.')}</p>{/if}{/if}</div>
       <div class="min-w-0"><h4 class="font-semibold text-zinc-900 dark:text-zinc-100">{t('customisation.replacement','Replacement')}</h4>
+        <LiveRegion>{#if !creating&&read.replacement.state==='loading'}<p>{t('customisation.loading','Loading…')}</p>{/if}</LiveRegion>
         {#if creating||(read.replacement.state==='ok'&&typeof read.replacement.value.content==='string')}
           {#if canManage!==false}
           <form method="POST" action={`?/`+(creating?'createCustomisation':'saveCustomisation')} onsubmit={save}>
@@ -297,7 +300,7 @@
             <button type="submit" disabled={busy||(!creating&&!draft.dirty)} class="mt-2 rounded bg-indigo-600 px-3 py-1.5 text-sm text-white disabled:opacity-50">{busy?t('customisation.saving','Saving…'):t('customisation.save','Save')}</button>
           </form>
           {:else}<pre class="whitespace-pre-wrap break-words text-sm">{draft.text}</pre>{/if}
-        {:else if read.replacement.state==='loading'}<p role="status">{t('customisation.loading','Loading…')}</p>
+        {:else if read.replacement.state==='loading'}<!-- announced by the LiveRegion above -->
         {:else if read.replacement.state==='failed'}<p role="alert">{t('customisation.node-failed','Couldn’t load this replacement.')}</p>
         {:else}<p>{t('customisation.not-shown','Not shown')}</p>{/if}
         <button type="button" disabled={busy} onclick={()=>openPage(offset,loc)} class={`mt-2 ${secondaryButton}`}>{t('customisation.reload-discard','Reload and discard draft')}</button>
