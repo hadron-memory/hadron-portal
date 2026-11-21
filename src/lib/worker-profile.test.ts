@@ -36,3 +36,13 @@ it('#1491 preserves the separately authorized Agent projection while returning t
   expect(result.hasLiveSession).toBeNull();
   expect(result.memoryId).toBeNull();
 });
+// portal#1491 — the absent case of the same pass-through (BLIND F5): a
+// worker with no Agent must project a null Agent, not undefined or a stale
+// placeholder from the sentinel machinery.
+it('#1491 a worker with no Agent projects a null Agent', () => {
+  const worker = { id: 'w1', appId: 'app1', agentId: 'a1', name: 'Profile', role: null,
+    createdAt: '2026-10-30', retiredAt: null, appName: 'Team', ownerName: 'owner',
+    agent: null, memoryId: 'mem-live', hasLiveSession: true,
+  } as unknown as Worker;
+  expect(profileWorker(worker).agent).toBeNull();
+});
