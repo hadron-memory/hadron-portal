@@ -13,7 +13,11 @@
   const ownerAttribution = $derived(data.ownerAttribution);
 
   const isAgentSystem = $derived(g.class === 'system');
-  const isOwnerOnly = $derived(g.class === 'personal' || g.class === 'private');
+  // portal#1848: a personal memory can be shared (cor:acl:010:02), so "Only you"
+  // needs the viewer's relationship; private never is shared.
+  const personalAccess = $derived(g.class === 'personal' ? (data.personalAccess ?? 'unknown') : null);
+  const isOwnerOnly = $derived(g.class === 'private' || personalAccess === 'owner-only');
+  const isPersonal = $derived(g.class === 'personal');
   const visibilityLabel: Record<string, string> = {
     ORGANIZATION: t('memory-info.visibility.organization', 'Organization'),
     PUBLIC: t('memory-info.visibility.public', 'Public'),
@@ -59,6 +63,10 @@
                 />
               </span>
             </span>
+          {:else if personalAccess === 'owner-shared' && !g.organizationId}
+            {t('memory-info.you', 'You')}
+          {:else if personalAccess === 'other' && !g.organizationId}
+            {t('memory-info.another-user', 'Another user')}
           {:else if isOwnerOnly && !g.organizationId}
             {t('memory-info.only-you', 'Only you')}
           {:else}
@@ -73,9 +81,9 @@
       {#if g.class !== 'system' && g.class !== 'app'}
         <!-- visibility is null/meaningless for system + app classes -->
         <div class="flex items-center justify-between px-5 py-3">
-          <span class={rowLabel}>{isOwnerOnly ? t('memory-info.access', 'Access') : t('memory-info.visibility', 'Visibility')}</span>
+          <span class={rowLabel}>{isOwnerOnly || isPersonal ? t('memory-info.access', 'Access') : t('memory-info.visibility', 'Visibility')}</span>
           <span class={rowValue}>
-            {#if isOwnerOnly}{t('memory-info.only-you', 'Only you')}{:else}{(g.visibility && visibilityLabel[g.visibility]) ?? g.visibility ?? '—'}{/if}
+            {#if isOwnerOnly}{t('memory-info.only-you', 'Only you')}{:else if personalAccess === 'owner-shared'}{t('memory-info.shared', 'Shared')}{:else if personalAccess === 'other'}{t('memory-info.shared-with-you', 'Shared with you')}{:else if isPersonal}—{:else}{(g.visibility && visibilityLabel[g.visibility]) ?? g.visibility ?? '—'}{/if}
           </span>
         </div>
       {/if}
