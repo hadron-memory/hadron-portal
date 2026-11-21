@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { onMount, onDestroy } from 'svelte';
   import { enhance } from '$app/forms';
   import { goto, invalidateAll } from '$app/navigation';
@@ -167,7 +168,9 @@
       <span>{t('app.staff.delete.attestation', 'I have verified that no signed commit, trailer, PR, comment, review or published artifact attributes work to this worker.')}</span>
     </label>
     {#if failure}<p role="alert" class="break-words text-sm text-red-700 dark:text-red-300">{failure}{#if failureHref} <a class="underline" href={failureHref}>{t('app.staff.delete.open-roster', 'Open the roster')}</a>{/if}</p>{/if}
-    {#if pending}<p role="status" class="text-sm">{t('app.staff.delete.pending', 'Deleting the selected worker…')}</p>{/if}
+    <LiveRegion>
+      {#if pending}<p class="text-sm">{t('app.staff.delete.pending', 'Deleting the selected worker…')}</p>{/if}
+    </LiveRegion>
     {#if submitDisabledReason}<p id="delete-submit-reason" class="text-sm text-zinc-600 dark:text-zinc-300">{submitDisabledReason}</p>{/if}
     <div class="flex flex-wrap justify-end gap-3">
       <button bind:this={cancelButton} type="button" onclick={close} disabled={pending} class="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600">{t('app.staff.delete.cancel', 'Cancel')}</button>

@@ -10,6 +10,7 @@ import {
   scanFiles,
   sourceFilesUnder,
   unclassifiedExtensions,
+  extensionKey,
 } from './check-outline-none.mjs';
 
 /**
@@ -258,7 +259,11 @@ describe('the scanned-extension pre-filter', () => {
       for (const entry of readdirSync(dir)) {
         const path = join(dir, entry);
         if (statSync(path).isDirectory()) walk(path);
-        else if (excluded.some((e) => path.endsWith(e)) && /outline-(?:none|hidden)/.test(readFileSyncOrNull(path) ?? '')) hits.push(path);
+        else if (excluded.includes(extensionKey(path))) {
+          // An unreadable excluded file is not proven silent: report it, never read it as empty (portal#2392, BLIND F2).
+          const text = readFileSyncOrNull(path);
+          if (text === null || /outline-(?:none|hidden)/.test(text)) hits.push(path);
+        }
       }
     };
     walk(src);
@@ -283,6 +288,69 @@ describe('the scanned-extension pre-filter', () => {
         const findings = scanFiles(sourceFilesUnder(dir), (f) => readFileSyncOrNull(f));
         expect(findings).toHaveLength(1);
         expect(findings[0].file).toMatch(/page\.html$/);
+      });
+    });
+
+    // portal#2392: `extname` is '' for an extensionless file and for a dotfile, and the classification
+    // used to drop '' — so these two slipped past the "no file passes by omission" promise.
+    const withTree = (files: Record<string, string>, run: (dir: string) => void) => {
+      const dir = mkdtempSync(join(tmpdir(), 'outline-none-2392-'));
+      try {
+        for (const [name, body] of Object.entries(files)) writeFileSync(join(dir, name), body);
+        run(dir);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+
+    it('an extensionless file turns the classification red, as "(none)"', () => {
+      withTree({ Makefile: trap }, (dir) => {
+        expect(unclassifiedExtensions(dir)).toEqual(['(none)']);
+      });
+    });
+
+    it('a dotfile turns the classification red, under its own name', () => {
+      withTree({ '.gitignore': trap }, (dir) => {
+        expect(unclassifiedExtensions(dir)).toEqual(['dotfile:.gitignore']);
+      });
+    });
+
+    it('a dotfile and a file whose extension has the same text never share a key', () => {
+      withTree({ '.gitignore': 'dist\n', 'fixture.gitignore': trap }, (dir) => {
+        expect(unclassifiedExtensions(dir)).toEqual(['.gitignore', 'dotfile:.gitignore']);
+        // Excluding the dotfile leaves the ordinary file's extension unclassified.
+        const excluded = { 'dotfile:.gitignore': 'ignore patterns, not markup, pinned token-free' };
+        expect(unclassifiedExtensions(dir, SCANNED_EXTS, excluded)).toEqual(['.gitignore']);
+      });
+    });
+
+    it('classified as scanned, a dotfile with a bare outline-none turns the scan red', () => {
+      withTree({ '.gitignore': trap, 'fixture.gitignore': 'dist\n' }, (dir) => {
+        const findings = scanFiles(sourceFilesUnder(dir, ['dotfile:.gitignore']), (f) => readFileSyncOrNull(f));
+        expect(findings).toHaveLength(1);
+        expect(findings[0].file).toMatch(/[\\/]\.gitignore$/);
+      });
+    });
+
+    it('a dotfile that has an extension is classified by that extension, as before', () => {
+      withTree({ '.env.example': 'A=1\n' }, (dir) => {
+        expect(unclassifiedExtensions(dir)).toEqual(['.example']);
+      });
+    });
+
+    it('classified as excluded, with a reason, an extensionless file and a dotfile pass the classification', () => {
+      withTree({ Makefile: 'all:\n', '.gitignore': 'dist\n' }, (dir) => {
+        const excluded = { '(none)': 'build recipes carry no class attribute at all, pinned token-free', 'dotfile:.gitignore': 'ignore patterns, not markup, pinned token-free' };
+        expect(unclassifiedExtensions(dir, SCANNED_EXTS, excluded)).toEqual([]);
+      });
+    });
+
+    it('classified as scanned, an extensionless file with a bare outline-none turns the scan red', () => {
+      withTree({ Makefile: trap }, (dir) => {
+        expect(unclassifiedExtensions(dir, [...SCANNED_EXTS, '(none)'])).toEqual([]);
+        const findings = scanFiles(sourceFilesUnder(dir, [...SCANNED_EXTS, '(none)']), (f) => readFileSyncOrNull(f));
+        expect(findings).toHaveLength(1);
+        expect(findings[0].file).toMatch(/Makefile$/);
       });
     });
 

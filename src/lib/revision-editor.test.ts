@@ -52,6 +52,13 @@ describe('#1171 History cell', () => {
     expect(body).toContain(agent.urn);
   });
 
+  it('links the user handle to their profile when the URN is known (#534)', () => {
+    const { body } = render(RevisionEditedBy, {
+      props: { view: revisionEditorView({ editedByUser: { handle: 'holger', urn: 'hrn:user:hadronmemory.com:holger' }, editedByInfo: null, editedByWorker: null, editedByAgent: null }) },
+    });
+    expect(body).toContain('href="/app/u/hrn:user:hadronmemory.com:holger"');
+  });
+
   it('shows no actor row when neither is present', () => {
     const { body } = render(RevisionEditedBy, {
       props: { view: revisionEditorView({ editedByUser: { handle: 'holger', urn: null }, editedByInfo: null, editedByWorker: null, editedByAgent: null }) },

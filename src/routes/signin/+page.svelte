@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import TurnstileWidget from '$lib/components/TurnstileWidget.svelte';
   import { emailSubmitFailure } from '$lib/forms/email-submit-failure.svelte';
   import { page } from '$app/state';
@@ -81,11 +82,14 @@
       Welcome back to Hadron
     </p>
 
-    {#if successMessage}
-      <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
-        {successMessage}
-      </div>
-    {:else}
+    <LiveRegion>
+      {#if successMessage}
+        <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
+          {successMessage}
+        </div>
+      {/if}
+    </LiveRegion>
+    {#if !successMessage}
       {#if data.authFailed}
         <SignInRestartNotice />
       {/if}

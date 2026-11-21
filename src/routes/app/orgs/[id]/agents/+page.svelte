@@ -8,6 +8,7 @@
   cells, so neither wraps the other.
 -->
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
   import { goto } from '$app/navigation';
@@ -371,11 +372,13 @@
     </div>
   {/if}
 
-  {#if subscribeActionSuccess}
-    <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
-      {subscribeActionSuccess}
-    </div>
-  {/if}
+  <LiveRegion>
+    {#if subscribeActionSuccess}
+      <div class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
+        {subscribeActionSuccess}
+      </div>
+    {/if}
+  </LiveRegion>
 
   {#if unsubscribeActionError}
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
@@ -383,11 +386,13 @@
     </div>
   {/if}
 
-  {#if unsubscribeActionSuccess}
-    <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
-      {unsubscribeActionSuccess}
-    </div>
-  {/if}
+  <LiveRegion>
+    {#if unsubscribeActionSuccess}
+      <div class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
+        {unsubscribeActionSuccess}
+      </div>
+    {/if}
+  </LiveRegion>
 
   <!-- Own vs Subscribed (#486). Subscribed = the org's AgentOrgGrants for
        agents owned by OTHER orgs. -->

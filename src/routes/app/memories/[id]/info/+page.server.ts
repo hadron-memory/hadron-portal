@@ -1,5 +1,5 @@
 import { gqlClient } from '$lib/server/api';
-import { MEMORY_OWNER_PUBLIC_ORG_QUERY } from '$lib/server/queries';
+import { MEMORY_OWNER_PUBLIC_ORG_QUERY, MEMORY_SHARES_QUERY } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import { memoryOwnerOrgUrn } from '$lib/urn/memory-owner-attribution';
 import { parseUrn } from '$lib/urn/parse-urn';
@@ -8,6 +8,15 @@ import type { PageServerLoad } from './$types';
 export type MemoryOwnerAttribution =
   | { id: string; name: string; urn: string; source: 'member' | 'public' }
   | { urn: string; source: 'memory-urn' };
+
+/**
+ * portal#1848: who the viewer is to a personal memory (hrn:node:hadronmemory.com:specs:cor:acl:010:02: it is
+ * reachable through a MemoryShare, so "Only you" is true only when unshared).
+ * `owner-*` is judged by the strict user principal; the server hides it from a
+ * share recipient, so any other viewer is `other` (never called the owner).
+ * `unknown` is a failed share read: no claim either way.
+ */
+export type PersonalAccess = 'owner-only' | 'owner-shared' | 'other' | 'unknown';
 
 function isLegacyMemoryUrn(value: string | null | undefined): boolean {
   // The compatibility parser accepts flat v2 in either scheme, including
@@ -64,5 +73,24 @@ export const load: PageServerLoad = async ({ parent, locals }) => {
     }
   }
 
-  return { ownerAttribution };
+  let personalAccess: PersonalAccess | null = null;
+  if (graph.class === 'personal') {
+    if (locals.user?.id && graph.userId === locals.user.id) {
+      // `shares` is owner-only, so ask only the owner. Only a count is kept:
+      // the roster itself never reaches the Info page.
+      try {
+        const result = await gqlClient(locals.token).request<{ memory: { shares: unknown[] | null } | null }>(
+          MEMORY_SHARES_QUERY,
+          { ref: graph.id },
+        );
+        personalAccess = result.memory?.shares ? (result.memory.shares.length > 0 ? 'owner-shared' : 'owner-only') : 'unknown';
+      } catch {
+        personalAccess = 'unknown';
+      }
+    } else {
+      personalAccess = 'other';
+    }
+  }
+
+  return { ownerAttribution, personalAccess };
 };

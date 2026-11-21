@@ -1312,7 +1312,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(SET_APP_SWEEP_MODE_MUTATION, { appRef: params.appId, mode });
       return { sweepModeSaved: mode };
     } catch (e: unknown) {
-      if (!isDefiniteRefusal(e)) return fail(502, { sweepModeError: t('app.sweep-mode.unconfirmed', 'Couldn’t confirm the save; checking…'), uncertain: true });
+      if (!isDefiniteRefusal(e, ['APP_NOT_FOUND'])) return fail(502, { sweepModeError: t('app.sweep-mode.unconfirmed', 'Couldn’t confirm the save; checking…'), uncertain: true });
       const code = extractGqlErrorCode(e);
       const text = extractGqlError(e, t('app.sweep-mode.error.failed', 'Not saved. Try again.'), ['APP_NOT_FOUND', 'BAD_USER_INPUT']);
       return fail(code === 'FORBIDDEN' ? 403 : code === 'APP_NOT_FOUND' ? 404 : code === 'BAD_USER_INPUT' ? 400 : 500, { sweepModeError: text });

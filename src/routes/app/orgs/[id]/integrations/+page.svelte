@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // #336: Integrations tab — GitHub App + Microsoft Exchange + AI service
   // configs. The GitHub/Exchange markup moved here from the org dashboard
   // (+page.svelte); the AI section moved from the standalone /ai-configs route.
@@ -209,39 +210,56 @@
   <section>
     <h1 class="mb-3 font-semibold text-zinc-900 dark:text-white">Integrations</h1>
 
-    {#if githubInstallationActionSuccess}
-      <div role="status" class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{githubInstallationActionSuccess}</div>
-    {/if}
-    {#if githubAppActionSuccess}
-      <div role="status" class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{githubAppActionSuccess}</div>
-    {/if}
+    <LiveRegion>
+      {#if githubInstallationActionSuccess}
+        <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{githubInstallationActionSuccess}</div>
+      {/if}
+    </LiveRegion>
+    <LiveRegion>
+      {#if githubAppActionSuccess}
+        <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{githubAppActionSuccess}</div>
+      {/if}
+    </LiveRegion>
     {#if unlinkGithubActionError}
       <div role="alert" class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{unlinkGithubActionError}</div>
-    {:else if unlinkGithubActionSuccess}
-      <div role="status" class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{unlinkGithubActionSuccess}</div>
     {/if}
-    {#if justInstalled}
-      <div role="status" class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Hadron GitHub App installed and linked to this organization.</div>
-    {/if}
+    <LiveRegion>
+      {#if !unlinkGithubActionError && unlinkGithubActionSuccess}
+        <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{unlinkGithubActionSuccess}</div>
+      {/if}
+    </LiveRegion>
+    <LiveRegion>
+      {#if justInstalled}
+        <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Hadron GitHub App installed and linked to this organization.</div>
+      {/if}
+    </LiveRegion>
     {#if connectExchangeActionError}
       <div role="alert" class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{connectExchangeActionError}</div>
     {/if}
-    {#if $page.url.searchParams.get('exchangeConnected') === '1'}
-      <div role="status" class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Microsoft Exchange connected successfully.</div>
-    {/if}
+    <LiveRegion>
+      {#if $page.url.searchParams.get('exchangeConnected') === '1'}
+        <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Microsoft Exchange connected successfully.</div>
+      {/if}
+    </LiveRegion>
     {#if $page.url.searchParams.get('exchangeError')}
       <div role="alert" class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">Exchange error: {$page.url.searchParams.get('exchangeError')}</div>
     {/if}
     {#if deleteExchangeConnectionActionError}
       <div role="alert" class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{deleteExchangeConnectionActionError}</div>
-    {:else if deleteExchangeConnectionActionSuccess}
-      <div role="status" class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{deleteExchangeConnectionActionSuccess}</div>
     {/if}
+    <LiveRegion>
+      {#if !deleteExchangeConnectionActionError && deleteExchangeConnectionActionSuccess}
+        <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{deleteExchangeConnectionActionSuccess}</div>
+      {/if}
+    </LiveRegion>
     {#if testExchangeConnectionActionError}
       <div role="alert" class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{testExchangeConnectionActionError}</div>
-    {:else if testExchangeConnectionActionSuccess}
-      <div role="status" class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{testExchangeConnectionActionSuccess}</div>
     {/if}
+    <LiveRegion>
+      {#if !testExchangeConnectionActionError && testExchangeConnectionActionSuccess}
+        <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{testExchangeConnectionActionSuccess}</div>
+      {/if}
+    </LiveRegion>
 
     <!-- Configured integrations -->
     {#if hasGithubConfigured}

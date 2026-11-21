@@ -47,6 +47,7 @@ import {
 } from '$lib/server/queries';
 import Page from './+page.svelte';
 import { actions, load } from './+page.server';
+import { firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
@@ -500,7 +501,7 @@ describe('#1882: a failed location move in Settings says so', () => {
     expect(target.querySelector('#editLoc')).toBeNull();
     expect(target.querySelector('#editName')).toBeNull();
     expect(buttonNamed(target, 'Edit')).toBeTruthy();
-    expect(target.querySelector('[role="status"]')?.textContent ?? '').not.toBe('');
+    expect(firstPopulatedStatusText(target) ?? '').not.toBe('');
   });
 });
 

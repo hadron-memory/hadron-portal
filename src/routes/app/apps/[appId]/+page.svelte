@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveOutcome from '$lib/components/LiveOutcome.svelte';
   import LiveRegion from '$lib/components/LiveRegion.svelte';
   import AppSweepMode from './AppSweepMode.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
@@ -1952,7 +1953,15 @@
   }
   const newCastFormId = () => `castWorker:${Math.random().toString(36).slice(2, 10)}`;
   const castFormId = newCastFormId();
-  const initialCastWorkerForm = untrack(() => submittedForm<CastWorkerForm>(form, 'castWorker') as CastWorkerSuperform | null ?? data.castWorkerForm);
+  // portal#1893: the Reports to checkbox starts unchecked, which is the No team arm. The schema
+  // keeps `reporting` blank-by-default so the ACTION still refuses an omitted choice; this form
+  // seeds `none` for the blank the loader's empty form carries, and leaves a submitted result as is.
+  const initialCastWorkerForm = untrack(() => {
+    const submitted = submittedForm<CastWorkerForm>(form, 'castWorker') as CastWorkerSuperform | null;
+    if (submitted) return submitted;
+    const empty = data.castWorkerForm;
+    return { ...empty, data: { ...empty.data, reporting: empty.data.reporting || 'none' } } as CastWorkerSuperform;
+  });
   const {
     form: castWorkerForm,
     errors: castWorkerErrors,
@@ -2029,7 +2038,7 @@
       if (f.valid && f.message?.type === 'success') {
         const attempt = castAttemptGeneration;
         castWorkerForm.update(
-          (current) => ({ ...current, agentId: '', name: '', reporting: '', reportsTo: '' }),
+          (current) => ({ ...current, agentId: '', name: '', reporting: 'none', reportsTo: '' }),
           { taint: false },
         );
         castOpen = false;
@@ -2068,7 +2077,7 @@
     castWorkerFormId.set(newCastFormId());
     untrack(() => {
       castWorkerForm.update(
-        (current) => ({ ...current, agentId: '', name: '', reporting: '', reportsTo: '' }),
+        (current) => ({ ...current, agentId: '', name: '', reporting: 'none', reportsTo: '' }),
         { taint: false },
       );
       castWorkerMessage.set(undefined);
@@ -3314,27 +3323,23 @@
           {releaseWorkerActionError}
         </div>
       {/if}
-      {#if releaseWorkerNotice}
-        <!-- #823 — three outcomes, three messages, and the chrome follows the
-             one the server reported: green only for a release that happened and
-             announced itself, amber + role="alert" when an owed team-chat notice
-             failed, neutral when nothing was released at all.
+      <!-- #823 — three outcomes, three messages, and the chrome follows the
+           one the server reported: green only for a release that happened and
+           announced itself, amber + an alert when an owed team-chat notice
+           failed, neutral when nothing was released at all.
 
-             `{#key}` on the role, because ONE hidden form serves every row: a
-             second release re-renders this same element, and swapping `role`
-             from status to alert in place asks an assistive technology to
-             re-register a live region it already registered as polite. Keyed,
-             the alert is a fresh insertion — which is the case that matters,
-             since it is the one nobody else was told about. -->
-        {#key releaseWorkerNotice.role}
-          <div
-            role={releaseWorkerNotice.role}
-            class="rounded-lg border px-4 py-3 text-sm {releaseWorkerNotice.class}"
-          >
+           `LiveOutcome` keeps a status region AND an alert region mounted, and the
+           message lands in the one that matches. ONE hidden form serves every row, so
+           a second release reuses these regions; swapping `role` from status to
+           alert in place asks an assistive technology to re-register a live region
+           it already registered as polite, which this never does (portal#2379). -->
+      <LiveOutcome failed={releaseWorkerNotice?.role === 'alert'}>
+        {#if releaseWorkerNotice}
+          <div class="rounded-lg border px-4 py-3 text-sm {releaseWorkerNotice.class}">
             {releaseWorkerNotice.text}
           </div>
-        {/key}
-      {/if}
+        {/if}
+      </LiveOutcome>
 
       {#if agentsWithheld}
         <p role="status" class="text-sm text-zinc-500">
@@ -3379,7 +3384,7 @@
               id="castAgentId"
               name="agentId"
               bind:value={$castWorkerForm.agentId}
-              onchange={() => castWorkerForm.update((c) => ({ ...c, reporting: '', reportsTo: '' }), { taint: false })}
+              onchange={() => castWorkerForm.update((c) => ({ ...c, reporting: 'none', reportsTo: '' }), { taint: false })}
               aria-invalid={!!castWorkerAgentError}
               aria-describedby={castWorkerAgentError ? 'castAgentIdError' : 'castAgentIdHelp'}
               class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
@@ -3447,26 +3452,33 @@
               </p>
             {/if}
           </div>
-          <!-- hadron-portal#1149 — the user wants to say who this worker reports
-               to. Two deliberate choices, NEITHER preselected: a worker, or No
-               team. Omission is never No team and a coordinator is never
-               guessed, so there is no default and no "skip". -->
-          <fieldset
-            aria-describedby={castWorkerReportingError ? 'castReportingError' : undefined}
-            class="space-y-2"
-          >
-            <legend class="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {t('app.staff.field.reports-to', 'Reports to')}
-            </legend>
+          <!-- hadron-portal#1893 — who this worker reports to is one checkbox, off
+               by default. Off is the explicit No team arm (`reporting: 'none'`,
+               sent by the hidden input); on reveals the worker picker
+               (`reporting: 'head'`). Unchecking clears the picked worker so a
+               submit never carries both arms. Supersedes the two-radio design
+               of hadron-portal#1149. -->
+          <div class="space-y-2">
+            <!-- Exactly one `reporting` value posts, with or without script: the checkbox sends
+                 `head` when on, the hidden input sends `none` when off. -->
+            {#if $castWorkerForm.reporting !== 'head'}
+              <input type="hidden" name="reporting" value="none" />
+            {/if}
             <label class="flex items-center gap-2 text-sm text-zinc-900 dark:text-white">
               <input
-                type="radio"
+                id="castReportsToWorker"
+                type="checkbox"
                 name="reporting"
                 value="head"
-                bind:group={$castWorkerForm.reporting}
-                class="h-4 w-4 border-zinc-300 text-indigo-600 dark:border-zinc-600"
+                checked={$castWorkerForm.reporting === 'head'}
+                onchange={(e) =>
+                  castWorkerForm.update(
+                    (c) => ({ ...c, reporting: e.currentTarget.checked ? 'head' : 'none', reportsTo: '' }),
+                    { taint: false },
+                  )}
+                class="h-4 w-4 rounded border-zinc-300 text-indigo-600 dark:border-zinc-600"
               />
-              {t('app.staff.reports-to.choice.worker', 'A worker')}
+              {t('app.staff.field.reports-to', 'Reports to')}
             </label>
             {#if $castWorkerForm.reporting === 'head'}
               <div class="pl-6">
@@ -3494,24 +3506,10 @@
                 {/if}
               </div>
             {/if}
-            <label class="flex items-center gap-2 text-sm text-zinc-900 dark:text-white">
-              <input
-                type="radio"
-                name="reporting"
-                value="none"
-                bind:group={$castWorkerForm.reporting}
-                class="h-4 w-4 border-zinc-300 text-indigo-600 dark:border-zinc-600"
-              />
-              {t('app.staff.reports-to.choice.none', 'No team')}
-            </label>
             {#if castWorkerReportingError}
               <p id="castReportingError" role="alert" class="text-xs text-red-600 dark:text-red-400">{castWorkerReportingError}</p>
-            {:else}
-              <p class="text-xs text-zinc-400">
-                {t('app.staff.reports-to.help', 'Choose deliberately. A cast without a choice will be refused once enforcement is on.')}
-              </p>
             {/if}
-          </fieldset>
+          </div>
           <div>
             <p class="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">
               {t('app.staff.field.role', 'Role')}
@@ -3574,9 +3572,11 @@
           </p>
         </div>
       {:else}
-        {#if pauseOutcome && !(pauseFor && !pauseOutcome.ok)}
-          <p role={pauseOutcome.ok ? 'status' : 'alert'} class="text-xs {pauseOutcome.ok ? 'text-green-700 dark:text-green-400' : 'text-red-500'}">{#if workerNameOf(pauseOutcome.workerId)}{workerNameOf(pauseOutcome.workerId)}: {/if}{pauseOutcome.message}</p>
-        {/if}
+        <LiveOutcome failed={pauseOutcome ? !pauseOutcome.ok : false}>
+          {#if pauseOutcome && !(pauseFor && !pauseOutcome.ok)}
+            <p class="text-xs {pauseOutcome.ok ? 'text-green-700 dark:text-green-400' : 'text-red-500'}">{#if workerNameOf(pauseOutcome.workerId)}{workerNameOf(pauseOutcome.workerId)}: {/if}{pauseOutcome.message}</p>
+          {/if}
+        </LiveOutcome>
         <!-- portal#1168: Unpause is a one-click clearPause for the chosen worker. -->
         <form bind:this={unpauseForm} method="POST" action="?/setWorkerPause" class="hidden" novalidate
           use:enhance={pauseEnhance(false)}>

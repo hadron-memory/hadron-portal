@@ -8,6 +8,7 @@
   install, and creation happens via the install flow.
 -->
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -129,9 +130,12 @@
 
   {#if deleteActionError}
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{deleteActionError}</div>
-  {:else if deleteActionSuccess}
-    <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">{deleteActionSuccess}</div>
   {/if}
+  <LiveRegion>
+    {#if !deleteActionError && deleteActionSuccess}
+      <div class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">{deleteActionSuccess}</div>
+    {/if}
+  </LiveRegion>
 
   {#if apps.length === 0}
     <!-- 009-install-agent-flow FR-011 / T019: Apps page is list-only.

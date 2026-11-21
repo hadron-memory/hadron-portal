@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // portal#1921 (R1, R3, R4): what switching on org boot-prompt signing would
   // change, and the switch-on itself. The preview IS the confirmation: Switch on
   // sits under the table and is offered only once every row is loaded.
@@ -8,7 +9,6 @@
   import { enhance } from '$app/forms';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
-  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import SigningStatus from '$lib/components/org/SigningStatus.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
@@ -26,6 +26,18 @@
   const preview = $derived<PreviewRead | null>(reloaded && reloaded.from === data.preview ? reloaded.preview : data.preview);
   const outcome = $derived(form && 'outcome' in form ? form.outcome : null);
   const done = $derived(outcome === 'done');
+  // The drifted and too-many notes arrive after a stale switch-on or a Next, so they live in a live region
+  // that is already mounted (portal#2379). The chain below still decides what else shows: the branches that
+  // come BEFORE them in it win, and so they do here.
+  const noteKind = $derived.by(() => {
+    if (done && form && 'signing' in form && form.signing) return null;
+    if (data.sw.kind === 'failed' || preview?.kind === 'failed') return null;
+    if (data.sw.kind === 'ok' && data.sw.required) return null;
+    if (outcome === 'hidden') return null;
+    // A stale switch-on says it whichever preview the reload brings back (ok, drifted or too_many), so it wins.
+    if (outcome === 'stale') return 'drifted';
+    return preview?.kind === 'drifted' ? 'drifted' : preview?.kind === 'too_many' ? 'too_many' : null;
+  });
   const org = $derived(data.org);
   let submitting = $state(false);
 
@@ -80,11 +92,24 @@
     <h1 class="mt-2 text-xl font-bold text-zinc-900 dark:text-white">{t('org.signing.heading', 'Boot prompt signing')}</h1>
   </div>
 
-  <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" data-testid="signing-preview">
-    <div class="space-y-4">
+  <section class="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" data-testid="signing-preview">
+    <LiveRegion>
+      {#if done && form && 'signing' in form && form.signing}
+        <div class="space-y-4">
+          <SigningStatus required={form.signing.required} enforced={form.signing.enforced} />
+          <p class="text-sm text-green-700 dark:text-green-300">{t('org.signing.switched-on', 'Signing is switched on.')}</p>
+        </div>
+      {:else if noteKind === 'drifted'}
+        <p class="text-sm text-amber-800 dark:text-amber-200">{t('org.signing.stale', 'What would change has changed, or this review is more than 10 minutes old. Look again before switching on.')}</p>
+      {:else if noteKind === 'too_many' && preview?.kind === 'too_many'}
+        <div class="space-y-4">
+          <p class="text-sm text-zinc-700 dark:text-zinc-300">{countWords(preview.total)}</p>
+          <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('org.signing.too-many', 'Too many to review here; use the CLI:')} <code class="rounded bg-zinc-100 px-1 py-0.5 text-xs dark:bg-zinc-800">hadron org signing on</code></p>
+        </div>
+      {/if}
+    </LiveRegion>
     {#if done && form && 'signing' in form && form.signing}
-      <SigningStatus required={form.signing.required} enforced={form.signing.enforced} />
-      <p role="status" class="text-sm text-green-700 dark:text-green-300">{t('org.signing.switched-on', 'Signing is switched on.')}</p>
+      <!-- shown by the live region above, which is mounted before this result arrives (portal#2379) -->
     {:else if data.sw.kind === 'failed' || preview?.kind === 'failed'}
       <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('org.signing.failed', 'Couldn’t load boot prompt signing.')}</p>
     {:else if data.sw.kind === 'ok' && data.sw.required}
@@ -93,14 +118,7 @@
       <!-- The caller lost the audience between read and write: say nothing about the org. -->
       <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('org.signing.unavailable', 'This isn’t available.')}</p>
     {:else if preview?.kind === 'drifted'}
-      <!-- A stale switch-on already said this in the region below; repeating it here would speak twice. -->
-      {#if outcome !== 'stale'}
-        <p class="text-sm text-amber-800 dark:text-amber-200">{t('org.signing.stale', 'What would change has changed, or this review is more than 10 minutes old. Look again before switching on.')}</p>
-      {/if}
       <a href="/app/orgs/{org.id}/boot-prompt-signing" data-sveltekit-reload class="inline-block rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('org.signing.look-again', 'Look again')}</a>
-    {:else if preview?.kind === 'too_many'}
-      <p class="text-sm text-zinc-700 dark:text-zinc-300">{countWords(preview.total)}</p>
-      <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('org.signing.too-many', 'Too many to review here; use the CLI:')} <code class="rounded bg-zinc-100 px-1 py-0.5 text-xs dark:bg-zinc-800">hadron org signing on</code></p>
     {:else if preview?.kind === 'ok'}
       <p class="text-sm font-medium text-zinc-900 dark:text-white">
         {preview.total === 0
@@ -180,14 +198,5 @@
         <button type="submit" disabled={submitting} class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">{t('org.signing.switch-on-confirm', 'Switch on')}</button>
       </form>
     {/if}
-    </div>
-    <!-- The switch-on outcome that must be heard whichever preview the reload brings back (ok,
-         drifted or too_many), so it lives outside the preview chain. It follows the container with
-         the old gap as the box's own margin, so an idle region adds nothing (portal#2375). -->
-    <LiveRegion>
-      {#if outcome === 'stale'}
-        <p class="mt-4 text-sm text-amber-800 dark:text-amber-200">{t('org.signing.stale', 'What would change has changed, or this review is more than 10 minutes old. Look again before switching on.')}</p>
-      {/if}
-    </LiveRegion>
   </section>
 </div>

@@ -12,6 +12,7 @@
   report's own memory.
 -->
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
   import { findingKindText, isMintReport, mintCheckFailedText, mintSummary, mintUnconfirmedText, openFeedbackWarning, type MintReport } from '$lib/node-mint';
@@ -143,8 +144,10 @@
         <p class="mt-3 text-sm text-zinc-500" aria-busy="true">{t('memory-actions.mint.checking', 'Checking what can be minted…')}</p>
       {/if}
 
+      <LiveRegion>
+        {#if shown}<p data-testid="mint-summary" class="mt-3 text-sm text-zinc-700 dark:text-zinc-300">{mintSummary(shown.report)}</p>{/if}
+      </LiveRegion>
       {#if shown}
-        <p role="status" data-testid="mint-summary" class="mt-3 text-sm text-zinc-700 dark:text-zinc-300">{mintSummary(shown.report)}</p>
         {#if shown.report.openQuestionCount > 0}
           <p data-testid="mint-open-questions" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
             {t('memory-actions.mint.open-questions', '{n} open questions are noted in these nodes. They don’t block minting.', { n: shown.report.openQuestionCount })}

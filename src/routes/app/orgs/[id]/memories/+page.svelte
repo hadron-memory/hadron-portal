@@ -10,6 +10,7 @@
   toggleable via the column menu).
 -->
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import { tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -398,6 +399,37 @@
   // 74px tall — two lines of compressed text. The page did not overflow because
   // the labels were being crushed instead, which is the failure this looks like
   // when the rail cannot scroll.
+
+  // #2316: the Subscriptions sub-tab on the shared grid; its own table instance
+  // so search / sort / pagination stay separate from the other two.
+  type SubscriptionRow = (typeof subscriptions)[number];
+  let subscriptionFilter = $state('');
+  const subscriptionColumns: PortalColumnDef<SubscriptionRow>[] = [
+    { accessorFn: (s) => s.memory.name, id: 'name', header: t('org-memories.column.name', 'Name'), enableHiding: false, size: 200 },
+    { accessorFn: (s) => s.memory.urn, id: 'urn', header: t('org-memories.column.urn', 'URN'), size: 280 },
+    { accessorKey: 'role', header: t('org-memories.subscriptions.role', 'Role'), size: 110 },
+    { accessorFn: (s) => s.memory.organization?.name ?? t('org-memories.unknown', 'unknown'), id: 'from', header: t('org-memories.column.from', 'From'), size: 160 },
+    { id: 'actions', header: t('org-memories.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
+  ];
+  const subscriptionTable = createSvelteTable<SubscriptionRow>({
+    get data() {
+      return subscriptions;
+    },
+    columns: subscriptionColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: {
+      get globalFilter() {
+        return subscriptionFilter;
+      },
+    },
+    onGlobalFilterChange: (u) => {
+      subscriptionFilter = typeof u === 'function' ? u(subscriptionFilter) : u;
+    },
+    globalFilterFn: makeGlobalFilterFn<SubscriptionRow>({}, {}),
+    initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+  });
 </script>
 
 <svelte:head><title>Memories · {org.name} · Hadron</title></svelte:head>
@@ -422,11 +454,13 @@
       {deleteActionError ?? syncAllActionError ?? unsubscribeActionError}
     </div>
   {/if}
-  {#if deleteActionSuccess || syncAllActionSuccess || unsubscribeActionSuccess || subscribeActionSuccess}
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
-      {deleteActionSuccess ?? syncAllActionSuccess ?? unsubscribeActionSuccess ?? subscribeActionSuccess}
-    </div>
-  {/if}
+  <LiveRegion>
+    {#if deleteActionSuccess || syncAllActionSuccess || unsubscribeActionSuccess || subscribeActionSuccess}
+      <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
+        {deleteActionSuccess ?? syncAllActionSuccess ?? unsubscribeActionSuccess ?? subscribeActionSuccess}
+      </div>
+    {/if}
+  </LiveRegion>
 
   <!-- #555: shared cell renderer — reused by the Personal and Org grids. The
        Delete action stays org-only (owner-only memories are managed from their
@@ -465,6 +499,29 @@
     {:else}
       {@const f = fmt[cell.column.id]}
       <div class="truncate">{f ? f(cell.getValue()) : cell.getValue()}</div>
+    {/if}
+  {/snippet}
+
+  {#snippet subscriptionCell(cell: PortalCell<SubscriptionRow, unknown>, s: SubscriptionRow)}
+    {#if cell.column.id === 'name'}
+      <div class="truncate">
+        <a href="/app/memories/{s.memory.id}" class="font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{s.memory.name}</a>
+      </div>
+    {:else if cell.column.id === 'urn'}
+      <Urn value={s.memory.urn} type="memory" size={10} />
+    {:else if cell.column.id === 'role'}
+      <span class="inline-block rounded px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">{s.role}</span>
+    {:else if cell.column.id === 'actions'}
+      <NodeActionsMenu
+        actions={[{ id: 'unsubscribe', label: t('org-memories.action.unsubscribe', 'Unsubscribe'), danger: true }]}
+        onselect={(id) => { if (id === 'unsubscribe') unsubscribeMemory(s.memory); }}
+        label={t('org-memories.actions.label', 'Actions for {name}', { name: s.memory.name })}
+        disabled={$unsubscribeSubmitting}
+        fixed
+        compact
+      />
+    {:else}
+      <div class="truncate">{cell.getValue()}</div>
     {/if}
   {/snippet}
 
@@ -548,45 +605,15 @@
     {#if subscriptions.length === 0}
       <p class="text-sm text-zinc-500">{t('org-memories.subscriptions.empty', 'Not subscribed to any memories yet.')}</p>
     {:else}
-      <div class="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-zinc-200 bg-zinc-50 text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-              <th class="px-4 py-2.5">{t('org-memories.column.name', 'Name')}</th>
-              <th class="px-4 py-2.5">{t('org-memories.column.urn', 'URN')}</th>
-              <th class="px-4 py-2.5">{t('org-memories.subscriptions.role', 'Role')}</th>
-              <th class="px-4 py-2.5">{t('org-memories.column.from', 'From')}</th>
-              <th class="px-4 py-2.5 text-right">{t('org-memories.column.actions', 'Actions')}</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
-            {#each subscriptions as s (s.memory.id)}
-              <tr class="bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900">
-                <td class="px-4 py-2.5">
-                  <a href="/app/memories/{s.memory.id}" class="font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{s.memory.name}</a>
-                </td>
-                <td class="px-4 py-2.5"><Urn value={s.memory.urn} type="memory" size={10} /></td>
-                <td class="px-4 py-2.5">
-                  <span class="inline-block rounded px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">{s.role}</span>
-                </td>
-                <td class="px-4 py-2.5 text-zinc-600 dark:text-zinc-400">{s.memory.organization?.name ?? t('org-memories.unknown', 'unknown')}</td>
-                <td class="px-4 py-2.5 text-right">
-                  <div class="flex justify-end">
-                    <NodeActionsMenu
-                      actions={[{ id: 'unsubscribe', label: t('org-memories.action.unsubscribe', 'Unsubscribe'), danger: true }]}
-                      onselect={(id) => { if (id === 'unsubscribe') unsubscribeMemory(s.memory); }}
-                      label={t('org-memories.actions.label', 'Actions for {name}', { name: s.memory.name })}
-                      disabled={$unsubscribeSubmitting}
-                      fixed
-                      compact
-                    />
-                  </div>
-                </td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        table={subscriptionTable}
+        listKey="orgs:memories:subscriptions"
+        searchPlaceholder={t('org-memories.subscriptions.search', 'Search subscriptions...')}
+        searchAriaLabel={t('org-memories.subscriptions.search-aria', 'Search subscriptions')}
+        bind:globalFilter={subscriptionFilter}
+        rowAttrs={(s) => ({ 'data-testid': 'subscription-row', 'data-memory-id': s.memory.id })}
+        cell={subscriptionCell}
+      />
     {/if}
 
     <!-- Subscribe to external memories (moved here from the page footer) -->
