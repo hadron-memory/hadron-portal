@@ -19,7 +19,10 @@
   const ro = $derived(!!data.impersonating);
 
   const msg = (action: string) => (form && 'message' in form && form.message && form.action === action ? form.message : null);
-  const staged = (action: string) => !!(form && 'staged' in form && form.staged && form.action === action);
+  // The staged line is only true while a request is still open: once the notice re-reads to
+  // withdrawn, completed or expired, "Not saved yet." would contradict it.
+  const hasOpen = $derived(data.pending.some((p) => p.state.toLowerCase() === 'open'));
+  const staged = (action: string) => hasOpen && !!(form && 'staged' in form && form.staged && form.action === action);
   const saved = (action: string) => !!(form && 'ok' in form && form.ok && form.action === action);
   const stagedText = () => t('secrets.staged', 'Not saved yet.');
 </script>

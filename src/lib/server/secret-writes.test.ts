@@ -38,5 +38,17 @@ describe('inputs', () => {
     expect(parseSecretValue('{"id":12345678901234567890}')).toBe('{"id":12345678901234567890}');
     expect(parseSecretValue('1e999')).toBe('1e999');
     expect(parseSecretValue('null')).toBe('null');
+    for (const lossy of ['0.100000000000000005', '1.0000000000000000001', '2e-400', '1.23456789012345e-310', '12345678901234567890', '9007199254740993', '{"p":0.100000000000000005}']) expect(parseSecretValue(lossy)).toBe(lossy);
+    for (const [ok, v] of [['1.5', 1.5], ['1.50', 1.5], ['0.1', 0.1], ['1e3', 1000], ['3.14159', 3.14159], ['0.0', 0], ['5e-324', 5e-324], ['9007199254740991', 9007199254740991], ['-0.25', -0.25], ['100', 100], ['1e22', 1e22]] as const) expect(parseSecretValue(ok)).toBe(v);
+  });
+});
+
+describe('a deployment without a secret key', () => {
+  it('says so, in the portal\'s own words', async () => {
+    const e = { response: { errors: [{ message: 'internal', extensions: { code: 'SECRET_KEY_UNAVAILABLE' } }] }, request: { query: '', variables: {} } };
+    const r = await secretWrite({ request: async () => { throw e; } }, 'mutation { x }', {});
+    expect(r).toMatchObject({ kind: 'refused' });
+    expect((r as { message: string }).message).toContain('secret key');
+    expect((r as { message: string }).message).not.toContain('internal');
   });
 });

@@ -44,6 +44,17 @@ describe('a staged edit (acceptance 1)', () => {
   });
 });
 
+describe('a staged result that has since ended', () => {
+  it('no longer says Not saved yet once the request is withdrawn', () => {
+    const html = detail({ pending: [{ ...pending, state: 'withdrawn' }] }, { action: 'update', staged: true });
+    expect(html).not.toContain('data-testid="update-staged"');
+  });
+  it('a staged create clears the name field', () => {
+    const html = render(List as never, { props: { data: { app, secrets: { kind: 'ok', secrets: [secret], total: 1 }, signing: 'on', pending: [], impersonating: null }, form: { action: 'create', staged: true, name: 'new-key' } } } as never).body;
+    expect(html).not.toMatch(/id="secret-name"[^>]*value="new-key"/);
+  });
+});
+
 describe('a refused withdraw on the list page', () => {
   it('says so instead of leaving the pending row silent', () => {
     const html = render(List as never, { props: { data: { app, secrets: { kind: 'ok', secrets: [secret], total: 1 }, signing: 'on', pending: [pending], impersonating: null }, form: { action: 'withdraw', message: 'Too late to withdraw.' } } } as never).body;

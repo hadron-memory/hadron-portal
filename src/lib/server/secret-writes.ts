@@ -1,5 +1,5 @@
 import type { GraphQLClient } from 'graphql-request';
-import { extractGqlError } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
 import { readStagedChange } from '$lib/secrets/staged';
 
@@ -27,6 +27,9 @@ export async function secretWrite<D>(
     const staged = readStagedChange(e);
     if (staged?.kind === 'staged') return staged;
     if (staged) return { kind: 'plain-protected' };
+    if (extractGqlErrorCode(e) === 'SECRET_KEY_UNAVAILABLE') {
+      return { kind: 'refused', message: t('secrets.write.no-key', 'This deployment cannot store secrets yet: its secret key is not set up. Nothing was changed.') };
+    }
     return { kind: 'refused', message: extractGqlError(e, t('secrets.write.failed', "That didn't go through. Try again.")) };
   }
 }
@@ -46,11 +49,30 @@ export const validSecretName = (n: string) => NAME.test(n);
 function losesNumbers(s: string): boolean {
   const bare = s.replace(/"(?:[^"\\]|\\.)*"/g, '""');
   for (const tok of bare.match(/-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g) ?? []) {
-    const n = Number(tok);
-    if (!Number.isFinite(n)) return true;
-    if (/^-?\d+$/.test(tok) && !Number.isSafeInteger(n)) return true;
+    if (numberLoses(tok)) return true;
   }
   return false;
+}
+
+/**
+ * True when the double JSON.parse makes of `tok` is not the number typed: it is read back at the
+ * token's own number of significant digits and must give the same digits and the same power of
+ * ten. That catches an integer past 2^53, a decimal with more digits than float64 holds, a
+ * subnormal (few digits survive), a value that underflows to zero and one that overflows.
+ */
+function numberLoses(tok: string): boolean {
+  const n = Number(tok);
+  if (!Number.isFinite(n)) return true;
+  const [mant, expPart] = tok.split(/[eE]/);
+  const [intRaw, frac = ''] = mant.replace('-', '').split('.');
+  const all = intRaw + frac;
+  const digits = all.replace(/^0+/, '').replace(/0+$/, '');
+  if (digits === '') return false;
+  if (digits.length > 100) return true;
+  const lead = all.length - all.replace(/^0+/, '').length;
+  const typedExp = intRaw.length - lead - 1 + Number(expPart ?? 0);
+  const [backMant, backExp] = n.toExponential(digits.length - 1).split('e');
+  return backMant.replace('-', '').replace('.', '').replace(/0+$/, '') !== digits || Number(backExp) !== typedExp;
 }
 
 /** Plain text is stored as text; text that parses as JSON, without losing a number, is stored as JSON. */

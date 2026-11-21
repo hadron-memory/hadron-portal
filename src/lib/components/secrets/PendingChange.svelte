@@ -21,9 +21,12 @@
 
   onMount(() => {
     let alive = true;
+    let reading = false;
     const reread = () => {
-      if (!alive || !open || document.visibilityState === 'hidden') return;
-      void invalidateAll().catch(() => {});
+      // Coming back to a tab fires focus and visibilitychange together: one read for both.
+      if (!alive || !open || reading || document.visibilityState === 'hidden') return;
+      reading = true;
+      void invalidateAll().catch(() => {}).finally(() => { reading = false; });
     };
     window.addEventListener('focus', reread);
     document.addEventListener('visibilitychange', reread);
