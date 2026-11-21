@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
 import { GraphQLError } from 'graphql';
 import { NODE_BY_ID_QUERY } from '$lib/server/queries';
+import { nodeUpdateDocument } from '$lib/server/nodeKindDoor';
 // portal#1899: the server refuses a generic edit of a compiled boot prompt with a typed
 // BOOT_PROMPT_COMPILED_WRITE (only a compile writes it). The editor save must show the
 // fixed code as a 4xx rejection (the page words it; no server text is forwarded), never the generic 500.
@@ -35,7 +36,9 @@ async function save(stage: Stage, wire: Wire) {
     : new ClientError({ status: 200, headers: new Headers(), body: '', errors: [new GraphQLError(wire.message, { extensions: wire.extensions ?? {} })] }, { query: 'mutation q', variables: {} });
   request.mockImplementation(async (doc) => {
     if (doc === NODE_BY_ID_QUERY) { if (stage === 'read') throw failure(); return { node }; }
-    throw failure(); // the one other request the action makes is the write
+    // The write is the node's own update document; any other document is a request the action should not make.
+    if (doc === nodeUpdateDocument(node as never, { content: 'x!' } as never)) throw failure();
+    throw new Error('unexpected GraphQL document: neither the node read nor the node update');
   });
   const { actions } = await import('./+page.server');
   const fd = new FormData();
@@ -50,6 +53,7 @@ const savedFailureLog = (stage: Stage, code: string) => [['[node-detail] save fa
 const expectRequests = (stage: Stage) => {
   expect(request).toHaveBeenCalledTimes(stage === 'read' ? 1 : 2);
   expect(request.mock.calls[0][0]).toBe(NODE_BY_ID_QUERY);
+  if (stage === 'write') expect(request.mock.calls[1][0]).toBe(nodeUpdateDocument(node as never, { content: 'x!' } as never));
 };
 const logged = () => (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls;
 const expectNoneOf = (r: unknown, ...secrets: string[]) => { for (const s of secrets) expect(JSON.stringify(r)).not.toContain(s); };
@@ -119,8 +123,8 @@ describe('portal#2405 the read stage fails like the write stage, and is never cl
   it.each([
     ['omitted code', withCode(undefined, 'private wire prose')],
     ['empty code', withCode('', 'private wire prose')],
-    ['non-string code', { message: 'private wire prose', extensions: { code: 500 } } as Wire],
-  ])('a GraphQL read failure with %s is a 500 with no server text, logged as the read stage', async (_label, wire) => {
+    ['non-string code', { message: 'private wire prose', extensions: { code: 500 } }],
+  ] satisfies [string, Wire][])('a GraphQL read failure with %s is a 500 with no server text, logged as the read stage', async (_label, wire) => {
     const r = await save('read', wire);
     expect(r.status).toBe(500);
     expectNoneOf(r, 'private wire prose');
