@@ -197,6 +197,32 @@ describe('install customisation panel', () => {
     // total 20 -> the last valid page starts at offset 0.
     expect(fetcher.mock.calls[1][0]).toContain('offset=0');
   });
+  // Georgia/Cedric on #2428: the way back must land where rows exist, not always on 0,
+  // the singular copy is pinned, and a total of 0 at a later page (every row deleted)
+  // still offers the way back instead of the 'node list is limited' note.
+  it.each([
+    ['total 41 at offset 60 lands on the last page that exists', 41, 60, 'offset=40', /There are 41 customisations/],
+    ['total 1 at offset 20 reads in the singular', 1, 20, 'offset=0', /There is 1 customisation\./],
+    ['total 0 at offset 20 (every row deleted) goes back to the first page', 0, 20, 'offset=0', /There are 0 customisations/],
+  ])('portal#1509: past-end %s', async (_label, total, at, expected, copy) => {
+    // Page forward with real Next clicks so the panel's own offset is `at`, then the
+    // server answers the last request with an empty page (rows deleted meanwhile).
+    const full = { ...payload(), list: { state: 'ok', value: { memoryId: 'mem', urn: 'hrn:mem:acme.com:install', nodes: [node], total: 1000, offset: 0 } } };
+    const past = { ...payload(), list: { state: 'ok', value: { memoryId: 'mem', urn: 'hrn:mem:acme.com:install', nodes: [], total, offset: at } } };
+    const steps = at / 20;
+    const answers: unknown[] = Array.from({ length: steps }, () => full);
+    const fetcher = vi.fn(async (_url: string) => new Response(JSON.stringify(answers.shift() ?? past)));
+    vi.stubGlobal('fetch', fetcher);
+    const root = await panel();
+    for (let i = 0; i < steps; i++) { button(root, 'Next').click(); await settle(); }
+    expect(fetcher.mock.calls.at(-1)![0]).toContain(`offset=${at}`);
+    expect(root.querySelector('[data-testid="customisation-list-unavailable"]'), 'a known total is not a limited list').toBeNull();
+    expect(root.textContent).toMatch(copy);
+    const calls = fetcher.mock.calls.length;
+    button(root, 'Last page').click();
+    await settle();
+    expect(fetcher.mock.calls[calls][0]).toContain(expected);
+  });
   // portal#1509 item 4: the reload button throws away a draft a read-only
   // viewer cannot have, so it belongs inside the same gate as the form.
   it.each([[false, false], [true, true], [null, true]])('portal#1509: canManage=%s shows "Reload and discard draft": %s', async (canManage, shown) => {
