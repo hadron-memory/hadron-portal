@@ -177,13 +177,14 @@ export async function writeCustomisation(
       'customisation.failed-save',
       'The customisation could not be saved. Your draft is kept.',
     );
+    const lead = customisationRefusalLead(code, { draft: true });
+    const known = lead !== null;
     const detail = [
-      customisationRefusalLead(code, { draft: true }),
-      extractGqlError(e, fixed, code && customisationRefusalLead(code, { draft: true }) !== null ? [code] : [], { transport: 'fallback' }),
+      lead,
+      extractGqlError(e, fixed, known && code ? [code] : [], { transport: 'fallback' }),
     ]
       .filter(Boolean)
       .join(' ');
-    const known = customisationRefusalLead(code, { draft: true }) !== null;
     return fail(
       code === 'FORBIDDEN'
         ? 403
