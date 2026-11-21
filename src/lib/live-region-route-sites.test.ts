@@ -19,17 +19,18 @@ import { locateRegion } from '$lib/test/liveRegionSites';
  * is already true before the action). Any new, changed or derived ancestor fails the row until
  * someone reads it again, which is the point.
  *
- * `marker` is text that occurs only inside that one result's box (never in the `{#if}`'s
- * condition, an attribute or a comment); `occurrence` (0-based) picks which match when the same
- * text also appears at a site another slice owns.
+ * `marker` is matched in rendered text and `{expression}` tags only (never a script, an `{#if}`
+ * condition, a comment or an attribute), or in element attributes when `attr` is set (a
+ * `data-testid`); `occurrence` (0-based) counts among those matches when the same text also
+ * appears at a site another slice owns. Each gate names the BRANCH the region is in.
  */
-type LiveRegionCase = { file: string; marker: string; occurrence?: number; gates: string[] };
+type LiveRegionCase = { file: string; marker: string; occurrence?: number; attr?: boolean; gates: string[] };
 const R = 'src/routes/';
 const LIVE_REGION_CASES: LiveRegionCase[] = [
-  { file: R + "app/marketplace/+page.svelte", marker: "{addToAgentSuccess}", gates: ["if memories.length > 0", "each memories", "if canAdopt"] },
+  { file: R + "app/marketplace/+page.svelte", marker: "{addToAgentSuccess}", gates: ["if memories.length > 0", "each memories (key memory.id)", "if canAdopt"] },
   { file: R + "app/memories/+page.svelte", marker: "memory-transfer.done-other-user", gates: [] },
   { file: R + "app/memories/[id]/integrations/+page.svelte", marker: "{successMessage}", gates: [] },
-  { file: R + "app/memories/[id]/nodes/[nodeId]/+page.svelte", marker: "data-testid=\"approval-success\"", gates: [] },
+  { file: R + "app/memories/[id]/nodes/[nodeId]/+page.svelte", marker: "data-testid=\"approval-success\"", attr: true, gates: [] },
   { file: R + "app/memories/[id]/nodes/[nodeId]/+page.svelte", marker: "{flowActionSuccess}", gates: ["if activeTab === 'flow'"] },
   { file: R + "app/memories/[id]/nodes/[nodeId]/+page.svelte", marker: "{edgesActionSuccess}", gates: ["if activeTab === 'references'"] },
   { file: R + "app/memories/[id]/nodes/[nodeId]/+page.svelte", marker: "{updateMetaActionSuccess}", gates: ["if activeTab === 'settings' || activeTab === 'info'"] },
@@ -42,11 +43,11 @@ const LIVE_REGION_CASES: LiveRegionCase[] = [
   { file: R + "app/memories/[id]/settings/+page.svelte", marker: "'memory-transfer.done'", gates: ["if canTransfer"] },
   { file: R + "app/memories/[id]/settings/MarketplaceListingCard.svelte", marker: "{marketplaceActionSuccess}", gates: [] },
   { file: R + "app/memories/[id]/subscriptions/+page.svelte", marker: "{actionSuccess ?? unsubscribeActionSuccess}", gates: [] },
-  { file: R + "app/orgs/[id]/+page.svelte", marker: "org.signing.switched-off", gates: ["if signingOutcome !== 'hidden' && signing.kind !== 'hidden'", "if signing.kind === 'failed'"] },
+  { file: R + "app/orgs/[id]/+page.svelte", marker: "org.signing.switched-off", gates: ["if signingOutcome !== 'hidden' && signing.kind !== 'hidden'", "else of if signing.kind === 'failed'"] },
   { file: R + "app/orgs/[id]/agents/+page.svelte", marker: "{subscribeActionSuccess}", gates: [] },
   { file: R + "app/orgs/[id]/agents/+page.svelte", marker: "{unsubscribeActionSuccess}", gates: [] },
   { file: R + "app/orgs/[id]/apps/+page.svelte", marker: "{deleteActionSuccess}", gates: [] },
-  { file: R + "app/orgs/[id]/boot-prompt-signing/+page.svelte", marker: "org.signing.stale", occurrence: 1, gates: ["if done && form && 'signing' in form && form.signing", "if data.sw.kind === 'failed' || preview?.kind === 'failed'", "if data.sw.kind === 'ok' && data.sw.required", "if outcome === 'hidden'", "if preview?.kind === 'drifted'", "if preview?.kind === 'too_many'", "if preview?.kind === 'ok'"] },
+  { file: R + "app/orgs/[id]/boot-prompt-signing/+page.svelte", marker: "org.signing.stale", occurrence: 1, gates: ["else of if done && form && 'signing' in form && form.signing", "else of if data.sw.kind === 'failed' || preview?.kind === 'failed'", "else of if data.sw.kind === 'ok' && data.sw.required", "else of if outcome === 'hidden'", "else of if preview?.kind === 'drifted'", "else of if preview?.kind === 'too_many'", "if preview?.kind === 'ok'"] },
   { file: R + "app/orgs/[id]/exchange/[connectionId]/+page.svelte", marker: "{replyActionSuccess}", gates: [] },
   { file: R + "app/orgs/[id]/exchange/[connectionId]/+page.svelte", marker: "{moveActionSuccess}", gates: [] },
   { file: R + "app/orgs/[id]/integrations/+page.svelte", marker: "{githubInstallationActionSuccess}", gates: [] },
@@ -58,17 +59,17 @@ const LIVE_REGION_CASES: LiveRegionCase[] = [
   { file: R + "app/orgs/[id]/integrations/+page.svelte", marker: "{testExchangeConnectionActionSuccess}", gates: [] },
   { file: R + "app/orgs/[id]/members/+page.svelte", marker: "{updateActionSuccess ?? removeActionSuccess}", gates: [] },
   { file: R + "app/orgs/[id]/memories/+page.svelte", marker: "{deleteActionSuccess ?? syncAllActionSuccess", gates: [] },
-  { file: R + "app/workers/[id]/ChangeWorkerAgent.svelte", marker: "data-testid=\"change-agent-done\"", gates: [] },
+  { file: R + "app/workers/[id]/ChangeWorkerAgent.svelte", marker: "data-testid=\"change-agent-done\"", attr: true, gates: [] },
   { file: R + "app/workers/[id]/WorkerLeaveAlone.svelte", marker: "worker.leave-alone.unconfirmed", gates: ["if marker", "if canManage && !retired"] },
   { file: R + "app/workers/[id]/WorkerLeaveAlone.svelte", marker: "{feedback.text}", occurrence: 1, gates: ["if marker", "if canManage && !retired"] },
   { file: R + "contact/+page.svelte", marker: "{successMessage}", gates: [] },
-  { file: R + "invite/[token]/+page.svelte", marker: "{emailSentMessage}", gates: ["if !inv", "if expired", "if maxedOut", "if data.isSignedIn"] },
+  { file: R + "invite/[token]/+page.svelte", marker: "{emailSentMessage}", gates: ["else of if !inv", "else of if expired", "else of if maxedOut", "else of if data.isSignedIn"] },
   { file: R + "signin/+page.svelte", marker: "{successMessage}", gates: [] },
   { file: R + "signup/+page.svelte", marker: "{successMessage}", gates: [] },
-  { file: "src/lib/components/AgentInheritanceSettings.svelte", marker: "agent.parent.unsaved-replace", gates: ["if management.error", "if management.canManage && management.refs"] },
-  { file: "src/lib/components/AgentInheritanceSettings.svelte", marker: "agent.parent.unsaved-set", gates: ["if management.error", "if management.canManage && management.refs"] },
+  { file: "src/lib/components/AgentInheritanceSettings.svelte", marker: "agent.parent.unsaved-replace", gates: ["else of if management.error", "if management.canManage && management.refs"] },
+  { file: "src/lib/components/AgentInheritanceSettings.svelte", marker: "agent.parent.unsaved-set", gates: ["else of if management.error", "if management.canManage && management.refs"] },
   { file: "src/lib/components/WorkerDeleteDialog.svelte", marker: "app.staff.delete.pending", gates: [] },
-  { file: "src/lib/components/agent-tasks/TaskFindings.svelte", marker: "<p class=\"text-sm text-zinc-600 dark:text-zinc-300\">{t('app.tasks.disposition.saving'", gates: ["if editing", "key editing.id"] },
+  { file: "src/lib/components/agent-tasks/TaskFindings.svelte", marker: "app.tasks.disposition.saving", gates: ["if editing", "key editing.id"] },
   { file: "src/lib/components/agent-tasks/TaskPlanning.svelte", marker: "t('app.tasks.saving'", gates: [] },
 ];
 
@@ -91,6 +92,26 @@ describe('portal#2375: route-page action results sit in a persistent LiveRegion'
     expect(gatesOf('{#if canEdit}{#if showResult}<LiveRegion>{#if a}<p>MARK</p>{/if}</LiveRegion>{/if}{/if}')).not.toEqual(['if canEdit']);
   });
 
+  it('records the branch, so moving a region between branches of an unchanged guard changes the list (Beckett, #2382)', () => {
+    const inElse = gatesOf('{#if outcome === "hidden"}<b>x</b>{:else}<LiveRegion>{#if a}<p>MARK</p>{/if}</LiveRegion>{/if}');
+    const inThen = gatesOf('{#if outcome === "hidden"}<LiveRegion>{#if a}<p>MARK</p>{/if}</LiveRegion>{:else}<b>x</b>{/if}');
+    expect(inElse).toEqual(['else of if outcome === "hidden"']);
+    expect(inThen).toEqual(['if outcome === "hidden"']);
+    // a keyed each: a different key can replace the row without changing the collection
+    expect(gatesOf('{#each rows as r (r.id)}<LiveRegion>{#if a}<p>MARK</p>{/if}</LiveRegion>{/each}')).toEqual(['each rows (key r.id)']);
+    expect(gatesOf('{#each rows as r (n)}<LiveRegion>{#if a}<p>MARK</p>{/if}</LiveRegion>{/each}')).not.toEqual(['each rows (key r.id)']);
+  });
+
+  it('matches the marker in rendered text, not in an attribute, a nested condition or a script', () => {
+    expect(gatesOf('<LiveRegion>{#if a}<p title="MARK">Other</p>{/if}</LiveRegion>')).toBeNull();
+    expect(gatesOf("<LiveRegion>{#if a}{#if v === 'MARK'}<p>Other</p>{/if}{/if}</LiveRegion>")).toBeNull();
+    // an earlier occurrence in a script does not shift which site is selected
+    const withScript = "<script>import LiveRegion from '$lib/components/LiveRegion.svelte'; const s = 'MARK';</script><LiveRegion>{#if a}<p>MARK</p>{/if}</LiveRegion>";
+    expect(locateRegion(withScript, 'MARK', 0)?.gates).toEqual([]);
+    // an attribute marker is selected explicitly
+    expect(locateRegion(IMP + '<LiveRegion>{#if a}<p data-testid="done">x</p>{/if}</LiveRegion>', 'data-testid="done"', 0, true)?.gates).toEqual([]);
+  });
+
   it('rejects what is not a persistent region around the marker', () => {
     expect(gatesOf('{#if a}<LiveRegion><p>MARK</p></LiveRegion>{/if}')).toBeNull(); // no inner {#if}
     expect(gatesOf('<LiveRegion>{#if a}<p>x</p>{/if}<b>MARK</b></LiveRegion>')).toBeNull(); // not the only child
@@ -104,16 +125,16 @@ describe('portal#2375: route-page action results sit in a persistent LiveRegion'
   it('flags a status role nested inside the region, whatever the spacing or quoting', () => {
     for (const attr of ['role="status"', 'role = "status"', "role='status'", 'role=status']) {
       const l = locateRegion(IMP + `<LiveRegion>{#if a}<p ${attr}>MARK</p>{/if}</LiveRegion>`, 'MARK');
-      expect(l?.ownRoleStatus, attr).toBe(true);
+      expect(l?.hasNestedStatusRole, attr).toBe(true);
     }
-    expect(locateRegion(IMP + '<!-- role="status" --><LiveRegion>{#if a}<p>MARK</p>{/if}</LiveRegion>', 'MARK')?.ownRoleStatus).toBe(false);
+    expect(locateRegion(IMP + '<!-- role="status" --><LiveRegion>{#if a}<p>MARK</p>{/if}</LiveRegion>', 'MARK')?.hasNestedStatusRole).toBe(false);
   });
 
   it.each(LIVE_REGION_CASES.map((c) => [c.file.replace(/^src\//, ''), c.marker.slice(0, 48), c] as const))('%s: %s', (_f, _m, c) => {
     const src = readFileSync(join(process.cwd(), c.file), 'utf8');
-    const located = locateRegion(src, c.marker, c.occurrence ?? 0);
+    const located = locateRegion(src, c.marker, c.occurrence ?? 0, c.attr);
     expect(located, 'the marker is not inside the {#if} of a LiveRegion that has it as its only child').not.toBeNull();
-    expect(located!.ownRoleStatus, 'a role="status" is nested inside the region').toBe(false);
+    expect(located!.hasNestedStatusRole, 'a role="status" is nested inside the region').toBe(false);
     expect(located!.gates, 'the ancestors of this region changed: read each one, then update the list').toEqual(c.gates);
   });
 
