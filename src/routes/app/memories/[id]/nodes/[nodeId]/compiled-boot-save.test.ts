@@ -99,7 +99,12 @@ describe('portal#1899 compiled boot prompt save', () => {
     expectRequests('write');
   });
 
-  // portal#2405: the wire code is untrusted JSON, so a value that is not a string is its own fixture,
+  // The rule these rows pin lives in +page.server.ts (boundedLogCode, ~L680-684):
+//   if (!code) return 'no-code';
+//   return /^[A-Z][A-Z0-9_]{0,63}$/.test(code) ? code : 'unrecognized';
+// and extractGqlErrorCode (src/lib/gql-error.ts:108-111) hands it null for any code that is not a
+// string, so a falsy or non-string wire code logs 'no-code' and an out-of-shape string 'unrecognized'.
+// portal#2405: the wire code is untrusted JSON, so a value that is not a string is its own fixture,
   // apart from the empty and the out-of-shape strings above. None of them is a code: each reads as no code.
   it.each([
     ['null', null],
