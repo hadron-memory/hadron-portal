@@ -1156,10 +1156,12 @@ describe('grantKeyScope action', () => {
     });
     const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: 'h-2' })) as {
       status: number;
-      data: { form: { message: { type: string; text: string } } };
+      data: { form: { message?: { type: string; text: string }; errors: Record<string, string[]> } };
     };
     expect(result.status).toBe(409);
-    expect(result.data.form.message).toEqual({ type: 'error', text: serverText });
+    // #2356: a host-specific refusal lands on the host field, not a form message.
+    expect(result.data.form.errors.hostId).toEqual([serverText]);
+    expect(result.data.form.message).toBeUndefined();
   });
 
   // LOCAL review F3: a malformed host is BAD_USER_INPUT, which the refusal
@@ -1173,10 +1175,11 @@ describe('grantKeyScope action', () => {
     });
     const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: 'not-a-host' })) as {
       status: number;
-      data: { form: { message: { type: string; text: string } } };
+      data: { form: { message?: { type: string; text: string }; errors: Record<string, string[]> } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: serverText });
+    expect(result.data.form.errors.hostId).toEqual([serverText]);
+    expect(result.data.form.message).toBeUndefined();
   });
 
   // Acceptance 5: the audience refusals. A participant who does not manage the
@@ -1247,10 +1250,10 @@ describe('grantKeyScope action', () => {
     });
     const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: '!!!' })) as {
       status: number;
-      data: { form: { message: { type: string; text: string } } };
+      data: { form: { errors: Record<string, string[]> } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message.text).toBe('host:operate is granted for one host: name it with hostId (a host token).');
+    expect(result.data.form.errors.hostId).toEqual(['host:operate is granted for one host: name it with hostId (a host token).']);
   });
 
   it('returns the fallback copy for a transport failure', async () => {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // portal#1538 (hadron-server#2458 S4; hrn:node:hadronmemory.com:specs:cor:dmo:050:11) — change the Agent (and so
   // the role) a cast worker runs. Offered by the page only to a manager acting as
   // themselves; the server stays the authority and refuses anyone else.
@@ -40,11 +41,14 @@
     <div role="alert" class="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300" data-testid="change-agent-refusal">
       {result.refusal.message}
     </div>
-  {:else if result?.ok}
-    <p role="status" class="text-sm text-green-700 dark:text-green-300" data-testid="change-agent-done">
-      {t('worker.change-agent.done', 'Agent changed to {agent}. It takes effect at this worker’s next bind.', { agent: result.agentName })}
-    </p>
   {/if}
+  <LiveRegion>
+    {#if !result?.refusal && result?.ok}
+      <p class="text-sm text-green-700 dark:text-green-300" data-testid="change-agent-done">
+        {t('worker.change-agent.done', 'Agent changed to {agent}. It takes effect at this worker’s next bind.', { agent: result.agentName })}
+      </p>
+    {/if}
+  </LiveRegion>
 
   {#if options === null}
     <p class="text-sm text-zinc-500" data-testid="change-agent-unavailable">{t('worker.change-agent.unavailable', 'We couldn’t load the agents installed in this App. Reload the page to try again.')}</p>

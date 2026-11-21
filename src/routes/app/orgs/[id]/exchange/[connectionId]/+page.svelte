@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { onMount, untrack } from 'svelte';
   import DOMPurify from 'dompurify';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -141,14 +142,20 @@
 
   {#if replyActionError}
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{replyActionError}</div>
-  {:else if replyActionSuccess}
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{replyActionSuccess}</div>
   {/if}
+  <LiveRegion>
+    {#if !replyActionError && replyActionSuccess}
+      <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{replyActionSuccess}</div>
+    {/if}
+  </LiveRegion>
   {#if moveActionError}
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{moveActionError}</div>
-  {:else if moveActionSuccess}
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{moveActionSuccess}</div>
   {/if}
+  <LiveRegion>
+    {#if !moveActionError && moveActionSuccess}
+      <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{moveActionSuccess}</div>
+    {/if}
+  </LiveRegion>
   {#if data.loadError}
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{data.loadError}</div>
   {/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // #841 / hrn:node:hadronmemory.com:specs:cor:acl:080:04 — the marketplace
   // listing card, extracted from the Settings page so it can be remounted per
   // memory (`{#key g.id}` at the call site). SvelteKit REUSES the page
@@ -100,9 +101,12 @@
   </div>
   {#if marketplaceActionError}
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{marketplaceActionError}</div>
-  {:else if marketplaceActionSuccess}
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{marketplaceActionSuccess}</div>
   {/if}
+  <LiveRegion>
+    {#if !marketplaceActionError && marketplaceActionSuccess}
+      <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{marketplaceActionSuccess}</div>
+    {/if}
+  </LiveRegion>
   <label class="flex items-center gap-2 text-sm text-zinc-900 dark:text-white">
     <input
       type="checkbox"

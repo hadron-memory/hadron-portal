@@ -1868,12 +1868,17 @@
   // own focus order the way reading document.activeElement would.
   let grantScopeKey = $state<AppKey | null>(null);
   let grantScopeTriggerEl: HTMLButtonElement | null = null;
+  // #2356: set by the cross-App fence below. A fence-driven teardown is part
+  // of a navigation, whose own focus/scroll reset owns where focus goes, so
+  // the Keys-panel fallback stays out of its way. Cleared on the next open.
+  let grantScopeFenceFired = false;
   function openGrantScope(key: AppKey, trigger?: HTMLButtonElement) {
     if ($grantKeyScopeSubmitting) return;
     grantKeyScopeForm.update(() => ({ _kind: 'grantKeyScope', keyId: key.id, scope: 'attention:deliver' as const, hostId: '' }), { taint: false });
     grantKeyScopeErrors.set({});
     grantKeyScopeMessage.set(undefined);
     grantScopeTriggerEl = trigger ?? null;
+    grantScopeFenceFired = false;
     grantScopeKey = key;
   }
   function closeGrantScope() {
@@ -1884,11 +1889,14 @@
   // RESTORE is the action's own job: the {#if} below unmounts the node on
   // every close path BEFORE destroy() runs, so the browser's own close()
   // restore finds a detached dialog and focus falls to <body> (real
-  // Chromium). The captured trigger can be GONE by then — the success path
-  // invalidates the page and the table re-renders its rows, and a cross-App
-  // fence drops the departed App's dialog wholesale — so a detached (or
-  // absent) trigger lands on the Keys TAB PANEL (#panel-keys, a focusable
-  // region boundary by its tabindex 0) instead: never <body>.
+  // Chromium). The captured trigger can be GONE by then: the keyed row
+  // normally survives the success path's invalidation (the row DOM is reused),
+  // so a detached trigger is the defensive case (a row removed by a refresh
+  // that dropped the key), and a cross-App fence drops the departed App's
+  // dialog wholesale. A detached (or absent) trigger lands on the Keys TAB
+  // PANEL (#panel-keys, a focusable region boundary by its tabindex 0), never
+  // <body>, with preventScroll so it does not jump the page; the fence case
+  // skips the fallback because the navigation owns focus.
   function grantScopeDialogAction(el: HTMLDialogElement) {
     el.showModal();
     el.querySelector<HTMLSelectElement>('select[name="scope"]')?.focus();
@@ -1896,7 +1904,7 @@
       destroy() {
         if (el.open) el.close();
         if (grantScopeTriggerEl && grantScopeTriggerEl.isConnected) grantScopeTriggerEl.focus();
-        else document.getElementById('panel-keys')?.focus();
+        else if (!grantScopeFenceFired) document.getElementById('panel-keys')?.focus({ preventScroll: true });
       },
     };
   }
@@ -1914,9 +1922,11 @@
     grantScopeContextApp = app.id;
     grantScopeGeneration += 1;
     // Discard the departed App's dialog, form fields, outcomes and captured
-    // trigger together (the teardown then lands on the heading, not on
-    // another App's row).
+    // trigger together. The teardown then skips its Keys-panel fallback
+    // (grantScopeFenceFired) so it neither focuses another App's row nor
+    // races the navigation's own focus/scroll reset.
     grantScopeTriggerEl = null;
+    grantScopeFenceFired = true;
     untrack(() => {
       grantScopeKey = null;
       grantKeyScopeForm.update(() => ({ _kind: 'grantKeyScope', keyId: '', scope: 'attention:deliver' as const, hostId: '' }), { taint: false });
@@ -4064,7 +4074,8 @@
 
   {#if activeTab === 'memory' && tabShown('memory')}
     <div id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
-    <!-- #2332: heading landmark for heading-keyed screen-reader navigation; sr-only
+    <!-- #2332: a heading (not an ARIA landmark) so heading-keyed screen-reader
+         navigation lands in this panel; sr-only
          because it only echoes the tab label
          (hrn:node:hadronmemory.com:hadron-portal:conventions:tabpanel-heading-landmark). -->
     <h2 class="sr-only">{t('app.tabs.memory', 'Memories')}</h2>
@@ -4269,14 +4280,14 @@
                        reader never loses "what a valid host is" to the error.
                        The alert renders on exactly grantKeyScopeActionError,
                        the same expression describedby keys on, so the id
-                       always resolves. aria-invalid covers a refusal that
-                       arrives as a form message rather than a field error
-                       (the server's own BAD_USER_INPUT on a malformed host —
-                       the client schema stops only the empty case): the host
-                       is this dialog's one free-text field, so any error
-                       showing beside it marks it invalid. -->
+                       always resolves. aria-invalid keys on the HOST field
+                       error alone (#2356): the server routes a host-specific
+                       refusal (a second host, a malformed host id) there, while
+                       a permission, key-gone or network refusal stays a form
+                       message and must not tell a screen-reader user that the
+                       host they typed is wrong. -->
                   <input id="grant-host" type="text" name="hostId" bind:value={$grantKeyScopeForm.hostId}
-                    aria-invalid={!!$grantKeyScopeErrors.hostId || !!grantKeyScopeActionError}
+                    aria-invalid={!!$grantKeyScopeErrors.hostId}
                     aria-describedby={grantKeyScopeActionError ? 'grant-host-help grant-scope-error' : 'grant-host-help'}
                     class={inputClass} autocomplete="off" />
                   <p id="grant-host-help" class="mt-1 text-xs text-zinc-500">{t('app.keys.grant.host-help', 'The id of the one host this key may operate. A host key reaches one host.')}</p>

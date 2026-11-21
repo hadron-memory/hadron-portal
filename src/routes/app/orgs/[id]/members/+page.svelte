@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -340,11 +341,14 @@
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
       {updateActionError ?? removeActionError ?? leaveActionError ?? impersonateActionError}
     </div>
-  {:else if updateActionSuccess || removeActionSuccess}
-    <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
-      {updateActionSuccess ?? removeActionSuccess}
-    </div>
   {/if}
+  <LiveRegion>
+    {#if !(updateActionError || removeActionError || leaveActionError || impersonateActionError) && (updateActionSuccess || removeActionSuccess)}
+      <div class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+        {updateActionSuccess ?? removeActionSuccess}
+      </div>
+    {/if}
+  </LiveRegion>
 
   <!-- Member list — TanStack grid, same chrome as the org apps/agents lists. -->
   {#if members.length === 0}
