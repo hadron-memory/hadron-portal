@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // #942 slice 2: an App's Channels. A table of the Channels in this App's
   // memories, with create / rename / delete through the sanctioned Channel
   // mutations. Register (who attends which Channel) is the next slice.
@@ -409,7 +410,9 @@
         {t('app.channels.create.where', 'It is created in {memory}, alongside the App’s team chat, so it has that memory’s audience.', { memory: shared.name })}
       </p>
       <Urn value={shared.urn} type="memory" size={8} label={t('app.channels.urn.memory', 'memory')} />
-      {#if createDone}<p role="status" class="mt-2 text-sm text-emerald-700 dark:text-emerald-400">{createDone}</p>{/if}
+      <LiveRegion>
+        {#if createDone}<p class="mt-2 text-sm text-emerald-700 dark:text-emerald-400">{createDone}</p>{/if}
+      </LiveRegion>
       {#if createError}<p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{createError}</p>{/if}
       <form method="POST" action="?/createChannel" use:createEnhance novalidate class="mt-3 grid gap-3 sm:grid-cols-2">
         <input type="hidden" name="_kind" value="createChannel" />

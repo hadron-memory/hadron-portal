@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { invalidateAll } from '$app/navigation';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -140,9 +141,12 @@
 
   {#if cancelActionError}
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{cancelActionError}</div>
-  {:else if cancelActionSuccess}
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{cancelActionSuccess}</div>
   {/if}
+  <LiveRegion>
+  {#if !cancelActionError && cancelActionSuccess}
+    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{cancelActionSuccess}</div>
+  {/if}
+  </LiveRegion>
 
   <!-- Provenance: who/what/why -->
   <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">

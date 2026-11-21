@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { defaults } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
+import { flushSync } from 'svelte';
 import { mountComponent, tick } from '$lib/test/mountComponent';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { announcedStatusRegion, idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
 import Invite from './+page.svelte';
 import { accountInviteSchema } from './schema';
 
@@ -53,6 +56,27 @@ describe('invite success feedback (#1545)', () => {
     const paragraphs = [...root.querySelectorAll('[role="status"] p')];
     expect(paragraphs.length).toBeGreaterThan(0);
     for (const p of paragraphs) expect(p.textContent?.trim() ?? '').not.toBe('');
+  });
+  // portal#2375: the region exists, empty, before the invitation is created, so the result is
+  // announced as a change rather than inserted already populated.
+  it('announces the invitation in the status region that was already mounted, empty (#2375)', async () => {
+    const props = reactiveProps({
+      data: { form: defaults(zod4(accountInviteSchema)), prefillEmail: '' },
+      form: null,
+    } as Record<string, unknown>);
+    const m = mountComponent(Invite as never, props as never);
+    mounted.push(m);
+    await tick(2);
+    const idle = idleStatusRegions(m.target);
+    expect(idle.length).toBeGreaterThan(0);
+    expect(announcedStatusRegion(m.target)).toBeNull();
+
+    props.form = { invited: true, inviteUrl: 'https://example.test/invite/synthetic', maxActivations: 2, expiresAt: '2026-11-12T12:00:00.000Z' };
+    flushSync();
+    await tick(2);
+    const announced = announcedStatusRegion(m.target);
+    expect(announced?.textContent).toContain('Invitation created!');
+    expect(idle).toContain(announced);
   });
   it('names the Copy button for what it copies, keeping the short visible label (#1742)', async () => {
     const root = await renderSuccess();

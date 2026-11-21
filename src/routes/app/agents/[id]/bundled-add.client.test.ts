@@ -2,6 +2,7 @@
  * #1173: the Bundled agents tab can add an agent. Mounted, not rendered: the
  * tab is chosen by a click and the result lands through the `form` prop.
  */
+import { firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import Page from './+page.svelte';
@@ -75,7 +76,7 @@ describe('Bundled agents tab — add (#1173)', () => {
     const added = await open({ bundleCandidates: [helper] }, { bundleAdded: true });
     added.tab!.click();
     await tick();
-    expect(added.root.querySelector('[role="status"]')?.textContent).toContain('Agent bundled');
+    expect(firstPopulatedStatusText(added.root)).toContain('Agent bundled');
   });
 
   // portal#1189 SECOND READ (Gizelle, P2): with nothing bundled yet, a failed
