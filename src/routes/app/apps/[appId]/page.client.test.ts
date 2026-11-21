@@ -1696,27 +1696,27 @@ describe('App key scope grant dialog (portal#1487)', () => {
   });
 
   // #2420 (BLIND, unverified until now): a host refusal is an error on the host field, and it stays
-  // until the form is reset or resubmitted. Typing a corrected host does NOT clear it, so the field
+  // until the form is reset or resubmitted. Picking another host does NOT clear it, so the group
   // keeps aria-invalid while the reader fixes it; the next submit's reply replaces it. Pinned as
   // today's behaviour so a change to it is a decision, not an accident.
-  it('a host refusal stays on the host field while the reader edits it, and a reopen clears it', async () => {
+  it('a host refusal stays on the host group while the reader picks another host, and a reopen clears it', async () => {
     const panel = await mountKeys({ kind: 'ok', byKey: { k1: [{ scope: 'host:operate', hostId: 'h-1', grantedAt: 'x' }] } });
     const dialog = await openGrant(panel);
     await chooseScope(dialog, 'host:operate');
-    typeHost(dialog, 'h-2');
+    pickHost(dialog, 'h-2');
     const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
     f.errors = { hostId: ['This key already operates as host h-1.'] };
     await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 409, data: { form: f } });
     flushSync(); await tick(2);
-    expect(hostInput(dialog)!.getAttribute('aria-invalid')).toBe('true');
-    typeHost(dialog, 'h-3');
+    expect(hostGroup(dialog)!.getAttribute('aria-invalid')).toBe('true');
+    pickHost(dialog, 'h-1');
     await tick(2);
-    expect(hostInput(dialog)!.getAttribute('aria-invalid')).toBe('true');
+    expect(hostGroup(dialog)!.getAttribute('aria-invalid')).toBe('true');
     (dialog.querySelector('button[type="button"]') as HTMLButtonElement).click();
     flushSync(); await tick(2);
     const reopened = await openGrant(panel);
     await chooseScope(reopened, 'host:operate');
-    expect(hostInput(reopened)!.getAttribute('aria-invalid')).not.toBe('true');
+    expect(hostGroup(reopened)!.getAttribute('aria-invalid')).not.toBe('true');
   });
 
   it('a success closes the dialog and announces the granted scope', async () => {
