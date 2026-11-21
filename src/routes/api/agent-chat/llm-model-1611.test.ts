@@ -98,7 +98,7 @@ describe('portal#1611 /start reports the model it will call', () => {
     setup({ resolve: [config('model-X')] });
     const res = await start();
     expect(res.status).toBe(200);
-    expect(callsOf(START_CHAT_MUTATION)).toEqual([{ agentId: 'agent-1', conversationName: null, scope: 'private', llmModel: 'model-X' }]);
+    expect(callsOf(START_CHAT_MUTATION)).toEqual([{ agentRef: 'agent-1', conversationName: null, scope: 'private', llmModel: 'model-X' }]);
   });
 
   it('A2: the welcome turn runs the SAME model, and the config is resolved once per /start', async () => {
@@ -207,7 +207,7 @@ describe('portal#1611 the tester endpoints are chats too (A5)', () => {
     setup({ resolve: [config('model-X'), config('model-DRIFT')] });
     const res = await testRun();
     expect(res.status).toBe(200);
-    expect(callsOf(START_CHAT_MUTATION)).toEqual([{ agentId: 'agent-1', conversationName: null, scope: 'private', isTestRun: true, llmModel: 'model-X' }]);
+    expect(callsOf(START_CHAT_MUTATION)).toEqual([{ agentRef: 'agent-1', conversationName: null, scope: 'private', isTestRun: true, llmModel: 'model-X' }]);
     expect(callsOf(SEND_CHAT_MESSAGE_MUTATION).map((v) => v.llmModel)).toEqual(['model-X']);
     expect(callsOf(RESOLVE_AI_CONFIG_QUERY)).toHaveLength(1);
     expect(mockLlm.mock.calls.every((c) => c[0].model === 'model-X')).toBe(true);
@@ -217,7 +217,7 @@ describe('portal#1611 the tester endpoints are chats too (A5)', () => {
     setup({ resolve: [config('model-X'), config('model-DRIFT')] });
     const res = await persona();
     expect(res.status).toBe(200);
-    expect(callsOf(START_CHAT_MUTATION)).toEqual([{ agentId: 'agent-1', conversationName: 'setup', scope: 'private', isTestRun: true, llmModel: 'model-X' }]);
+    expect(callsOf(START_CHAT_MUTATION)).toEqual([{ agentRef: 'agent-1', conversationName: 'setup', scope: 'private', isTestRun: true, llmModel: 'model-X' }]);
     expect(callsOf(SEND_CHAT_MESSAGE_MUTATION).map((v) => v.llmModel)).toEqual(['model-X', 'model-X']);
     expect(callsOf(RESOLVE_AI_CONFIG_QUERY)).toHaveLength(1);
   });

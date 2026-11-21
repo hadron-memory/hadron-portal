@@ -8,11 +8,12 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
-import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { mountComponent, tick, type Mounted, idleStatusAtMount } from '$lib/test/mountComponent';
 import { submitEnhancedWithResult, beginEnhanced } from '$lib/test/stubs/app-forms';
 import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import TaskActionBar from './TaskActionBar.svelte';
+import { announcedStatusRegion, firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 
 const dara = { id: 'w1', kind: 'WORKER' as const, name: 'Dara', urn: 'hrn:worker:acme.com:team:dara' };
 const holger = { id: 'u1', kind: 'USER' as const, name: 'Holger', urn: null };
@@ -38,7 +39,7 @@ afterEach(() => {
 });
 async function mountBar(over: Record<string, unknown> = {}, props: Record<string, unknown> = {}) {
   const p = reactiveProps<Record<string, unknown>>({
-    task: task(over), canWrite: true, impersonating: null, candidates, roles, families, openChildren: { count: 0, capped: false }, ...props,
+    task: task(over), canWrite: true, impersonating: null, loadPickers: async () => ({ kind: 'ok' as const, value: { ...candidates, roles, families } }), loadMemories: async () => ({ kind: 'ok' as const, value: [] }), openChildren: { count: 0, capped: false }, ...props,
   });
   const m = mountComponent(TaskActionBar as never, p as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
@@ -198,7 +199,8 @@ describe('Edit details: results', () => {
     await tick(2);
     expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
     expect(root.querySelector('#task-panel-edit')).toBeNull();
-    expect(root.querySelector('[role="status"]')?.textContent?.trim()).toBe('Details saved.');
+    expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
+    expect(firstPopulatedStatusText(root)).toBe('Details saved.');
   });
 
   it('a save with nothing changed says "No changes to save." and never "saved"', async () => {
@@ -206,7 +208,7 @@ describe('Edit details: results', () => {
     const form = await openEdit(root);
     await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { action: 'edit', ok: true, unchanged: true } });
     await tick(2);
-    const text = root.querySelector('[role="status"]')?.textContent?.trim();
+    const text = firstPopulatedStatusText(root);
     expect(text).toBe('No changes to save.');
   });
 

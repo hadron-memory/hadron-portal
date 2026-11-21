@@ -7,7 +7,7 @@ type Response = { agentTask: { id: string; appId: string; findingDispositions?: 
 /**
  * portal#1643 — every current disposition of a task's findings, read under the
  * caller's own client (the viewer's token; no service credential) from the
- * SEPARATE paged `findingDispositions`, 200 a page.
+ * SEPARATE paged `findingDispositions`, {@link DISPOSITIONS_PROVIDER_MAX} a page (the same constant sizes the limit and steps the offsets).
  *
  * The answer is typed so a failed read can never pass for "nothing disposed":
  *  - a null task is the neutral `unavailable` (missing and unreadable are not told apart);
@@ -24,7 +24,7 @@ export async function taskDispositions(client: GraphQLClient, appId: string, tas
   for (let page = 0; page < DISPOSITIONS_MAX_PAGES; page++) {
     let response: Response;
     try {
-      response = await client.request<Response>(AGENT_TASK_FINDING_DISPOSITIONS_QUERY, { id: taskId, offset: page * DISPOSITIONS_PROVIDER_MAX });
+      response = await client.request<Response>(AGENT_TASK_FINDING_DISPOSITIONS_QUERY, { id: taskId, limit: DISPOSITIONS_PROVIDER_MAX, offset: page * DISPOSITIONS_PROVIDER_MAX });
     } catch {
       console.warn('[task-dispositions] read failed');
       return { kind: 'failed' };

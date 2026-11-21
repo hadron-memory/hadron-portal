@@ -478,9 +478,11 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // #793: a bounded WINDOW (the newest CHAT_PAGE_SIZE), not the whole thread.
   // The page also carries `hasOlder` so the Chat tab can offer scrollback
   // instead of silently presenting a window as the complete transcript.
+  let chatLoadFailed = false; // #1828: a rejected read is a failed load, not an empty thread
   const chatMessagesPromise: Promise<ChatPage | null> = isChat
     ? loadChatMessages(gqlClient(locals.token), params.id, node.loc, { sort: chatSortKey(node), messageNodeTypes: chatMessageNodeTypes(node) }).catch((e) => {
         console.warn('[node-detail] chat messages failed:', e);
+        chatLoadFailed = true;
         return { messages: [], total: 0, hasOlder: false, offset: 0 };
       })
     : Promise.resolve(null);
@@ -603,6 +605,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     chatMessages: chatMessages?.messages ?? null,
     chatHasOlder: chatMessages?.hasOlder ?? false,
     chatOffset: chatMessages?.offset ?? 0,
+    chatLoadFailed,
     canPostChat,
     // portal#1525: the header's full-screen entry branch. See `chatTarget`.
     isTeamChannel,

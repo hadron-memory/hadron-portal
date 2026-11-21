@@ -12,6 +12,7 @@
     type V2UrnType,
   } from '$lib/urn/parse-urn';
   import { t } from '$lib/i18n/t';
+  import { copyText } from '$lib/clipboard';
 
   type UrnTypeHint = UrnType | V2UrnType;
 
@@ -187,17 +188,19 @@
   // Type badge: uniform style across all types (incl. 'unknown' fallback)
   const typeBadgeClass = 'bg-slate-300 text-slate-700 dark:bg-slate-600 dark:text-slate-200';
 
-  function copy() {
-    // navigator.clipboard is undefined outside secure contexts (HTTP on a
-    // non-localhost host); bail rather than throw, and swallow async denials.
-    if (!navigator.clipboard) return;
-    navigator.clipboard.writeText(displayFullUrn).catch((e) => console.error('Failed to copy URN', e));
+  let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+  let urlCopiedTimer: ReturnType<typeof setTimeout> | undefined;
+
+  async function copy() {
+    // copyText never throws (no clipboard outside secure contexts, or a refused
+    // write); confirm only a copy that happened.
+    if (!(await copyText(displayFullUrn))) return;
     copied = true;
-    setTimeout(() => (copied = false), 2000);
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => (copied = false), 2000);
   }
 
-  function copyUrl() {
-    if (!navigator.clipboard) return;
+  async function copyUrl() {
     // Compose the shareable /app/u/<urn> link from the LIVE browser origin (#317)
     // so the copied URL always points at the host the user is actually on — prod,
     // preview, or dev — instead of a build-time-baked env value that was wrong in
@@ -205,9 +208,10 @@
     // always defined; deriving it here (not at render time) also keeps SSR from
     // ever touching window.
     const shareUrl = buildResolverUrl(window.location.origin, displayFullUrn);
-    navigator.clipboard.writeText(shareUrl).catch((e) => console.error('Failed to copy URL', e));
+    if (!(await copyText(shareUrl))) return;
     urlCopied = true;
-    setTimeout(() => (urlCopied = false), 2000);
+    clearTimeout(urlCopiedTimer);
+    urlCopiedTimer = setTimeout(() => (urlCopied = false), 2000);
   }
 </script>
 

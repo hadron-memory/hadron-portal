@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -207,11 +208,14 @@
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
       {ensureActionError ?? removeActionError}
     </div>
-  {:else if ensureActionSuccess || removeActionSuccess}
-    <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+  {/if}
+  <LiveRegion>
+  {#if !(ensureActionError || removeActionError) && (ensureActionSuccess || removeActionSuccess)}
+    <div class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
       {ensureActionSuccess ?? removeActionSuccess}
     </div>
   {/if}
+  </LiveRegion>
 
   <!-- Member list -->
   {#if members.length > 0}
@@ -274,7 +278,7 @@
           <input type="hidden" name="_kind" value="addAppMember" />
           <input type="hidden" name="userId" bind:value={$addForm.userId} />
           {#if memberRoles.length === 0}
-            <p role="status" class="basis-full text-sm text-amber-700 dark:text-amber-400">
+            <p class="basis-full text-sm text-amber-700 dark:text-amber-400">
               {t('app-members.add.no-roles', 'This App offers no member roles yet.')}
               {t('app-members.add.no-roles-next', 'An owner or admin of the Agent can add roles on')}
               <a href="/app/agents/{app.agent.id}" class="underline">{app.agent.name}</a>.

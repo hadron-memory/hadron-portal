@@ -136,6 +136,26 @@ describe('worker page deleteWorker action (portal#2205)', () => {
     request.mockResolvedValueOnce({ deleteWorker: true });
     await expect(invokeDelete()).rejects.toMatchObject({ status: 303, location: '/app/apps' });
   });
+  // portal#2223 F5 — the redirect target is best-effort: a failed WorkerApp
+  // lookup (a throw, or a masked null worker) never fails or blocks the delete.
+  it.each([
+    ['the lookup throws', (r: typeof request) => r.mockRejectedValueOnce(new Error('lookup down'))],
+    ['the lookup answers a null worker', (r: typeof request) => r.mockResolvedValueOnce({ worker: null })],
+  ])('still deletes and falls back to /app/apps when %s', async (_name, lookup) => {
+    lookup(request);
+    request.mockResolvedValueOnce({ deleteWorker: true });
+    await expect(invokeDelete()).rejects.toMatchObject({ status: 303, location: '/app/apps' });
+    expect(request).toHaveBeenNthCalledWith(2, expect.stringContaining('mutation DeleteWorker'), { workerRef: 'worker-one', confirmNoExternalAttribution: true });
+  });
+  // portal#2223 F3 — only a real Kit redirect is rethrown. An unrelated throw
+  // that merely carries a `location` property is a failed delete, not a redirect.
+  it('does not rethrow a non-redirect error that happens to carry a location', async () => {
+    request.mockResolvedValueOnce({ worker: { id: 'worker-one', app: { id: 'app-one' } } });
+    request.mockRejectedValueOnce(Object.assign(new Error('boom'), { location: '/somewhere' }));
+    const result = await invokeDelete();
+    expect(result.status).toBe(502);
+    expect(result.data.deleteWorkerResult).toMatchObject({ ok: false, uncertain: true });
+  });
   it('does not claim success when the server does not confirm deletion', async () => {
     request.mockResolvedValueOnce({ worker: { app: { id: 'app-one' } } });
     request.mockResolvedValueOnce({ deleteWorker: false });
@@ -169,8 +189,41 @@ describe('worker page deleteWorker action (portal#2205)', () => {
     request.mockResolvedValueOnce({ worker: { app: { id: 'app-one' } } });
     request.mockRejectedValueOnce(new Error('transport failure with private variables'));
     const result = await invokeDelete();
-    expect(result.status).toBe(500);
+    // portal#2227 — a lost response is an UNKNOWN OUTCOME (retire's
+    // convention), never a definite failure a retry would contradict.
+    expect(result.status).toBe(502);
+    expect(result.data.deleteWorkerResult).toMatchObject({ ok: false, workerRef: 'worker-one', uncertain: true });
+    expect(result.data.deleteWorkerResult.message).toBe('The delete may have succeeded. Reload to see the current state.');
     expect(JSON.stringify(result)).not.toContain('private variables');
-    expect(result.data.deleteWorkerResult.ok).toBe(false);
+  });
+  it('answers an unrecognized GraphQL error as an unknown outcome too, without its diagnostics', async () => {
+    request.mockResolvedValueOnce({ worker: { app: { id: 'app-one' } } });
+    request.mockRejectedValueOnce({ response: { errors: [{ message: 'private internal diagnostic', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] } });
+    const result = await invokeDelete();
+    expect(result.status).toBe(502);
+    expect(result.data.deleteWorkerResult).toMatchObject({ ok: false, uncertain: true });
+    expect(JSON.stringify(result)).not.toContain('private internal diagnostic');
+  });
+  it('emits only the closed transport record for a lost delete (ruling 0247), never the exception', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      request.mockResolvedValueOnce({ worker: { app: { id: 'app-one' } } });
+      request.mockRejectedValueOnce(new Error('transport failure with private variables'));
+      await invokeDelete();
+      expect(warn).toHaveBeenCalledTimes(1);
+      const line = warn.mock.calls[0][0] as string;
+      const record = JSON.parse(line);
+      expect(record).toEqual({ event: 'app_action_transport_failure', action: 'delete', classification: 'transport' });
+      expect(line).not.toContain('private variables');
+      // A definite refusal emits nothing at all, and the best-effort roster
+      // lookup swallow (its own catch) emits nothing either.
+      warn.mockClear();
+      request.mockResolvedValueOnce({ worker: { app: { id: 'app-one' } } });
+      request.mockRejectedValueOnce({ response: { errors: [{ message: 'no', extensions: { code: 'FORBIDDEN' } }] } });
+      await invokeDelete();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

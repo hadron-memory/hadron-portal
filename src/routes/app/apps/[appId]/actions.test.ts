@@ -20,6 +20,7 @@ import {
   CAST_WORKER_MUTATION,
   CREATE_APP_KEY_MUTATION,
   DELETE_APP_MUTATION,
+  GRANT_APP_KEY_SCOPE_MUTATION,
   APP_DETAIL_ORG_QUERY,
   APP_ORG_AGENTS_QUERY,
   APP_ORG_AGENT_GRANTS_QUERY,
@@ -80,7 +81,7 @@ beforeEach(() => {
 async function runAction(
   name:
     | 'update' | 'addAgent' | 'removeAgent' | 'updateAgentTools' | 'createKey'
-    | 'revokeKey' | 'deleteApp' | 'castWorker' | 'retireWorker' | 'releaseWorker'
+    | 'revokeKey' | 'grantKeyScope' | 'deleteApp' | 'castWorker' | 'retireWorker' | 'releaseWorker'
     | 'postTeamChatMessage' | 'postChannelMessage',
   fields: Record<string, string | string[]>,
   // #825 — the signed-in user, for actions whose COPY depends on whether the
@@ -397,14 +398,28 @@ describe('load', () => {
 
     it('reads the tail UNDER the filter and reports what it was read under', async () => {
       const r = await loadWith('?team=h1', async () => ({ teamChatMessages: { items: [], total: 0 } }));
-      expect(teamChatCalls()[0][1]).toMatchObject({ teamHeadRef: 'h1' });
-      expect(r.teamFilter).toEqual({ kind: 'team', headRef: 'h1' });
+      expect(teamChatCalls()[0][1]).toMatchObject({ teamHeadRefs: ['h1'] });
+      expect(r.teamFilter).toEqual({ kind: 'teams', headRefs: ['h1'] });
       expect(r.teamFilterInvalid).toBe(false);
+    });
+
+    it('reads a multi-head selection as ONE list and reports it (#1482)', async () => {
+      const r = await loadWith('?team=h2&team=h1&team=h2', async () => ({ teamChatMessages: { items: [], total: 0 } }));
+      expect(teamChatCalls()[0][1]).toMatchObject({ teamHeadRefs: ['h2', 'h1'] });
+      expect(r.teamFilter).toEqual({ kind: 'teams', headRefs: ['h2', 'h1'] });
+      expect(r.teamFilterInvalid).toBe(false);
+    });
+
+    it('reads NOTHING for `untagged` mixed with heads — one-sided reads are not a fallback (#1482)', async () => {
+      const r = await loadWith('?team=untagged&team=h1', async () => ({ teamChatMessages: { items: [], total: 0 } }));
+      expect(teamChatCalls()).toHaveLength(0);
+      expect(r.teamFilterInvalid).toBe(true);
+      expect(r.teamChatError).toBe(true);
     });
 
     it('sends no filter argument when the parameter is absent', async () => {
       const r = await loadWith('', async () => ({ teamChatMessages: { items: [], total: 0 } }));
-      expect(teamChatCalls()[0][1]).not.toHaveProperty('teamHeadRef');
+      expect(teamChatCalls()[0][1]).not.toHaveProperty('teamHeadRefs');
       expect(teamChatCalls()[0][1]).not.toHaveProperty('untagged');
       expect(r.teamFilter).toEqual({ kind: 'none' });
     });
@@ -971,6 +986,212 @@ describe('revokeKey action', () => {
     expect(result.data.form.message).toEqual({ type: 'error', text: APP_KEY_MANAGERS_ONLY() });
     // The copy is generic: it never echoes the key it refused.
     expect(result.data.form.message.text).not.toContain('key-1');
+  });
+});
+
+// portal#1487 — giving a live App key one scope of the closed list
+// (hrn:node:hadronmemory.com:specs:cor:aut:010:03). The server is the gate: the action always sends the
+// mutation and translates the server's own refusal codes, never a portal-side
+// role guess. host:operate names its ONE host (hrn:node:hadronmemory.com:specs:cor:agt:070:04); a second host
+// is refused APP_KEY_SCOPE_HOST_CONFLICT and the SERVER's sentence is what the
+// reader sees.
+describe('grantKeyScope action', () => {
+  it('grants attention:deliver with no host variable at all', async () => {
+    mockRequest.mockResolvedValueOnce({ grantAppKeyScope: { id: 'key-1' } });
+    const result = await runAction('grantKeyScope', { keyId: ' key-1 ', scope: 'attention:deliver' });
+
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { _kind: 'grantKeyScope', keyId: 'key-1', scope: 'attention:deliver' },
+        message: { type: 'success', text: 'Scope granted.' },
+      },
+    });
+    expect(mockRequest.mock.calls[0]).toEqual([
+      GRANT_APP_KEY_SCOPE_MUTATION,
+      { id: 'key-1', scope: 'attention:deliver' },
+    ]);
+  });
+
+  it('grants host:operate with the named host, trimmed', async () => {
+    mockRequest.mockResolvedValueOnce({ grantAppKeyScope: { id: 'key-1' } });
+    const result = await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: ' h-1 ' });
+
+    expect(result).toMatchObject({
+      form: { valid: true, data: { _kind: 'grantKeyScope', keyId: 'key-1', scope: 'host:operate', hostId: 'h-1' } },
+    });
+    expect(mockRequest.mock.calls[0]).toEqual([
+      GRANT_APP_KEY_SCOPE_MUTATION,
+      { id: 'key-1', scope: 'host:operate', hostId: 'h-1' },
+    ]);
+  });
+
+  // Acceptance 2: without a host the grant is NOT sent — the server would
+  // only answer BAD_USER_INPUT for the missing target of a host scope.
+  it('refuses host:operate with no host before the mutation', async () => {
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: '' })) as {
+      status: number;
+      data: { form: { errors: { hostId?: string[] } } };
+    };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.hostId?.[0]).toBe('Name the host this key may operate.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('refuses host:operate with a whitespace-only host before the mutation', async () => {
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: '   ' })) as {
+      status: number;
+      data: { form: { errors: { hostId?: string[] } } };
+    };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.hostId?.[0]).toBe('Name the host this key may operate.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects a scope off the closed list before the mutation', async () => {
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'admin:everything' })) as {
+      status: number;
+      data: { form: { errors: { scope?: string[] } } };
+    };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.scope).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects grantKeyScope POSTs with the wrong form discriminator', async () => {
+    const result = (await runAction('grantKeyScope', {
+      _kind: 'revokeKey',
+      keyId: 'key-1',
+      scope: 'attention:deliver',
+    })) as { status: number; data: { form: { errors: { _kind?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  // Acceptance 4: a key that already holds the scope (same host) is a plain
+  // success — the server's grant is idempotent and keeps the first record.
+  it('a repeated grant of a held scope is a plain success', async () => {
+    mockRequest.mockResolvedValueOnce({ grantAppKeyScope: { id: 'key-1' } });
+    const result = await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: 'h-1' });
+    expect(result).toMatchObject({ form: { message: { type: 'success', text: 'Scope granted.' } } });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+
+  // Acceptance 3: the server's own conflict sentence, verbatim, as a 409. It
+  // names the held host and its remedy; the portal adds nothing.
+  it('a HOST_CONFLICT refusal is the server’s own sentence as a 409', async () => {
+    const serverText = 'This key already operates as host h-1. A host key reaches one host: revoke host:operate first, or use another key.';
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: serverText, extensions: { code: 'APP_KEY_SCOPE_HOST_CONFLICT' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: 'h-2' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(409);
+    expect(result.data.form.message).toEqual({ type: 'error', text: serverText });
+  });
+
+  // LOCAL review F3: a malformed host is BAD_USER_INPUT, which the refusal
+  // map does not know — per hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only it stays
+  // the generic branch: a 500 whose text is still the server's own message,
+  // passed through untranslated (never the generic fallback, never dropped).
+  it('a BAD_USER_INPUT refusal passes the server’s message through as a 500', async () => {
+    const serverText = 'hostId: not a valid host id';
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: serverText, extensions: { code: 'BAD_USER_INPUT' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: 'not-a-host' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: serverText });
+  });
+
+  // Acceptance 5: the audience refusals. A participant who does not manage the
+  // App, a worker session and an App key all answer FORBIDDEN — the portal
+  // cannot and does not distinguish them; an impersonating admin is blocked
+  // before the resolver by the server's read-only plugin.
+  it('a FORBIDDEN refusal is a 403 naming who may manage keys', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'attention:deliver' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(403);
+    expect(result.data.form.message).toEqual({ type: 'error', text: APP_KEY_MANAGERS_ONLY() });
+    expect(result.data.form.message.text).not.toContain('key-1');
+  });
+
+  it('an impersonation session’s refusal is a 403 with the read-only copy', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'read-only', extensions: { code: 'IMPERSONATION_READ_ONLY' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'attention:deliver' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(403);
+    expect(result.data.form.message.text).toBe(APP_KEY_IMPERSONATION_READ_ONLY());
+  });
+
+  // Acceptance 7: a revoked key, or a key id that is not in this App, is the
+  // server's not-found — shown AS not-found, never as an internal error.
+  it('an APP_KEY_NOT_FOUND refusal is a 404 with the server’s not-found text', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'App key not found.', extensions: { code: 'APP_KEY_NOT_FOUND' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'gone-key', scope: 'attention:deliver' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(404);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'App key not found.' });
+  });
+
+  // Acceptance 6 + the known-codes-only rule
+  // (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only):
+  // an unknown code is a generic 500, never a portal role guess, and an
+  // unknown GraphQL code carries no free server text.
+  it('an unknown code stays a generic 500, not a role guess', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'exploded', extensions: { code: 'APP_KEY_EXPLODED' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'attention:deliver' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message.text).not.toBe(APP_KEY_MANAGERS_ONLY());
+    expect(result.data.form.message.text).not.toContain('exploded');
+  });
+
+  // A malformed host token that slips past the form's empty-check meets the
+  // server's own BAD_USER_INPUT, whose message does carry (framework code).
+  it('a BAD_USER_INPUT backstop is a 500 carrying the server’s message', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'host:operate is granted for one host: name it with hostId (a host token).', extensions: { code: 'BAD_USER_INPUT' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: '!!!' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message.text).toBe('host:operate is granted for one host: name it with hostId (a host token).');
+  });
+
+  it('returns the fallback copy for a transport failure', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('nope'));
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'attention:deliver' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to grant the scope' });
   });
 });
 
@@ -1652,7 +1873,7 @@ describe('worklog loading (#733)', () => {
 
   it('passes ref, kind and tool filters through to the server', async () => {
     stubAll({ teamWorkItems: { items: [], total: 0 } });
-    await loadWithUrl('?worklogRef=owner/repo%23371&worklogKind=pr&worklogTool=github');
+    await loadWithUrl('?tab=worklog&worklogRef=owner/repo%23371&worklogKind=pr&worklogTool=github');
     const call = mockRequest.mock.calls.find((c) => c[0] === TEAM_WORK_ITEMS_QUERY);
     expect(call?.[1]).toMatchObject({
       appRef: 'app-1',
@@ -1667,7 +1888,7 @@ describe('worklog loading (#733)', () => {
   // unfiltered list.
   it('drops an invalid kind rather than forwarding it into a server error', async () => {
     stubAll({ teamWorkItems: { items: [], total: 0 } });
-    const result = await loadWithUrl('?worklogKind=pull-request');
+    const result = await loadWithUrl('?tab=worklog&worklogKind=pull-request');
     const call = mockRequest.mock.calls.find((c) => c[0] === TEAM_WORK_ITEMS_QUERY);
     expect(call?.[1].kind).toBeUndefined();
     // And the echoed-back filter must not claim a filter that was never applied.
@@ -1676,7 +1897,7 @@ describe('worklog loading (#733)', () => {
 
   it('reports a failed worklog fetch as an error, not as an empty worklog', async () => {
     stubAll(new Error('worklog exploded'));
-    const result = await loadWithUrl('');
+    const result = await loadWithUrl('?tab=worklog');
     expect(result.worklogError).toBe(true);
     expect(result.worklog).toEqual([]);
   });
@@ -1684,14 +1905,14 @@ describe('worklog loading (#733)', () => {
   // Negative case for the above (hrn:node:hadronmemory.com:hadron-portal:review:guard-must-be-proven-to-fail).
   it('reports a genuinely empty worklog with no error flag', async () => {
     stubAll({ teamWorkItems: { items: [], total: 0 } });
-    const result = await loadWithUrl('');
+    const result = await loadWithUrl('?tab=worklog');
     expect(result.worklogError).toBe(false);
     expect(result.worklogTotal).toBe(0);
   });
 
   it('carries the server total through, not the fetched count', async () => {
     stubAll({ teamWorkItems: { items: [{ nodeId: 'n1' }], total: 412 } });
-    const result = await loadWithUrl('');
+    const result = await loadWithUrl('?tab=worklog');
     expect((result.worklog as unknown[]).length).toBe(1);
     expect(result.worklogTotal).toBe(412);
   });
@@ -1855,7 +2076,7 @@ describe('canManageApp (#1106)', () => {
       locals: { token: 'tok', user },
       parent: async () => ({}),
       depends: () => {},
-      url: new URL('http://localhost/app/apps/app-1'),
+      url: new URL('http://localhost/app/apps/app-1?tab=agents'),
     } as unknown as Parameters<typeof load>[0])) as Record<string, unknown>;
   }
 
@@ -1953,7 +2174,7 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
     mockFetchAllItems.mockResolvedValue([]);
   }
 
-  async function loadAndCatch() {
+  async function loadAndCatch(search = '?tab=agents') {
     const { load } = await import('./+page.server');
     try {
       return {
@@ -1963,7 +2184,7 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
           locals: { token: 'tok', user: { id: 'user-1' } },
           parent: async () => ({}),
           depends: () => {},
-          url: new URL('http://localhost/app/apps/app-1'),
+          url: new URL(`http://localhost/app/apps/app-1${search}`),
         } as unknown as Parameters<typeof load>[0]),
       };
     } catch (e) {
@@ -2122,16 +2343,24 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
         mockRequest.mockImplementation((query, ...rest) =>
           query === APP_MEMBERS_QUERY ? never : base(query, ...rest),
         );
-        const pending = loadAndCatch();
-        // The loader's own awaits (dynamic import, the org lookup) must reach the
-        // bounded requests before the clock can fire them.
-        for (let i = 0; i < 20; i++) await vi.advanceTimersByTimeAsync(OPTIONAL_LIST_TIMEOUT_MS);
-        const { thrown, result } = await pending;
-        expect(thrown).toBeUndefined();
-        const r = result as { availableAgentsError: boolean; membersError: boolean; availableAgents: unknown[] };
-        expect(r.availableAgentsError).toBe(true);
-        expect(r.membersError).toBe(true);
-        expect(r.availableAgents).toEqual([]);
+        // portal#2240: the picker is the Agents tab's read and the roster the
+        // Human Team tab's, so each is opened on its own tab; the bound holds
+        // on both.
+        const settle = async (search: string) => {
+          const pending = loadAndCatch(search);
+          // The loader's own awaits (dynamic import, the org lookup) must reach the
+          // bounded requests before the clock can fire them.
+          for (let i = 0; i < 20; i++) await vi.advanceTimersByTimeAsync(OPTIONAL_LIST_TIMEOUT_MS);
+          return pending;
+        };
+        const agents = await settle('?tab=agents');
+        expect(agents.thrown).toBeUndefined();
+        const a = agents.result as { availableAgentsError: boolean; availableAgents: unknown[] };
+        expect(a.availableAgentsError).toBe(true);
+        expect(a.availableAgents).toEqual([]);
+        const members = await settle('?tab=members');
+        expect(members.thrown).toBeUndefined();
+        expect((members.result as { membersError: boolean }).membersError).toBe(true);
       } finally {
         vi.useRealTimers();
       }
@@ -2198,7 +2427,7 @@ describe('load: key inventory (portal#1068)', () => {
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
       depends: () => {},
-      url: new URL('http://localhost/app/apps/app-1'),
+      url: new URL('http://localhost/app/apps/app-1?tab=keys'),
     } as unknown as Parameters<typeof load>[0])) as { app: { id: string }; appKeys: unknown; viewerManages: unknown };
   }
   it('the App query selects no keys field', () => {
@@ -2301,7 +2530,7 @@ describe('load: Human Team roster states (portal#1148)', () => {
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
       depends: () => {},
-      url: new URL('http://localhost/app/apps/app-1'),
+      url: new URL('http://localhost/app/apps/app-1?tab=members'),
     } as unknown as Parameters<typeof load>[0])) as { members: unknown[]; membersError: boolean; membersWithheld: boolean };
   }
   it('members: null is withheld — not an error, not an empty roster', async () => {

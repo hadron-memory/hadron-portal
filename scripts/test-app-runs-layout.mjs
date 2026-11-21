@@ -60,7 +60,7 @@ try {
     nav.resetNavigationCalls();
     nav.navigationHooks.onGoto = () => new Promise(resolve => { window.releaseRunNavigation = resolve; });
    });
-   const failed = page.getByLabel('FAILED', { exact: true });
+   const failed = page.getByLabel('Failed', { exact: true });
    await failed.focus(); await page.keyboard.press('Space');
    await page.waitForFunction(() => document.querySelector('[aria-busy="true"]'));
    assert.equal(await failed.evaluate(el => document.activeElement === el), true, 'pending filter navigation keeps native keyboard focus');

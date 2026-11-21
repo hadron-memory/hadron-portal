@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import type { Infer, SuperValidated } from 'sveltekit-superforms';
   import type { agentBaseSchema, agentIndexRefsSchema } from '../../routes/app/agents/[id]/inheritance-schema';
   import type { InheritanceManagement } from '$lib/server/agent-inheritance-write';
@@ -56,11 +57,15 @@
 </script>
 {#snippet baseFeedback()}
   {#if baseError}<p id="agent-base-error" role="alert" class="break-words text-sm text-red-600 dark:text-red-400">{baseError}</p>{/if}
-  {#if baseSuccess}<p role="status" class="text-sm text-green-700 dark:text-green-400">{baseSuccess}</p>{/if}
+  <LiveRegion>
+    {#if baseSuccess}<p class="text-sm text-green-700 dark:text-green-400">{baseSuccess}</p>{/if}
+  </LiveRegion>
 {/snippet}
 {#snippet indexFeedback()}
   {#if indexError}<p id="agent-index-error" role="alert" class="break-words text-sm text-red-600 dark:text-red-400">{indexError}</p>{/if}
-  {#if indexSuccess}<p role="status" class="text-sm text-green-700 dark:text-green-400">{indexSuccess}</p>{/if}
+  <LiveRegion>
+    {#if indexSuccess}<p class="text-sm text-green-700 dark:text-green-400">{indexSuccess}</p>{/if}
+  </LiveRegion>
 {/snippet}
 {#if management.error || !management.canManage || !management.refs}
   {@render baseFeedback()}
@@ -102,7 +107,7 @@
       </div>
       <input type="hidden" name="baseRef" value={draftRef} />
       <div class="flex flex-wrap items-center gap-3">
-        <button type="button" onclick={() => (pickerOpen = true)} disabled={candidates === null} class={secondaryButtonClass}>{t('agent.parent.change', 'Change…')}</button>
+        <button type="button" onclick={() => (pickerOpen = true)} aria-haspopup="dialog" aria-expanded={pickerOpen} disabled={candidates === null} class={secondaryButtonClass}>{t('agent.parent.change', 'Change…')}</button>
         <button type="submit" name="operation" value="set" disabled={!draftUnsaved} class={buttonClass}>{t('agent.parent.save', 'Save')}</button>
         <button type="submit" name="operation" value="clear" disabled={!currentBase?.id && !draftRef} class={secondaryButtonClass}>{t('agent.parent.clear', 'Clear')}</button>
         <button type="button" onclick={() => { pick = null; discardSeed = true; }} disabled={!draftUnsaved} class={secondaryButtonClass}>{t('agent.parent.discard', 'Discard')}</button>

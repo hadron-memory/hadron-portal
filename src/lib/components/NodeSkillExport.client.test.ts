@@ -6,12 +6,13 @@
  * and the save goes through a spied `saveBase64Download`.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mountComponent, type Mounted } from '$lib/test/mountComponent';
+import { mountComponent, type Mounted, idleStatusAtMount } from '$lib/test/mountComponent';
 
 const saved = vi.fn();
 vi.mock('$lib/save-download', () => ({ saveBase64Download: (...a: unknown[]) => saved(...a) }));
 
 import NodeSkillExport from './NodeSkillExport.svelte';
+import { announcedStatusRegion, firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 
 type Props = { endpoint: string; hosts: string[] };
 const mounted: Array<Mounted<Props>> = [];
@@ -38,7 +39,7 @@ const buttons = (t: HTMLElement) => [...t.querySelectorAll<HTMLButtonElement>('b
 /** Wait for the REPORT, not a tick count (see SkillBundleDownload.client.test.ts). */
 async function reportRendered(target: HTMLElement) {
   await vi.waitFor(() => {
-    if (!target.querySelector('[role="status"]')) throw new Error('report not rendered yet');
+    if (!firstPopulatedStatusText(target)) throw new Error('report not rendered yet');
   });
 }
 
@@ -97,7 +98,8 @@ describe('NodeSkillExport — the report', () => {
     buttons(target)[0].click();
     await reportRendered(target);
     expect(saved).not.toHaveBeenCalled();
-    expect(target.querySelector('[role="status"]')?.textContent).toContain('sign in required');
+    expect(idleStatusAtMount(target), 'the region existed, empty, before the result').toContain(announcedStatusRegion(target));
+    expect(firstPopulatedStatusText(target)).toContain('sign in required');
     expect(target.textContent).not.toContain('Try again shortly');
   });
 
@@ -111,7 +113,8 @@ describe('NodeSkillExport — the report', () => {
     buttons(target)[0].click();
     await reportRendered(target);
     expect(saved).not.toHaveBeenCalled();
-    expect(target.querySelector('[role="status"]')?.textContent).toContain(text);
+    expect(idleStatusAtMount(target), 'the region existed, empty, before the result').toContain(announcedStatusRegion(target));
+    expect(firstPopulatedStatusText(target)).toContain(text);
     expect(target.textContent).not.toContain('Try again shortly');
   });
 

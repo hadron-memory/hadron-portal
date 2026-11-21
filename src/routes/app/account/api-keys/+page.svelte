@@ -486,7 +486,6 @@
         searchPlaceholder={i18n.searchPlaceholder()}
         searchAriaLabel={i18n.searchPlaceholder()}
         bind:globalFilter
-        maxHeight="max(200px, calc(100vh - 23rem))"
         rowAttrs={(key) => ({ 'data-testid': 'api-key-row', 'data-key-id': key.id })}
       >
         {#snippet cell(cell, key)}

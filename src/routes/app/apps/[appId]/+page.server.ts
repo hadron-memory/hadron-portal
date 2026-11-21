@@ -24,7 +24,7 @@ import { readAppInstallMarks } from '$lib/server/app-install-marks';
 import { pointerAction, readAppPointers } from '$lib/server/boot-prompt-pointer';
 import { appAgentPointerKey } from '$lib/boot-prompt-pointer';
 import { lookupOwn } from '$lib/lookup';
-import { loadAppTeamRoster } from '$lib/server/app-team-roster';
+import { loadAppTeamRoster, type TeamRosterRead } from '$lib/server/app-team-roster';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError, extractGqlErrorCode, gqlErrorBody, isDefiniteRefusal } from '$lib/server/gqlError';
 import { loadOrgDetail } from '$lib/server/org-detail';
@@ -46,6 +46,7 @@ import {
   UNINSTALL_AGENT_FROM_APP_MUTATION,
   CREATE_APP_KEY_MUTATION,
   REVOKE_APP_KEY_MUTATION,
+  GRANT_APP_KEY_SCOPE_MUTATION,
   DELETE_APP_MUTATION,
   APP_NODES_QUERY,
   APP_NODES_PAGE_QUERY,
@@ -79,7 +80,8 @@ import { loadTeamChatTail, teamChatRefusalOf } from '$lib/server/team-chat';
 import { NO_TEAM_FILTER, parseTeamParam } from '$lib/team-chat-filter';
 import { chatMessageNodeTypes, loadChatMessages } from '$lib/server/team-chat';
 import { resolveTabIntent } from './tab-intent';
-import { loadTemplatesPanel } from './templates-panel';
+import { liveStopsNameAWorker, pickPayload, readGroupsFor, type ReadGroup } from './first-screen';
+import { loadTemplatesPanel, TEMPLATES_TAB_ID } from './templates-panel';
 import {
   addMember,
   addAppMemberFormAdapter,
@@ -100,7 +102,6 @@ import type {
 } from '$lib/types';
 import { loadAppKeyScopes } from '$lib/server/tickers';
 import { loadAppKeys, loadViewerManages } from '$lib/server/app-keys';
-import { loadAppProperties, saveTaskIntegrations } from '$lib/server/app-properties';
 import type { Actions, PageServerLoad } from './$types';
 import {
   createAppMemorySchema,
@@ -109,6 +110,7 @@ import {
   castWorkerSchema,
   createAppKeySchema,
   deleteAppSchema,
+  grantAppKeyScopeSchema,
   removeAppAgentSchema,
   postTeamChatMessageSchema,
   retireWorkerSchema,
@@ -133,6 +135,7 @@ type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
 type CastWorkerForm = Infer<typeof castWorkerSchema, 'zod4'>;
 type CreateAppKeyForm = Infer<typeof createAppKeySchema, 'zod4'>;
 type DeleteAppForm = Infer<typeof deleteAppSchema, 'zod4'>;
+type GrantAppKeyScopeForm = Infer<typeof grantAppKeyScopeSchema, 'zod4'>;
 type PostTeamChatMessageForm = Infer<typeof postTeamChatMessageSchema, 'zod4'>;
 type RemoveAppAgentForm = Infer<typeof removeAppAgentSchema, 'zod4'>;
 type RetireWorkerForm = Infer<typeof retireWorkerSchema, 'zod4'>;
@@ -183,6 +186,7 @@ const appSettingsFormAdapter = zod4(appSettingsSchema);
 const castWorkerFormAdapter = zod4(castWorkerSchema);
 const createAppKeyFormAdapter = zod4(createAppKeySchema);
 const deleteAppFormAdapter = zod4(deleteAppSchema);
+const grantAppKeyScopeFormAdapter = zod4(grantAppKeyScopeSchema);
 
 const postTeamChatMessageFormAdapter = zod4(postTeamChatMessageSchema);
 const removeAppAgentFormAdapter = zod4(removeAppAgentSchema);
@@ -526,22 +530,6 @@ const TEAM_CHAT_POST_ERRORS: Record<string, () => string> = {
   ),
 };
 
-/**
- * The `extensions.code` of a graphql-request ClientError, when it carries one.
- *
- * Returns null for a transport-level failure (no GraphQL errors payload) and
- * for any code that isn't a string, so callers fall through to the server's own
- * message rather than mislabelling an outage as a user mistake
- * (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
- */
-function gqlErrorCode(e: unknown): string | null {
-  const errors = (e as { response?: { errors?: Array<{ extensions?: { code?: unknown } }> } })
-    ?.response?.errors;
-  if (!Array.isArray(errors) || errors.length === 0) return null;
-  const code = errors[0]?.extensions?.code;
-  return typeof code === 'string' ? code : null;
-}
-
 function slugOfUrn(urn: string): string {
   const idx = urn.lastIndexOf(':');
   return idx >= 0 ? urn.slice(idx + 1) : urn;
@@ -555,7 +543,19 @@ function slugOfUrn(urn: string): string {
 
 const APP_CONCEALED_REFUSALS: readonly string[] = ['FORBIDDEN', 'NOT_FOUND', 'APP_NOT_FOUND', 'UNAUTHENTICATED', 'BAD_USER_INPUT'];
 
-export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) => {
+/**
+ * portal#2240 (ruling 0273): the page load reads the frame plus the first
+ * screen's tab; `tab/+server.ts` reads one other tab, on its first show, with
+ * `frame: false`. One function for both, so a tab renders the same payload
+ * whichever way it arrived. `first-screen.ts` holds the tab -> reads table.
+ * (`_`-prefixed: SvelteKit allows it as an extra export of a +page.server.)
+ */
+export const load: PageServerLoad = (event) => _loadAppPage(event, { frame: true });
+
+export async function _loadAppPage(
+  { params, locals, url, setHeaders }: Parameters<PageServerLoad>[0],
+  mode: { frame: boolean; tab?: string | null },
+) {
   // #785: this load no longer carries the team chat's refresh. The poll reads
   // `team-chat/+server.ts` directly, because a background tick must not be able
   // to re-run THIS function — its failure paths are fatal (a 404 on an org
@@ -582,15 +582,20 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
   // live in `tab-intent.ts` — pure, and therefore testable without mocking this
   // loader's ten queries (@copilot on #846).
   const { initialTab, requestedChat } = resolveTabIntent(url.searchParams);
+  // portal#2240: which reads this load makes. The page load: the frame and the
+  // tab the URL opens on (Chats by default). The tab endpoint: that one tab.
+  const reads = readGroupsFor(mode.frame ? initialTab : (mode.tab ?? null), mode);
+  const wants = (group: ReadGroup) => reads.has(group);
   // `?view=full` opens the team chat maximised. Parsed here with the other
   // URL state so the page reads it once at init, like `initialTab`; toggling
   // it afterwards is `replaceState`, not a navigation.
   const initialChatFullView = chatFullViewFromParams(url.searchParams);
-  // #1137: the team chat's team filter, `?team=<headRef>` or `?team=untagged`.
-  // Read here with the other URL state and applied by the SERVER on the tail
-  // read below. A malformed value is NOT the unfiltered thread: the chat reads
-  // nothing and says the filter is invalid (`teamFilterInvalid`).
-  const teamParam = parseTeamParam(url.searchParams.get('team'));
+  // #1137/#1482: the team chat's team filter — repeated `?team=<headRef>`
+  // values (one or several heads) or `?team=untagged`. Read here with the
+  // other URL state and applied by the SERVER on the tail read below. A
+  // malformed value is NOT the unfiltered thread: the chat reads nothing and
+  // says the filter is invalid (`teamFilterInvalid`).
+  const teamParam = parseTeamParam(url.searchParams.getAll('team'));
   const teamFilter = teamParam.ok ? teamParam.filter : NO_TEAM_FILTER;
   // The server's typed refusal of the head, when it gave one. Set from the tail
   // read's catch so the chat can show the server's own text instead of the
@@ -605,7 +610,7 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
   // The complete Flow graph is independent of every other Runs read. Start it
   // with the first loader round so a slow graph never queues behind chat,
   // memory-scope, form or selected-transcript work.
-  const flowGraphPromise = initialTab === 'runs'
+  const flowGraphPromise = wants('runs')
     ? client.request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: APP_FLOW_GRAPH_LIMIT })
       .then((r) => r.appNodes)
       .catch((e) => {
@@ -616,7 +621,7 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
   // The Flows list pages its own window: runnable nodes only (every Flow root
   // is runnable), on its own offset, so a page is not mostly documents and
   // the Memory tab's node pages move independently (#1929 LOCAL P3, QA F4).
-  const flowsPagePromise = initialTab === 'runs'
+  const flowsPagePromise = wants('runs')
     ? client.request<{ appNodesPage: { items: MemoryNode[]; total: number; hasMore: boolean } }>(APP_FLOWS_PAGE_QUERY, {
         appRef: params.appId, limit: APP_DISPLAY_PAGE_SIZE, offset: flowsOffset,
       })
@@ -651,13 +656,13 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
     // member's call errors (the page hides the manager for them anyway).
     // Coerce to null so a transient failure surfaces as a load error to admins
     // instead of a misleading empty list.
-    client.request<{ aiServiceConfigs: { items: AiServiceConfig[]; total: number } }>(AI_SERVICE_CONFIGS_QUERY, {
+    !wants('aiConfigs') ? Promise.resolve(null) : client.request<{ aiServiceConfigs: { items: AiServiceConfig[]; total: number } }>(AI_SERVICE_CONFIGS_QUERY, {
       ownerType: 'APP', ownerId: params.appId, limit: APP_DISPLAY_PAGE_SIZE, offset: configOffset,
     }).then(r => r.aiServiceConfigs).catch(() => null),
     // #1005: the Human Team tab. null = the fetch failed, distinct from an App
     // with no members, so the tab can say so instead of showing "No members yet."
     // Bounded: a request that HANGS would otherwise hold every tab of the page.
-    withTimeout(
+    !wants('members') ? Promise.resolve(null) : withTimeout(
       client
         .request<{ app: { members: AppMember[] | null } | null }>(APP_MEMBERS_QUERY, { ref: params.appId })
         // portal#1148: `members: null` is WITHHELD (hadron-server#2089), distinct from a
@@ -686,7 +691,9 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
   let availableAgents: InstallableAgent[] = [];
   let availableAgentsError = false;
   let subscribedAgentsError = false;
-  if (app.organizationId) {
+  // portal#2240: the org is the frame's (the breadcrumb), and the Memory tab's
+  // create offer; the install pickers below are the Agents tab's only.
+  if (app.organizationId && (mode.frame || wants('appMemories'))) {
     // #851: `loadOrgDetail` rather than a bare `.catch(() => ({ organization:
     // null }))`. That catch took no argument, so nothing was classified: a
     // connection failure, a bad gateway, a resolver crash and a genuine refusal
@@ -708,6 +715,8 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
       app.organizationId,
       APP_DETAIL_ORG_QUERY,
     );
+  }
+  if (app.organizationId && wants('availableAgents')) {
     // #1006: the Agents tab's install picker, asked for on its own so a refusal
     // cannot null the org (see APP_ORG_AGENTS_QUERY).
     // #1172: the subscribed agents are a request of their own, so a failure of
@@ -741,7 +750,7 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
     availableAgents = owned ? mergeInstallableAgents({ agents: owned, agentOrgGrants: grants ?? [] }) : [];
     availableAgentsError = owned === null;
     subscribedAgentsError = owned !== null && grants === null;
-  } else {
+  } else if (!app.organizationId && wants('availableAgents')) {
     const [mine, publicAgents, orgAgents] = await Promise.all([
       // #782: MY_AGENTS_QUERY is scoped server-side (filter.ownedByMe), so it's
       // already the caller's own org-less agents — no client-side filter needed.
@@ -782,7 +791,7 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
   // portal#1963 (hadron-server#3957): what a chat of this App may choose its AI config from, and the App's
   // chatbot config. Each its own read, coerced on failure so neither can null the page: no list means no
   // dropdown (the chat runs `default`, as before); a failed setting read says so rather than showing "none".
-  const aiChoiceRowsP: Promise<ChatAiChoiceRow[] | null> = app.agentId
+  const aiChoiceRowsP: Promise<ChatAiChoiceRow[] | null> = app.agentId && wants('chatConfigs')
     ? client
         .request<{ chatAiConfigChoices: ChatAiChoiceRow[] }>(CHAT_AI_CONFIG_CHOICES_QUERY, { appRef: params.appId })
         .then((r) => r.chatAiConfigChoices)
@@ -791,18 +800,24 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
           return null;
         })
     : Promise.resolve(null);
-  const chatbotAiConfigP: Promise<{ ok: true; configId: string | null } | { ok: false }> = client
-    .request<{ app: { chatbotAiConfigId: string | null } | null }>(APP_CHATBOT_AI_CONFIG_QUERY, { ref: params.appId })
-    .then((r) => ({ ok: true as const, configId: r.app?.chatbotAiConfigId ?? null }))
-    .catch(() => ({ ok: false as const }));
-  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, viewerManages, teamRoster, bootPointers, installMarks, liveStops, appProperties] = await Promise.all([
-    client
+  const chatbotAiConfigP: Promise<{ ok: true; configId: string | null } | { ok: false }> = !wants('chatbotConfig')
+    ? Promise.resolve({ ok: false as const })
+    : client
+      .request<{ app: { chatbotAiConfigId: string | null } | null }>(APP_CHATBOT_AI_CONFIG_QUERY, { ref: params.appId })
+      .then((r) => ({ ok: true as const, configId: r.app?.chatbotAiConfigId ?? null }))
+      .catch(() => ({ ok: false as const }));
+  // portal#2240: the stop banner is the frame's; started first so the staff
+  // read below can tell whether the banner needs worker names.
+  const liveStopsP = mode.frame ? loadLiveStops(client, app.id) : Promise.resolve(null);
+  let staffLoaded = false;
+  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, viewerManages, teamRoster, bootPointers, installMarks, liveStops] = await Promise.all([
+    !wants('appNodes') ? Promise.resolve({ items: [] as MemoryNode[], total: 0, hasMore: false }) : client
       .request<{ appNodesPage: { items: MemoryNode[]; total: number; hasMore: boolean } }>(APP_NODES_PAGE_QUERY, {
         appRef: params.appId, limit: APP_DISPLAY_PAGE_SIZE, offset: appNodesOffset,
       })
       .then((r) => r.appNodesPage)
       .catch(() => ({ items: [] as MemoryNode[], total: 0, hasMore: false })),
-    app.agentId
+    app.agentId && wants('chatConfigs')
       ? client
           .request<{ resolveAiServiceConfigs: AiServiceConfig[] }>(RESOLVE_AI_SERVICE_CONFIGS_QUERY, {
             appRef: params.appId,
@@ -817,12 +832,20 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
     // "couldn't load the staff" and "this App has no staff yet" are different
     // statements and the empty state must not tell the second lie
     // (hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
-    fetchAllItems<Worker>(client, WORKERS_QUERY, 'workers', {
-      appRef: params.appId,
-      includeRetired: true,
-    }).catch((e) => {
-      console.warn(`[app-staff] workers fetch failed for ${params.appId}:`, e);
-      return null;
+    //
+    // portal#2240: the AI Team, Chats (author chips) and Settings tabs read it;
+    // on any other tab the frame's stop banner needs worker names only when a
+    // live stop targets a worker, so it waits for the stop read to say so.
+    (wants('staff') ? Promise.resolve(true) : liveStopsP.then(liveStopsNameAWorker)).then((go) => {
+      if (!go) return null;
+      staffLoaded = true;
+      return fetchAllItems<Worker>(client, WORKERS_QUERY, 'workers', {
+        appRef: params.appId,
+        includeRetired: true,
+      }).catch((e) => {
+        console.warn(`[app-staff] workers fetch failed for ${params.appId}:`, e);
+        return null;
+      });
     }),
     // #732: the App's TEAM CHAT transcript, read through the canonical
     // `teamChatMessages` operation. Deliberately NOT via appNodes — the chat
@@ -839,15 +862,15 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
     // is empty" are different statements (hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
     // #1137: an invalid `?team=` reads nothing at all — never the unfiltered
     // thread under a filter the reader believes is on.
-    (teamParam.ok ? loadTeamChatTail(client, params.appId, teamFilter) : Promise.resolve(null)).catch((e) => {
-      teamChatRefusal = teamFilter.kind === 'team' ? teamChatRefusalOf(e) : null;
+    (wants('teamChat') && teamParam.ok ? loadTeamChatTail(client, params.appId, teamFilter) : Promise.resolve(null)).catch((e) => {
+      teamChatRefusal = teamFilter.kind === 'teams' ? teamChatRefusalOf(e) : null;
       console.warn(`[team-chat] transcript fetch failed for ${params.appId}:`, e);
       return null;
     }),
     // #733: the App's WORKLOG — the authoritative artifact-to-session join
     // (hrn:node:hadronmemory.com:specs:cor:agt:020:05). Same routing discipline as the team chat above: the
     // canonical operation, never appNodes.
-    client
+    !wants('worklog') ? Promise.resolve(null) : client
       .request<{ teamWorkItems: { items: TeamWorkItem[]; total: number } }>(TEAM_WORK_ITEMS_QUERY, {
         appRef: params.appId,
         ref: worklogRef,
@@ -866,7 +889,7 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
     // two chats. Coerced to null (never []) on failure, for the same reason as
     // the staff and team-chat fetches: "couldn't load the chat list" and "this
     // App has one chat" are different statements.
-    client
+    !wants('chatList') ? Promise.resolve(null) : client
       .request<{ appNodesPage: { items: MemoryNode[]; total: number; hasMore: boolean } }>(APP_CHAT_ROOTS_PAGE_QUERY, {
         appRef: params.appId,
         limit: APP_DISPLAY_PAGE_SIZE,
@@ -883,7 +906,7 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
     // org admins/owners and platform admins on an org-owned one). null means
     // UNKNOWN, never "no": the page then keeps the controls and the server,
     // which is the gate either way, answers the write.
-    userId && app.urn
+    userId && app.urn && wants('canManage')
       ? client
           .request<{ effectiveAccess: { canManage: boolean } }>(SELF_CAN_MANAGE_QUERY, { user: userId, resource: app.urn })
           .then((r) => r.effectiveAccess.canManage)
@@ -896,29 +919,45 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
     // classified (never throws): `AppKey.scopes` is manager-only and non-null,
     // so selecting it on the keys themselves would null the whole list for
     // everyone else.
-    loadAppKeyScopes(client, app.id),
+    wants('keyScopes') ? loadAppKeyScopes(client, app.id) : Promise.resolve(null),
     // portal#1068 — the key inventory, in its OWN classified request: App.keys is
     // manager-only and non-null (hadron-server#2080), so on the App fragment it
     // nulled the whole App (a false 404 here) for every non-manager.
-    loadAppKeys(client, app.id),
+    wants('appKeys') ? loadAppKeys(client, app.id) : Promise.resolve(null),
     // portal#1153 — App.viewerManages in its own request (a server without the
     // field answers with an error, which must not take the page): the key
     // controls hide on a real `false` only.
-    loadViewerManages(client, app.id),
+    // portal#2240: the frame's (the header's Grants link); Settings and Keys read it from the frame.
+    mode.frame ? loadViewerManages(client, app.id) : Promise.resolve(null),
     // portal#1168 (hadron-server#2178): the grid's Task and Paused state, one
     // bulk read in its own classified request so its failure cannot take the page.
-    loadAppTeamRoster(client, app.id),
+    //
+    // portal#2238 (ruling 0273): the roster is on the critical path for the
+    // AI Team tab's first screen ONLY. Every other open starts NO roster
+    // request — in prod teamRoster took 30-60 s or failed, and awaiting it
+    // here for every tab hung the whole page and piled a long read onto the
+    // exhausted DB pool on each open. A reader who switches to AI Team
+    // afterwards gets the roster from the page's own bounded first-show fetch
+    // (roster/+server.ts). Bounded here too: even a ?tab=staff open must not
+    // wait on teamRoster longer than the members fetch's 8 s optional-list
+    // bound; a hang maps to the same { kind: 'failed' } the grid already
+    // degrades to. Not a streamed promise: streaming would still START the
+    // call on every open, which is the defect.
+    wants('roster')
+      ? withTimeout(
+          loadAppTeamRoster(client, app.id),
+          OPTIONAL_LIST_TIMEOUT_MS,
+          { kind: 'failed' } satisfies TeamRosterRead,
+        )
+      : Promise.resolve(null),
     // portal#1142 S8: the installs' boot-prompt pointers, for the Agents tab.
-    readAppPointers(client, app.id),
-    readAppInstallMarks(client, app.id),
+    wants('bootPointers') ? readAppPointers(client, app.id) : Promise.resolve(undefined),
+    wants('installMarks') ? readAppInstallMarks(client, app.id) : Promise.resolve(null),
     // portal#1139: the stops in effect, for the banner, in its OWN classified request
     // (never throws): a stop read that fails must not take the App page with it.
-    loadLiveStops(client, app.id),
-    // portal#1607: the App's properties (task integrations), in their OWN classified request
-    // so a server without the fields cannot take the App page with it.
-    loadAppProperties(client, app.id),
+    liveStopsP,
   ]);
-  const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
+  const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, grantKeyScopeForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
     superValidate<AppSettingsForm>(
       {
         name: appData.app.name,
@@ -958,6 +997,14 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
     superValidate<RevokeAppKeyForm>(
       { keyId: '' },
       revokeAppKeyFormAdapter,
+      { errors: false },
+    ),
+    // portal#1487 — the grant dialog opens per key from the row menu, so every
+    // field but the scope default is replaced at open time; seeded like the
+    // revoke form so the page never renders a validation error for it.
+    superValidate<GrantAppKeyScopeForm>(
+      { keyId: '', scope: 'attention:deliver', hostId: '' },
+      grantAppKeyScopeFormAdapter,
       { errors: false },
     ),
     superValidate<DeleteAppForm>(
@@ -1008,7 +1055,9 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
   // The agent chat is offered only when the App actually has one, matching the
   // condition the retired `chat` tab used, so an App with no linked agent does
   // not gain an entry that cannot render.
-  const registeredChannels = await fetchAllItems<import('$lib/types').Channel>(client, APP_CHANNELS_QUERY, 'channels', { appRef: params.appId })
+  // portal#2240: the chat list and the selected conversation are the Chats tab's.
+  const chatList = wants('chatList');
+  const registeredChannels = !chatList ? null : await fetchAllItems<import('$lib/types').Channel>(client, APP_CHANNELS_QUERY, 'channels', { appRef: params.appId })
     .catch(() => null);
   let appChats = withRegisteredChannels(
     buildAppChatList(chatRoots?.items ?? [], { hasAgentChat: !!app.agentId }), registeredChannels ?? [],
@@ -1019,7 +1068,7 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
   // A deep link addresses one root, not whichever 20-root window happens to be
   // loaded. One targeted page handles arbitrary root locs without letting a
   // pasted prefix trigger an unbounded sequential drain.
-  if (chatSelection.requestedMissing && requestedChat && requestedChat !== 'agent chat' && requestedChat !== 'chats:team' && registeredChannels !== null) {
+  if (chatList && chatSelection.requestedMissing && requestedChat && requestedChat !== 'agent chat' && requestedChat !== 'chats:team' && registeredChannels !== null) {
     const page = await client.request<{ appNodesPage: { items: MemoryNode[]; total: number; hasMore: boolean } }>(APP_CHAT_ROOTS_PAGE_QUERY, {
       appRef: params.appId, limit: REQUESTED_CHAT_LOOKUP_LIMIT, offset: 0, locPrefix: requestedChat,
     }).then((r) => r.appNodesPage).catch((e) => {
@@ -1043,13 +1092,13 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
   // Registered Channels use the addressed operation and the same envelope as
   // the default team chat. Unregistered old roots retain their node transcript;
   // this read never creates a Channel or routes a post to the default thread.
-  const selectedChannelMessages = selectedChat?.channelId
+  const selectedChannelMessages = chatList && selectedChat?.channelId
     ? await readChannelPage(client, params.appId, selectedChat.channelId, {}).catch(() => null) : null;
   const postChannelMessageForm = selectedChat?.channelId
     ? await superValidate({ channelRef: selectedChat.channelId }, postTeamChatMessageFormAdapter,
       { errors: false, id: `channel:${selectedChat.channelId}` }) : null;
   const selectedChatMessages =
-    selectedChat?.kind === 'other' && selectedChat.memoryId
+    chatList && selectedChat?.kind === 'other' && selectedChat.memoryId
       ? await loadChatMessages(client, selectedChat.memoryId, selectedChat.key, {
           messageNodeTypes: chatMessageNodeTypes(selectedChat),
         })
@@ -1060,12 +1109,12 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
       : null;
 
   const [appMemoryScope, orgAppMemories, createMemoryForm] = await Promise.all([
-    readAppMemoryScope(client, app.id),
-    app.organizationId ? readAppMemories(client, app.organizationId, app.id) : null,
+    wants('memoryScope') ? readAppMemoryScope(client, app.id) : null,
+    app.organizationId && wants('appMemories') ? readAppMemories(client, app.organizationId, app.id) : null,
     superValidate(zod4(createAppMemorySchema), { id: `createAppMemory:${app.id}`, errors: false }),
   ]);
 
-  const [runsSection, runsExtras, flowGraph, flowsData] = initialTab === 'runs'
+  const [runsSection, runsExtras, flowGraph, flowsData] = wants('runs')
     ? await Promise.all([
         loadAppRunsPage(client, params.appId, url.searchParams),
         loadAppRunsExtras(client, params.appId),
@@ -1074,8 +1123,10 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
       ])
     : [null, null, null, null];
   // #1936: the node-role templates tab's data, for that tab only.
-  const templatesPanel = await loadTemplatesPanel(initialTab, locals, setHeaders, params.appId);
-  return {
+  const templatesPanel = await loadTemplatesPanel(wants('templates') ? TEMPLATES_TAB_ID : null, locals, setHeaders, params.appId);
+  // The frame's stop banner named a worker: its names travel with the frame.
+  if (staffLoaded) reads.add('staff');
+  const full = {
     templatesPanel,
     runsPanel: runsSection && runsExtras && flowsData ? {
       ...runsSection,
@@ -1179,13 +1230,13 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
     keyScopes,
     appKeys,
     viewerManages,
-    appProperties,
     appSettingsForm,
     addAgentForm,
     createKeyForm,
     removeAgentForm,
     updateAgentToolsForm,
     revokeKeyForm,
+    grantKeyScopeForm,
     deleteAppForm,
     castWorkerForm,
     retireWorkerForm,
@@ -1199,7 +1250,11 @@ export const load: PageServerLoad = async ({ params, locals, url, setHeaders }) 
     ensureMemberForm,
     removeMemberForm,
   };
-};
+  // portal#2240: only the frame (page load) and this load's own read groups.
+  // A key another tab owns is left out, never sent as "not loaded": the page
+  // merges each tab's payload over what it holds.
+  return pickPayload(full, reads, mode) as typeof full;
+}
 
 export const actions: Actions = {
   run: runAppFlow,
@@ -1257,7 +1312,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(SET_APP_SWEEP_MODE_MUTATION, { appRef: params.appId, mode });
       return { sweepModeSaved: mode };
     } catch (e: unknown) {
-      if (!isDefiniteRefusal(e)) return fail(502, { sweepModeError: t('app.sweep-mode.unconfirmed', 'Couldn’t confirm the save; checking…'), uncertain: true });
+      if (!isDefiniteRefusal(e, ['APP_NOT_FOUND'])) return fail(502, { sweepModeError: t('app.sweep-mode.unconfirmed', 'Couldn’t confirm the save; checking…'), uncertain: true });
       const code = extractGqlErrorCode(e);
       const text = extractGqlError(e, t('app.sweep-mode.error.failed', 'Not saved. Try again.'), ['APP_NOT_FOUND', 'BAD_USER_INPUT']);
       return fail(code === 'FORBIDDEN' ? 403 : code === 'APP_NOT_FOUND' ? 404 : code === 'BAD_USER_INPUT' ? 400 : 500, { sweepModeError: text });
@@ -1296,9 +1351,6 @@ export const actions: Actions = {
     }
   },
 
-  // portal#1607: replace the App's task integrations (setAppProperties, whole replace).
-  saveTaskIntegrations: async ({ request, params, locals }) =>
-    ({ taskIntegrationsResult: await saveTaskIntegrations(gqlClient(locals.token), params.appId, await request.formData()) }),
   addAgent: async ({ request, params, locals }) => {
     const form = await superValidate<AddAgentForm>(
       await request.formData(),
@@ -1327,7 +1379,7 @@ export const actions: Actions = {
       logAppActionTransportFailure('install_link', e);
       return message(
         form,
-        { type: 'error', text: lookupOwn(ADD_AGENT_ERRORS, gqlErrorCode(e))?.() ?? extractGqlError(e, 'Failed to add agent', [], { transport: 'fallback' }) },
+        { type: 'error', text: lookupOwn(ADD_AGENT_ERRORS, extractGqlErrorCode(e))?.() ?? extractGqlError(e, 'Failed to add agent', [], { transport: 'fallback' }) },
         { status: 500 },
       );
     }
@@ -1420,7 +1472,7 @@ export const actions: Actions = {
       // inherited one returns a callable that `known()` below would invoke,
       // putting `{}` into a user-facing error slot instead of the server's own
       // message. Same shape as the asset copy table fixed in #833.
-      const known = lookupOwn(CAST_WORKER_ERRORS, gqlErrorCode(e));
+      const known = lookupOwn(CAST_WORKER_ERRORS, extractGqlErrorCode(e));
       return message(
         form,
         {
@@ -1474,7 +1526,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       logAppActionTransportFailure('team_chat_post', e);
       // #835 — as above: wire-supplied key, so guard the lookup.
-      const known = lookupOwn(TEAM_CHAT_POST_ERRORS, gqlErrorCode(e));
+      const known = lookupOwn(TEAM_CHAT_POST_ERRORS, extractGqlErrorCode(e));
       return message(
         form,
         {
@@ -1536,7 +1588,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       // The server's real refusal for this write is WAKE_SETTINGS_FORBIDDEN
       // (Riana, Charles on #1237); FORBIDDEN is the generic gate code.
-      const code = gqlErrorCode(e);
+      const code = extractGqlErrorCode(e);
       const forbidden = code === 'FORBIDDEN' || code === 'WAKE_SETTINGS_FORBIDDEN';
       return fail(forbidden ? 403 : 500, { pauseResult: { ok: false as const, workerId, message: forbidden
         ? t('app.staff.pause.error.forbidden', 'You can’t pause or unpause this worker. Only the worker, its holder or an App manager can.')
@@ -1567,8 +1619,13 @@ export const actions: Actions = {
       return { deleteWorkerResult: { ok: true, workerRef,
         message: t('app.staff.delete.done', 'Worker deleted.') } satisfies DeleteWorkerResult };
     } catch (e: unknown) {
+      // portal#2227 — the closed transport record for a lost delete (ruling
+      // 0247), same as the worker page's action: exactly three fields, never
+      // any part of the exception. The helper filters to transport failures.
+      logAppActionTransportFailure('delete', e);
       // No sentence overrides here: the roster shows the server's own refusal
-      // text (redaction and the status table live in the shared mapper).
+      // text (redaction, the status table and the unknown-outcome answer live
+      // in the shared mapper).
       return refuse(deleteWorkerFailureRefusal(e, workerRef, {
         failed: t('app.staff.delete.failed', 'Could not confirm deletion. Refresh the roster and try again.'),
       }));
@@ -1595,7 +1652,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       logAppActionTransportFailure('retire', e);
       // Same staffing gate as castWorker, so the same legible refusal.
-      const forbidden = gqlErrorCode(e) === 'FORBIDDEN';
+      const forbidden = extractGqlErrorCode(e) === 'FORBIDDEN';
       return message(
         form,
         {
@@ -1642,7 +1699,7 @@ export const actions: Actions = {
 
       // Same staffing gate as castWorker/retireWorker, so the same legible
       // refusal rather than a raw GraphQL error.
-      const forbidden = gqlErrorCode(e) === 'FORBIDDEN';
+      const forbidden = extractGqlErrorCode(e) === 'FORBIDDEN';
       return message(
         form,
         {
@@ -1692,6 +1749,35 @@ export const actions: Actions = {
       return message(form, { type: 'success', text: t('app.key.revoked', 'Key revoked.') });
     } catch (e: unknown) {
       const { status, text } = appKeyRefusal(e, 'Failed to revoke key');
+      return message(form, { type: 'error', text }, { status });
+    }
+  },
+
+  // portal#1487 — give a live key one scope of the closed list. The action
+  // NEVER gates on a viewer fact: the server is the gate
+  // (hrn:node:hadronmemory.com:specs:cor:aut:010:03), and a crafted POST from
+  // someone it refuses meets the server's own refusal through appKeyRefusal.
+  // hostId travels only for host:operate — the server refuses a host argument
+  // on any other scope (BAD_USER_INPUT), so attention:deliver sends none.
+  grantKeyScope: async ({ request, locals }) => {
+    const form = await superValidate<GrantAppKeyScopeForm>(
+      await request.formData(),
+      grantAppKeyScopeFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
+    try {
+      await gqlClient(locals.token).request(GRANT_APP_KEY_SCOPE_MUTATION, {
+        id: form.data.keyId,
+        scope: form.data.scope,
+        ...(form.data.scope === 'host:operate' ? { hostId: form.data.hostId } : {}),
+      });
+      // A success invalidates the page, so the Scopes column re-reads and the
+      // granted scope appears on the key (acceptance 1); a repeated grant is
+      // the server's own no-op success (acceptance 4).
+      return message(form, { type: 'success', text: t('app.key.scope.granted', 'Scope granted.') });
+    } catch (e: unknown) {
+      const { status, text } = appKeyRefusal(e, 'Failed to grant the scope');
       return message(form, { type: 'error', text }, { status });
     }
   },

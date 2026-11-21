@@ -9,6 +9,7 @@
   failure #879 was written against.
 -->
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { onDestroy } from 'svelte';
   import { t } from '$lib/i18n/t';
   import { isBundleHost, type SkillBundleHost } from '$lib/skill-bundle';
@@ -119,31 +120,33 @@
     {/each}
   </div>
 
-  {#if report}
-    <div role="status" class="text-sm">
-      {#if report.kind === 'saved'}
-        <p class="text-zinc-700 dark:text-zinc-300">
-          {t('node.skill-export.saved', 'Downloaded {file}.', { file: report.filename })}
-          {#if report.host === 'claudeSkill'}
-            {t('node.skill-export.install-claude', 'To install it in Claude, upload the file under Customize → Skills. For Claude Code, unzip it into ~/.claude/skills.')}
-          {:else}
-            {t('node.skill-export.install-codex', 'To install it in Codex, unzip it into ~/.agents/skills — or a project’s .agents/skills folder.')}
-          {/if}
-        </p>
-      {:else if report.kind === 'refused'}
-        <p class="text-amber-700 dark:text-amber-400">
-          {t('node.skill-export.refused', 'Nothing was downloaded. The {host} export was refused:', { host: hostLabel(report.host) })}
-        </p>
-        <!-- Not a TanStack grid: this is one task's reasons, a few sentences
-             of prose, not rows a reader sorts or searches. -->
-        <ul class="list-disc pl-5 text-zinc-700 dark:text-zinc-300">
-          {#each report.reasons as reason, i (i)}
-            <li>{reason}</li>
-          {/each}
-        </ul>
-      {:else}
-        <p class="text-red-600 dark:text-red-400">{report.message}</p>
-      {/if}
-    </div>
-  {/if}
+  <LiveRegion>
+    {#if report}
+      <div class="text-sm">
+        {#if report.kind === 'saved'}
+          <p class="text-zinc-700 dark:text-zinc-300">
+            {t('node.skill-export.saved', 'Downloaded {file}.', { file: report.filename })}
+            {#if report.host === 'claudeSkill'}
+              {t('node.skill-export.install-claude', 'To install it in Claude, upload the file under Customize → Skills. For Claude Code, unzip it into ~/.claude/skills.')}
+            {:else}
+              {t('node.skill-export.install-codex', 'To install it in Codex, unzip it into ~/.agents/skills — or a project’s .agents/skills folder.')}
+            {/if}
+          </p>
+        {:else if report.kind === 'refused'}
+          <p class="text-amber-700 dark:text-amber-400">
+            {t('node.skill-export.refused', 'Nothing was downloaded. The {host} export was refused:', { host: hostLabel(report.host) })}
+          </p>
+          <!-- Not a TanStack grid: this is one task's reasons, a few sentences
+               of prose, not rows a reader sorts or searches. -->
+          <ul class="list-disc pl-5 text-zinc-700 dark:text-zinc-300">
+            {#each report.reasons as reason, i (i)}
+              <li>{reason}</li>
+            {/each}
+          </ul>
+        {:else}
+          <p class="text-red-600 dark:text-red-400">{report.message}</p>
+        {/if}
+      </div>
+    {/if}
+  </LiveRegion>
 </div>

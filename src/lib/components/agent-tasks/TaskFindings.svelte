@@ -37,14 +37,15 @@
     initial,
     appUrn = null,
     canWrite = false,
-    nodeMemories = { kind: 'ok', value: [] },
+    loadMemories,
   }: {
     appId: string;
     taskId: string;
     initial: Promise<FindingsRead> | FindingsRead;
     appUrn?: string | null;
     canWrite?: boolean;
-    nodeMemories?: Promise<MemoriesRead> | MemoriesRead;
+    /** portal#2261: reads the NODE picker's memories when that picker opens; a failed read is the VALUE {kind:'failed'}. */
+    loadMemories?: () => Promise<MemoriesRead>;
   } = $props();
 
   type View = { kind: 'loading' } | { kind: 'no-result' } | { kind: 'unavailable' } | { kind: 'failed' } | { kind: 'page'; page: FindingsPage };
@@ -172,6 +173,8 @@
 
   async function load(req: Request, trigger: HTMLButtonElement | null) {
     if (pending) return;
+    // A saved-confirmation belongs to the page it was made on; leaving it would mask later announcements.
+    saved = false;
     const ownedFocus = !!trigger && document.activeElement === trigger;
     cancel();
     const mine = generation;
@@ -205,12 +208,14 @@
   const next = (e: MouseEvent) => shown && load({ offset: nextFindingsOffset(shown), history: [...history, shown.offset] }, e.currentTarget as HTMLButtonElement);
   const retry = (e: MouseEvent) => failure && load(failure, e.currentTarget as HTMLButtonElement);
 
+  /** The finding the open form asks about, so its text can be repeated under the question. */
+  const editingRow = $derived(editing ? rows.find((r) => r.id === editing!.id) ?? null : null);
   const byId = $derived(disp.kind === 'ok' ? dispositionsById(disp.items) : null);
-  const resolved = $derived(disp.kind === 'ok' ? disp.total : null);
 
   async function openForm(id: string, trigger: HTMLButtonElement | null) {
-    if (saving) return;
-    const current = byId?.get(id);
+    // The form seeds from the read: never open it on a set that has not loaded, or a blank form could replace a real disposition.
+    if (saving || !byId) return;
+    const current = byId.get(id);
     editGeneration++;
     editing = { id, code: current?.disposition ?? '', refs: current?.reference ? [current.reference] : [], trigger };
     code = DISPOSITION_CODES.includes(current?.disposition as never) ? (current!.disposition) : '';
@@ -220,7 +225,7 @@
   }
   function closeForm() {
     const home = editing?.trigger;
-    editGeneration++; editing = null; refusal = null; saving = false;
+    editGeneration++; editing = null; refusal = null; saving = false; saved = false;
     void tick().then(() => { if (home?.isConnected) home.focus(); else heading?.focus(); });
   }
   const submit: Parameters<typeof enhance>[1] = ({ cancel: stop }) => {
@@ -314,13 +319,15 @@
     {/if}
     {#if disp.kind === 'ok' && view.page.total > 0}
       <p class="mb-2 text-sm text-zinc-600 dark:text-zinc-300" data-testid="findings-resolved">{t('app.tasks.disposition.resolved', '{disposed} of {total} findings have a disposition', { disposed: Math.min(disp.total, view.page.total), total: view.page.total })}</p>
+    {:else if disp.kind === 'unavailable'}
+      <p class="mb-2 text-sm text-zinc-600 dark:text-zinc-300" data-testid="dispositions-unavailable">{t('app.tasks.disposition.unavailable', 'The dispositions aren’t available.')}</p>
     {:else if disp.kind === 'failed'}
       <p class="mb-2 text-sm text-red-800 dark:text-red-300" data-testid="dispositions-failed">
-        {t('app.tasks.disposition.failed', 'Couldn’t load the dispositions, so none are shown as missing.')}
+        {t('app.tasks.disposition.failed', 'Couldn’t load the dispositions. Retry to see which findings have one.')}
         <button type="button" class="ml-2 {btn}" aria-disabled={dispPending} onclick={() => { if (!dispPending) void loadDispositions(); }}>{t('app.tasks.disposition.retry', 'Retry')}</button>
       </p>
     {/if}
-    <DataTable {table} listKey="tasks:immutable-findings" showSearch={false} showFooter={false} searchPlaceholder={t('app.tasks.findings', 'Findings')} searchAriaLabel={t('app.tasks.findings', 'Findings')} maxHeight="32rem">
+    <DataTable {table} listKey="tasks:immutable-findings" showSearch={false} showFooter={false} searchPlaceholder={t('app.tasks.findings', 'Findings')} searchAriaLabel={t('app.tasks.findings', 'Findings')} bounded>
       {#snippet cell(c, row)}
         {#if c.column.id === 'text'}
           {@render literal(row.text, 'finding-text', 'select-text whitespace-pre-wrap break-words text-zinc-800 dark:text-zinc-200')}
@@ -339,7 +346,7 @@
             {/if}
           </div>
         {:else if c.column.id === 'actions'}
-          <button type="button" class={btn} disabled={saving} data-testid="finding-dispose"
+          <button type="button" class={btn} disabled={saving || !byId} data-testid="finding-dispose"
             aria-label={byId?.get(row.id) ? t('app.tasks.disposition.change-label', 'Change the disposition of finding {id}', { id: row.id }) : t('app.tasks.disposition.record-label', 'Record a disposition for finding {id}', { id: row.id })}
             onclick={(e) => openForm(row.id, e.currentTarget as HTMLButtonElement)}>{byId?.get(row.id) ? t('app.tasks.disposition.change', 'Change') : t('app.tasks.disposition.record', 'Record')}</button>
         {:else if c.column.id === 'severity'}
@@ -367,6 +374,7 @@
         <input type="hidden" name="findingId" value={editing.id} />
         <fieldset class="space-y-2" aria-describedby="dispose-authority">
           <legend class="text-sm font-medium text-zinc-900 dark:text-zinc-100">{t('app.tasks.disposition.legend', 'What happened to finding {id}?', { id: editing.id })}</legend>
+          {#if editingRow}{@render literal(editingRow.text, 'disposition-finding-text', 'line-clamp-3 select-text whitespace-pre-wrap break-words text-sm text-zinc-600 dark:text-zinc-300')}{/if}
           <div class="flex flex-wrap gap-x-5 gap-y-2">
             {#each DISPOSITION_CODES as c (c)}
               <label class="flex items-center gap-2 text-sm text-zinc-800 dark:text-zinc-200">
@@ -376,7 +384,7 @@
           </div>
           {#if refusal?.kind === 'invalid' && (refusal.field === 'disposition' || refusal.field === 'findingId')}<p role="alert" class="text-xs text-red-700 dark:text-red-300">{refusal.message}</p>{/if}
         </fieldset>
-        <TaskReferencesEditor app={{ id: appId, urn: appUrn }} {nodeMemories} initial={editing.refs} idPrefix="dispose" single invalid={refusal?.kind === 'invalid' && refusal.field === 'references' ? refusal.message : null} />
+        <TaskReferencesEditor app={{ id: appId, urn: appUrn }} {loadMemories} initial={editing.refs} idPrefix="dispose" single invalid={refusal?.kind === 'invalid' && refusal.field === 'references' ? refusal.message : null} />
         <p id="dispose-authority" class="text-xs text-zinc-600 dark:text-zinc-300">{t('app.tasks.disposition.authority', 'Saving replaces any earlier disposition of this finding. The server checks whether you may record it.')}</p>
         <div class="flex flex-wrap items-center gap-2">
           <button type="submit" disabled={saving} class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400">{t('app.tasks.disposition.save', 'Save')}</button>

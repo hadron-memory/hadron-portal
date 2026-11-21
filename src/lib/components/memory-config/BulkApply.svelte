@@ -101,7 +101,7 @@
   {#if memoriesFailed}<p>{t('config.memories-failed', 'Memories could not be loaded. Reload the page to try again.')}</p>{/if}
   {#if !locked}
     <div class="flex flex-wrap items-center gap-3">
-      <button type="button" disabled={pending || selection.length >= BULK_CAP} onclick={() => { capReached = false; picker = true; }} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.bulk.add', 'Add memories…')}</button>
+      <button type="button" disabled={pending || selection.length >= BULK_CAP} onclick={() => { capReached = false; picker = true; }} aria-haspopup="dialog" aria-expanded={picker} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.bulk.add', 'Add memories…')}</button>
       <p role="status">{countNote}</p>
     </div>
     {#if picker}<SelectMemory {memories} {addedIds} keepOpen note={capReached ? t('config.bulk.cap-refused', 'One apply takes at most {cap} memories, so this one was not added.', { cap: BULK_CAP }) : countNote} bind:open={picker} onselect={add} />{/if}
@@ -139,7 +139,7 @@
     </div>
   </div>
   {#if rows.length}
-    <DataTable {table} listKey="node-role-template-bulk-apply" bind:globalFilter={search} maxHeight="max(240px, calc(100vh - 16rem))" fitOnPhone searchPlaceholder={t('config.bulk.search', 'Search memories…')} searchAriaLabel={t('config.bulk.search', 'Search memories…')}>
+    <DataTable {table} listKey="node-role-template-bulk-apply" bind:globalFilter={search} fitOnPhone searchPlaceholder={t('config.bulk.search', 'Search memories…')} searchAriaLabel={t('config.bulk.search', 'Search memories…')}>
       {#snippet cell(_cell, row)}
         <div class="flex min-w-0 flex-col gap-2 whitespace-normal sm:flex-row sm:justify-between sm:gap-4">
           <div class="min-w-0 sm:w-1/2">

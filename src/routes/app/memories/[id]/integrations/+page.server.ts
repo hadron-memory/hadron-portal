@@ -86,7 +86,7 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(UPDATE_MEMORY_MUTATION, {
-        id: params.id,
+        ref: params.id,
         source: blankToNull(form.data.source),
         readBranch: blankToNull(form.data.readBranch),
         writeBranch: blankToNull(form.data.writeBranch),
@@ -117,7 +117,7 @@ export const actions: Actions = {
     // shown ($lib/sync-error).
     try {
       const res = await gqlClient(locals.token).request<{ syncMemory: SyncOutcomeFields | null }>(
-        SYNC_MEMORY_MUTATION, { id: params.id },
+        SYNC_MEMORY_MUTATION, { ref: params.id },
       );
       const outcome = syncOutcomeMessage(res.syncMemory);
       return message(form, outcome, outcome.type === 'error' ? { status: 500 } : undefined);
@@ -135,7 +135,7 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
 
     try {
-      await gqlClient(locals.token).request(PUSH_MEMORY_TO_GIT_MUTATION, { id: params.id });
+      await gqlClient(locals.token).request(PUSH_MEMORY_TO_GIT_MUTATION, { ref: params.id });
       return message(form, { type: 'success', text: t('integrations.pushed', 'Pushed to Git.') });
     } catch (e: unknown) {
       // #988: the push path uses the same tokenized remote (hadron-server#1578).

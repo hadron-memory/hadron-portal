@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseUrn, UrnParseError } from './parse-urn';
+import { parseUrn, parseSecretUrnV2, UrnParseError } from './parse-urn';
 
 /**
  * portal#2108 (S0b): the App secret URN, through this repo's own entry point.
@@ -17,7 +17,7 @@ describe('portal#2108: App secret URN via the urn-lib-js shim', () => {
     expect(parseUrn(p.parserCanonical).parserCanonical).toBe(APP);
   });
 
-  it('leaves the org/user shape unchanged', () => {
+  it('leaves the flat org/user shape unchanged', () => {
     const p = parseUrn(FLAT);
     expect(p.type).toBe('secret');
     expect(p.parserCanonical).toBe(FLAT);
@@ -25,6 +25,19 @@ describe('portal#2108: App secret URN via the urn-lib-js shim', () => {
 
   it('a flat secret named "app" still parses flat: arity decides, not the word', () => {
     expect(parseUrn('hrn:secret:acme.com:app').parserCanonical).toBe('hrn:secret:acme.com:app');
+  });
+
+  it('accepts app as the App slug', () => {
+    const parsed = parseUrn('hrn:secret:acme.com:app:app:openai-key');
+    expect(parsed).toMatchObject({ type: 'secret', parserCanonical: 'hrn:secret:acme.com:app:app:openai-key' });
+    expect(parseSecretUrnV2(parsed.parserCanonical)).toMatchObject({ appSlug: 'app' });
+  });
+
+  it.each([
+    ['too many segments', 'hrn:secret:acme.com:app:eng-team:key:extra'],
+    ['app literal without both slug and name', 'hrn:secret:acme.com:app:key'],
+  ])('refuses %s', (_label, input) => {
+    expect(() => parseUrn(input)).toThrow(UrnParseError);
   });
 
   it.each([

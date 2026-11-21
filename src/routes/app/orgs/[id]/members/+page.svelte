@@ -356,7 +356,6 @@
       searchPlaceholder={t('org-members.search.placeholder', 'Search members...')}
       searchAriaLabel={t('org-members.search.aria-label', 'Search members')}
       bind:globalFilter
-      maxHeight="max(200px, calc(100vh - 24rem))"
     >
       {#snippet cell(cell, m)}
         {#if cell.column.id === 'name'}

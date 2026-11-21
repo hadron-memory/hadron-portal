@@ -125,7 +125,6 @@
       searchPlaceholder={t('tasks.search-placeholder', 'Search tasks by name or description…')}
       searchAriaLabel={t('tasks.search.aria-label', 'Search tasks')}
       bind:globalFilter
-      maxHeight="max(200px, calc(100vh - 20rem))"
     >
       {#snippet cell(cell, task)}
         {#if cell.column.id === 'export'}

@@ -68,37 +68,37 @@ export const actions: Actions = {
       // orphan if createAgent fails before the promotion nulls it. The value is
       // moot post-promotion, so the safe floor costs nothing.
       const systemResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
-        orgId: params.id,
+        orgRef: params.id,
         name: systemMemorySlug,
         shortDescription: systemDisplayName,
         visibility: 'ORGANIZATION',
       });
       const systemMemoryId = systemResult.createMemory.id;
       await client.request(UPDATE_MEMORY_MUTATION, {
-        id: systemMemoryId, name: systemDisplayName,
+        ref: systemMemoryId, name: systemDisplayName,
       });
 
       // 2. Optionally create the knowledge memory (read-only domain content)
       let knowledgeMemoryId: string | null = null;
       if (includeKnowledge) {
         const knowledgeResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
-          orgId: params.id,
+          orgRef: params.id,
           name: knowledgeMemorySlug,
           shortDescription: knowledgeMemoryName,
           visibility: memoryVisibility,
         });
         knowledgeMemoryId = knowledgeResult.createMemory.id;
         await client.request(UPDATE_MEMORY_MUTATION, {
-          id: knowledgeMemoryId, name: knowledgeMemoryName,
+          ref: knowledgeMemoryId, name: knowledgeMemoryName,
         });
       }
 
       // 3. Create the agent
       const agentResult = await client.request<{ createAgent: { id: string } }>(CREATE_AGENT_MUTATION, {
-        orgId: params.id,
+        orgRef: params.id,
         name: agentSlug || agentName,
         description: agentDescription,
-        systemMemoryId,
+        systemMemoryRef: systemMemoryId,
         visibility,
       });
       const agentId = agentResult.createAgent.id;

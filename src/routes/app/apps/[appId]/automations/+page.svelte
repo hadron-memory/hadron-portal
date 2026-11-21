@@ -79,7 +79,7 @@
   </div>
 
   {#if rows.length === 0}
-    <div role="status" class="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-testid="automations-empty">
+    <div class="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-testid="automations-empty">
       {t('app.automations.empty', 'Nothing to review here.')}
     </div>
   {:else}
@@ -89,7 +89,6 @@
       searchPlaceholder={t('app.automations.search', 'Search automations…')}
       searchAriaLabel={t('app.automations.search', 'Search automations…')}
       bind:globalFilter
-      maxHeight="max(240px, calc(100vh - 24rem))"
     >
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'name'}

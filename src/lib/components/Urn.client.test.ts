@@ -290,4 +290,37 @@ describe('Urn: compact reveal and touch targets (#1604/#1686)', () => {
     expect(toggle(m)).toBeNull();
     expect(m.target.querySelector('code')).not.toBeNull();
   });
+
+  // portal#2330: a second copy must restart the confirmation, not inherit the first one's timer.
+  it('a repeated copy keeps its confirmation for a full two seconds from the latest copy', async () => {
+    stubPointer(false);
+    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+    const m = mountUrn({ compact: false });
+    const copy = m.target.querySelector<HTMLButtonElement>('button[aria-label="Copy URN"]')!;
+    const confirmed = () => copy.querySelector('polyline') !== null;
+    vi.useFakeTimers();
+    try {
+      copy.click();
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(confirmed()).toBe(true);
+      copy.click();
+      await vi.advanceTimersByTimeAsync(1000); // 2500ms after the first copy, 1000ms after the second
+      expect(confirmed()).toBe(true);
+      await vi.advanceTimersByTimeAsync(1100);
+      expect(confirmed()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not confirm a copy that failed', async () => {
+    stubPointer(false);
+    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
+    const m = mountUrn({ compact: false });
+    const copy = m.target.querySelector<HTMLButtonElement>('button[aria-label="Copy URN"]')!;
+    copy.click();
+    await new Promise((r) => setTimeout(r, 0));
+    flushSync();
+    expect(copy.querySelector('polyline')).toBeNull();
+  });
 });

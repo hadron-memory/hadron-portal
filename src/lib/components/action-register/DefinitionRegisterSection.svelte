@@ -3,6 +3,7 @@
   import { page as appPage } from '$app/state';
   import SelectApp from '$lib/components/SelectApp.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import ActionRegisterList from './ActionRegisterList.svelte';
   import type { DefinitionRegister } from '$lib/action-register/definition';
   import { parseLimit, parseOffset } from '$lib/action-register/present';
@@ -67,17 +68,18 @@
       {/if}
       <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{t('action-register.section.asking', 'Resolved as {agent}.', { agent: agent.name })}</p>
       {#if register.apps.length > 1}
-        <button type="button" onclick={() => (pickerOpen = true)} class="mt-2 min-h-6 rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+        <button type="button" onclick={() => (pickerOpen = true)} aria-haspopup="dialog" aria-expanded={pickerOpen} class="mt-2 min-h-6 rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
           {register.app ? t('action-register.change', 'Change…') : t('action-register.choose', 'Choose…')}
         </button>
         <SelectApp apps={register.apps} scopeKey="action-register-definition" bind:open={pickerOpen} onselect={choose} />
       {/if}
     </div>
 
+    <LiveRegion>{#if register.index !== null && stale}<p class="text-sm text-zinc-500">{t('action-register.loading', 'Loading…')}</p>{/if}</LiveRegion>
     {#if register.index === null}
       <!-- No App chosen: nothing was asked, so nothing is empty. -->
     {:else if stale}
-      <p role="status" class="text-sm text-zinc-500">{t('action-register.loading', 'Loading…')}</p>
+      <!-- announced by the LiveRegion above -->
     {:else if register.index.kind === 'agent-not-found' || register.index.kind === 'app-not-found'}
       <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400" data-testid="register-not-available">{t('action-register.section.not-available', 'Not available for this App.')}</p>
     {:else if register.index.kind === 'failed'}

@@ -5,6 +5,7 @@
 -->
 <script lang="ts">
   import { apiKeysStrings as i18n } from '$lib/i18n/api-keys-strings';
+  import { copyText } from '$lib/clipboard';
 
   interface Props {
     rawKey: string;
@@ -53,15 +54,10 @@
   // contexts, and writeText can still reject; the <code> block stays
   // selectable as the manual fallback.
   async function copyKey() {
-    if (!navigator?.clipboard) return;
-    try {
-      await navigator.clipboard.writeText(rawKey);
-      copied = true;
-      if (copiedTimer) clearTimeout(copiedTimer);
-      copiedTimer = setTimeout(() => { copied = false; }, 2000);
-    } catch {
-      // no-op
-    }
+    if (!(await copyText(rawKey))) return;
+    copied = true;
+    if (copiedTimer) clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => { copied = false; }, 2000);
   }
 </script>
 

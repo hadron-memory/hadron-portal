@@ -4,6 +4,8 @@
  * confirm-gated submit and the dialog mount all live in the component
  * lifecycle a server render never mounts (#795).
  */
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { emptyRegions, regionHolding } from '$lib/test/liveRegionPin';
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent } from '$lib/test/mountComponent';
@@ -166,6 +168,24 @@ it('delete opens the roster’s shared dialog with an unchecked attestation', ()
   } finally { mounted.unmount(); }
 });
 
+// portal#2223 F8a — one guard keeps a dialog opened for worker A from
+// re-targeting worker B when the route reuses this page (the `deleteTarget`
+// reset effect). Pinned here because it is the only guard.
+it('closes a delete dialog opened for worker A when the route moves to worker B', () => {
+  const props = reactiveProps<Record<string, unknown>>({ data: dataFor(worker()), form: null });
+  const mounted = mountComponent(Page, props as never);
+  try {
+    flushSync();
+    openMenu(mounted.target);
+    ([...mounted.target.querySelectorAll('[role="menuitem"]')].find(el => el.textContent?.trim() === 'Delete verified-unused worker') as HTMLElement).click();
+    flushSync();
+    expect(mounted.target.querySelector('dialog[aria-labelledby="delete-worker-title"]')).not.toBeNull();
+    props.data = dataFor(worker({ id: 'w-b', name: 'Bea', urn: 'hrn:worker:hadronmemory.com:team:w-b' }), { retireKey: 'w-b' });
+    flushSync();
+    expect(mounted.target.querySelector('dialog[aria-labelledby="delete-worker-title"]')).toBeNull();
+  } finally { mounted.unmount(); }
+});
+
 it('shows the retire banner only for a result keyed to this worker', () => {
   const foreign = mountComponent(Page, { data: dataFor(worker()), form: { retireResult: { key: 'w-b', ok: true, message: 'Another worker’s reply.' } } } as never);
   try {
@@ -198,4 +218,41 @@ it('shows the retire banner only for a result keyed to this worker', () => {
     flushSync();
     expect(urnSpelled.target.querySelector('[role="status"]')?.textContent).toContain('Worker retired. Its name stays reserved.');
   } finally { urnSpelled.unmount(); }
+});
+
+// portal#2379 (slice of portal#2344): the retire result lands in a region that was already mounted and
+// empty, a status when it worked and an alert when it was refused.
+it.each([
+  [true, 'status', 'Worker retired. Its name stays reserved.'],
+  [false, 'alert', 'You don’t have permission to staff this App.'],
+] as const)('a retire result (ok=%s) lands in the %s region that was already mounted and empty', (ok, role, message) => {
+  const props = reactiveProps<Record<string, unknown>>({ data: dataFor(worker()), form: null });
+  const mounted = mountComponent(Page, props as never);
+  try {
+    flushSync();
+    const before = emptyRegions(mounted.target);
+    expect(before.map((r) => r.getAttribute('role'))).toEqual(expect.arrayContaining(['status', 'alert']));
+    props.form = { retireResult: { key: 'w-a', ok, message } };
+    flushSync();
+    const region = regionHolding(mounted.target, message);
+    expect(before).toContain(region);
+    expect(region.getAttribute('role')).toBe(role);
+  } finally { mounted.unmount(); }
+});
+
+it('portal#2378: retiring a worker is announced by a region that was already there', async () => {
+  const props = reactiveProps<Record<string, unknown>>({ data: dataFor(worker()), form: null as never });
+  const mounted = mountComponent(Page, props as never);
+  try {
+    flushSync();
+    const region = () => mounted.target.querySelector<HTMLElement>('[data-testid="worker-retired-region"]');
+    const before = region();
+    expect(before, 'mounted while the worker is active').not.toBeNull();
+    expect(before!.getAttribute('role')).toBe('status');
+    expect(before!.textContent?.trim()).toBe('');
+    props.data = dataFor(worker({ retiredAt: '2026-11-17T00:00:00Z' }));
+    flushSync();
+    expect(region()).toBe(before);
+    expect(before!.textContent).toContain('This worker is retired');
+  } finally { mounted.unmount(); }
 });

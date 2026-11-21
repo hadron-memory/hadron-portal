@@ -73,7 +73,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     if (action === 'save') {
       const result = await client.request<{ createRevision: unknown }>(
         CREATE_REVISION_MUTATION,
-        { agentId, description: (body.description as string) ?? null },
+        { agentRef: agentId, description: (body.description as string) ?? null },
       );
       return new Response(JSON.stringify(result.createRevision), {
         status: 200,
@@ -90,7 +90,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       }
       const result = await client.request<{ publishRevision: unknown }>(
         PUBLISH_REVISION_MUTATION,
-        { agentId, revisionLoc: body.revisionLoc, versionLabel: (body.versionLabel as string) ?? null },
+        { agentRef: agentId, revisionLoc: body.revisionLoc, versionLabel: (body.versionLabel as string) ?? null },
       );
       return new Response(JSON.stringify(result.publishRevision), {
         status: 200,
@@ -107,7 +107,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       }
       const result = await client.request<{ restoreRevision: unknown }>(
         RESTORE_REVISION_MUTATION,
-        { agentId, revisionLoc: body.revisionLoc },
+        { agentRef: agentId, revisionLoc: body.revisionLoc },
       );
       return new Response(JSON.stringify(result.restoreRevision), {
         status: 200,
@@ -118,7 +118,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     if (action === 'lock') {
       const result = await client.request<{ acquireEditorLock: unknown }>(
         ACQUIRE_EDITOR_LOCK_MUTATION,
-        { agentId },
+        { agentRef: agentId },
       );
       return new Response(JSON.stringify(result.acquireEditorLock), {
         status: 200,
@@ -127,7 +127,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }
 
     if (action === 'unlock') {
-      await client.request(RELEASE_EDITOR_LOCK_MUTATION, { agentId });
+      await client.request(RELEASE_EDITOR_LOCK_MUTATION, { agentRef: agentId });
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },

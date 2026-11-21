@@ -1,13 +1,15 @@
 /** Mounted App-page coverage for team chat roster reactivity (#979). */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { emptyRegions, regionHolding } from '$lib/test/liveRegionPin';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { page, setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationCalls, navigationHooks, navigationGuards, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { kitAppliedResults, resetKitAppliedResults, submitEnhanced, submitEnhancedWithResult, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
+import { kitAppliedResults, resetKitAppliedResults, submitEnhanced, submitEnhancedWithResult, submitEnhancedWithRawResult, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { announcedStatusRegion, idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatFilter } from '$lib/team-chat-filter';
 import type { TeamChatMessage, TeamChatRefusal } from '$lib/types';
@@ -17,7 +19,7 @@ import { resetAiConfigRecoveryForTests } from '$lib/components/ai-config-recover
 import { message, pageData, runsPanel } from './app-page.fixture';
 import {
   createAppMemorySchema, addAgentSchema, castWorkerSchema, removeAppAgentSchema,
-  revokeAppKeySchema, addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema,
+  retireWorkerSchema, revokeAppKeySchema, grantAppKeyScopeSchema, addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema, releaseWorkerSchema,
 } from './schema';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -93,7 +95,7 @@ describe('App team chat team filter (#1137)', () => {
       return { ok: true, json: async () => ({ items: [], total: 0, loadFailed: false }) } as Response;
     }));
     vi.useFakeTimers();
-    const data = { ...(await pageData()), teamChatMessages: [tagged(1)], teamFilter: { kind: 'team', headRef: 'head-ada' } as TeamChatFilter };
+    const data = { ...(await pageData()), teamChatMessages: [tagged(1)], teamFilter: { kind: 'teams', headRefs: ['head-ada'] } as TeamChatFilter };
     const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
@@ -107,6 +109,36 @@ describe('App team chat team filter (#1137)', () => {
     const url = call.args[0] as URL;
     expect([url.searchParams.get('tab'), url.searchParams.get('team')]).toEqual(['chats', 'untagged']);
     expect(call.args[1]).toMatchObject({ keepFocus: true, noScroll: true });
+  });
+
+  it('carries a multi-head selection on every poll read, and a second chip toggles it into the URL (#1482)', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=chats&team=head-ada&team=head-bo', { appId: 'a1' });
+    window.history.replaceState({}, '', '/app/apps/a1?tab=chats&team=head-ada&team=head-bo');
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    const requests: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      requests.push(url);
+      if (url.includes('/team-chat/authors')) return { ok: true, json: async () => ({ workers: [], loadFailed: false }) } as Response;
+      return { ok: true, json: async () => ({ items: [], total: 0, loadFailed: false }) } as Response;
+    }));
+    vi.useFakeTimers();
+    const taggedAda = tagged(1);
+    const taggedBo: TeamChatMessage = { ...message(2, 'w1'), teamTags: [{ headId: 'head-bo', label: 'team.bo' }] };
+    const data = { ...(await pageData()), teamChatMessages: [taggedAda, taggedBo], teamFilter: { kind: 'teams', headRefs: ['head-ada', 'head-bo'] } as TeamChatFilter };
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    await vi.advanceTimersByTimeAsync(8000);
+    await tick(3);
+    expect(requests.filter((u) => u.includes('sinceSeq'))).toEqual(['/app/apps/a1/team-chat?sinceSeq=2&team=head-ada&team=head-bo']);
+
+    // Toggling one head off asks for the smaller set, keeping the other params.
+    const boChip = Array.from(m.target.querySelectorAll('[data-testid="team-chat-tag"]')).find((b) => b.textContent?.includes('team.bo')) as HTMLButtonElement;
+    boChip.click();
+    const call = navigationCalls.findLast((c) => c.fn === 'goto')!;
+    const url = call.args[0] as URL;
+    expect(url.searchParams.getAll('team')).toEqual(['head-ada']);
+    expect(url.searchParams.get('tab')).toBe('chats');
   });
 
   it('never reads team-chat while ?team= is malformed (#1137 review)', async () => {
@@ -146,7 +178,7 @@ describe('App team chat team filter (#1137)', () => {
     await tick(2);
     await vi.advanceTimersByTimeAsync(8000);
     // The loader answers for ?team=head-bo while the unfiltered poll is in flight.
-    props.data = { ...props.data, teamChatMessages: [], teamChatTotal: 0, teamFilter: { kind: 'team', headRef: 'head-bo' } as TeamChatFilter };
+    props.data = { ...props.data, teamChatMessages: [], teamChatTotal: 0, teamFilter: { kind: 'teams', headRefs: ['head-bo'] } as TeamChatFilter };
     await tick(3);
     release({ ok: true, json: async () => ({ items: [message(2, 'w1')], total: 2, loadFailed: false }) } as Response);
     await vi.advanceTimersByTimeAsync(0);
@@ -782,6 +814,51 @@ describe('Worker agents tab (#1009)', () => {
     expect((await submitEnhanced(form)).cancelled).toBe(false);
   });
 
+  // portal#2379 (slice of portal#2344): the staff outcomes land in regions that were already mounted and empty.
+  describe('staff outcome live regions', () => {
+    const regions = (target: HTMLElement) => ({ before: emptyRegions(target) });
+
+    it.each([
+      [true, 'status', 'Ada is unpaused.'],
+      [false, 'alert', 'Could not unpause Ada.'],
+    ] as const)('a pause outcome (ok=%s) lands in the %s region that was already mounted and empty', async (ok, role, message) => {
+      vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+      const target = await mountStaff([worker({})], paused());
+      const { before } = regions(target);
+      expect(before.map((r) => r.getAttribute('role'))).toEqual(expect.arrayContaining(['status', 'alert']));
+      pick(target, 'Ada', 'Unpause');
+      await tick(2);
+      const form = target.querySelector<HTMLFormElement>('form[action="?/setWorkerPause"]')!;
+      await submitEnhancedWithResult(form, { type: ok ? 'success' : 'failure', status: ok ? 200 : 400, data: { pauseResult: { ok, workerId: 'w1', message } } });
+      await tick(3);
+      const region = regionHolding(target, message);
+      expect(before).toContain(region);
+      expect(region.getAttribute('role')).toBe(role);
+    });
+
+    it.each([
+      ['released', 'status', 'Released.'],
+      ['announcement-failed', 'alert', 'Released, but the team chat notice failed.'],
+      ['not-held', 'status', 'Nothing was held.'],
+    ] as const)('a release notice (%s) lands in the %s region that was already mounted and empty', async (outcome, role, text) => {
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+      const target = await mountStaff([worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo', heldByUserId: 'u9' })]);
+      const { before } = regions(target);
+      expect(before.map((r) => r.getAttribute('role'))).toEqual(expect.arrayContaining(['status', 'alert']));
+      pick(target, 'Bo', 'Force-release');
+      await tick(2);
+      const form = requestSubmit.mock.contexts[0] as HTMLFormElement;
+      const base = await superValidate({ _kind: 'releaseWorker', workerId: 'w2', expectedHolderUserId: 'u9' }, zod4(releaseWorkerSchema), { errors: false });
+      const posted = { ...base, id: form.getAttribute('data-superform-id') ?? base.id, message: { type: 'success' as const, text, outcome } };
+      await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { form: posted } });
+      await tick(3);
+      const region = regionHolding(target, text);
+      expect(before).toContain(region);
+      expect(region.getAttribute('role')).toBe(role);
+    });
+  });
+
   it('a declined Retire confirm submits nothing', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(false);
     const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
@@ -1296,10 +1373,10 @@ describe('App Keys Scopes column (portal#1099)', () => {
     id: 'k1', label: 'router', keyPreview: 'hk_ab…yz',
     createdAt: '2026-10-01T12:00:00.000Z', lastUsedAt: null, revokedAt: null,
   };
-  async function mountKeys(keyScopes: unknown) {
+  async function mountKeys(keyScopes: unknown, over: Record<string, unknown> = {}) {
     setStubPage('https://example.test/app/apps/a1?tab=keys', { appId: 'a1' });
     const data = await pageData();
-    const props = reactiveProps({ data: { ...data, initialTab: 'keys', appKeys: { kind: 'ok', keys: [key] }, keyScopes }, form: null });
+    const props = reactiveProps({ data: { ...data, initialTab: 'keys', appKeys: { kind: 'ok', keys: [key] }, keyScopes, ...over }, form: null });
     const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
@@ -1333,9 +1410,330 @@ describe('App Keys Scopes column (portal#1099)', () => {
     expect(panel.textContent).toContain('router');
   });
 
-  it('offers no scope write', async () => {
-    const panel = await mountKeys({ kind: 'ok', byKey: { k1: [] } });
-    expect(panel.textContent).not.toMatch(/Give scope|Take scope back/);
+  it('offers no scope write to a reader the server refuses', async () => {
+    // portal#1153: a viewer who does not manage the App still sees the keys
+    // table, but the row menu loses its WRITES — Revoke and the portal#1487
+    // grant control with it — leaving Copy ID, and the withheld line names
+    // the audience. The OPENED menu is the guard (its items are not in the
+    // DOM until it opens).
+    const panel = await mountKeys({ kind: 'hidden' }, { viewerManages: { kind: 'known', manages: false } });
+    (panel.querySelector('button[aria-label^="Actions for key"]') as HTMLButtonElement).click();
+    await tick(2);
+    const items = [...document.querySelectorAll('[role="menuitem"]')].map((i) => i.textContent?.trim());
+    expect(items).toEqual(['Copy ID']);
+    expect(panel.textContent).toContain('Only people who manage this App can mint, revoke and scope its keys');
+  });
+});
+
+// portal#1487 — giving a live key one scope of the closed list
+// (hrn:node:hadronmemory.com:specs:cor:aut:010:03) from a dialog the row's ⋯ menu opens. The server is the
+// gate; every refusal text below is the server's own, shown beside the form.
+describe('App key scope grant dialog (portal#1487)', () => {
+  const key = {
+    id: 'k1', label: 'router', keyPreview: 'hk_ab…yz',
+    createdAt: '2026-10-01T12:00:00.000Z', lastUsedAt: null, revokedAt: null,
+  };
+  // jsdom's <dialog> has no real showModal/close; stub both for this suite
+  // (the WorkerDeleteDialog suite's pattern).
+  let oldShow: PropertyDescriptor | undefined, oldClose: PropertyDescriptor | undefined;
+  beforeAll(() => {
+    oldShow = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'showModal');
+    oldClose = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'close');
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.open = true; } });
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value() { this.open = false; } });
+  });
+  afterAll(() => {
+    for (const [k, old] of [['showModal', oldShow], ['close', oldClose]] as const) {
+      if (old) Object.defineProperty(HTMLDialogElement.prototype, k, old);
+      else Reflect.deleteProperty(HTMLDialogElement.prototype, k);
+    }
+  });
+  async function mountKeys(keyScopes: unknown = { kind: 'ok', byKey: { k1: [] } }) {
+    setStubPage('https://example.test/app/apps/a1?tab=keys', { appId: 'a1' });
+    const data = await pageData();
+    const m = mountComponent(Page as never, {
+      data: { ...data, initialTab: 'keys', appKeys: { kind: 'ok', keys: [key] }, keyScopes },
+      form: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    // The page root, not #panel-keys: the shared success line sits above the
+    // tabs, outside the panel.
+    return m.target;
+  }
+  async function openGrant(panel: Element) {
+    (panel.querySelector('button[aria-label^="Actions for key"]') as HTMLButtonElement).click();
+    await tick(2);
+    const item = [...document.querySelectorAll('[role="menuitem"]')].find((b) => b.textContent?.includes('Grant scope')) as HTMLButtonElement | undefined;
+    if (!item) throw new Error('no Grant scope menu item');
+    item.click();
+    await tick(2);
+    const dialog = document.querySelector('dialog[open]');
+    if (!dialog) throw new Error('the grant dialog did not open');
+    return dialog;
+  }
+  const scopeSelect = (dialog: Element) => dialog.querySelector<HTMLSelectElement>('select[name="scope"]')!;
+  const hostInput = (dialog: Element) => dialog.querySelector<HTMLInputElement>('input[name="hostId"]');
+  const chooseScope = async (dialog: Element, value: string) => {
+    const select = scopeSelect(dialog);
+    select.value = value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+    await tick();
+  };
+  const grantForm = (dialog: Element) => dialog.querySelector('form')!;
+  // A user types into the host field: set the value AND fire the input event,
+  // so the bound store carries it. Setting .value alone leaves the store at
+  // its reset '' — the local empty-host refusal then cancels the submit and
+  // the server's answer below never arrives.
+  const typeHost = (dialog: Element, value: string) => {
+    const host = hostInput(dialog)!;
+    host.value = value;
+    host.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+  };
+
+  it('opens from the row menu naming the key, with no host field for attention:deliver', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    expect(dialog.getAttribute('aria-labelledby')).toBe('grant-scope-title');
+    expect(dialog.textContent).toContain('Grant a scope');
+    // The key once: label, preview beneath (an App key has no URN).
+    expect(dialog.textContent).toContain('router');
+    expect(dialog.textContent).toContain('hk_ab…yz');
+    expect(scopeSelect(dialog).value).toBe('attention:deliver');
+    expect(hostInput(dialog)).toBeNull();
+    expect(grantForm(dialog).getAttribute('action')).toBe('?/grantKeyScope');
+    expect(new FormData(grantForm(dialog)).get('keyId')).toBe('k1');
+  });
+
+  it('host:operate asks for the host with helper text under the field, and only then', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    const host = hostInput(dialog)!;
+    expect(host).toBeTruthy();
+    // Plain label (no parenthesised instruction), helper text UNDER the field.
+    const label = dialog.querySelector('label[for="grant-host"]')!;
+    expect(label.textContent?.trim()).toBe('Host');
+    const help = document.getElementById('grant-host-help')!;
+    expect(help.textContent).toContain('A host key reaches one host.');
+    // attention:deliver hides it again — no host argument travels for a
+    // scope the server grants without one.
+    await chooseScope(dialog, 'attention:deliver');
+    expect(hostInput(dialog)).toBeNull();
+  });
+
+  it('the host input names its help by id and goes invalid with the error (#1487 review: aria wiring)', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    const host = hostInput(dialog)!;
+    // Standing state: described-by names the help (looked up by its id, not
+    // by DOM position), the input is not invalid, and no alert is showing.
+    expect(host.getAttribute('aria-describedby')).toBe('grant-host-help');
+    expect(document.getElementById('grant-host-help')?.textContent).toContain('A host key reaches one host.');
+    expect(host.getAttribute('aria-invalid')).not.toBe('true');
+    expect(document.getElementById('grant-scope-error')).toBeNull();
+    // An empty-host submit is refused client-side: the field error marks the
+    // input invalid, described-by KEEPS the help and ADDS the alert id, and
+    // every named id resolves to a live element in the document.
+    host.value = '';
+    await submitEnhanced(grantForm(dialog), true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    flushSync(); await tick(2);
+    expect(host.getAttribute('aria-invalid')).toBe('true');
+    const describedBy = host.getAttribute('aria-describedby')!.split(/\s+/);
+    expect(describedBy).toContain('grant-host-help');
+    expect(describedBy).toContain('grant-scope-error');
+    for (const id of describedBy) expect(document.getElementById(id), `id ${id} does not resolve`).toBeTruthy();
+  });
+
+
+  it('refuses an empty host in the dialog and sends nothing', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    hostInput(dialog)!.value = '';
+    const { cancelled } = await submitEnhanced(grantForm(dialog), true);
+    expect(cancelled).toBe(true);
+    // The local refusal runs through superforms' own failure handling on a
+    // setTimeout(0): flush the macrotask before the DOM can show it.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    flushSync(); await tick(2);
+    expect(dialog.querySelector('[role="alert"]')?.textContent).toContain('Name the host this key may operate.');
+    // The refused submit also ENDS: the dialog never locks on 'Granting…'.
+    const submit = [...dialog.querySelectorAll('button')].find((b) => b.type === 'submit')!;
+    expect(submit.disabled).toBe(false);
+    expect(submit.textContent).toContain('Grant');
+  });
+
+  it('a HOST_CONFLICT refusal keeps the dialog open with the server’s own sentence', async () => {
+    const serverText = 'This key already operates as host h-1. A host key reaches one host: revoke host:operate first, or use another key.';
+    const panel = await mountKeys({ kind: 'ok', byKey: { k1: [{ scope: 'host:operate', hostId: 'h-1', grantedAt: 'x' }] } });
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    typeHost(dialog, 'h-2');
+    const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
+    f.message = { type: 'error', text: serverText };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 409, data: { form: f } });
+    flushSync(); await tick(2);
+    // The refusal sits beside the form that ran; the dialog stays; the held
+    // grant (host h-1) is untouched on the tab.
+    expect(document.querySelector('dialog[open]')).toBeTruthy();
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe(serverText);
+    // It arrived as a form message, not as errors.hostId — the host input is
+    // still marked invalid and still names help AND alert (it is the
+    // dialog's one free-text field).
+    const host = hostInput(dialog)!;
+    expect(host.getAttribute('aria-invalid')).toBe('true');
+    expect(host.getAttribute('aria-describedby')).toBe('grant-host-help grant-scope-error');
+    expect(panel.querySelector('[data-testid="key-scopes"]')?.textContent).toContain('host:operate · h-1');
+  });
+
+  it('a success closes the dialog and announces the granted scope', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    const trigBefore = document.querySelector('button[aria-label^="Actions for key"]') as HTMLElement;
+    // jsdom's settle path blurs focus set inside a flush (activeElement is
+    // <body> by assertion time even when the teardown focused the trigger —
+    // the same env blur leaves <body> at the action's mount), so this lane
+    // pins the teardown's TARGET by spy; the real-browser focus mechanics
+    // are the layout script's Cancel/Escape/keyboard legs.
+    const trigFocus = vi.spyOn(trigBefore, 'focus');
+    const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'attention:deliver', hostId: '' }, zod4(grantAppKeyScopeSchema));
+    f.message = { type: 'success', text: 'Scope granted.' };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'success', status: 200, data: { form: f } });
+    flushSync(); await tick(2);
+    expect(document.querySelector('dialog[open]')).toBeNull();
+    expect(panel.textContent).toContain('Scope granted.');
+    // The success close returns focus to the ⋯ trigger that opened the
+    // dialog, whose row still stands here (jsdom does not re-render rows).
+    expect(trigFocus).toHaveBeenCalled();
+  });
+
+  it('a success whose row is gone lands focus on the Keys tab panel, never <body>', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    const trigBefore = document.querySelector('button[aria-label^="Actions for key"]') as HTMLElement;
+    // The success path invalidates the page and the table re-renders its
+    // rows — the captured ⋯ trigger can be detached by the time the dialog
+    // unmounts. Stand in for that by removing the row outright.
+    const tabPanel = document.getElementById('panel-keys')!;
+    const trigFocus = vi.spyOn(trigBefore, 'focus');
+    const panelFocus = vi.spyOn(tabPanel, 'focus');
+    trigBefore.closest('tr')!.remove();
+    const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'attention:deliver', hostId: '' }, zod4(grantAppKeyScopeSchema));
+    f.message = { type: 'success', text: 'Scope granted.' };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'success', status: 200, data: { form: f } });
+    flushSync(); await tick(2);
+    expect(document.querySelector('dialog[open]')).toBeNull();
+    // A detached trigger cannot take focus — the teardown owes the close a
+    // landing spot, and it is the Keys tab panel (a focusable region
+    // boundary), never <body>. (Target pinned by spy: the env blurs
+    // activeElement after the flush; the real-browser detached-trigger leg
+    // is in the layout script.)
+    expect(trigFocus).not.toHaveBeenCalled();
+    expect(panelFocus).toHaveBeenCalled();
+  });
+
+  it('a refusal from an earlier key never reads as this one’s answer', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    typeHost(dialog, 'h-2');
+    const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
+    f.message = { type: 'error', text: 'This key already operates as host h-1.' };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 409, data: { form: f } });
+    flushSync(); await tick(2);
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')).toBeTruthy();
+    // Cancel, reopen: the form is reset for the key — no stale refusal, no
+    // stale host.
+    (dialog.querySelector('button[type="button"]') as HTMLButtonElement).click();
+    flushSync(); await tick(2);
+    const reopened = await openGrant(panel);
+    expect(reopened.querySelector('[data-testid="grant-scope-error"]')).toBeNull();
+    expect(scopeSelect(reopened).value).toBe('attention:deliver');
+    expect(hostInput(reopened)).toBeNull();
+  });
+
+  // ── review on #1487: the dialog must not lock, and must not leak across Apps ──
+
+  it('a transport failure frees the dialog and says the grant is unconfirmed', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    // Exactly what kit's enhance hands superforms when the fetch rejects.
+    await submitEnhancedWithRawResult(grantForm(dialog), { type: 'error', status: 500, error: new Error('boom') });
+    flushSync(); await tick(2);
+    // The outcome is unknown, so the dialog STAYS and says so beside the form
+    // that ran — claiming neither that it landed nor that it was refused.
+    expect(document.querySelector('dialog[open]')).toBeTruthy();
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toContain('could not be confirmed');
+    // …and the submit ENDS: no 'Granting…', Cancel usable again. The stuck
+    // modal this replaces never cleared $grantKeyScopeSubmitting.
+    const submit = [...dialog.querySelectorAll('button')].find((b) => b.type === 'submit')!;
+    expect(submit.textContent).toContain('Grant');
+    expect(submit.disabled).toBe(false);
+    expect([...dialog.querySelectorAll('button')].find((b) => b.textContent?.includes('Cancel'))!.disabled).toBe(false);
+  });
+
+  // The page component survives /apps/A -> /apps/B (same route id), and
+  // `grantScopeKey` is $state — so the dialog must be fenced to the App it
+  // was opened on, or showModal() reopens the departed App's dialog on B's
+  // Keys tab and a Grant there would write A's key.
+  describe('the open dialog is fenced to one App (#1487 review)', () => {
+    const KEY_A = { id: 'k1', label: 'router', keyPreview: 'hk_ab…yz', createdAt: '2026-10-01T12:00:00.000Z', lastUsedAt: null, revokedAt: null };
+    const KEY_B = { id: 'k2', label: 'laptop', keyPreview: 'hk_cd…wv', createdAt: '2026-10-02T12:00:00.000Z', lastUsedAt: null, revokedAt: null };
+    async function keysDataFor(appId: string, key: typeof KEY_A) {
+      setStubPage(`https://example.test/app/apps/${appId}?tab=keys`, { appId });
+      const data = await pageData();
+      return {
+        ...data, initialTab: 'keys', app: { ...data.app, id: appId },
+        appKeys: { kind: 'ok', keys: [key] }, keyScopes: { kind: 'ok', byKey: {} },
+      };
+    }
+    async function mountAppKeys() {
+      const props = reactiveProps({ data: await keysDataFor('a1', KEY_A), form: null });
+      const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(2);
+      return { m, props };
+    }
+    const moveTo = async (props: { data: unknown }, appId: string, key: typeof KEY_A) => {
+      props.data = await keysDataFor(appId, key);
+      await tick(3);
+    };
+
+    it('does not follow the reader onto another App’s Keys tab', async () => {
+      const { m, props } = await mountAppKeys();
+      await openGrant(m.target);
+      expect(document.querySelector('dialog[open]')).toBeTruthy();
+      await moveTo(props, 'a2', KEY_B);
+      // The dialog for A's key is GONE — not open, not in the DOM at all —
+      // and A's key never reads on B's tab.
+      expect(document.querySelector('dialog[open]')).toBeNull();
+      expect(m.target.querySelector('[data-testid="grant-scope-dialog"]')).toBeNull();
+      expect(m.target.textContent).not.toContain('hk_ab…yz');
+      // What B offers is B's own key, with a fresh form reset for it.
+      const dialog = await openGrant(m.target);
+      expect(dialog.textContent).toContain('hk_cd…wv');
+      expect(new FormData(grantForm(dialog)).get('keyId')).toBe('k2');
+      expect(scopeSelect(dialog).value).toBe('attention:deliver');
+    });
+
+    it('A’s late grant answer says nothing on B and refreshes nothing there', async () => {
+      const { m, props } = await mountAppKeys();
+      const dialog = await openGrant(m.target);
+      const delayed = await submitEnhancedDeferred(grantForm(dialog));
+      await moveTo(props, 'a2', KEY_B);
+      const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'attention:deliver', hostId: '' }, zod4(grantAppKeyScopeSchema));
+      f.message = { type: 'success', text: 'Scope granted.' };
+      await delayed.finish({ type: 'success', status: 200, data: { form: f } });
+      flushSync(); await tick(4);
+      expect(m.target.textContent).not.toContain('Scope granted.');
+      expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
+      expect(document.querySelector('dialog[open]')).toBeNull();
+    });
   });
 });
 
@@ -1867,7 +2265,7 @@ describe('App AI configuration readback lifecycle', () => {
 // /api/create-app-key. A manager refusal must reach the reader as the rule,
 // not as "Failed to create client key." with the reason dropped.
 describe('Client tab: a refused key mint (#1068)', () => {
-  const MANAGERS_ONLY = 'Only people who manage this App can create or revoke its keys: its owners and, for an organization’s App, that organization’s owners and admins.';
+  const MANAGERS_ONLY = 'Only people who manage this App can mint, revoke and scope its keys: its owners and, for an organization’s App, that organization’s owners and admins.';
 
   async function mountClient(fetchImpl: (url: string) => Promise<Response>) {
     setStubPage('https://example.test/app/apps/a1?tab=client', { appId: 'a1' });
@@ -1974,11 +2372,11 @@ describe('Client tab: the plugin grid follows canManageApp (#1106)', () => {
 
 // portal#1153 (hadron-server#2109): App.viewerManages hides the key controls and nothing else.
 describe('key controls follow App.viewerManages (portal#1153)', () => {
-  const MANAGERS = 'Only people who manage this App can create or revoke its keys';
+  const MANAGERS = 'Only people who manage this App can mint, revoke and scope its keys';
   const COMBINED = 'Only people who manage this App can see, create or revoke its keys';
   const HIDDEN = 'Only the App’s managers can see its keys.';
   const UNKNOWN = 'Couldn’t check whether you can manage this App’s keys. If you can’t, the change will be refused.';
-  const IMPERSONATION = 'This is a read-only impersonation session, so it can’t create or revoke keys.';
+  const IMPERSONATION = 'This is a read-only impersonation session, so it can’t mint, revoke or scope keys.';
   const FAILED = 'Couldn’t load this App’s keys.';
   const key = {
     id: 'k1', label: 'router', keyPreview: 'hk_ab…yz',
@@ -2376,6 +2774,44 @@ describe('Cast role follows the selected Agent (#1319)', () => {
     }
   });
 
+  // portal#1796: a `disabled` submit button drops keyboard focus to <body> in Chromium (the real
+  // proof is scripts/test-cast-submit-focus.mjs); jsdom cannot see that, so this pins the contract
+  // that proof relies on: while casting the button is aria-disabled and NOT disabled.
+  it('keeps the Cast button focusable (aria-disabled, not disabled) while casting', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+    const data = await pageData();
+    Object.assign(data.app, { agents: [{ id: 'agent-a', name: 'Portal Engineer', urn: 'hrn:agent:acme.com:portal', personaRole: 'portal-engineer' }] });
+    data.initialTab = 'staff';
+    Object.assign(data.castWorkerForm.data, { agentId: 'agent-a', name: 'Probe', reporting: 'none' });
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cast a worker')!.click();
+    await tick(2);
+    const form = m.target.querySelector<HTMLFormElement>('form[action="?/castWorker"]')!;
+    const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    expect(submit.getAttribute('aria-disabled')).not.toBe('true');
+    submit.focus();
+    const pending = await submitEnhancedDeferred(form);
+    await tick(2);
+    expect(submit.textContent).toContain('Casting');
+    expect(submit.getAttribute('aria-disabled')).toBe('true');
+    expect(submit.disabled).toBe(false);
+    expect(document.activeElement).toBe(submit);
+    const id = form.querySelector<HTMLInputElement>('input[name="__superform_id"]')!.value;
+    await pending.finish({
+      type: 'failure', status: 409,
+      data: { form: { id, valid: false, posted: true, errors: {}, data: { agentId: 'agent-a', name: 'Probe', reporting: 'none' }, message: { type: 'error', text: 'That name is already taken.' } } },
+    });
+    await tick(3);
+    // A refused cast keeps the composer open with the typed name, shows the refusal, and is
+    // submittable again (aria-disabled cleared).
+    expect(m.target.querySelector('[data-testid="cast-answer-alert"]')!.textContent).toContain('That name is already taken.');
+    expect(m.target.querySelector<HTMLInputElement>('form[action="?/castWorker"] [name="name"]')!.value).toBe('Probe');
+    expect(submit.getAttribute('aria-disabled')).not.toBe('true');
+    expect(document.activeElement).toBe(submit);
+  });
+
   it.each([null, '', '   '])('shows an explicit no-role state for a restored selected Agent with role %j', async (personaRole) => {
     setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
     const data = await pageData();
@@ -2446,38 +2882,6 @@ describe('App memory scope inventory (#1043)', () => {
   });
 });
 
-describe('App Settings: task integrations draft (LOCAL review of #1614, P2-2)', () => {
-  it('does not follow the person to another App: an open draft is dropped on an App change', async () => {
-    setStubPage('https://example.test/app/apps/a1?tab=settings', { appId: 'a1' });
-    const data = await pageData();
-    const props = reactiveProps({
-      data: {
-        ...data, user: { id: 'u1' }, initialTab: 'settings', staff: [],
-        appProperties: { kind: 'ok', revision: 1, properties: { taskIntegrations: [{ name: 'app-a-integration', provider: 'github', repositories: ['o/a'] }] } },
-      },
-      form: null,
-    });
-    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
-    mounted.push(m);
-    await tick(3);
-    const edit = [...m.target.querySelectorAll<HTMLButtonElement>('[data-task-integrations] button')].find((b) => b.textContent?.trim() === 'Edit')!;
-    edit.click();
-    await tick(3);
-    expect(m.target.querySelector<HTMLInputElement>('[data-task-integrations] input[type="text"]')!.value).toBe('app-a-integration');
-
-    props.data = {
-      ...props.data,
-      app: { ...props.data.app, id: 'a2', urn: 'hrn:app:acme.com:other', name: 'Other App' },
-      appProperties: { kind: 'ok', revision: 7, properties: { taskIntegrations: [{ name: 'app-b-integration', provider: 'github', repositories: ['o/b'] }] } },
-    };
-    await tick(3);
-    const section = m.target.querySelector('[data-task-integrations]')!;
-    expect(section.querySelector('form')).toBeNull();
-    expect(section.textContent).toContain('app-b-integration');
-    expect(section.textContent).not.toContain('app-a-integration');
-  });
-});
-
 it('portal#1410 carries an explicit filter focus request through the route-keyed thread remount', async () => {
   setStubPage('https://example.test/app/apps/a1?tab=chats&chat=chats:team', {appId:'a1'});
   const data=await pageData();
@@ -2491,7 +2895,7 @@ it('portal#1410 carries an explicit filter focus request through the route-keyed
   const tag=m.target.querySelector<HTMLButtonElement>('[data-testid="team-chat-tag"]')!;
   tag.focus();tag.click();await tick(2);
   expect(navigationCalls.some(c=>c.fn==='goto'&&String(c.args[0]).includes('team=head-ada'))).toBe(true);
-  props.data={...props.data,teamFilter:{kind:'team',headRef:'head-ada'}};
+  props.data={...props.data,teamFilter:{kind:'teams',headRefs:['head-ada']}};
   await tick(2);finishNavigation();await tick(5);
   const active=m.target.querySelector('[data-testid="team-chat-filter-active"]');
   expect(active).not.toBeNull();expect(document.activeElement).toBe(active);
@@ -2519,10 +2923,18 @@ describe('portal#1624 BLIND refused and abandoned filter navigation', () => {
   };
   it('a refused filter never announces selected and cannot reapply its intent on a later healthy reload',async()=>{
     const {m,props,release}=await setup();await selectTag(m);
-    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-ada'},teamChatMessages:[],teamChatError:true,teamChatRefusal:refusal};
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'teams',headRefs:['head-ada']},teamChatMessages:[],teamChatError:true,teamChatRefusal:refusal};
     await tick(3);release();await tick(5);
     expect(m.target.querySelector('[data-testid="team-chat-filter-refused"]')?.textContent).toBe(refusal.message);
     expect(status(m).textContent).not.toContain('selected');
+    // #2250 round 5 (Gil P2-1): on the REAL route a refused read lands with the REQUESTED set applied, so the
+    // filter DID change. The sentence must say it was refused, never "did not change", and focus goes to a control
+    // that exists among the applied chips.
+    await tick(10); // the clear-then-set announcement needs a flush between its two writes
+    expect(status(m).textContent).toContain('The team filter was refused.');
+    expect(status(m).textContent).not.toContain('did not change');
+    expect(m.target.querySelector('[data-testid="team-chat-filter-active"][data-head="head-ada"]')).not.toBeNull();
+    expect(document.activeElement).toBe(m.target.querySelector('[data-testid="team-chat-filter-active"][data-head="head-ada"]'));
     props.data={...props.data,teamChatMessages:[tagged],teamChatError:false,teamChatRefusal:null};await tick(4);
     expect(status(m).textContent).not.toContain('selected');
   });
@@ -2530,13 +2942,13 @@ describe('portal#1624 BLIND refused and abandoned filter navigation', () => {
     const {m,props,release}=await setup();await selectTag(m);
     props.data={...props.data,teamFilterInvalid:true,teamChatError:true,teamChatMessages:[]};await tick(3);release();await tick(4);
     expect(status(m).textContent).not.toContain('selected');
-    props.data={...props.data,teamFilter:{kind:'team',headRef:'head-ada'},teamFilterInvalid:false,teamChatError:false,teamChatMessages:[tagged]};await tick(5);
+    props.data={...props.data,teamFilter:{kind:'teams',headRefs:['head-ada']},teamFilterInvalid:false,teamChatError:false,teamChatMessages:[tagged]};await tick(5);
     expect(status(m).textContent).not.toContain('selected');
     expect(document.activeElement).not.toBe(m.target.querySelector('[data-testid="team-chat-filter-active"]'));
   });
   it('a completed navigation that did not apply its requested key cannot fire on a later history visit',async()=>{
     const {m,props,release}=await setup();await selectTag(m);release();await tick(4);
-    props.data={...props.data,teamFilter:{kind:'team',headRef:'head-ada'}};await tick(5);
+    props.data={...props.data,teamFilter:{kind:'teams',headRefs:['head-ada']}};await tick(5);
     expect(status(m).textContent).not.toContain('selected');
     expect(document.activeElement).not.toBe(m.target.querySelector('[data-testid="team-chat-filter-active"]'));
   });
@@ -2550,10 +2962,16 @@ describe('portal#1624 BLIND refused and abandoned filter navigation', () => {
     const second=m.target.querySelectorAll<HTMLButtonElement>('[data-testid="team-chat-tag"]')[1];
     second.focus();second.click();await tick(2);
     pending[0].reject(new Error('old navigation cancelled'));await tick(3);
-    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-bo'},teamChatMessages:[bo]};
+    // #2250 fix round: the second click SUPERSEDED the first, so it computed
+    // from the pending request's set ({ada} + bo) — its navigation targets
+    // BOTH heads and the applied URL carries both. The #1624 property this
+    // pin guards is untouched: the old navigation's rejection consumed none
+    // of the newer choice, which completes and announces.
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'teams',headRefs:['head-ada','head-bo']},teamChatMessages:[bo]};
     await tick(3);pending[1].resolve();await tick(5);
     expect(status(m).textContent).toContain('team.bo');
-    expect(document.activeElement).toBe(m.target.querySelector('[data-testid="team-chat-filter-active"]'));
+    // Focus lands on the chip the click ADDED (head-bo's), not chip 1.
+    expect(document.activeElement).toBe(m.target.querySelector('[data-testid="team-chat-filter-active"][data-head="head-bo"]'));
   });
   it('clearing an initially invalid view still focuses and announces the healthy explicit All choice',async()=>{
     const {m,props,release}=await setup(true);
@@ -2570,7 +2988,7 @@ describe('portal#1624 BLIND refused and abandoned filter navigation', () => {
     const pending:Array<{resolve:()=>void;reject:(error:Error)=>void}>=[];
     navigationHooks.onGoto=()=>new Promise<void>((resolve,reject)=>{pending.push({resolve,reject});});
     await selectTag(m);
-    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-ada'}};await tick(3);pending[0].resolve();await tick(5);
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'teams',headRefs:['head-ada']}};await tick(3);pending[0].resolve();await tick(5);
     expect(status(m).textContent).toContain('team.ada');
     const untagged=untaggedButton(m);untagged.focus();untagged.click();await tick(2);
     expect(pending).toHaveLength(2);
@@ -2583,11 +3001,24 @@ describe('portal#1624 BLIND refused and abandoned filter navigation', () => {
     expect(m.target.querySelector('[data-testid="team-chat-filter-active"]')).toBeNull();
     expect(document.activeElement).toBe(document.body);
   });
+  it('#2250 round 5 (Gil P2-2): a lone rejected navigation with the URL unchanged and no refusal drops the pending view back to the applied filter',async()=>{
+    const {m}=await setup();
+    const pending:Array<{resolve:()=>void;reject:(error:Error)=>void}>=[];
+    navigationHooks.onGoto=()=>new Promise<void>((resolve,reject)=>{pending.push({resolve,reject});});
+    await selectTag(m);
+    // While the read is in flight the view shows the requested set.
+    expect(m.target.querySelector('[data-testid="team-chat-filter-active"][data-head="head-ada"]')).not.toBeNull();
+    pending[0].reject(new Error('navigation failed'));await tick(5);
+    // No URL change, no refusal: the request is consumed, the chips return to the applied (unfiltered) view.
+    expect(m.target.querySelector('[data-testid="team-chat-filter-active"]')).toBeNull();
+    const all=[...m.target.querySelectorAll<HTMLButtonElement>('[data-testid="team-chat-filter"] button')].find(b=>b.textContent?.includes('All messages'))!;
+    expect(all.getAttribute('aria-pressed')).toBe('true');
+  });
   it('portal#1629 focus moved to another thread control, then destroyed by the keyed remount, is left on BODY (not pulled to the chip)',async()=>{
     const {m,props,release}=await setup();await selectTag(m);
     expect(navigationCalls.filter(c=>c.fn==='goto')).toHaveLength(1);
     const other=untaggedButton(m);other.focus();expect(document.activeElement).toBe(other);
-    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-ada'}};await tick(3);release();await tick(5);
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'teams',headRefs:['head-ada']}};await tick(3);release();await tick(5);
     expect(m.target.contains(other)).toBe(false);
     expect(document.activeElement).toBe(document.body);
     expect(status(m).textContent).toContain('team.ada');
@@ -2612,7 +3043,7 @@ it('portal#1624 QA restores the newer composer focus after the keyed route destr
   const tag=m.target.querySelector<HTMLButtonElement>('[data-testid="team-chat-tag"]')!;tag.focus();tag.click();await tick(2);
   const oldComposer=m.target.querySelector<HTMLTextAreaElement>('#team-chat-body')!;
   oldComposer.focus();oldComposer.value='draft typed while navigation waits';oldComposer.dispatchEvent(new Event('input',{bubbles:true}));await tick(3);
-  props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-ada'}};await tick(3);release();await tick(5);
+  props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'teams',headRefs:['head-ada']}};await tick(3);release();await tick(5);
   const newComposer=m.target.querySelector<HTMLTextAreaElement>('#team-chat-body')!;
   expect(newComposer).not.toBe(oldComposer);expect(newComposer.value).toBe('draft typed while navigation waits');
   expect(document.activeElement).toBe(newComposer);
@@ -3383,7 +3814,7 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
       const delayed = await submitEnhancedDeferred(form());
       await delayed.finish(FAILED as never);
       await tick(4);
-      expect([...m.target.querySelectorAll('[role="alert"]')].map((x) => x.textContent?.trim())).toEqual([UNCONFIRMED]);
+      expect([...m.target.querySelectorAll('[role="alert"]')].filter((x) => x.textContent?.trim()).map((x) => x.textContent?.trim())).toEqual([UNCONFIRMED]);
       expect(m.target.textContent).not.toContain('Worker cast.');
       expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('Iris');
       expect(submitButton(m.target).disabled).toBe(false);
@@ -4451,5 +4882,85 @@ describe('App chats: deep-link uncertainty vs chat-list failure', () => {
     const t = await mountChats({ chatsError: true, chatDeepLinkUnresolved: false });
     expect(t.textContent).toContain(DISCOVERY);
     expect(t.textContent).not.toContain(DEEP_LINK);
+  });
+});
+
+describe('App page results are announced in persistent live regions (portal#2375)', () => {
+  const twoChats = [{ key: 'chats:team', label: 'Team chat' }, { key: 'chats:other', label: 'Other chat' }];
+  async function mountChatsPage() {
+    setStubPage('https://example.test/app/apps/a1?tab=chats', { appId: 'a1' });
+    window.history.replaceState({}, '', '/app/apps/a1?tab=chats');
+    const data = await pageData();
+    const m = mountComponent(Page as never, { data: { ...data, appChats: twoChats }, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return m.target;
+  }
+  const chooseOther = (t: HTMLElement) => {
+    const select = t.querySelector<HTMLSelectElement>('#app-chat-select')!;
+    select.value = 'chats:other';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
+  it('"Opening chat…" fills a status region that was already mounted and empty', async () => {
+    const t = await mountChatsPage();
+    const idle = idleStatusRegions(t);
+    expect(idle.length).toBeGreaterThan(0);
+    let release!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((r) => { release = r; });
+    chooseOther(t);
+    await tick(2);
+    const region = announcedStatusRegion(t);
+    expect(region?.textContent).toContain('Opening chat');
+    expect(idle).toContain(region);
+    release();
+    await tick(6);
+    expect(region!.isConnected).toBe(true);
+    expect(region!.querySelector('p')).toBeNull();
+  });
+
+  it('"Could not open that chat" fills the same kind of region', async () => {
+    const t = await mountChatsPage();
+    const idle = idleStatusRegions(t);
+    expect(idle.length).toBeGreaterThan(0);
+    navigationHooks.onGoto = () => { throw new Error('offline'); };
+    chooseOther(t);
+    await tick(3);
+    const region = announcedStatusRegion(t);
+    expect(region?.textContent).toContain('Could not open that chat');
+    expect(idle).toContain(region);
+  });
+
+  it('the retire success lands in the status region that was already mounted and empty', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+    window.history.replaceState({}, '', '/app/apps/a1?tab=staff');
+    const data = await pageData();
+    const staff = [{
+      id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', role: 'coordinator', retiredAt: null,
+      memoryId: 'mem-ada', agent: { id: 'ag-coord', name: 'Coordinator', systemMemoryId: 'mem-sys' }, family: 'claude', hasLiveSession: true, heldByUserId: 'u1', heldAt: '2026-10-01T00:00:00.000Z',
+    }];
+    const props = reactiveProps<Record<string, unknown>>({ data: { ...data, user: { id: 'u1' }, initialTab: 'staff', staff, teamRoster: { kind: 'unavailable' } }, form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const t = m.target;
+    const idle = idleStatusRegions(t);
+    expect(idle.length).toBeGreaterThan(0);
+
+    t.querySelector<HTMLButtonElement>('button[aria-label="Actions for Ada"]')!.click();
+    flushSync();
+    [...t.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find((i) => i.textContent?.trim() === 'Retire')!.click();
+    await tick(2);
+    const retire = requestSubmit.mock.contexts[0] as HTMLFormElement;
+    const done = await superValidate(zod4(retireWorkerSchema), { errors: false });
+    done.message = { type: 'success', text: 'Ada retired.' };
+    await submitEnhancedWithResult(retire, { type: 'success', status: 200, data: { form: done } });
+    props.form = { form: done };
+    await tick(3);
+    const region = announcedStatusRegion(t);
+    expect(region?.textContent).toContain('Ada retired.');
+    expect(idle).toContain(region);
   });
 });

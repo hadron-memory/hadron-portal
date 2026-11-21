@@ -19,6 +19,7 @@
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
   import { POINTER_SERVED, pointerView, type PointerRead, type PointerResult } from '$lib/boot-prompt-pointer';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
 
   let {
     read,
@@ -90,11 +91,14 @@
           <p>{result.refusal.message}</p>
           {#if result.refusal.code}<code class="font-mono opacity-80">{result.refusal.code}</code>{/if}
         </div>
-      {:else if result?.ok}
-        <p role="status" class="text-xs text-green-700 dark:text-green-300">
-          {result.cleared ? t('boot-pointer.done.cleared', 'Pointer cleared.') : t('boot-pointer.done.set', 'Pointer set.')}
-        </p>
       {/if}
+      <LiveRegion>
+        {#if result?.ok && !result.refusal}
+          <p class="text-xs text-green-700 dark:text-green-300">
+            {result.cleared ? t('boot-pointer.done.cleared', 'Pointer cleared.') : t('boot-pointer.done.set', 'Pointer set.')}
+          </p>
+        {/if}
+      </LiveRegion>
       <div class="flex flex-wrap items-center gap-2">
         <button type="submit" name="intent" value="set" disabled={submitting} class="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
           {t('boot-pointer.set', 'Set pointer')}

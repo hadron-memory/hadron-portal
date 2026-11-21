@@ -16,6 +16,7 @@
     and is not retried.
 -->
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { onDestroy, tick } from 'svelte';
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
@@ -246,12 +247,14 @@
     {/if}
 
     {#if refusal}<WriteRefusalAlert {refusal} />{/if}
-    {#if status}
-      <p bind:this={statusLine} tabindex="-1" role="status" aria-live="polite" class="text-sm font-medium text-green-700 dark:text-green-300">
-        {[status, warningsBelow(warnings.length + moreWarnings)].filter(Boolean).join(' ')}
-        {#if created}<a href="/app/apps/{appId}/tickers/{created.id}" class="ml-1 underline">{t('app.tickers.write.open', 'Open it')}</a>{/if}
-      </p>
-    {/if}
+    <LiveRegion>
+      {#if status}
+        <p bind:this={statusLine} tabindex="-1" class="text-sm font-medium text-green-700 dark:text-green-300">
+          {[status, warningsBelow(warnings.length + moreWarnings)].filter(Boolean).join(' ')}
+          {#if created}<a href="/app/apps/{appId}/tickers/{created.id}" class="ml-1 underline">{t('app.tickers.write.open', 'Open it')}</a>{/if}
+        </p>
+      {/if}
+    </LiveRegion>
     <TaskWarnings warnings={warnings} more={moreWarnings} />
     <button type="submit" disabled={submitting} class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
       {#if submitting}{t('app.tickers.write.saving', 'Saving…')}{:else if editing}{t('app.tickers.write.save', 'Save')}{:else}{t('app.tickers.write.create', 'Create')}{/if}

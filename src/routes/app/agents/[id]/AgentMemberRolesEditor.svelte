@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -146,19 +147,26 @@
     <p id="member-roles-hint" class="text-xs text-zinc-500">
       {t('agent.member-roles.hint', '1 to 32 characters: a lowercase letter first, then lowercase letters, digits, “_” or “-”, for example “reviewer”. People who already have a removed role keep it.')}
     </p>
+    <LiveRegion>
     {#if duplicate}
-      <p role="status" class="text-sm text-amber-700 dark:text-amber-400">{t('agent.member-roles.duplicate', '“{role}” is already in the list.', { role: duplicate })}</p>
+      <p class="text-sm text-amber-700 dark:text-amber-400">{t('agent.member-roles.duplicate', '“{role}” is already in the list.', { role: duplicate })}</p>
     {/if}
+    </LiveRegion>
     <p class="sr-only" role="status" aria-live="polite">{announcement}</p>
     {#if fieldError}
       <p id="member-roles-error" role="alert" class="text-sm text-red-600 dark:text-red-400">{fieldError}</p>
     {:else if failure}
       <p role="alert" class="text-sm text-red-600 dark:text-red-400">{failure}</p>
-    {:else if empty}
-      <p role="status" class="text-sm text-amber-700 dark:text-amber-400">{t('agent.member-roles.at-least-one', 'An Agent needs at least one role.')}</p>
-    {:else if saved && !changed}
-      <p role="status" class="text-sm text-emerald-700 dark:text-emerald-400">{saved}</p>
     {/if}
+    <LiveRegion>
+      {#if !fieldError && !failure}
+        {#if empty}
+          <p class="text-sm text-amber-700 dark:text-amber-400">{t('agent.member-roles.at-least-one', 'An Agent needs at least one role.')}</p>
+        {:else if saved && !changed}
+          <p class="text-sm text-emerald-700 dark:text-emerald-400">{saved}</p>
+        {/if}
+      {/if}
+    </LiveRegion>
     <button type="submit" disabled={$submitting || !changed || empty}
       class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
       {$submitting ? t('agent.member-roles.saving', 'Saving…') : t('agent.member-roles.save', 'Save')}

@@ -206,7 +206,7 @@ describe('linkGithub action', () => {
     });
     expect(mockRequest.mock.calls[0]).toEqual([
       LINK_GITHUB_APP_MUTATION,
-      { orgId: 'org-id-123', installationId: 987654 },
+      { orgRef: 'org-id-123', installationId: 987654 },
     ]);
   });
 
@@ -275,7 +275,7 @@ describe('updateGithubApp action', () => {
     expect(mockRequest.mock.calls[0]).toEqual([
       UPDATE_ORG_GITHUB_APP_MUTATION,
       {
-        orgId: 'org-id-123',
+        orgRef: 'org-id-123',
         appId: '123456',
         privateKey: '-----BEGIN RSA PRIVATE KEY-----\nsecret\n-----END RSA PRIVATE KEY-----',
       },
@@ -360,7 +360,7 @@ describe('unlinkGithub action', () => {
     });
     expect(mockRequest.mock.calls[0]).toEqual([
       UNLINK_GITHUB_APP_MUTATION,
-      { orgId: 'org-id-123' },
+      { orgRef: 'org-id-123' },
     ]);
   });
 

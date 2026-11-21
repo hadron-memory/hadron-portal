@@ -169,7 +169,7 @@
     </div>
 
     {#if lanes.length === 0}
-      <div role="status" class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300">
+      <div class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300">
         {t('app.tasks.roster.empty', 'No workers on this App’s roster.')}
       </div>
     {:else}
@@ -182,7 +182,7 @@
           searchPlaceholder={t('app.tasks.composition.lanes.search', 'Search the lanes…')}
           searchAriaLabel={t('app.tasks.composition.lanes.search', 'Search the lanes…')}
           bind:globalFilter={laneFilter}
-          maxHeight="max(240px, calc(50vh - 8rem))"
+          bounded
           rowAttrs={(r) => ({ 'data-lane': r.lane.coordinator?.id ?? 'unassigned' })}
         >
           {#snippet cell(cell, row)}
@@ -221,7 +221,7 @@
           searchPlaceholder={t('app.tasks.composition.workers.search', 'Search the workers…')}
           searchAriaLabel={t('app.tasks.composition.workers.search', 'Search the workers…')}
           bind:globalFilter={workerFilter}
-          maxHeight="max(240px, calc(100vh - 24rem))"
+          bounded
           rowAttrs={(r) => ({ 'data-worker': r.member.worker.id, 'data-bound': String(r.member.bound), 'data-live-session': String(r.member.liveSession) })}
         >
           {#snippet cell(cell, row)}

@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { exportSaves } from '$lib/skill-export-saves.svelte';
 import SkillBundleDownload from './SkillBundleDownload.svelte';
+import { announcedStatusRegion, firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 
 type Props = { orgId: string; checkedCount: number; truncated?: boolean; shown?: number };
 
@@ -66,7 +67,7 @@ const downloadButtons = (t: HTMLElement) =>
  */
 async function reportRendered(target: HTMLElement) {
   await vi.waitFor(() => {
-    if (!target.querySelector('[role="status"]')) throw new Error('report not rendered yet');
+    if (!firstPopulatedStatusText(target)) throw new Error('report not rendered yet');
   });
 }
 
@@ -77,7 +78,7 @@ async function search(target: HTMLElement, text: string) {
   await tick(2);
 }
 
-const tableRows = (t: HTMLElement) => [...t.querySelectorAll('[role="status"] tbody tr')];
+const tableRows = (t: HTMLElement) => [...t.querySelectorAll('tbody tr')];
 
 describe('SkillBundleDownload — the left-out report (@codex on #890)', () => {
   it('lists the server-refused task AND the other-host-only task, each with its reason, in one grid', async () => {
@@ -87,12 +88,17 @@ describe('SkillBundleDownload — the left-out report (@codex on #890)', () => {
     await reportRendered(target);
 
     expect(target.textContent).toContain('Left out of the download (2)');
+    // portal#2344: the count is announced with the outcome; the grid itself is not.
+    expect(target.querySelector('[data-testid="bundle-left-out-summary"]')!.closest('[role="status"]')).toBe(announcedStatusRegion(target));
     const rows = tableRows(target).map((r) => r.textContent ?? '');
     expect(rows).toHaveLength(2);
     expect(rows.find((r) => r.includes('broken'))).toContain('needs a description');
     expect(rows.find((r) => r.includes('solo-task'))).toContain('Exported for Claude only.');
     // It is a grid, not a bespoke list.
-    expect(target.querySelector('[role="status"] ul')).toBeNull();
+    expect(target.querySelector('ul')).toBeNull();
+    // portal#2344: the searchable tables stay OUT of the live region, so filtering is never announced.
+    expect(target.querySelector('[role="status"] table')).toBeNull();
+    expect(target.querySelectorAll('[role="status"] [role="status"]')).toHaveLength(0);
   });
 
   it('finds a row by its URN — rendered as a chip, not the accessor — and nothing by text no row renders', async () => {
@@ -114,7 +120,7 @@ describe('SkillBundleDownload — the left-out report (@codex on #890)', () => {
     await reportRendered(target);
     expect(target.textContent).toContain('Skills in it: 1');
     expect(target.textContent).not.toContain('Left out of the download');
-    expect(target.querySelector('[role="status"] table')).toBeNull();
+    expect(target.querySelector('table')).toBeNull();
   });
 
   it('says so when the other host could not be checked, instead of implying the list is complete', async () => {
@@ -124,6 +130,10 @@ describe('SkillBundleDownload — the left-out report (@codex on #890)', () => {
     await reportRendered(target);
     expect(target.textContent).toContain('could not be checked');
     expect(target.textContent).toContain('host "claudeSkill" unavailable');
+    // portal#2344: the warning is announced WITH the outcome, so it sits in the same status region.
+    const warning = target.querySelector('[data-testid="bundle-other-host-unknown"]')!;
+    expect(warning.closest('[role="status"]')).not.toBeNull();
+    expect(warning.closest('[role="status"]')).toBe(announcedStatusRegion(target));
     // The download itself still happened — an export runs to the end.
     expect(target.textContent).toContain('Prepared acme-skills-codex.zip');
   });
@@ -135,7 +145,10 @@ describe('SkillBundleDownload — incomplete scope (#1689)', () => {
     const { target } = panel({ orgId: 'org-1', checkedCount: 2 });
     downloadButtons(target).find((b) => b.textContent?.includes('Codex'))!.click();
     await reportRendered(target);
-    expect(target.querySelector('[data-testid="bundle-scope-incomplete"]')).not.toBeNull();
+    const warning = target.querySelector('[data-testid="bundle-scope-incomplete"]')!;
+    expect(warning).not.toBeNull();
+    expect(warning.closest('[role="status"]')).toBe(announcedStatusRegion(target));
+    expect(warning.querySelector('[role="status"]')).toBeNull();
     expect(target.textContent).toContain('Prepared acme-skills-codex.zip');
   });
 
@@ -169,6 +182,7 @@ describe('SkillBundleDownload — export keys no host reads (server#1296)', () =
     await reportRendered(target);
 
     expect(target.textContent).toContain('Export keys no host reads (2)');
+    expect(target.querySelector('[data-testid="bundle-unrecognized-summary"]')!.closest('[role="status"]')).toBe(announcedStatusRegion(target));
     expect(unrecognizedGrid(target)).not.toBeNull();
     expect(target.textContent).toContain('What happened');
     const rows = tableRows(target).map((r) => r.textContent ?? '');
@@ -253,7 +267,7 @@ describe('#1077 distinct download refusal', () => {
     downloadButtons(target).find((b) => b.textContent?.includes(host === 'codexSkill' ? 'Codex' : 'Claude'))!.click();
     await vi.waitFor(() => expect(target.querySelector('[role="alert"]')?.textContent).toContain('Downloading tasks requires Contributor access or higher in this organization.'));
     expect(target.textContent).not.toContain('private provider detail');
-    expect(target.querySelector('[role="status"]')).toBeNull();
+    expect(firstPopulatedStatusText(target)).toBeNull();
     expect(URL.createObjectURL).not.toHaveBeenCalled();
     expect(downloadButtons(target).every((b) => !b.disabled)).toBe(true);
   });

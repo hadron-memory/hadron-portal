@@ -23,6 +23,7 @@
   the outer form.
 -->
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
   import Urn from '$lib/components/Urn.svelte';
@@ -47,6 +48,7 @@
   let {
     app,
     nodeMemories = { kind: 'ok', value: [] },
+    loadMemories,
     initial = [],
     idPrefix,
     replaces = false,
@@ -64,6 +66,13 @@
      * picker to its failure stage (#1576 step 2, #1585).
      */
     nodeMemories?: Promise<MemoriesRead> | MemoriesRead;
+    /**
+     * portal#2261: instead of a list handed in, read it WHEN the node picker opens (the task page's first
+     * load carries no memories). A failed read degrades the picker to its failure stage and is read again
+     * the next time the picker opens; while it loads the picker is not mounted, so it never shows an empty
+     * list for "still loading" (#1585).
+     */
+    loadMemories?: () => Promise<MemoriesRead>;
     initial?: TaskReference[];
     /** `new` or `edit`: every id in here starts with it. */
     idPrefix: string;
@@ -88,6 +97,19 @@
   let picking = $state(false);
   let pickedNode = $state<NodeChoice | null>(null);
   let nodePicking = $state(false);
+  let lazyMemories = $state.raw<{ kind: 'idle' } | { kind: 'loading' } | MemoriesRead>({ kind: 'idle' });
+  $effect(() => {
+    const picking = nodePicking;
+    untrack(() => {
+      if (!loadMemories) return;
+      if (picking && lazyMemories.kind === 'idle') {
+        lazyMemories = { kind: 'loading' };
+        void loadMemories().then((read) => (lazyMemories = read), () => (lazyMemories = { kind: 'failed' }));
+      } else if (!picking && lazyMemories.kind === 'failed') {
+        lazyMemories = { kind: 'idle' };
+      }
+    });
+  });
   // Clear removes the button that had focus; without a home to return to,
   // focus falls to <body> and a keyboard user loses their place in the form
   // (#1582 BLIND P3). The trigger stays mounted, so it is that home.
@@ -168,7 +190,7 @@
         ? t('app.tasks.ref.target.pull-request', 'Pull request URL')
         : t('app.tasks.ref.target.url', 'URL'),
   );
-  const targetHelp = $derived(t('app.tasks.ref.target.url-help', 'The full address, starting with https://.'));
+  const targetHelp = $derived(t('app.tasks.ref.target.url-help', 'The full address, beginning with https://'));
 
   const inputClass =
     'w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100';
@@ -231,7 +253,7 @@
         <div class="space-y-1">
           <span class={labelClass}>{t('app.tasks.ref.target.task', 'Task')}</span>
           <div class="flex flex-wrap items-center gap-2">
-            <button type="button" onclick={() => (picking = true)} class="rounded-md border border-zinc-300 px-3 py-1 text-sm text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('app.tasks.ref.choose-task', 'Choose a task…')}</button>
+            <button type="button" onclick={() => (picking = true)} aria-haspopup="dialog" aria-expanded={picking} class="rounded-md border border-zinc-300 px-3 py-1 text-sm text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('app.tasks.ref.choose-task', 'Choose a task…')}</button>
             {#if picked}
               <span class="min-w-0 text-sm text-zinc-800 [overflow-wrap:anywhere] dark:text-zinc-100">{picked.title}</span>
               <TaskHandle handle={picked.handle} />
@@ -245,7 +267,7 @@
         <div class="space-y-1">
           <span class={labelClass}>{t('app.tasks.ref.target.node', 'Node')}</span>
           <div class="flex flex-wrap items-center gap-2">
-            <button type="button" onclick={() => (nodePicking = true)} bind:this={chooseNodeTrigger} class="rounded-md border border-zinc-300 px-3 py-1 text-sm text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('app.tasks.ref.choose-node', 'Choose a node…')}</button>
+            <button type="button" onclick={() => (nodePicking = true)} aria-haspopup="dialog" aria-expanded={nodePicking} bind:this={chooseNodeTrigger} class="rounded-md border border-zinc-300 px-3 py-1 text-sm text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('app.tasks.ref.choose-node', 'Choose a node…')}</button>
             {#if pickedNode}
               <span class="min-w-0 text-sm text-zinc-800 [overflow-wrap:anywhere] dark:text-zinc-100">{pickedNode.name}</span>
               <span class="min-w-0 font-mono text-xs text-zinc-500 [overflow-wrap:anywhere] dark:text-zinc-400">{pickedNode.loc}</span>
@@ -285,6 +307,14 @@
   {#if app.urn}
     <SelectTask appId={app.id} includeEnded bind:open={picking} onselect={(choice: TaskChoice) => (picked = choice)} />
   {/if}
+  {#if loadMemories}
+    <LiveRegion>{#if nodePicking && lazyMemories.kind !== 'ok' && lazyMemories.kind !== 'failed'}<p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.nodes.picker.memories-loading', 'Loading your memories…')}</p>{/if}</LiveRegion>
+    {#if lazyMemories.kind === 'ok'}
+      <SelectNode memories={lazyMemories.value} bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
+    {:else if lazyMemories.kind === 'failed'}
+      <SelectNode memories={[]} memoriesFailed bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
+    {/if}
+  {:else}
   {#await Promise.resolve(nodeMemories) then read}
     {#if read.kind === 'ok'}
       <SelectNode memories={read.value} bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
@@ -294,4 +324,5 @@
   {:catch}
     <SelectNode memories={[]} memoriesFailed bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
   {/await}
+  {/if}
 </fieldset>

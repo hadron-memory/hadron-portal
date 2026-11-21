@@ -1,7 +1,8 @@
 import type { TaskReference } from './references';
+import type { RoleTaskRef } from './role-task-refs';
 /**
  * portal#1052 — the agent-task read shapes the Tasks views select, mirroring
- * the server SDL (schema/schema.graphql, hadron-server 4c55560a). Only the
+ * the server SDL (schema/schema.graphql, hadron-server 04114a644). Only the
  * fields a view renders are here; each query selects exactly these.
  */
 
@@ -28,6 +29,8 @@ export interface AgentTaskResult {
   outcome: string;
   summary: string | null;
   evidence: string | null;
+  /** portal#2245 (hadron-server#4414): the role tasks followed, in stored order; null when the finish gave none. */
+  workedFromRoleTaskRefs: RoleTaskRef[] | null;
 }
 
 export interface AgentTaskSessionEndRequest {
@@ -60,6 +63,15 @@ export interface AgentTaskRow {
   owner: AgentTaskParty;
   assignee: AgentTaskParty | null;
   startBy: string | null;
+  finishBy: string | null;
+  /**
+   * portal#2244 (hadron-server#4220, implementing #2654): the server's own
+   * overdue verdict — a pending, not-started task past its start-by, or a
+   * pending-or-started task past its finish-by and not ended; backlog never —
+   * all on the server clock. The portal computes no overdue rule of its own;
+   * a row shows the mark exactly when this is true.
+   */
+  overdue: boolean;
   createdAt: string;
   updatedAt: string | null;
   tags: string[];

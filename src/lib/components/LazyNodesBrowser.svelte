@@ -9,6 +9,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
   import NodeList from './NodeList.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { t } from '$lib/i18n/t';
   import { appendUnique, readTablePage, readTreePage } from '$lib/nodes-tab-client';
   import type { MemoryNode } from '$lib/types';
@@ -114,6 +115,11 @@
     return out;
   });
 
+  // One persistent region announces the folders that are still loading, one entry per folder, so a second
+  // folder that starts while the first is pending is a new addition and is announced. The per-row line is
+  // plain text, because a virtualised row is re-keyed when its status changes and cannot hold a live region.
+  const loadingFolders = $derived(flatRows.flatMap((r) => (r.kind === 'status' && r.status === 'loading' ? [r.loc] : [])));
+
   // Bounded window: only the rows in (and just around) the scroller's viewport are mounted.
   let scrollTop = $state(0);
   // The scroller is a fixed max-h-[28rem] (448px), so the fallback is exact until it scrolls.
@@ -203,6 +209,7 @@
       {t('nodes-tab.tree-limit', 'The tree shows branches that have a node of their own, and may leave out a branch that has none. The Table lists every node.')}
       <button type="button" class="text-indigo-500 hover:underline pointer-coarse:min-h-11 pointer-coarse:px-2" onclick={() => show('table')}>{t('nodes-tab.open-table', 'Open the Table')}</button>
     </p>
+    <LiveRegion class="sr-only" data-testid="tree-loading">{#each loadingFolders as loc (loc)}<span class="block">{loc === TOP ? t('nodes-tab.loading', 'Loading…') : t('nodes-tab.loading-folder', 'Loading {loc}…', { loc })}</span>{/each}</LiveRegion>
     <div
       class="max-h-[28rem] overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800"
       data-testid="tree-scroller"
@@ -231,7 +238,7 @@
                 <span class="shrink-0 rounded bg-zinc-100 px-1.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{t('nodes-tab.inherited', 'inherited')}</span>
               {/if}
             {:else if row.status === 'loading'}
-              <span class="text-xs text-zinc-500" role="status">{t('nodes-tab.loading', 'Loading…')}</span>
+              <span class="text-xs text-zinc-500">{t('nodes-tab.loading', 'Loading…')}</span>
             {:else if row.status === 'failed'}
               <span class="text-xs text-red-500" role="alert">{t('nodes-tab.failed', 'Could not load this page.')}</span>
               <button type="button" class="text-xs text-indigo-500 hover:underline pointer-coarse:min-h-11 pointer-coarse:px-2" onclick={() => loadFolder(row.loc)}>{t('nodes-tab.retry', 'Retry')}</button>
@@ -245,6 +252,9 @@
       </ul>
     </div>
   {:else}
+    <LiveRegion data-testid="nodes-tab-none">
+      {#if tableStatus === 'done' && tableRows.length === 0}<p class="text-sm text-zinc-500">{t('nodes-tab.none', 'No matching or visible nodes.')}</p>{/if}
+    </LiveRegion>
     <p class="text-xs text-zinc-500" data-testid="table-partial">
       {#if tableStatus === 'done' && !tableHasMore}
         {t('nodes-tab.table-end', 'End of the list.')}
@@ -253,13 +263,12 @@
       {/if}
       {#if tableRows.length > 0}{t('nodes-tab.loaded-count', '{n} loaded', { n: tableRows.length })}{/if}
     </p>
-    {#if tableStatus === 'done' && tableRows.length === 0}
-      <p class="text-sm text-zinc-500" role="status">{t('nodes-tab.none', 'No matching or visible nodes.')}</p>
-    {:else if tableRows.length > 0}
+    {#if tableRows.length > 0}
       <NodeList nodes={tableView} hideSearch viewMemoryId={memoryId} />
     {/if}
+    <LiveRegion>{#if tableStatus === 'loading'}<p class="text-sm text-zinc-500">{t('nodes-tab.loading', 'Loading…')}</p>{/if}</LiveRegion>
     {#if tableStatus === 'loading'}
-      <p class="text-sm text-zinc-500" role="status">{t('nodes-tab.loading', 'Loading…')}</p>
+      <!-- announced by the LiveRegion above -->
     {:else if tableStatus === 'failed'}
       <p class="text-sm text-red-500" role="alert">
         {t('nodes-tab.failed', 'Could not load this page.')}

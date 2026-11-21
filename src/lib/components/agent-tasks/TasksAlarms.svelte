@@ -21,6 +21,7 @@
   import { invalidateAll } from '$app/navigation';
   import { page } from '$app/stores';
   import DataTable from '$lib/components/table/DataTable.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -229,8 +230,9 @@
       class="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
     >{t('app.tasks.refresh', 'Refresh')}</button>
   </div>
+  <LiveRegion data-testid="alarms-empty-region">
   {#if rows.length === 0}
-    <div role="status" class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-empty-alarms={filter}>
+    <div class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-empty-alarms={filter}>
       <p>
         {emptyText}
         <!-- Uma on #2021: an App-wide empty In effect still owes the reader a
@@ -259,6 +261,7 @@
       {/if}
     </div>
   {/if}
+  </LiveRegion>
   <p class="text-xs text-zinc-500 dark:text-zinc-400">{filter === 'in-effect'
     ? t('app.tasks.alarms.scope.in-effect', 'The In effect filter spans all of the App’s alarms; search and sorting apply to this page.')
     : t('app.tasks.alarms.page-scope', 'Filters, search and sorting apply to this page.')}</p>
@@ -271,7 +274,6 @@
     searchPlaceholder={t('app.tasks.alarms.search', 'Search this page…')}
     searchAriaLabel={t('app.tasks.alarms.search', 'Search this page…')}
     bind:globalFilter
-    maxHeight="max(240px, calc(100vh - 26rem))"
   >
     {#snippet cell(cell, row)}
       {@const a = row.alarm}

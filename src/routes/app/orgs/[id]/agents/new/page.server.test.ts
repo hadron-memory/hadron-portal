@@ -64,7 +64,7 @@ describe('create agent action', () => {
 
     expect(result).toMatchObject({ status: 303, location: '/app/orgs/org-1/agents' });
     expect(mockRequest).toHaveBeenCalledWith(CREATE_AGENT_MUTATION, {
-      orgId: 'org-1',
+      orgRef: 'org-1',
       name: 'research-assistant',
       description: 'Helps with research',
 

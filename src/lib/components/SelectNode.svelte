@@ -8,6 +8,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import SelectMemory from './SelectMemory.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import Urn from './Urn.svelte';
   import type { NodeChoice, NodeChoicesPage } from '$lib/node-choices';
 
@@ -230,7 +231,7 @@
       {#if memory}
         <p class="text-sm">
           {t('app.nodes.picker.in-memory', 'In')} <span class="font-medium">{memory.name}</span>
-          <button type="button" class="ml-2 rounded border px-2 py-0.5 text-xs" onclick={() => { memoryPickerOpen = true; }}>{t('app.nodes.picker.change-memory', 'Change…')}</button>
+          <button type="button" class="ml-2 rounded border px-2 py-0.5 text-xs" onclick={() => { memoryPickerOpen = true; }} aria-haspopup="dialog" aria-expanded={memoryPickerOpen}>{t('app.nodes.picker.change-memory', 'Change…')}</button>
         </p>
         <div class="flex flex-wrap gap-2">
           <div class="min-w-0 grow">
@@ -259,9 +260,12 @@
                search and throw away the rows already loaded (#1582 BLIND P3). -->
           <button type="button" disabled={pending} class="rounded border px-3 py-1 disabled:opacity-50" onclick={() => read()}>{t('app.nodes.picker.retry', 'Try again')}</button>
         {/if}
-        {#if pending}<p role="status">{t('app.nodes.picker.loading', 'Loading nodes…')}</p>{/if}
+        <LiveRegion>{#if pending}<p>{t('app.nodes.picker.loading', 'Loading nodes…')}</p>{/if}</LiveRegion>
+        <LiveRegion data-testid="node-picker-empty">
+          {#if !pending && !failed && searched && items.length === 0}<p>{t('app.nodes.picker.empty', 'No nodes found.')}</p>{/if}
+        </LiveRegion>
 
-        <DataTable {table} listKey="node-picker:open" showSearch={false} searchPlaceholder="" searchAriaLabel="" maxHeight="35vh">
+        <DataTable {table} listKey="node-picker:open" showSearch={false} searchPlaceholder="" searchAriaLabel="" bounded>
           {#snippet cell(cell, row)}
             <div class="flex min-w-0 items-center gap-3">
               <div class="min-w-0 flex-1">
@@ -282,14 +286,11 @@
                the 400 — this note is the honest replacement for it. -->
           <p role="status">{t('app.nodes.picker.capped', 'Showing the first results only. Search to narrow the list.')}</p>
         {/if}
-        {#if !pending && !failed && searched && items.length === 0}
-          <p role="status">{t('app.nodes.picker.empty', 'No nodes found.')}</p>
-        {/if}
       {:else if memoriesFailed}
         <p role="alert">{t('app.nodes.picker.memories-failed', 'Your memories couldn’t be loaded, so you can’t pick a node right now. Reload the page to try again.')}</p>
       {:else}
         <p class="text-sm text-zinc-600 dark:text-zinc-300">{t('app.nodes.picker.pick-memory', 'Pick which memory to search in first.')}</p>
-        <button type="button" class="rounded border px-3 py-1" onclick={() => { memoryPickerOpen = true; }}>{t('app.nodes.picker.choose-memory', 'Choose a memory…')}</button>
+        <button type="button" class="rounded border px-3 py-1" onclick={() => { memoryPickerOpen = true; }} aria-haspopup="dialog" aria-expanded={memoryPickerOpen}>{t('app.nodes.picker.choose-memory', 'Choose a memory…')}</button>
       {/if}
     </div>
   </div>

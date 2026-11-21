@@ -7,6 +7,8 @@ import AgentChat from '$lib/components/AgentChat.svelte';
 import { navigationCalls } from '$lib/test/stubs/app-navigation';
 
 export const LONG_TOKEN = 'unbroken'.repeat(24);
+/** portal#2215: an AI config name far wider than a phone, to stress the composer row. */
+export const LONG_CONFIG_NAME = ['Regional volunteer onboarding assistant with extended context and scheduling tools', 'Regional volunteer onboarding assistant with extended context and scheduling tools'].join(' / ');
 const CHATS = [
   {
     id: 'chat-a',
@@ -57,10 +59,21 @@ export type AgentChatFixture = {
   failDelete: (kind: DeleteFailure) => void;
   /** Make the next turn reject as a dropped connection does, once (#2110). */
   failTurn: () => void;
+  /**
+   * Hold the next rename's answer until the returned release is called
+   * (portal#2173), so a test can change pane in between. Pair with
+   * `failTitle` to make the released answer a refusal. Needs `rowActions`.
+   */
+  holdTitle: () => () => void;
+  /** Make the next rename answer 500 with `{error: TITLE_REFUSAL}`, once (portal#2173). Needs `rowActions`. */
+  failTitle: () => void;
+  /** The AI config name this mount seeded (the long one under `longConfigName`). */
+  configName: string;
 };
 
 export type DeleteFailure = 'network' | 'json' | 'text';
 export const DELETE_REFUSAL = 'Delete refused';
+export const TITLE_REFUSAL = 'Rename refused';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -70,7 +83,7 @@ const json = (body: unknown, status = 200) =>
  * of the chats, so the row actions can be driven end to end; their calls are
  * counted as `title` and `delete`, never as `writes`.
  */
-export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boolean; rowActions?: boolean; shortTitle?: boolean; transcriptHeight?: boolean } = {}): AgentChatFixture {
+export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boolean; rowActions?: boolean; shortTitle?: boolean; transcriptHeight?: boolean; longConfigName?: boolean } = {}): AgentChatFixture {
   const chats = (options.transcriptHeight ? CHATS.slice(0, 1) : CHATS).map((c) => ({ ...c }));
   const messages = options.transcriptHeight
     ? [{ role: 'user', content: 'Can we plan the next session?', seq: 1 },
@@ -97,14 +110,24 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
   };
   const calls: Record<string, number> = { list: 0, resume: 0, start: 0, writes: 0, title: 0, delete: 0 };
   // A held delete answers only once released, so a test can act in between.
-  let deleteGate: Promise<void> | null = null;
+  // One hold at a time (portal#2165): a repeated hold while one is active is
+  // ignored and gets the same release, so no waiter is orphaned; a release is
+  // spent after its first call and can never clear or resolve a newer hold.
+  let deleteHold: { promise: Promise<void>; release: () => void } | null = null;
   const holdDelete = () => {
-    let release = () => {};
-    deleteGate = new Promise<void>((resolve) => (release = resolve));
-    return () => {
-      deleteGate = null;
-      release();
+    if (deleteHold) return deleteHold.release;
+    let resolve = () => {};
+    const promise = new Promise<void>((r) => (resolve = r));
+    const hold = {
+      promise,
+      release: () => {
+        if (deleteHold !== hold) return;
+        deleteHold = null;
+        resolve();
+      },
     };
+    deleteHold = hold;
+    return hold.release;
   };
   let deleteFailure: DeleteFailure | null = null;
   const failDelete = (kind: DeleteFailure) => {
@@ -113,6 +136,21 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
   let turnFailure = false;
   const failTurn = () => {
     turnFailure = true;
+  };
+  let titleGate: Promise<void> | null = null;
+  const holdTitle = () => {
+    if (!options.rowActions) throw new Error('holdTitle requires rowActions');
+    let release = () => {};
+    titleGate = new Promise<void>((resolve) => (release = resolve));
+    return () => {
+      titleGate = null;
+      release();
+    };
+  };
+  let titleFailure = false;
+  const failTitle = () => {
+    if (!options.rowActions) throw new Error('failTitle requires rowActions');
+    titleFailure = true;
   };
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -134,6 +172,11 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
     }
     if (options.rowActions && url.includes('/api/agent-chat/title')) {
       calls.title++;
+      if (titleGate) await titleGate;
+      if (titleFailure) {
+        titleFailure = false;
+        return json({ error: TITLE_REFUSAL }, 500);
+      }
       const { chatId, title } = JSON.parse(String(init?.body ?? '{}'));
       const chat = chats.find((c) => c.loc === chatId);
       if (!chat) return json({ error: 'Chat not found' }, 404);
@@ -142,7 +185,7 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
     }
     if (options.rowActions && url.includes('/api/agent-chat/delete')) {
       calls.delete++;
-      if (deleteGate) await deleteGate;
+      if (deleteHold) await deleteHold.promise;
       const failure = deleteFailure;
       deleteFailure = null;
       if (failure === 'network') throw new TypeError('Failed to fetch');
@@ -177,10 +220,13 @@ export function mountAgentChat(target: HTMLElement, options: { refuseStart?: boo
       agentId: 'agent-fixture',
       appId: 'app-fixture',
       uploadMemoryId: 'memory-fixture',
+      // longConfigName flips isDefault off: a default choice is labelled just
+      // "Default", which would hide the long name. The value stays 'default', so the
+      // picker still seeds to this option; the transcript-height probe asserts it is selected.
       aiChoices: [
-        { value: 'default', name: 'Default', provider: 'synthetic', model: 'fixture-model', isDefault: true, unavailableReason: null },
+        { value: 'default', name: options.longConfigName ? LONG_CONFIG_NAME : 'Default', provider: 'synthetic', model: 'fixture-model', isDefault: !options.longConfigName, unavailableReason: null },
       ] as never,
     },
   });
-  return { stop: () => unmount(component), calls, navigationCalls, holdDelete, failDelete, failTurn };
+  return { stop: () => unmount(component), calls, navigationCalls, holdDelete, failDelete, failTurn, failTitle, holdTitle, configName: options.longConfigName ? LONG_CONFIG_NAME : 'Default' };
 }

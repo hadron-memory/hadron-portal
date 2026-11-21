@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // #942 slice 2: an App's Channels. A table of the Channels in this App's
   // memories, with create / rename / delete through the sanctioned Channel
   // mutations. Register (who attends which Channel) is the next slice.
@@ -313,7 +314,6 @@
       searchPlaceholder={t('app.channels.search', 'Search channels…')}
       searchAriaLabel={t('app.channels.search', 'Search channels…')}
       bind:globalFilter
-      maxHeight="max(200px, calc(100vh - 30rem))"
     >
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'name'}
@@ -410,7 +410,9 @@
         {t('app.channels.create.where', 'It is created in {memory}, alongside the App’s team chat, so it has that memory’s audience.', { memory: shared.name })}
       </p>
       <Urn value={shared.urn} type="memory" size={8} label={t('app.channels.urn.memory', 'memory')} />
-      {#if createDone}<p role="status" class="mt-2 text-sm text-emerald-700 dark:text-emerald-400">{createDone}</p>{/if}
+      <LiveRegion>
+        {#if createDone}<p class="mt-2 text-sm text-emerald-700 dark:text-emerald-400">{createDone}</p>{/if}
+      </LiveRegion>
       {#if createError}<p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{createError}</p>{/if}
       <form method="POST" action="?/createChannel" use:createEnhance novalidate class="mt-3 grid gap-3 sm:grid-cols-2">
         <input type="hidden" name="_kind" value="createChannel" />
@@ -497,8 +499,9 @@
               </span>
             {/if}
           </label>
+          <LiveRegion>{#if effectiveState === 'loading'}<p class="mt-2 text-xs text-zinc-500">{t('app.channels.effective.loading', 'Loading…')}</p>{/if}</LiveRegion>
           {#if effectiveState === 'loading'}
-            <p class="mt-2 text-xs text-zinc-500" role="status">{t('app.channels.effective.loading', 'Loading…')}</p>
+            <!-- announced by the LiveRegion above -->
           {:else if effectiveState === 'failed'}
             <p class="mt-2 text-sm text-amber-700 dark:text-amber-300" role="alert">{t('app.channels.effective.failed', 'Couldn’t load that just now. This is an error, not an empty list. Try again.')}</p>
           {:else if effective}
@@ -513,7 +516,6 @@
                   searchPlaceholder={t('app.channels.register.search', 'Search…')}
                   searchAriaLabel={t('app.channels.register.search', 'Search…')}
                   bind:globalFilter={effectiveFilter}
-                  maxHeight="max(160px, calc(100vh - 34rem))"
                 >
                   {#snippet cell(cell, row)}
                     {#if cell.column.id === 'channel' && row.channelUrn}

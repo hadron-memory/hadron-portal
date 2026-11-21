@@ -2,22 +2,80 @@ import {it,expect,vi} from 'vitest';
 import {superValidate} from 'sveltekit-superforms/server';
 import {zod4} from 'sveltekit-superforms/adapters';
 import {mountComponent,tick} from '$lib/test/mountComponent';
+import {submitEnhancedWithResult,resetKitAppliedResults} from '$lib/test/stubs/app-forms';
 import {viewStorageErrorText} from '$lib/test/viewStorageErrorText';
 import {viewStorageErrorMessages} from '$lib/table/viewStore';
 import {savedViewsStrings} from '$lib/i18n/saved-views-strings';
 import {createAppMemorySchema} from './schema';
 import AppMemories from './AppMemories.svelte';
+import AppMemoryCreate from './AppMemoryCreate.svelte';
 
-it('a success identifies and links the created memory even when its row is outside the visible list',async()=>{
+it('a success identifies and links the created memory, and keeps the form open to show it',async()=>{
  const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
  const created={id:'new-id',urn:'hrn:mem:acme.com:new-notes',name:'New notes'};
  const posted={...initial,posted:true,message:{type:'success' as const,text:'Memory created.',created}};
- const memories=Array.from({length:11},(_,i)=>({id:`m${i}`,urn:`hrn:mem:acme.com:m${i}`,name:`Existing ${i}`,description:null,appId:'a'}));
- const m=mountComponent(AppMemories as never,{initial,result:{form:posted},memories,canCreate:true} as never);
+ const m=mountComponent(AppMemoryCreate as never,{initial,result:{form:posted}} as never);
  try{await tick();const result=m.target.querySelector('[role=status]')!;
+ expect(m.target.querySelector('details')!.open).toBe(true);
  expect(result.textContent).toContain('New notes');
  expect(result.querySelector('a')?.getAttribute('href')).toBe('/app/memories/new-id');
  expect(result.querySelector('[title="hrn:mem:acme.com:new-notes"]')).not.toBeNull();
+ }finally{m.unmount();}
+});
+
+// portal#2366 (BLIND F2 of #2363): the test above MOUNTS with a success result
+// already present, so it never crosses the transition. This one starts from a
+// collapsed form, opens it, drives the recorded enhanced submit, hands it the
+// success result the server would send, and watches the SAME mounted form.
+it('an enhanced submit that succeeds keeps the opened form open and shows the created memory',async()=>{
+ const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
+ const created={id:'new-id',urn:'hrn:mem:acme.com:new-notes',name:'New notes'};
+ const m=mountComponent(AppMemoryCreate as never,{initial,result:null} as never);
+ try{await tick();
+ const details=m.target.querySelector('details')!;
+ expect(details.open).toBe(false);
+ // portal#2379: the live region EXISTS and is EMPTY before the result; the result lands in that same element.
+ const region=m.target.querySelector('[role=status]');
+ expect(region).not.toBeNull();
+ expect(region!.textContent!.trim()).toBe('');
+ details.open=true;details.dispatchEvent(new Event('toggle'));await tick();
+ expect(details.open).toBe(true);
+ const name=m.target.querySelector<HTMLInputElement>('input[name=name]')!;
+ name.value='New notes';name.dispatchEvent(new Event('input',{bubbles:true}));await tick();
+ const form=m.target.querySelector('form')!;
+ const posted={...initial,valid:true,posted:true,data:{...initial.data,name:'New notes'},message:{type:'success' as const,text:'Memory created.',created}};
+ const {cancelled}=await submitEnhancedWithResult(form,{type:'success',status:200,data:{form:posted}});
+ expect(cancelled).toBe(false);
+ await tick(3);
+ const result=m.target.querySelector('[role=status]');
+ expect(result).toBe(region);
+ expect(result!.textContent).toContain('New notes');
+ expect(result!.querySelector('a')?.getAttribute('href')).toBe('/app/memories/new-id');
+ expect(result!.querySelector('[title="hrn:mem:acme.com:new-notes"]')).not.toBeNull();
+ // the control: the form this result landed in is still the one the reader opened
+ expect(m.target.querySelector('details')).toBe(details);
+ expect(details.open).toBe(true);
+ }finally{m.unmount();resetKitAppliedResults();}
+});
+
+it('the create form is collapsed until asked for, and says so in its caption',async()=>{
+ const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
+ const m=mountComponent(AppMemoryCreate as never,{initial,result:null} as never);
+ try{await tick();
+ const details=m.target.querySelector('details')!;
+ expect(details.open).toBe(false);
+ expect(details.querySelector('summary')!.textContent).toContain('Add a memory');
+ expect(details.querySelector('input[name=name]')).not.toBeNull();
+ }finally{m.unmount();}
+});
+
+it('a submission that failed validation keeps the form open on its error',async()=>{
+ const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
+ const failed={...initial,valid:false,posted:true,errors:{name:['Name is required']}};
+ const m=mountComponent(AppMemoryCreate as never,{initial,result:{form:failed}} as never);
+ try{await tick();
+ expect(m.target.querySelector('details')!.open).toBe(true);
+ expect(m.target.textContent).toContain('Name is required');
  }finally{m.unmount();}
 });
 
@@ -119,4 +177,22 @@ it('renders the storage-error family text when saving a view fails',async()=>{
  // not some unrelated red text the regex happened to graze
  expect(m.target.textContent).toContain(viewStorageErrorMessages.saveFailed);
  }finally{m?.unmount();prompt.mockRestore();setItem.mockRestore();}
+});
+
+// portal#2379: a failed create lands in the always-mounted alert region, not a status one.
+it('an enhanced submit that fails lands in the alert region that was already mounted and empty',async()=>{
+ const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
+ const m=mountComponent(AppMemoryCreate as never,{initial,result:null} as never);
+ try{await tick();
+ const alertRegion=m.target.querySelector('[role=alert]');
+ expect(alertRegion).not.toBeNull();
+ expect(alertRegion!.textContent!.trim()).toBe('');
+ const details=m.target.querySelector('details')!;details.open=true;details.dispatchEvent(new Event('toggle'));await tick();
+ const posted={...initial,valid:false,posted:true,message:{type:'error' as const,text:'Could not create the memory.'}};
+ await submitEnhancedWithResult(m.target.querySelector('form')!,{type:'failure',status:400,data:{form:posted}});
+ await tick(3);
+ expect(m.target.querySelector('[role=alert]')).toBe(alertRegion);
+ expect(alertRegion!.textContent).toContain('Could not create the memory.');
+ expect(m.target.querySelector('[role=status]')!.textContent!.trim()).toBe('');
+ }finally{m.unmount();resetKitAppliedResults();}
 });

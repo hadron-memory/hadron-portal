@@ -1,4 +1,5 @@
 /** portal#2195 review (F1, F2) — the lifecycle control reused for another Agent, and a failed or hung reload. */
+import { firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
@@ -61,7 +62,7 @@ describe('lifecycle control reused for another Agent (F1)', () => {
     flushSync();
     await accept(ok);
     flushSync();
-    expect(root.querySelector('[role="status"]')).toBeNull();
+    expect(firstPopulatedStatusText(root)).toBeNull();
     expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
   });
 });
@@ -115,7 +116,7 @@ describe('lifecycle choices are fixed while a write is in flight or unconfirmed 
     flushSync();
     expect(fieldset(root).disabled).toBe(true);
     expect(radio(root, 'SHORT_LIVED').checked).toBe(true);
-    expect(root.querySelector('[role="status"]')!.textContent).toContain('Saved');
+    expect(firstPopulatedStatusText(root)).toContain('Saved');
   });
 
   it('offers the choices again once the reload lands', async () => {

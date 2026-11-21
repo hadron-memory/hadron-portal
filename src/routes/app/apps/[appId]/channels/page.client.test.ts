@@ -6,10 +6,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
-import { submitEnhanced } from '$lib/test/stubs/app-forms';
+import { submitEnhanced, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
+import { announcedStatusRegion, idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
 import Page from './+page.svelte';
 import { rowMenuItems } from '$lib/test/rowMenu';
 import {
@@ -48,7 +49,7 @@ async function mountPage(channels: unknown[], extra: Record<string, unknown> = {
     deleteForm: await superValidate(zod4(deleteChannelSchema), { errors: false }),
     ...extra,
   };
-  const m = mountComponent(Page as never, { data, form: actionData } as never) as Mounted<Record<string, unknown>>;
+  const m = mountComponent(Page as never, reactiveProps<Record<string, unknown>>({ data, form: actionData }) as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick();
   return m;
@@ -614,5 +615,23 @@ describe('Channels page', () => {
     const outsider = await mountPage([channel()], { orgRows: [orgRow], navOrgs: [] });
     expect(outsider.target.textContent).not.toContain('Managed by the organization');
     expect(outsider.target.textContent).toContain('Read-only');
+  });
+});
+
+describe('Channels page: the create result is announced in a persistent live region (portal#2375)', () => {
+  it('the success text lands in the status region that was already mounted and empty', async () => {
+    const m = await mountPage([channel()]);
+    const { target } = m;
+    const idle = idleStatusRegions(target);
+    expect(idle.length).toBeGreaterThan(0);
+    const done = await superValidate({ _kind: 'createChannel', name: 'Release', slug: 'release', description: '' }, zod4(createChannelSchema), { errors: false });
+    done.message = { type: 'success', text: 'Created the Release channel.' };
+    const create = target.querySelector<HTMLFormElement>('form[action="?/createChannel"]')!;
+    await submitEnhancedWithResult(create, { type: 'success', status: 200, data: { form: done } });
+    (m.props as Record<string, unknown>).form = { form: done };
+    await tick(3);
+    const region = announcedStatusRegion(target);
+    expect(region?.textContent).toContain('Created the Release channel.');
+    expect(idle).toContain(region);
   });
 });

@@ -132,6 +132,40 @@ describe('portal#1943: ?tab= follows the shown tab', () => {
     expect(navigationCalls.filter((c) => c.fn === 'replaceState')).toHaveLength(0);
   });
 
+  // portal#2290 row 1 (Uma, #2289): the tab you are on is not a request to leave it.
+  describe('portal#2290: clicking the active Runs tab is a no-op', () => {
+    const runsSearch = '?tab=runs&page=2&status=FAILED&sort=startedAt';
+    it('makes no goto and no preload, and keeps the URL and the shown tab', async () => {
+      const target = await mountAt('runs', { search: runsSearch });
+      resetNavigationCalls();
+      target.querySelector<HTMLElement>('#tab-runs')!.click();
+      await tick(4);
+      expect(navigationCalls.filter((c) => c.fn === 'goto' || c.fn === 'preloadData' || c.fn === 'invalidateAll')).toEqual([]);
+      expect(window.location.search).toBe(runsSearch);
+      expect(target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
+    });
+    it('from another tab, Runs still opens clean: goto exactly ?tab=runs', async () => {
+      const target = await mountAt('settings');
+      resetNavigationCalls();
+      target.querySelector<HTMLElement>('#tab-runs')!.click();
+      await tick(4);
+      expect(navigationCalls.filter((c) => c.fn === 'goto').map((c) => String(c.args[0]))).toEqual(['/app/apps/a1?tab=runs']);
+    });
+    it('does not supersede a tab navigation already in flight', async () => {
+      const target = await mountAt('runs', { search: runsSearch });
+      let release!: () => void;
+      navigationHooks.onGoto = () => new Promise<void>((r) => { release = r; });
+      target.querySelector<HTMLElement>('#tab-node-role-templates')!.click();
+      await tick(4);
+      navigationHooks.onGoto = undefined;
+      target.querySelector<HTMLElement>('#tab-runs')!.click();
+      await tick(4);
+      release();
+      await tick(6);
+      expect(target.querySelector('#tab-node-role-templates')?.getAttribute('aria-selected')).toBe('true');
+    });
+  });
+
   // QA on #2146: runs -> AI Team (replaceState, so SvelteKit keeps the Runs load URL) -> Templates -> Back.
   // The entry Back returns to has `?tab=staff` in the address bar but loader data that still says `runs`.
   // This SIMULATES that Back (jsdom has no router): the address bar is rewritten, then afterNavigate fires.

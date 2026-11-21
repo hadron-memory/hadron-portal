@@ -1,4 +1,6 @@
 <script lang="ts">
+  import LiveOutcome from '$lib/components/LiveOutcome.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { t } from '$lib/i18n/t';
@@ -24,9 +26,11 @@
   {#if canManage !== false}
     <form method="POST" action="?/startBootSource" use:enhance class="mt-3 space-y-3">
       <input type="hidden" name="_kind" value="bootStart" />
-      {#if confirming && !seeded}
-        <p data-boot-start-confirm role="status" class="text-sm text-zinc-700 dark:text-zinc-300">{t('boot.start.confirm', 'Once you compile and approve a revision, workers can be served it. Nothing changes until you do.')}</p>
-      {/if}
+      <LiveRegion>
+        {#if confirming && !seeded}
+          <p data-boot-start-confirm class="text-sm text-zinc-700 dark:text-zinc-300">{t('boot.start.confirm', 'Once you compile and approve a revision, workers can be served it. Nothing changes until you do.')}</p>
+        {/if}
+      </LiveRegion>
       <div class="flex gap-2">
         {#if seeded || confirming}
           <button type="submit" disabled={$submitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50">{$submitting ? t('boot.start.running', 'Starting...') : t('boot.start.button', 'Start a source')}</button>
@@ -37,5 +41,7 @@
       </div>
     </form>
   {/if}
-  {#if $message}<p role={$message.type === 'error' ? 'alert' : 'status'} class="mt-3 text-sm {$message.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$message.text}</p>{/if}
+  <LiveOutcome failed={$message?.type === 'error'}>
+    {#if $message}<p class="mt-3 text-sm {$message.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$message.text}</p>{/if}
+  </LiveOutcome>
 </section>

@@ -36,7 +36,7 @@ export const actions: Actions = {
     const visibility = form.data.visibility;
     try {
       const result = await gqlClient(locals.token).request<{ createAgent: { id: string } }>(CREATE_AGENT_MUTATION, {
-        orgId: params.id, name, description, visibility,
+        orgRef: params.id, name, description, visibility,
       });
       if (displayName && displayName !== name) {
         await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {

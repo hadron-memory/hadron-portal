@@ -14,17 +14,20 @@
   Chrome conventions (Hadron: findings:portal-table-chrome-conventions):
   tableStrings pagination copy, keyboard-accessible sorting (tabindex /
   valid aria-sort tokens / Enter+Space), keyboard-accessible column
-  resizing (role="separator", arrow keys), and a viewport-floored
-  max-height whose rem offset is tuned per page via the `maxHeight` prop.
+  resizing (role="separator", arrow keys), and a scroll area that sizes
+  itself: it fills from its own top edge to the bottom of the window (less
+  the footer), so no page tunes an offset (portal#2193, ruling 0276). A list
+  inside a dialog, picker or detail section passes `bounded` instead.
 -->
 <script lang="ts" generics="T extends RowData">
   import type { PortalCell, PortalTable } from '$lib/table/features';
   import type { RowData } from '@tanstack/table-core';
-  import type { Snippet } from 'svelte';
+  import { untrack, type Snippet } from 'svelte';
   import ViewTabs from './ViewTabs.svelte';
   import ColumnToggle from './ColumnToggle.svelte';
   import TableFrame from './TableFrame.svelte';
   import { tableStrings } from '$lib/i18n/table-strings';
+  import { FILL_MIN_HEIGHT, fillHeight, measureBelow } from '$lib/fill-viewport';
 
   let {
     table,
@@ -38,7 +41,7 @@
     showPageSize = true,
     initialColumnsOnly = false,
     sortButtons = false,
-    maxHeight = 'max(200px, calc(100vh - 23rem))',
+    bounded = false,
     fitOnPhone = false,
     phoneHiddenColumns = [],
     containCells = false,
@@ -61,9 +64,9 @@
     showPageSize?: boolean;
     initialColumnsOnly?: boolean;
     sortButtons?: boolean;
-    /** Scroll-container max-height. The rem offset is tuned per page to
-     *  its chrome height; keep the 200px floor (short-viewport guard). */
-    maxHeight?: string;
+    /** A list inside a dialog, picker or detail section: the scroll area keeps one fixed
+     *  height (BOUNDED_MAX_HEIGHT) instead of filling the window. Full-page lists leave it off. */
+    bounded?: boolean;
     /** Fit a SINGLE-column table and its header to the scroller on phones; desktop saved widths stay live. */
     fitOnPhone?: boolean;
     /** Column ids hidden below `sm` by CSS only (no JS visibility, so no hydration flash and
@@ -89,6 +92,79 @@
   } = $props();
 
   const active = $derived(globalFilter.trim() !== '');
+
+  /** The one bounded height, with the short-window floor. */
+  const BOUNDED_MAX_HEIGHT = 'max(200px, 40vh)';
+  let scrollerEl = $state<HTMLElement>();
+  let footerEl = $state<HTMLElement>();
+  /** Filled height in px; null until measured (server render, first paint), when CSS stands in. */
+  let fillPx = $state<number | null>(null);
+  // Measured like the node page's editors (#878): the window's height, less where the scroller
+  // starts on the page, less the footer under it and the gutter the app shell leaves. The page
+  // (the document) scrolls in the app shell, so the document's size is what changes with the
+  // header above. A table that starts low on the page, or shares it with another table, would
+  // measure to almost nothing, so the floor is the larger of 200px and 40% of the window: it
+  // then runs past the window bottom and the page scrolls to it, as before.
+  const FILL_FLOOR_RATIO = 0.4;
+  function measureFill() {
+    if (bounded || !scrollerEl) return;
+    const next = fillHeight({
+      viewportHeight: window.innerHeight,
+      top: scrollerEl.getBoundingClientRect().top + window.scrollY,
+      below: measureBelow(scrollerEl, footerEl),
+      min: Math.max(FILL_MIN_HEIGHT, Math.round(window.innerHeight * FILL_FLOOR_RATIO)),
+    });
+    if (next !== fillPx) fillPx = next;
+  }
+  /** The elements before the scroller in the DOM, among its own siblings and those of each
+   *  ancestor up to the body: the page header, banners and tabs a header growth would come from.
+   *  Also returns the parents whose child lists decide that set. A header that grows moves the
+   *  scroller down without resizing the body (already at its minimum height) or the footer, so
+   *  only these can notice. */
+  function precedingLayoutSiblings(el: HTMLElement): { siblings: HTMLElement[]; parents: HTMLElement[] } {
+    const siblings: HTMLElement[] = [];
+    const parents: HTMLElement[] = [];
+    for (let node: HTMLElement | null = el; node && node !== document.body; node = node.parentElement) {
+      if (node.parentElement) parents.push(node.parentElement);
+      for (let sibling = node.previousElementSibling; sibling; sibling = sibling.previousElementSibling) {
+        if (sibling instanceof HTMLElement) siblings.push(sibling);
+      }
+    }
+    return { siblings, parents };
+  }
+  // Fill mode only: a bounded table keeps one fixed height, so it neither observes nor listens.
+  // The header above can change height (a banner, wrapped filters, tabs) and the window can be
+  // resized: re-measure on either, so no page needs to guess. A banner that mounts or unmounts
+  // above after setup changes which elements to watch, so child-list changes on the ancestors'
+  // parents re-run the registration. The footer comes and goes (`showFooter`) and `bounded` can
+  // flip: the effect re-registers for whichever is there now.
+  $effect(() => {
+    if (bounded) return;
+    const scroller = scrollerEl;
+    const footer = footerEl;
+    return untrack(() => {
+      measureFill();
+      const resizes = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measureFill);
+      resizes?.observe(document.body);
+      if (footer) resizes?.observe(footer);
+      const watched = new Set<HTMLElement>();
+      const watchAbove = () => {
+        if (!scroller || !resizes) return;
+        const next = new Set(precedingLayoutSiblings(scroller).siblings);
+        for (const el of watched) if (!next.has(el)) { resizes.unobserve(el); watched.delete(el); }
+        for (const el of next) if (!watched.has(el)) { resizes.observe(el); watched.add(el); }
+      };
+      watchAbove();
+      let mutations: MutationObserver | undefined;
+      if (scroller && typeof MutationObserver !== 'undefined') {
+        mutations = new MutationObserver(() => { watchAbove(); measureFill(); });
+        for (const parent of precedingLayoutSiblings(scroller).parents) mutations.observe(parent, { childList: true });
+      }
+      window.addEventListener('resize', measureFill);
+      return () => { resizes?.disconnect(); mutations?.disconnect(); window.removeEventListener('resize', measureFill); };
+    });
+  });
+  const scrollerMaxHeight = $derived(bounded ? BOUNDED_MAX_HEIGHT : fillPx !== null ? `${fillPx}px` : 'max(200px, calc(100vh - 23rem))');
 
   /** Phone width (px) a sticky end column is clamped to below the `sm`
    * breakpoint — the one source for both the header width and the table-width
@@ -166,14 +242,14 @@
 <!-- Bounded, internally-scrolling container so the page itself doesn't
      scroll and the pagination footer below stays visible. The `<thead>`
      is sticky so column headers remain while the body scrolls. -->
-<div data-testid="data-table-scroller" class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: {maxHeight};">
+<div bind:this={scrollerEl} data-testid="data-table-scroller" class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: {scrollerMaxHeight};">
   <table class="table-fixed w-[var(--table-desktop-w)] max-sm:w-[var(--phone-table-w)] text-sm" style="--table-desktop-w: {desktopTableWidth}; --phone-table-w: {phoneTableWidth};{phoneEndColumnWidth !== undefined ? ` --phone-end-w: ${phoneEndColumnWidth}px;` : ''}">
     <thead>
       {#each table.getHeaderGroups() as headerGroup (headerGroup.id)}
         <tr class="text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
           {#each headerGroup.headers as header (header.id)}
             <th
-              class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 w-[var(--col-w)] {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''} {header.column.id === stickyEndColumn ? 'max-sm:left-0 max-sm:right-0 max-sm:z-20' : ''}{endColumn?.id === header.column.id && !singleColumnFit ? ' max-sm:w-[var(--phone-end-w)]' : ''}{singleColumnFit ? ' max-sm:w-full' : ''}{phoneHidden.includes(header.column.id) ? ' max-sm:hidden' : ''}{singleColumnFit ? ' max-sm:border-r-0' : ''}"
+              class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 w-[var(--col-w)] {header.column.getCanSort() && !sortButtons ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''} {header.column.id === stickyEndColumn ? 'max-sm:left-0 max-sm:right-0 max-sm:z-20' : ''}{endColumn?.id === header.column.id && !singleColumnFit ? ' max-sm:w-[var(--phone-end-w)]' : ''}{singleColumnFit ? ' max-sm:w-full' : ''}{phoneHidden.includes(header.column.id) ? ' max-sm:hidden' : ''}{singleColumnFit ? ' max-sm:border-r-0' : ''}"
               style="--col-w: {header.getSize()}px;"
               tabindex={!sortButtons && header.column.getCanSort() ? 0 : undefined}
               aria-sort={header.column.getIsSorted() === 'asc' ? 'ascending' : header.column.getIsSorted() === 'desc' ? 'descending' : undefined}
@@ -187,7 +263,7 @@
             >
               <div class="flex min-w-0 items-center gap-1">
                 {#if sortButtons && header.column.getCanSort()}
-                  <button type="button" class="min-h-11 min-w-0 truncate text-left focus-visible:outline-2 focus-visible:outline-indigo-500" onclick={header.column.getToggleSortingHandler()}>{header.column.columnDef.header}</button>
+                  <button type="button" class="min-h-11 min-w-0 cursor-pointer truncate text-left hover:text-zinc-700 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:hover:text-zinc-200" onclick={header.column.getToggleSortingHandler()}>{header.column.columnDef.header}</button>
                 {:else}<span class="min-w-0 truncate">{header.column.columnDef.header}</span>{/if}
                 {#if header.column.getCanSort()}
                   <span class={header.column.getIsSorted() ? 'text-indigo-500' : 'text-zinc-300 dark:text-zinc-700'}>{sortIndicator(header.column.getIsSorted())}</span>
@@ -248,8 +324,8 @@
      document 14px wide on a 390px phone. Wrapping keeps every control in
      flow and reachable instead. -->
 {#if showFooter}
-<div data-testid="table-footer" class="flex flex-wrap items-center justify-between gap-3">
-  <span aria-current="page" class="text-sm text-zinc-500">{pageCount > 1 ? tableStrings.pageOf(pageIndex + 1, pageCount) : ''}</span>
+<div bind:this={footerEl} data-testid="table-footer" class="mt-3 flex flex-wrap items-center justify-between gap-3">
+  <span aria-current={pageCount > 1 ? 'page' : undefined} class="text-sm text-zinc-500">{pageCount > 1 ? tableStrings.pageOf(pageIndex + 1, pageCount) : ''}</span>
   <div class="flex flex-wrap items-center gap-2">
     {#if showPageSize}<select value={pageSize} onchange={(e) => table.setPageSize(Number((e.target as HTMLSelectElement).value))}
       aria-label={tableStrings.rowsPerPage()}

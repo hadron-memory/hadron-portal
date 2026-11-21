@@ -9,10 +9,11 @@ import { setStubPage } from '$lib/test/stubs/app-stores';
 import { submitEnhanced } from '$lib/test/stubs/app-forms';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import Page from './+page.svelte';
+import { everyTabRead } from './app-page.fixture';
 import {
   addAgentSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
   deleteAppSchema, releaseWorkerSchema, removeAppAgentSchema,
-  retireWorkerSchema, revokeAppKeySchema, updateAppAgentToolsSchema,
+  retireWorkerSchema, revokeAppKeySchema, grantAppKeyScopeSchema, updateAppAgentToolsSchema,
 } from './schema';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -30,13 +31,15 @@ const IMPORTER = { id: 'ag0', name: 'Alpha', urn: 'hrn:agent:acme.com:alpha' };
 
 async function pageData(initialTab: 'agents' | 'keys', agents: unknown[] = [AGENT]) {
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm,
-    updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm,
+    updateAgentToolsForm, revokeKeyForm, grantKeyScopeForm, deleteAppForm, castWorkerForm,
     retireWorkerForm, releaseWorkerForm, postTeamChatMessageForm] = await Promise.all([
     appSettingsSchema, addAgentSchema, createAppKeySchema, removeAppAgentSchema,
-    updateAppAgentToolsSchema, revokeAppKeySchema, deleteAppSchema, castWorkerSchema,
-    retireWorkerSchema, releaseWorkerSchema, postTeamChatMessageSchema,
+    updateAppAgentToolsSchema, revokeAppKeySchema, grantAppKeyScopeSchema, deleteAppSchema,
+    castWorkerSchema, retireWorkerSchema, releaseWorkerSchema, postTeamChatMessageSchema,
   ].map((schema) => superValidate(zod4(schema), { errors: false })));
   return {
+    // portal#2240: every tab already read, as before the first-screen load.
+    ...everyTabRead(),
     app: {
       id: 'a1', urn: 'hrn:app:acme.com:team', name: 'Team', appType: 'WORKSTATION',
       role: 'OWNER', surfaces: [], agentId: null, agent: null,
@@ -51,7 +54,7 @@ async function pageData(initialTab: 'agents' | 'keys', agents: unknown[] = [AGEN
     chatConfigs: [], appConfigs: [], worklog: [], worklogTotal: 0, worklogError: false,
     currentUserId: 'u1',
     appSettingsForm, addAgentForm, createKeyForm, removeAgentForm,
-    updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm,
+    updateAgentToolsForm, revokeKeyForm, grantKeyScopeForm, deleteAppForm, castWorkerForm,
     retireWorkerForm, releaseWorkerForm, postTeamChatMessageForm,
   };
 }
@@ -211,11 +214,130 @@ describe('A derived agent on the Agents tab (#1684)', () => {
 });
 
 describe('App Keys tab row ⋯ menu (#1020)', () => {
-  it('offers Revoke as the only menu item, with no inline Revoke button', async () => {
+  it('offers Copy ID, Grant scope then Revoke, with no inline Revoke button', async () => {
     const target = await mountTab('keys');
     expect(target.textContent).not.toContain('Revoke');
     const items = openMenu(target, 'Actions for key abc123');
-    expect(items.map((i) => [i.tagName, i.textContent?.trim()])).toEqual([['BUTTON', 'Revoke']]);
+    expect(items.map((i) => [i.tagName, i.textContent?.trim()])).toEqual([
+      ['BUTTON', 'Copy ID'],
+      ['BUTTON', 'Grant scope…'],
+      ['BUTTON', 'Revoke'],
+    ]);
+  });
+
+  it('a viewer who cannot manage keys is offered Copy ID only — no Grant scope, no Revoke', async () => {
+    const target = await mountTab('keys', { viewerManages: { kind: 'known', manages: false } });
+    const items = openMenu(target, 'Actions for key abc123');
+    expect(items.map((i) => i.textContent?.trim())).toEqual(['Copy ID']);
+  });
+
+  it('Copy ID writes the PICKED key\'s full ID to the clipboard', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const target = await mountTab('keys');
+    openMenu(target, 'Actions for key abc123').find((i) => i.textContent?.trim() === 'Copy ID')!.click();
+    await tick(2);
+    expect(writeText).toHaveBeenCalledWith('k1');
+  });
+
+  // portal#2330: Copy ID answers the person who chose it, and never throws.
+  const pickCopyId = (target: HTMLElement) =>
+    openMenu(target, 'Actions for key abc123').find((i) => i.textContent?.trim() === 'Copy ID')!.click();
+  const keyCopyStatus = (target: HTMLElement) => target.querySelector('[data-testid="key-copy-status"]');
+
+  it('Copy ID confirms a successful copy in a live region that was already mounted', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
+    const target = await mountTab('keys');
+    const region = keyCopyStatus(target)!;
+    expect(region.getAttribute('role')).toBe('status');
+    expect(region.textContent?.trim()).toBe('');
+    pickCopyId(target);
+    await tick(8);
+    expect(keyCopyStatus(target)).toBe(region);
+    expect(region.textContent).toContain('Key ID copied');
+  });
+
+  it('Copy ID says it failed, and does not throw, where navigator.clipboard is undefined', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+    const target = await mountTab('keys');
+    expect(() => pickCopyId(target)).not.toThrow();
+    await tick(8);
+    expect(keyCopyStatus(target)!.textContent).toContain('Couldn’t copy the key ID');
+    expect(keyCopyStatus(target)!.textContent).not.toContain('copied');
+  });
+
+  it('Copy ID says it failed when the clipboard write is refused', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) }, configurable: true });
+    const target = await mountTab('keys');
+    pickCopyId(target);
+    await tick(8);
+    expect(keyCopyStatus(target)!.textContent).toContain('Couldn’t copy the key ID');
+  });
+
+  it('a slow earlier Copy ID write that settles late does not overwrite the latest answer', async () => {
+    const deferred: Array<{ resolve: () => void; reject: (e: Error) => void }> = [];
+    const writeText = vi.fn(() => new Promise<void>((resolve, reject) => deferred.push({ resolve, reject })));
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const target = await mountTab('keys');
+    pickCopyId(target); // first click
+    await tick(2);
+    pickCopyId(target); // second click, while the first is still pending
+    await tick(2);
+    deferred[1].resolve(); // the newer write settles first
+    await tick(8);
+    expect(keyCopyStatus(target)!.textContent).toContain('Key ID copied');
+    deferred[0].reject(new Error('late')); // the older write fails afterwards
+    await tick(8);
+    expect(keyCopyStatus(target)!.textContent).toContain('Key ID copied');
+    expect(keyCopyStatus(target)!.textContent).not.toContain('Couldn’t');
+  });
+
+  it('a repeated Copy ID with the same outcome renders a fresh message node, so it is announced again', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
+    const target = await mountTab('keys');
+    pickCopyId(target);
+    await tick(8);
+    const first = keyCopyStatus(target)!.querySelector('p');
+    expect(first).not.toBeNull();
+    pickCopyId(target);
+    await tick(8);
+    const second = keyCopyStatus(target)!.querySelector('p');
+    expect(second).not.toBeNull();
+    expect(second).not.toBe(first);
+  });
+
+  it('a new Copy ID click retires the previous answer while its own write is pending', async () => {
+    const pending: Array<{ resolve: () => void; reject: (e: Error) => void }> = [];
+    const writeText = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(() => new Promise<void>((resolve, reject) => pending.push({ resolve, reject })));
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const target = await mountTab('keys');
+    pickCopyId(target);
+    await tick(8);
+    expect(keyCopyStatus(target)!.textContent).toContain('Key ID copied');
+    pickCopyId(target); // second write stays pending
+    await tick(8);
+    expect(keyCopyStatus(target)!.textContent?.trim()).toBe('');
+    pending[0].reject(new Error('denied'));
+    await tick(8);
+    expect(keyCopyStatus(target)!.textContent).toContain('Couldn’t copy the key ID');
+    expect(keyCopyStatus(target)!.textContent).not.toContain('Key ID copied');
+  });
+
+  it('the Copy ID message clears itself', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
+    const target = await mountTab('keys');
+    vi.useFakeTimers();
+    try {
+      pickCopyId(target);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(keyCopyStatus(target)!.textContent).toContain('Key ID copied');
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(keyCopyStatus(target)!.textContent?.trim()).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('Revoke confirms, then submits the hidden revokeKey form for the PICKED key', async () => {

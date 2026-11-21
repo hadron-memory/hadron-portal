@@ -17,15 +17,21 @@ async function canManageStrict(client: ReturnType<typeof gqlClient>, userId: str
 }
 
 /**
- * The ONE gate every Tester surface goes through (portal#2099). Resolve an agent the caller may use (portal#2083: only one the
- * caller can MANAGE, since after hadron-server#4095 `startChat` refuses a
- * non-manager the Tester has no licensed App chat home to admit). The organization list
- * preserves its original member/admin scope; ownedByMe adds only the caller's
- * own user-owned agents, including when the caller is a platform admin.
- * Public find-one reads are deliberately outside this tester access path.
- * A non-manager, or no user, is a miss (the surface's own not-found). Let
- * lookup and manage-read failures propagate so a temporary outage never becomes
- * a 404 or an admission. The server stays authoritative on every start.
+ * The ONE gate every Tester surface goes through (portal#2099).
+ *
+ * Resolve an agent the caller may use: only one the caller can MANAGE
+ * (portal#2083), since after hadron-server#4095 `startChat` refuses a
+ * non-manager and the Tester has no licensed App chat home to admit. The
+ * organization list preserves its original member/admin scope; ownedByMe adds
+ * only the caller's own user-owned agents, including when the caller is a
+ * platform admin. Public find-one reads are deliberately outside this tester
+ * access path.
+ *
+ * A non-manager, or no user, is a miss (the surface's own not-found). A failed
+ * lookup or manage read THROWS, so an outage never becomes a 404 or an
+ * admission. The API handlers let that error propagate; the Tester page load
+ * catches it and answers one fixed 500. The server stays authoritative on
+ * every start.
  */
 export async function requireTesterAgent(
   client: ReturnType<typeof gqlClient>,
@@ -39,15 +45,40 @@ export async function requireTesterAgent(
   return (await canManageStrict(client, userId, found.agent.urn)) ? found : null;
 }
 
-async function findVisibleAgent(
-  client: ReturnType<typeof gqlClient>,
+/**
+ * The caller's organizations with their agents, exactly as the Tester reads
+ * them. The Agent page's loader and the Tester's lookup both call this, so the
+ * Tester link and the Tester cannot drift apart (portal#2187). A failed read
+ * throws: nothing downstream may treat it as an empty list.
+ */
+export function loadTesterOrgs(client: ReturnType<typeof gqlClient>): Promise<Organization[]> {
+  return fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
+}
+
+/**
+ * The Tester's org-Agent reach, as a pure predicate over the caller's
+ * `organizations { agents }` list (a PERSONAL Agent appears only to its
+ * creator). Shared with the Agent page's link eligibility, which already holds
+ * that list, so the link cannot drift from the Tester.
+ */
+export function findOrgListedAgent(
+  orgs: Organization[],
   agentId: string,
-): Promise<{ agent: TesterAgent; org: Organization | null } | null> {
-  const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
+): { agent: TesterAgent; org: Organization } | null {
   for (const org of orgs) {
     const agent = (org.agents ?? []).find((a) => a.id === agentId);
     if (agent) return { agent, org };
   }
+  return null;
+}
+
+async function findVisibleAgent(
+  client: ReturnType<typeof gqlClient>,
+  agentId: string,
+): Promise<{ agent: TesterAgent; org: Organization | null } | null> {
+  const orgs = await loadTesterOrgs(client);
+  const inOrg = findOrgListedAgent(orgs, agentId);
+  if (inOrg) return inOrg;
 
   const owned = await fetchAllItems<TesterAgent>(client, MY_AGENTS_QUERY, 'agents');
   const agent = owned.find((a) => a.id === agentId);

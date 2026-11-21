@@ -59,15 +59,16 @@ async function pickNodeKind(target: HTMLElement, idPrefix: 'new' | 'edit') {
 const button = (root: HTMLElement, text: string) =>
   [...root.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === text)!;
 
-describe('task detail: the memories read never becomes an uncaught page error (#1588 QA F2)', () => {
+// portal#2261: the task detail page no longer STREAMS the memories list. It reads it through the sections
+// endpoint when the node picker opens, and a failed read is a VALUE there too, so there is no stream left
+// that could reject into an uncaught page error. The failure copy must still reach the picker, and a
+// healthy read must never show it. (tasks/new still streams, pinned below.)
+describe('task detail: the memories read is a value read when the node picker opens (#1588 QA F2, portal#2261)', () => {
   const holger = { id: 'u1', kind: 'USER' as const, name: 'Holger', urn: null };
-  const detailData = (nodeMemories: unknown) => ({
+  const detailData = () => ({
     app,
     canWrite: true,
     impersonating: null,
-    candidates: { workers: [], people: [] },
-    roles: [],
-    families: [],
     task: {
       id: 't1', appId: 'app-1', parentTaskId: null, handle: 'AT1', title: 'Ship it', status: 'STARTED', queued: false,
       waitingOnChildren: false, source: null, owner: holger, assignee: null, startBy: null, references: [],
@@ -76,79 +77,80 @@ describe('task detail: the memories read never becomes an uncaught page error (#
       cancelledAt: null, closeSessionWhenDone: true, result: null, sessionEndRequest: null, properties: null, handBack: null,
     },
     tree: { kind: 'ok', value: { rows: [], capped: false } },
-    history: { kind: 'ok', value: { events: [], capped: false } },
-    review: { kind: 'ok', value: { readiness: null, seat: null } },
     ancestors: [],
     ancestorsTruncated: false,
-    dependencies: { kind: 'failed' },
-    // portal#2161: the loader's Clones read, optional like the review above.
-    clones: { kind: 'ok', value: { items: [], total: 0, hasMore: false } },
     viewerId: 'u1',
     created: false,
-    nodeMemories,
   });
 
-  function mountDetail(nodeMemories: unknown) {
-    const m = mountComponent(DetailPage as never, { data: detailData(nodeMemories) } as never) as Mounted<Record<string, unknown>>;
+  function stubSections(memories: unknown) {
+    vi.stubGlobal('IntersectionObserver', undefined);
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const section = new URL(url, 'http://x').searchParams.get('section');
+      const body = section === 'pickers' ? { kind: 'ok', value: { workers: [], people: [], peopleWithheld: false, peopleFailed: false, roles: [], families: [] } }
+        : section === 'memories' ? memories : { kind: 'failed' };
+      return { ok: true, status: 200, json: async () => body };
+    }));
+  }
+  afterEach(() => vi.unstubAllGlobals());
+
+  function mountDetail() {
+    const m = mountComponent(DetailPage as never, { data: detailData() } as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     flushSync();
     return m.target as HTMLElement;
   }
 
-  it('belt: a load over a stream that rejects anyway (edit panel closed) fires no unhandled rejection', async () => {
-    // The loaders resolve failures as values now; this pins the page-level
-    // markStreamHandled guard against a rejecting stream arriving regardless.
-    // Red with that guard removed: until Edit details opens, nothing on this
-    // page attaches to the promise.
-    const rejections = await captureUnhandledRejections(async () => {
-      mountDetail(rejectMemories());
-      await tick(5);
-    });
-    expect(rejections).toEqual([]);
-  });
-
   it('opening Edit details over a failed read renders the failure copy — the VALUE reaches the picker', async () => {
-    const target = mountDetail(failedRead());
-    await tick(5);
-    button(target, 'Edit details').click();
-    await tick(3);
-    await pickNodeKind(target, 'edit');
-    button(target, 'Choose a node…').click();
-    await tick(5);
-    expect(target.textContent).toContain("Your memories couldn’t be loaded, so you can’t pick a node right now. Reload the page to try again.");
-  });
-
-  it('a healthy read stays clean too', async () => {
+    stubSections({ kind: 'failed' });
     const rejections = await captureUnhandledRejections(async () => {
-      mountDetail(okRead([{ id: 'm1', name: 'Alpha KB', urn: 'hrn:mem:acme.com:alpha' }]));
-      await tick(5);
+      const target = mountDetail();
+      await tick(8);
+      button(target, 'Edit details').click();
+      await tick(8);
+      await pickNodeKind(target, 'edit');
+      button(target, 'Choose a node…').click();
+      await tick(8);
+      expect(target.textContent).toContain("Your memories couldn’t be loaded, so you can’t pick a node right now. Reload the page to try again.");
     });
     expect(rejections).toEqual([]);
   });
 
-  // Navigating between tasks swaps data.nodeMemories for a FRESH promise on
-  // the same mounted page. The page-level effect must re-run and attach to
-  // the new stream: red if the effect stops reading data.nodeMemories
-  // reactively (attach once, outside the read) — the replacement then
-  // rejects into nothing.
-  for (const [label, first] of [
-    ['resolved', () => okRead([])],
-    ['rejected', rejectMemories],
-  ] as const) {
-    it(`promise replacement: swapping a ${label} read for a REJECTED one fires no unhandled rejection`, async () => {
-      const rejections = await captureUnhandledRejections(async () => {
-        const props = reactiveProps<Record<string, unknown>>({ data: detailData(first()) });
-        const m = mountComponent(DetailPage as never, props as never) as Mounted<Record<string, unknown>>;
-        mounted.push(m);
-        flushSync();
-        await tick(5);
-        props.data = detailData(rejectMemories());
-        flushSync();
-        await tick(5);
-      });
-      expect(rejections).toEqual([]);
+  it('a healthy read never shows the failure copy', async () => {
+    stubSections({ kind: 'ok', value: [{ id: 'm1', name: 'Alpha KB', urn: 'hrn:mem:acme.com:alpha', visibility: null }] });
+    const rejections = await captureUnhandledRejections(async () => {
+      const target = mountDetail();
+      await tick(8);
+      button(target, 'Edit details').click();
+      await tick(8);
+      await pickNodeKind(target, 'edit');
+      button(target, 'Choose a node…').click();
+      await tick(8);
+      expect(target.textContent).not.toContain('couldn’t be loaded');
     });
-  }
+    expect(rejections).toEqual([]);
+  });
+
+  it('a transport failure on the memories read is the same failed value, never a rejection', async () => {
+    vi.stubGlobal('IntersectionObserver', undefined);
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const section = new URL(url, 'http://x').searchParams.get('section');
+      if (section === 'memories') throw new TypeError('network down');
+      const body = section === 'pickers' ? { kind: 'ok', value: { workers: [], people: [], peopleWithheld: false, peopleFailed: false, roles: [], families: [] } } : { kind: 'failed' };
+      return { ok: true, status: 200, json: async () => body };
+    }));
+    const rejections = await captureUnhandledRejections(async () => {
+      const target = mountDetail();
+      await tick(8);
+      button(target, 'Edit details').click();
+      await tick(8);
+      await pickNodeKind(target, 'edit');
+      button(target, 'Choose a node…').click();
+      await tick(8);
+      expect(target.textContent).toContain('Your memories couldn’t be loaded');
+    });
+    expect(rejections).toEqual([]);
+  });
 });
 
 describe('tasks/new: a failed read is a value; the page-level guard is the belt (#1588 QA F2)', () => {

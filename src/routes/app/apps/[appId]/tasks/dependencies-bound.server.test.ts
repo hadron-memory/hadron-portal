@@ -10,7 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AGENT_TASK_DETAIL_QUERY, AGENT_TASK_REF_QUERY, AGENT_TASKS_APP_QUERY, MEMORIES_QUERY, TASK_BLOCKED_BY_PAGE_QUERY, TASK_DEPENDENCIES_QUERY } from '$lib/server/queries';
 import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
-import { load } from './[taskId]/+page.server';
+import { GET as SECTIONS } from './[taskId]/sections/+server';
 import { GET } from './[taskId]/relations/+server';
 
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
@@ -35,6 +35,7 @@ vi.mock('$lib/server/agent-tasks', () => ({
   loadReview: async () => ({ kind: 'ok', value: { readiness: null, seat: null } }),
   loadAncestors: async () => ({ ancestors: [], truncated: false }),
   canonicalTaskId: async (_c: unknown, _a: string, id: string) => id,
+  canonicalTaskRef: async () => ({ appId: 'app-1', taskId: 'hrn:agenttask:acme.com:team:AT1' }),
 }));
 
 beforeEach(() => { vi.useFakeTimers(); request.mockClear(); });
@@ -47,17 +48,21 @@ async function settledAfter<T>(work: Promise<T>, ms: number) {
   await vi.advanceTimersByTimeAsync(ms);
   return { done, value };
 }
-const detailLoad = () => load({ params: { appId: 'app-1', taskId: 'AT1' }, locals: { token: 't', user: { id: 'u1' } }, url: new URL('https://x/') } as never) as Promise<{ task: typeof task; dependencies: unknown }>;
+// portal#2261: the relations read in the sections endpoint (the first load no longer carries them).
+const detailLoad = async () => {
+  const r = (await SECTIONS({ params: { appId: 'app-1', taskId: 'AT1' }, locals: { token: 't', user: { id: 'u1' } }, url: new URL('https://x/sections?section=dependencies') } as never)) as Response;
+  return { dependencies: await r.json() };
+};
 const pageGet = () => Promise.resolve(GET({ locals: { token: 't' }, params: { appId: 'app-1', taskId: 'AT1' }, url: new URL('https://x/relations?direction=blockedBy&offset=200') } as never));
 
 describe('a held relation read cannot hold the task page (portal#1392)', () => {
-  it('the detail page loads its facts with relations unknown once the optional budget runs out', async () => {
+  it('the relations section answers unknown once the optional budget runs out', async () => {
     relations = held;
     const work = detailLoad();
     expect((await settledAfter(work, OPTIONAL_LIST_TIMEOUT_MS - 1)).done).toBe(false);
     const after = await settledAfter(work, 1);
     expect(after.done).toBe(true);
-    expect(after.value).toMatchObject({ task: { id: task.id }, dependencies: { kind: 'failed' } });
+    expect(after.value).toMatchObject({ dependencies: { kind: 'failed' } });
   });
   it('control: relations that answer inside the budget are served unchanged', async () => {
     relations = async () => ({ agentTask: { id: task.id, appId: app.id, blockedBy: page, blocks: page } });

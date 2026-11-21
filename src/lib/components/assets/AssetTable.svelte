@@ -38,6 +38,7 @@
     type AssetSummary,
   } from '$lib/api/assetUpload';
   import { assetErrorMessage } from '$lib/assets/error-messages';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
 
   interface Props {
     assets: AssetSummary[];
@@ -48,7 +49,7 @@
     showMemory?: boolean;
     /** Saved-views key; distinct per surface so views don't collide. */
     listKey?: string;
-    maxHeight?: string;
+    bounded?: boolean;
     /** Called after a successful delete so the parent can drop the row. */
     ondeleted?: (assetId: string) => void;
   }
@@ -58,7 +59,7 @@
     currentUserId = null,
     showMemory = false,
     listKey = 'memory:assets',
-    maxHeight = 'max(200px, calc(100vh - 26rem))',
+    bounded = false,
     ondeleted,
   }: Props = $props();
 
@@ -426,7 +427,7 @@
 <DataTable
   {table}
   {listKey}
-  {maxHeight}
+  {bounded}
   searchPlaceholder={t('assets.search-placeholder', 'Search files by URN, name, type, or uploader…')}
   searchAriaLabel={t('assets.search.aria-label', 'Search files')}
   bind:globalFilter
@@ -527,11 +528,13 @@
             fixed
             compact
           />
-          {#if copied === row.id}
-            <span role="status" class="text-xs text-emerald-600 dark:text-emerald-400">{t('assets.copied', 'Copied')}</span>
-          {:else if linkNote?.id === row.id}
-            <span role="status" class="text-xs text-emerald-600 dark:text-emerald-400">{linkNote.text}</span>
-          {/if}
+          <LiveRegion>
+            {#if copied === row.id}
+              <span class="text-xs text-emerald-600 dark:text-emerald-400">{t('assets.copied', 'Copied')}</span>
+            {:else if linkNote?.id === row.id}
+              <span class="text-xs text-emerald-600 dark:text-emerald-400">{linkNote.text}</span>
+            {/if}
+          </LiveRegion>
         </div>
       {/if}
     {:else}

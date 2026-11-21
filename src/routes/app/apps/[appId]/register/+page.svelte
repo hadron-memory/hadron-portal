@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { page as appPage } from '$app/state';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import SelectAgent from '$lib/components/SelectAgent.svelte';
@@ -69,7 +70,7 @@
         {t('action-register.options-failed', 'Couldn’t load this App’s Agents.')}
       </div>
     {:else if data.options.agents.length === 0 && !data.chosen}
-      <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400">{t('action-register.no-agents', 'This App has no Agents to choose from.')}</p>
+      <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('action-register.no-agents', 'This App has no Agents to choose from.')}</p>
     {:else}
       {#if data.chosen}
         <div>
@@ -79,7 +80,7 @@
       {:else}
         <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('action-register.choose-prompt', 'Choose an Agent to see its codes.')}</p>
       {/if}
-      <button type="button" onclick={() => (pickerOpen = true)} class="min-h-6 rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+      <button type="button" onclick={() => (pickerOpen = true)} aria-haspopup="dialog" aria-expanded={pickerOpen} class="min-h-6 rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
         {data.chosen ? t('action-register.change', 'Change…') : t('action-register.choose', 'Choose…')}
       </button>
       {#if data.options.partial}
@@ -89,10 +90,11 @@
     {/if}
   </section>
 
+  <LiveRegion>{#if data.index !== null && stale}<p class="text-sm text-zinc-500">{t('action-register.loading', 'Loading…')}</p>{/if}</LiveRegion>
   {#if data.index === null}
     <!-- No Agent chosen: nothing was asked, so nothing is empty. -->
   {:else if stale}
-    <p role="status" class="text-sm text-zinc-500">{t('action-register.loading', 'Loading…')}</p>
+    <!-- announced by the LiveRegion above -->
   {:else if data.index.kind === 'agent-not-found'}
     <div role="alert" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200" data-testid="register-agent-refused">
       {t('action-register.agent-refused', 'This Agent can’t be used for this App.')}

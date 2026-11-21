@@ -106,7 +106,7 @@
       {/if}
 
       {#if data.targets.length === 0}
-        <p role="status" class="text-sm text-zinc-500">
+        <p class="text-sm text-zinc-500">
           {t('subscriptions.no-targets', 'You do not administer another organization that could subscribe to this memory.')}
         </p>
       {:else}
@@ -124,7 +124,10 @@
           <button
             id="subOrgId"
             type="button"
+            aria-labelledby="subOrgLabel subOrgId"
             onclick={() => (pickerOpen = true)}
+            aria-haspopup="dialog"
+            aria-expanded={pickerOpen}
             aria-describedby={orgIdError ? 'subOrgIdError' : undefined}
             class="mt-2 rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-300 {orgIdError ? 'border-red-500' : ''}"
           >{selectedOrg ? t('subscriptions.org.change', 'Change') : t('subscriptions.org.choose', 'Choose organization')}</button>

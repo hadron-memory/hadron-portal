@@ -34,7 +34,7 @@
   {#if view.code}<p class="font-mono text-xs">{view.code}</p>{/if}
   {#if view.entries.length}
     <DataTable {table} {listKey} bind:globalFilter
-      maxHeight="max(160px, 40vh)"
+      bounded
       searchPlaceholder={t('sync-report.search', 'Search recorded outcomes…')}
       searchAriaLabel={t('sync-report.search-aria', 'Search recorded sync outcomes')}>
       {#snippet cell(c)}<span class="break-all text-xs">{searchableText(columnFormatters, c.column.id, c.getValue()) || '—'}</span>{/snippet}

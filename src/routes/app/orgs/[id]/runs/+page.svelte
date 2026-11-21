@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // "App Runs" — every headless (LLM) run in the active org, across all its
   // apps. Same shape as the Task Nodes page: the shared DataTable chrome
   // (search + saved-views "+ view" + Columns on one row, sticky sortable/
@@ -22,8 +23,10 @@
     fmtRunTime,
     parseApiDate,
     runDuration,
+    runStatusLabel,
     statusChipClass,
     type AppRunStatus,
+    type ReceivedRunStatus,
   } from '$lib/flow/runs';
   import type { PageData } from './$types';
 
@@ -35,7 +38,7 @@
     appId: string;
     /** App name when the name lookup succeeded, else the raw id. */
     app: string;
-    status: AppRunStatus;
+    status: ReceivedRunStatus;
     trigger: string;
     entry: string;
     entryUrn: string;
@@ -92,9 +95,12 @@
       // pin "not finished yet" (PENDING + RUNNING). None of TanStack's built-in
       // filterFns fit — `arrIncludesSome` expects the ROW value to be the array,
       // and ours is a scalar — so match membership the other way round. An
-      // empty/absent selection means no filtering.
+      // empty/absent selection means no filtering. The selection is always the
+      // known set (the buttons above emit RUN_STATUSES only); the ROW value may
+      // be an unknown enum name a newer server sent (#1766), which simply
+      // matches no known filter.
       filterFn: (row, columnId, value: AppRunStatus[]) =>
-        !value?.length || value.includes(row.getValue(columnId) as AppRunStatus),
+        !value?.length || (value as readonly string[]).includes(row.getValue(columnId) as string),
     },
     { accessorKey: 'app', header: t('org-runs.column.app', 'App'), size: 160 },
     { accessorKey: 'trigger', header: t('org-runs.column.trigger', 'Trigger'), size: 170 },
@@ -230,8 +236,9 @@
          Keeping the chrome mounted also keeps the truncation line above
          visible, so a zero-match result still says only the newest N were
          searched (Codex P2). -->
+    <LiveRegion data-testid="org-runs-filtered-empty">
     {#if visibleRowCount === 0}
-      <div role="status" class="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/60">
+      <div class="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/60">
         <span class="font-medium text-zinc-600 dark:text-zinc-300">
           {data.truncated
             ? t('org-runs.empty.filtered-truncated', 'No runs match the current filters — and only the {shown} most recent runs were searched.', { shown: rows.length })
@@ -244,6 +251,7 @@
         >{t('org-runs.empty.clear-filters', 'Clear filters')}</button>
       </div>
     {/if}
+    </LiveRegion>
 
     <DataTable
       {table}
@@ -251,13 +259,12 @@
       searchPlaceholder={t('org-runs.search-placeholder', 'Search runs by app, trigger, or entry node…')}
       searchAriaLabel={t('org-runs.search.aria-label', 'Search runs')}
       bind:globalFilter
-      maxHeight="max(200px, calc(100vh - 24rem))"
     >
       {#snippet cell(cell, run)}
         {#if cell.column.id === 'started'}
           <span class="whitespace-nowrap">{run.started}</span>
         {:else if cell.column.id === 'status'}
-          <span class="rounded-full px-2 py-0.5 text-xs font-medium {statusChipClass(run.status)}">{run.status}</span>
+          <span class="rounded-full px-2 py-0.5 text-xs font-medium {statusChipClass(run.status)}">{runStatusLabel(run.status)}</span>
         {:else if cell.column.id === 'app'}
           <a href="/app/apps/{run.appId}/runs" class="block truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{run.app}</a>
         {:else if cell.column.id === 'entry'}

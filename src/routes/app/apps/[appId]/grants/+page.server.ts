@@ -3,7 +3,7 @@ import { grantableAction } from "$lib/grants/actions";
 import { error, fail, isHttpError, isRedirect, redirect } from "@sveltejs/kit";
 import { ClientError } from "graphql-request";
 import { gqlClient } from "$lib/server/api";
-import { extractGqlErrorCode } from "$lib/server/gqlError";
+import { classifyGqlError, extractGqlErrorCode } from "$lib/server/gqlError";
 import { deploymentOffersSigning } from "$lib/server/signing-capability";
 import { loadNodeMemories } from "$lib/server/node-memories";
 import {
@@ -47,6 +47,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       routeRef: params.appId,
       app,
       signing,
+      impersonating: !!locals.impersonation,
       ...page,
       viewerId: locals.user?.id ?? null,
       choices,
@@ -77,13 +78,13 @@ export const actions: Actions = {
   approve: async (event) => {
     if (!event.locals.token || !event.locals.user?.id) redirect(303, "/signin");
     let appId = event.params.appId;
-    const refused = (status: number, message: string) =>
+    const approvalRefused = (status: number, message: string) =>
       fail(status, { error: message, operation: "approve" as const, appId });
     try {
       const app = await manage(event);
       appId = app.id;
       if (!(await deploymentOffersSigning(event.locals.token)))
-        return refused(
+        return approvalRefused(
           403,
           t(
             "grants.approve.unavailable",
@@ -91,7 +92,7 @@ export const actions: Actions = {
           ),
         );
       const ref = String((await event.request.formData()).get("ref") ?? "");
-      if (!ref) return refused(400, grantError("GRANT_NOT_FOUND"));
+      if (!ref) return approvalRefused(400, grantError("GRANT_NOT_FOUND"));
       const client = gqlClient(event.locals.token);
       const page = await client.request<{
         appGrants: { items: Grant[]; total: number };
@@ -101,7 +102,7 @@ export const actions: Actions = {
         offset: grantOffset(event.url),
       });
       if (!page.appGrants.items.some((g) => g.id === ref && g.appId === app.id))
-        return refused(
+        return approvalRefused(
           409,
           t(
             "grants.row-moved",
@@ -116,7 +117,7 @@ export const actions: Actions = {
         typeof result.requestGrantSignature?.ceremonyUrl !== "string" ||
         !result.requestGrantSignature.ceremonyUrl
       )
-        return refused(503, grantError(null));
+        return approvalRefused(503, grantError(null));
       redirect(303, result.requestGrantSignature.ceremonyUrl);
     } catch (e) {
       // Kit redirects are control flow, not failures to redact.
@@ -135,9 +136,9 @@ export const actions: Actions = {
           (r) => r.extensions?.code === code,
         );
         if (typeof entry?.message === "string")
-          return refused(400, entry.message);
+          return approvalRefused(400, entry.message);
       }
-      return refused(
+      return approvalRefused(
         isHttpError(e) ? e.status : 503,
         grantError(
           isHttpError(e) && e.status === 403 ? "GRANT_NOT_MANAGER" : null,
@@ -201,7 +202,24 @@ export const actions: Actions = {
       const holder = text("holder"),
         action = text("action"),
         reason = text("reason");
-      const choices = await grantChoices(gqlClient(event.locals.token), app.id);
+      let choices: Awaited<ReturnType<typeof grantChoices>>;
+      try {
+        choices = await grantChoices(gqlClient(event.locals.token), app.id);
+      } catch (e) {
+        // 503 only for an outage (transport, INTERNAL_SERVER_ERROR, or the
+        // read's own withheld-list 503). A typed refusal keeps its mapping.
+        const outage = isHttpError(e)
+          ? e.status === 503
+          : ["transport", "internal"].includes(classifyGqlError(e).kind);
+        if (!outage) throw e;
+        return bad(
+          503,
+          t(
+            "grants.choices.unavailable-create",
+            "The holder choices could not be loaded. Try again.",
+          ),
+        );
+      }
       const allowed = [
         ...choices.workers.map((w) => `WORKER:${w.id}`),
         ...choices.agents.map((a) => `AGENT:${a.id}`),

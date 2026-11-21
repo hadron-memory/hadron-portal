@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { formatPortalDate, formatPortalDateTime } from '$lib/format-portal-date';
   import { untrack } from 'svelte';
   import { page } from '$app/stores';
@@ -1202,6 +1203,13 @@
               ? t('memory-settings.vector-health.checking', 'Checking...')
               : t('memory-settings.vector-health.check', 'Check vector index health')}
           </button>
+          <LiveRegion data-testid="vector-health-region">
+            {#if !vectorHealthError && vectorHealth && !vectorHealth.skipped && vectorHealth.failed.length === 0}
+              <p data-testid="vector-health-empty" class="mt-3 text-sm text-zinc-600 dark:text-zinc-300">
+                {t('memory-settings.vector-health.none', 'No failed embeddings among the findings returned.')}
+              </p>
+            {/if}
+          </LiveRegion>
         </form>
 
         {#if vectorHealthError}
@@ -1216,10 +1224,6 @@
             <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
               {t('memory-settings.vector-health.skipped', 'The embedding check did not run: {reason}', { reason: vectorHealth.skipped })}
             </div>
-          {:else if vectorHealth.failed.length === 0}
-            <p data-testid="vector-health-empty" role="status" class="text-sm text-zinc-600 dark:text-zinc-300">
-              {t('memory-settings.vector-health.none', 'No failed embeddings among the findings returned.')}
-            </p>
           {/if}
           {#if vectorHealth.failed.length > 0}
             <VectorHealthTable rows={vectorHealth.failed} memoryId={g.id} />
@@ -1336,7 +1340,7 @@
           </div>
           <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('memory-transfer.class-change', 'Class: {from} → {to}', { from: transferPreview.currentClass, to: transferPreview.targetClass })}</p>
           <h4 class="text-sm font-medium text-zinc-900 dark:text-white">{t('memory-transfer.dependents', 'Dependent records')}</h4>
-          <DataTable table={transferTable} listKey="memory:transfer-dependents" searchPlaceholder={t('memory-transfer.search', 'Search dependents…')} searchAriaLabel={t('memory-transfer.search', 'Search dependents…')} bind:globalFilter={transferFilter} maxHeight="320px">
+          <DataTable table={transferTable} listKey="memory:transfer-dependents" searchPlaceholder={t('memory-transfer.search', 'Search dependents…')} searchAriaLabel={t('memory-transfer.search', 'Search dependents…')} bind:globalFilter={transferFilter} bounded>
             {#snippet cell(cell, row)}
               {#if cell.column.id === 'handling'}
                 <span class={row.handling === 'REFUSE' ? 'text-red-600' : 'text-zinc-700 dark:text-zinc-300'}>{transferHandlingLabel(row.handling)}</span>

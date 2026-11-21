@@ -12,6 +12,7 @@
   key to prevent that (cor:dmo:060:10 reserves it).
 -->
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { Download, Link2 } from 'lucide-svelte';
   import { t } from '$lib/i18n/t';
   import { downloadAriaLabel, downloadTitle, scanLabel, scanSignatureText } from '$lib/assets/scan-state';
@@ -181,15 +182,19 @@
     </div>
   {/if}
 
-  {#if linkNote}
-    <p role="status" class="mt-2 text-xs text-emerald-600 dark:text-emerald-400">{linkNote}</p>
-  {/if}
+  <LiveRegion>
+    {#if linkNote}
+      <p class="mt-2 text-xs text-emerald-600 dark:text-emerald-400">{linkNote}</p>
+    {/if}
+  </LiveRegion>
 
-  {#if copied}
-    <p role="status" class="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
-      {t('node-asset.copied', 'Public link copied. Anyone holding it can download this file without signing in.')}
-    </p>
-  {/if}
+  <LiveRegion>
+    {#if copied}
+      <p class="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
+        {t('node-asset.copied', 'Public link copied. Anyone holding it can download this file without signing in.')}
+      </p>
+    {/if}
+  </LiveRegion>
 
   {#if error}
     <p role="alert" class="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>

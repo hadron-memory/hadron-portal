@@ -3,9 +3,10 @@ import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { agentBaseSchema, agentIndexRefsSchema } from '../../routes/app/agents/[id]/inheritance-schema';
-import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { mountComponent, tick, type Mounted, idleStatusAtMount } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import Component from './AgentInheritanceSettings.svelte';
+import { announcedStatusRegion, firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 let mounted: Mounted<Record<string, unknown>> | undefined;
 afterEach(() => { mounted?.unmount(); mounted = undefined; });
 const candidates = [
@@ -189,12 +190,14 @@ it('shows the current parent and resets successful writes to reloaded defaults',
   expect(new window.FormData(baseForm(root)).get('baseRef')).toBe('');
   expect(root.querySelector('a[href="/app/u/hrn:agent:example.com:base"]')).toBeNull();
   expect(baseForm(root).textContent).toContain('None');
-  expect(root.querySelector('[role="status"]')!.textContent).toBe('Base Agent saved.');
+  expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
+  expect(firstPopulatedStatusText(root)).toBe('Base Agent saved.');
   p.actionData = { form: { ...p.indexRefsForm, valid: true, data: { ...p.indexRefsForm.data, tasksOperation: 'clear', tasksIndexRef: 'old-index' }, message: { type: 'success', text: 'Index references saved.' } } };
   flushSync(); await tick();
   expect(root.querySelector<HTMLSelectElement>('select[name="tasksOperation"]')!.value).toBe('keep');
   expect(root.querySelector<HTMLInputElement>('input[name="tasksIndexRef"]')!.value).toBe('');
-  expect(root.querySelector('[role="status"]')!.textContent).toBe('Index references saved.');
+  expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
+  expect(firstPopulatedStatusText(root)).toBe('Index references saved.');
 });
 
 it.each(['licensed', 'public'])('#1278 picks a granted %s parent through the same Save form', async (id) => {

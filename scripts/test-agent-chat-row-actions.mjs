@@ -515,6 +515,23 @@ try {
         assert.equal(await p.getByRole('button', { name: `Rename chat ${A}`, exact: true }).count(), 1, `${leg} ${kind}: the chat should still be listed`);
         assert.equal(await p.evaluate(() => location.href), before, `${leg} ${kind}: the URL changed`);
         assert.equal(await p.evaluate(() => window.__chat.calls.resume), 0, `${leg} ${kind}: no chat should open`);
+        // Retry on the same retained chat (portal#2165): the refusal was one-shot,
+        // so the second attempt succeeds and focus follows the neighbour rule.
+        const again = p.getByRole('button', { name: `Delete chat ${A}`, exact: true });
+        if (touch) await again.tap();
+        else await again.click();
+        await p.getByRole('heading', { name: 'Delete this chat?' }).waitFor();
+        await p.getByRole('button', { name: 'Delete', exact: true }).click();
+        await p.getByRole('button', { name: `Rename chat ${A}`, exact: true }).waitFor({ state: 'detached' });
+        assert.equal(await p.evaluate(() => window.__chat.calls.delete), 2, `${leg} ${kind}: the retry should be the second delete call`);
+        assert.equal(await p.getByRole('button', { name: `Rename chat ${B}`, exact: true }).count(), 1, `${leg} ${kind}: only the retried chat should go`);
+        await p.waitForFunction((b) => document.activeElement?.matches('[data-chat-row]') && document.activeElement.textContent.includes(b), B, { timeout: 2000 })
+          .catch(async () => assert.fail(`${leg} ${kind}: after the retry focus is on ${JSON.stringify(await focused(p))}, not the next row`));
+        assert.deepEqual(
+          await p.evaluate(() => ({ resume: window.__chat.calls.resume, start: window.__chat.calls.start, writes: window.__chat.calls.writes })),
+          { resume: 0, start: 0, writes: 0 },
+          `${leg} ${kind}: a retried delete must not open, start or send anything`,
+        );
         assert.deepEqual(f.errors, [], `${leg} ${kind}: page errors (failed delete)`);
         await f.context.close();
       }
@@ -573,7 +590,95 @@ try {
         await p.getByRole('button', { name: 'Back to chats' }).click();
         await p.getByRole('button', { name: `Delete chat ${A}`, exact: true }).waitFor();
         assert.equal(await p.getByRole('alert').count(), 0, `${leg} after Back: a chat's own error showed in the list`);
+        // The error was hidden, not dropped (portal#2165): reopening B shows it
+        // again, once, in its pane, and the list still carries no alert for it.
+        await p.locator('[data-chat-row="chats:b"]').click();
+        await p.locator('main').getByText(MESSAGE.network, { exact: true }).waitFor({ timeout: 2000 })
+          .catch(() => assert.fail(`${leg} after Back: reopening the chat lost its own error`));
+        assert.equal(await p.locator('main').getByText(MESSAGE.network, { exact: true }).count(), 1, `${leg} after Back: the chat's error should show once on reopen`);
+        assert.equal(await p.locator('aside').getByRole('alert').count(), 0, `${leg} after Back: the reopened chat's error leaked into the list`);
         assert.deepEqual(f.errors, [], `${leg}: page errors (failed delete after Back)`);
+        await f.context.close();
+      }
+      // portal#2173: a rename that fails after Back belongs to the list on
+      // screen, not to the hidden conversation behind it; named so a failing
+      // run says which behaviour broke.
+      if (narrow) {
+        const f = await open(width, dark, touch);
+        const p = f.page;
+        await p.locator('[data-chat-row="chats:b"]').click();
+        await p.getByRole('button', { name: 'Back to chats' }).click();
+        const ren = p.getByRole('button', { name: `Rename chat ${A}`, exact: true });
+        await ren.waitFor();
+        await p.evaluate(() => window.__chat.failTitle());
+        if (touch) await ren.tap();
+        else await ren.click();
+        const field = p.locator('#panel li input[type="text"]');
+        await field.waitFor();
+        await field.fill('Refused name');
+        await field.press('Enter');
+        await p.getByRole('alert').filter({ hasText: 'Rename refused' }).waitFor({ timeout: 2000 })
+          .catch(() => assert.fail(`${leg}: failed rename after Back shows its error in the list: the error is not shown in the list`));
+        assert.equal(await p.getByRole('alert').count(), 1, `${leg}: failed rename after Back: one error copy should show`);
+        assert(await p.getByRole('alert').evaluate((el) => !!el.closest('aside')), `${leg}: failed rename after Back: the error should show in the list`);
+        assert.equal(await p.getByRole('button', { name: `Rename chat ${A}`, exact: true }).count(), 1, `${leg}: a refused rename must keep the old name`);
+        assert.equal(await p.evaluate(() => window.__chat.calls.title), 1, `${leg}: failed rename after Back: one title request`);
+        assert.deepEqual(f.errors, [], `${leg}: page errors (failed rename after Back)`);
+        await f.context.close();
+      }
+      // A rename raised from the list stays list-origin when the pane changes
+      // before the refusal arrives: read at initiation, not at response time.
+      if (narrow) {
+        const f = await open(width, dark, touch);
+        const p = f.page;
+        await p.locator('[data-chat-row="chats:b"]').click();
+        await p.getByRole('button', { name: 'Back to chats' }).click();
+        const ren = p.getByRole('button', { name: `Rename chat ${A}`, exact: true });
+        await ren.waitFor();
+        await p.evaluate(() => { window.__releaseTitle = window.__chat.holdTitle(); window.__chat.failTitle(); });
+        if (touch) await ren.tap();
+        else await ren.click();
+        const field = p.locator('#panel li input[type="text"]');
+        await field.waitFor();
+        await field.fill('Refused name');
+        await field.press('Enter');
+        await p.waitForFunction(() => window.__chat.calls.title === 1, null, { timeout: 2000 });
+        // Open a chat while the refusal is still on its way, then let it land.
+        await p.locator('[data-chat-row="chats:b"]').click();
+        await p.locator('#panel main textarea:enabled').waitFor();
+        await p.evaluate(() => window.__releaseTitle());
+        // Only that the refusal has landed: which pane shows it while a chat is
+        // open is not this leg's contract, where it shows after Back is.
+        await p.locator('#panel').getByText('Rename refused', { exact: true }).first().waitFor({ state: 'attached', timeout: 2000 })
+          .catch(() => assert.fail(`${leg}: held rename refusal: the error never arrived`));
+        await p.getByRole('button', { name: 'Back to chats' }).click();
+        await p.getByRole('button', { name: `Rename chat ${A}`, exact: true }).waitFor();
+        await p.getByRole('alert').filter({ hasText: 'Rename refused' }).waitFor({ timeout: 2000 })
+          .catch(() => assert.fail(`${leg}: held rename refusal: a list-origin failure stays list-origin after the pane changed, but the list shows no error`));
+        assert.equal(await p.getByRole('alert').count(), 1, `${leg}: held rename refusal: one error copy should show`);
+        assert(await p.getByRole('alert').evaluate((el) => !!el.closest('aside')), `${leg}: held rename refusal: the error should show in the list`);
+        assert.deepEqual(f.errors, [], `${leg}: page errors (held rename refusal)`);
+        await f.context.close();
+      }
+      // The complement: with a conversation open beside the list (panel width
+      // from `@2xl`), a refused rename still raises the conversation error.
+      if (!narrow) {
+        const f = await open(width, dark, touch);
+        const p = f.page;
+        await p.locator('[data-chat-row="chats:b"]').click();
+        await p.locator('#panel main textarea:enabled').waitFor();
+        await p.getByRole('button', { name: `Rename chat ${A}`, exact: true }).waitFor();
+        await p.evaluate(() => window.__chat.failTitle());
+        await p.getByRole('button', { name: `Rename chat ${A}`, exact: true }).click();
+        const field = p.locator('#panel li input[type="text"]');
+        await field.waitFor();
+        await field.fill('Refused name');
+        await field.press('Enter');
+        await p.locator('#panel main').getByText('Rename refused', { exact: true }).waitFor({ timeout: 2000 })
+          .catch(() => assert.fail(`${leg}: refused rename with a chat open: the conversation error is not shown`));
+        assert.equal(await p.evaluate(() => window.__chat.calls.title), 1, `${leg}: refused rename with a chat open: one title request`);
+        assert.equal(await p.locator('#panel aside').getByText('Rename refused').count(), 0, `${leg}: refused rename with a chat open: the list must not repeat it`);
+        assert.deepEqual(f.errors, [], `${leg}: page errors (failed rename, chat open)`);
         await f.context.close();
       }
       // A slow failure must not take focus the person has since moved, the

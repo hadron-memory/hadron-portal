@@ -225,6 +225,8 @@
       hasOlder={data.hasOlder ?? false}
       onLoadOlder={loadOlderChat}
       showSeq={isTeamChannel}
+      loadFailed={data.chatLoadFailed ?? false}
+      onRetry={reloadChat}
     />
   {/key}
 </div>

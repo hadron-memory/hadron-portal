@@ -11,6 +11,7 @@
   import SubtaskTree from '$lib/components/agent-tasks/SubtaskTree.svelte';
   import TaskHistory from '$lib/components/agent-tasks/TaskHistory.svelte';
   import TaskExternalId from '$lib/components/agent-tasks/TaskExternalId.svelte';
+  import TaskRoleTaskRefs from '$lib/components/agent-tasks/TaskRoleTaskRefs.svelte';
   import TaskSource from '$lib/components/agent-tasks/TaskSource.svelte';
   import TaskReferences from '$lib/components/agent-tasks/TaskReferences.svelte';
   import TaskStateChips from '$lib/components/agent-tasks/TaskStateChips.svelte';
@@ -22,8 +23,18 @@
   import { fmtRunTime } from '$lib/flow/runs';
   import { splitAt, t } from '$lib/i18n/t';
   import { outcomeClass, sourceKind, taskDisplayState } from '$lib/agent-tasks/status';
-  import { markStreamHandled } from '$lib/mark-stream-handled';
+  import TaskPriorityFallback from '$lib/components/agent-tasks/TaskPriorityFallback.svelte';
+  import LazySection from '$lib/components/agent-tasks/LazySection.svelte';
+  import { readSection } from '$lib/agent-tasks/sections';
+  import type { FindingsRead } from '$lib/agent-tasks/findings';
+  import type { MemoriesRead } from '$lib/node-choices';
+  import type { PickersRead } from '$lib/agent-tasks/sections';
+  import type { TaskReviewOutcome } from '$lib/agent-tasks/review';
+  import type { AgentTeamEvent, TaskClonesPage, TaskDependencyPage, TaskRead } from '$lib/agent-tasks/types';
   import type { PageData } from './$types';
+
+  type HistoryRead = TaskRead<{ events: AgentTeamEvent[]; capped: boolean }>;
+  type DependenciesRead = TaskRead<{ blockedBy: TaskDependencyPage; blocks: TaskDependencyPage }>;
 
   /**
    * portal#1052 — one task (design §5): facts, description, subtasks and
@@ -31,15 +42,11 @@
    */
   let { data }: { data: PageData } = $props();
 
-  // portal#1588 QA F2: the streamed memories promise reaches a consumer only
-  // when the Edit-details panel opens (TaskActionBar -> TaskEditFields ->
-  // TaskReferencesEditor), so a rejected read sat unhandled until then — an
-  // uncaught page error on the failure path. Mark it handled here, at the
-  // page that owns the stream; the editor's {#await}/{:catch} still renders
-  // the failure copy from its own handler.
-  $effect(() => {
-    markStreamHandled(data.nodeMemories);
-  });
+  // portal#2261: the assignee/requirement pickers read when an Assign, Reassign or Edit panel opens, and
+  // the node picker's memories when that picker opens — never at page load (#1585/#1588: a failed read is
+  // a value the panel renders as a failure, never an empty list).
+  const loadPickers = () => readSection<PickersRead>(data.app.id, data.task.id, 'pickers');
+  const loadMemories = () => readSection<MemoriesRead>(data.app.id, data.task.id, 'memories');
 
   const task = $derived(data.task);
   // portal#1349: AT0 is the server's fixed "No project" row — read-only here, whatever the viewer may do elsewhere.
@@ -138,14 +145,12 @@
           {task}
           canWrite={data.canWrite}
           impersonating={data.impersonating}
-          candidates={data.candidates}
-          roles={data.roles}
-          families={data.families}
+          {loadPickers}
+          {loadMemories}
           {openChildren}
           created={data.created}
           viewerId={data.viewerId}
           appUrn={data.app.urn}
-          nodeMemories={data.nodeMemories}
           cloneHref={`/app/apps/${data.app.id}/tasks/new?from=${encodeURIComponent(task.id)}`}
         />
       {/if}
@@ -159,7 +164,14 @@
     </div>
   </div>
 
-  <TaskPlanning {task} appId={data.app.id} canWrite={data.canWrite} dependencies={data.dependencies} />
+  <LazySection appId={data.app.id} taskId={task.id} version={data.task} section="dependencies" label={t('app.tasks.dependencies.loading', 'Loading blocker relations…')}>
+    {#snippet placeholder()}
+      <TaskPriorityFallback {task} canWrite={data.canWrite} label={t('app.tasks.dependencies.loading', 'Loading blocker relations…')} />
+    {/snippet}
+    {#snippet children(dependencies: DependenciesRead)}
+      <TaskPlanning {task} appId={data.app.id} canWrite={data.canWrite} {dependencies} />
+    {/snippet}
+  </LazySection>
 
   <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="task-facts">
     <h2 id="task-facts" class="sr-only">{t('app.tasks.facts', 'Facts')}</h2>
@@ -262,6 +274,7 @@
           <span class="font-medium {outcomeClass(task.result.outcome)}">{task.result.outcome}</span>
           {#if task.result.summary}<p class="whitespace-pre-line text-zinc-700 dark:text-zinc-300">{task.result.summary}</p>{/if}
           {#if task.result.evidence}<div><TaskSource source={task.result.evidence} /></div>{/if}
+          <TaskRoleTaskRefs refs={task.result.workedFromRoleTaskRefs} names={data.roleTaskNames} />
         </dd>
       {/if}
 
@@ -299,24 +312,36 @@
   </section>
 
   <!-- portal#2161: the tasks cloned from this one, paged; nothing renders when the list is empty. -->
-  <TaskClones initial={data.clones} appId={data.app.id} taskId={task.id} {basePath} />
+  <LazySection appId={data.app.id} taskId={task.id} version={data.task} section="clones" label={t('app.tasks.clones.loading', 'Loading clones…')}>
+    {#snippet children(initial: TaskRead<TaskClonesPage>)}
+      <TaskClones {initial} appId={data.app.id} taskId={task.id} {basePath} />
+    {/snippet}
+  </LazySection>
 
   <!-- portal#1637: a finished task's immutable findings, right after the Result they belong to. No result, no section. -->
   {#if task.result}
-    <TaskFindings appId={data.app.id} appUrn={data.app.urn ?? null} taskId={task.id} initial={data.findings} canWrite={data.canWrite} nodeMemories={data.nodeMemories} />
+    <LazySection appId={data.app.id} taskId={task.id} version={data.task} section="findings" label={t('app.tasks.findings.loading', 'Loading findings…')}>
+      {#snippet children(initial: FindingsRead)}
+        <TaskFindings appId={data.app.id} appUrn={data.app.urn ?? null} taskId={task.id} {initial} canWrite={data.canWrite} {loadMemories} />
+      {/snippet}
+    </LazySection>
   {/if}
 
   <TaskHandBack handBack={task.handBack} />
 
   <!-- portal#1697: above Properties, whose pr.* and review.* keys are mirrors of what this section reads. -->
-  <TaskReview
-    review={data.review}
-    rows={data.tree.kind === 'ok' ? (data.tree.value?.rows ?? []) : []}
-    references={task.references ?? []}
-    app={data.app}
-    {basePath}
-    build={task.parentTaskId ? (parent && parent.id === task.parentTaskId ? parent : { id: task.parentTaskId }) : null}
-  />
+  <LazySection appId={data.app.id} taskId={task.id} version={data.task} section="review" label={t('app.tasks.review.loading', 'Loading review…')}>
+    {#snippet children(review: TaskReviewOutcome)}
+      <TaskReview
+        {review}
+        rows={data.tree.kind === 'ok' ? (data.tree.value?.rows ?? []) : []}
+        references={task.references ?? []}
+        app={data.app}
+        {basePath}
+        build={task.parentTaskId ? (parent && parent.id === task.parentTaskId ? parent : { id: task.parentTaskId }) : null}
+      />
+    {/snippet}
+  </LazySection>
 
   <TaskProperties properties={task.properties} />
 
@@ -347,24 +372,28 @@
   <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="history-heading">
     <div class="mb-2 flex items-center justify-between gap-2">
       <h2 id="history-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tasks.history', 'History')}</h2>
-      {#if data.history.kind === 'ok' && data.history.value.events.length > 8}
-        <a href="#history-end" class="text-xs text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.history.latest', 'Jump to latest')}</a>
-      {/if}
     </div>
-    {#if data.history.kind === 'ok'}
-      <TaskHistory events={data.history.value.events} {basePath} {people} />
-      {#if data.history.value.capped}
-        <p role="status" class="mt-2 text-xs text-amber-700 dark:text-amber-300">
-          {t('app.tasks.history.capped', 'Showing the first 1000 events; later ones aren’t shown.')}
-        </p>
-      {/if}
-      <span id="history-end"></span>
-    {:else if data.history.kind === 'not-participant'}
-      <NotParticipant />
-    {:else}
-      <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-        {t('app.tasks.history.failed', 'Couldn’t load the history.')}
-      </div>
-    {/if}
+    <LazySection appId={data.app.id} taskId={task.id} version={data.task} section="history" label={t('app.tasks.history.loading', 'Loading history…')}>
+      {#snippet children(history: HistoryRead)}
+        {#if history.kind === 'ok'}
+          {#if history.value.events.length > 8}
+            <a href="#history-end" class="mb-2 inline-block text-xs text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.history.latest', 'Jump to latest')}</a>
+          {/if}
+          <TaskHistory events={history.value.events} {basePath} {people} />
+          {#if history.value.capped}
+            <p role="status" class="mt-2 text-xs text-amber-700 dark:text-amber-300">
+              {t('app.tasks.history.capped', 'Showing the first 1000 events; later ones aren’t shown.')}
+            </p>
+          {/if}
+          <span id="history-end"></span>
+        {:else if history.kind === 'not-participant'}
+          <NotParticipant />
+        {:else}
+          <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+            {t('app.tasks.history.failed', 'Couldn’t load the history.')}
+          </div>
+        {/if}
+      {/snippet}
+    </LazySection>
   </section>
 </div>

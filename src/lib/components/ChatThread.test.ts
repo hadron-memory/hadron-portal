@@ -112,3 +112,27 @@ describe('ChatThread — per-message seq (portal#1525)', () => {
     expect(body).not.toContain('#7');
   });
 });
+
+// portal#1828: a rejected chat read must not be announced as an empty thread.
+describe('ChatThread — failed load (#1828)', () => {
+  it('shows the failed-load text and Retry, never the empty-thread wording', () => {
+    const body = renderThreadWith({ messages: [], loadFailed: true, onRetry: () => {} });
+    expect(body).toContain('load this conversation.');
+    expect(body).toContain('Retry');
+    expect(body).not.toContain('No messages yet');
+    expect(body).not.toContain('Start the conversation!');
+  });
+
+  it('control: a genuinely empty thread on a successful load still shows the empty-thread wording', () => {
+    const body = renderThreadWith({ messages: [], loadFailed: false });
+    expect(body).toContain('No messages yet');
+    expect(body).not.toContain('load this conversation');
+    expect(body).not.toContain('Retry');
+  });
+
+  it('control: messages already on screen are not replaced by the failure state', () => {
+    const body = renderThreadWith({ loadFailed: true });
+    expect(body).toContain('holger');
+    expect(body).not.toContain('load this conversation');
+  });
+});

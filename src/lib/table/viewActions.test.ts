@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import type { PortalTable } from '$lib/table/features';
 import { LocalStorageViewStore } from './localStorageViewStore';
-import { createViewFrom, overwriteView, applyAndActivate, removeAndResolve, duplicateView } from './viewActions';
+import { type ViewStore, ViewStorageError, viewStorageErrorMessages } from './viewStore';
+import { createViewFrom, overwriteView, applyAndActivate, removeAndResolve, duplicateView, migrateStoredView } from './viewActions';
 
 function fakeStorage(): Storage {
   const m = new Map<string, string>();
@@ -26,7 +27,7 @@ function tableStub() {
     columnFilters: [],
     globalFilter: '',
     columnVisibility: {},
-    columnOrder: [],
+    columnOrder: [] as string[],
     columnSizing: {},
     pagination: { pageIndex: 0, pageSize: 25 },
   };
@@ -36,11 +37,17 @@ function tableStub() {
     __state: state,
     calls,
     store: { get: () => state },
+    // The list's current columns, in definition order (portal#2253 item 4:
+    // the migration reads the default order to place columns a saved view
+    // predates).
+    getAllLeafColumns: () => [{ id: 'colA' }, { id: 'colB' }, { id: 'colC' }],
     setSorting: push('setSorting'),
     setColumnFilters: push('setColumnFilters'),
     setGlobalFilter: push('setGlobalFilter'),
     setColumnVisibility: push('setColumnVisibility'),
-    setColumnOrder: push('setColumnOrder'),
+    // Records the order it was given so the quota-pin below can assert what the
+    // table actually received, not just that the setter ran.
+    setColumnOrder: (order: string[]) => { calls.push('setColumnOrder'); state.columnOrder = order; },
     setColumnSizing: push('setColumnSizing'),
     setPagination: push('setPagination'),
     reset: push('reset'),
@@ -119,6 +126,30 @@ describe('removeAndResolve', () => {
     expect(await s.getActiveId(KEY)).toBe(def.id);
   });
 
+  it('migrates a stale default it falls back to after a delete (portal#2274 P3)', async () => {
+    const s = store();
+    const t = tableStub();
+    // A default saved before colB existed, plus a second view that is active.
+    const def = await s.create(KEY, 'Default', {
+      sorting: [], columnFilters: [], globalFilter: '', columnVisibility: {},
+      columnOrder: ['colC', 'colA'], columnSizing: {},
+      pagination: { pageIndex: 0, pageSize: 25 },
+    });
+    const other = await s.create(KEY, 'Other', {
+      sorting: [], columnFilters: [], globalFilter: '', columnVisibility: {},
+      columnOrder: ['colA', 'colB', 'colC'], columnSizing: {},
+      pagination: { pageIndex: 0, pageSize: 25 },
+    });
+    await s.setDefault(KEY, def.id);
+    await s.setActiveId(KEY, other.id);
+    const res = await removeAndResolve(s, t, KEY, other.id, true, other.id);
+    expect(res.activeId).toBe(def.id);
+    // The fallback default is migrated before it is applied AND the merge is
+    // persisted, so the next time it is applied is not a second write.
+    expect(t.__state.columnOrder).toEqual(['colC', 'colA', 'colB']);
+    expect((await s.get(KEY, def.id))?.view.columnOrder).toEqual(['colC', 'colA', 'colB']);
+  });
+
   it('resets to the built-in arrangement when the active view is removed and no default remains', async () => {
     const s = store();
     const t = tableStub();
@@ -144,5 +175,114 @@ describe('duplicateView', () => {
     expect(t.calls).toContain('setSorting'); // applied to the table
     expect(await s.getActiveId(KEY)).toBe(copy.id);
     expect(await s.list(KEY)).toHaveLength(2);
+  });
+
+  it('gives the copy the merged arrangement without writing the source (portal#2274 P3)', async () => {
+    const s = store();
+    const t = tableStub();
+    const src = await s.create(KEY, 'Original', {
+      sorting: [], columnFilters: [], globalFilter: '', columnVisibility: {},
+      columnOrder: ['colC', 'colA'], columnSizing: {},
+      pagination: { pageIndex: 0, pageSize: 25 },
+    });
+    const before = (await s.get(KEY, src.id))!;
+    const copy = await duplicateView(s, t, KEY, src, 'Original (copy)');
+    // The copy carries the merged order…
+    expect(copy.view.columnOrder).toEqual(['colC', 'colA', 'colB']);
+    // …but the source record is untouched — same stored order, same
+    // updatedAt. A duplicate must not persist a migration to its source.
+    const after = (await s.get(KEY, src.id))!;
+    expect(after.view.columnOrder).toEqual(['colC', 'colA']);
+    expect(after.updatedAt).toBe(before.updatedAt);
+  });
+});
+
+describe('portal#2253 item 4 — applying a stored view that predates a column', () => {
+  it('applyAndActivate migrates the stored order and persists the merge', async () => {
+    const s = store();
+    const t = tableStub();
+    // A view saved when the list had only colA and colC, dragged around.
+    const stale = await s.create(KEY, 'Old', {
+      sorting: [], columnFilters: [], globalFilter: '', columnVisibility: {},
+      columnOrder: ['colC', 'colA'], columnSizing: {},
+      pagination: { pageIndex: 0, pageSize: 25 },
+    });
+    await applyAndActivate(s, t, KEY, stale);
+    const activated = await s.get(KEY, stale.id);
+    // colB (added later, default position between colA and colC) merges in
+    // after colA — its closest surviving default predecessor — and the merge
+    // is persisted, not just applied.
+    expect(activated?.view.columnOrder).toEqual(['colC', 'colA', 'colB']);
+  });
+
+  it('an up-to-date stored view applies with no rewrite', async () => {
+    const s = store();
+    const t = tableStub();
+    const fresh = await s.create(KEY, 'Fresh', {
+      sorting: [], columnFilters: [], globalFilter: '', columnVisibility: {},
+      columnOrder: ['colA', 'colB', 'colC'], columnSizing: {},
+      pagination: { pageIndex: 0, pageSize: 25 },
+    });
+    await applyAndActivate(s, t, KEY, fresh);
+    expect(await s.get(KEY, fresh.id)).toMatchObject({ updatedAt: fresh.updatedAt });
+  });
+});
+
+describe('portal#2253 item 4 — the merge survives a failing persist', () => {
+  /** A store whose update() always throws — the quota-exceeded world. A
+   * deliberate ViewStore stub with every method spelled out (portal#2274 P3):
+   * the earlier Object.create/assign clone of a real store silently depended
+   * on the store keeping its state as ordinary instance properties — a move
+   * to #private fields or closures would break it. Non-write methods
+   * delegate to the backing store `s`, so reads still see its storage. */
+  const updateThrowing = (err: Error, s: LocalStorageViewStore): ViewStore => ({
+    list: (k) => s.list(k),
+    get: (k, id) => s.get(k, id),
+    create: (k, n, v) => s.create(k, n, v),
+    update: async () => { throw err; },
+    remove: (k, id) => s.remove(k, id),
+    getDefault: (k) => s.getDefault(k),
+    setDefault: (k, id) => s.setDefault(k, id),
+    getActiveId: (k) => s.getActiveId(k),
+    setActiveId: (k, id) => s.setActiveId(k, id),
+  });
+
+  const staleRecord = (s: LocalStorageViewStore) => s.create(KEY, 'Old', {
+    sorting: [], columnFilters: [], globalFilter: '', columnVisibility: {},
+    columnOrder: ['colC', 'colA'], columnSizing: {},
+    pagination: { pageIndex: 0, pageSize: 25 },
+  });
+
+  it('returns the merged record in memory when the store throws ViewStorageError, and leaves storage for the next mount to retry', async () => {
+    const s = store();
+    const t = tableStub();
+    const stale = await staleRecord(s);
+    const failing = updateThrowing(new ViewStorageError(viewStorageErrorMessages.unavailable), s);
+    const merged = await migrateStoredView(failing, t, KEY, stale);
+    expect(merged.view.columnOrder).toEqual(['colC', 'colA', 'colB']);
+    // The stored record keeps its pre-merge order: nothing was written.
+    expect((await s.get(KEY, stale.id))?.view.columnOrder).toEqual(['colC', 'colA']);
+  });
+
+  it('re-throws anything that is not a ViewStorageError', async () => {
+    const s = store();
+    const t = tableStub();
+    const stale = await staleRecord(s);
+    const failing = updateThrowing(new Error('a real bug'), s);
+    await expect(migrateStoredView(failing, t, KEY, stale)).rejects.toThrow('a real bug');
+  });
+
+  it('applyAndActivate still applies the merged order when the persist fails, and returns the in-memory merge', async () => {
+    const s = store();
+    const t = tableStub();
+    const stale = await staleRecord(s);
+    const failing = updateThrowing(new ViewStorageError(viewStorageErrorMessages.unavailable), s);
+    const applied = await applyAndActivate(failing, t, KEY, stale);
+    // The returned record is the merged one in memory — the caller swaps it
+    // into its own state — but no write landed: the stored record is intact.
+    expect(applied.view.columnOrder).toEqual(['colC', 'colA', 'colB']);
+    expect(applied.updatedAt).toBe(stale.updatedAt);
+    expect(t.__state.columnOrder).toEqual(['colC', 'colA', 'colB']);
+    expect((await s.get(KEY, stale.id))?.view.columnOrder).toEqual(['colC', 'colA']);
   });
 });

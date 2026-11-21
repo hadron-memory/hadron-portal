@@ -16,6 +16,7 @@
     values. An uncertain outcome is shown as uncertain.
 -->
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { onDestroy, tick } from 'svelte';
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
@@ -320,9 +321,11 @@
       </button>
     {/if}
   {/if}
-  {#if status}
-    <p bind:this={statusLine} tabindex="-1" role="status" aria-live="polite" class="text-sm font-medium text-green-700 dark:text-green-300">{status}</p>
-  {/if}
+  <LiveRegion data-testid="agent-ticker-template-save-result">
+    {#if status}
+      <p bind:this={statusLine} tabindex="-1" class="text-sm font-medium text-green-700 dark:text-green-300">{status}</p>
+    {/if}
+  </LiveRegion>
   <button type="submit" bind:this={submitBtn} disabled={submitting || reloading || refreshFailed} class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
     {#if submitting}{t('agent.tickers.write.saving', 'Saving…')}{:else if editing}{t('agent.tickers.write.save', 'Save')}{:else}{t('agent.tickers.write.add', 'Add')}{/if}
   </button>

@@ -13,7 +13,6 @@ const app = {
   name: "Team",
   urn: "hrn:app:example.test:team",
   viewerManages: true,
-  organizationId: null,
 };
 const grant = {
   id: "grant-1",
@@ -396,5 +395,113 @@ describe("App Grants manager route", () => {
     expect(((await a.create!(e as never)) as any).status).toBe(403);
     expect(((await a.revoke!(e as never)) as any).status).toBe(403);
     expect(writes()).toHaveLength(0);
+  });
+  describe("create when the holder choices cannot be read", () => {
+    const wire = (code: string | null, status = 200) =>
+      new ClientError(
+        {
+          status,
+          headers: new Headers(),
+          body: "",
+          data: null,
+          errors: code
+            ? [new GraphQLError("private prose", { extensions: { code } })]
+            : undefined,
+        } as never,
+        { query: "query AppGrantWorkers", variables: {} },
+      );
+    const failChoices = (e: unknown) => {
+      const original = request.getMockImplementation()!;
+      request.mockImplementation(async (q: string, v: unknown) => {
+        if (q.includes("query AppGrantWorkers")) throw e;
+        return original(q, v);
+      });
+    };
+    const message = "The holder choices could not be loaded. Try again.";
+    it.each([
+      ["a transport failure", () => Error("offline")],
+      ["an INTERNAL_SERVER_ERROR", () => wire("INTERNAL_SERVER_ERROR", 500)],
+    ])("answers 503 with the fixed text for %s, sending no mutation", async (_n, make) => {
+      failChoices(make());
+      const r = await act("create", input);
+      expect(r.status).toBe(503);
+      expect(r.data.error).toBe(message);
+      expect(JSON.stringify(r)).not.toContain("private prose");
+      expect(writes()).toHaveLength(0);
+    });
+    it("answers 503 when the installed-agent read is withheld", async () => {
+      const original = request.getMockImplementation()!;
+      request.mockImplementation(async (q: string, v: unknown) =>
+        q.includes("query AppInstalledAgents")
+          ? { app: { id: app.id, appAgents: null } }
+          : original(q, v),
+      );
+      const r = await act("create", input);
+      expect(r.status).toBe(503);
+      expect(r.data.error).toBe(message);
+      expect(writes()).toHaveLength(0);
+    });
+    it.each(["GRANT_NOT_MANAGER", "NOT_FOUND"])(
+      "keeps a typed refusal (%s) at its existing 400 mapping, never 503",
+      async (code) => {
+        failChoices(wire(code));
+        const r = await act("create", input);
+        expect(r.status).toBe(400);
+        expect(r.data.error).not.toBe(message);
+        expect(writes()).toHaveLength(0);
+      },
+    );
+    it("keeps validation refusals at 400 when the choices read works", async () => {
+      const r = await act("create", { ...input, holder: "WORKER:nobody" });
+      expect(r.status).toBe(400);
+    });
+  });
+  it("loads no choices and offers no signing under impersonation", async () => {
+    const e = event(undefined) as any;
+    e.locals.impersonation = {};
+    signing.mockClear();
+    const d = await (await import("./+page.server")).load(e as never) as any;
+    expect(d.signing).toBe(false);
+    expect(d.impersonating).toBe(true);
+    expect(d.choices).toEqual({ workers: [], agents: [], failed: false });
+    expect(signing).not.toHaveBeenCalled();
+    expect(request.mock.calls.some(([q]) => q.includes("AppGrantWorkers"))).toBe(false);
+  });
+  it("does not flag an ordinary session as impersonating", async () => {
+    expect((await load()).impersonating).toBe(false);
+  });
+  it.each(["GRANT_NOT_MANAGER", "INTERNAL_SERVER_ERROR"])(
+    "maps an appGrants read failing with %s",
+    async (code) => {
+      const original = request.getMockImplementation()!;
+      request.mockImplementation(async (q: string, v: unknown) => {
+        if (q.includes("query AppGrantsPage"))
+          throw new ClientError(
+            {
+              status: 200,
+              headers: new Headers(),
+              body: "",
+              data: null,
+              errors: [new GraphQLError("private prose", { extensions: { code } })],
+            } as never,
+            { query: q, variables: {} },
+          );
+        return original(q, v);
+      });
+      await expect(load()).rejects.toMatchObject({
+        status: code === "GRANT_NOT_MANAGER" ? 403 : 503,
+      });
+    },
+  );
+  it("maps an appGrants transport failure to the fixed 503", async () => {
+    const original = request.getMockImplementation()!;
+    request.mockImplementation(async (q: string, v: unknown) => {
+      if (q.includes("query AppGrantsPage")) throw Error("private transport");
+      return original(q, v);
+    });
+    await expect(load()).rejects.toMatchObject({
+      status: 503,
+      body: { message: "The grant request could not be completed. Refresh before trying again." },
+    });
   });
 });

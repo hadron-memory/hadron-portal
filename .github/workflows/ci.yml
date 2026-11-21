@@ -41,6 +41,9 @@ jobs:
   ci:
     # #1285: Playwright 1.58.2 cannot install Chromium on Ubuntu 26.04.
     runs-on: ubuntu-24.04
+    # portal#2283: a stalled apt fetch once held this job for 2 h 08 min. A whole green run takes
+    # 42-65 min including queueing, so 75 turns a hang red without cutting a slow day short.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -73,9 +76,15 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # portal#2283: make apt give up and retry instead of waiting forever on a stalled mirror.
+      - name: Bound apt network waits
+        run: echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts
+
       # #854: jsdom cannot measure flexbox or document overflow. This fixture
       # uses the compiled app CSS and actual Urn component, without an API/DB.
+      # #854 browser install. The step normally takes 1.9-8.5 min; 15 turns a hang red in a quarter of an hour.
       - name: Install Chromium
+        timeout-minutes: 15
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Check team chat chip target sizes
@@ -128,17 +137,17 @@ jobs:
       - name: Check NodeList search
         run: pnpm test:node-list-search
 
-      # portal#1619: the Task integrations heading paints a focus ring after a keyboard Cancel.
-      - name: Check Task integrations focus ring
-        run: pnpm test:task-integrations-focus
-
-      # portal#1675: the ApplyAgentTickers result region paints a focus ring after a keyboard apply.
+      # portal#1675/#1745: the ApplyAgentTickers result region paints a focus ring after a
+      # real keyboard apply (Enter on the submit button, the real enhance round trip to a
+      # faked /__apply POST — keyboard modality survives the async round trip; a pointer-driven
+      # apply stays ring-free).
       - name: Check ApplyAgentTickers focus ring
         run: pnpm test:apply-agent-tickers-focus
 
-      # portal#1676: Task integrations' touch targets and overflow at 390px and 1280px.
-      - name: Check Task integrations layout
-        run: pnpm test:task-integrations-layout
+      # portal#1796: keyboard focus stays on the Cast button while casting and lands on the
+      # "Cast a worker" opener after a clean cast (a disabled submit button dropped it to <body>).
+      - name: Check Cast submit focus
+        run: pnpm test:cast-submit-focus
 
       # portal#1756: real App/worker prompt components at 390px and 1280px;
       # synthetic transport only, including a concealed ID that must never render.
@@ -149,10 +158,25 @@ jobs:
       - name: Check compact URN keyboard and touch layout
         run: pnpm test:urn-compact-layout
 
+      # portal#2379: LiveOutcome and LiveRegion must not change the layout of the column they sit in
+      # (real Chromium, compiled CSS): a status or alert message, none, and a control after it.
+      - name: Check live region layout
+        run: pnpm test:live-outcome-layout
+
+      # portal#2367: DataTable fill sizing and document scroll ownership in real Chromium,
+      # inside the app shell's own classes, light and dark, phone and desktop.
+      - name: Check DataTable fill layout
+        run: pnpm test:data-table-fill-layout
+
       # portal#1711: the TaskHistory link values — touch targets, wrapping and
       # overflow at 390px and 1280px, in real Chromium with compiled CSS.
       - name: Check TaskHistory link layout
         run: pnpm test:task-history-links-layout
+
+      # portal#1643/#2121: the Findings section and its disposition form, mounted in
+      # real Chromium with compiled CSS at 390px and 1280px, light and dark.
+      - name: Check Findings dispositions layout
+        run: pnpm test:task-findings-dispositions-layout
 
       # portal#1700: the Nodes tab reads one bounded page per action and keeps its DOM windowed (real Chromium).
       - name: Check Nodes tab lazy reads

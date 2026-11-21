@@ -126,7 +126,7 @@ describe('org-detail Profile update action (#394)', () => {
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Changes saved.' });
     expect(superFormFrom(result)?.valid).toBe(true);
     const [, vars] = mockRequest.mock.calls[0];
-    expect(vars).toMatchObject({ id: 'org-id-123', name: 'Renamed', urn: 'renamed.com' });
+    expect(vars).toMatchObject({ ref: 'org-id-123', name: 'Renamed', urn: 'renamed.com' });
     expect(vars).not.toHaveProperty('isVisible');
   });
 

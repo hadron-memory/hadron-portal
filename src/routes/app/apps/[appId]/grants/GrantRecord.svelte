@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { enhance } from "$app/forms";
   import type { SubmitFunction } from "@sveltejs/kit";
   import { onDestroy, tick } from "svelte";
@@ -6,7 +7,7 @@
   import GrantHistory from "./GrantHistory.svelte";
   import GrantStatus from "./GrantStatus.svelte";
   import Urn from "$lib/components/Urn.svelte";
-  import type { Grant, Holder } from "$lib/grants/types";
+  import { grantError, type Grant, type Holder } from "$lib/grants/types";
   let {
     grant,
     holder,
@@ -105,10 +106,7 @@
           refusal =
             result.type === "failure" && typeof result.data?.error === "string"
               ? result.data.error
-              : t(
-                  "grants.error.generic",
-                  "The grant request could not be completed. Refresh before trying again.",
-                );
+              : grantError(null);
       } finally {
         if (mine === attempts) busy = false;
         finish?.();
@@ -198,8 +196,8 @@
       use:enhance={submit}
     >
       <input type="hidden" name="ref" value={shown.id} />
+      <LiveRegion>
       {#if (returned || actionGrant) && (shown.revokedAt || shown.holderDepartedAt)}<p
-          role="status"
           class="mb-2 text-sm"
         >
           {#if shown.revokedAt}
@@ -218,6 +216,7 @@
             )}
           {/if}
         </p>{/if}
+      </LiveRegion>
       {#if refusal}<p
           role="alert"
           class="mb-2 text-sm text-red-800 dark:text-red-200"

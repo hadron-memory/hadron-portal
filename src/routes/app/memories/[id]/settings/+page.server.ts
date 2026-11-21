@@ -290,7 +290,7 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(UPDATE_MEMORY_MUTATION, {
-        id: params.id,
+        ref: params.id,
         name: displayName,
         urn: urnChanged ? urnSlug : undefined,
         shortDescription: form.data.shortDescription || null,
@@ -327,7 +327,7 @@ export const actions: Actions = {
 
     try {
       const { updateMemory: saved } = await gqlClient(locals.token).request<{ updateMemory?: Memory }>(UPDATE_MEMORY_MUTATION, {
-        id: params.id,
+        ref: params.id,
         listedOnMarketplace: form.data.listedOnMarketplace,
       });
       // Never success for a missing or malformed result (Gil's P2 and
@@ -438,7 +438,7 @@ export const actions: Actions = {
 
     try {
       const { updateMemory: saved } = await gqlClient(locals.token).request<{ updateMemory?: Memory }>(UPDATE_MEMORY_MUTATION, {
-        id: params.id,
+        ref: params.id,
         vectorIndexEnabled: form.data.vectorIndexEnabled,
         embeddingSource: hasEmbeddingSource ? form.data.embeddingSource : undefined,
         acknowledgeVectorInversionRisk,
@@ -595,7 +595,7 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(UPDATE_MEMORY_MUTATION, {
-        id: params.id,
+        ref: params.id,
         schema,
       });
       return message(form, {
@@ -624,7 +624,7 @@ export const actions: Actions = {
     // so the redirect is reachable; fall back to the active-org redirector.
     const orgId = form.data.organizationId;
     try {
-      await gqlClient(locals.token).request(DELETE_MEMORY_MUTATION, { id: params.id });
+      await gqlClient(locals.token).request(DELETE_MEMORY_MUTATION, { ref: params.id });
       redirect(303, orgId ? `/app/orgs/${encodeURIComponent(orgId)}/memories` : '/app/memories');
     } catch (e: unknown) {
       // Re-throw SvelteKit's redirect-as-thrown-exception so it isn't

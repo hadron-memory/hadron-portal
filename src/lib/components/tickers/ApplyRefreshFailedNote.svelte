@@ -7,6 +7,7 @@
   storage after mount, so a server render and a hydration agree on nothing shown.
 -->
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { untrack } from 'svelte';
   import { page } from '$app/stores';
   import { applyRefreshFailedLine } from '$lib/tickers/apply';
@@ -47,9 +48,11 @@
   });
 </script>
 
-{#if shown}
-  <p role="status" class="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200" data-testid="apply-refresh-failed-page">
-    {applyRefreshFailedLine()}
-    <a href={reloadHref} data-sveltekit-reload class="mt-2 block w-fit rounded-md px-3 py-2 font-medium underline underline-offset-2 outline-offset-2 focus-visible:outline-2 focus-visible:outline-current">{t('worker.apply.reload', 'Reload this page')}</a>
-  </p>
-{/if}
+<LiveRegion>
+  {#if shown}
+    <p class="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200" data-testid="apply-refresh-failed-page">
+      {applyRefreshFailedLine()}
+      <a href={reloadHref} data-sveltekit-reload class="mt-2 block w-fit rounded-md px-3 py-2 font-medium underline underline-offset-2 outline-offset-2 focus-visible:outline-2 focus-visible:outline-current">{t('worker.apply.reload', 'Reload this page')}</a>
+    </p>
+  {/if}
+</LiveRegion>

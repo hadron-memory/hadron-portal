@@ -1,4 +1,6 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
+  import LiveOutcome from '$lib/components/LiveOutcome.svelte';
   import WorkerLeaveAlone from './WorkerLeaveAlone.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
@@ -224,9 +226,9 @@
     retireForm?.requestSubmit();
   }
 
-  // The delete dialog, shared with the App roster's staff tab. Re-keyed per
-  // worker like every control on this page, so a dialog opened for A closes
-  // (never re-targets) when the route moves to B.
+  // The delete dialog, shared with the App roster's staff tab. This effect is
+  // the one guard: a dialog opened for A closes (never re-targets) when the
+  // route moves to B.
   let deleteTarget = $state(false);
   const deleteTargetKey = $derived(worker.id);
   $effect(() => { deleteTargetKey; deleteTarget = false; });
@@ -278,16 +280,17 @@
       {/if}
     </div>
 
-    {#if retireNotice}
-      <div
-        role={retireNotice.ok ? 'status' : 'alert'}
-        class="mt-3 rounded-lg border px-4 py-3 text-sm {retireNotice.ok
-          ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
-          : 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200'}"
-      >
-        {retireNotice.message}
-      </div>
-    {/if}
+    <LiveOutcome failed={retireNotice ? !retireNotice.ok : false}>
+      {#if retireNotice}
+        <div
+          class="mt-3 rounded-lg border px-4 py-3 text-sm {retireNotice.ok
+            ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
+            : 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200'}"
+        >
+          {retireNotice.message}
+        </div>
+      {/if}
+    </LiveOutcome>
 
     <!-- The URN below the name, per hrn:node:hadronmemory.com:hadron-portal:review:render-urn. Nullable by contract
          (#991) — an App whose URN predates the flat grammar has no worker URN,
@@ -311,20 +314,21 @@
 
   {#if activeTab === 'profile'}
     <div id="panel-profile" role="tabpanel" aria-labelledby="tab-profile" tabindex="0" class="space-y-6 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
-    {#if retired}
-      <!-- Retirement is not deletion, and the difference matters to a reader who
-           arrived from an old PR: the work still traces here, the name is still
-           claimed, but nothing new will be signed with it. -->
-      <div
-        role="status"
-        class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
-      >
-        {t(
-          'worker.retired.notice',
-          'This worker is retired: it takes no new worker sessions and signs nothing new. Its name stays reserved permanently, and the work already attributed to it still traces here.',
-        )}
-      </div>
-    {/if}
+    <LiveRegion data-testid="worker-retired-region">
+      {#if retired}
+        <!-- Retirement is not deletion, and the difference matters to a reader who
+             arrived from an old PR: the work still traces here, the name is still
+             claimed, but nothing new will be signed with it. -->
+        <div
+          class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+        >
+          {t(
+            'worker.retired.notice',
+            'This worker is retired: it takes no new worker sessions and signs nothing new. Its name stays reserved permanently, and the work already attributed to it still traces here.',
+          )}
+        </div>
+      {/if}
+    </LiveRegion>
 
     <dl class="grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-zinc-200 bg-zinc-200 sm:grid-cols-2 dark:border-zinc-800 dark:bg-zinc-800">
       <div class="bg-white p-4 dark:bg-zinc-950">
@@ -805,16 +809,14 @@
   {/if}
 
   {#if canManageHere && deleteTarget}
-    {#key worker.id}
-      <!-- portal#2205 — the roster's own delete dialog, posting to this page's
-           ?/deleteWorker action. On success the action redirects to the App's
-           staff roster: this page's URL stops resolving, so there is nothing
-           here to invalidate back to. -->
-      <WorkerDeleteDialog
-        worker={{ id: worker.id, name: worker.name, urn: worker.urn ?? null }}
-        onclose={() => { deleteTarget = false; }}
-      />
-    {/key}
+    <!-- portal#2205 — the roster's own delete dialog, posting to this page's
+         ?/deleteWorker action. On success the action redirects to the App's
+         staff roster: this page's URL stops resolving, so there is nothing
+         here to invalidate back to. -->
+    <WorkerDeleteDialog
+      worker={{ id: worker.id, name: worker.name, urn: worker.urn ?? null }}
+      onclose={() => { deleteTarget = false; }}
+    />
   {/if}
 </div>
 

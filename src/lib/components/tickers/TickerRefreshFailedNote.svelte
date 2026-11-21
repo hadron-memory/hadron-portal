@@ -10,6 +10,7 @@
   hydration agree on nothing shown.
 -->
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { untrack } from 'svelte';
   import { page } from '$app/stores';
   import { tickerOfPage } from '$lib/tickers/refresh-page';
@@ -41,8 +42,10 @@
   const shown = $derived(consumed !== null && consumed.viewer === viewer && at !== null && consumed.appId === at.appId && consumed.tickerId === at.tickerId);
 </script>
 
-{#if shown}
-  <p role="status" class="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200" data-testid="ticker-refresh-failed-page">
-    {tickerRefreshFailedLine()}
-  </p>
-{/if}
+<LiveRegion>
+  {#if shown}
+    <p class="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200" data-testid="ticker-refresh-failed-page">
+      {tickerRefreshFailedLine()}
+    </p>
+  {/if}
+</LiveRegion>

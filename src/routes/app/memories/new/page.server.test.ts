@@ -64,7 +64,7 @@ describe('personal (org-less) create-memory action (#627)', () => {
   it('updates the display name when it differs from the slug', async () => {
     await runCreate({ displayName: 'My Notes', slug: 'my-notes', memoryClass: 'personal' });
     const update = mockRequest.mock.calls.find((c) => c[0] === UPDATE_MEMORY_MUTATION);
-    expect(update?.[1]).toMatchObject({ id: 'm1', name: 'My Notes' });
+    expect(update?.[1]).toMatchObject({ ref: 'm1', name: 'My Notes' });
   });
 
   it('does not issue a display-name update when name equals the slug', async () => {

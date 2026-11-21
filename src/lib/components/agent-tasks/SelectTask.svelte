@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { taskChoiceStatus } from '$lib/agent-tasks/planning';
   import TaskHandle from './TaskHandle.svelte';
   import { untrack } from 'svelte';
@@ -97,10 +98,17 @@
         {#if exactDone}<button type="button" onclick={() => { exactDone = false; exactItems = []; }}>{t('app.tasks.picker.browse', 'Browse loaded tasks')}</button>{/if}
       </div>
       {#if failed}<p role="alert">{t('app.tasks.picker.failed', 'Couldn’t load tasks. Try again.')}</p><button type="button" disabled={pending} onclick={() => read(failedRequest ?? undefined)}>{t('app.tasks.retry', 'Try again')}</button>{/if}
-      {#if repeated}<p role="status">{t('app.tasks.picker.changed', 'The list changed while loading. Some tasks may be missing; close and reopen to refresh, or use an exact lookup.')}</p>{/if}
-      {#if pending}<p role="status">{t('app.tasks.picker.loading', 'Loading tasks…')}</p>{/if}
-      {#if exactDone && !pending && !failed && exactItems.length === 0}<p role="status">{t('app.tasks.picker.unavailable', 'No available task found in this App.')}</p>{/if}
-      <DataTable {table} listKey="task-picker:open" bind:globalFilter={query} searchPlaceholder={t('app.tasks.picker.search', 'Filter loaded tasks…')} searchAriaLabel={t('app.tasks.picker.search', 'Filter loaded tasks…')} maxHeight="35vh">
+      <LiveRegion>
+        {#if repeated}<p>{t('app.tasks.picker.changed', 'The list changed while loading. Some tasks may be missing; close and reopen to refresh, or use an exact lookup.')}</p>{/if}
+      </LiveRegion>
+      <LiveRegion>{#if pending}<p>{t('app.tasks.picker.loading', 'Loading tasks…')}</p>{/if}</LiveRegion>
+      <LiveRegion data-testid="task-picker-exact-empty">
+        {#if exactDone && !pending && !failed && exactItems.length === 0}<p>{t('app.tasks.picker.unavailable', 'No available task found in this App.')}</p>{/if}
+      </LiveRegion>
+      <LiveRegion data-testid="task-picker-empty">
+        {#if !pending && !failed && !items.length && !exactDone}<p>{includeEnded ? t('app.tasks.picker.empty-any', 'No tasks to choose from.') : t('app.tasks.picker.empty', 'No open tasks to choose from.')}</p>{/if}
+      </LiveRegion>
+      <DataTable {table} listKey="task-picker:open" bind:globalFilter={query} searchPlaceholder={t('app.tasks.picker.search', 'Filter loaded tasks…')} searchAriaLabel={t('app.tasks.picker.search', 'Filter loaded tasks…')} bounded>
         {#snippet cell(cell, row)}
           {#if cell.column.id === 'choose'}<button type="button" class="rounded bg-indigo-600 px-2 py-1 text-white" onclick={() => { onselect(row); open = false; }}>{t('app.tasks.picker.select', 'Select')}</button>
           {:else if cell.column.id === 'handle'}<TaskHandle handle={row.handle} />
@@ -108,7 +116,6 @@
         {/snippet}
       </DataTable>
       {#if !exactDone && hasMore}<button type="button" disabled={pending} class="rounded border px-3 py-1 disabled:opacity-50" onclick={() => read()}>{t('app.tasks.picker.more', 'Load more tasks')}</button>{/if}
-      {#if !pending && !failed && !items.length && !exactDone}<p role="status">{includeEnded ? t('app.tasks.picker.empty-any', 'No tasks to choose from.') : t('app.tasks.picker.empty', 'No open tasks to choose from.')}</p>{/if}
     </div>
   </div>
 {/if}

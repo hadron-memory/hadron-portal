@@ -57,14 +57,14 @@ describe('agent update action (#488)', () => {
     expect(superFormFrom(result)?.valid).toBe(true);
     const vars = updateAgentVariables();
     expect(vars.visibility).toBe('PUBLIC');
-    expect(vars.systemMemoryId).toBeUndefined();
+    expect(vars.systemMemoryRef).toBeUndefined();
     // Explicit-null would resurrect the bug even if undefined round-trips.
-    expect('systemMemoryId' in vars && vars.systemMemoryId === null).toBe(false);
+    expect('systemMemoryRef' in vars && vars.systemMemoryRef === null).toBe(false);
   });
 
   it('passes a real first-attach systemMemoryId through', async () => {
     await runUpdate({ name: 'Agent', urnSlug: 'agent', systemMemoryId: 'mem-9' });
-    expect(updateAgentVariables().systemMemoryId).toBe('mem-9');
+    expect(updateAgentVariables().systemMemoryRef).toBe('mem-9');
   });
 
   it('passes visibility through verbatim (uppercase enum)', async () => {

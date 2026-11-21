@@ -106,7 +106,7 @@
     {/if}
 
     {#if targets.length === 0}
-      <p role="status" class="mt-4 text-sm text-zinc-500">
+      <p class="mt-4 text-sm text-zinc-500">
         {t('agent.clone.no-targets', 'You do not administer an organization to clone into.')}
       </p>
     {:else}
@@ -126,6 +126,8 @@
             id="clone-target"
             type="button"
             onclick={() => (pickerOpen = true)}
+            aria-haspopup="dialog"
+            aria-expanded={pickerOpen}
             aria-describedby={targetError ? 'clone-target-error' : undefined}
             class="mt-2 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-300"
           >{selected ? t('agent.clone.target.change', 'Change') : t('agent.clone.target.choose', 'Choose organization')}</button>

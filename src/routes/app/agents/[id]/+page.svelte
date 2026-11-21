@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import AgentLifecycle from './AgentLifecycle.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import BootProvenance from '$lib/components/BootProvenance.svelte';
@@ -905,15 +906,17 @@
       {updateMemoryRoleActionError ?? removeMemoryActionError ?? deleteActionError}
     </div>
   {/if}
+  <LiveRegion>
   {#if $agentSettingsMessage?.type === 'success' && !isEditing}
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{$agentSettingsMessage.text}</div>
+    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{$agentSettingsMessage.text}</div>
   {:else if addMemoryActionSuccess}
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{addMemoryActionSuccess}</div>
+    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{addMemoryActionSuccess}</div>
   {:else if updateMemoryRoleActionSuccess || removeMemoryActionSuccess}
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
+    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
       {updateMemoryRoleActionSuccess ?? removeMemoryActionSuccess}
     </div>
   {/if}
+  </LiveRegion>
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <!-- PROFILE TAB — info of this agent (#352)                             -->
@@ -1173,7 +1176,6 @@
             searchPlaceholder="Search memories..."
             searchAriaLabel="Search memories"
             bind:globalFilter={memoryFilter}
-            maxHeight="max(200px, calc(100vh - 24rem))"
           >
             {#snippet cell(cell, m)}
               {#if cell.column.id === 'name'}
@@ -1226,6 +1228,8 @@
                 type="button"
                 aria-describedby={addMemoryError ? 'agentAddMemoryError' : 'agent-add-memory-label'}
                 onclick={() => selectMemoryOpen = true}
+                aria-haspopup="dialog"
+                aria-expanded={selectMemoryOpen}
                 class="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-left text-sm text-zinc-900 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:hover:bg-zinc-800 {addMemoryError ? 'border-red-500' : ''}"
               >
                 {#if $addMemoryForm.memoryId}
@@ -1314,6 +1318,7 @@
             type="button"
             onclick={() => (appOrgPickerOpen = true)}
             aria-haspopup="dialog"
+            aria-expanded={appOrgPickerOpen}
             class="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >{t('agent.apps.org-filter', 'Organization')}: {appOrgFilterName ?? t('agent.apps.org-all', 'All organizations')}</button>
           {#if appOrgFilter}
@@ -1331,7 +1336,6 @@
           searchPlaceholder="Search apps..."
           searchAriaLabel="Search apps"
           bind:globalFilter={appsFilter}
-          maxHeight="max(200px, calc(100vh - 20rem))"
         >
           {#snippet cell(cell, a)}
             {#if cell.column.id === 'name'}
@@ -1401,9 +1405,12 @@
       {/if}
       {#if bundleResult?.bundleError}
         <p role="alert" class="mb-3 text-sm text-red-600 dark:text-red-400">{bundleResult.bundleError}</p>
-      {:else if bundleResult?.bundleAdded}
-        <p role="status" class="mb-3 text-sm text-green-700 dark:text-green-400">{t('agent.bundled.add.done', 'Agent bundled.')}</p>
       {/if}
+      <LiveRegion>
+        {#if !bundleResult?.bundleError && bundleResult?.bundleAdded}
+          <p class="mb-3 text-sm text-green-700 dark:text-green-400">{t('agent.bundled.add.done', 'Agent bundled.')}</p>
+        {/if}
+      </LiveRegion>
       {#if bundledMayBeIncomplete}
         <p role="status" class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
           {t('agent.bundled.withheld', 'This list may be incomplete because some installed agents aren’t visible to you.')}
@@ -1417,7 +1424,6 @@
         searchPlaceholder="Search bundled agents..."
         searchAriaLabel="Search bundled agents"
         bind:globalFilter={bundledFilter}
-        maxHeight="max(200px, calc(100vh - 24rem))"
       >
         {#snippet cell(cell, a)}
           {#if cell.column.id === 'name'}
@@ -1825,9 +1831,12 @@
             </label>
             {#if registerDefaultsError}
               <p role="alert" class="text-sm text-red-600 dark:text-red-400">{registerDefaultsError}</p>
-            {:else if registerDefaultsSuccess}
-              <p role="status" class="text-sm text-emerald-600 dark:text-emerald-400">{registerDefaultsSuccess}</p>
             {/if}
+            <LiveRegion>
+              {#if !registerDefaultsError && registerDefaultsSuccess}
+                <p class="text-sm text-emerald-600 dark:text-emerald-400">{registerDefaultsSuccess}</p>
+              {/if}
+            </LiveRegion>
             <button type="submit" disabled={$registerDefaultsSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
               {$registerDefaultsSubmitting ? t('agent.register-defaults.saving', 'Saving…') : t('agent.register-defaults.save', 'Save')}
             </button>
@@ -1857,9 +1866,12 @@
               </label>
               {#if resetContextError}
                 <p role="alert" class="text-sm text-red-600 dark:text-red-400">{resetContextError}</p>
-              {:else if resetContextSuccess}
-                <p role="status" class="text-sm text-emerald-600 dark:text-emerald-400">{resetContextSuccess}</p>
               {/if}
+              <LiveRegion>
+                {#if !resetContextError && resetContextSuccess}
+                  <p class="text-sm text-emerald-600 dark:text-emerald-400">{resetContextSuccess}</p>
+                {/if}
+              </LiveRegion>
               <button type="submit" disabled={$resetContextSubmitting || !resetContextChanged} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
                 {$resetContextSubmitting ? t('agent.reset-context.saving', 'Saving…') : t('agent.reset-context.save', 'Save')}
               </button>

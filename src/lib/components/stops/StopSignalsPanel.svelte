@@ -13,6 +13,8 @@
     unmounted.
 -->
 <script lang="ts">
+  import LiveOutcome from '$lib/components/LiveOutcome.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { onDestroy, tick } from 'svelte';
   import { enhance } from '$app/forms';
   import type { SubmitFunction } from '@sveltejs/kit';
@@ -240,6 +242,8 @@
   }
 </script>
 
+<!-- portal#2379: one plain wrapper, so the page sees a single child and the outcome after the space-y section adds no idle gap (Marco's placement rule, hadron-portal#2386). -->
+<div>
 <section aria-labelledby="stop-set-heading" class="space-y-3" data-testid="stop-panel">
   <h2 id="stop-set-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.stops.set.heading', 'Stop a worker or team')}</h2>
 
@@ -318,9 +322,11 @@
         <p id="stop-until-help" class="mt-1 text-xs text-zinc-600 dark:text-zinc-400">{t('app.stops.until-help', 'Leave empty to stop until someone lifts it.')}</p>
       </div>
       {#if refusal}<WriteRefusalAlert {refusal} id="stop-refusal" />{/if}
-      {#if status}
-        <p bind:this={statusLine} tabindex="-1" role="status" aria-live="polite" class="text-sm font-medium text-green-700 dark:text-green-300">{status}</p>
-      {/if}
+      <LiveRegion>
+        {#if status}
+          <p bind:this={statusLine} tabindex="-1" class="text-sm font-medium text-green-700 dark:text-green-300">{status}</p>
+        {/if}
+      </LiveRegion>
       <button type="button" data-open-confirm onclick={openConfirm} disabled={pending} class="rounded-md bg-red-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-50">
         {t('app.stops.review', 'Review stop…')}
       </button>
@@ -358,18 +364,6 @@
     </form>
   {/if}
 
-  {#if liftNote}
-    <p
-      bind:this={liftLine}
-      tabindex="-1"
-      role={liftNote.failed ? 'alert' : 'status'}
-      aria-live={liftNote.failed ? 'assertive' : 'polite'}
-      data-testid="stop-lift-status"
-      class="rounded-lg border px-3 py-2 text-sm {liftNote.failed
-        ? 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200'
-        : 'border-zinc-300 bg-zinc-50 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white'}"
-    >{liftNote.text}</p>
-  {/if}
 
   {#if lifting && controls}
     <dialog
@@ -399,3 +393,17 @@
     </dialog>
   {/if}
 </section>
+<!-- portal#2379: after the space-y section, not inside it, with the old top margin on the box. -->
+<LiveOutcome failed={liftNote?.failed ?? false}>
+  {#if liftNote}
+    <p
+      bind:this={liftLine}
+      tabindex="-1"
+      data-testid="stop-lift-status"
+      class="mt-3 rounded-lg border px-3 py-2 text-sm {liftNote.failed
+        ? 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200'
+        : 'border-zinc-300 bg-zinc-50 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white'}"
+    >{liftNote.text}</p>
+  {/if}
+</LiveOutcome>
+</div>

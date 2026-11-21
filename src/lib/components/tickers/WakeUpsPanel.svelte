@@ -181,7 +181,7 @@
     <div class="space-y-2">
       <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('worker.wake.subscriptions', 'Subscriptions')}</h3>
       {#if rows.length === 0}
-        <p role="status" class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-testid="wake-subscriptions-empty">
+        <p class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-testid="wake-subscriptions-empty">
           {t('worker.wake.subscriptions.empty', 'Not subscribed to any ticker.')}
         </p>
       {:else}
@@ -191,7 +191,6 @@
           searchPlaceholder={t('worker.wake.search', 'Search subscriptions…')}
           searchAriaLabel={t('worker.wake.search', 'Search subscriptions…')}
           bind:globalFilter
-          maxHeight="max(200px, calc(100vh - 30rem))"
         >
           {#snippet cell(cell, row)}
             {#if cell.column.id === 'ticker'}

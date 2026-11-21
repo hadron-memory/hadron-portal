@@ -151,7 +151,7 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(LINK_GITHUB_APP_MUTATION, {
-        orgId: params.id,
+        orgRef: params.id,
         installationId: Number(form.data.installationId),
       });
       return message(form, { type: 'success', text: t('org.integrations.github.linked', 'GitHub App installation linked.') });
@@ -173,7 +173,7 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(UPDATE_ORG_GITHUB_APP_MUTATION, {
-        orgId: params.id,
+        orgRef: params.id,
         appId: form.data.appId,
         privateKey: form.data.privateKey,
       });
@@ -203,7 +203,7 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(UNLINK_GITHUB_APP_MUTATION, {
-        orgId: params.id,
+        orgRef: params.id,
       });
       return message(form, { type: 'success', text: t('org.integrations.github.disconnected', 'GitHub App disconnected.') });
     } catch (e: unknown) {

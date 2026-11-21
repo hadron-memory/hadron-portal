@@ -31,7 +31,7 @@
   {#if view.accounts.length === 0}
     <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('token-use.empty', 'No usage history for this App yet.')}</p>
   {:else}
-    <DataTable {table} listKey="apps:token-use:accounts" showSearch={false} searchPlaceholder="" searchAriaLabel="" showFooter={false} maxHeight="22rem">
+    <DataTable {table} listKey="apps:token-use:accounts" showSearch={false} searchPlaceholder="" searchAriaLabel="" showFooter={false} bounded>
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'account'}
           <a class="inline-flex min-h-11 items-center break-all font-medium text-indigo-600 underline dark:text-indigo-300" href={`${path}?${new URLSearchParams({ account: accountKey(row) })}`} aria-current={view.selected && accountKey(view.selected) === accountKey(row) ? 'page' : undefined}>{row.account}</a>
