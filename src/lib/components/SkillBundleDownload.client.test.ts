@@ -234,6 +234,27 @@ describe('SkillBundleDownload — export keys no host reads (server#1296)', () =
     expect(tables[0].getAttribute('aria-labelledby')).not.toBe(tables[1].getAttribute('aria-labelledby'));
   });
 
+  it('two panels on one page never share a summary id, and each grid resolves inside its own panel (portal#2381)', async () => {
+    stubEndpoint(withUnrecognized());
+    const a = panel({ orgId: 'org-1', checkedCount: 3 });
+    const b = panel({ orgId: 'org-2', checkedCount: 3 });
+    for (const m of [a, b]) {
+      downloadButtons(m.target).find((x) => x.textContent?.includes('Codex'))!.click();
+      await reportRendered(m.target);
+    }
+    const ids = [...document.querySelectorAll('[data-testid$="-summary"]')].map((e) => e.id);
+    expect(ids).toHaveLength(4);
+    expect(new Set(ids).size, 'no summary id repeats across panels').toBe(4);
+    for (const m of [a, b]) {
+      const tables = [...m.target.querySelectorAll<HTMLTableElement>('table')];
+      expect(tables).toHaveLength(2);
+      for (const t of tables) {
+        const id = t.getAttribute('aria-labelledby')!;
+        expect(m.target.querySelector(`#${CSS.escape(id)}`), 'the grid is named by a line in its own panel').not.toBeNull();
+      }
+    }
+  });
+
   it('renders no such grid when nothing is unrecognised — and it did reach the report', async () => {
     stubEndpoint(codexResponse());
     const { target } = panel({ orgId: 'org-1', checkedCount: 3 });
