@@ -1590,6 +1590,8 @@ describe('App key scope grant dialog (portal#1487)', () => {
     const option = scopeSelect(dialog).querySelector<HTMLOptionElement>('option[value="host:operate"]')!;
     expect(option.disabled).toBe(true);
     expect(dialog.querySelector('[data-testid="grant-host-blocked"]')?.textContent).toContain("can't see this App's hosts");
+    // The select is described by that reason, so a screen-reader user hears why.
+    expect(scopeSelect(dialog).getAttribute('aria-describedby')).toBe('grant-scope-help');
     // Even a forced selection shows no list and no free text.
     await chooseScope(dialog, 'host:operate');
     expect(dialog.querySelector('input[name="hostId"]')).toBeNull();
@@ -1665,6 +1667,7 @@ describe('App key scope grant dialog (portal#1487)', () => {
     // The server routes a host-specific refusal to errors.hostId (#2356); the
     // host group names help AND alert.
     expect(hostGroup(dialog)!.getAttribute('aria-describedby')).toBe('grant-host-help grant-scope-error');
+    expect(hostGroup(dialog)!.getAttribute('aria-invalid')).toBe('true');
     expect(panel.querySelector('[data-testid="key-scopes"]')?.textContent).toContain('host:operate · h-1');
   });
 
@@ -1679,6 +1682,8 @@ describe('App key scope grant dialog (portal#1487)', () => {
     await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 403, data: { form: f } });
     flushSync(); await tick(2);
     expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe(serverText);
+    // A screen-reader user is not told the host they picked is wrong.
+    expect(hostGroup(dialog)!.getAttribute('aria-invalid')).not.toBe('true');
     // The alert is still named, so the refusal is still reachable from the field.
     expect(hostGroup(dialog)!.getAttribute('aria-describedby')).toBe('grant-host-help grant-scope-error');
   });

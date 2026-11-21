@@ -68,4 +68,11 @@ describe('SelectHost (portal#2311)', () => {
     const el = mountHost({ state: { kind: 'ok', hosts }, held: 'h-a' });
     expect(el.querySelector('[data-testid="select-host-unknown"]')).toBeNull();
   });
+
+  it('invalid marks the radiogroup aria-invalid, and only when asked (#2356)', () => {
+    const marked = mountHost({ state: { kind: 'ok', hosts }, invalid: true });
+    expect(marked.querySelector('[role="radiogroup"]')?.getAttribute('aria-invalid')).toBe('true');
+    const plain = mountHost({ state: { kind: 'ok', hosts } });
+    expect(plain.querySelector('[role="radiogroup"]')?.getAttribute('aria-invalid')).toBeNull();
+  });
 });

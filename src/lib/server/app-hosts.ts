@@ -22,7 +22,9 @@ export async function loadAppHosts(client: GraphQLClient, appRef: string): Promi
       .sort((a, b) => a.label.localeCompare(b.label) || a.hostId.localeCompare(b.hostId));
     return { kind: 'ok', hosts };
   } catch (e) {
-    if (extractGqlErrorCode(e) === 'FORBIDDEN') return { kind: 'refused' };
+    // Denied and missing are indistinguishable to a reader outside the App: both are a refusal, not an outage to retry.
+    const code = extractGqlErrorCode(e);
+    if (code === 'FORBIDDEN' || code === 'NOT_FOUND') return { kind: 'refused' };
     console.warn(`[app-hosts] host read for ${appRef} failed:`, e);
     return { kind: 'failed' };
   }

@@ -4354,7 +4354,7 @@
               </p>
               <div>
                 <label for="grant-scope" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.keys.grant.scope', 'Scope')}</label>
-                <select id="grant-scope" name="scope" bind:value={$grantKeyScopeForm.scope} class={inputClass}>
+                <select id="grant-scope" name="scope" bind:value={$grantKeyScopeForm.scope} aria-describedby={hostsBlocked ? 'grant-scope-help' : undefined} class={inputClass}>
                   <option value="attention:deliver">attention:deliver</option>
                   <option value="host:operate" disabled={hostsBlocked}>host:operate</option>
                 </select>
@@ -4382,6 +4382,7 @@
                     state={hostsState}
                     bind:value={$grantKeyScopeForm.hostId}
                     held={heldHostId}
+                    invalid={!!$grantKeyScopeErrors.hostId}
                     describedby={grantKeyScopeActionError ? 'grant-host-help grant-scope-error' : 'grant-host-help'}
                     onretry={loadGrantHosts}
                   />

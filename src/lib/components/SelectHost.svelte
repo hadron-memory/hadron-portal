@@ -22,6 +22,7 @@
     held = null,
     name = 'hostId',
     describedby,
+    invalid = false,
     onretry,
   }: {
     state: HostsState;
@@ -30,6 +31,8 @@
     held?: string | null;
     name?: string;
     describedby?: string;
+    /** The server's refusal was about the host (#2356): marks the group invalid. Other refusals must not. */
+    invalid?: boolean;
     onretry: () => void;
   } = $props();
 
@@ -63,7 +66,7 @@
     </button>
   </div>
 {:else if state.kind === 'ok' && (state.hosts.length > 0 || unknownHeld)}
-  <fieldset aria-describedby={describedby} class="min-w-0 space-y-2">
+  <fieldset role="radiogroup" aria-describedby={describedby} aria-invalid={invalid ? 'true' : undefined} class="min-w-0 space-y-2">
     <legend class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{legend}</legend>
     {#each state.hosts as host (host.hostId)}
       <label class="flex cursor-pointer items-start gap-3 rounded-lg border border-zinc-200 p-3 text-sm has-checked:border-indigo-500 dark:border-zinc-700">
