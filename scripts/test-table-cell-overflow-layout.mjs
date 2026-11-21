@@ -29,7 +29,7 @@ const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, plug
    const navigated = patchSource(code, id, "from '$app/navigation'", "from '$lib/test/stubs/app-navigation'");
    const patched = patchSource(navigated, id, "from '$app/stores'", "from '$lib/test/stubs/app-stores'", id.endsWith('/TasksAlarms.svelte'));
    // Any other $app/ import (a type import, a new store) would run unstubbed.
-   if (/from '\$app\//.test(patched)) patchFailure(`table-cell-fixture: an $app/ import is left unpatched in ${id}`);
+   if (/from ['"]\$app\//.test(patched)) patchFailure(`table-cell-fixture: an $app/ import is left unpatched in ${id}`);
    return patched;
   }
   // Expose only the fixture's actual table objects, no production test API.
@@ -274,6 +274,7 @@ try {
    console.log(`${kind}/${width}/${dark ? 'dark' : 'light'}: completed 8 sizing/text legs + native controls/menu/minimum`,{paint,narrowPaint});
 
   } catch (e) {
+   if (patchFailures.length) console.error(`patch failures: ${patchFailures.join('; ')}`);
    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-${kind}-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true }).catch(() => {});
    throw e;
   } finally { await page.close(); }
@@ -352,6 +353,7 @@ try {
    if (failures.length === legFailuresBefore) console.log(`${leg}: severity and text inside their cells (both axes); negative control detected`, clean);
    else console.log(`${leg}: FAILED, ${failures.length - legFailuresBefore} check(s) queued`, clean);
   } catch (e) {
+   if (patchFailures.length) console.error(`patch failures: ${patchFailures.join('; ')}`);
    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-')}.png`, fullPage: true }).catch(() => {});
    throw e;
   } finally { await page.close(); }

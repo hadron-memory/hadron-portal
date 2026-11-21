@@ -16,7 +16,7 @@ Root-rem 200% target checks now supplement the earlier td-only font simulation. 
 
 ## Main integration (#1950)
 
-The plain main merge preserves the sticky 170px phone action column and the named configuration Delete question, combining those with opt-in containment and per-kind wrapping. The fixture supplies main's now-required action callbacks. At 390 the action column has no resize handle by design; desktop still exercises its declared minimum/keyboard/drag. The semantic confirmation oracle follows the named question, not a cell position. The refreshed complete matrix and AI row-menu regression pass after integration; seven focused suites pass121tests and typecheck reports0/0. An earlier overlapping Vite run failed a dynamic-module fetch; the serial unchanged run supplies the passing evidence here.
+The plain main merge preserves the sticky 170px phone action column and the named configuration Delete question, combining those with opt-in containment and per-kind wrapping. The fixture supplies main's now-required action callbacks. At 390 the action column has no resize handle by design; desktop still exercises its declared minimum/keyboard/drag. The semantic confirmation oracle follows the named question, not a cell position. The refreshed complete matrix and AI row-menu regression pass after integration; seven focused suites pass 121 tests and typecheck reports 0/0. An earlier overlapping Vite run failed a dynamic-module fetch; the serial unchanged run supplies the passing evidence here.
 
 ## What the hashes cover
 
@@ -26,3 +26,15 @@ There are two hash sets in `manifest.json`, and they say different things.
 - `harnessSHA256AtReview` pins the fixture script, its `scripts/lib` helpers and the fixture harness as they stood when portal#1957 hardened them. Compare these to a later tree to see whether the harness has moved since.
 
 Neither set covers the compiled app CSS or the CI workflow step. The red-first commit is `059f8f3be1e64b18604e1ce790be9db5db22052c`.
+
+## Harness guard mutants (portal#1957)
+
+Each guard added in portal#1957 was broken once on `CELL_KIND=runs CELL_WIDTH=1280 node scripts/test-table-cell-overflow-layout.mjs` and the file restored from a copy afterwards. Exit codes are 1 for every mutant, 0 for the unmutated run.
+
+| mutant | observed failure |
+| --- | --- |
+| a required patch string misspelled (`$app/navigationX`) | `source patch no longer matches in …TasksAlarms.svelte`, printed from the leg's catch as `patch failures:` |
+| the optional `$app/stores` patch misspelled and made optional | `an $app/ import is left unpatched in …TasksAlarms.svelte` |
+| `window.stopFixture` not assigned | `the fixture exposes no stopFixture teardown` |
+| `console.error('mutant')` after mount | `no browser errors … 'console: mutant'` |
+| `net.evaluate(el=>el.remove())` removed from `pixelStrip` | fails earlier, at `production net stops deliberate uncontained control`, so the `net.isConnected` assertion itself is not shown to fire alone |
