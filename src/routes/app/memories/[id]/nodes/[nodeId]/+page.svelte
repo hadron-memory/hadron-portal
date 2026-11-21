@@ -775,7 +775,9 @@
   // (flowRows, outputWriteTo, outputMode) is seeded from node.data, not from
   // the refused form, so until the reader edits, the hidden inputs hold the
   // draft and the editor shows the saved flow; Save stays disabled until
-  // flowDirty, so the unseen draft cannot be resubmitted. Seeding the editor
+  // flowDirty (the Save button of form ?/updateFlow, `disabled={$flowSubmitting
+  // || !flowDirty || ...}`, ~:4127 in this file), so the unseen draft cannot be
+  // resubmitted. Seeding the editor
   // from the draft is portal#2467.
   let flowSyncMounted = false;
   $effect(() => {
@@ -2707,10 +2709,13 @@
       // runs on the FIRST mount too, erasing the draft the alert is about.
       // Same rule as the clearMetaRefusal() guard above: reset these only on
       // a real node change.
-      // `nodeChanged` is false on the first run (lastNodeId starts undefined)
-      // and true only when the node id differs from the previous run's. This
-      // block is entered only when the id differs, so a same-node re-run never
-      // reaches it. $deleteFormData.hard needs no first-mount
+      // Inside this block `nodeChanged` is false on the first run (lastNodeId
+      // starts undefined) and true on every later run, because the block is
+      // entered only when the node id differs from the previous run's. A
+      // same-node re-run (invalidateAll, a revision bump) does not enter it at
+      // all, so it leaves every form store alone: a kept draft across a
+      // same-node re-run is intended, and pinned in
+      // sibling-fullpage-refusal.client.test.ts. $deleteFormData.hard needs no first-mount
       // reset: its checkbox only renders inside the delete dialog, and both
       // ways in (the 'delete' menu case and the Settings danger-zone button)
       // set hard = false before opening it. The same goes for the move

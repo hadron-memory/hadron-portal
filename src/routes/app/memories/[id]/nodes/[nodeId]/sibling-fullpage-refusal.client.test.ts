@@ -248,6 +248,26 @@ describe('full-page sibling-form refusals keep the refused draft (portal#2446)',
     expect((field(m.target, '#testFlowApp') as HTMLSelectElement).value).toBe('');
   });
 
+  // A same-node re-run (invalidateAll after a save elsewhere, a revision bump)
+  // does not enter the node-change reset block, so a kept draft survives it.
+  it('testFlow: a refused draft survives a same-node re-run of the page data', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    serve();
+    const actionData = await refusedAction('testFlow', { _kind: 'testFlow', appId: 'app-1', orgId: 'org-1', agentRef: '', payload: '{"keep":"me"}' });
+    const { m, props } = await mountHydrated(actionData);
+
+    stored = { ...NODE, revision: 5 };
+    props.data = { ...PARENT, ...(await runLoad()) };
+    await settle();
+
+    m.target.querySelector<HTMLElement>('button[aria-label="Actions for Foo"]')!.click();
+    flushSync();
+    Array.from(m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((b) => b.textContent?.trim() === 'Run')!.click();
+    flushSync();
+    await settle();
+    expect(field(m.target, '#testFlowPayload')!.value, 'the draft after a same-node re-run').toBe('{"keep":"me"}');
+  });
+
   // The claim the first-mount guard rests on, pinned from the other side: a
   // hydrated hard = true (a refused hard delete) must not reach the reader
   // through the menu's delete dialog, because that entry resets it first. The
