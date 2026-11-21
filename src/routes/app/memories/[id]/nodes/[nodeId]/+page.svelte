@@ -61,7 +61,6 @@
     authorshipView,
     provenanceById,
     validationText,
-    validationHistoryDetail,
     validationView,
     type NodeProvenance,
     type ProvenanceResult,
@@ -2285,7 +2284,7 @@
   }
   function historyValidationText(r: HistoryRow): string {
     const v = historyValidation(r);
-    return v ? `${validationText(v)} ${validationHistoryDetail(v)}`.trim() : '';
+    return v ? validationText(v) : '';
   }
 
   // Editor display (#620 contract): resolved handle, else identity string.
