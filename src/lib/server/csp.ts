@@ -55,6 +55,14 @@ export function appendConnectSrc(header: string, origin: string): string {
     .join('; ');
 }
 
+/** portal#2084 §10 F2: the hosts a form-action source may name. URL parsing (WHATWG) keeps `;`, `,`, `'`
+ *  and the percent-encoded forms of them in a special-scheme host, and the serialized origin is spliced
+ *  into a header that is split on `;` and read as space-separated sources, so any such character would
+ *  end the directive or add a source. The parser has already lowercased the host and punycoded an IDN,
+ *  so an allowlist is short: DNS labels (letters, digits, `-`, `_`) joined by dots, or a bracketed IPv6
+ *  literal. `*` is refused by the same rule. */
+const PUBLIC_HOST = /^(?:[a-z0-9_-]+(?:\.[a-z0-9_-]+)*\.?|\[[0-9a-f:.]+\])$/;
+
 /** #1716: Chrome applies form-action to a native POST's ceremony redirect.
  * The API origin is runtime PUBLIC configuration, never LOCAL_SERVER_URL or
  * a URL supplied by a form. Keep an explicit restrictive policy otherwise.
@@ -71,7 +79,7 @@ export function appendPublicServerFormAction(
       !["http:", "https:"].includes(url.protocol) ||
       url.username ||
       url.password ||
-      url.hostname.includes("*")
+      !PUBLIC_HOST.test(url.hostname)
     )
       return header;
     origin = url.origin;
