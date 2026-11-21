@@ -2458,15 +2458,18 @@
       labelWritesPending = labelWritesPending.filter((id) => id !== target.id);
       if (current()) labelBusy = false;
     }
-    // The label is stored: a failed refresh is a stale list, never a failed write
-    // (retrying it would only repeat a write that already happened).
+    // The label is stored. Close the popup now, before the refresh: left open
+    // through it, the reader could edit and submit again, and this save's
+    // completion would then close (or answer for) their second one. A failed
+    // refresh is a stale list, never a failed write (retrying would only repeat
+    // a write that already happened), so it reports on the History view.
     if (written) {
+      if (current()) closeLabel();
       try {
         await invalidateAll();
       } catch {
-        if (current()) historyError = 'Label saved, but the list could not refresh. Reload to see it.';
+        historyError = 'Label saved, but the list could not refresh. Reload to see it.';
       }
-      if (current()) closeLabel();
     }
   }
   async function confirmClear() {

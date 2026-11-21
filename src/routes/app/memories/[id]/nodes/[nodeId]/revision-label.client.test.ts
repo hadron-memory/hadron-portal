@@ -180,7 +180,7 @@ describe('#534 — Edit label popup on the real node page', () => {
     typeInto(input(target)!, 'second');
 
     expect(save().disabled).toBe(true); // same revision, write in flight
-    target.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    input(target)!.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await settle();
     expect(fetchMock).toHaveBeenCalledTimes(1); // no second write can overtake the first
 
@@ -196,15 +196,34 @@ describe('#534 — Edit label popup on the real node page', () => {
   });
 
   it('closing the popup does not clear another History action\'s busy state', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {}))); // a delete that never settles
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {}))); // a restore that never settles
     const { target } = await mountPage();
     await click(target.querySelector('button[aria-label="Revision actions"]'));
-    await click(byText(target, '[role="menuitem"]', 'Delete'));
+    await click(byText(target, '[role="menuitem"]', 'Restore'));
+    const confirm = () => byText(target, 'h3', 'Restore this revision?')?.parentElement?.querySelector<HTMLButtonElement>('button.bg-amber-500');
+    await click(confirm());
+    expect(confirm()?.disabled).toBe(true); // the restore is in flight
     await click(target.querySelector('button[aria-label="Revision actions"]'));
     await click(byText(target, '[role="menuitem"]', 'Edit label'));
-    expect(target.querySelector<HTMLButtonElement>('[data-testid="revision-label-save"]')!.disabled).toBe(false); // own state
     await click(target.querySelector('[data-testid="revision-label-cancel"]'));
     expect(input(target)).toBeNull();
+    expect(confirm()?.disabled).toBe(true); // closing the label popup did not clear its busy flag
+  });
+
+  it('the popup is already closed while the refresh is still pending, so it cannot be submitted again', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    let release!: () => void;
+    navigationHooks.onInvalidateAll = () => new Promise<void>((res) => { release = res; });
+    const { target } = await mountPage();
+    await openLabelDialog(target);
+    typeInto(input(target)!, 'once');
+    await click(target.querySelector('[data-testid="revision-label-save"]'));
+    await settle();
+    expect(input(target)).toBeNull(); // closed on the stored write, refresh still pending
+    release();
+    await settle();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('a stored label is a success even when the refresh that follows fails', async () => {
@@ -220,6 +239,23 @@ describe('#534 — Edit label popup on the real node page', () => {
     expect(input(target)).toBeNull(); // closed, not stuck on an error
     expect(target.textContent).toContain('Label saved, but the list could not refresh');
     expect(target.textContent).not.toContain('refresh failed');
+  });
+
+  it('keyboard: Tab and Shift+Tab cycle inside the popup', async () => {
+    const { target } = await mountPage();
+    document.body.appendChild(target);
+    await click(target.querySelector('button[aria-label="Revision actions"]'));
+    await click(byText(target, '[role="menuitem"]', 'Edit label'));
+    await settle();
+    const dialog = target.querySelector('[role="dialog"]')!;
+    const key = (k: string, shiftKey = false) => { (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: k, shiftKey, bubbles: true, cancelable: true })); };
+    const save = target.querySelector<HTMLButtonElement>('[data-testid="revision-label-save"]')!;
+    save.focus();
+    key('Tab');
+    expect(dialog.contains(document.activeElement)).toBe(true); // wraps, never reaches the page
+    input(target)!.focus();
+    key('Tab', true);
+    expect(dialog.contains(document.activeElement)).toBe(true);
   });
 
   it('keyboard: focus moves into the popup, Escape closes it, focus returns to the row button', async () => {
