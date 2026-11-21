@@ -2715,9 +2715,10 @@
       // starts undefined) and true on every later run, because the block is
       // entered only when the node id differs from the previous run's. A
       // same-node re-run (invalidateAll, a revision bump) does not enter it at
-      // all, so it leaves every form store AND every open flag (testFlowOpen,
-      // moveOpen, the delete confirm) alone: a kept draft across a same-node
-      // re-run is intended, and pinned in sibling-fullpage-refusal.client.test.ts. $deleteFormData.hard needs no first-mount
+      // all, so it leaves every form store and every open dialog alone: a kept
+      // draft across a same-node re-run is intended. The test pins the draft and
+      // the open Run dialog (testFlowOpen); the move and delete dialogs follow
+      // from the same entry condition and are not separately pinned. $deleteFormData.hard needs no first-mount
       // reset: its checkbox only renders inside the delete dialog, and both
       // ways in (the 'delete' menu case and the Settings danger-zone button)
       // set hard = false before opening it. The same goes for the move
