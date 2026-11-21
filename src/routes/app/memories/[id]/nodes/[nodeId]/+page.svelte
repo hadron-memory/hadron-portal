@@ -2340,22 +2340,35 @@
   // is a SINGLE fixed-positioned popover (anchored to the clicked ⋯ button), so
   // it isn't clipped by the DataTable's overflow-auto scroll container.
   let historyMenuFor = $state<NodeRevision | null>(null);
+  let historyMenuTrigger: HTMLElement | null = null;
   let historyMenuX = $state(0);
   let historyMenuY = $state(0);
   let restoreTarget = $state<NodeRevision | null>(null);
   // #534: the revision whose label the "Edit label" popup is changing.
   let labelTarget = $state<NodeRevision | null>(null);
-  // Which open of the popup a save belongs to: a save that outlives its popup
+  // Which opening of the popup a save belongs to: a save that outlives its popup
   // (cancelled, or the page moved to another node) must not close or clear a
   // later one, nor lose its draft.
-  let labelOpen = 0;
+  let labelDialogGeneration = 0;
+  // The label popup's own busy and refusal: a restore or delete in flight keeps
+  // reporting through historyBusy/historyError, and closing this popup never
+  // touches theirs.
+  let labelBusy = $state(false);
+  let labelError = $state<string | null>(null);
+  // Revisions with a label write still in flight. A second save for the same
+  // revision waits for the first to settle, so an earlier request cannot commit
+  // after a later one and put the old label back.
+  let labelWritesPending = $state<string[]>([]);
+  // The History row button that opened the popup; focus returns there on close.
+  let labelTrigger: HTMLElement | null = null;
   function closeLabel() {
-    labelOpen++;
+    labelDialogGeneration++;
     labelTarget = null;
-    // The request this popup started (if any) no longer reports into the page:
-    // its busy flag and refusal must not leak into the next popup or node.
-    historyBusy = false;
-    historyError = null;
+    labelBusy = false;
+    labelError = null;
+    const trigger = labelTrigger;
+    labelTrigger = null;
+    if (trigger) void tick().then(() => { if (trigger.isConnected) trigger.focus(); });
   }
   let clearConfirm = $state(false);
   let historyBusy = $state(false);
@@ -2368,6 +2381,7 @@
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     historyMenuX = rect.right;
     historyMenuY = rect.bottom + 4;
+    historyMenuTrigger = e.currentTarget as HTMLElement;
     historyMenuFor = r;
   }
 
@@ -2404,8 +2418,10 @@
     if (!r) return;
     if (id === 'display') window.open(revisionHref(r), '_blank', 'noopener');
     else if (id === 'label') {
-      historyError = null;
-      labelOpen++;
+      labelDialogGeneration++;
+      labelBusy = false;
+      labelError = null;
+      labelTrigger = historyMenuTrigger;
       labelTarget = r; // opens the Edit label popup
     } else if (id === 'restore') restoreTarget = r; // opens the warning dialog
     else if (id === 'delete') void postRevisionAction({ action: 'delete', revisionId: r.id });
@@ -2415,10 +2431,43 @@
     if (await postRevisionAction({ action: 'restore', revisionId: restoreTarget.id })) restoreTarget = null;
   }
   async function confirmLabel(text: string) {
-    if (!labelTarget) return;
-    const open = labelOpen;
-    const ok = await postRevisionAction({ action: 'label', revisionId: labelTarget.id, revLabel: text }, () => open === labelOpen);
-    if (ok && open === labelOpen) closeLabel();
+    const target = labelTarget;
+    if (!target || labelWritesPending.includes(target.id)) return;
+    const generation = labelDialogGeneration;
+    const current = () => generation === labelDialogGeneration;
+    labelWritesPending = [...labelWritesPending, target.id];
+    labelBusy = true;
+    labelError = null;
+    let written = false;
+    try {
+      const res = await fetch(`${basePath}/nodes/${node.id}/revisions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'label', revisionId: target.id, revLabel: text }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (current()) labelError = d.error ?? 'Revision action failed';
+        return;
+      }
+      written = true;
+    } catch (e) {
+      if (current()) labelError = e instanceof Error ? e.message : 'Revision action failed';
+      return;
+    } finally {
+      labelWritesPending = labelWritesPending.filter((id) => id !== target.id);
+      if (current()) labelBusy = false;
+    }
+    // The label is stored: a failed refresh is a stale list, never a failed write
+    // (retrying it would only repeat a write that already happened).
+    if (written) {
+      try {
+        await invalidateAll();
+      } catch {
+        if (current()) historyError = 'Label saved, but the list could not refresh. Reload to see it.';
+      }
+      if (current()) closeLabel();
+    }
   }
   async function confirmClear() {
     if (await postRevisionAction({ action: 'clear' })) clearConfirm = false;
@@ -4374,8 +4423,8 @@
     {#if labelTarget}
       <RevisionLabelDialog
         label={labelTarget.revLabel ?? null}
-        busy={historyBusy}
-        error={historyError}
+        busy={labelBusy || labelWritesPending.includes(labelTarget.id)}
+        error={labelError}
         onsave={confirmLabel}
         oncancel={closeLabel}
       />

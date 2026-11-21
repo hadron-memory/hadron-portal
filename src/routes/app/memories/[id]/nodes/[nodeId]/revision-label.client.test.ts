@@ -9,6 +9,7 @@ import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
+import { navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_PAGE_QUERY } from '$lib/server/queries';
 import { SELF_MEMORY_ACCESS_QUERY } from '$lib/server/comments';
 import Page from './+page.svelte';
@@ -41,6 +42,7 @@ const PARENT = {
 
 let served = node('A');
 beforeEach(() => {
+  resetNavigationCalls();
   mockRequest.mockReset();
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   mockRequest.mockImplementation(async (doc: string) => {
@@ -163,25 +165,76 @@ describe('#534 — Edit label popup on the real node page', () => {
     expect(target.textContent).not.toContain('node A refusal');
   });
 
-  it('a stale save finishing while the newer popup\'s save is in flight leaves that save busy', async () => {
+  it('a reopened popup cannot save a revision whose earlier write is still in flight', async () => {
     const pending: Array<(r: Response) => void> = [];
-    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((res) => { pending.push(res); })));
+    const fetchMock = vi.fn(() => new Promise<Response>((res) => { pending.push(res); }));
+    vi.stubGlobal('fetch', fetchMock);
     const { target } = await mountPage();
     const save = () => target.querySelector<HTMLButtonElement>('[data-testid="revision-label-save"]')!;
     await openLabelDialog(target);
-    await click(save()); // save A, left pending
+    typeInto(input(target)!, 'first');
+    await click(save()); // write A, left pending
     await click(target.querySelector('[data-testid="revision-label-cancel"]'));
     await click(target.querySelector('button[aria-label="Revision actions"]'));
     await click(byText(target, '[role="menuitem"]', 'Edit label'));
     typeInto(input(target)!, 'second');
-    await click(save()); // save B, also pending
-    expect(save().disabled).toBe(true);
 
-    pending[0](new Response(JSON.stringify({ error: 'late' }), { status: 403 })); // A settles first
+    expect(save().disabled).toBe(true); // same revision, write in flight
+    target.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await settle();
+    expect(fetchMock).toHaveBeenCalledTimes(1); // no second write can overtake the first
 
-    expect(save().disabled).toBe(true); // B is still saving: no second submit
+    pending[0](new Response(JSON.stringify({ error: 'late' }), { status: 403 })); // A settles
+    await settle();
     expect(target.textContent).not.toContain('late');
+    expect(save().disabled).toBe(false);
+    expect(input(target)?.value).toBe('second');
+
+    await click(save()); // now B may go, after A
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String((fetchMock.mock.calls[1] as unknown as [string, RequestInit])[1].body)).revLabel).toBe('second');
+  });
+
+  it('closing the popup does not clear another History action\'s busy state', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {}))); // a delete that never settles
+    const { target } = await mountPage();
+    await click(target.querySelector('button[aria-label="Revision actions"]'));
+    await click(byText(target, '[role="menuitem"]', 'Delete'));
+    await click(target.querySelector('button[aria-label="Revision actions"]'));
+    await click(byText(target, '[role="menuitem"]', 'Edit label'));
+    expect(target.querySelector<HTMLButtonElement>('[data-testid="revision-label-save"]')!.disabled).toBe(false); // own state
+    await click(target.querySelector('[data-testid="revision-label-cancel"]'));
+    expect(input(target)).toBeNull();
+  });
+
+  it('a stored label is a success even when the refresh that follows fails', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    navigationHooks.onInvalidateAll = () => { throw new Error('refresh failed'); };
+    const { target } = await mountPage();
+    await openLabelDialog(target);
+    typeInto(input(target)!, 'kept');
+    await click(target.querySelector('[data-testid="revision-label-save"]'));
+    await settle();
+    expect(fetchMock).toHaveBeenCalledTimes(1); // no retry of a write that already happened
+    expect(input(target)).toBeNull(); // closed, not stuck on an error
+    expect(target.textContent).toContain('Label saved, but the list could not refresh');
+    expect(target.textContent).not.toContain('refresh failed');
+  });
+
+  it('keyboard: focus moves into the popup, Escape closes it, focus returns to the row button', async () => {
+    const { target } = await mountPage();
+    document.body.appendChild(target);
+    const trigger = target.querySelector<HTMLButtonElement>('button[aria-label="Revision actions"]')!;
+    await click(trigger);
+    await click(byText(target, '[role="menuitem"]', 'Edit label'));
+    await settle();
+    expect(document.activeElement).toBe(input(target));
+
+    input(target)!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await settle();
+    expect(input(target)).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 
   it('a refusal for the CURRENT popup still shows and keeps the draft', async () => {
@@ -194,13 +247,30 @@ describe('#534 — Edit label popup on the real node page', () => {
     expect(input(target)?.value).toBe('keep me');
   });
 
-  it('control: a normal save closes the popup', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 })));
+  it('a save posts the revision id and the typed label, and closes the popup', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
     const { target } = await mountPage();
     await openLabelDialog(target);
     typeInto(input(target)!, 'new label');
     await click(target.querySelector('[data-testid="revision-label-save"]'));
     await settle();
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/app/memories/mem-A/nodes/A/revisions');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(String(init.body))).toEqual({ action: 'label', revisionId: 'rev-A', revLabel: 'new label' });
     expect(input(target)).toBeNull();
+  });
+
+  it('emptying the field through the UI posts a blank label (the endpoint clears it)', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { target } = await mountPage();
+    await openLabelDialog(target);
+    expect(input(target)!.value).toBe('old');
+    typeInto(input(target)!, '');
+    await click(target.querySelector('[data-testid="revision-label-save"]'));
+    await settle();
+    expect(JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body))).toEqual({ action: 'label', revisionId: 'rev-A', revLabel: '' });
   });
 });

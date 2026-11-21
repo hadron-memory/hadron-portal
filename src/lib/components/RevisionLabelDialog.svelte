@@ -4,8 +4,10 @@
   blank label clears it (the endpoint maps blank to null).
 -->
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
+  import { focusTrap } from '$lib/a11y/focus-trap';
+  import { consumeEscapeAtDialog, dialogEscapeFallback, type DialogEscapeOptions } from '$lib/a11y/dialog-escape';
 
   // The server's cap on NodeRevision.revLabel.
   const MAX_LABEL = 500;
@@ -19,16 +21,24 @@
   } = $props();
 
   let text = $state(untrack(() => label ?? ''));
+  let inputEl: HTMLInputElement | undefined;
+  // The trap moves focus into the dialog; the field is where the reader types.
+  onMount(() => { void tick().then(() => inputEl?.focus()); });
+
+  // Escape is consumed at this dialog's own layer; a save in flight is not
+  // dismissable, so it cannot be abandoned mid-write.
+  const escape: DialogEscapeOptions = { close: () => oncancel(), suppressed: () => busy };
 </script>
 
 <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-  <button type="button" class="absolute inset-0 cursor-default bg-black/30" aria-label={t('node.history.label.cancel', 'Cancel')} onclick={oncancel}></button>
-  <div role="dialog" aria-modal="true" aria-labelledby="revision-label-heading" class="relative w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+  <button type="button" tabindex="-1" class="absolute inset-0 cursor-default bg-black/30" aria-label={t('node.history.label.cancel', 'Cancel')} onclick={oncancel}></button>
+  <div role="dialog" aria-modal="true" aria-labelledby="revision-label-heading" tabindex="-1" use:focusTrap use:dialogEscapeFallback={escape} onkeydown={(event) => consumeEscapeAtDialog(event, escape)} class="relative w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
   <form onsubmit={(e) => { e.preventDefault(); onsave(text); }}>
     <h3 id="revision-label-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('node.history.label.heading', 'Edit revision label')}</h3>
     <label class="sr-only" for="revision-label-input">{t('node.history.label.field', 'Label')}</label>
     <input
       id="revision-label-input"
+      bind:this={inputEl}
       data-testid="revision-label-input"
       type="text"
       bind:value={text}
