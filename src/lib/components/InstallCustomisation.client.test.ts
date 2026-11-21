@@ -170,6 +170,53 @@ describe('install customisation panel', () => {
     input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); await tick();
     expect(root.querySelectorAll('tbody tr')).toHaveLength(2);
   });
+  // portal#1509 item 1: an empty page past the end (rows deleted since the
+  // list was read) must never read "Loaded 21–20 of 20", must not claim the
+  // node list is limited (the total is known), and must leave a way back.
+  it('portal#1509: an empty page past the end shows no impossible range and offers the last valid page', async () => {
+    const root = await panel();
+    const past = { ...payload(), list: { state: 'ok', value: { memoryId: 'mem', urn: 'hrn:mem:acme.com:install', nodes: [], total: 20, offset: 20 } } };
+    const fetcher = vi.fn(async (_url: string) => new Response(JSON.stringify(past)));
+    vi.stubGlobal('fetch', fetcher);
+    button(root, 'Next').click();
+    await settle();
+    expect(fetcher.mock.calls[0][0]).toContain('offset=20');
+    expect(root.textContent).not.toMatch(/21\s*[–-]\s*20/);
+    expect(root.querySelector('[data-testid="customisation-list-unavailable"]'), 'the known total is not a limited list').toBeNull();
+    expect(root.textContent).toMatch(/20 customisations/);
+    const back = button(root, 'Last page');
+    expect(back, 'a way to the last page that exists').toBeTruthy();
+    expect(back.disabled).toBe(false);
+    back.click();
+    await settle();
+    // total 20 -> the last valid page starts at offset 0.
+    expect(fetcher.mock.calls[1][0]).toContain('offset=0');
+  });
+  // portal#1509 item 4: the reload button throws away a draft a read-only
+  // viewer cannot have, so it belongs inside the same gate as the form.
+  it.each([[false, false], [true, true], [null, true]])('portal#1509: canManage=%s shows "Reload and discard draft": %s', async (canManage, shown) => {
+    const root = await panel(canManage as boolean | null);
+    root.querySelector<HTMLButtonElement>('button[aria-label^="Open Note"]')!.click();
+    await settle();
+    expect(root.querySelector('h4')?.textContent).toBe('Original');
+    const reload = [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Reload and discard draft');
+    expect(Boolean(reload)).toBe(shown);
+  });
+  // portal#1509 item 5: a search that matches nothing says so, in a region that
+  // is already mounted before the filter runs (portal#2379).
+  it('portal#1509: a search with no match says so and clears when the filter does', async () => {
+    const root = await panel();
+    const input = root.querySelector<HTMLInputElement>('input[aria-label="Search the customisations on this page"]')!;
+    const note = () => root.querySelector('[data-testid="customisation-no-match"]');
+    expect(note()).toBeNull();
+    input.value = 'zzz-nothing'; input.dispatchEvent(new Event('input', { bubbles: true })); await tick(4);
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(0);
+    expect(note()?.textContent).toMatch(/No customisations on this page match/);
+    expect(note()?.textContent).toContain('zzz-nothing');
+    input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); await tick(4);
+    expect(note()).toBeNull();
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(1);
+  });
 });
 
 async function settle() {

@@ -86,6 +86,29 @@
       : t('customisation.loaded', 'Loaded {from}–{to} of {total} customisations', vars);
   });
 
+  // portal#1509: an empty page that starts at or beyond the known total means
+  // the list shrank under the reader (deleted rows). It gets its own note and a
+  // way to the last page that exists. An empty page INSIDE the total is the
+  // server's limited node list (portal#1524) and keeps the limited-list note.
+  const pastEnd = $derived(
+    read.list.state === 'ok' &&
+      read.list.value.nodes.length === 0 &&
+      read.list.value.total > 0 &&
+      offset > 0 &&
+      offset >= read.list.value.total,
+  );
+  const lastPageOffset = $derived(
+    read.list.state === 'ok'
+      ? Math.floor((Math.max(read.list.value.total, 1) - 1) / 20) * 20
+      : 0,
+  );
+  const pastEndText = $derived.by(() => {
+    if (read.list.state !== 'ok') return '';
+    const vars = { total: String(read.list.value.total) };
+    return read.list.value.total === 1
+      ? t('customisation.past-end-one', 'There is {total} customisation, but none at this position.', vars)
+      : t('customisation.past-end', 'There are {total} customisations, but none at this position.', vars);
+  });
   const rows = $derived(read.list.state === 'ok' ? read.list.value.nodes : []);
   const columns: PortalColumnDef<
     Pick<InstallNode, 'id' | 'urn' | 'loc' | 'name'>
@@ -266,6 +289,10 @@
          note, never an empty table or a count of 0, and this holds whether or
          not the flag is on. -->
     {#if read.list.value.urn}<div class="mt-2"><Urn value={read.list.value.urn} compact /></div>{/if}
+    {#if pastEnd}
+      <p data-testid="customisation-past-end" class="mt-2 text-sm text-zinc-500">{pastEndText}</p>
+      <button type="button" class={`mt-2 ${secondaryButton}`} disabled={busy} onclick={()=>openPage(lastPageOffset,null)}>{t('customisation.last-page-go','Last page')}</button>
+    {/if}
   {:else}
     {#if read.list.value.urn}<div class="mt-2"><Urn value={read.list.value.urn} compact /></div>{/if}
     <DataTable {table} showFooter={false} bind:globalFilter={customisationFilter} searchPlaceholder={t('customisation.search-page','Search this page…')} searchAriaLabel={t('customisation.search-page-label','Search the customisations on this page')} listKey={`install-customisation:${appRef}:${agent.id}`}>
@@ -276,10 +303,12 @@
         <button type="button" class={`mt-2 ${secondaryButton}`} disabled={busy} aria-label={t('customisation.open-row','Open {name} ({loc})',{name:cell.row.original.name,loc:cell.row.original.loc})} onclick={()=>openPage(offset,cell.row.original.loc)}>{t('customisation.open','Open')}</button>
       {/snippet}
     </DataTable>
+    <!-- portal#1509: a search that matches nothing says so. The region is already mounted before the filter runs (portal#2379). -->
+    <LiveRegion>{#if table.getRowModel().rows.length === 0 && customisationFilter.trim() !== ''}<p data-testid="customisation-no-match" class="mt-2 text-sm text-zinc-500">{t('customisation.no-match', 'No customisations on this page match “{query}”.', { query: customisationFilter.trim() })}</p>{/if}</LiveRegion>
     <div class="mt-2 flex flex-wrap gap-3"><button type="button" class={secondaryButton} disabled={busy||offset===0} title={offset===0?t('customisation.first-page','Already on the first page'):undefined} onclick={()=>openPage(Math.max(0,offset-20),null)}>{t('customisation.previous','Previous')}</button><button type="button" class={secondaryButton} disabled={busy||offset+20>=read.list.value.total} title={offset+20>=read.list.value.total?t('customisation.last-page','No more customisations'):undefined} onclick={()=>openPage(offset+20,null)}>{t('customisation.next','Next')}</button><span>{countText}</span></div>
   {/if}
   <!-- portal#2379: the empty-list note arrives after a page change, so it goes in a region that is already mounted. -->
-  <LiveRegion>{#if read.list.state==='ok'&&read.list.value.nodes.length===0}<p data-testid="customisation-list-unavailable" class="mt-2 text-sm text-zinc-500">{t('customisation.list-unavailable','Nothing is listed here. The node list is temporarily limited, so this may not be the full set.')}</p>{/if}</LiveRegion>
+  <LiveRegion>{#if read.list.state==='ok'&&read.list.value.nodes.length===0&&!pastEnd}<p data-testid="customisation-list-unavailable" class="mt-2 text-sm text-zinc-500">{t('customisation.list-unavailable','Nothing is listed here. The node list is temporarily limited, so this may not be the full set.')}</p>{/if}</LiveRegion>
   {#if canManage!==false}<button type="button" class={`mt-3 ${secondaryButton}`} disabled={busy} onclick={start}>{t('customisation.start','Start customising')}</button>{/if}
   {#if loc||creating}
     <div class="mt-4 grid gap-4 md:grid-cols-2">
@@ -303,7 +332,7 @@
         {:else if read.replacement.state==='loading'}<!-- announced by the LiveRegion above -->
         {:else if read.replacement.state==='failed'}<p role="alert">{t('customisation.node-failed','Couldn’t load this replacement.')}</p>
         {:else}<p>{t('customisation.not-shown','Not shown')}</p>{/if}
-        <button type="button" disabled={busy} onclick={()=>openPage(offset,loc)} class={`mt-2 ${secondaryButton}`}>{t('customisation.reload-discard','Reload and discard draft')}</button>
+        {#if canManage!==false}<button type="button" disabled={busy} onclick={()=>openPage(offset,loc)} class={`mt-2 ${secondaryButton}`}>{t('customisation.reload-discard','Reload and discard draft')}</button>{/if}
         <!-- Both regions are mounted empty before any save, so a result lands in a region already observed (#1369). -->
         <p role="status" data-feedback class="text-sm [&:not(:empty)]:mt-2">{failed?'':feedback}</p>
         <p role="alert" data-feedback class="text-sm [&:not(:empty)]:mt-2">{failed?feedback:''}</p>
