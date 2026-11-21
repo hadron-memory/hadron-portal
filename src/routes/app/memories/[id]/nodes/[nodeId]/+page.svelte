@@ -1990,6 +1990,31 @@
     })),
   ]);
 
+  // #2316: the typed-object field list on the shared grid, in declared order
+  // (the grid starts unsorted). Search is off, and so is the footer while the
+  // list fits the ACTIVE page size (the footer's own size select can change it);
+  // past that the footer returns, so no field is ever hidden without a pager to
+  // reach it.
+  const TYPED_PROPERTY_PAGE = 100;
+  const typedPropertyColumns: PortalColumnDef<TypedPropertyRow>[] = [
+    { accessorKey: 'name', id: 'field', header: t('node.properties.col-field', 'Field'), enableHiding: false, size: 200 },
+    { accessorKey: 'type', header: t('node.properties.col-type', 'Type'), size: 140 },
+    { accessorFn: (r) => (r.present ? (typeof r.value === 'object' ? displayJson(r.value, { compact: true }) ?? '' : String(r.value)) : ''), id: 'value', header: t('node.properties.col-value', 'Value'), size: 320 },
+  ];
+  const typedPropertyTable = createSvelteTable<TypedPropertyRow>({
+    get data() {
+      return typedPropertyRows;
+    },
+    columns: typedPropertyColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    initialState: { pagination: { pageIndex: 0, pageSize: TYPED_PROPERTY_PAGE } },
+  });
+  const typedPropertyNeedsPager = $derived(
+    typedPropertyRows.length > typedPropertyTable.atoms.pagination.get().pageSize,
+  );
+
   let edgeFilter = $state('');
 
   const edgeColumns: PortalColumnDef<EdgeRow>[] = [
@@ -3780,37 +3805,37 @@
              collection — declared fields (with type + required markers) first,
              then any extra keys. The raw JSON view below stays authoritative. -->
         {#if typedPropertyRows.length > 0}
-          <div class="mt-3 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-            <table class="w-full text-sm">
-              <thead>
-                <tr class="border-b border-zinc-200 bg-zinc-50 text-left text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-                  <th class="px-3 py-2 font-medium">{t('node.properties.col-field', 'Field')}</th>
-                  <th class="px-3 py-2 font-medium">{t('node.properties.col-type', 'Type')}</th>
-                  <th class="px-3 py-2 font-medium">{t('node.properties.col-value', 'Value')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {#each typedPropertyRows as row (row.name)}
-                  <tr class="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60">
-                    <td class="px-3 py-2 font-mono text-xs text-zinc-700 dark:text-zinc-300">
-                      {row.name}{#if row.required}<span class="text-red-500" title={t('node.properties.required', 'Required')}>*</span>{/if}
-                    </td>
-                    <td class="px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">
-                      {#if row.declared}{row.type}{:else}<span class="italic">{t('node.properties.undeclared', 'not declared')}</span>{/if}
-                    </td>
-                    <td class="px-3 py-2 font-mono text-xs text-zinc-900 dark:text-white">
-                      {#if !row.present}
-                        <span class="italic text-zinc-400 dark:text-zinc-500 {row.required ? 'text-amber-600 dark:text-amber-400' : ''}">{row.required ? t('node.properties.missing-required', 'missing (required)') : t('node.properties.unset', '—')}</span>
-                      {:else if typeof row.value === 'object'}
-                        {displayJson(row.value, { compact: true }) ?? t('node.properties.value-unavailable', '(too deeply nested to show)')}
-                      {:else}
-                        {String(row.value)}
-                      {/if}
-                    </td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
+          <div class="mt-3">
+            <DataTable
+              table={typedPropertyTable}
+              listKey="node:typed-properties"
+              bounded
+              showFooter={typedPropertyNeedsPager}
+              showSearch={false}
+              searchPlaceholder={t('node.properties.search', 'Search fields…')}
+              searchAriaLabel={t('node.properties.search', 'Search fields…')}
+              rowAttrs={(row) => ({ 'data-testid': 'typed-property-row', 'data-field': row.name })}
+            >
+              {#snippet cell(cell, row)}
+                {#if cell.column.id === 'field'}
+                  <span class="font-mono text-xs text-zinc-700 dark:text-zinc-300">{row.name}{#if row.required}<span class="text-red-500" title={t('node.properties.required', 'Required')}>*</span>{/if}</span>
+                {:else if cell.column.id === 'type'}
+                  <span class="text-xs text-zinc-500 dark:text-zinc-400">
+                    {#if row.declared}{row.type}{:else}<span class="italic">{t('node.properties.undeclared', 'not declared')}</span>{/if}
+                  </span>
+                {:else}
+                  <span class="font-mono text-xs text-zinc-900 dark:text-white">
+                    {#if !row.present}
+                      <span class="italic text-zinc-400 dark:text-zinc-500 {row.required ? 'text-amber-600 dark:text-amber-400' : ''}">{row.required ? t('node.properties.missing-required', 'missing (required)') : t('node.properties.unset', '—')}</span>
+                    {:else if typeof row.value === 'object'}
+                      {displayJson(row.value, { compact: true }) ?? t('node.properties.value-unavailable', '(too deeply nested to show)')}
+                    {:else}
+                      {String(row.value)}
+                    {/if}
+                  </span>
+                {/if}
+              {/snippet}
+            </DataTable>
           </div>
         {/if}
         {#if propertiesUnavailable}
