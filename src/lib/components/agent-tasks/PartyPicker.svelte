@@ -9,6 +9,7 @@
 <script lang="ts">
   import { t } from '$lib/i18n/t';
   import PartyLabel from './PartyLabel.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
 
   type Option = { value: string; label: string };
   let {
@@ -79,11 +80,13 @@
     {/if}
     <option value="other" selected={value === 'other'}>{t('app.tasks.write.someone-else', 'Someone else…')}</option>
   </select>
-  {#if peopleFailed}
-    <p class="text-xs text-amber-700 dark:text-amber-300" role="status">{t('app.tasks.write.people-failed', 'Couldn’t load this App’s members just now, so they aren’t listed. Reload to try again, or use “Someone else…”.')}</p>
-  {:else if peopleWithheld}
-    <p class="text-xs text-zinc-500" role="status">{t('app.tasks.write.people-withheld', 'This App’s members aren’t visible to you, so they aren’t listed. Use “Someone else…” to name one.')}</p>
-  {/if}
+  <LiveRegion>
+    {#if peopleFailed}
+      <p class="text-xs text-amber-700 dark:text-amber-300">{t('app.tasks.write.people-failed', 'Couldn’t load this App’s members just now, so they aren’t listed. Reload to try again, or use “Someone else…”.')}</p>
+    {:else if peopleWithheld}
+      <p class="text-xs text-zinc-500">{t('app.tasks.write.people-withheld', 'This App’s members aren’t visible to you, so they aren’t listed. Use “Someone else…” to name one.')}</p>
+    {/if}
+  </LiveRegion>
   {#if value === 'other'}
     <label for="{id}-other" class="block text-xs text-zinc-600 dark:text-zinc-400">{t('app.tasks.write.someone-else.label', 'Their @handle or id')}</label>
     <input

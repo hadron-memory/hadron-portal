@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { formatPortalDateTime } from '$lib/format-portal-date';
   import LiveRegion from '$lib/components/LiveRegion.svelte';
+  import { formatPortalDateTime } from '$lib/format-portal-date';
   // #529: read-only snapshot view (opened in a new tab from the History tab).
   import Urn from '$lib/components/Urn.svelte';
   import NodeProvenanceRows from '$lib/components/NodeProvenanceRows.svelte';
@@ -92,11 +92,17 @@
   <!-- #1001: a revision is the state BEFORE an edit, so this is what that edit changed. -->
   <div>
     <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{t('node-revision.changes', 'Changes')}</h2>
-    <LiveRegion>{#if changes === null}<p class="text-sm text-zinc-400">{t('node-revision.changes.loading', 'Loading changes…')}</p>{/if}</LiveRegion>
-    {#if changes === null}
-      <!-- announced by the LiveRegion above -->
-    {:else if !changes.ok}
-      <p class="text-sm text-zinc-500" role="status">{t('node-revision.changes.failed', 'Couldn’t load the changes.')}</p>
+    <!-- portal#2376: loading and failed are adjacent alternatives, so one region holds both and the
+         failure is announced as a change of the loading note. -->
+    <LiveRegion>
+      {#if changes === null}
+        <p class="text-sm text-zinc-400">{t('node-revision.changes.loading', 'Loading changes…')}</p>
+      {:else if !changes.ok}
+        <p class="text-sm text-zinc-500">{t('node-revision.changes.failed', 'Couldn’t load the changes.')}</p>
+      {/if}
+    </LiveRegion>
+    {#if changes === null || !changes.ok}
+      <!-- the note is in the region above -->
     {:else if changes.against === 'unknown'}
       <p class="text-sm text-zinc-500">{t('node-revision.changes.unknown', 'The edit that replaced this revision can’t be shown: the revisions between it and the next one aren’t all available.')}</p>
     {:else}

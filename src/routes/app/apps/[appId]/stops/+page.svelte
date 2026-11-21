@@ -13,6 +13,7 @@
   import type { StopSignal } from '$lib/stop-signals/types';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
 
   /**
    * portal#1139 — the App's stop signals. A stop signal has no URN and none is
@@ -113,10 +114,15 @@
     </p>
   </div>
 
+  <LiveRegion>
+    {#if data.page.kind === 'not-participant'}
+      <div class="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300">
+        {t('app.stops.not-participant', 'You’re not a participant in this App, so its stops aren’t shown.')}
+      </div>
+    {/if}
+  </LiveRegion>
   {#if data.page.kind === 'not-participant'}
-    <div role="status" class="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300">
-      {t('app.stops.not-participant', 'You’re not a participant in this App, so its stops aren’t shown.')}
-    </div>
+    <!-- announced by the region above -->
   {:else}
     <StopBanner live={data.live} workers={data.workers} />
 

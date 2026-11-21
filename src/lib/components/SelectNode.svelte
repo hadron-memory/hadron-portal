@@ -280,12 +280,13 @@
 
         {#if hasMore}
           <button type="button" disabled={pending} class="rounded border px-3 py-1 disabled:opacity-50" onclick={() => read()}>{t('app.nodes.picker.more', 'Load more nodes')}</button>
-        {:else if capped}
-          <!-- Not "all shown": the offset ceiling truncated the list (#1585).
-               hasMore is already false, so there is no Load more to press into
-               the 400 — this note is the honest replacement for it. -->
-          <p role="status">{t('app.nodes.picker.capped', 'Showing the first results only. Search to narrow the list.')}</p>
         {/if}
+        <!-- Not "all shown": the offset ceiling truncated the list (#1585).
+             hasMore is already false, so there is no Load more to press into
+             the 400 — this note is the honest replacement for it. -->
+        <LiveRegion>
+          {#if !hasMore && capped}<p>{t('app.nodes.picker.capped', 'Showing the first results only. Search to narrow the list.')}</p>{/if}
+        </LiveRegion>
       {:else if memoriesFailed}
         <p role="alert">{t('app.nodes.picker.memories-failed', 'Your memories couldn’t be loaded, so you can’t pick a node right now. Reload the page to try again.')}</p>
       {:else}
