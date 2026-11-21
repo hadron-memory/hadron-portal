@@ -277,7 +277,7 @@
   <LiveRegion>{#if pickers.kind === 'idle' || pickers.kind === 'loading'}<p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.tasks.write.pickers-loading', 'Loading…')}</p>{/if}</LiveRegion>
 {/snippet}
 
-{#snippet pickersWait()}
+{#snippet pickersFailure()}
   {#if pickers.kind === 'failed'}
     <div role="alert" class="flex flex-wrap items-center gap-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
       <span>{t('app.tasks.write.pickers-failed', 'Couldn’t load the people and workers to choose from.')}</span>
@@ -365,7 +365,7 @@
           {reassigning ? t('app.tasks.write.reassign.title', 'Reassign this task') : t('app.tasks.write.assign.title', 'Assign this task')}
         </h3>
         {@render pickersLoading()}
-        {#if pickers.kind !== 'ok'}{@render pickersWait()}{:else}
+        {#if pickers.kind !== 'ok'}{@render pickersFailure()}{:else}
         <PartyPicker
           name="assignee"
           id="task-assignee"
@@ -469,7 +469,7 @@
           {t('app.tasks.write.edit.title', 'Edit details')}
         </h3>
         {@render pickersLoading()}
-        {#if pickers.kind !== 'ok'}{@render pickersWait()}{:else}
+        {#if pickers.kind !== 'ok'}{@render pickersFailure()}{:else}
         <TaskEditFields {task} workers={candidates.workers} {roles} {families} invalid={editInvalid} {appUrn} {loadMemories} />
         {/if}
         {#if !editInvalid}{@render refusalFor('edit', true)}{/if}

@@ -32,7 +32,7 @@ describe('priority form without JavaScript', () => {
     const placeholder = createRawSnippet(() => ({ render: () => '<div data-fallback><form action="?/priority"></form></div>' }));
     const out = html(render(LazySection as never, { props: { appId: "a", taskId: "t1", section: "dependencies", children: createRawSnippet(() => ({ render: () => "<i></i>" })), placeholder } as never }));
     expect(out).toContain('data-fallback');
-    // The loading line is not shown (the placeholder stands in for it); the live region itself exists, empty (portal#2344).
-    expect(out).not.toContain('Loading');
+    // The placeholder stands in for the loading line: the form is there, and the live region exists but is empty (portal#2344).
+    expect(out).toMatch(/<div role="status" aria-live="polite" class="empty:m-0 ">(<!--[^>]*-->)*<\/div>/);
   });
 });

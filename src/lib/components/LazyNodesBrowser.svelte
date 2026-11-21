@@ -115,9 +115,10 @@
     return out;
   });
 
-  // One persistent region announces a folder that is still loading; the per-row line is plain text,
-  // because a virtualised row is re-keyed when its status changes and cannot hold a live region.
-  const folderLoading = $derived(flatRows.some((r) => r.kind === 'status' && r.status === 'loading'));
+  // One persistent region announces the folders that are still loading, one entry per folder, so a second
+  // folder that starts while the first is pending is a new addition and is announced. The per-row line is
+  // plain text, because a virtualised row is re-keyed when its status changes and cannot hold a live region.
+  const loadingFolders = $derived(flatRows.flatMap((r) => (r.kind === 'status' && r.status === 'loading' ? [r.loc] : [])));
 
   // Bounded window: only the rows in (and just around) the scroller's viewport are mounted.
   let scrollTop = $state(0);
@@ -208,7 +209,7 @@
       {t('nodes-tab.tree-limit', 'The tree shows branches that have a node of their own, and may leave out a branch that has none. The Table lists every node.')}
       <button type="button" class="text-indigo-500 hover:underline pointer-coarse:min-h-11 pointer-coarse:px-2" onclick={() => show('table')}>{t('nodes-tab.open-table', 'Open the Table')}</button>
     </p>
-    <LiveRegion class="sr-only" data-testid="tree-loading">{#if folderLoading}{t('nodes-tab.loading', 'Loading…')}{/if}</LiveRegion>
+    <LiveRegion class="sr-only" data-testid="tree-loading">{#each loadingFolders as loc (loc)}<span class="block">{loc === TOP ? t('nodes-tab.loading', 'Loading…') : t('nodes-tab.loading-folder', 'Loading {loc}…', { loc })}</span>{/each}</LiveRegion>
     <div
       class="max-h-[28rem] overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800"
       data-testid="tree-scroller"

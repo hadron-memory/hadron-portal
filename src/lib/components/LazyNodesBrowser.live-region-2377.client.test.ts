@@ -78,11 +78,38 @@ describe('LazyNodesBrowser: loading lines are persistent live regions (portal#23
     m.target.querySelector<HTMLButtonElement>('button[aria-label="Expand"]')!.click();
     await settle();
     expect(m.target.querySelector('[data-testid="tree-loading"]')).toBe(region);
-    expect(region!.textContent?.trim()).toBe('Loading…'); // DURING
+    expect(region!.textContent?.trim()).toBe('Loading a:n0000…'); // DURING: the folder is named
 
     finish(json({ rows: [{ ...node(100), loc: 'a:n0000:c1', name: 'Child 1' }], hasMore: false }));
     await settle();
     expect(m.target.querySelector('[data-testid="tree-loading"]')).toBe(region); // AFTER
     expect(region!.textContent?.trim()).toBe('');
+  });
+  it('Tree: a second folder that starts while the first is pending is a new entry in the same region', async () => {
+    let finishA!: (r: Response) => void;
+    let finishB!: (r: Response) => void;
+    window.localStorage.setItem('hadron:memoryBrowser:nodesPane', 'tree');
+    replies['children?parent=&offset=0'] = [{ rows: range(0, 3), hasMore: false }];
+    replies[`children?parent=${encodeURIComponent('a:n0000')}&offset=0`] = [new Promise<Response>((resolve) => { finishA = resolve; })];
+    replies[`children?parent=${encodeURIComponent('a:n0001')}&offset=0`] = [new Promise<Response>((resolve) => { finishB = resolve; })];
+    const m = await mount();
+    const region = m.target.querySelector<HTMLElement>('[data-testid="tree-loading"]')!;
+
+    const expand = () => [...m.target.querySelectorAll<HTMLButtonElement>('button[aria-label="Expand"]')];
+    expand()[0].click();
+    await settle();
+    const first = [...region.children].map((c) => c.textContent?.trim());
+    expect(first).toEqual(['Loading a:n0000…']);
+
+    expand()[0].click(); // the next collapsed folder, while the first read is still pending
+    await settle();
+    // The region gained an entry for B (an addition a reader hears); it is not the same text as before.
+    expect([...region.children].map((c) => c.textContent?.trim())).toEqual(['Loading a:n0000…', 'Loading a:n0001…']);
+
+    finishA(json({ rows: [], hasMore: false }));
+    finishB(json({ rows: [], hasMore: false }));
+    await settle();
+    expect(m.target.querySelector('[data-testid="tree-loading"]')).toBe(region);
+    expect(region.textContent?.trim()).toBe('');
   });
 });

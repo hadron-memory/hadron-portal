@@ -3,9 +3,7 @@
  * before the read, holds the text during it and is the same element after.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
-import { submitEnhanced } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
@@ -51,9 +49,6 @@ async function mountPage(channels: unknown[], extra: Record<string, unknown> = {
   mounted.push(m);
   await tick();
   return m;
-}
-async function html(channels: unknown[]) {
-  return (await mountPage(channels)).target.innerHTML;
 }
 
 

@@ -2852,7 +2852,7 @@
     {/if}
   {/snippet}
   <!-- The visible line sits in a panel that unmounts when the tab arrives, so a persistent region beside it does the announcing. -->
-  <LiveRegion class="sr-only" data-testid="tab-loading-region">{#if !tabShown(activeTab as AppTabId) && !tabFailed}{t('app.tab.loading', 'Loading…')}{/if}</LiveRegion>
+  <LiveRegion class="sr-only" data-testid="tab-loading-region">{#if !tabShown(activeTab as AppTabId) && activeTab !== 'ai-configs' && !tabFailed}{t('app.tab.loading', 'Loading…')}{/if}</LiveRegion>
   <!-- The AI Service Configs panel is always mounted (below) and says this itself. -->
   {#if !tabShown(activeTab as AppTabId) && activeTab !== 'ai-configs'}
     <div id="panel-{activeTab}" role="tabpanel" aria-labelledby="tab-{activeTab}" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
@@ -4302,7 +4302,7 @@
     <div class="space-y-8">
       <!-- AI providers (registry; consumers resolve a config by name) -->
       <!-- portal#2240: mounted once its rows have arrived, then kept mounted while hidden. -->
-      <LiveRegion class="sr-only" data-testid="tab-loading-region">{#if !tabShown('ai-configs') && !tabFailed}{t('app.tab.loading', 'Loading…')}{/if}</LiveRegion>
+      <LiveRegion class="sr-only" data-testid="ai-configs-loading-region">{#if activeTab === 'ai-configs' && !tabShown('ai-configs') && !tabFailed}{t('app.tab.loading', 'Loading…')}{/if}</LiveRegion>
       {#if tabShown('ai-configs')}
       <section class="max-w-2xl">
         <AiServiceConfigSection

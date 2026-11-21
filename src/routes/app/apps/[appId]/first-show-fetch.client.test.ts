@@ -56,7 +56,7 @@ function stubFetch() {
 async function chatsFirst(appId = 'a1') {
   const data = { ...await pageData(), bootPointerAppKey: appId } as Record<string, unknown>;
   data.app = { ...(data.app as object), id: appId };
-  for (const tab of ['keys', 'worklog'] as const) for (const g of TAB_READS[tab]) for (const k of READ_GROUP_KEYS[g]) delete data[k];
+  for (const tab of ['keys', 'worklog', 'ai-configs'] as const) for (const g of TAB_READS[tab]) for (const k of READ_GROUP_KEYS[g]) delete data[k];
   return data;
 }
 
@@ -98,6 +98,7 @@ describe('portal#2240: a tab the first screen did not read', () => {
     expect(readsOf('keys')).toHaveLength(1);
     expect(loading(target, 'keys')).toBe(true);
     // portal#2344: the announcing region is the same element before, during and after the read.
+    expect(announcer(target)).toBe(regionBefore);
     expect(announcer(target)?.textContent?.trim()).toBe('Loading…');
 
     readsOf('keys')[0].resolve(json(keysPayload('abc123')));
@@ -253,6 +254,18 @@ describe('portal#2240: a tab the first screen did not read', () => {
     // Unfixed, Client's stale copy sat later in insertion order and masked this read.
     expect(keyShown(target, 'newkey')).toBe(true);
     expect(keyShown(target, 'oldkey')).toBe(false);
+  });
+});
+
+describe('portal#2344: the AI Configs tab has one announcer', () => {
+  it('first activation puts Loading… in exactly one populated status region, then empties it', async () => {
+    const { target } = await mountPage();
+    await show(target, 'ai-configs');
+    const populated = () => [...target.querySelectorAll<HTMLElement>('[role="status"]')].filter((r) => r.textContent?.includes('Loading'));
+    expect(readsOf('ai-configs')).toHaveLength(1);
+    expect(populated(), 'one owner for the pending AI Configs read').toHaveLength(1);
+    expect(populated()[0].getAttribute('data-testid')).toBe('ai-configs-loading-region');
+    expect(announcer(target)?.textContent?.trim() ?? '').toBe('');
   });
 });
 
