@@ -3,12 +3,12 @@ import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { resetStubPage, setStubPage } from '$lib/test/stubs/app-stores';
-import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_PAGE_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, NODE_REVISIONS_PAGE_QUERY } from '$lib/server/queries';
 import Page from './+page.svelte';
 import { load, actions } from './+page.server';
 import { ClientError } from 'graphql-request';
+import { COMPILED_BOOT_PROMPT_TYPE, COMPILED_PROMPT_HINT_ID } from '$lib/compiled-boot-prompt';
 import { GraphQLError } from 'graphql';
-import { NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY } from '$lib/server/queries';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 
 const mockRequest = vi.fn();
@@ -77,7 +77,7 @@ const buttonNamed = (target: HTMLElement, label: string) =>
 // portal#1899: a compiled boot prompt's text and abstract are read-only with the source/recompile hint;
 // an ordinary node keeps its editors.
 const areaOf = (target: HTMLElement, tab: 'content' | 'abstract') =>
-  target.querySelector<HTMLTextAreaElement>(tab === 'abstract' ? 'textarea[maxlength="2000"]' : 'textarea');
+  target.querySelector<HTMLTextAreaElement>('textarea');
 async function openSourceAndDirty(target: HTMLElement, tab: 'content' | 'abstract') {
   const toggle = buttonNamed(target, 'Source');
   expect(toggle).toBeDefined();
@@ -92,12 +92,16 @@ async function openSourceAndDirty(target: HTMLElement, tab: 'content' | 'abstrac
 }
 for (const tab of ['content', 'abstract'] as const) {
   it(`${tab}: a compiled-boot-prompt is read-only with the recompile hint`, async () => {
-    const { target } = await mountPage(tab, 'compiled-boot-prompt');
+    const { target } = await mountPage(tab, COMPILED_BOOT_PROMPT_TYPE);
     // portal#1901: the Content tab's hint became the sources note; the Abstract tab keeps the short hint.
     expect(target.querySelector('[data-testid="compiled-prompt-hint"]')?.textContent).toMatch(tab === 'content' ? /generated from the sources listed below/ : /boot source and compile again/);
     const { area, save } = await openSourceAndDirty(target, tab);
     expect(area.readOnly).toBe(true);
     expect(save.disabled).toBe(true);
+    // The hint is the reason the field is read-only, so the field is described by it (a11y), by id, not by position.
+    const describedBy = area.getAttribute('aria-describedby')?.split(' ') ?? [];
+    expect(describedBy).toContain(COMPILED_PROMPT_HINT_ID);
+    expect(target.querySelector(`#${COMPILED_PROMPT_HINT_ID}`)?.getAttribute('data-testid')).toBe('compiled-prompt-hint');
   });
   it(`${tab}: an ordinary node keeps its editor and no hint`, async () => {
     const { target } = await mountPage(tab, 'info');
@@ -105,5 +109,6 @@ for (const tab of ['content', 'abstract'] as const) {
     const { area, save } = await openSourceAndDirty(target, tab);
     expect(area.readOnly).toBe(false);
     expect(save.disabled).toBe(false);
+    expect(area.getAttribute('aria-describedby') ?? '').not.toContain(COMPILED_PROMPT_HINT_ID);
   });
 }

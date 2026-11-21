@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
 import { GraphQLError } from 'graphql';
+import { COMPILED_BOOT_PROMPT_TYPE } from '$lib/compiled-boot-prompt';
 import { NODE_BY_ID_QUERY } from '$lib/server/queries';
 import { nodeUpdateDocument } from '$lib/server/nodeKindDoor';
 // portal#1899: the server refuses a generic edit of a compiled boot prompt with a typed
@@ -19,7 +20,7 @@ import { nodeUpdateDocument } from '$lib/server/nodeKindDoor';
 const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
 vi.mock('$lib/server/guards', () => ({ requireNonConsumer: vi.fn() }));
-const node = { id: 'node-1', memoryId: 'mem-1', loc: 'boot:compiled', name: 'Compiled', nodeType: 'compiled-boot-prompt', role: 'boot-prompt', isRunnable: false, data: {}, properties: {}, tags: [] };
+const node = { id: 'node-1', memoryId: 'mem-1', loc: 'boot:compiled', name: 'Compiled', nodeType: COMPILED_BOOT_PROMPT_TYPE, role: 'boot-prompt', isRunnable: false, data: {}, properties: {}, tags: [] };
 beforeEach(() => { request.mockReset(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
 afterEach(() => { vi.restoreAllMocks(); });
 
@@ -61,7 +62,7 @@ const expectNoneOf = (r: unknown, ...secrets: string[]) => { for (const s of sec
 describe('portal#1899 compiled boot prompt save', () => {
   it.each([
     ['BOOT_PROMPT_COMPILED_WRITE', 'compiled-prompt'],
-    ['BOOT_PROMPT_WORKER_SESSION_REFUSED', 'boot-prompt-governed'],
+    ['BOOT_PROMPT_WORKER_SESSION_REFUSED', 'boot-prompt-worker-session-refused'],
   ])('%s is a 400 with a fixed code and no server text', async (code, fixed) => {
     const r = await save('write', withCode(code, `${code}: private wire prose`));
     expect(r.status).toBe(400);

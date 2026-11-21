@@ -3,12 +3,12 @@ import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { resetStubPage, setStubPage } from '$lib/test/stubs/app-stores';
-import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
 import Page from './+page.svelte';
 import { load, actions } from './+page.server';
 import { ClientError } from 'graphql-request';
+import { COMPILED_BOOT_PROMPT_TYPE } from '$lib/compiled-boot-prompt';
 import { GraphQLError } from 'graphql';
-import { NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY } from '$lib/server/queries';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 
 const mockRequest = vi.fn();
@@ -73,7 +73,7 @@ async function mountPage(tab: string, o: Opts) {
   return m;
 }
 const text = (e: Element) => e.textContent?.replace(/\s+/g, ' ').trim() ?? '';
-const COMPILED: Opts = { nodeType: 'compiled-boot-prompt', role: 'boot-prompt' };
+const COMPILED: Opts = { nodeType: COMPILED_BOOT_PROMPT_TYPE, role: 'boot-prompt' };
 const SOURCE: Opts = { nodeType: 'info', role: 'boot-prompt' };
 const ORDINARY: Opts = { nodeType: 'info' };
 const settle = async () => { for (let i = 0; i < 5; i++) { await new Promise((r) => setTimeout(r, 0)); await tick(); flushSync(); } };
