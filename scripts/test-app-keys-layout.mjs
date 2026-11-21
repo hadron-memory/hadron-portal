@@ -213,6 +213,15 @@ async function open(browser, origin, css, { width, dark, state, savedView, scope
   if (process.env.KEYS_DEBUG) page.on('console', (m) => console.log('console:', m.type(), m.text()));
   await page.route('**/__keys_fixture', (r) => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>App keys fixture</title>' }));
   // The page's own background reads (fetch/XHR only; module requests pass through).
+  // portal#2311: the Grant-scope dialog reads the App's hosts when it opens.
+  // HOSTS_ANSWER=refused|failed|empty drives the other states; default is a list.
+  await page.route('**/app/apps/a1/hosts', (r) => {
+    const mode = process.env.HOSTS_ANSWER ?? 'ok';
+    const body = mode === 'ok'
+      ? { kind: 'ok', hosts: [{ hostId: 'host-build-01', label: 'Build host', live: true }, { hostId: 'host-edge-02', label: 'Edge host', live: false }] }
+      : mode === 'empty' ? { kind: 'ok', hosts: [] } : { kind: mode };
+    return r.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
+  });
   await page.route('**/api/**', (r) => (['fetch', 'xhr'].includes(r.request().resourceType())
     ? r.fulfill({ contentType: 'application/json', body: '{}' }) : r.continue()));
   await page.goto(new URL('/__keys_fixture', origin).href);
@@ -421,23 +430,28 @@ try {
       // host:operate — the host field appears with its helper text UNDER the
       // field (the label stays a plain label).
       await page.selectOption('dialog[open] select[name="scope"]', 'host:operate');
+      // The hosts are read when the dialog opens; wait for the answer to land.
+      await page.locator('dialog[open] input[type="radio"][name="hostId"]').first().waitFor();
       const operate = await page.evaluate(() => {
         const d = document.querySelector('dialog[open]');
-        const input = d.querySelector('input[name="hostId"]');
-        const label = d.querySelector('label[for="grant-host"]');
-        const helper = input.nextElementSibling;
-        const ib = input.getBoundingClientRect(), lb = label.getBoundingClientRect(), hb = helper.getBoundingClientRect();
+        const group = d.querySelector('fieldset');
+        const legend = group?.querySelector('legend');
+        const helper = d.querySelector('#grant-host-help');
+        const gb = group?.getBoundingClientRect(), hb = helper?.getBoundingClientRect(), db = d.getBoundingClientRect();
         return {
-          inputW: ib.width, inputTop: ib.top, inputBottom: ib.bottom,
-          labelBottom: lb.bottom, helperTop: hb.top, helperText: helper.textContent,
-          label: label.textContent.trim(),
+          text: !!d.querySelector('input[type="text"][name="hostId"]'),
+          radios: d.querySelectorAll('input[type="radio"][name="hostId"]').length,
+          legend: legend?.textContent.trim() ?? '',
+          groupBottom: gb?.bottom ?? 0, helperTop: hb?.top ?? 0, helperText: helper?.textContent ?? '',
+          within: !!gb && gb.left >= db.left - 0.5 && gb.right <= db.right + 0.5,
         };
       });
-      check(operate.label === 'Host', `host label is "${operate.label}", not the plain "Host"`);
-      check(operate.labelBottom <= operate.inputTop + 0.5, 'host label is not above the field');
-      check(operate.helperTop >= operate.inputBottom - 0.5, 'helper text is not under the field');
+      check(!operate.text, 'a free-text host field is shown');
+      check(operate.radios === 2, `${operate.radios} host radios, not 2`);
+      check(operate.legend === 'Host', `host legend is "${operate.legend}", not the plain "Host"`);
+      check(operate.helperTop >= operate.groupBottom - 0.5, 'helper text is not under the host group');
       check(operate.helperText.includes('A host key reaches one host.'), `helper text "${operate.helperText}"`);
-      check(operate.inputW >= 180, `host field ${operate.inputW.toFixed(1)}px < 180px`);
+      check(operate.within, 'the host group escapes the dialog box');
       await shot('operate');
 
       // The empty-host refusal: client validation cancels the submit, the

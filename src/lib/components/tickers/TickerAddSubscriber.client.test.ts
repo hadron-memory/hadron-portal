@@ -105,11 +105,11 @@ describe('TickerAddSubscriber: the roster’s states', () => {
 describe('TickerAddSubscriber: spacing (portal#2376)', () => {
   it('the trailing regions cancel the space-y unit they would leave behind when empty and last', async () => {
     const { root } = await mountAdd({ roster: ROSTER.failed });
-    expect(root.querySelector('[data-testid="ticker-roster-failed"]')!.closest('[role="status"]')!.className).toContain('last:empty:-mt-2');
+    expect(root.querySelector('[data-testid="ticker-roster-failed"]')!.closest('[role="status"]')!.className).toContain('last:idle:-mt-2');
     const { root: ok } = await mountAdd();
     const form = await openChooser(ok);
     const regions = [...form.querySelectorAll<HTMLElement>('[role="status"]')];
-    expect(regions.at(-1)!.className).toContain('last:empty:-mt-2');
+    expect(regions.at(-1)!.className).toContain('last:idle:-mt-2');
   });
 
   it('the collapsed opener is block-level so the trailing cancel can collapse its margin (QA F1)', async () => {
@@ -117,7 +117,7 @@ describe('TickerAddSubscriber: spacing (portal#2376)', () => {
     const opener = root.querySelector<HTMLElement>('[data-testid="ticker-add-subscriber"] > button')!;
     expect(opener.className).toContain('block');
     expect(opener.className).not.toContain('inline-block');
-    expect(opener.nextElementSibling!.className).toContain('last:empty:-mt-2');
+    expect(opener.nextElementSibling!.className).toContain('last:idle:-mt-2');
   });
 });
 
