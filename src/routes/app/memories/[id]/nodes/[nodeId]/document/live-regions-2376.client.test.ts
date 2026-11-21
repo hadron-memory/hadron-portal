@@ -6,7 +6,7 @@
 import { afterEach, describe, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import { expectRegionLifecycle } from '$lib/test/statusRegionLifecycle';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 import Page from './+page.svelte';
 
 let mounted: Mounted<Record<string, unknown>> | undefined;
@@ -25,16 +25,16 @@ async function open() {
 describe('spec document page: the not-available notes are in a persistent status region', () => {
   it('"This memory is encrypted": empty, then text, then the same element', async () => {
     const { root, show } = await open();
-    await expectRegionLifecycle(root, 'This memory is encrypted, so it can’t be shown as one document.', show({ state: 'encrypted' }), show(ok), () => tick());
+    await expectLiveRegionLifecycle({ root, text: 'This memory is encrypted, so it can’t be shown as one document.', appear: show({ state: 'encrypted' }), disappear: show(ok), settle: () => tick() });
   });
 
   it('"too many specs … (the limit is 300)": empty, then text, then the same element', async () => {
     const { root, show } = await open();
-    await expectRegionLifecycle(root, 'too many specs to show as one document (the limit is 300)', show({ state: 'too-large', cap: 300, limit: 'nodes' }), show(ok), () => tick());
+    await expectLiveRegionLifecycle({ root, text: 'too many specs to show as one document (the limit is 300)', appear: show({ state: 'too-large', cap: 300, limit: 'nodes' }), disappear: show(ok), settle: () => tick() });
   });
 
   it('"There is no document to show here": empty, then text, then the same element', async () => {
     const { root, show } = await open();
-    await expectRegionLifecycle(root, 'There is no document to show here.', show({ state: 'not-found' }), show(ok), () => tick());
+    await expectLiveRegionLifecycle({ root, text: 'There is no document to show here.', appear: show({ state: 'not-found' }), disappear: show(ok), settle: () => tick() });
   });
 });

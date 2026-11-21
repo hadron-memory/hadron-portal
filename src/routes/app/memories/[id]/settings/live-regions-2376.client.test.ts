@@ -7,7 +7,7 @@ import { afterEach, describe, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage, page } from '$lib/test/stubs/app-stores';
-import { expectRegionLifecycle } from '$lib/test/statusRegionLifecycle';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 import { OWNER, OWNER_ID, settingsForms, settingsGraph } from './settings-page.fixture';
 import Page from './+page.svelte';
 
@@ -32,11 +32,11 @@ async function open() {
 describe('memory settings, vector health: the warnings are persistent status regions', () => {
   it('"Showing 1 of 5 findings": empty before the check, then text, then the same element', async () => {
     const { root, result } = await open();
-    await expectRegionLifecycle(root, 'Showing 1 of 5 findings', result({ failed: [], skipped: null, truncation: { shown: 1, total: 5 } }), result(null), settle);
+    await expectLiveRegionLifecycle({ root, text: 'Showing 1 of 5 findings', appear: result({ failed: [], skipped: null, truncation: { shown: 1, total: 5 } }), disappear: result(null), settle: settle });
   });
 
   it('"The embedding check did not run": empty before the check, then text, then the same element', async () => {
     const { root, result } = await open();
-    await expectRegionLifecycle(root, 'The embedding check did not run: no worker', result({ failed: [], skipped: 'no worker', truncation: null }), result(null), settle);
+    await expectLiveRegionLifecycle({ root, text: 'The embedding check did not run: no worker', appear: result({ failed: [], skipped: 'no worker', truncation: null }), disappear: result(null), settle: settle });
   });
 });

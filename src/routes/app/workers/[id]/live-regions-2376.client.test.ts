@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { expectRegionLifecycle } from '$lib/test/statusRegionLifecycle';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 import Page from './+page.svelte';
 
 let mounted: Mounted<Record<string, unknown>> | undefined;
@@ -39,11 +39,11 @@ async function open(initialTab: 'sessions' | 'worklog') {
 describe('worker page: the read-failure notes are persistent status regions', () => {
   it('"The worker sessions couldn’t be loaded": empty, then text, then the same element', async () => {
     const { root, set } = await open('sessions');
-    await expectRegionLifecycle(root, 'The worker sessions couldn’t be loaded', set({ workerSessions: null }), set({}), () => tick(2));
+    await expectLiveRegionLifecycle({ root, text: 'The worker sessions couldn’t be loaded', appear: set({ workerSessions: null }), disappear: set({}), settle: () => tick(2) });
   });
 
   it('"The worklog couldn’t be loaded": empty, then text, then the same element', async () => {
     const { root, set } = await open('worklog');
-    await expectRegionLifecycle(root, 'The worklog couldn’t be loaded', set({ worklog: null }), set({}), () => tick(2));
+    await expectLiveRegionLifecycle({ root, text: 'The worklog couldn’t be loaded', appear: set({ worklog: null }), disappear: set({}), settle: () => tick(2) });
   });
 });

@@ -11,6 +11,7 @@ import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { resetStubPage, setStubPage } from '$lib/test/stubs/app-stores';
@@ -46,27 +47,6 @@ function speaking(root: HTMLElement, text: string): HTMLElement | null {
   return [...root.querySelectorAll<HTMLElement>('[role="status"]')].find((r) => r.textContent?.includes(text)) ?? null;
 }
 
-/**
- * Run a before / during / after pin. `idle` is every empty status region before the note; the region
- * that later holds `text` must be one of them, and must be that same element, empty, afterwards.
- */
-async function pin(root: HTMLElement, text: string, show: () => unknown, hide: () => unknown) {
-  expect(speaking(root, text), 'not shown before').toBeNull();
-  const idle = idleStatusRegions(root);
-  expect(idle.length, 'a status region exists, empty, before the condition').toBeGreaterThan(0);
-  await show();
-  await tick(3);
-  const region = speaking(root, text);
-  expect(region, 'the note is inside a status region').not.toBeNull();
-  expect(idle, 'that region existed, empty, before the note').toContain(region);
-  expect(region!.getAttribute('aria-live')).toBe('polite');
-  await hide();
-  await tick(3);
-  expect(region!.isConnected, 'the region outlives the note').toBe(true);
-  expect(region!.textContent!.trim()).toBe('');
-  expect(idleStatusRegions(root)).toContain(region);
-}
-
 /** A condition fixed at load: the note is inside a polite status region. */
 function atLoad(root: HTMLElement, text: string) {
   const region = speaking(root, text);
@@ -82,7 +62,7 @@ describe('NodeSignatures: integrity problems', () => {
   } } as never);
   it('the note appears in, and clears from, the same status region', async () => {
     const { root, props } = await mount(NodeSignatures, { view: view(0) });
-    await pin(root, 'failed verification', () => { props.view = view(2); }, () => { props.view = view(0); });
+    await expectLiveRegionLifecycle({ root, text: 'failed verification', appear: () => { props.view = view(2); }, disappear: () => { props.view = view(0); }, settle: () => tick(3) });
   });
 });
 
@@ -97,12 +77,12 @@ describe('PropertyFilter: field-required hint', () => {
   it('"Choose a field" appears in, and clears from, the same status region', async () => {
     const { root, pick, type } = await setup();
     pick('title'); type('x'); await tick(2); // a valid filter: no hint
-    await pin(root, 'Choose a field before applying a filter.', () => pick(''), () => { pick('title'); type('x'); });
+    await expectLiveRegionLifecycle({ root, text: 'Choose a field before applying a filter.', appear: () => pick(''), disappear: () => { pick('title'); type('x'); }, settle: () => tick(3) });
   });
   it('"Choose or enter a valid value" appears in, and clears from, the same status region', async () => {
     const { root, pick, type } = await setup();
     pick('n'); type('1'); await tick(2);
-    await pin(root, 'Choose or enter a valid value before applying.', () => type('abc'), () => type('1'));
+    await expectLiveRegionLifecycle({ root, text: 'Choose or enter a valid value before applying.', appear: () => type('abc'), disappear: () => type('1'), settle: () => tick(3) });
   });
   it('present at load (empty draft) the hint is already inside a polite status region (fixed at load, no before state)', async () => {
     const { root } = await setup();
@@ -120,12 +100,12 @@ describe('DefinitionRegisterSection', () => {
   it('"isn’t available for this Agent" appears in, and clears from, the same status region', async () => {
     setStubPage('http://localhost/app/agents/g1/definitions/tasks%3Abuild?app=app-1');
     const { root, props } = await mount(DefinitionRegisterSection, { ...base, register: ready({ kind: 'ok', page: { entries: [], total: 0, hasMore: false } }) });
-    await pin(root, 'isn’t available for this Agent', () => { props.register = unavailable; }, () => { props.register = ready({ kind: 'ok', page: { entries: [], total: 0, hasMore: false } }); });
+    await expectLiveRegionLifecycle({ root, text: 'isn’t available for this Agent', appear: () => { props.register = unavailable; }, disappear: () => { props.register = ready({ kind: 'ok', page: { entries: [], total: 0, hasMore: false } }); }, settle: () => tick(3) });
   });
   it('"Not available for this App." appears in, and clears from, the same status region', async () => {
     setStubPage('http://localhost/app/agents/g1/definitions/tasks%3Abuild?app=app-1');
     const { root, props } = await mount(DefinitionRegisterSection, { ...base, register: ready({ kind: 'ok', page: { entries: [], total: 0, hasMore: false } }) });
-    await pin(root, 'Not available for this App.', () => { props.register = ready({ kind: 'app-not-found' }); }, () => { props.register = ready({ kind: 'ok', page: { entries: [], total: 0, hasMore: false } }); });
+    await expectLiveRegionLifecycle({ root, text: 'Not available for this App.', appear: () => { props.register = ready({ kind: 'app-not-found' }); }, disappear: () => { props.register = ready({ kind: 'ok', page: { entries: [], total: 0, hasMore: false } }); }, settle: () => tick(3) });
   });
 });
 
@@ -133,11 +113,11 @@ describe('PartyPicker: members not listed', () => {
   const props = { name: 'assignee', id: 'a', label: 'Assignee', value: '', other: '', workers: [{ id: 'w1', name: 'Ada', role: null, urn: null }], people: [] };
   it('the failed-read note appears in, and clears from, the same status region', async () => {
     const { root, props: p } = await mount(PartyPicker, props);
-    await pin(root, 'Couldn’t load this App’s members', () => { p.peopleFailed = true; }, () => { p.peopleFailed = false; });
+    await expectLiveRegionLifecycle({ root, text: 'Couldn’t load this App’s members', appear: () => { p.peopleFailed = true; }, disappear: () => { p.peopleFailed = false; }, settle: () => tick(3) });
   });
   it('the withheld note appears in, and clears from, the same status region', async () => {
     const { root, props: p } = await mount(PartyPicker, props);
-    await pin(root, 'members aren’t visible to you', () => { p.peopleWithheld = true; }, () => { p.peopleWithheld = false; });
+    await expectLiveRegionLifecycle({ root, text: 'members aren’t visible to you', appear: () => { p.peopleWithheld = true; }, disappear: () => { p.peopleWithheld = false; }, settle: () => tick(3) });
   });
   it('one region carries both notes: failed turning into withheld swaps text, not region', async () => {
     const { root, props: p } = await mount(PartyPicker, props);
@@ -153,7 +133,7 @@ describe('TaskPlanning', () => {
   const ok = { kind: 'ok', value: { blockedBy: { items: [], hasMore: false }, blocks: { items: [], hasMore: false } } };
   it('"Blocker relations are unavailable" appears in, and clears from, the same status region', async () => {
     const { root, props } = await mount(TaskPlanning, { task, appId: 'app', canWrite: true, dependencies: ok });
-    await pin(root, 'Blocker relations are unavailable', () => { props.dependencies = { kind: 'failed' }; }, () => { props.dependencies = ok; });
+    await expectLiveRegionLifecycle({ root, text: 'Blocker relations are unavailable', appear: () => { props.dependencies = { kind: 'failed' }; }, disappear: () => { props.dependencies = ok; }, settle: () => tick(3) });
   });
   it('"Couldn’t refresh facts" speaks from the save-result region, and a later save replaces it in place', async () => {
     const { root } = await mount(TaskPlanning, { task, appId: 'app', canWrite: true, dependencies: ok });
@@ -181,11 +161,11 @@ describe('StopBanner', () => {
   const workers = [{ id: 'w1', name: 'Gaby', urn: null }];
   it('"Couldn’t check whether any stops are in effect" appears in, and clears from, the same status region', async () => {
     const { root, props } = await mount(StopBanner, { live: none, workers, href: '/stops' });
-    await pin(root, 'Couldn’t check whether any stops', () => { props.live = { kind: 'failed' }; }, () => { props.live = none; });
+    await expectLiveRegionLifecycle({ root, text: 'Couldn’t check whether any stops', appear: () => { props.live = { kind: 'failed' }; }, disappear: () => { props.live = none; }, settle: () => tick(3) });
   });
   it('the open-stops banner appears in, and clears from, the same status region', async () => {
     const { root, props } = await mount(StopBanner, { live: none, workers, href: '/stops' });
-    await pin(root, '1 stop is in effect', () => { props.live = open; }, () => { props.live = none; });
+    await expectLiveRegionLifecycle({ root, text: '1 stop is in effect', appear: () => { props.live = open; }, disappear: () => { props.live = none; }, settle: () => tick(3) });
   });
   it('present at load, the banner is still inside a polite status region (fixed at load, no before state)', async () => {
     const { root } = await mount(StopBanner, { live: open, workers, href: '/stops' });
@@ -196,7 +176,7 @@ describe('StopBanner', () => {
 describe('StopSignalsPanel: could not check whether you manage the App', () => {
   it('the hint appears in, and clears from, the same status region', async () => {
     const { root, props } = await mount(StopSignalsPanel, { appId: 'app-1', manages: 'yes', workers: [{ id: 'w1', name: 'Gaby', urn: 'hrn:worker:acme.com:team:gaby' }], impersonating: null, lifting: null, onliftclose: () => {} });
-    await pin(root, 'Couldn’t check whether you manage this App', () => { props.manages = 'unknown'; }, () => { props.manages = 'yes'; });
+    await expectLiveRegionLifecycle({ root, text: 'Couldn’t check whether you manage this App', appear: () => { props.manages = 'unknown'; }, disappear: () => { props.manages = 'yes'; }, settle: () => tick(3) });
   });
 });
 
@@ -204,7 +184,7 @@ describe('TickerAddSubscriber', () => {
   const props = { appId: 'app-1', ticker: { id: 'tk-1', name: 'standup' }, roster: { kind: 'ok', workers: [{ id: 'w-1', name: 'Gaby', urn: 'hrn:worker:acme.com:team:gaby' }] }, viewerId: 'u-1', impersonating: null, onRosterRetry: () => {} };
   it('the roster-failed note appears in, and clears from, the same status region', async () => {
     const { root, props: p } = await mount(TickerAddSubscriber, props);
-    await pin(root, 'Try again', () => { p.roster = { kind: 'failed' }; }, () => { p.roster = props.roster; });
+    await expectLiveRegionLifecycle({ root, text: 'Try again', appear: () => { p.roster = { kind: 'failed' }; }, disappear: () => { p.roster = props.roster; }, settle: () => tick(3) });
   });
   it('the announcement-failed note appears in the status region that existed before the add', async () => {
     const { root } = await mount(TickerAddSubscriber, props);

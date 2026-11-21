@@ -7,7 +7,7 @@ import { afterEach, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { expectRegionLifecycle } from '$lib/test/statusRegionLifecycle';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 import Page from './+page.svelte';
 
 let mounted: Mounted<Record<string, unknown>> | undefined;
@@ -20,5 +20,5 @@ it('"The organization’s system memories could not be listed": empty, then text
   mounted = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
   await tick();
   const scope = (scopeIncomplete: boolean) => () => { props.data = { ...data, scopeIncomplete }; };
-  await expectRegionLifecycle(mounted.target, 'system memories could not be listed', scope(true), scope(false), () => tick());
+  await expectLiveRegionLifecycle({ root: mounted.target, text: 'system memories could not be listed', appear: scope(true), disappear: scope(false), settle: () => tick() });
 });

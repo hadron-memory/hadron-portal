@@ -10,7 +10,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { expectRegionLifecycle } from '$lib/test/statusRegionLifecycle';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 import { createShareSchema, revokeShareSchema, updateShareRoleSchema } from './schema';
 import Page from './+page.svelte';
 
@@ -41,11 +41,11 @@ async function open() {
 describe('memory share page: the notes are in a persistent status region', () => {
   it('"Only the owner of this memory can see who it is shared with.": empty, then text, then the same element', async () => {
     const { root, set } = await open();
-    await expectRegionLifecycle(root, 'Only the owner of this memory can see who it is shared with.', set({ user: stranger }), set({}), () => tick());
+    await expectLiveRegionLifecycle({ root, text: 'Only the owner of this memory can see who it is shared with.', appear: set({ user: stranger }), disappear: set({}), settle: () => tick() });
   });
 
   it('"Private memories cannot be shared.": empty, then text, then the same element', async () => {
     const { root, set } = await open();
-    await expectRegionLifecycle(root, 'Private memories cannot be shared.', set({ shareMemory: memory({ class: 'private', shareable: false }) }), set({}), () => tick());
+    await expectLiveRegionLifecycle({ root, text: 'Private memories cannot be shared.', appear: set({ shareMemory: memory({ class: 'private', shareable: false }) }), disappear: set({}), settle: () => tick() });
   });
 });

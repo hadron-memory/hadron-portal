@@ -9,7 +9,7 @@ import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { resetStubPage, setStubPage } from '$lib/test/stubs/app-stores';
-import { expectRegionLifecycle } from '$lib/test/statusRegionLifecycle';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_PAGE_QUERY } from '$lib/server/queries';
 import Page from './+page.svelte';
 import { load } from './+page.server';
@@ -41,14 +41,33 @@ const PARENT = {
  */
 const tooDeep = () => ({ toJSON: () => { throw new Error('cannot be serialized'); } });
 
+/**
+ * The page's loader and its satellites each log one warning when a side read this fixture does not
+ * answer fails; those are expected here. Every other warning is passed through.
+ */
+const FIXTURE_READ_WARNINGS = [
+  '[capabilities] GET /capabilities failed',
+  '[node-detail] revision provenance failed',
+  '[node-detail] children read failed',
+  '[comments] thread read failed',
+];
+let warnSpy: ReturnType<typeof vi.spyOn> | undefined;
+
 beforeEach(() => {
   mockRequest.mockReset();
-  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const realWarn = console.warn.bind(console);
+  warnSpy = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+    // Only the fixture's own unanswered side reads warn; anything else goes through to the real console.
+    if (typeof args[0] === 'string' && FIXTURE_READ_WARNINGS.some((prefix) => (args[0] as string).startsWith(prefix))) return;
+    realWarn(...args);
+  });
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
 });
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
+  warnSpy?.mockRestore();
+  warnSpy = undefined;
   vi.unstubAllGlobals();
   resetStubPage();
 });
@@ -87,7 +106,7 @@ describe('node Data tab: the nested-too-deeply notes are in a persistent status 
   it('Rendered view: "nested too deeply to show here"', async () => {
     const { root, goTo } = await open('data', { data: tooDeep() });
     goTo('Content')();
-    await expectRegionLifecycle(root, 'This node’s data is nested too deeply to show here.', goTo('Data'), goTo('Content'), () => tick());
+    await expectLiveRegionLifecycle({ root, text: 'This node’s data is nested too deeply to show here.', appear: goTo('Data'), disappear: goTo('Content'), settle: () => tick() });
   });
 
   it('Source view: "nested too deeply to show or edit as text here"', async () => {
@@ -96,7 +115,7 @@ describe('node Data tab: the nested-too-deeply notes are in a persistent status 
     flushSync();
     await tick();
     goTo('Content')();
-    await expectRegionLifecycle(root, 'This node’s data is nested too deeply to show or edit as text here.', goTo('Data'), goTo('Content'), () => tick());
+    await expectLiveRegionLifecycle({ root, text: 'This node’s data is nested too deeply to show or edit as text here.', appear: goTo('Data'), disappear: goTo('Content'), settle: () => tick() });
   });
 });
 
@@ -104,7 +123,7 @@ describe('node Properties tab: the nested-too-deeply notes are in a persistent s
   it('Rendered view: "nested too deeply to show here"', async () => {
     const { root, goTo } = await open('properties', { properties: tooDeep() });
     goTo('Content')();
-    await expectRegionLifecycle(root, 'This node’s properties are nested too deeply to show here.', goTo('Properties'), goTo('Content'), () => tick());
+    await expectLiveRegionLifecycle({ root, text: 'This node’s properties are nested too deeply to show here.', appear: goTo('Properties'), disappear: goTo('Content'), settle: () => tick() });
   });
 
   it('Source view: "nested too deeply to show or edit as text here"', async () => {
@@ -113,6 +132,6 @@ describe('node Properties tab: the nested-too-deeply notes are in a persistent s
     flushSync();
     await tick();
     goTo('Content')();
-    await expectRegionLifecycle(root, 'This node’s properties are nested too deeply to show or edit as text here.', goTo('Properties'), goTo('Content'), () => tick());
+    await expectLiveRegionLifecycle({ root, text: 'This node’s properties are nested too deeply to show or edit as text here.', appear: goTo('Properties'), disappear: goTo('Content'), settle: () => tick() });
   });
 });

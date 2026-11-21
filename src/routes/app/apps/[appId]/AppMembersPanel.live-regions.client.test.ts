@@ -4,7 +4,7 @@ import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import { pinRegion } from '$lib/test/pinStatusRegion';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 import AppMembersPanel from './AppMembersPanel.svelte';
 import { addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema } from './schema';
 
@@ -30,13 +30,13 @@ describe('App members panel notes', () => {
   it('the linked Agent is not visible (install roster withheld)', async () => {
     const { root, props, settle } = await open();
     const app = props.app as Record<string, unknown>;
-    await pinRegion({ root, text: 'Which Agent is linked to this App isn’t visible to you.', settle,
-      raise: () => { props.app = { ...app, agents: null }; }, clear: () => { props.app = { ...app, agents: [] }; } });
+    await expectLiveRegionLifecycle({ root, text: 'Which Agent is linked to this App isn’t visible to you.', settle,
+      appear: () => { props.app = { ...app, agents: null }; }, disappear: () => { props.app = { ...app, agents: [] }; } });
   });
 
   it('the members are not visible', async () => {
     const { root, props, settle } = await open();
-    await pinRegion({ root, text: 'The members of this App aren’t visible to you.', settle,
-      raise: () => { props.membersWithheld = true; }, clear: () => { props.membersWithheld = false; } });
+    await expectLiveRegionLifecycle({ root, text: 'The members of this App aren’t visible to you.', settle,
+      appear: () => { props.membersWithheld = true; }, disappear: () => { props.membersWithheld = false; } });
   });
 });

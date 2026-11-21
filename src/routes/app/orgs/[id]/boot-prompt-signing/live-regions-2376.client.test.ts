@@ -11,7 +11,7 @@ import { afterEach, describe, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { expectRegionLifecycle } from '$lib/test/statusRegionLifecycle';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 import Page from './+page.svelte';
 
 let mounted: Mounted<Record<string, unknown>> | undefined;
@@ -33,11 +33,11 @@ async function open() {
 describe('signing preview page: the notes are in a persistent status region', () => {
   it('"Couldn’t load boot prompt signing.": empty, then text, then the same element', async () => {
     const { root, set } = await open();
-    await expectRegionLifecycle(root, 'Couldn’t load boot prompt signing.', set({ sw: { kind: 'failed' } }), set({}), () => tick());
+    await expectLiveRegionLifecycle({ root, text: 'Couldn’t load boot prompt signing.', appear: set({ sw: { kind: 'failed' } }), disappear: set({}), settle: () => tick() });
   });
 
   it('"This isn’t available.": empty, then text, then the same element', async () => {
     const { root, set } = await open();
-    await expectRegionLifecycle(root, 'This isn’t available.', set({}, { outcome: 'hidden' }), set({}), () => tick());
+    await expectLiveRegionLifecycle({ root, text: 'This isn’t available.', appear: set({}, { outcome: 'hidden' }), disappear: set({}), settle: () => tick() });
   });
 });

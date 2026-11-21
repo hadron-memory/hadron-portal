@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import { pinRegion } from '$lib/test/pinStatusRegion';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 import TaskPage from './[taskId]/+page.svelte';
 
 vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), goto: vi.fn(), beforeNavigate: () => {} }));
@@ -40,8 +40,8 @@ describe('task page cap notes', () => {
     mounted.push(m);
     await tick(8);
     const d = props.data as Record<string, unknown>;
-    await pinRegion({ root: m.target, text: 'Showing the first 1000 tasks in this tree', settle: () => tick(2),
-      raise: () => { props.data = { ...d, tree: tree(true) }; }, clear: () => { props.data = { ...d, tree: tree(false) }; } });
+    await expectLiveRegionLifecycle({ root: m.target, text: 'Showing the first 1000 tasks in this tree', settle: () => tick(2),
+      appear: () => { props.data = { ...d, tree: tree(true) }; }, disappear: () => { props.data = { ...d, tree: tree(false) }; } });
   });
 
   it('the history is capped at 1000 events', async () => {
@@ -58,7 +58,24 @@ describe('task page cap notes', () => {
     expect(m.target.textContent).not.toContain('Loading history…');
     const d = props.data as Record<string, unknown>;
     const reread = async (next: boolean) => { capped = next; props.data = { ...d, task: task({ updatedAt: String(Math.random()) }) }; await tick(10); };
-    await pinRegion({ root: m.target, text: 'Showing the first 1000 events', settle: () => tick(10),
-      raise: () => reread(true), clear: () => reread(false) });
+    await expectLiveRegionLifecycle({ root: m.target, text: 'Showing the first 1000 events', settle: () => tick(10),
+      appear: () => reread(true), disappear: () => reread(false) });
+  });
+  it('the FIRST history answer is already capped: the region existed before it arrived', async () => {
+    // The history section mounts its children only once the read lands, so a region inside them would arrive
+    // already populated. Here the first (and only) answer is the capped one, resolved after mount.
+    let answer!: () => void;
+    const gate = new Promise<void>((r) => { answer = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (new URL(url, 'http://x').searchParams.get('section') !== 'history') return { ok: true, status: 200, json: async () => ({ kind: 'failed' }) };
+      await gate;
+      return { ok: true, status: 200, json: async () => ({ kind: 'ok', value: { capped: true, events: [] } }) };
+    }));
+    const props = reactiveProps<Record<string, unknown>>({ data: data() });
+    const m = mountComponent(TaskPage as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(4);
+    expect(m.target.textContent, 'the history read is still pending').toContain('Loading history…');
+    await expectLiveRegionLifecycle({ root: m.target, text: 'Showing the first 1000 events', settle: () => tick(10), appear: () => answer() });
   });
 });

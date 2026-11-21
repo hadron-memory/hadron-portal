@@ -9,7 +9,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { expectRegionLifecycle } from '$lib/test/statusRegionLifecycle';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 import { orgProfileSchema } from './schema';
 import Page from './+page.svelte';
 
@@ -27,5 +27,5 @@ it('"Couldn’t load boot prompt signing." on the overview: empty, then text, th
   mounted = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
   await tick();
   const signing = (s: unknown) => () => { props.data = { ...(props.data as Record<string, unknown>), signing: s }; };
-  await expectRegionLifecycle(mounted.target, 'Couldn’t load boot prompt signing.', signing({ kind: 'failed' }), signing(working), () => tick());
+  await expectLiveRegionLifecycle({ root: mounted.target, text: 'Couldn’t load boot prompt signing.', appear: signing({ kind: 'failed' }), disappear: signing(working), settle: () => tick() });
 });

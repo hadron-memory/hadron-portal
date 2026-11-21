@@ -10,7 +10,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { pinRegion } from '$lib/test/pinStatusRegion';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 import Page from './+page.svelte';
 import { pageData } from './app-page.fixture';
 
@@ -58,17 +58,17 @@ async function open(tab: string, base: Over = {}) {
 describe('chats tab notes', () => {
   it('chat list failed', async () => {
     const { root, set, settle } = await open('chats');
-    await pinRegion({ root, text: 'Could not load this App’s chat list', settle, raise: () => set({ chatsError: true }), clear: () => set({ chatsError: false }) });
+    await expectLiveRegionLifecycle({ root, text: 'Could not load this App’s chat list', settle, appear: () => set({ chatsError: true }), disappear: () => set({ chatsError: false }) });
   });
 
   it('linked chat unresolved', async () => {
     const { root, set, settle } = await open('chats');
-    await pinRegion({ root, text: 'Couldn’t find the linked chat', settle, raise: () => set({ chatDeepLinkUnresolved: true }), clear: () => set({ chatDeepLinkUnresolved: false }) });
+    await expectLiveRegionLifecycle({ root, text: 'Couldn’t find the linked chat', settle, appear: () => set({ chatDeepLinkUnresolved: true }), disappear: () => set({ chatDeepLinkUnresolved: false }) });
   });
 
   it('the two chat-list notes share one region, which survives the swap between them', async () => {
     const { root, set, settle } = await open('chats');
-    const region = await pinRegion({ root, text: 'Could not load this App’s chat list', settle, raise: () => set({ chatsError: true }) });
+    const region = await expectLiveRegionLifecycle({ root, text: 'Could not load this App’s chat list', settle, appear: () => set({ chatsError: true }) });
     set({ chatsError: false, chatDeepLinkUnresolved: true });
     await settle();
     expect(region.textContent).toContain('Couldn’t find the linked chat');
@@ -77,13 +77,13 @@ describe('chats tab notes', () => {
 
   it('chat not found', async () => {
     const { root, set, settle } = await open('chats');
-    await pinRegion({ root, text: 'That chat isn’t available', settle, raise: () => set({ chatNotFound: true }), clear: () => set({ chatNotFound: false }) });
+    await expectLiveRegionLifecycle({ root, text: 'That chat isn’t available', settle, appear: () => set({ chatNotFound: true }), disappear: () => set({ chatNotFound: false }) });
   });
 
   it('selected chat read failed', async () => {
     // An old, unregistered chat root: the only branch that carries this note.
     const { root, set, settle } = await open('chats', { selectedChatKey: 'legacy-root', appChats: [{ key: 'legacy-root', label: 'Old chat' }] });
-    await pinRegion({ root, text: 'Couldn’t load this chat — that is a read failure', settle, raise: () => set({ selectedChatError: true }), clear: () => set({ selectedChatError: false }) });
+    await expectLiveRegionLifecycle({ root, text: 'Couldn’t load this chat — that is a read failure', settle, appear: () => set({ selectedChatError: true }), disappear: () => set({ selectedChatError: false }) });
     // The empty-chat copy takes the error's place only once the read has succeeded.
     expect(root.textContent).toContain('No messages in this chat yet.');
   });
@@ -93,29 +93,29 @@ describe('AI Team tab notes', () => {
   const roster = { kind: 'unavailable' };
   it('installed agents withheld: who can be cast is not known', async () => {
     const { root, setApp, settle } = await open('staff', { teamRoster: roster, staff: [] });
-    await pinRegion({ root, text: 'so who can be cast here isn’t known', settle, raise: () => setApp({ agents: null }), clear: () => setApp({ agents: [agentOne] }) });
+    await expectLiveRegionLifecycle({ root, text: 'so who can be cast here isn’t known', settle, appear: () => setApp({ agents: null }), disappear: () => setApp({ agents: [agentOne] }) });
   });
 
   it('task and pause state hidden', async () => {
     const { root, set, settle } = await open('staff', { teamRoster: roster });
-    await pinRegion({ root, text: 'Task and pause state are not shown to you.', settle, raise: () => set({ teamRoster: { kind: 'hidden' } }), clear: () => set({ teamRoster: roster }) });
+    await expectLiveRegionLifecycle({ root, text: 'Task and pause state are not shown to you.', settle, appear: () => set({ teamRoster: { kind: 'hidden' } }), disappear: () => set({ teamRoster: roster }) });
   });
 });
 
 describe('Agents tab notes', () => {
   it('installed agents withheld', async () => {
     const { root, setApp, settle } = await open('agents');
-    await pinRegion({ root, text: 'The agents installed in this App aren’t visible to you.', settle, raise: () => setApp({ agents: null }), clear: () => setApp({ agents: [agentOne] }) });
+    await expectLiveRegionLifecycle({ root, text: 'The agents installed in this App aren’t visible to you.', settle, appear: () => setApp({ agents: null }), disappear: () => setApp({ agents: [agentOne] }) });
   });
 
   it('which agents can be added is not known (agents withheld)', async () => {
     const { root, setApp, settle } = await open('agents');
-    await pinRegion({ root, text: 'Which agents can be added isn’t known', settle, raise: () => setApp({ agents: null }), clear: () => setApp({ agents: [agentOne] }) });
+    await expectLiveRegionLifecycle({ root, text: 'Which agents can be added isn’t known', settle, appear: () => setApp({ agents: null }), disappear: () => setApp({ agents: [agentOne] }) });
   });
 
   it('subscribed agents could not be loaded', async () => {
     const { root, set, settle } = await open('agents');
-    await pinRegion({ root, text: 'The agents your organization subscribes to could not be loaded', settle, raise: () => set({ subscribedAgentsError: true }), clear: () => set({ subscribedAgentsError: false }) });
+    await expectLiveRegionLifecycle({ root, text: 'The agents your organization subscribes to could not be loaded', settle, appear: () => set({ subscribedAgentsError: true }), disappear: () => set({ subscribedAgentsError: false }) });
   });
 });
 
@@ -126,48 +126,53 @@ const unknown = { viewerManages: { kind: 'unknown' } };
 describe('App Keys tab notes', () => {
   it('key controls withheld from a non-manager', async () => {
     const { root, set, settle } = await open('keys', manager);
-    await pinRegion({ root, text: 'Only people who manage this App can mint, revoke and scope its keys', settle, raise: () => set(nonManager), clear: () => set(manager) });
+    await expectLiveRegionLifecycle({ root, text: 'Only people who manage this App can mint, revoke and scope its keys', settle, appear: () => set(nonManager), disappear: () => set(manager) });
   });
 
   it('key controls unknown', async () => {
     const { root, set, settle } = await open('keys', manager);
-    const region = await pinRegion({ root, text: 'Couldn’t check whether you can manage this App’s keys', settle, raise: () => set(unknown), clear: () => set(manager) });
+    const region = await expectLiveRegionLifecycle({ root, text: 'Couldn’t check whether you can manage this App’s keys', settle, appear: () => set(unknown), disappear: () => set(manager) });
     expect(region.getAttribute('data-testid')).toBe('key-controls-unknown');
   });
 
   it('scopes failed', async () => {
     const { root, set, settle } = await open('keys', manager);
-    await pinRegion({ root, text: 'Couldn’t load what these keys may do', settle, raise: () => set({ keyScopes: { kind: 'failed' } }), clear: () => set({ keyScopes: { kind: 'ok', byKey: { k1: [] } } }) });
+    await expectLiveRegionLifecycle({ root, text: 'Couldn’t load what these keys may do', settle, appear: () => set({ keyScopes: { kind: 'failed' } }), disappear: () => set({ keyScopes: { kind: 'ok', byKey: { k1: [] } } }) });
   });
 
   it('key list failed', async () => {
     const { root, set, settle } = await open('keys', manager);
-    await pinRegion({ root, text: 'Couldn’t load this App’s keys.', settle, raise: () => set({ appKeys: { kind: 'failed' } }), clear: () => set({ appKeys: { kind: 'ok', keys: [key] } }) });
+    await expectLiveRegionLifecycle({ root, text: 'Couldn’t load this App’s keys.', settle, appear: () => set({ appKeys: { kind: 'failed' } }), disappear: () => set({ appKeys: { kind: 'ok', keys: [key] } }) });
   });
 });
 
 describe('Client Keys tab notes', () => {
   it('key controls unknown', async () => {
     const { root, set, settle } = await open('client', manager);
-    const region = await pinRegion({ root, text: 'Couldn’t check whether you can manage this App’s keys', settle, raise: () => set(unknown), clear: () => set(manager) });
+    const region = await expectLiveRegionLifecycle({ root, text: 'Couldn’t check whether you can manage this App’s keys', settle, appear: () => set(unknown), disappear: () => set(manager) });
     expect(region.getAttribute('data-testid')).toBe('key-controls-unknown');
   });
 
   it('key list hidden from a non-manager', async () => {
     const { root, set, settle } = await open('client', manager);
-    await pinRegion({ root, text: 'Only the App’s managers can see its keys.', settle, raise: () => set({ appKeys: { kind: 'hidden' } }), clear: () => set({ appKeys: { kind: 'ok', keys: [key] } }) });
+    await expectLiveRegionLifecycle({ root, text: 'Only the App’s managers can see its keys.', settle, appear: () => set({ appKeys: { kind: 'hidden' } }), disappear: () => set({ appKeys: { kind: 'ok', keys: [key] } }) });
   });
 
   it('key list failed', async () => {
     const { root, set, settle } = await open('client', manager);
-    await pinRegion({ root, text: 'Couldn’t load this App’s keys.', settle, raise: () => set({ appKeys: { kind: 'failed' } }), clear: () => set({ appKeys: { kind: 'ok', keys: [key] } }) });
+    await expectLiveRegionLifecycle({ root, text: 'Couldn’t load this App’s keys.', settle, appear: () => set({ appKeys: { kind: 'failed' } }), disappear: () => set({ appKeys: { kind: 'ok', keys: [key] } }) });
   });
 
-  // With no keys the New Client Key card is always mounted, so its region exists before the note. With a key
-  // the card itself only mounts once the controls are withheld (`!activeKeys.length || open || withheld`), so
-  // there the region arrives with the card: that path is page state fixed at load and is not pinned here.
-  it('setup files withheld from a non-manager (no keys, so the card is always mounted)', async () => {
+  // The region sits above the New Client Key card, outside its mount condition, so it exists whether or not
+  // the card is up. With a key present and the card closed, the card itself mounts when the answer turns to withheld.
+  it('setup files withheld from a non-manager (a key exists, card closed: the card and the note arrive together)', async () => {
+    const { root, set, settle } = await open('client', manager);
+    expect(root.querySelector('#keyLabel'), 'the New Client Key card is closed before the answer changes').toBeNull();
+    await expectLiveRegionLifecycle({ root, text: 'Setup files contain a new App key', settle, appear: () => set(nonManager), disappear: () => set(manager) });
+  });
+
+  it('setup files withheld from a non-manager (no keys, card always mounted)', async () => {
     const { root, set, settle } = await open('client', { ...manager, appKeys: { kind: 'ok', keys: [] } });
-    await pinRegion({ root, text: 'Setup files contain a new App key', settle, raise: () => set(nonManager), clear: () => set(manager) });
+    await expectLiveRegionLifecycle({ root, text: 'Setup files contain a new App key', settle, appear: () => set(nonManager), disappear: () => set(manager) });
   });
 });

@@ -69,6 +69,18 @@
   <!-- Flows this app can start (#483) — derived: runnable entry nodes with
        routing edges. The Run button mints a MANUAL run; payloads live on the
        node page's Test-flow panel. -->
+  <!-- Outside the section's mount condition: with an empty list the section itself mounts when the read fails,
+       and a region that arrives holding its text is not announced. -->
+  <LiveRegion>
+    {#if data.flowsError}
+      <!-- #2170 F7: a failed read is not "no Flows". Say so, and offer no
+           pager over a list that was never read. -->
+      <p
+        data-flows-error
+        class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+      >{t('flows.load-failed', 'Flows couldn’t load. Reload the page to try again.')}</p>
+    {/if}
+  </LiveRegion>
   {#if data.flowsError || data.flows.length > 0 || data.flowsPage.total > 0 || data.flowsPage.firstHref || data.flowsPage.previousHref}
     <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
       <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('flows.title', 'Flows')}</h2>
@@ -95,18 +107,8 @@
       {#if runActionError}
         <div role="alert" class="mt-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{runActionError}</div>
       {/if}
-      <LiveRegion>
-        {#if data.flowsError}
-          <!-- #2170 F7: a failed read is not "no Flows". Say so, and offer no
-               pager over a list that was never read. -->
-          <p
-            data-flows-error
-            class="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
-          >{t('flows.load-failed', 'Flows couldn’t load. Reload the page to try again.')}</p>
-        {/if}
-      </LiveRegion>
       {#if data.flowsError}
-        <!-- announced by the region above -->
+        <!-- announced by the region above the section -->
       {:else if data.flows.length > 0}
         <ul class="mt-3 divide-y divide-zinc-100 dark:divide-zinc-800">
         {#each data.flows as flow (flow.entry.id)}

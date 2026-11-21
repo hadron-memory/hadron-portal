@@ -3,7 +3,7 @@ import { afterEach, describe, it, vi } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
-import { pinRegion } from '$lib/test/pinStatusRegion';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 import TeamGrantSection from './TeamGrantSection.svelte';
 
 const mounted: Mounted<Record<string, unknown>>[] = [];
@@ -20,18 +20,18 @@ function open(grant: unknown) {
 describe('team grant section notes', () => {
   it('this could not be read', async () => {
     const { root, props } = open(none());
-    await pinRegion({ root, text: 'This couldn\'t be read.', settle: () => tick(2),
-      raise: () => { props.grant = { status: 'unavailable' }; }, clear: () => { props.grant = none(); } });
+    await expectLiveRegionLifecycle({ root, text: 'This couldn\'t be read.', settle: () => tick(2),
+      appear: () => { props.grant = { status: 'unavailable' }; }, disappear: () => { props.grant = none(); } });
   });
 
   it('the page could not be refreshed after a write', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { root, props } = open(none());
     const give = root.querySelector<HTMLFormElement>('form[action="?/give"]')!;
-    await pinRegion({ root, text: 'This page couldn\'t be refreshed', settle: () => tick(2),
+    await expectLiveRegionLifecycle({ root, text: 'This page couldn\'t be refreshed', settle: () => tick(2),
       // Kit failing to apply the answer is the section's own "couldn't refresh" outcome.
-      raise: async () => { await submitEnhancedWithResult(give, { type: 'success', status: 200, data: { teamGrant: 'given' } }, { update: async () => { throw new Error('apply failed'); } }); },
+      appear: async () => { await submitEnhancedWithResult(give, { type: 'success', status: 200, data: { teamGrant: 'given' } }, { update: async () => { throw new Error('apply failed'); } }); },
       // The next load of the page replaces the stored state, so nothing is behind any more.
-      clear: () => { props.grant = none(); } });
+      disappear: () => { props.grant = none(); } });
   });
 });

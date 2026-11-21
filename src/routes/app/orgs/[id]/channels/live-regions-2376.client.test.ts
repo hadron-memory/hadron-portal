@@ -6,7 +6,7 @@
 import { afterEach, describe, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import { expectRegionLifecycle } from '$lib/test/statusRegionLifecycle';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { addAttendanceSchema, editAttendanceSchema, removeAttendanceSchema } from '$lib/register/schema';
@@ -35,16 +35,16 @@ async function open() {
 describe('org Channels page: the roster notes are persistent status regions', () => {
   it('"Couldn’t load this organization’s workers and agents just now": empty, then text, then the same element', async () => {
     const { root, set, whole } = await open();
-    await expectRegionLifecycle(root, 'Couldn’t load this organization’s workers and agents just now', set({ rosterFailed: true }), whole, () => tick());
+    await expectLiveRegionLifecycle({ root, text: 'Couldn’t load this organization’s workers and agents just now', appear: set({ rosterFailed: true }), disappear: whole, settle: () => tick() });
   });
 
   it('"Couldn’t load the workers and agents of 2 App(s)": empty, then text, then the same element', async () => {
     const { root, set, whole } = await open();
-    await expectRegionLifecycle(root, 'Couldn’t load the workers and agents of 2 App(s) just now', set({ rosterUnreadApps: 2 }), whole, () => tick());
+    await expectLiveRegionLifecycle({ root, text: 'Couldn’t load the workers and agents of 2 App(s) just now', appear: set({ rosterUnreadApps: 2 }), disappear: whole, settle: () => tick() });
   });
 
   it('"The agents installed in 3 App(s) aren’t visible to you": empty, then text, then the same element', async () => {
     const { root, set, whole } = await open();
-    await expectRegionLifecycle(root, 'The agents installed in 3 App(s) aren’t visible to you', set({ rosterWithheldApps: 3 }), whole, () => tick());
+    await expectLiveRegionLifecycle({ root, text: 'The agents installed in 3 App(s) aren’t visible to you', appear: set({ rosterWithheldApps: 3 }), disappear: whole, settle: () => tick() });
   });
 });

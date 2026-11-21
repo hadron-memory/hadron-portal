@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import { expectRegionLifecycle } from '$lib/test/statusRegionLifecycle';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 import { firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 import Page from './+page.svelte';
 
@@ -29,12 +29,12 @@ async function open() {
 describe('revision page: the Changes status is a persistent status region', () => {
   it('"Couldn’t load the changes.": empty while shown, then text, then the same element', async () => {
     const { root, load } = await open();
-    await expectRegionLifecycle(root, 'Couldn’t load the changes.', load(Promise.resolve({ ok: false })), load(Promise.resolve(shown)), () => tick(3));
+    await expectLiveRegionLifecycle({ root, text: 'Couldn’t load the changes.', appear: load(Promise.resolve({ ok: false })), disappear: load(Promise.resolve(shown)), settle: () => tick(3) });
   });
 
   it('"Loading changes…": empty while shown, then text while the read is pending, then the same element', async () => {
     const { root, load } = await open();
-    await expectRegionLifecycle(root, 'Loading changes…', load(new Promise(() => {})), load(Promise.resolve(shown)), () => tick(3));
+    await expectLiveRegionLifecycle({ root, text: 'Loading changes…', appear: load(new Promise(() => {})), disappear: load(Promise.resolve(shown)), settle: () => tick(3) });
   });
 
   it('loading hands over to failed inside the one region, and nothing else announces', async () => {

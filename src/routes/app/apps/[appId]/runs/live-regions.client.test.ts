@@ -5,7 +5,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { pinRegion } from '$lib/test/pinStatusRegion';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 import { runAppFlowSchema } from './schema';
 import Panel from './AppRunsPanel.svelte';
 
@@ -16,12 +16,17 @@ afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); });
 const flow = { entry: { id: 'n1', memoryId: 'm1', loc: 'flows:one', name: 'Flow One', urn: 'hrn:node:acme.com:flows:flows:one' }, branchCount: 1, stepCount: 1 };
 
 describe('Runs panel notes', () => {
-  it('Flows could not be read', async () => {
+  it.each([
+    ['with one Flow listed', [flow], { offset: 0, count: 1, total: 1, firstHref: null, previousHref: null, nextHref: null }],
+    // The Flows section itself is only mounted when there is something to show or the read failed, so with an
+    // empty list the section and its note used to arrive together: the region has to sit outside it.
+    ['with no Flows and no pager (the section mounts with the failure)', [], { offset: 0, count: 0, total: 0, firstHref: null, previousHref: null, nextHref: null }],
+  ])('Flows could not be read, %s', async (_name, flows, flowsPage) => {
     const props = reactiveProps<Record<string, unknown>>({
       data: {
         app: { id: 'app-1', name: 'Digest', organizationId: 'org-1' },
         runs: [], total: 0, page: 1, pageSize: 20, status: null, statuses: [], sort: 'createdAt', dir: 'desc', failed: false,
-        flows: [flow], flowsPage: { offset: 0, count: 1, total: 1, firstHref: null, previousHref: null, nextHref: null }, flowsError: false,
+        flows, flowsPage, flowsError: false,
         runForm: await superValidate(zod4(runAppFlowSchema), { errors: false }), runAgents: null,
       },
       form: null,
@@ -30,7 +35,7 @@ describe('Runs panel notes', () => {
     mounted.push(m);
     await tick(2);
     const data = props.data as Record<string, unknown>;
-    await pinRegion({ root: m.target, text: 'Flows couldn’t load', settle: () => tick(2),
-      raise: () => { props.data = { ...data, flowsError: true }; }, clear: () => { props.data = { ...data, flowsError: false }; } });
+    await expectLiveRegionLifecycle({ root: m.target, text: 'Flows couldn’t load', settle: () => tick(2),
+      appear: () => { props.data = { ...data, flowsError: true }; }, disappear: () => { props.data = { ...data, flowsError: false }; } });
   });
 });

@@ -4,7 +4,7 @@ import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import { pinRegion } from '$lib/test/pinStatusRegion';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 import Page from './+page.svelte';
 import {
   addAttendanceSchema, createChannelSchema, deleteChannelSchema, editAttendanceSchema, removeAttendanceSchema, renameChannelSchema,
@@ -34,7 +34,7 @@ describe('Channels page notes', () => {
     mounted.push(m);
     await tick(2);
     const data = props.data as Record<string, unknown>;
-    await pinRegion({ root: m.target, text: 'The agents installed in this App aren’t visible to you', settle: () => tick(2),
-      raise: () => { props.data = { ...data, agentsWithheld: true }; }, clear: () => { props.data = { ...data, agentsWithheld: false }; } });
+    await expectLiveRegionLifecycle({ root: m.target, text: 'The agents installed in this App aren’t visible to you', settle: () => tick(2),
+      appear: () => { props.data = { ...data, agentsWithheld: true }; }, disappear: () => { props.data = { ...data, agentsWithheld: false }; } });
   });
 });

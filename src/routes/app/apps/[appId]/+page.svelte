@@ -4671,15 +4671,17 @@
         {:else}
           <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">New Client Key</h2>
         {/if}
+        <!-- Outside the card's mount condition: with keys present the card itself mounts when the
+             answer turns to withheld, and a region that arrives with its text is not announced. -->
+        <LiveRegion>
+          {#if keyControls === 'withheld'}
+            <p data-testid="setup-withheld" class="mb-4 rounded-xl border border-zinc-200 bg-white p-5 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">{setupWithheldReason}</p>
+          {/if}
+        </LiveRegion>
         {#if !activeKeys.length || newKeySectionOpen || keyControls === 'withheld'}
           <div class="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-            <LiveRegion>
-              {#if keyControls === 'withheld'}
-                <p data-testid="setup-withheld" class="text-sm text-zinc-500">{setupWithheldReason}</p>
-              {/if}
-            </LiveRegion>
             {#if keyControls === 'withheld'}
-              <!-- announced by the region above -->
+              <!-- announced by the region above the card -->
             {:else}
             <div>
               <label for="keyLabel" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>

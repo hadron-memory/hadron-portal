@@ -7,7 +7,7 @@ import { createRawSnippet } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { resetStubPage, setStubPage } from '$lib/test/stubs/app-stores';
-import { expectRegionLifecycle } from '$lib/test/statusRegionLifecycle';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 import Layout from './+layout.svelte';
 
 let mounted: Mounted<Record<string, unknown>> | undefined;
@@ -30,22 +30,10 @@ async function mountLayout(url: string, canWriteMemory: boolean) {
 it('"Read only" (ambiguous, static note): the region exists empty while the viewer can write, holds the note when they cannot, and is the same element after', async () => {
   const { root, props } = await mountLayout('http://localhost/app/memories/mem-1/info', true);
   const data = props.data as Record<string, unknown>;
-  await expectRegionLifecycle(
-    root,
-    'Read only — editing is unavailable for this memory.',
-    () => { props.data = { ...data, canWriteMemory: false }; },
-    () => { props.data = { ...data, canWriteMemory: true }; },
-    () => tick(),
-  );
+  await expectLiveRegionLifecycle({ root, text: 'Read only — editing is unavailable for this memory.', appear: () => { props.data = { ...data, canWriteMemory: false }; }, disappear: () => { props.data = { ...data, canWriteMemory: true }; }, settle: () => tick() });
 });
 
 it('"The graph view is temporarily off": the region exists empty on another tab, holds the note on Graph, and is the same element back on that tab', async () => {
   const { root } = await mountLayout('http://localhost/app/memories/mem-1/info', true);
-  await expectRegionLifecycle(
-    root,
-    'The graph view is temporarily off.',
-    () => setStubPage('http://localhost/app/memories/mem-1/graph', { id: 'mem-1' }),
-    () => setStubPage('http://localhost/app/memories/mem-1/info', { id: 'mem-1' }),
-    () => tick(2),
-  );
+  await expectLiveRegionLifecycle({ root, text: 'The graph view is temporarily off.', appear: () => setStubPage('http://localhost/app/memories/mem-1/graph', { id: 'mem-1' }), disappear: () => setStubPage('http://localhost/app/memories/mem-1/info', { id: 'mem-1' }), settle: () => tick(2) });
 });

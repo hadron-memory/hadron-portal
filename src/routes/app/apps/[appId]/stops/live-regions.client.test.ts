@@ -2,7 +2,7 @@
 import { afterEach, describe, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import { pinRegion } from '$lib/test/pinStatusRegion';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 import Page from './+page.svelte';
 
 const mounted: Mounted<Record<string, unknown>>[] = [];
@@ -20,7 +20,7 @@ describe('Stops page notes', () => {
     const m = mountComponent(Page as never, { data: props } as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(3);
-    await pinRegion({ root: m.target, text: 'You’re not a participant in this App', settle: () => tick(2),
-      raise: () => { props.page = { kind: 'not-participant' }; }, clear: () => { props.page = ok; } });
+    await expectLiveRegionLifecycle({ root: m.target, text: 'You’re not a participant in this App', settle: () => tick(2),
+      appear: () => { props.page = { kind: 'not-participant' }; }, disappear: () => { props.page = ok; } });
   });
 });
