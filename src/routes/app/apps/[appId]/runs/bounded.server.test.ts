@@ -29,6 +29,22 @@ it('keeps real empty success distinct from a failed runs read', async () => {
   request.mockImplementation(async q => { if (q === APP_RUNS_QUERY) throw new Error('transport'); return { app: { id: 'a' } }; });
   expect(await loadAppRunsPage({ request } as never, 'a', new URLSearchParams())).toMatchObject({ failed: true, total: 0 });
 });
+// portal#1767 row 5 (`shape`): the loader's isRunsSection guard. Mutant: no-op
+// the throw — each malformed reply below would then be served as an empty or
+// garbage SUCCESS; the pin holds the failed shape instead. Every reply is
+// answered, so the pin never dies on an unanswered mock.
+it('serves a malformed appRuns reply as a failed page, never an empty success (row 5: no-op the shape guard)', async () => {
+  const { loadAppRunsPage } = await import('$lib/server/app-runs-page');
+  const malformed = [
+    { appRuns: { total: 0 } }, // missing items
+    { appRuns: { items: [{ id: 'bad', status: 42, triggerKind: 'MANUAL', entryNodeUrn: 'urn', createdAt: 'x' }], total: 1 } }, // a row with a non-enum status
+    { appRuns: { items: [], total: -5 } }, // negative total
+  ];
+  for (const reply of malformed) {
+    request.mockImplementation(async q => q === APP_RUNS_QUERY ? reply : { app: { id: 'a' } });
+    await expect(loadAppRunsPage({ request } as never, 'a', new URLSearchParams())).resolves.toMatchObject({ failed: true, runs: [], total: 0 });
+  }
+});
 it('retains App concealment before issuing any runs read', async () => {
   request.mockResolvedValue({ app: null });
   const { loadAppRunsPage } = await import('$lib/server/app-runs-page');

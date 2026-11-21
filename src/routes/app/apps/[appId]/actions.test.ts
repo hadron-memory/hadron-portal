@@ -9,6 +9,11 @@ import {
   APP_CHATBOT_AI_CONFIG_QUERY,
   INSTALL_AGENT_INTO_APP_MUTATION,
   APP_NODES_PAGE_QUERY,
+  APP_NODES_QUERY,
+  APP_RUNS_QUERY,
+  APP_FLOWS_PAGE_QUERY,
+  APP_INSTALLED_AGENTS_QUERY,
+  AGENT_TASKS_APP_QUERY,
   APP_QUERY,
   APP_CHAT_TARGET_QUERY,
   CHANNEL_CHAT_TARGET_QUERY,
@@ -34,6 +39,7 @@ import {
   APP_CHAT_ROOTS_PAGE_QUERY,
   UPDATE_APP_MUTATION,
 } from '$lib/server/queries';
+import { TEAM_STOP_SIGNALS_QUERY } from '$lib/server/stop-signals';
 
 const mockRequest = vi.fn();
 const mockFetchAllItems = vi.fn();
@@ -193,6 +199,67 @@ describe('load', () => {
     } as unknown as Parameters<typeof load>[0])) as { addAgentForm: { data: { agentId: string } } };
 
     expect(result.addAgentForm.data.agentId).toBe('');
+  });
+
+  // portal#1767 row 6 (`tabgate`): the Runs read is gated on the Runs tab.
+  // Mutant: replace wants('runs') with true. The mock ANSWERS the runs queries
+  // too, so under the mutant the load still completes and the pin dies on
+  // these assertions, never on an unanswered mock.
+  it('reads runs only on the Runs tab; every other tab loads without a runs read (row 6: replace wants("runs") with true)', async () => {
+    mockFetchAllItems.mockResolvedValue([]);
+    mockRequest.mockImplementation((query) => {
+      if (query === APP_QUERY) {
+        return Promise.resolve({
+          app: {
+            id: 'app-1', name: 'Demo App', urn: 'hadronmemory.com:demo-org:demo-app',
+            organizationId: 'org-1', appType: 'CHATBOT', role: 'ADMIN', description: null,
+            createUserPermission: 'DENY', identifyUserMethod: 'USER_ID', sessionTimeoutSeconds: 3600,
+            anonymousTtlDays: 14, agentId: null, agent: null,
+          },
+        });
+      }
+      if (query === APP_DETAIL_ORG_QUERY) return Promise.resolve({ organization: { id: 'org-1', urn: 'hadronmemory.com:demo-org', name: 'Demo Org', members: [] } });
+      if (query === APP_ORG_AGENTS_QUERY) return Promise.resolve({ organization: { id: 'org-1', agents: [{ id: 'agent-1', name: 'Agent One', urn: 'agent:one' }] } });
+      if (query === APP_ORG_AGENT_GRANTS_QUERY) return Promise.resolve({ organization: { id: 'org-1', agentOrgGrants: [] } });
+      if (query === AI_SERVICE_CONFIGS_QUERY) return Promise.resolve({ aiServiceConfigs: { items: [], total: 0 } });
+      if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
+      if (query === APP_CHAT_ROOTS_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
+      if (query === TEAM_CHAT_MESSAGES_QUERY) return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
+      if (query === TEAM_WORK_ITEMS_QUERY) return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
+      if (query === SELF_CAN_MANAGE_QUERY) return Promise.resolve({ effectiveAccess: { canManage: true } });
+      if (query === APP_CHATBOT_AI_CONFIG_QUERY) return Promise.resolve({ app: { id: 'app-1', chatbotAiConfigId: null } });
+      // The Runs tab's own reads — answered so the mutant cannot die on a mock.
+      if (query === APP_RUNS_QUERY) return Promise.resolve({ appRuns: { items: [], total: 0 } });
+      if (query === AGENT_TASKS_APP_QUERY) return Promise.resolve({ app: { id: 'app-1', name: 'Demo App' } });
+      if (query === APP_INSTALLED_AGENTS_QUERY) return Promise.resolve({ app: { id: 'app-1', appAgents: [] } });
+      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_FLOWS_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
+      // The frame's live stop banner.
+      if (query === TEAM_STOP_SIGNALS_QUERY) return Promise.resolve({ teamStopSignals: { signals: [], pageInfo: { hasNextPage: false, endCursor: null } } });
+      throw new Error('Unexpected query');
+    });
+
+    const { load } = await import('./+page.server');
+    const loadAt = (url: URL) => load({
+      params: { id: 'org-1', appId: 'app-1' },
+      locals: { token: 'tok', user: { id: 'user-1' } },
+      parent: async () => ({}),
+      depends: () => {},
+      url,
+    } as unknown as Parameters<typeof load>[0]);
+    const runsReads = () => mockRequest.mock.calls.filter((c) => c[0] === APP_RUNS_QUERY).length;
+
+    // Any viewer who can open the App loads every non-Runs tab without a runs
+    // read; pickPayload omits the runs key entirely off the tab.
+    const offTab = (await loadAt(new URL('http://localhost/app/apps/app-1'))) as Record<string, unknown>;
+    expect(runsReads(), 'no runs read off the Runs tab').toBe(0);
+    expect('runsPanel' in offTab, 'no runs panel off the Runs tab').toBe(false);
+
+    mockRequest.mockClear();
+    const onTab = (await loadAt(new URL('http://localhost/app/apps/app-1?tab=runs'))) as { runsPanel: unknown };
+    expect(runsReads(), 'the Runs tab reads runs exactly once').toBe(1);
+    expect(onTab.runsPanel).not.toBeNull();
   });
 
 
