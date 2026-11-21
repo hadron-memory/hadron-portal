@@ -4329,7 +4329,9 @@ export const MEMORY_SHARES_QUERY = /* GraphQL */ `
 
 // #668: grant a share. `granteeRef` (server #769) resolves an id, email, handle
 // or hrn:user URN server-side, so the picker can pass whatever it has and the
-// resolution rules stay in one place.
+// resolution rules stay in one place. The variable is `ID!` to match the SDL
+// (hadron-server#4137); RevokeMemoryShare below deliberately keeps `String!`
+// because deleteMemoryShare's granteeRef is a nullable `String` in the schema.
 export const CREATE_MEMORY_SHARE_MUTATION = /* GraphQL */ `
   mutation CreateMemoryShare($memoryRef: ID!, $granteeRef: ID!, $role: MemoryShareRole!) {
     createMemoryShare(memoryRef: $memoryRef, granteeRef: $granteeRef, role: $role) {
