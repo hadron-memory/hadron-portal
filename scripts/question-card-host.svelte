@@ -7,13 +7,21 @@
   fail the script's identity check. The scenario data and the result building
   live in the fixture entry (test-question-card-layout.mjs), not here: this
   file is deliberately dumb.
+
+  The trade-off (deliberate): every scenario after the first is an in-place
+  prop update, so the card's internal state (an opened <details>, the posting
+  flag) carries across scenarios, and the initial-render path runs exactly
+  once, at startup. The non-live-region scenarios accept that: what they pin
+  is markup and roles, which every prop swap re-derives.
 -->
 <script lang="ts">
   import QuestionCard from '../src/lib/components/questions/QuestionCard.svelte';
   import type { QuestionCardView } from '../src/lib/questions/types';
   import type { QuestionFormResult } from '../src/lib/questions/action-kinds';
 
-  const state = $state<{ question: QuestionCardView | null; canAct: boolean; result: QuestionFormResult | null }>({
+  // Named `current`, not `state`: a local named `state` beside the $state rune
+  // reads as a store subscription and trips store_rune_conflict.
+  const current = $state<{ question: QuestionCardView | null; canAct: boolean; result: QuestionFormResult | null }>({
     question: null,
     canAct: true,
     result: null,
@@ -21,12 +29,12 @@
 
   /** Swap the card's props on the one mounted instance; returns nothing (the entry awaits tick). */
   export function setProps(question: QuestionCardView, canAct: boolean, result: QuestionFormResult | null): void {
-    state.question = question;
-    state.canAct = canAct;
-    state.result = result;
+    current.question = question;
+    current.canAct = canAct;
+    current.result = result;
   }
 </script>
 
-{#if state.question}
-  <QuestionCard question={state.question} canAct={state.canAct} result={state.result} />
+{#if current.question}
+  <QuestionCard question={current.question} canAct={current.canAct} result={current.result} />
 {/if}

@@ -76,6 +76,10 @@ const actionResult = (payload) => {
   }
   return questionResultOf(payload);
 };
+// The failure data the server's refuse() arm would answer, built by the REAL mapping — the
+// reload pin below drives guarded() with these, so a changed refusalNeedsReload mapping moves
+// the test's payloads with it instead of leaving hand-written reload flags behind.
+window.failurePayload = (code) => actionResult({ code, kind: 'answerQuestion' });
 const scenarios = {
   // The two shot scenarios: a decider facing a pending question, and the same question answered.
   pending: { props: {} },
@@ -84,7 +88,7 @@ const scenarios = {
   // (hrn:node:hadronmemory.com:specs:cor:dmo:140:05: the server refuses every write under
   // impersonation; the card hides Undo and Withdraw — Withdraw follows the asker OR a decider,
   // per the withdrawQuestion schema — and viewerMayAnswer is false so no answer form renders
-  // either). Two mounts: an open question (the not-allowed note renders only there) and an
+  // either). Two scenarios on the one mount: an open question (the not-allowed note renders only there) and an
   // answered one (the direct Undo check).
   impersonated: { props: { viewerMayAnswer: false, impersonating: true }, canAct: false },
   impersonatedAnswered: { props: { state: 'DECIDED', answered: true, answer: ANSWERED_A_BY_PRIYA, answers: [ANSWERED_A_BY_PRIYA], viewerMayAnswer: false, impersonating: true }, canAct: false },
@@ -111,6 +115,19 @@ window.scenario = async (name) => {
 };
 window.submitted = [];
 document.addEventListener('submit', (e) => { e.preventDefault(); window.submitted.push(Object.fromEntries(new FormData(e.target).entries())); }, { capture: true });
+// Module identity, pinned from INSIDE the vite pipeline (a bare '$app/forms' specifier only
+// resolves through the alias config): the card reaches the stubs through the $app/* aliases,
+// the test through their /src/lib URLs — one module each, or the recorded calls and the
+// read-back array would be different objects and every navigation assert below would be
+// reading a stranger's diary.
+window.assertModuleIdentity = async () => {
+  const formsViaAlias = await import('$app/forms');
+  const formsViaPath = await import('/src/lib/test/stubs/app-forms.ts');
+  if (formsViaAlias !== formsViaPath) throw new Error('$app/forms and /src/lib/test/stubs/app-forms.ts resolved to different module instances');
+  const navViaAlias = await import('$app/navigation');
+  const navViaPath = await import('/src/lib/test/stubs/app-navigation.ts');
+  if (navViaAlias !== navViaPath) throw new Error('$app/navigation and /src/lib/test/stubs/app-navigation.ts resolved to different module instances');
+};
 await window.scenario('pending');
 window.fixtureReady = true;
 `;
@@ -123,7 +140,7 @@ const server = await createServer({
     load(id) { if (id === '\0question-entry') return fixture; },
     configureServer(s) { s.middlewares.use('/__question', async (_req, res) => {
       res.setHeader('Content-Type', 'text/html');
-      res.end(await s.transformIndexHtml('/__question', '<html><body class="bg-white dark:bg-zinc-950"><main class="text-zinc-900 dark:text-zinc-100" style="margin:16px;min-width:0"></main><script type="module" src="/__question-entry.ts"></script></body></html>'));
+      res.end(await s.transformIndexHtml('/__question', '<html><body class="bg-white dark:bg-zinc-950"><div id="before-card" tabindex="-1"></div><main class="text-zinc-900 dark:text-zinc-100" style="margin:16px;min-width:0"></main><div id="after-card" tabindex="0"></div><script type="module" src="/__question-entry.ts"></script></body></html>'));
     }); },
   }], resolve: { alias: { $lib: resolve(repoRoot, 'src/lib'), ...aliases, '$env/dynamic/public': resolve(repoRoot, 'src/lib/test/stubs/env-dynamic-public.ts') } },
   server: { host: '127.0.0.1', port: 0 },
@@ -134,20 +151,25 @@ try {
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
   // A fixture crash must fail FAST with its own error, not as an opaque ready-timeout: the first
-  // pageerror races the ready signal. Console errors are held for the final assert alongside
+  // pageerror races the ready signal. The crash promise RESOLVES (a rejecting one that fires
+  // during goto, before the race attaches its handler, would surface as an unhandled rejection
+  // and bypass the finally cleanup). Console errors are held for the final assert alongside
   // the pageerrors.
   const errors = [];
-  const firstPageError = new Promise((_, reject) => { page.on('pageerror', (e) => reject(new Error(`the fixture crashed before it was ready: ${e}`))); });
-  page.on('pageerror', (e) => errors.push(String(e)));
+  const crashed = new Promise((resolve) => {
+    page.on('pageerror', (e) => { errors.push(String(e)); resolve(new Error(`the fixture crashed before it was ready: ${e}`)); });
+  });
   page.on('console', (m) => { if (m.type() === 'error') errors.push(`console.error: ${m.text()}`); });
-  // Freeze the wall clock between the fixture's dates (after the newest entry 09:30Z on the
-  // 21st, before neededBy on the 24th). QuestionCard's when() renders absolute UTC today, so
-  // nothing is time-relative yet — the freeze keeps the shots and any timestamp-sensitive
-  // rendering deterministic even if a formatter ever goes relative.
+  // Start the clock at a fixed instant between the fixture's dates (after the newest entry
+  // 09:30Z on the 21st, before neededBy on the 24th). Fake time ADVANCES from that instant —
+  // requestAnimationFrame keeps working — it does not stand still; the fixed starting point is
+  // what keeps the shots and any timestamp-sensitive rendering deterministic. QuestionCard's
+  // when() renders absolute UTC today, so nothing is time-relative yet.
   await page.clock.install({ time: new Date('2026-11-21T12:00:00Z') });
   const ready = page.waitForFunction(() => window.fixtureReady === true);
   await page.goto(new URL('/__question', server.resolvedUrls.local[0]).href);
-  await Promise.race([ready, firstPageError]);
+  const firstSignal = await Promise.race([ready, crashed]);
+  if (firstSignal instanceof Error) throw firstSignal;
   const card = page.locator('[data-testid=question-card]');
   const shot = async (state, width, dark) => {
     if (!process.env.HADRON_LAYOUT_SHOTS) return;
@@ -240,8 +262,15 @@ try {
   // the card is result-free, then the refusal results are swapped in and the SAME elements must
   // carry the new text (hrn:node:hadronmemory.com:specs:cor:dmo:140:09: a refusal is typed, and
   // the portal's words are its own — the exact prose is the pin).
-  const alertEl = await page.getByRole('alert').elementHandle();
-  const statusEl = await page.getByRole('status').elementHandle();
+  // A live region that has gone missing entirely fails HERE, by name, fast — not as an
+  // anonymous 30 s walk-timeout somewhere later in the run.
+  const regionEl = async (role, name) => {
+    const handle = await page.getByRole(role).elementHandle({ timeout: 5000 }).catch(() => null);
+    assert.ok(handle, `the ${name} live region is mounted before any refusal is driven`);
+    return handle;
+  };
+  const alertEl = await regionEl('alert', 'assertive (role=alert)');
+  const statusEl = await regionEl('status', 'polite (role=status)');
   assert.equal(await alertEl.evaluate((e) => e.textContent.trim()), '', 'before the refusal: the alert region is empty');
   await page.evaluate(() => window.scenario('conflict'));
   assert.equal(await alertEl.evaluate((e) => e.textContent.trim()), 'This question changed since you opened it. It has been reloaded: check it and answer again.', 'stale revision: the SAME alert element announces the mapped text');
@@ -277,28 +306,43 @@ try {
 
   // The reload flag, driven through the card's own code this time: the $app/forms stand-in
   // RECORDS the guarded() enhance callback each form registers; beginEnhanced runs it the way
-  // kit would on submit and hands its result handler the ActionResult the server answered. A
-  // failure carrying data.reload (the stale-revision shape — refusalNeedsReload says
-  // NODE_WRITE_CONFLICT reloads) must call invalidateAll — recorded by the $app/navigation
-  // stub the card really imports — and a failure without the flag (QUESTION_FORBIDDEN, no
-  // reload) must not. The alert PROSE is pinned above; this pins the re-read behaviour the
-  // flag exists for, in both directions.
+  // kit would on submit and hands its result handler the ActionResult the server answered.
+  // The failure data comes from the REAL mapping (window.failurePayload composes
+  // questionRefusal + refusalNeedsReload, exactly what refuse() in src/lib/server/questions.ts
+  // answers) — a changed reload mapping moves these payloads with it rather than leaving a
+  // hand-written `reload: true` behind. Module identity is pinned FIRST: the card reaches the
+  // stubs through the $app/* aliases, the test through their /src/lib URLs; one module each,
+  // or the recorded calls and the read-back array would be different objects. Each direction
+  // is then asserted on its OWN read of a CLEARED navigationCalls — a total count over both
+  // handlers could not tell an inverted rule (reload fired on the forbidden shape instead of
+  // the stale one) from the real one. The alert PROSE is pinned above; this pins the re-read
+  // behaviour the flag exists for, in both directions.
   await page.evaluate(() => window.scenario('pending'));
+  await page.evaluate(() => window.assertModuleIdentity());
+  await page.evaluate(async () => {
+    const { resetNavigationCalls } = await import('/src/lib/test/stubs/app-navigation.ts');
+    const { beginEnhanced } = await import('/src/lib/test/stubs/app-forms.ts');
+    resetNavigationCalls();
+    const conflict = await beginEnhanced(document.querySelector('[data-testid=question-option][data-key=A] form'));
+    await conflict({ type: 'failure', status: 409, data: window.failurePayload('NODE_WRITE_CONFLICT') });
+  });
+  let navCalls = await page.evaluate(async () => (await import('/src/lib/test/stubs/app-navigation.ts')).navigationCalls.map((c) => c.fn));
+  assert.deepEqual(navCalls, ['invalidateAll'], 'a reload-flagged failure (NODE_WRITE_CONFLICT) invalidates exactly once');
   await page.evaluate(async () => {
     const { beginEnhanced } = await import('/src/lib/test/stubs/app-forms.ts');
-    const conflict = await beginEnhanced(document.querySelector('[data-testid=question-option][data-key=A] form'));
-    await conflict({ type: 'failure', status: 409, data: { kind: 'answerQuestion', ok: false, error: 'stale', reload: true } });
     const forbidden = await beginEnhanced(document.querySelector('[data-testid=question-option][data-key=B] form'));
-    await forbidden({ type: 'failure', status: 403, data: { kind: 'answerQuestion', ok: false, error: 'not allowed' } });
+    await forbidden({ type: 'failure', status: 403, data: window.failurePayload('QUESTION_FORBIDDEN') });
   });
-  const navCalls = await page.evaluate(async () => (await import('/src/lib/test/stubs/app-navigation.ts')).navigationCalls.map((c) => c.fn));
-  assert.deepEqual(navCalls.filter((fn) => fn === 'invalidateAll'), ['invalidateAll'], 'a reload-flagged failure invalidates exactly once; a failure without the flag does not');
+  navCalls = await page.evaluate(async () => (await import('/src/lib/test/stubs/app-navigation.ts')).navigationCalls.map((c) => c.fn));
+  assert.deepEqual(navCalls, ['invalidateAll'], 'a failure without the flag (QUESTION_FORBIDDEN) adds no invalidateAll — the cleared array is unchanged');
 
-  // Ask 3: the keyboard and screen-reader pass. Focus a KNOWN element first (the body), then
-  // walk the card's Tab stops — one identifier kind: the option's key, or the control's id, or
-  // the nearest testid — to the card's end, the Withdraw summary.
+  // Ask 3: the keyboard and screen-reader pass. Focus the sentinel BEFORE the card first (a
+  // programmatic .focus() target; document.body.focus() is a no-op — body is not focusable
+  // without a tabindex — and would not reset Chromium's sequential-focus starting point),
+  // then walk the card's Tab stops — one identifier kind: the option's key, or the control's
+  // id, or the nearest testid — to the card's end, the Withdraw summary.
   await page.evaluate(() => window.scenario('pending'));
-  await page.evaluate(() => document.body.focus());
+  await page.locator('#before-card').focus();
   const focusStop = () => page.evaluate(() => {
     const el = document.activeElement;
     if (!(el instanceof HTMLElement)) return '';
@@ -310,6 +354,17 @@ try {
   const order = [];
   for (let i = 0; i < 7; i++) { await page.keyboard.press('Tab'); order.push(await focusStop()); }
   assert.deepEqual(order, ['A', 'B', 'C', 'question-text', 'question-text-option', 'question-text-form', 'question-withdraw'], `Tab order across the card to the Withdraw summary: ${JSON.stringify(order)}`);
+  // The ANSWER path ends at the Withdraw summary; the card's tail (the Urn copy controls in
+  // the refs section) follows. The walk's end condition is focus LEAVING the card — landing
+  // on the after-card sentinel, the first tabbable after it — which proves the 7 stops above
+  // were the card's whole answer path, not a walk that simply stopped asserting.
+  let left = false;
+  for (let i = 0; i < 6 && !left; i++) {
+    await page.keyboard.press('Tab');
+    left = await page.evaluate(() => !(document.activeElement instanceof HTMLElement && document.activeElement.closest('[data-testid=question-card]')));
+  }
+  assert.ok(left, 'Tabbing past the Withdraw summary leaves the card within a few stops (refs tail included)');
+  assert.equal(await focusStop(), 'after-card', 'the first tabbable outside the card is the after-card sentinel');
   // Enter on the focused answer button submits that option's form with its hidden values.
   const answerA = card.locator('[data-testid=question-option][data-key=A] button');
   await answerA.focus();
