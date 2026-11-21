@@ -2707,9 +2707,10 @@
       // runs on the FIRST mount too, erasing the draft the alert is about.
       // Same rule as the clearMetaRefusal() guard above: reset these only on
       // a real node change.
-      // `nodeChanged` is false only on the first run (lastNodeId starts
-      // undefined) and true on every later node-id change. Same-node re-runs
-      // never reach this block. $deleteFormData.hard needs no first-mount
+      // `nodeChanged` is false on the first run (lastNodeId starts undefined)
+      // and true only when the node id differs from the previous run's. This
+      // block is entered only when the id differs, so a same-node re-run never
+      // reaches it. $deleteFormData.hard needs no first-mount
       // reset: its checkbox only renders inside the delete dialog, and both
       // ways in (the 'delete' menu case and the Settings danger-zone button)
       // set hard = false before opening it. The same goes for the move

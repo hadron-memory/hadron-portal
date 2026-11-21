@@ -21,6 +21,7 @@ import { page, resetStubPage, setStubPage } from '$lib/test/stubs/app-stores';
 import { resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { COMMENT_THREADS_QUERY, NODE_COMMENT_SUMMARY_QUERY } from '$lib/server/comments';
 import {
+  DELETE_NODE_MUTATION,
   MEMORIES_QUERY,
   ORG_APPS_RUNNABLE_QUERY,
   RUN_TASK_APP_MUTATION,
@@ -93,6 +94,8 @@ function serve() {
         return { apps: { items: [{ id: 'app-1', name: 'App One', appAgents: [] }], total: 1 } };
       case MEMORIES_QUERY:
         return { memories: { items: [], total: 0 } };
+      case DELETE_NODE_MUTATION:
+        throw new Error('the server refuses the delete');
       case RUN_TASK_APP_MUTATION:
         throw new Error('the server refuses the run');
       default:
@@ -154,7 +157,7 @@ async function settle() {
 
 const field = (target: HTMLElement, sel: string) => target.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(sel);
 
-async function refusedAction(name: 'testFlow' | 'updateFlow', fields: Record<string, string>) {
+async function refusedAction(name: 'testFlow' | 'updateFlow' | 'delete', fields: Record<string, string>) {
   const fd = new FormData();
   for (const [k, v] of Object.entries(fields)) fd.append(k, v);
   const res = await (actions as Record<string, (e: never) => Promise<unknown>>)[name]({
@@ -245,6 +248,29 @@ describe('full-page sibling-form refusals keep the refused draft (portal#2446)',
     expect((field(m.target, '#testFlowApp') as HTMLSelectElement).value).toBe('');
   });
 
+  // The claim the first-mount guard rests on, pinned from the other side: a
+  // hydrated hard = true (a refused hard delete) must not reach the reader
+  // through the menu's delete dialog, because that entry resets it first. The
+  // Settings danger-zone entry also resets it, but its confirm form carries no
+  // `hard` control, so there is nothing to observe there.
+  it('delete: a refused hard delete never opens the menu dialog with Hard delete ticked', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    serve();
+    const actionData = await refusedAction('delete', { _kind: 'deleteNode', hard: 'true' });
+    expect((actionData as { form?: { data?: { hard?: boolean } } }).form?.data?.hard, 'the refused draft carries hard = true').toBe(true);
+    const { m } = await mountHydrated(actionData);
+    m.target.querySelector<HTMLElement>('button[aria-label="Actions for Foo"]')!.click();
+    flushSync();
+    const del = Array.from(m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((b) => b.textContent?.trim() === 'Delete');
+    expect(del, 'the Delete menu item').toBeTruthy();
+    del!.click();
+    flushSync();
+    await settle();
+    const hard = field(m.target, 'input[type="checkbox"][name="hard"]') as HTMLInputElement | null;
+    expect(hard, 'the delete dialog is open').not.toBeNull();
+    expect(hard!.checked, 'Hard delete must start unticked').toBe(false);
+  });
+
   it('updateFlow: the refused flow draft is still what the form will submit', async () => {
     setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
     serve();
@@ -256,5 +282,21 @@ describe('full-page sibling-form refusals keep the refused draft (portal#2446)',
     flushSync();
     await settle();
     expect(field(m.target, 'input[name="extractionRows"]')!.value).toBe(rows);
+  });
+  // The claim the flow-sync skip rests on: the refused draft sits in hidden
+  // inputs the reader cannot see, and Save stays disabled until the visible
+  // editor is dirty, so it cannot be resubmitted unseen.
+  it('updateFlow: Save stays disabled after hydration, so the unseen draft cannot be resubmitted', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    serve();
+    const rows = JSON.stringify([{ field: 'kept', shape: 'string', description: 'refused draft' }]);
+    const actionData = await refusedAction('updateFlow', { _kind: 'updateFlow', extractionRows: rows, outputWriteTo: '', outputMode: 'replace' });
+    const { m } = await mountHydrated(actionData);
+    Array.from(m.target.querySelectorAll('button')).find((b) => /^Flow/.test(b.textContent?.trim() ?? ''))!.click();
+    flushSync();
+    await settle();
+    expect(field(m.target, 'input[name="extractionRows"]')!.value, 'the draft is in the hidden input').toBe(rows);
+    const save = m.target.querySelector<HTMLButtonElement>('form[action="?/updateFlow"] button[type="submit"]')!;
+    expect(save.disabled, 'Save is disabled until the editor is dirty').toBe(true);
   });
 });
