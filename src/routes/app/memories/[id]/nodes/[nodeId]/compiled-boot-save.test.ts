@@ -5,6 +5,10 @@ import { NODE_BY_ID_QUERY } from '$lib/server/queries';
 // portal#1899: the server refuses a generic edit of a compiled boot prompt with a typed
 // BOOT_PROMPT_COMPILED_WRITE (only a compile writes it). The editor save must show the
 // fixed code as a 4xx rejection (the page words it; no server text is forwarded), never the generic 500.
+// Main 88c9764c: boundedLogCode checks falsy before code shape; saveFailureDetail and
+// the write-error path keep unclassified responses generic. Hosted CI at aa2d2a0b passed.
+// https://github.com/hadron-memory/hadron-portal/blob/88c9764c64aca3b5e0320b0a307205fe1d139535/src/routes/app/memories/%5Bid%5D/nodes/%5BnodeId%5D/%2Bpage.server.ts#L675-L682
+// https://github.com/hadron-memory/hadron-portal/actions/runs/44871227361
 const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
 vi.mock('$lib/server/guards', () => ({ requireNonConsumer: vi.fn() }));
@@ -34,7 +38,7 @@ describe('portal#1899 compiled boot prompt save', () => {
     const r = await save('SOMETHING_NEW', 'private wire prose');
     expect(r.status).toBe(500);
     expect(JSON.stringify(r)).not.toContain('private wire prose');
-    expect(r.data.contentFailed.detail).toBe('Something went wrong on our side.');
+    expect(r.data).toEqual({ contentFailed: { code: 'failed', detail: 'Something went wrong on our side.' } });
     // The log shape is pinned: exactly operation, stage and code, so no content or wire text can ride along.
     expect((console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls).toEqual([['[node-detail] save failed:', { op: 'update-content', stage: 'write', code: 'SOMETHING_NEW' }]]);
   });
@@ -50,7 +54,7 @@ describe('portal#1899 compiled boot prompt save', () => {
     expect(r.status).toBe(500);
     expect(JSON.stringify(r)).not.toContain('private wire prose');
     expect(JSON.stringify(r)).not.toContain('some wire prose with content');
-    expect(r.data.contentFailed.detail).toBe('Something went wrong on our side.');
+    expect(r.data).toEqual({ contentFailed: { code: 'failed', detail: 'Something went wrong on our side.' } });
     const calls = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls;
     expect(calls).toEqual([['[node-detail] save failed:', { op: 'update-content', stage: 'write', code: 'unrecognized' }]]);
   });
@@ -58,7 +62,7 @@ describe('portal#1899 compiled boot prompt save', () => {
     const r = await save(code, 'private wire prose');
     expect(r.status).toBe(500);
     expect(JSON.stringify(r)).not.toContain('private wire prose');
-    expect(r.data.contentFailed.detail).toBe('Something went wrong on our side.');
+    expect(r.data).toEqual({ contentFailed: { code: 'failed', detail: 'Something went wrong on our side.' } });
     const calls = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls;
     expect(calls).toEqual([['[node-detail] save failed:', { op: 'update-content', stage: 'write', code: 'no-code' }]]);
   });
