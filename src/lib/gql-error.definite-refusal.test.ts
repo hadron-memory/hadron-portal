@@ -2,7 +2,7 @@
  * portal#2196: isDefiniteRefusal proves a failed write was refused BEFORE any commit. The
  * `*_NOT_FOUND` suffix was too wide: an unrelated code ending that way read as a refusal and
  * released a lock on a write that may have committed. Only framework/access codes and the action's
- * own known refusal codes are definite (cor:api:260:01: a typed refusal keeps its own code, anything
+ * own known refusal codes are definite (hrn:node:hadronmemory.com:specs:cor:api:260:01: a typed refusal keeps its own code, anything
  * else is not proof that nothing was written).
  */
 import { describe, expect, it } from 'vitest';
