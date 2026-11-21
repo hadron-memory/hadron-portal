@@ -9,7 +9,8 @@ import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_PAGE_QUERY } from '$lib/server/queries';
+import { SELF_MEMORY_ACCESS_QUERY } from '$lib/server/comments';
 import Page from './+page.svelte';
 import { load } from './+page.server';
 
@@ -44,7 +45,8 @@ beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   mockRequest.mockImplementation(async (doc: string) => {
     if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: served };
-    if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [rev(`rev-${served.id}`, 'old')] };
+    if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [rev(`rev-${served.id}`, 'old')], total: 1, hasMore: false } };
+    if (doc === SELF_MEMORY_ACCESS_QUERY) return { effectiveAccess: { canWrite: true, canManage: false } };
     return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
   });
 });
@@ -66,7 +68,7 @@ async function loaded(id: string) {
     ...((await load({
       params: { id: 'mem-A', nodeId: id },
       locals: { token: 'tok', user: { id: 'u1' }, impersonation: null },
-      url: new URL(`http://localhost/app/memories/mem-A/nodes/${id}`),
+      url: new URL(`http://localhost/app/memories/mem-A/nodes/${id}?tab=history`),
       parent: vi.fn().mockResolvedValue(PARENT),
     } as never)) as Record<string, unknown>),
   };
@@ -84,7 +86,6 @@ const byText = (t: HTMLElement, sel: string, text: string) =>
 const input = (t: HTMLElement) => t.querySelector<HTMLInputElement>('[data-testid="revision-label-input"]');
 
 async function openLabelDialog(target: HTMLElement) {
-  await click(byText(target, 'button', 'Revisions'));
   await click(target.querySelector('button[aria-label="Revision actions"]'));
   await click(byText(target, '[role="menuitem"]', 'Edit label'));
   expect(input(target)).not.toBeNull();
