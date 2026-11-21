@@ -44,7 +44,7 @@ const LIVE_REGION_CASES: LiveRegionCase[] = [
   { file: R + "app/memories/[id]/subscriptions/+page.svelte", marker: "{actionSuccess ?? unsubscribeActionSuccess}", gates: [] },
   { file: R + "app/marketplace/+page.svelte", marker: "{addToAgentSuccess}", gates: ["if memories.length > 0", "each memories (key memory.id)", "if canAdopt"] },
   { file: R + "app/orgs/[id]/boot-prompt-signing/+page.svelte", marker: "org.signing.stale", gates: [] },
-  { file: R + "app/orgs/[id]/+page.svelte", marker: "org.signing.switched-off", gates: ["if signingOutcome !== 'hidden' && signing.kind !== 'hidden'", "else of if signing.kind === 'failed'"] },
+  { file: R + "app/orgs/[id]/+page.svelte", marker: "org.signing.switched-off", gates: ["if signingOutcome !== 'hidden' && signing.kind !== 'hidden'", "if signing.kind !== 'failed'"] },
   { file: R + "app/orgs/[id]/agents/+page.svelte", marker: "{subscribeActionSuccess}", gates: [] },
   { file: R + "app/orgs/[id]/agents/+page.svelte", marker: "{unsubscribeActionSuccess}", gates: [] },
   { file: R + "app/orgs/[id]/apps/+page.svelte", marker: "{deleteActionSuccess}", gates: [] },

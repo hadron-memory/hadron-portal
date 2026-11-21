@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // #942 — an organization's Channels and its own register rows. The rows set
   // here apply across the org's Apps (an App's own row for the same Channel
   // and attendee wins over them). They are managed here, and shown read-only
@@ -127,20 +128,25 @@
         )}
       </p>
     </div>
-    {#if data.rosterFailed}
-      <p role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-        {t('org.channels.roster-failed', 'Couldn’t load this organization’s workers and agents just now, so only “Everyone in the organization” is offered below. The rows themselves are all shown.')}
-      </p>
-    {:else if data.rosterUnreadApps > 0}
-      <p role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-        {t('org.channels.roster-partial', 'Couldn’t load the workers and agents of {count} App(s) just now, so they aren’t offered below. The rows themselves are all shown.', { count: String(data.rosterUnreadApps) })}
-      </p>
-    {/if}
-    {#if data.rosterWithheldApps > 0}
-      <p role="status" class="rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-        {t('org.channels.roster-withheld', 'The agents installed in {count} App(s) aren’t visible to you, so they aren’t offered below.', { count: String(data.rosterWithheldApps) })}
-      </p>
-    {/if}
+    <!-- portal#2376: one persistent region per note; they are separate children of this `space-y` column. -->
+    <LiveRegion data-testid="roster-unread-region">
+      {#if data.rosterFailed}
+        <p class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+          {t('org.channels.roster-failed', 'Couldn’t load this organization’s workers and agents just now, so only “Everyone in the organization” is offered below. The rows themselves are all shown.')}
+        </p>
+      {:else if data.rosterUnreadApps > 0}
+        <p class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+          {t('org.channels.roster-partial', 'Couldn’t load the workers and agents of {count} App(s) just now, so they aren’t offered below. The rows themselves are all shown.', { count: String(data.rosterUnreadApps) })}
+        </p>
+      {/if}
+    </LiveRegion>
+    <LiveRegion data-testid="roster-withheld-region">
+      {#if data.rosterWithheldApps > 0}
+        <p class="rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+          {t('org.channels.roster-withheld', 'The agents installed in {count} App(s) aren’t visible to you, so they aren’t offered below.', { count: String(data.rosterWithheldApps) })}
+        </p>
+      {/if}
+    </LiveRegion>
     <RegisterPanel
       rows={data.orgRows}
       ownerType="ORGANIZATION"

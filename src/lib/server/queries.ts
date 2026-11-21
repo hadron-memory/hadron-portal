@@ -6241,3 +6241,53 @@ export const ACKNOWLEDGE_ALARM_MUTATION = /* GraphQL */ `
     acknowledgeAlarm(eventId: $eventId) { id acknowledgedAt }
   }
 `;
+
+// portal#2234 (Questions P1, epic hadron-server#1641): the question card.
+// Needs a server serving 2bc8d228 (hadron-server#4532 merge, with #4427 and
+// #4428) or later; the portal deploys only after production serves it.
+// Every document is validated against schema/schema.graphql by `pnpm gql:validate` (the
+// `graphql-validate` CI check), so a document that still selects a field the snapshot refresh
+// removed fails there; there is no separate caller audit to keep (portal#2234).
+export const QUESTION_CARD_FIELDS = /* GraphQL */ `
+  fragment QuestionCardFields on Question {
+    id urn portalUrl code title background whyNow priority tier authorizes state answered revSeq
+    viewerIsDecider viewerMayAnswer neededBy defaultAction askedAt answeredAt
+    options { key label whyChoose whyNot risks }
+    recommendation { key reason by { user { id handle name } worker { id handle name } app { id handle name } } }
+    noRecommendationReason
+    answer { kind key text reason at via by { id handle name } }
+    answers { kind key text reason at via by { id handle name } }
+    blocks { ref node spec } sources { ref node spec } specsTouched { ref node spec } specsMustChange { ref node spec }
+    deciders { id handle name } assignee { id handle name } effectiveAssignee { id handle name }
+    askedBy { user { id handle name } worker { id handle name } app { id handle name } }
+    withdrawn { at reason }
+  }
+`;
+
+export const QUESTION_BY_REF_QUERY = /* GraphQL */ `
+  ${QUESTION_CARD_FIELDS}
+  query QuestionCard($ref: ID!) {
+    question(ref: $ref) { ...QuestionCardFields }
+  }
+`;
+
+export const ANSWER_QUESTION_MUTATION = /* GraphQL */ `
+  ${QUESTION_CARD_FIELDS}
+  mutation AnswerQuestion($ref: ID!, $input: AnswerQuestionInput!, $expectedRevision: Int!) {
+    answerQuestion(ref: $ref, input: $input, expectedRevision: $expectedRevision) { ...QuestionCardFields }
+  }
+`;
+
+export const RETRACT_QUESTION_ANSWER_MUTATION = /* GraphQL */ `
+  ${QUESTION_CARD_FIELDS}
+  mutation RetractQuestionAnswer($ref: ID!, $expectedRevision: Int!, $reason: String, $via: QuestionAnswerVia) {
+    retractQuestionAnswer(ref: $ref, expectedRevision: $expectedRevision, reason: $reason, via: $via) { ...QuestionCardFields }
+  }
+`;
+
+export const WITHDRAW_QUESTION_MUTATION = /* GraphQL */ `
+  ${QUESTION_CARD_FIELDS}
+  mutation WithdrawQuestion($ref: ID!, $reason: String!, $expectedRevision: Int!) {
+    withdrawQuestion(ref: $ref, reason: $reason, expectedRevision: $expectedRevision) { ...QuestionCardFields }
+  }
+`;
