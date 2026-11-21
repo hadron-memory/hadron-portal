@@ -185,6 +185,32 @@ describe('worker signature: save sends changed fields only', () => {
 
 // Gene's blind P2 on #1157: clear intent comes only from a posted template.
 // A schema default must never turn an OMITTED field into an explicit clear.
+describe('worker signature: a successful save re-bases the reply (#2411)', () => {
+  it('the success reply carries the saved text as its base, so the form is clean and a typed revert is a real change', async () => {
+    mockRequest.mockResolvedValueOnce({ updateWorker: { id: 'w-1' } });
+    const res = await runAction({ signature: 'new sig', signatureBase: SIG, trailer: TRL, trailerBase: TRL });
+    expect(res.form?.data).toMatchObject({ signature: 'new sig', signatureBase: 'new sig', trailer: TRL, trailerBase: TRL });
+  });
+
+  it('both templates re-base when both were saved', async () => {
+    mockRequest.mockResolvedValueOnce({ updateWorker: { id: 'w-1' } });
+    const res = await runAction({ signature: 's', signatureBase: SIG, trailer: 't', trailerBase: TRL });
+    expect(res.form?.data).toMatchObject({ signatureBase: 's', trailerBase: 't' });
+  });
+
+  it('a refusal keeps the original bases: the draft stays dirty', async () => {
+    mockRequest.mockRejectedValueOnce(gqlError('FORBIDDEN', 'x'));
+    const res = await runAction({ signature: 'draft', signatureBase: SIG, trailer: TRL, trailerBase: TRL });
+    expect(res.data?.form?.data).toMatchObject({ signature: 'draft', signatureBase: SIG });
+  });
+
+  it('a template that was not posted is not re-based', async () => {
+    mockRequest.mockResolvedValueOnce({ updateWorker: { id: 'w-1' } });
+    const res = await runAction({ signature: 'new sig', signatureBase: SIG });
+    expect(res.form?.data.trailerBase).not.toBe('new sig');
+  });
+});
+
 describe('worker signature: posted presence, not defaults', () => {
   it('an omitted template with a non-empty base is not sent', async () => {
     mockRequest.mockResolvedValueOnce({ updateWorker: { id: 'w-1' } });
