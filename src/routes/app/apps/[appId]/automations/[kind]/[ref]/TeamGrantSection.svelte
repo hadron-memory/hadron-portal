@@ -150,9 +150,11 @@
     {#if form?.teamGrantRefused}
       <p role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{form.teamGrantMessage || t('app.automations.refused', 'The server refused this action.')}</p>
     {/if}
-    {#if unread}
-      <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.automations.team.unread', "This page couldn't be refreshed, so what it shows may be out of date. Reload the page to check.")}</p>
-    {/if}
+    <LiveRegion class="last:empty:-mt-2">
+      {#if unread}
+        <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.automations.team.unread', "This page couldn't be refreshed, so what it shows may be out of date. Reload the page to check.")}</p>
+      {/if}
+    </LiveRegion>
   </div>
 {/snippet}
 
@@ -165,8 +167,13 @@
 
   {@render outcomeRegion()}
 
+  <LiveRegion>
+    {#if shown.status === 'unavailable'}
+      <p data-testid="team-grant-unavailable" class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.automations.team.unavailable', "This couldn't be read. Reload the page to try again.")}</p>
+    {/if}
+  </LiveRegion>
   {#if shown.status === 'unavailable'}
-    <p role="status" data-testid="team-grant-unavailable" class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.automations.team.unavailable', "This couldn't be read. Reload the page to try again.")}</p>
+    <!-- announced by the region above -->
   {:else}
     {#if live}
       <div class="text-sm text-zinc-700 dark:text-zinc-300">

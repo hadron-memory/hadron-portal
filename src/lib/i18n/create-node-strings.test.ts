@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  badLocReason,
   createNodeErrorCode,
+  isBadLocError,
   createNodeErrorStatus,
   translateCreateNodeError,
 } from './create-node-strings';
 
-function gqlError(code: string, message = 'something failed'): unknown {
-  return { response: { errors: [{ message, extensions: { code } }] } };
+function gqlError(code: string, message = 'something failed', reason?: string): unknown {
+  return { response: { errors: [{ message, extensions: reason === undefined ? { code } : { code, reason } }] } };
 }
 
 describe('createNodeErrorCode', () => {
@@ -83,5 +85,50 @@ describe('createNodeErrorStatus', () => {
     expect(createNodeErrorStatus(gqlError('SomeNewError'))).toBe(500);
     expect(createNodeErrorStatus(new Error('plain'))).toBe(500);
     expect(createNodeErrorStatus(undefined)).toBe(500);
+  });
+});
+
+// portal#2323: a bad loc is BAD_USER_INPUT + extensions.reason; the old
+// InvalidLocError shape stays readable until the server change is deployed.
+describe('bad loc reading (portal#2323)', () => {
+  it('reads a reason from the set off BAD_USER_INPUT, and nothing else', () => {
+    expect(badLocReason(gqlError('BAD_USER_INPUT', 'x', 'empty'))).toBe('empty');
+    expect(badLocReason(gqlError('BAD_USER_INPUT', 'x', 'invalid-charset'))).toBe('invalid-charset');
+    expect(badLocReason(gqlError('BAD_USER_INPUT', 'x', 'too-long'))).toBe('too-long');
+    // #588 schema violation: no reason
+    expect(badLocReason(gqlError('BAD_USER_INPUT'))).toBeNull();
+    // a reason outside the set, and a reason on another code, are not a bad loc
+    expect(badLocReason(gqlError('BAD_USER_INPUT', 'x', 'something-else'))).toBeNull();
+    expect(badLocReason(gqlError('Forbidden', 'x', 'empty'))).toBeNull();
+    expect(badLocReason(null)).toBeNull();
+  });
+
+  it('isBadLocError accepts both shapes and rejects a schema violation', () => {
+    expect(isBadLocError(gqlError('BAD_USER_INPUT', 'x', 'too-long'))).toBe(true);
+    expect(isBadLocError(gqlError('InvalidLocError'))).toBe(true);
+    expect(isBadLocError(gqlError('BAD_USER_INPUT'))).toBe(false);
+  });
+
+  it('says a different thing per reason; invalid-charset keeps today\'s message', () => {
+    const charset = translateCreateNodeError(gqlError('BAD_USER_INPUT', 'x', 'invalid-charset'));
+    expect(charset).toBe(translateCreateNodeError(gqlError('InvalidLocError')));
+    expect(charset).toMatch(/letters.*digits.*hyphens/i);
+    const empty = translateCreateNodeError(gqlError('BAD_USER_INPUT', 'x', 'empty'));
+    const tooLong = translateCreateNodeError(gqlError('BAD_USER_INPUT', 'x', 'too-long'));
+    expect(empty).toMatch(/required/i);
+    expect(tooLong).toMatch(/too long/i);
+    expect(tooLong).not.toMatch(/letters/i); // the old text misdescribes this case
+    expect(tooLong).not.toMatch(/\d/); // no cap number until the cor:api rule is minted
+    expect(new Set([charset, empty, tooLong]).size).toBe(3);
+  });
+
+  it('a schema-violation BAD_USER_INPUT still passes the server text through', () => {
+    expect(translateCreateNodeError(gqlError('BAD_USER_INPUT', 'properties.name: required field missing'))).toBe(
+      'properties.name: required field missing',
+    );
+  });
+
+  it('a bad loc is a 400', () => {
+    expect(createNodeErrorStatus(gqlError('BAD_USER_INPUT', 'x', 'too-long'))).toBe(400);
   });
 });

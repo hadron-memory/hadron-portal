@@ -14,7 +14,7 @@
   import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { readSection, type TaskSection } from '$lib/agent-tasks/sections';
 
-  let { appId, taskId, section, version, children, placeholder, label = t('app.tasks.section.loading', 'Loading…') }: {
+  let { appId, taskId, section, version, children, placeholder, onread, label = t('app.tasks.section.loading', 'Loading…') }: {
     appId: string;
     taskId: string;
     section: TaskSection;
@@ -23,6 +23,8 @@
     /** Shown instead of the plain label until the answer lands, and kept for a reader without JS (portal#2263 P2#4). */
     placeholder?: Snippet;
     children: Snippet<[T]>;
+    /** Told each answer as it lands, and `null` when the section starts over, so a caller can keep a live region of its own OUTSIDE `children` (which mount only after the answer). */
+    onread?: (answer: T | null) => void;
     label?: string;
   } = $props();
 
@@ -42,6 +44,7 @@
     if (signal.aborted) return;
     answeredFor = id;
     read = answer as T;
+    onread?.(answer as T);
   }
 
   let observer: IntersectionObserver | null = null;
@@ -87,6 +90,7 @@
         ctl?.abort();
         ctl = null;
         read = null;
+        onread?.(null);
         answeredFor = '';
         watch();
       } else if (seen !== null && v !== seenVersion && read !== null) {

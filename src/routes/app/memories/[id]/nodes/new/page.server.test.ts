@@ -361,6 +361,25 @@ describe('new node create action', () => {
     expect(fieldError(result, 'loc')).toBe('Loc segments may only contain letters, digits, hyphens, and underscores.');
   });
 
+  // portal#2323 (hadron-server#4461): the new bad-loc shape.
+  for (const [reason, text] of [
+    ['invalid-charset', 'Loc segments may only contain letters, digits, hyphens, and underscores.'],
+    ['empty', 'Loc is required.'],
+    ['too-long', 'This loc is too long. Shorten it.'],
+  ] as const) {
+    it(`maps BAD_USER_INPUT reason ${reason} to the loc field, 400 (#2323)`, async () => {
+      mockRequest.mockRejectedValueOnce({
+        response: { errors: [{ message: 'Invalid loc', extensions: { code: 'BAD_USER_INPUT', field: 'loc', reason } }] },
+      });
+
+      const result = await runCreate({ name: 'Node', loc: 'bad loc', nodeType: 'info' });
+
+      expect(result).toMatchObject({ status: 400 });
+      expect(fieldError(result, 'loc')).toBe(text);
+      expect(fieldError(result, 'propertiesJson')).toBeUndefined();
+    });
+  }
+
   it('returns non-field GraphQL failures as Superforms messages', async () => {
     mockRequest.mockRejectedValueOnce({
       response: {

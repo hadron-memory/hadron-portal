@@ -3,6 +3,7 @@
   import { t } from '$lib/i18n/t';
   import type { MemorySchemaObjectType } from '$lib/schema/memory-schema';
   import { buildPropertyFilter, readPropertyFilter, propertyOperators } from '$lib/search/property-filter';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
 
   interface Props { collection: MemorySchemaObjectType | null; value?: string; onstatus?: (message: string) => void }
   let { collection, value = $bindable(''), onstatus }: Props = $props();
@@ -136,11 +137,13 @@
         {/if}
       {/if}
     {/if}
-    {#if !canApply}
-      <p role="status" class="text-xs text-zinc-500 dark:text-zinc-400">{!declaration
-        ? t('property-filter.field-required', 'Choose a field before applying a filter.')
-        : t('property-filter.value-invalid', 'Choose or enter a valid value before applying.')}</p>
-    {/if}
+    <LiveRegion>
+      {#if !canApply}
+        <p class="text-xs text-zinc-500 dark:text-zinc-400">{!declaration
+          ? t('property-filter.field-required', 'Choose a field before applying a filter.')
+          : t('property-filter.value-invalid', 'Choose or enter a valid value before applying.')}</p>
+      {/if}
+    </LiveRegion>
   {:else}
     <label for="structured-where" class="block text-xs text-zinc-600 dark:text-zinc-400">{t('property-filter.raw-label', 'Filter JSON')}</label>
     <textarea id="structured-where" bind:this={firstControl} rows="4" class={`${control} resize-y font-mono`} bind:value={advanced} oninput={markDirty}

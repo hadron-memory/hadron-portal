@@ -400,16 +400,21 @@
   // `teamTags` is null everywhere, and a control promising a result would lie).
   const tagsObserved = $derived(shownMessages.some((m) => (m.teamTags?.length ?? 0) > 0));
   const showFilterBar = $derived(!!onSelectTeam && (filter.kind !== 'none' || filterInvalid || tagsObserved));
-  // #2250 fix round: while a filter request is pending (the route's read has
+  // While a filter request is pending (the route's read has
   // not landed as new props), a further toggle computes against the REQUESTED
   // selection. The stale `filter` prop still shows the pre-click set, so
   // toggling against it silently dropped every head chosen since the read
   // started — and read a second fast click on one chip as add-add.
-  const toggleBase = $derived(filterFocusRequest?.pendingFilter ?? filter);
+  // Deduplicated once here, so the chips, the pressed state, the cap and the
+  // key comparisons all judge the same set even if the route prop repeats a head.
+  const toggleBase = $derived.by((): TeamChatFilter => {
+    const base = filterFocusRequest?.pendingFilter ?? filter;
+    return base.kind === 'teams' ? { kind: 'teams', headRefs: uniqueHeads(base.headRefs) } : base;
+  });
   // The cap is judged on the same pending base: a full requested selection
   // refuses further adds locally, exactly as the server would.
   const capReached = $derived(toggleBase.kind === 'teams' && toggleBase.headRefs.length >= TEAM_HEAD_REFS_MAX);
-  // #2250 round 3 (Gil N1): between a click and its read landing, what the
+  // Between a click and its read landing, what the
   // view SHOWS must agree with what a click DOES. The chips and the row
   // tags' pressed state render the PENDING selection — the set the next
   // click is computed against — not the applied prop: a still-rendered
@@ -419,7 +424,7 @@
   // pending set IS the applied filter, so the resting view is unchanged.
   const shownHeads = $derived(toggleBase.kind === 'teams' ? toggleBase.headRefs : []);
   const pressedHeads = $derived(new Set(shownHeads));
-  // #2250 round 4 (Gil F4): one state, one view. While a request is pending,
+  // One state, one view. While a request is pending,
   // the pressed state follows the PENDING choice (as the chips already do);
   // the applied view's invalidity is stale information about the view being
   // replaced and must not fight it until the read lands.
@@ -429,7 +434,7 @@
   // multi-head selection (#1482) each selected head is labelled from the first
   // loaded row that stamps it; a head whose filtered read is empty has no row
   // to label it and falls back to the generic name.
-  // #2250 round 4 (Gil F1): the map is keyed over the heads the reader can
+  // The map is keyed over the heads the reader can
   // SEE — the PENDING set while a request is in flight, not the applied one
   // that lags by a read — and a head this click ADDED is seeded with the
   // clicked tag's label (the request keeps it), so the optimistic chip
@@ -456,7 +461,7 @@
   let filterAnnouncement = $state('');
   function selectTeam(next: TeamChatFilter, label?: string, base: TeamChatFilter = toggleBase) {
     if (!onSelectTeam) return;
-    // #2250 round 3 (Gil N1): while a request is pending, a choice that does
+    // While a request is pending, a choice that does
     // not change the set the next click acts on is not a choice — navigating
     // to the same key would announce a change that never happened. With no
     // request pending the click still navigates (an invalid view's explicit
@@ -466,15 +471,15 @@
     // click ADDS (its filtered read may have no row on screen). On a removal
     // it is the departing head's label and must not announce as the filter.
     // `base` is the selection the caller's toggle computed against — the
-    // pending request while a route read is in flight (#2250 fix round), the
+    // pending request while a route read is in flight, the
     // applied prop otherwise; added/removed are judged against THAT, never
-    // against a stale prop. Round 3 (Gil N4/N5): the default follows the
+    // against a stale prop. The default follows the
     // pending set too, and `removedHead` is set only when EXACTLY one head
     // left — a bulk clear (All messages / untagged) names no neighbour.
     const baseHeads = base.kind === 'teams' ? base.headRefs : [];
     const nextHeads = next.kind === 'teams' ? next.headRefs : [];
     const addedHead = nextHeads.find((h) => !baseHeads.includes(h));
-    const removedHead = nextHeads.length === baseHeads.length - 1
+    const removedHead = next.kind === 'teams' && nextHeads.length === baseHeads.length - 1
       ? baseHeads.find((h) => !nextHeads.includes(h))
       : undefined;
     filterFocusRequest = {
@@ -484,13 +489,13 @@
     };
     onSelectTeam(next);
   }
-  // #2250 fix round: at the cap an unselected head cannot join (the server
+  // At the cap an unselected head cannot join (the server
   // would refuse the read). The row control is disabled; this guard covers
   // every other entry. Say the limit in the live region rather than
   // navigating to an unchanged filter and announcing a change that never
   // happened.
-  // #2250 round 5 (Gil N2/N4): a live region announces CHANGES, so repeating
-  // a sentence is silent. Round 4 forced the change by flipping a zero-width
+  // A live region announces CHANGES, so repeating
+  // a sentence is silent. An earlier version forced the change by flipping a zero-width
   // mark — which leaked invisible characters into every string handed to
   // onFilterAnnouncement (the route's region, translators, tests). Clear the
   // region first, let that change flush, then set the clean text: the region
@@ -515,7 +520,7 @@
     request.movedFocus = event.target === request.opener ? undefined
       : event.target === composerEl ? 'composer' : 'elsewhere';
   }
-  // #2250 fix round: with several chips, focus lands on the chip the request
+  // With several chips, focus lands on the chip the request
   // NAMED — the added head's own chip, or the removed chip's neighbour — and
   // never defaults to chip 1. Head refs are HEAD_REF_PATTERN-constrained (no
   // quotes or backslashes), so the quoted attribute selector is safe.
@@ -558,7 +563,7 @@
     void tick().then(() => {
       if (cancelled || !messagesEl || filterFocusRequest !== requested || filterKey !== applied) return;
       if (!failed && requested.key !== applied) {
-        // #2250 round 5 (Gil N1): ABANDONED, not failed. The navigation
+        // ABANDONED, not failed. The navigation
         // completed and the route applied a DIFFERENT filter — back/forward,
         // canonicalization, a superseding URL change — so the filter DID
         // change, just not to what this request asked for. Only a failed read
@@ -618,12 +623,11 @@
         ? t('app.team-chat.filter.announcement.teams', 'Team filter selected: {teams}.', {
             teams: filter.headRefs
               .map((headRef) =>
-                // The head this click added announces under the clicked tag's
-                // label even when its filtered read has no row on screen.
-                // Every other head with no loaded row falls back to the
-                // generic name rather than guessing from other rows' labels.
+                // activeTeamLabels already seeds the head this click added with
+                // the clicked tag's label, even when its filtered read has no
+                // row on screen. Every other head with no loaded row falls back
+                // to the generic name rather than guessing from other rows' labels.
                 activeTeamLabels.get(headRef)
-                  ?? (headRef === requested.addedHead ? requested.label : undefined)
                   ?? t('app.team-chat.filter.selected-team', 'Selected team'))
               .join(', '),
           })
@@ -989,16 +993,16 @@
         {#if shownHeads.length > 0}
           <!-- #1482: one chip per selected head, each removable on its own —
                removing the last one is the same as choosing All messages.
-               #2250 fix round: a chip is a plain REMOVE button named for its
+               A chip is a plain REMOVE button named for its
                own head (aria-pressed on a remove-only control mixed two
                models), and a head with no loaded label falls back to its head
                ref — several sparse heads used to render identical
                "Selected team" chips with one shared accessible name.
-               #2250 round 3 (Gil N1): the chips iterate the PENDING set and
+               The chips iterate the PENDING set and
                a chip click is a pure remove (removeTeamHead) — the view and
                the action can no longer disagree about whether a head is in
                the selection. -->
-          {#each uniqueHeads(shownHeads) as headRef (headRef)}
+          {#each shownHeads as headRef (headRef)}
             {@const chipLabel = activeTeamLabels.get(headRef) ?? headRef}
             <button
               type="button"
@@ -1242,10 +1246,9 @@
                       disabled={!onSelectTeam}
                       aria-disabled={!pressed && capReached ? 'true' : undefined}
                       onclick={() => {
-                        // #2250 fix round: a full selection refuses a further
+                        // A full selection refuses a further
                         // add locally and says the limit rather than
-                        // navigating to an unchanged filter. Round 3 (Gil
-                        // N3): the cap is carried as aria-disabled, not
+                        // navigating to an unchanged filter. The cap is carried as aria-disabled, not
                         // native disabled — the control stays focusable and
                         // clickable, so THIS guard (the live-region
                         // announcement) is reachable by keyboard and screen

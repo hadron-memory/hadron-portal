@@ -34,6 +34,7 @@
     listKey,
     searchPlaceholder,
     searchAriaLabel,
+    labelledBy,
     globalFilter = $bindable(''),
     headerOpen = $bindable(false),
     showSearch = true,
@@ -54,6 +55,8 @@
     listKey: string;
     searchPlaceholder: string;
     searchAriaLabel: string;
+    /** The id of an element on the page that names this table (a heading or a count line). */
+    labelledBy?: string;
     globalFilter?: string;
     /** Callers may reveal the existing filter before a guarded focus handoff. */
     headerOpen?: boolean;
@@ -243,7 +246,7 @@
      scroll and the pagination footer below stays visible. The `<thead>`
      is sticky so column headers remain while the body scrolls. -->
 <div bind:this={scrollerEl} data-testid="data-table-scroller" class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: {scrollerMaxHeight};">
-  <table class="table-fixed w-[var(--table-desktop-w)] max-sm:w-[var(--phone-table-w)] text-sm" style="--table-desktop-w: {desktopTableWidth}; --phone-table-w: {phoneTableWidth};{phoneEndColumnWidth !== undefined ? ` --phone-end-w: ${phoneEndColumnWidth}px;` : ''}">
+  <table aria-labelledby={labelledBy} class="table-fixed w-[var(--table-desktop-w)] max-sm:w-[var(--phone-table-w)] text-sm" style="--table-desktop-w: {desktopTableWidth}; --phone-table-w: {phoneTableWidth};{phoneEndColumnWidth !== undefined ? ` --phone-end-w: ${phoneEndColumnWidth}px;` : ''}">
     <thead>
       {#each table.getHeaderGroups() as headerGroup (headerGroup.id)}
         <tr class="text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">

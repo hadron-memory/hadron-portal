@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import LazyNodesBrowser from '$lib/components/LazyNodesBrowser.svelte';
   // #266: memory-detail is a tab layout. The layout renders the breadcrumb +
   // header + tab bar; each tab is a sub-route rendered via {@render children()}.
@@ -346,9 +347,11 @@
   <ApproveAllDialog memory={{ id: g.id, urn: g.urn }} bind:open={approveAllOpen} onapproved={() => approvalsVersion++} />
   <MintDialog memory={{ id: g.id, urn: g.urn }} bind:open={mintOpen} onminted={() => approvalsVersion++} />
 
-  {#if readOnly}
-    <p role="status" class="mb-4 text-sm text-zinc-500">{t('memory-detail.read-only', 'Read only — editing is unavailable for this memory.')}</p>
-  {/if}
+  <LiveRegion>
+    {#if readOnly}
+      <p class="mb-4 text-sm text-zinc-500">{t('memory-detail.read-only', 'Read only — editing is unavailable for this memory.')}</p>
+    {/if}
+  </LiveRegion>
 
   <!-- portal#1524 (Holger, 2026-10-31): the layout drains no node list (it
        loaded 44 MB of HTML at 33k nodes, portal#1380) and the Graph is still
@@ -360,10 +363,13 @@
     {#key g.id}
       <LazyNodesBrowser memoryId={g.id} />
     {/key}
-  {:else if !isNodeDetail && activeTab === 'graph'}
-    <p role="status" data-testid="memory-views-off" class="mb-4 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-      {t('memory-detail.views-off', 'The graph view is temporarily off. Open a node by its URL or from a link to it.')}
-    </p>
   {/if}
+  <LiveRegion data-testid="memory-views-off-region">
+    {#if !isNodeDetail && activeTab === 'graph'}
+      <p data-testid="memory-views-off" class="mb-4 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+        {t('memory-detail.views-off', 'The graph view is temporarily off. Open a node by its URL or from a link to it.')}
+      </p>
+    {/if}
+  </LiveRegion>
   {@render children()}
 </div>

@@ -237,10 +237,7 @@
 {:else}
   <div class="space-y-2" data-testid="ticker-add-subscriber">
     {#if roster.kind === 'failed'}
-      <p role="status" class="text-xs text-zinc-500 dark:text-zinc-400" data-testid="ticker-roster-failed">
-        {rosterFailedText()}
-        <button type="button" onclick={onRosterRetry} class="ml-1 font-medium underline">{t('app.tickers.retry', 'Try again')}</button>
-      </p>
+      <!-- announced by the status region below -->
     {:else if workers.length === 0}
       <p class="text-xs text-zinc-500 dark:text-zinc-400" data-testid="ticker-roster-empty">{rosterEmptyText()}</p>
     {:else if !open}
@@ -248,7 +245,7 @@
         bind:this={opener}
         type="button"
         onclick={startAdding}
-        class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        class="block w-fit rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
       >{t('app.ticker.controls.add.start', 'Add subscriber…')}</button>
     {:else}
       <form method="POST" action="?/subscribe" use:enhance={submit()} class="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/60" data-testid="ticker-add-form">
@@ -308,10 +305,21 @@
         <LiveRegion>
           {#if ok}<p class="text-xs text-emerald-700 dark:text-emerald-300" data-testid="ticker-add-result">{subscribedText()}</p>{/if}
         </LiveRegion>
-        {#if announcementFailed}<p role="status" class="text-xs text-amber-800 dark:text-amber-300" data-testid="ticker-add-announcement">{announcementFailedText()}</p>{/if}
+        <LiveRegion class="last:empty:-mt-2">
+          {#if announcementFailed}<p class="text-xs text-amber-800 dark:text-amber-300" data-testid="ticker-add-announcement">{announcementFailedText()}</p>{/if}
+        </LiveRegion>
         {#if refreshFailed}<TickerRefreshFailedLine testid="ticker-add-refresh-failed" />{/if}
         {#if refusal}<WriteRefusalAlert {refusal} />{/if}
       </form>
     {/if}
+    <!-- after the chain, not before it: the failed branch above is empty and this region speaks it -->
+    <LiveRegion class="last:empty:-mt-2">
+      {#if roster.kind === 'failed'}
+        <p class="text-xs text-zinc-500 dark:text-zinc-400" data-testid="ticker-roster-failed">
+          {rosterFailedText()}
+          <button type="button" onclick={onRosterRetry} class="ml-1 font-medium underline">{t('app.tickers.retry', 'Try again')}</button>
+        </p>
+      {/if}
+    </LiveRegion>
   </div>
 {/if}
