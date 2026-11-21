@@ -46,13 +46,21 @@ const providerError = (status: number, type: string = TYPE) =>
     status, headers: { 'content-type': 'application/json', 'request-id': RID },
   });
 
+/** Advance the faked timer until the turn settles, so the test does not depend on how long the SDK's retry backoff is. Bounded, so a turn that never settles fails here. */
+async function settle<T>(turn: Promise<T>): Promise<T> {
+  let done = false;
+  void turn.then(() => { done = true; }, () => { done = true; });
+  for (let i = 0; i < 600 && !done; i++) await vi.advanceTimersByTimeAsync(1_000);
+  if (!done) throw new Error('the turn never settled');
+  return turn;
+}
+
 async function fail(args: Partial<Parameters<typeof callAgentChatLlm>[0]> = {}): Promise<unknown> {
   const turn = callAgentChatLlm({
     provider: 'anthropic', apiKey: KEY, model: MODEL, systemMessage: PROMPT,
     tools: [RESPOND], messages: [{ role: 'user', content: PROMPT }], ...args,
   }).then(() => { throw new Error('expected the turn to fail'); }, (e: unknown) => e);
-  await vi.advanceTimersByTimeAsync(60_000);
-  return turn;
+  return settle(turn);
 }
 const lines = () => captured.map((a) => a.map(String).join(' '));
 function expectNoSentinel(where: unknown) {
@@ -152,7 +160,7 @@ describe('#1979 one closed diagnostic line per failed turn', () => {
     expect(captured).toEqual([]);
   });
 
-  it('a successful turn and a refused provider call log nothing', async () => {
+  it('a successful respond-branch turn logs nothing', async () => {
     stubFetch(() => Response.json({
       id: 'msg_1', type: 'message', role: 'assistant', model: 'm', stop_reason: 'tool_use',
       content: [{ type: 'tool_use', id: 't1', name: 'respond', input: { message: 'hi' } }], usage: { input_tokens: 1, output_tokens: 1 },
@@ -202,8 +210,7 @@ describe('#1979 describeLlmFailure never walks an arbitrary error', () => {
     const hostileTools = new Proxy([], { get() { throw new Error(KEY); } }) as never;
     const turn = callAgentChatLlm({ provider: 'anthropic', apiKey: KEY, model: MODEL, systemMessage: PROMPT, tools: hostileTools, messages: [{ role: 'user', content: PROMPT }] })
       .then(() => { throw new Error('expected failure'); }, (e: unknown) => e);
-    await vi.advanceTimersByTimeAsync(60_000);
-    const e = await turn;
+    const e = await settle(turn);
     expect((e as Error).message).toBe(CHAT_ERROR.llmFailed);
     expect(publicChatError(e)).toEqual({ code: 'llmFailed', message: CHAT_ERROR.llmFailed, status: 500 });
   });
