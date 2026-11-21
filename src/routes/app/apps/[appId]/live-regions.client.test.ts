@@ -93,11 +93,15 @@ describe('switching into a failed legacy chat', () => {
   it('speaks from the region that existed before the switch, the way a chat switch delivers the panel and the error together', async () => {
     const appChats = [{ key: 'legacy-root', label: 'Old chat' }, { key: 'other-root', label: 'Other' }];
     const { root, set, settle } = await open('chats', { selectedChatKey: null, selectedChatError: false, appChats });
-    await expectLiveRegionLifecycle({
+    const region = await expectLiveRegionLifecycle({
       root, text: 'Couldn’t load this chat — that is a read failure', settle,
       appear: () => set({ selectedChatKey: 'legacy-root', selectedChatError: true }),
       disappear: () => set({ selectedChatKey: null, selectedChatError: false }),
     });
+    // The chat panel is inert and aria-busy while a switch runs; a region inside it can re-enter the
+    // accessibility tree already holding its text, so the announcing region lives outside it.
+    expect(region.closest('#panel-chats'), 'the region is outside the busy panel').toBeNull();
+    expect(region.closest('[inert]')).toBeNull();
   });
 });
 

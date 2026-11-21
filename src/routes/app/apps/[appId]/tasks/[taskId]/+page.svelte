@@ -386,7 +386,6 @@
             <a href="#history-end" class="mb-2 inline-block text-xs text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.history.latest', 'Jump to latest')}</a>
           {/if}
           <TaskHistory events={history.value.events} {basePath} {people} />
-          <span id="history-end"></span>
         {:else if history.kind === 'not-participant'}
           <NotParticipant />
         {:else}
@@ -405,5 +404,7 @@
         </p>
       {/if}
     </LiveRegion>
+    <!-- After the cap note, so "Jump to latest" lands where the note is visible too. -->
+    <span id="history-end"></span>
   </section>
 </div>

@@ -76,6 +76,10 @@ describe('task page cap notes', () => {
     mounted.push(m);
     await tick(4);
     expect(m.target.textContent, 'the history read is still pending').toContain('Loading history…');
-    await expectLiveRegionLifecycle({ root: m.target, text: 'Showing the first 1000 events', settle: () => tick(10), appear: () => answer() });
+    const region = await expectLiveRegionLifecycle({ root: m.target, text: 'Showing the first 1000 events', settle: () => tick(10), appear: () => answer() });
+    // "Jump to latest" targets #history-end: it must come AFTER the cap note, or the jump lands above it.
+    const end = m.target.querySelector('#history-end');
+    expect(end, 'the anchor exists').not.toBeNull();
+    expect(region.compareDocumentPosition(end!) & Node.DOCUMENT_POSITION_FOLLOWING, 'the anchor follows the cap note').toBeTruthy();
   });
 });

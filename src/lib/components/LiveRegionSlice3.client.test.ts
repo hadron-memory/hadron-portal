@@ -107,6 +107,11 @@ describe('DefinitionRegisterSection', () => {
     const { root, props } = await mount(DefinitionRegisterSection, { ...base, register: ready({ kind: 'ok', page: { entries: [], total: 0, hasMore: false } }) });
     await expectLiveRegionLifecycle({ root, text: 'Not available for this App.', appear: () => { props.register = ready({ kind: 'app-not-found' }); }, disappear: () => { props.register = ready({ kind: 'ok', page: { entries: [], total: 0, hasMore: false } }); }, settle: () => tick(3) });
   });
+  it('"Not available for this App." speaks from a region that existed while the section was still unavailable (a transition from an outer branch)', async () => {
+    setStubPage('http://localhost/app/agents/g1/definitions/tasks%3Abuild?app=app-1');
+    const { root, props } = await mount(DefinitionRegisterSection, { ...base, register: unavailable });
+    await expectLiveRegionLifecycle({ root, text: 'Not available for this App.', appear: () => { props.register = ready({ kind: 'app-not-found' }); }, disappear: () => { props.register = unavailable; }, settle: () => tick(3) });
+  });
 });
 
 describe('PartyPicker: members not listed', () => {

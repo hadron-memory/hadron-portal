@@ -2870,6 +2870,10 @@
     <LiveRegion>
       {#if chatSwitchBusy}<p>{t('app.chats.opening', 'Opening chat…')}</p>{/if}
       {#if chatSwitchFailed}<p>{t('app.chats.open-failed', 'Could not open that chat. Your current conversation is still here.')}</p>{/if}
+      <!-- A read failure of the legacy chat just opened is announced from HERE, outside the panel below: the
+           panel is inert and aria-busy while a switch runs, and a region inside it can come back into the
+           accessibility tree already holding its text. The visible note stays in the panel, as plain text. -->
+      {#if legacyChatShown && tabData.selectedChatError}<span class="sr-only">{t('app.chats.messages-error', 'Couldn’t load this chat — that is a read failure, not an empty chat.')}</span>{/if}
     </LiveRegion>
     <div inert={chatSwitchBusy} aria-busy={chatSwitchBusy} id="panel-chats" role="tabpanel" aria-labelledby="tab-chats" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="mb-3 flex flex-wrap items-center gap-2">
@@ -2927,14 +2931,13 @@
         )}
       </p>
     {/if}
-    <!-- Above every chat branch, so a switch INTO a failed legacy chat changes a region that already
-         existed instead of mounting one that arrives holding its text. -->
+    </LiveRegion>
     {#if legacyChatShown && tabData.selectedChatError}
+      <!-- announced by the region above the panel -->
       <p class="mb-3 rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
         {t('app.chats.messages-error', 'Couldn’t load this chat — that is a read failure, not an empty chat.')}
       </p>
     {/if}
-    </LiveRegion>
 
     {#if tabData.selectedChatKey === AGENT_CHAT_KEY}
     <!-- #740: `dvh` tracks the VISIBLE viewport, so the panel doesn't run
