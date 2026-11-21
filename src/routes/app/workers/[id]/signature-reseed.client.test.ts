@@ -17,6 +17,7 @@ import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, type Mounted } from '$lib/test/mountComponent';
+import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { updateSignatureFormId, updateSignatureSchema } from './schema';
 import Section from './WorkerSignatureSection.svelte';
@@ -90,5 +91,52 @@ describe('signature section: same-worker re-read', () => {
     props.trailer = 'T2';
     flushSync();
     expect(posted(target)).toMatchObject({ signature: 'MY DRAFT', signatureBase: 'ORIGINAL', trailer: 'T2', trailerBase: 'T2' });
+  });
+});
+
+// portal#2411 — the reader's own enhanced save. The reply form is built from
+// what was POSTED, so unless the action re-bases it the editor stays dirty and
+// a typed revert compares equal to the stale base: Save disables, nothing posts.
+// The reply here is the reply `shape` of the real action (see signature.test.ts
+// for the action itself), applied by superforms' own code.
+describe('signature section: the reader’s own successful save (#2411)', () => {
+  async function savedReply(over: Record<string, string>) {
+    const form = await superValidate(
+      { signature: 'SAVED TEXT', trailer: 'T', signatureBase: 'ORIGINAL', trailerBase: 'T', ...over },
+      zod4(updateSignatureSchema),
+      { errors: false, id: updateSignatureFormId('w-1') },
+    );
+    form.message = { type: 'success', text: 'Saved.' } as never;
+    return form;
+  }
+  const saveButton = (target: HTMLElement) => target.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+
+  it('a reply that re-bases leaves the form clean, and a typed revert is a saveable change', async () => {
+    const { target } = await mountSection('ORIGINAL', 'T');
+    type(target, 'signature', 'SAVED TEXT');
+    const form = target.querySelector('form')!;
+    // The id the mount posted is echoed back, as the real action does.
+    const instance = form.getAttribute('data-superform-id')!;
+    const reply = await savedReply({ signatureBase: 'SAVED TEXT' });
+    reply.id = instance;
+    await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { form: reply } });
+    flushSync();
+    expect(posted(target)).toMatchObject({ signature: 'SAVED TEXT', signatureBase: 'SAVED TEXT' });
+    expect(saveButton(target).disabled).toBe(true);
+    type(target, 'signature', 'ORIGINAL');
+    expect(posted(target)).toMatchObject({ signature: 'ORIGINAL', signatureBase: 'SAVED TEXT' });
+    expect(saveButton(target).disabled).toBe(false);
+  });
+
+  it('a reply that kept the pre-save base is the defect: the revert cannot be saved', async () => {
+    const { target } = await mountSection('ORIGINAL', 'T');
+    type(target, 'signature', 'SAVED TEXT');
+    const form = target.querySelector('form')!;
+    const reply = await savedReply({});
+    reply.id = form.getAttribute('data-superform-id')!;
+    await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { form: reply } });
+    flushSync();
+    type(target, 'signature', 'ORIGINAL');
+    expect(saveButton(target).disabled).toBe(true);
   });
 });

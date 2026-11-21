@@ -359,6 +359,13 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(UPDATE_WORKER_SIGNATURE_MUTATION, vars);
+      // portal#2411 — the reply is built from what was POSTED, so its bases are
+      // the PRE-save text. Left like that, the editor stays dirty after its own
+      // save and a typed revert to the old text compares equal to the stale
+      // base: Save goes disabled and nothing is posted. A saved field's base is
+      // the text now stored, so the reply says so and the form comes back clean.
+      if ('signature' in vars) form.data.signatureBase = form.data.signature;
+      if ('trailer' in vars) form.data.trailerBase = form.data.trailer;
       return message(form, {
         type: 'success',
         text: t('worker.signature.saved', 'Saved. It applies from this worker’s next bind.'),
