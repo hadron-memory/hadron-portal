@@ -66,7 +66,9 @@
  * extension the repo ships under `src/` is named in `EXCLUDED_EXTS` with its reason, and
  * `unclassifiedExtensions` makes a new extension (a `.vue`, a `.tsx`, an `.svg` with
  * classes) fail the test until someone classifies it — the filter can no longer pass a
- * file by omission. `.html` is scanned because `src/app.html` is markup the app ships and
+ * file by omission. An extensionless file (`Makefile`) is classified as `(none)` and a dotfile
+ * with no extension (`.gitignore`) under its own name, so the empty `extname` is never a way
+ * past it (portal#2392). `.html` is scanned because `src/app.html` is markup the app ships and
  * the class-attribute read applies to it unchanged. The scripts test also pins that no
  * excluded-extension file under `src/` carries an `outline-none`/`outline-hidden` token
  * at all, so each exclusion is proven empty today, not assumed.
@@ -76,7 +78,7 @@
  * both directions (broken spelling flagged, main as-is clean).
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { extname, join } from 'node:path';
+import { basename, extname, join } from 'node:path';
 
 /**
  * A `focus-visible:outline*` utility that wants to DRAW: bare `focus-visible:outline`
@@ -183,25 +185,39 @@ export const EXCLUDED_EXTS = {
     'wire fixtures and data, not markup; pinned token-free',
 };
 
-/** Every extension present on a file under `root`, sorted. */
+/** The key an extensionless file is classified under (portal#2392). */
+export const NO_EXTENSION = '(none)';
+
+/**
+ * What a file is classified by: its extension; a dotfile with none (`.gitignore`,
+ * `.prettierrc`: `extname` is '') by its own name; any other extensionless file
+ * (`Makefile`, `LICENSE`) as `NO_EXTENSION`. The empty string is never a key, so
+ * no file can pass the classification by having nothing to classify (portal#2392).
+ */
+export function extensionKey(path) {
+  const ext = extname(path);
+  if (ext) return ext;
+  const name = basename(path);
+  return name.startsWith('.') ? name : NO_EXTENSION;
+}
+
+/** Every classification key present on a file under `root`, sorted. */
 export function extensionsUnder(root) {
   const found = new Set();
   const walk = (dir) => {
     for (const entry of readdirSync(dir)) {
       const path = join(dir, entry);
       if (statSync(path).isDirectory()) walk(path);
-      else found.add(extname(path));
+      else found.add(extensionKey(path));
     }
   };
   walk(root);
   return [...found].sort();
 }
 
-/** Extensions under `root` that are neither scanned nor excluded-with-a-reason. */
-export function unclassifiedExtensions(root) {
-  return extensionsUnder(root).filter(
-    (e) => e && !SCANNED_EXTS.includes(e) && !Object.hasOwn(EXCLUDED_EXTS, e),
-  );
+/** Keys under `root` that are neither scanned nor excluded-with-a-reason. */
+export function unclassifiedExtensions(root, scanned = SCANNED_EXTS, excluded = EXCLUDED_EXTS) {
+  return extensionsUnder(root).filter((e) => !scanned.includes(e) && !Object.hasOwn(excluded, e));
 }
 
 /** Every file under `root` with a scanned extension, recursively. */
@@ -211,7 +227,7 @@ export function sourceFilesUnder(root, exts = SCANNED_EXTS) {
     for (const entry of readdirSync(dir)) {
       const path = join(dir, entry);
       if (statSync(path).isDirectory()) walk(path);
-      else if (exts.some((e) => path.endsWith(e))) files.push(path);
+      else if (exts.includes(extensionKey(path))) files.push(path);
     }
   };
   walk(root);

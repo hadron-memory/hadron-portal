@@ -10,6 +10,7 @@ import {
   scanFiles,
   sourceFilesUnder,
   unclassifiedExtensions,
+  extensionKey,
 } from './check-outline-none.mjs';
 
 /**
@@ -258,7 +259,7 @@ describe('the scanned-extension pre-filter', () => {
       for (const entry of readdirSync(dir)) {
         const path = join(dir, entry);
         if (statSync(path).isDirectory()) walk(path);
-        else if (excluded.some((e) => path.endsWith(e)) && /outline-(?:none|hidden)/.test(readFileSyncOrNull(path) ?? '')) hits.push(path);
+        else if (excluded.includes(extensionKey(path)) && /outline-(?:none|hidden)/.test(readFileSyncOrNull(path) ?? '')) hits.push(path);
       }
     };
     walk(src);
