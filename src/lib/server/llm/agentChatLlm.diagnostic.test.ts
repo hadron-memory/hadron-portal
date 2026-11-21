@@ -239,3 +239,24 @@ describe('#1979 describeLlmFailure never walks an arbitrary error', () => {
     expectNoSentinel(line);
   });
 });
+
+// portal#1998 F9: the unwrap in providerCallError rests on two things the installed SDK must keep:
+// RetryError.isInstance and its lastError. Pinned against the real exports, so an SDK upgrade that
+// renames either fails here instead of silently logging `status=none` for every retried failure.
+describe('#1998 the SDK contract providerCallError relies on', () => {
+  it('RetryError.isInstance recognises a RetryError and exposes the last attempt', async () => {
+    const { RetryError, APICallError } = await import('ai');
+    const last = new APICallError({ message: 'm', url: 'u', requestBodyValues: {}, statusCode: 503 });
+    const wrapped = new RetryError({ message: 'm', reason: 'maxRetriesExceeded', errors: [new Error('first'), last] });
+    expect(typeof RetryError.isInstance).toBe('function');
+    expect(RetryError.isInstance(wrapped)).toBe(true);
+    expect(RetryError.isInstance(new Error('plain'))).toBe(false);
+    expect(wrapped.lastError).toBe(last);
+    expect(APICallError.isInstance(wrapped.lastError)).toBe(true);
+  });
+  it('a retried 503 is logged with its status, not as none', async () => {
+    stubFetch(providerError(503));
+    await fail();
+    expect(lines().join('\n')).toMatch(/status=503/);
+  });
+});
