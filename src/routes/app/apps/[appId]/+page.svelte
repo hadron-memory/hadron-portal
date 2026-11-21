@@ -1515,7 +1515,10 @@
     // the reader's place in the list; returning before `++tabNavigation` also leaves any navigation in
     // flight alone. Reaching Runs from another tab still opens it clean. Runs only, deliberately: Uma's
     // decision (#2289) names the Runs tab, and Templates keeps its current behaviour.
-    if (id === 'runs' && activeTab === 'runs') return;
+    // portal#2313: but while a navigation to ANOTHER tab is in flight the click is a request to stay,
+    // so it falls through, supersedes that departure, and returns to the reader's own URL (below).
+    const stayOnRuns = id === 'runs' && activeTab === 'runs';
+    if (stayOnRuns && !tabNavigationPending) return;
     let asked: string | null = null;
     if (activeTab === 'node-role-templates' && id !== activeTab && templatesLeaveMessage) {
       if (!window.confirm(templatesLeaveMessage)) return;
@@ -1530,7 +1533,8 @@
       // a choice of a normally local tab. Its loader URL must agree as well.
       if (id === 'runs' || id === 'node-role-templates' || tabNavigationPending) {
         tabNavigationPending = true;
-        const href = `/app/apps/${encodeURIComponent(appId)}?tab=${id}`;
+        // Staying on Runs keeps the reader's page, status and sort: the URL they are on, not a clean ?tab=runs.
+        const href = stayOnRuns ? window.location.pathname + window.location.search : `/app/apps/${encodeURIComponent(appId)}?tab=${id}`;
         if (id === 'runs') {
           try {
             // #1795 QA: invalidateAll discards the pending navigation's load
