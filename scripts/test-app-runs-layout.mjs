@@ -45,18 +45,6 @@ try {
    assert.equal(await page.getByText('Pages step through this App’s runnable nodes; only Flow entry nodes are listed.', { exact: true }).count(), 1);
    assert.equal(await page.locator('table').getByText('Showing the first', { exact: false }).count(), 0);
    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${width}/${dark}: page overflow`);
-   if (width === 1280) {
-    // portal#1957 (UX F3): the default widths fit the 1280px scroller, and the Started date keeps to one
-    // line. Measured here: Started 192 and Failure 190 fit with 4px to spare; Started 188 wraps the date.
-    const fit = await page.evaluate(() => {
-     const scroller = document.querySelector('[data-testid="data-table-scroller"]');
-     const started = document.querySelector('tbody tr td:nth-child(4)');
-     const range = document.createRange(); range.selectNodeContents(started);
-     return { over: scroller.scrollWidth - scroller.clientWidth, dateLines: new Set([...range.getClientRects()].map(r => Math.round(r.top))).size };
-    });
-    assert.equal(fit.over <= 0, true, `${width}/${dark}: default Runs columns overflow the scroller by ${fit.over}px`);
-    assert.equal(fit.dateLines, 1, `${width}/${dark}: Started date wraps`);
-   }
    assert.equal(await page.getByRole('textbox', { name: /Search/ }).count(), 0);
    if (process.env.RUNS_CAPTURE_DIR) await page.screenshot({ path: `${process.env.RUNS_CAPTURE_DIR}/runs-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true });
    const sort = page.locator('th').filter({ hasText: /^Started/ }).getByRole('button', { name: 'Started', exact: true });

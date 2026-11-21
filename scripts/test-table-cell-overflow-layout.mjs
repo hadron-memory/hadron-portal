@@ -9,38 +9,51 @@ import { messages } from './lib/cell-harness-messages.mjs';
 // portal#2129: every env knob is validated, and any active injection announced, before the dev server or a browser starts.
 const env = parseHarnessEnv(process.env);
 for (const line of injectionEcho(env)) console.log(line);
-// portal#1957 P3-2: each source patch must match, or the fixture would silently run unpatched components.
-// A file that is patched but lacks the string it needs aborts the run with the file named.
+// Each source patch must match, or the fixture would silently run unpatched components. A throw inside a
+// Vite transform surfaces as a failed module load in the page, so the failure is also recorded here and
+// asserted after the fixture mounts (assertPatched).
+const patchFailures = [];
+const patchFailure = message => { patchFailures.push(message); throw new Error(message); };
 const patchSource = (code, id, from, to, required = true) => {
  if (!code.includes(from)) {
-  if (required) throw new Error(`table-cell-fixture: source patch no longer matches in ${id}: ${from}`);
+  if (required) patchFailure(`table-cell-fixture: source patch no longer matches in ${id}: ${from}`);
   return code;
  }
- return code.replace(from, to);
+ return code.replaceAll(from, () => to);
 };
+const assertPatched = () => assert.deepEqual(patchFailures, [], 'every fixture source patch matched');
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, plugins: [{
  name: 'table-cell-fixture', enforce: 'pre', transform(code, id) {
   if (/\/(AppRunsTable|TasksAlarms|AiServiceConfigManager)\.svelte$/.test(id)) {
    // Every one of the three imports $app/navigation; only TasksAlarms also imports $app/stores.
    const navigated = patchSource(code, id, "from '$app/navigation'", "from '$lib/test/stubs/app-navigation'");
-   return patchSource(navigated, id, "from '$app/stores'", "from '$lib/test/stubs/app-stores'", id.endsWith('/TasksAlarms.svelte'));
+   const patched = patchSource(navigated, id, "from '$app/stores'", "from '$lib/test/stubs/app-stores'", id.endsWith('/TasksAlarms.svelte'));
+   // Any other $app/ import (a type import, a new store) would run unstubbed.
+   if (/from '\$app\//.test(patched)) patchFailure(`table-cell-fixture: an $app/ import is left unpatched in ${id}`);
+   return patched;
   }
   // Expose only the fixture's actual table objects, no production test API.
   if (id.endsWith('/createSvelteTable.svelte.ts')) return patchSource(code, id, 'return createTable(withFeatures(options));', 'const fixtureTable = createTable(withFeatures(options)); globalThis.__fixtureTables ??= []; globalThis.__fixtureTables.push(fixtureTable); return fixtureTable;');
  }
 }] });
-// portal#1957 P3-4: a browser console error fails the run like a pageerror, unless it is a classified,
-// expected message. The fixture has no favicon, so that one failed-resource line is the only known entry.
-const EXPECTED_CONSOLE_ERRORS = [/Failed to load resource.*(404|favicon)/i];
-const watchErrors = page => {
+// A browser console error fails the run like a pageerror. The fixture has no favicon, so it is answered
+// with an empty 204 instead of being allow-listed: every other failed resource is a real failure.
+const watchErrors = async page => {
  const errors = [];
+ await page.route('**/favicon.ico', r => r.fulfill({ status: 204 }));
  page.on('pageerror', e => errors.push(e.message));
- page.on('console', m => { if (m.type() === 'error' && !EXPECTED_CONSOLE_ERRORS.some(re => re.test(m.text()))) errors.push(`console: ${m.text()}`); });
+ page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
  return errors;
 };
-// portal#1957 P3-5: unmount the fixture through its own teardown before the page closes, so a teardown
-// error is a failure of the run, not a thing the closing page hides.
-const unmountFixture = page => page.evaluate(() => { window.stopFixture?.(); window.stopFixture = undefined; });
+// Unmount the fixture through its own teardown before the page closes, so a teardown error fails the run
+// instead of being hidden by the closing page. A missing hook is itself a failure.
+const unmountFixture = async page => {
+ await page.evaluate(() => {
+  if (typeof window.stopFixture !== 'function') throw new Error('the fixture exposes no stopFixture teardown');
+  window.stopFixture(); window.stopFixture = undefined;
+ });
+ await settlePage(page);
+};
 // Pixel-strip oracle compares the SAME neighboring strip with source text
 // visible/hidden; backgrounds, borders and neighboring content are identical.
 // CONSUMES `net`: the caller-owned stylesheet that lets text paint outside its cell is removed here, because
@@ -100,7 +113,7 @@ try {
  const widths = cellWidth !== null ? [cellWidth] : [390, 1280];
  for (const width of widths) for (const dark of [false, true]) for (const kind of (env.cellKind ? [env.cellKind] : ['alarms', 'runs', 'config']).filter(k => k !== 'findings')) {
   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
-  const errors = watchErrors(page);
+  const errors = await watchErrors(page);
   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
   await page.route('**/api/ai-configs', r => r.fulfill({ contentType: 'application/json', body: '{"endpoints":[]}' }));
   try {
@@ -163,6 +176,7 @@ try {
    await page.evaluate(() => { const t=window.__fixtureTables.at(-1); t.setColumnSizing(Object.fromEntries(t.getAllLeafColumns().map(c=>[c.id,Math.max(120,c.columnDef.minSize??40)]))); });
    await settlePage(page);
    const paint = await pixelStrip(page,kind,net);
+   assert.equal(await net.evaluate(el => el.isConnected), false, `${kind}: pixelStrip consumed the net-off stylesheet, so the controls below run contained`);
    // Real keyboard minima and drag, including a restored one-pixel view.
    const interactive = kind === 'runs' ? 'actions' : kind === 'config' ? 'actions' : 'status';
    await page.evaluate(id=>{const t=window.__fixtureTables.at(-1);t.setColumnOrder([id,...t.getAllLeafColumns().map(c=>c.id).filter(x=>x!==id)]);},interactive); await settlePage(page);
@@ -255,9 +269,13 @@ try {
    }
    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/${kind}-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true });
    await unmountFixture(page);
+   assertPatched();
    assert.deepEqual(errors, [], 'no browser errors');
    console.log(`${kind}/${width}/${dark ? 'dark' : 'light'}: completed 8 sizing/text legs + native controls/menu/minimum`,{paint,narrowPaint});
 
+  } catch (e) {
+   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-${kind}-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true }).catch(() => {});
+   throw e;
   } finally { await page.close(); }
  }
  // portal#2118 item 5: the findings table has no interactive column, so it gets its own geometry pass.
@@ -265,7 +283,7 @@ try {
  // (#2115 QA F1, #2119). The control strips severity's wrap and must see the overflow.
  if (!env.cellKind || env.cellKind === 'findings') for (const width of widths) for (const dark of [false, true]) {
   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
-  const errors = watchErrors(page);
+  const errors = await watchErrors(page);
   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
   const leg = `findings/${width}/${dark ? 'dark' : 'light'}`;
   try {
@@ -328,10 +346,14 @@ try {
    if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}.png`, fullPage: true });
    await unmountFixture(page);
+   assertPatched();
    if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
    // The success line only prints for a leg that queued nothing.
    if (failures.length === legFailuresBefore) console.log(`${leg}: severity and text inside their cells (both axes); negative control detected`, clean);
    else console.log(`${leg}: FAILED, ${failures.length - legFailuresBefore} check(s) queued`, clean);
+  } catch (e) {
+   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-')}.png`, fullPage: true }).catch(() => {});
+   throw e;
   } finally { await page.close(); }
  }
  assert.deepEqual(failures, []);

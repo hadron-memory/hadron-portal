@@ -190,7 +190,7 @@ jobs:
         env:
           CELL_SHOTS: test-results/table-cell-overflow
 
-      # portal#1957 P3-13: keep the screenshots of a failed run (and of a passing one) for whoever reads the log.
+      # The legs that passed, plus a FAILED-<leg>.png of the leg that threw (a leg that only queues findings has none).
       - name: Upload table cell containment screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -198,6 +198,7 @@ jobs:
           name: table-cell-overflow-layout
           path: test-results/table-cell-overflow
           if-no-files-found: ignore
+          retention-days: 7
 
       - name: Check compact terminal containment
         run: pnpm test:terminal-status-layout

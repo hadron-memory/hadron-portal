@@ -48,9 +48,9 @@
     { accessorKey: 'status', header: t('runs.col.status', 'Status'), size: 130 },
     { accessorKey: 'triggerKind', header: t('runs.col.trigger', 'Trigger'), enableSorting: false, size: 180 },
     { accessorKey: 'entryNodeUrn', header: t('runs.col.entry', 'Entry node'), enableSorting: false, size: 300, minSize: 220 },
-    { accessorKey: 'startedAt', header: t('runs.col.started', 'Started'), size: 192 },
+    { accessorKey: 'startedAt', header: t('runs.col.started', 'Started'), size: 200 },
     { id: 'duration', header: t('runs.col.duration', 'Duration'), enableSorting: false, size: 110 },
-    { id: 'failure', header: t('runs.col.failure', 'Failure'), enableSorting: false, size: 190 },
+    { id: 'failure', header: t('runs.col.failure', 'Failure'), enableSorting: false, size: 220 },
     { id: 'actions', header: t('runs.col.open', 'Open'), enableSorting: false, enableHiding: false, size: 140, minSize: 140 },
   ];
   // portal#2286: known labels go through t() so they can be localized; a status with no key renders raw.
