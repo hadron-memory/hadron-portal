@@ -16,6 +16,9 @@ const server = await createServer({server:{host:'127.0.0.1',port:0},plugins:[{
 }]});
 let browser;
 const results=[];
+// True until the test body has run to the end: a teardown or artifact failure may fail the run only
+// when the body itself passed, so it never replaces the failure that explains a red run.
+let bodyFailed=true;
 try {
  await server.listen(); const origin=server.resolvedUrls.local[0];
  const css=await (await fetch(new URL('/src/app.css?direct',origin))).text();
@@ -32,8 +35,8 @@ try {
   },{css,dark});
   await page.evaluate(async()=>{
    const {mountTerminalFixture:mount}=await import('/src/lib/test/fixtures/terminal-status-harness.ts');
-   window.stopTerminal=mount(document.getElementById('terminal'),'dark');
-   window.stopFull=mount(document.getElementById('full'),'dark',false);
+   window.stopTerminal=mount(document.getElementById('terminal'),'reported');
+   window.stopFull=mount(document.getElementById('full'),'reported',false);
   });
   const pill=page.locator('#terminal span[title]');await pill.waitFor({state:'attached'});
   for(const width of [220,140,320,220]) {
@@ -67,7 +70,9 @@ try {
    await page.locator('#terminal').evaluate(el=>el.style.visibility='');
    assert.ok(visible.equals(hidden),'terminal paints no pixels into neighboring Task');
    await pill.hover(); // existing full-value title remains on the un-clipped pill.
+   assert.equal(await pill.getAttribute('title'),'Dark: Agent not running (plain shell)','hover leaves the full-value title');
    await page.getByRole('button',{name:'Task action'}).click();
+   // Without this reset, iterations after the first pass trivially: the hash is already #task.
    await page.evaluate(()=>{location.hash=''});
    await page.getByRole('link',{name:'Synthetic assigned task'}).click();
    assert.equal(new URL(page.url()).hash,'#task');
@@ -78,18 +83,25 @@ try {
    assert.equal(await page.locator('#empty').innerText(),mode==='hidden'?'':'Not reported');
    await page.evaluate(async()=>await window.stopEmpty());
   }
-  await page.evaluate(async()=>{await window.stopTerminal();await window.stopFull()});
+  // Each fixture unmounts even if the other's unmount fails; a failure of either still fails the run.
+  const unmounts=await page.evaluate(async()=>(await Promise.allSettled([window.stopTerminal(),window.stopFull()])).map(r=>r.status));
+  assert.deepEqual(unmounts,['fulfilled','fulfilled'],'both fixtures unmount cleanly');
   await page.close();
  }
+  bodyFailed=false;
 } finally {
  // Close owned resources first, then write the artifact; a failure in either
  // step must neither skip the other nor replace the original failure.
- const cleanup=await Promise.allSettled([browser?.close(),server.close()]);
+ // Each close is wrapped so a synchronous throw cannot escape the collection.
+ const cleanup=await Promise.allSettled([(async()=>browser?.close())(),(async()=>server.close())()]);
+ let artifactFailed=false;
  if(process.env.TERMINAL_SHOTS) {
   try{await mkdir(process.env.TERMINAL_SHOTS,{recursive:true});await writeFile(`${process.env.TERMINAL_SHOTS}/geometry.json`,JSON.stringify(results,null,2))}
-  catch(e){console.error('could not write geometry artifact:',e)}
+  catch(e){artifactFailed=true;console.error('could not write geometry artifact:',e)}
  }
  for(const r of cleanup) if(r.status==='rejected') console.error('teardown failed:',r.reason);
+ // A green body with a broken teardown or a missing artifact must not exit 0 (CI uploads that artifact).
+ if(!bodyFailed && (artifactFailed || cleanup.some(r=>r.status==='rejected'))) process.exitCode=1;
 }
 console.log('Terminal compact geometry, full-value title, Task controls, null/not-reported and full form PASS');
 
