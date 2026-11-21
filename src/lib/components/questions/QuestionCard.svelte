@@ -76,7 +76,7 @@
 <section data-testid="question-card" aria-labelledby="question-card-title" class="mb-4 min-w-0 rounded-lg border border-zinc-200 p-3 sm:p-4 dark:border-zinc-800">
   <header class="flex flex-wrap items-center gap-2">
     <h2 id="question-card-title" class="min-w-0 break-words text-base font-semibold">
-      <span class="font-mono text-sm text-zinc-500">{t('question.card.heading', 'Question {code}', { code: question.code })}</span>
+      {t('question.card.heading', 'Question {code}', { code: question.code })}
     </h2>
     <span data-testid="question-state" class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{STATE_LABEL[question.state] ?? question.state}</span>
     {#if question.priority}<span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">{question.priority}</span>{/if}
