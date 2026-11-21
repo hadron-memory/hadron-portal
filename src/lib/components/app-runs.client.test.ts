@@ -164,7 +164,23 @@ describe('App Runs manual server table', () => {
   // body below still RENDERS if its guard is deleted, so each pin fails on its
   // own assertions — the hand-mutant survey found the old malformed pin only
   // died on the unhandled render exception of a body missing `statuses`.
-  const liveRegion = (root: HTMLElement) => root.querySelector<HTMLElement>('[role="status"][aria-live="polite"]')!;
+  const liveRegion = (root: HTMLElement) => {
+    const el = root.querySelector<HTMLElement>('[role="status"][aria-live="polite"]');
+    expect(el, 'the runs live region is mounted').not.toBeNull();
+    return el!;
+  };
+  // Positive control under the SAME timing as rows 1-2 (blind P2 on #2416): the
+  // negative assertions there ("ghost" absent, not "Runs loaded.") are only
+  // meaningful if a good reply WOULD have shown them within the same tick(16).
+  // A valid ok reply, delivered the same way, must render the run and announce.
+  it('control: a valid ok reply renders its run and announces "Runs loaded." within the rows 1-2 timing', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(section({ page: 1, runs: [run('fresh')] })), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetcher);
+    const m = mount(section({ failed: true, page: 1 })); find(m.target, 'Retry').click(); await tick(16);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(m.target.textContent).toContain('fresh');
+    expect(liveRegion(m.target).textContent).toBe('Runs loaded.');
+  });
   it('refuses a malformed 200 body: the alert stays, no rows apply, no "Runs loaded." (row 1: delete the isRunsSection guard)', async () => {
     // Every field renders; only `sort` violates isRunsSection, so a deleted
     // guard applies this body instead of crashing the render.
@@ -200,13 +216,16 @@ describe('App Runs manual server table', () => {
     const props = reactiveProps({ appRef: 'a/b?x', initial: section({ failed: true, page: 1 }) });
     const m = mountComponent(AppRunsTable, props); cleanup.push(m.unmount);
     find(m.target, 'Retry').click(); await tick(16);
-    expect(fetcher.mock.calls[0][0]).toBe('/app/apps/a%2Fb%3Fx/runs-data?tab=runs&sort=createdAt&dir=desc');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    // Only the encoded path is pinned, not parameter order or defaults.
+    expect(new URL(String(fetcher.mock.calls[0][0]), 'http://x').pathname).toBe('/app/apps/a%2Fb%3Fx/runs-data');
   });
   it('re-reads runs-data with exactly { cache: "no-store" } (row 4: drop the init argument)', async () => {
     const fetcher = vi.fn().mockResolvedValue(reply(section({ page: 1 })));
     vi.stubGlobal('fetch', fetcher);
     const m = mount(section({ failed: true, page: 1 })); find(m.target, 'Retry').click(); await tick(16);
-    expect(fetcher.mock.calls[0][1]).toEqual({ cache: 'no-store' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0][1]).toStrictEqual({ cache: 'no-store' });
   });
   it('keeps filters enabled and merges a newer choice while navigation is held', async () => {
     const a = deferred<void>(), b = deferred<void>();

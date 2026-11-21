@@ -237,7 +237,7 @@ describe('load', () => {
       if (query === APP_FLOWS_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       // The frame's live stop banner.
       if (query === TEAM_STOP_SIGNALS_QUERY) return Promise.resolve({ teamStopSignals: { signals: [], pageInfo: { hasNextPage: false, endCursor: null } } });
-      throw new Error('Unexpected query');
+      return Promise.reject(new Error(`Unexpected query: ${String(query).slice(0, 80)}`));
     });
 
     const { load } = await import('./+page.server');
