@@ -3,7 +3,7 @@
  * App, and when the reload after a committed write fails or hangs. Red before the owner
  * identity and the read-back guard exist.
  */
-import { firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
+import { announcedStatusRegion, firstPopulatedStatusText, idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
@@ -331,3 +331,36 @@ describe('the checking status ends when the readback confirms (Diego P3 on #2198
   });
 });
 
+
+describe('sweep-mode results are announced in persistent live regions (portal#2375)', () => {
+  it('a saved mode lands in the status region that was already mounted and empty', async () => {
+    const { root } = mountIt('OFF', 'app-a');
+    const idle = idleStatusRegions(root);
+    expect(idle.length).toBeGreaterThan(0);
+    radio(root, 'OBSERVE').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(root));
+    await deliver(ok);
+    flushSync();
+    const region = announcedStatusRegion(root);
+    expect(region?.textContent).toContain('Saved');
+    expect(idle).toContain(region);
+  });
+
+  it('"Couldn’t confirm the save" lands in the status region that was already mounted and empty', async () => {
+    const { root } = mountIt('OFF', 'app-a');
+    const idle = idleStatusRegions(root);
+    expect(idle.length).toBeGreaterThan(0);
+    radio(root, 'OBSERVE').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(root));
+    const release = holdInvalidateAll();
+    const done = deliver({ type: 'error' as const, status: 500, error: new Error('fetch failed') } as never);
+    await tick(3);
+    const region = announcedStatusRegion(root);
+    expect(region?.textContent).toMatch(/couldn.t confirm/i);
+    expect(idle).toContain(region);
+    release();
+    await done;
+  });
+});
