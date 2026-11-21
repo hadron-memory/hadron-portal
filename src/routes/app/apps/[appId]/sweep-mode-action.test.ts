@@ -55,7 +55,7 @@ describe('App sweep-mode action (portal#2194)', () => {
   });
 
 
-  it.each(['INTERNAL_SERVER_ERROR', 'SOMETHING_ELSE'])('GraphQL code %s can come after a commit: outcome unknown, locked, never "Not saved", no server text', async (code) => {
+  it.each(['INTERNAL_SERVER_ERROR', 'SOMETHING_ELSE', 'FOO_NOT_FOUND'])('GraphQL code %s can come after a commit: outcome unknown, locked, never "Not saved", no server text', async (code) => {
     mockRequest.mockRejectedValueOnce(gqlError(code, 'secret internals'));
     const result = (await run('APPLY')) as { status: number; data: { sweepModeError: string; uncertain?: boolean } };
     expect(result.status).toBe(502);
