@@ -184,3 +184,76 @@ describe('error paths expose no key, provider text, cause or model text', () => 
     }
   });
 });
+
+// #2036 (a): the failed-turn line says whether the turn ran under auto, and an auto turn with no
+// respond call has its own closed class, so the rate the auto choice costs is countable.
+describe('#2036 the failed-turn line names the choice', () => {
+  const lineOf = () => logged.map((a) => a.map(String).join(' ')).filter((l) => l.includes('[agent-chat] llm turn failed'));
+  const PROSE = 'prose SECRETMODELTEXT2036';
+
+  it('auto + prose reply: class=auto-no-respond choice=auto, still llmFailed after exactly one request', async () => {
+    next = () => reply([{ type: 'text', text: PROSE }]);
+    const e = await call('claude-sonnet-5-5').catch((x) => x);
+    expect(publicChatError(e)).toEqual({ code: 'llmFailed', message: CHAT_ERROR.llmFailed, status: 500 });
+    expect(bodies).toHaveLength(1);
+    const lines = lineOf();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('class=auto-no-respond');
+    expect(lines[0]).toContain('stage=tool-output');
+    expect(lines[0]).toContain('choice=auto');
+  });
+
+  it('forced + prose reply: the existing unexpected-tool-output class, choice=forced, no new token', async () => {
+    next = () => reply([{ type: 'text', text: PROSE }]);
+    const e = await call('claude-sonnet-5-5', 'anthropic', HISTORY, TOOLS, 'FORCED').catch((x) => x);
+    expect(publicChatError(e).code).toBe('llmFailed');
+    const lines = lineOf();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('class=unexpected-tool-output');
+    expect(lines[0]).toContain('choice=forced');
+    expect(lines[0]).not.toContain('auto-no-respond');
+  });
+
+  it('the line carries no model text', async () => {
+    for (const choice of ['AUTO', 'FORCED'] as const) {
+      next = () => reply([{ type: 'text', text: PROSE }]);
+      logged = [];
+      await call('claude-sonnet-5-5', 'anthropic', HISTORY, TOOLS, choice).catch((x) => x);
+      expect(lineOf()).toHaveLength(1); // a line was logged, so the absence below is not vacuous
+      const everything = lineOf().join('\n');
+      expect(everything).not.toContain('SECRETMODELTEXT2036');
+      expect(everything).not.toContain('prose');
+    }
+  });
+});
+
+describe('#2036 choice at the edges', () => {
+  const lineOf = () => logged.map((a) => a.map(String).join(' ')).filter((l) => l.includes('[agent-chat] llm turn failed'));
+
+  it('a provider 400 on an auto turn: choice=auto, class=provider-status (not auto-no-respond)', async () => {
+    next = () => new Response(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'x' } }), { status: 400, headers: { 'content-type': 'application/json' } });
+    await call('claude-sonnet-5-5').catch((x) => x);
+    const lines = lineOf();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('choice=auto');
+    expect(lines[0]).toContain('class=provider-status');
+  });
+
+  it('a config-stage failure on an auto turn still names choice=auto', async () => {
+    // an unsupported provider fails before the request stage
+    await callAgentChatLlm({ provider: 'nope' as never, apiKey: KEY, model: 'm', systemMessage: STAGE_SYSTEM, tools: TOOLS, messages: HISTORY, toolChoice: 'AUTO' }).catch((x) => x);
+    const lines = lineOf();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('stage=config');
+    expect(lines[0]).toContain('choice=auto');
+  });
+
+  it('no respond tool: choice=none, even when the server decided AUTO', async () => {
+    next = () => new Response('{}', { status: 400 });
+    await call('claude-sonnet-5-5', 'anthropic', HISTORY, null, 'AUTO').catch((x) => x);
+    const lines = lineOf();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('branch=plain');
+    expect(lines[0]).toContain('choice=none');
+  });
+});
