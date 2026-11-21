@@ -200,6 +200,21 @@ describe('SelectNode: pick flow (#1576)', () => {
     expect(onselect.mock.calls[0][0]).toEqual({ id: 'n1', name: 'Findings index', loc: 'findings:index', urn: serverUrn });
   });
 
+  it('portal#2378: "No nodes found." is announced by a region that exists, empty, before the search', async () => {
+    serve({ [url('m2', 'zzz', 0)]: [okPage([], false, 0)] });
+    const { target } = mount();
+    await tick();
+    await chooseMemory(target, 'Beta KB');
+    const before = target.querySelector<HTMLElement>('[data-testid="node-picker-empty"]');
+    expect(before, 'the region is mounted before any search').not.toBeNull();
+    expect(before!.getAttribute('role')).toBe('status');
+    expect(before!.textContent?.trim()).toBe('');
+    await search(target, 'zzz');
+    const during = target.querySelector<HTMLElement>('[data-testid="node-picker-empty"]');
+    expect(during).toBe(before);
+    expect(during!.textContent).toContain('No nodes found.');
+  });
+
   it('a failed read is a retry state, not "no nodes", and the retry re-reads', async () => {
     // One queue, two entries: the first read rejects, the retry succeeds.
     serve({ [url('m2', 'x', 0)]: [new Error('transport'), okPage([node(1)], false, 1)] });

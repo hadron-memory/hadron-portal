@@ -1203,6 +1203,13 @@
               ? t('memory-settings.vector-health.checking', 'Checking...')
               : t('memory-settings.vector-health.check', 'Check vector index health')}
           </button>
+          <LiveRegion data-testid="vector-health-region">
+            {#if !vectorHealthError && vectorHealth && !vectorHealth.skipped && vectorHealth.failed.length === 0}
+              <p data-testid="vector-health-empty" class="mt-3 text-sm text-zinc-600 dark:text-zinc-300">
+                {t('memory-settings.vector-health.none', 'No failed embeddings among the findings returned.')}
+              </p>
+            {/if}
+          </LiveRegion>
         </form>
 
         {#if vectorHealthError}
@@ -1225,13 +1232,6 @@
           {/if}
         </LiveRegion>
         {#if !vectorHealthError && vectorHealth}
-          {#if vectorHealth.skipped}
-            <!-- the note is in the region above -->
-          {:else if vectorHealth.failed.length === 0}
-            <p data-testid="vector-health-empty" role="status" class="text-sm text-zinc-600 dark:text-zinc-300">
-              {t('memory-settings.vector-health.none', 'No failed embeddings among the findings returned.')}
-            </p>
-          {/if}
           {#if vectorHealth.failed.length > 0}
             <VectorHealthTable rows={vectorHealth.failed} memoryId={g.id} />
           {/if}

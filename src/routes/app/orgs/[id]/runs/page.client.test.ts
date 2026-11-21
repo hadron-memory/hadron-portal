@@ -52,3 +52,20 @@ describe('org runs page: forward-compatible response enums (#1766)', () => {
     expect(trigger[1].textContent?.trim()).toBe('Manual');
   });
 });
+
+describe('org runs page: the zero-match banner (portal#2378)', () => {
+  it('is announced by a region that exists, empty, before the filters exclude every row', async () => {
+    const m = await mountPage([run('ok')]);
+    const region = () => m.target.querySelector<HTMLElement>('[data-testid="org-runs-filtered-empty"]');
+    const before = region();
+    expect(before, 'mounted while rows are shown').not.toBeNull();
+    expect(before!.getAttribute('role')).toBe('status');
+    expect(before!.textContent?.trim()).toBe('');
+    const input = m.target.querySelector<HTMLInputElement>('input[type="search"], input[type="text"]')!;
+    input.value = 'zzz-no-such-run';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    for (let i = 0; i < 8; i++) await tick();
+    expect(region()).toBe(before);
+    expect(before!.textContent).toContain('No runs match the current filters');
+  });
+});

@@ -149,7 +149,7 @@
         <button type="button" onclick={refresh} class="ml-2 font-medium underline">{t('app.stops.retry', 'Try again')}</button>
       </div>
     {:else if rows.length === 0}
-      <div role="status" class="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-testid="stops-empty">
+      <div class="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-testid="stops-empty">
         {#if data.after}
           {t('app.stops.empty-older', 'No older stops.')}
           <a href="?" class="ml-2 font-medium text-indigo-600 underline dark:text-indigo-300">{t('app.stops.first-page', 'Back to the first stops')}</a>

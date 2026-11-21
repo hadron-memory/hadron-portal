@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // "App Runs" — every headless (LLM) run in the active org, across all its
   // apps. Same shape as the Task Nodes page: the shared DataTable chrome
   // (search + saved-views "+ view" + Columns on one row, sticky sortable/
@@ -235,8 +236,9 @@
          Keeping the chrome mounted also keeps the truncation line above
          visible, so a zero-match result still says only the newest N were
          searched (Codex P2). -->
+    <LiveRegion data-testid="org-runs-filtered-empty">
     {#if visibleRowCount === 0}
-      <div role="status" class="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/60">
+      <div class="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/60">
         <span class="font-medium text-zinc-600 dark:text-zinc-300">
           {data.truncated
             ? t('org-runs.empty.filtered-truncated', 'No runs match the current filters — and only the {shown} most recent runs were searched.', { shown: rows.length })
@@ -249,6 +251,7 @@
         >{t('org-runs.empty.clear-filters', 'Clear filters')}</button>
       </div>
     {/if}
+    </LiveRegion>
 
     <DataTable
       {table}
