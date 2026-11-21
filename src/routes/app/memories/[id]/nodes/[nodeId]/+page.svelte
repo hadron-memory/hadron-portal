@@ -768,10 +768,19 @@
     clearOnSubmit: 'none',
   });
 
+  // portal#2446: the first run must not rewrite flowFormData, which a
+  // full-page updateFlow refusal hydrated with the reader's refused draft.
+  // The dependencies are read BEFORE the early return so the effect still
+  // tracks them and later edits sync as before.
+  let flowSyncMounted = false;
   $effect(() => {
     const rowsJson = flowRowsJson;
     const writeToTrim = outputWriteTo.trim();
     const mode = outputMode;
+    if (!flowSyncMounted) {
+      flowSyncMounted = true;
+      return;
+    }
     flowFormData.update((current) => ({
       ...current,
       extractionRows: rowsJson,
@@ -2685,15 +2694,26 @@
       printError = null;
       skillExportOpen = false;
       testFlowOpen = false;
-      $testFlowFormData.appId = '';
-      $testFlowFormData.agentRef = '';
-      $testFlowFormData.orgId = data.org?.id ?? '';
-      $testFlowFormData.payload = '';
       moveOpen = false;
       moveFullUrn = false;
-      $moveFormData.target = '';
       closeDeleteConfirm();
-      $deleteFormData.hard = false;
+      // portal#2446: the inverse half of #2057. A full-page (no-JS) refusal
+      // hydrates each sibling superForm's DATA store from the refused action
+      // form (its message store survives, so the alert shows), and this reset
+      // runs on the FIRST mount too, erasing the draft the alert is about.
+      // Same rule as the clearMetaRefusal() guard above: reset these only on
+      // a real node change.
+      if (nodeChanged) {
+        $testFlowFormData.appId = '';
+        $testFlowFormData.agentRef = '';
+        $testFlowFormData.orgId = data.org?.id ?? '';
+        $testFlowFormData.payload = '';
+        $moveFormData.target = '';
+        $deleteFormData.hard = false;
+      } else if (!$testFlowFormData.orgId) {
+        // First mount: keep a hydrated draft, but the org default still applies.
+        $testFlowFormData.orgId = data.org?.id ?? '';
+      }
       // portal#696: the attach-file dialog is transient too — SvelteKit reuses
       // this component across nodes, so leaving it open would carry it (and its
       // parentLoc, now stale) onto the next node.
