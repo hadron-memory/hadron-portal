@@ -252,6 +252,9 @@
       </ul>
     </div>
   {:else}
+    <LiveRegion data-testid="nodes-tab-none">
+      {#if tableStatus === 'done' && tableRows.length === 0}<p class="text-sm text-zinc-500">{t('nodes-tab.none', 'No matching or visible nodes.')}</p>{/if}
+    </LiveRegion>
     <p class="text-xs text-zinc-500" data-testid="table-partial">
       {#if tableStatus === 'done' && !tableHasMore}
         {t('nodes-tab.table-end', 'End of the list.')}
@@ -260,9 +263,6 @@
       {/if}
       {#if tableRows.length > 0}{t('nodes-tab.loaded-count', '{n} loaded', { n: tableRows.length })}{/if}
     </p>
-    <LiveRegion data-testid="nodes-tab-none">
-      {#if tableStatus === 'done' && tableRows.length === 0}<p class="text-sm text-zinc-500">{t('nodes-tab.none', 'No matching or visible nodes.')}</p>{/if}
-    </LiveRegion>
     {#if tableRows.length > 0}
       <NodeList nodes={tableView} hideSearch viewMemoryId={memoryId} />
     {/if}

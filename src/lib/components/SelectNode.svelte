@@ -261,6 +261,9 @@
           <button type="button" disabled={pending} class="rounded border px-3 py-1 disabled:opacity-50" onclick={() => read()}>{t('app.nodes.picker.retry', 'Try again')}</button>
         {/if}
         <LiveRegion>{#if pending}<p>{t('app.nodes.picker.loading', 'Loading nodes…')}</p>{/if}</LiveRegion>
+        <LiveRegion data-testid="node-picker-empty">
+          {#if !pending && !failed && searched && items.length === 0}<p>{t('app.nodes.picker.empty', 'No nodes found.')}</p>{/if}
+        </LiveRegion>
 
         <DataTable {table} listKey="node-picker:open" showSearch={false} searchPlaceholder="" searchAriaLabel="" bounded>
           {#snippet cell(cell, row)}
@@ -283,9 +286,6 @@
                the 400 — this note is the honest replacement for it. -->
           <p role="status">{t('app.nodes.picker.capped', 'Showing the first results only. Search to narrow the list.')}</p>
         {/if}
-        <LiveRegion data-testid="node-picker-empty">
-          {#if !pending && !failed && searched && items.length === 0}<p>{t('app.nodes.picker.empty', 'No nodes found.')}</p>{/if}
-        </LiveRegion>
       {:else if memoriesFailed}
         <p role="alert">{t('app.nodes.picker.memories-failed', 'Your memories couldn’t be loaded, so you can’t pick a node right now. Reload the page to try again.')}</p>
       {:else}

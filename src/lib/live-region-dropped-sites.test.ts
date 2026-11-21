@@ -79,3 +79,59 @@ describe('portal#2378: sites that dropped role="status" (present at load, not a 
     });
   }
 });
+
+/**
+ * portal#2378, Jane's P2 on c8cb33ae: in Tailwind v4 `space-y-*` puts its gap on `:not(:last-child)`, so an
+ * IDLE (empty) region that is the last child of a `space-y` parent makes the sibling before it gain one gap
+ * (a 12px taller dialog), and `empty:m-0` cannot undo that. Each converted region below therefore sits
+ * BEFORE an element or component that always renders in the same branch, never last.
+ * The vector-health region is not listed: it is the last child of the check `<form>`, which is not a
+ * `space-y` parent, and its box carries its own `mt-3`.
+ */
+const NEVER_TRAILING: Array<{ file: string; testid: string }> = [
+  { file: 'src/lib/components/SelectNode.svelte', testid: 'node-picker-empty' },
+  { file: 'src/lib/components/agent-tasks/SelectTask.svelte', testid: 'task-picker-empty' },
+  { file: 'src/lib/components/agent-tasks/SelectTask.svelte', testid: 'task-picker-exact-empty' },
+  { file: 'src/lib/components/LazyNodesBrowser.svelte', testid: 'nodes-tab-none' },
+  { file: 'src/routes/app/orgs/[id]/runs/+page.svelte', testid: 'org-runs-filtered-empty' }
+];
+
+type Frag = { nodes: Array<N & { name?: string; data?: string }> };
+
+/**
+ * True when the region carrying `testid` is followed, in the SAME branch, by an element or component that
+ * always renders. A following `{#if}`/`{#each}` does not count: when its condition is false (the idle,
+ * pre-result state, which is exactly when the gap shows) the region is the last child.
+ */
+function hasFollowingLeaf(src: string, testid: string) {
+  const ast = parse(src, { modern: true }) as unknown as { fragment: Frag };
+  let verdict: boolean | null = null;
+  const walk = (n: unknown, frag: Frag) => {
+    if (!n || typeof n !== 'object' || verdict !== null) return;
+    if (Array.isArray(n)) return n.forEach((x) => walk(x, frag));
+    const node = n as N & { name?: string; nodes?: Frag['nodes'] };
+    const here: Frag = Array.isArray(node.nodes) ? (node as unknown as Frag) : frag;
+    if (node.type === 'Component' && node.name === 'LiveRegion' && src.slice(node.start, node.end).includes(`"${testid}"`)) {
+      const i = frag.nodes.findIndex((x) => x.start === node.start);
+      verdict = i >= 0 && frag.nodes.slice(i + 1).some((x) => x.type === 'RegularElement' || x.type === 'Component');
+      return;
+    }
+    for (const v of Object.values(node)) if (v && typeof v === 'object') walk(v, here);
+  };
+  walk(ast.fragment, ast.fragment);
+  if (verdict === null) throw new Error(`no LiveRegion with data-testid="${testid}"`);
+  return verdict;
+}
+
+describe('portal#2378: a converted region is never the idle last child of its parent', () => {
+  it('sees a trailing region and a non-trailing one', () => {
+    expect(hasFollowingLeaf('<div class="space-y-3"><a/><LiveRegion data-testid="x">{#if a}<p/>{/if}</LiveRegion></div>', 'x')).toBe(false);
+    expect(hasFollowingLeaf('<div class="space-y-3"><LiveRegion data-testid="x">{#if a}<p/>{/if}</LiveRegion><a/></div>', 'x')).toBe(true);
+  });
+
+  for (const { file, testid } of NEVER_TRAILING) {
+    it(`${file} — ${testid} has a sibling after it`, () => {
+      expect(hasFollowingLeaf(readFileSync(file, 'utf8'), testid)).toBe(true);
+    });
+  }
+});
