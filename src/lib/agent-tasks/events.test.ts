@@ -72,7 +72,7 @@ describe('alarms', () => {
   });
 
   it('name each rule; assignment.unassignable is "Couldn’t be assigned" (design §11.4)', () => {
-    expect(KNOWN_ALARM_TYPES.map(alarmRuleName)).toEqual(['Not started', 'No progress', 'Owner didn’t react', 'Couldn’t be assigned']);
+    expect(KNOWN_ALARM_TYPES.map(alarmRuleName)).toEqual(['Not started', 'No progress', 'Owner didn’t react', 'Couldn’t be assigned', 'Worker starts failing']);
     expect(alarmRuleName('stall.something-new')).toBe('stall.something-new');
   });
 });

@@ -20,6 +20,7 @@
     "test:nodes-tab-lazy": "node scripts/test-nodes-tab-lazy.mjs",
     "test:task-findings-dispositions-layout": "node scripts/test-task-findings-dispositions-layout.mjs",
     "test:task-history-links-layout": "node scripts/test-task-history-links-layout.mjs",
+    "test:task-history-links-layout:mutants": "node scripts/test-task-history-links-layout.mutants.mjs",
     "test:boot-install-layout": "node scripts/test-boot-install-layout.mjs",
     "test:urn-compact-layout": "node scripts/test-urn-compact-layout.mjs",
     "test:data-table-fill-layout": "node scripts/test-data-table-fill-layout.mjs",

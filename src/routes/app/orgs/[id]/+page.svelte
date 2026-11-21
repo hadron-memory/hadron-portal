@@ -167,9 +167,12 @@
         <div class="mt-3">
           <SigningStatus required={signing.required} enforced={signing.enforced} />
         </div>
-        {#if signingOutcome === 'off'}
-          <p role="status" class="mt-3 text-sm text-green-700 dark:text-green-300">{t('org.signing.switched-off', 'Signing is switched off.')}</p>
-        {:else if signingOutcome === 'failed'}
+        <LiveRegion>
+          {#if signingOutcome === 'off'}
+            <p class="mt-3 text-sm text-green-700 dark:text-green-300">{t('org.signing.switched-off', 'Signing is switched off.')}</p>
+          {/if}
+        </LiveRegion>
+        {#if signingOutcome === 'failed'}
           <p role="alert" class="mt-3 text-sm text-red-700 dark:text-red-300">{t('org.signing.off-failed', 'Couldn’t switch signing off. Try again.')}</p>
         {/if}
         <div class="mt-4">
