@@ -31,8 +31,8 @@ describe('ChangeWorkerAgent result is announced from a persistent region', () =>
 
     p.result = null;
     flushSync(); await tick();
-    expect(idle[idle.indexOf(during)]).toBe(during);
-    expect(during.isConnected).toBe(true);
+    const after = [...root.querySelectorAll<HTMLElement>('[role="status"]')];
+    expect(after, 'the same element is still a status region in the mounted root').toContain(during);
     expect(during.textContent?.trim()).toBe('');
   });
 
