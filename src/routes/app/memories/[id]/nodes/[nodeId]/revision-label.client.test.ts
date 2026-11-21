@@ -232,7 +232,11 @@ describe('#534 — Edit label popup on the real node page', () => {
     document.body.appendChild(target);
     await openLabelDialog(target);
     // The refresh replaced the rows: the trigger focus went back to is gone.
-    navigationHooks.onInvalidateAll = () => { (document.activeElement as HTMLElement | null)?.blur(); };
+    navigationHooks.onInvalidateAll = async () => {
+      await tick(); // after the popup's own focus return has landed
+      const old = target.querySelector<HTMLElement>('button[data-revision-id="rev-A"]')!;
+      old.replaceWith(old.cloneNode(true)); // the re-render: same row, a new element; focus drops to body
+    };
     typeInto(input(target)!, 'renamed');
     await click(target.querySelector('[data-testid="revision-label-save"]'));
     await settle();
