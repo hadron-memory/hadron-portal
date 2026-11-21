@@ -205,6 +205,37 @@ describe('full-page sibling-form refusals keep the refused draft (portal#2446)',
     expect((field(m.target, '#testFlowApp') as HTMLSelectElement).value).toBe('');
   });
 
+  it('testFlow: a refusal hydrated on one node does not follow the reader to the next node (a real node change still resets)', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    serve();
+    const actionData = await refusedAction('testFlow', { _kind: 'testFlow', appId: 'app-1', orgId: 'org-1', agentRef: '', payload: '{"keep":"me"}' });
+    const { m, props } = await mountHydrated(actionData);
+
+    // The reader goes to another node and the page component stays mounted
+    // (SvelteKit reuses it). `form` is left as is: the reset effect, not the
+    // action data, is what must clear the draft.
+    const OTHER = { ...NODE, id: 'leaf-2', loc: 'bar', name: 'Bar' };
+    stored = OTHER;
+    const url = 'http://localhost/app/memories/mem-A/nodes/leaf-2';
+    setStubPage(url, { id: 'mem-A', nodeId: 'leaf-2' });
+    const otherParent = { ...PARENT, graphNodes: [...PARENT.graphNodes, { id: 'leaf-2', memoryId: 'mem-A', loc: 'bar', name: 'Bar', nodeType: 'info', tags: [] }] };
+    props.data = { ...otherParent, ...((await load({
+      params: { id: 'mem-A', nodeId: 'leaf-2' },
+      locals: { token: 'tok' },
+      url: new URL(url),
+      parent: vi.fn().mockResolvedValue(otherParent),
+    } as never)) as Record<string, unknown>) };
+    await settle();
+
+    m.target.querySelector<HTMLElement>('button[aria-label="Actions for Bar"]')!.click();
+    flushSync();
+    Array.from(m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((b) => b.textContent?.trim() === 'Run')!.click();
+    flushSync();
+    await settle();
+    expect(field(m.target, '#testFlowPayload')!.value, 'node A\'s refused payload must not follow the reader to node B').toBe('');
+    expect((field(m.target, '#testFlowApp') as HTMLSelectElement).value).toBe('');
+  });
+
   it('updateFlow: the refused flow draft is still what the form will submit', async () => {
     setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
     serve();
