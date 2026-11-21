@@ -86,7 +86,10 @@
       : t('customisation.loaded', 'Loaded {from}–{to} of {total} customisations', vars);
   });
 
-  // portal#1509: an empty page that starts at or beyond the known total means
+  // portal#1509: the offset comes from the SAME response as the nodes and the total
+  // (read.list.value.offset, echoed by the server), never from the panel's request
+  // offset, so the data and its position cannot disagree while a read is in flight.
+  // An empty page that starts at or beyond the known total means
   // the list shrank under the reader (deleted rows, a total of 0 included: with
   // every row gone there is still a way back to the first page). It gets its own note and a
   // way to the last page that exists. An empty page INSIDE the total is the
@@ -95,8 +98,8 @@
   const pastEnd = $derived(
     read.list.state === 'ok' &&
       read.list.value.nodes.length === 0 &&
-      offset > 0 &&
-      offset >= read.list.value.total,
+      read.list.value.offset > 0 &&
+      read.list.value.offset >= read.list.value.total,
   );
   const lastPageOffset = $derived(
     read.list.state === 'ok'

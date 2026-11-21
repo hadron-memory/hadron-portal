@@ -170,6 +170,7 @@ describe('install customisation panel', () => {
     input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); await tick();
     expect(root.querySelectorAll('tbody tr')).toHaveLength(2);
   });
+  const offsetOf = (call: unknown[]) => new URL(String(call[0]), 'http://x').searchParams.get('offset');
   // portal#1509 item 1: an empty page past the end (rows deleted since the
   // list was read) must never read "Loaded 21–20 of 20", must not claim the
   // node list is limited (the total is known), and must leave a way back.
@@ -177,11 +178,13 @@ describe('install customisation panel', () => {
     const root = await panel();
     const before = emptyRegions(root);
     const past = { ...payload(), list: { state: 'ok', value: { memoryId: 'mem', urn: 'hrn:mem:acme.com:install', nodes: [], total: 20, offset: 20 } } };
-    const fetcher = vi.fn(async (_url: string) => new Response(JSON.stringify(past)));
+    // The first answer is the empty past-end page; after the way back, a real page.
+    const answers: unknown[] = [past, payload()];
+    const fetcher = vi.fn(async (_url: string) => new Response(JSON.stringify(answers.shift() ?? payload())));
     vi.stubGlobal('fetch', fetcher);
     button(root, 'Next').click();
     await settle();
-    expect(fetcher.mock.calls[0][0]).toContain('offset=20');
+    expect(offsetOf(fetcher.mock.calls[0])).toBe('20');
     expect(root.textContent).not.toMatch(/21\s*[–-]\s*20/);
     expect(root.querySelector('[data-testid="customisation-list-unavailable"]'), 'the known total is not a limited list').toBeNull();
     expect(root.textContent).toMatch(/past the last one\. There are 20 customisations/);
@@ -195,15 +198,39 @@ describe('install customisation panel', () => {
     back.click();
     await settle();
     // total 20 -> the last valid page starts at offset 0.
-    expect(fetcher.mock.calls[1][0]).toContain('offset=0');
+    expect(offsetOf(fetcher.mock.calls[1])).toBe('0');
+    // ...and it lands somewhere usable: rows render, the note and the button are gone.
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(root.querySelector('[data-testid="customisation-past-end"]')).toBeNull();
+    expect([...root.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Last page')).toBe(false);
+  });
+  // Bernice on #2428: the boundary the new condition depends on. An empty page INSIDE
+  // the total (offset 20, total 100) is the server's limited list (portal#1524), and an
+  // empty first page (offset 0) is never a way-back case either: both keep the limited
+  // note and offer no Last page. The echoed offset decides, not the request offset: the
+  // panel asked for 20, the response says it served offset 0.
+  it.each([
+    ['inside the total (offset 20, total 100)', 100, 20, 1],
+    ['an empty first page (offset 0, total 0)', 0, 0, 1],
+    ['the request offset 20 but the response echoing offset 0', 0, 0, 1],
+  ])('portal#1509: an empty page %s keeps the limited note and offers no Last page', async (_label, total, echoed, steps) => {
+    const full = { ...payload(), list: { state: 'ok', value: { memoryId: 'mem', urn: 'hrn:mem:acme.com:install', nodes: [node], total: 1000, offset: 0 } } };
+    const empty = { ...payload(), list: { state: 'ok', value: { memoryId: 'mem', urn: 'hrn:mem:acme.com:install', nodes: [], total, offset: echoed } } };
+    const answers: unknown[] = Array.from({ length: steps }, () => full);
+    vi.stubGlobal('fetch', vi.fn(async (_url: string) => new Response(JSON.stringify(answers.shift() ?? empty))));
+    const root = await panel();
+    for (let i = 0; i < steps; i++) { button(root, 'Next').click(); await settle(); }
+    expect(root.querySelector('[data-testid="customisation-list-unavailable"]'), 'the limited-list note').not.toBeNull();
+    expect(root.querySelector('[data-testid="customisation-past-end"]')).toBeNull();
+    expect([...root.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Last page')).toBe(false);
   });
   // Georgia/Cedric on #2428: the way back must land where rows exist, not always on 0,
   // the singular copy is pinned, and a total of 0 at a later page (every row deleted)
   // still offers the way back instead of the 'node list is limited' note.
   it.each([
-    ['total 41 at offset 60 lands on the last page that exists', 41, 60, 'offset=40', /There are 41 customisations/],
-    ['total 1 at offset 20 reads in the singular', 1, 20, 'offset=0', /There is 1 customisation\./],
-    ['total 0 at offset 20 (every row deleted) goes back to the first page', 0, 20, 'offset=0', /There are 0 customisations/],
+    ['total 41 at offset 60 lands on the last page that exists', 41, 60, '40', /There are 41 customisations/],
+    ['total 1 at offset 20 reads in the singular', 1, 20, '0', /There is 1 customisation\./],
+    ['total 0 at offset 20 (every row deleted) goes back to the first page', 0, 20, '0', /There are 0 customisations/],
   ])('portal#1509: past-end %s', async (_label, total, at, expected, copy) => {
     // Page forward with real Next clicks so the panel's own offset is `at`, then the
     // server answers the last request with an empty page (rows deleted meanwhile).
@@ -215,13 +242,13 @@ describe('install customisation panel', () => {
     vi.stubGlobal('fetch', fetcher);
     const root = await panel();
     for (let i = 0; i < steps; i++) { button(root, 'Next').click(); await settle(); }
-    expect(fetcher.mock.calls.at(-1)![0]).toContain(`offset=${at}`);
+    expect(offsetOf(fetcher.mock.calls.at(-1)!)).toBe(String(at));
     expect(root.querySelector('[data-testid="customisation-list-unavailable"]'), 'a known total is not a limited list').toBeNull();
     expect(root.textContent).toMatch(copy);
     const calls = fetcher.mock.calls.length;
     button(root, 'Last page').click();
     await settle();
-    expect(fetcher.mock.calls[calls][0]).toContain(expected);
+    expect(offsetOf(fetcher.mock.calls[calls])).toBe(expected);
   });
   // portal#1509 item 4: the reload button throws away a draft a read-only
   // viewer cannot have, so it belongs inside the same gate as the form.
