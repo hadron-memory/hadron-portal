@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { parse } from 'svelte/compiler';
 import baseline from './live-region-sites.baseline.json';
@@ -19,10 +19,19 @@ import baseline from './live-region-sites.baseline.json';
  * what is left: a file may not gain a sole-child region, and when one is
  * converted the baseline must come down with it (so the number only falls).
  *
- * Two limits, both on the conservative side. It does not see a region that is one
- * child among several in its `{#if}` (the first child with siblings), and it does
- * not see an already-live ancestor container, so a listed site can be a false
- * positive. Reviewed non-defects are named in `reviewedNotDefects` below.
+ * It counts a `role="status"` region, or a `role={expression}` alert/status hybrid
+ * (`LiveOutcome`'s case, portal#2379), that is a child of an `{#if}`/`{:else}` branch,
+ * alone or among others, directly or through a `{#key}`. One limit, on the
+ * conservative side: it does not see an already-live ancestor container, so a listed
+ * site can be a false positive. Reviewed non-defects are named in `reviewedNotDefects`
+ * below and stay counted.
+ *
+ * The baseline is derived from the scan, never merged by hand: run
+ * `UPDATE_LIVE_REGION_BASELINE=1 pnpm vitest run --project node live-region-sites`
+ * after merging main (it only lowers, and lists any addition it did not accept), then run
+ * the suite again. Counts are per file, as the ratchet was designed (#2374): a swap within
+ * one file keeps its count, so a new site can inherit a fixed site's slot. That gap is
+ * disclosed and tracked as hadron-portal#2391 (a per-site-identity ratchet).
  */
 const SRC = join(process.cwd(), 'src');
 
@@ -35,27 +44,69 @@ function svelteFiles(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-type Node = { type: string; data?: string; attributes?: Attr[]; fragment?: Fragment; consequent?: Fragment; alternate?: Fragment | null; body?: Fragment; fallback?: Fragment; pending?: Fragment; then?: Fragment; catch?: Fragment; children?: Node[]; nodes?: Node[] };
-type Attr = { type: string; name?: string; value?: true | { type: string; data?: string }[] | { type: string } };
+type Node = { type: string; start?: number; data?: string; attributes?: Attr[]; fragment?: Fragment; consequent?: Fragment; alternate?: Fragment | null; body?: Fragment; fallback?: Fragment; pending?: Fragment; then?: Fragment; catch?: Fragment; children?: Node[]; nodes?: Node[] };
+type Expr = { type: string; value?: unknown; name?: string; quasis?: Array<{ value: { cooked?: string | null } }>; consequent?: Expr; alternate?: Expr; left?: Expr; right?: Expr; operator?: string; expressions?: Expr[]; start: number; end: number };
+type Attr = { type: string; name?: string; value?: true | Array<{ type: string; data?: string; expression?: Expr }> | { type: string; expression?: Expr } };
 type Fragment = { nodes: Node[] };
 
-/** True when the element carries a literal `role="status"` attribute (any quoting). */
-function hasStatusRole(node: Node): boolean {
-  return (node.attributes ?? []).some((a) => {
-    if (a.type !== 'Attribute' || a.name !== 'role' || !Array.isArray(a.value) || a.value.length !== 1) return false;
-    const v = a.value[0];
-    return v.type === 'Text' && v.data?.trim() === 'status';
-  });
+/**
+ * Whether a `role={expression}` can resolve to `status`, judged on the branches the expression can take,
+ * not on the words in its source. A conditional is checked branch by branch; a string literal is `status` or
+ * it is not; `undefined`, `null` and other literals are known not to be; anything opaque (an identifier, a
+ * member such as `notice.role`, a call) is UNKNOWN and counts, since it may be `status`.
+ */
+function canBeStatus(e: Expr | undefined): boolean {
+  if (!e) return true;
+  switch (e.type) {
+    case 'ConditionalExpression': return canBeStatus(e.consequent) || canBeStatus(e.alternate);
+    // `a && b` is a falsy `a` or `b`; `a || b` and `a ?? b` can be either side.
+    case 'LogicalExpression': return e.operator === '&&' ? canBeStatus(e.right) : canBeStatus(e.left) || canBeStatus(e.right);
+    case 'Literal': return e.value === 'status';
+    // A static template is its cooked text; one with substitutions is unknown, so it counts.
+    case 'TemplateLiteral': return e.expressions?.length ? true : e.quasis?.[0]?.value.cooked === 'status';
+    case 'Identifier': return e.name !== 'undefined';
+    default: return true;
+  }
 }
 
-/** How many `role="status"` elements are the only child of their own `{#if}`/`{:else}` branch. */
-export function soleChildStatusRegions(src: string): number {
+/**
+ * The role attribute of an element: a literal string; null for a `role={expression}` that can yield `status`
+ * (see `canBeStatus`); 'other' for an expression that cannot (`full ? 'dialog' : undefined`); undefined when absent.
+ */
+function roleOf(node: Node): string | null | undefined {
+  const attr = (node.attributes ?? []).find((a) => a.type === 'Attribute' && a.name === 'role');
+  if (!attr) return undefined;
+  if (Array.isArray(attr.value) && attr.value.length === 1 && attr.value[0].type === 'Text') return attr.value[0].data?.trim();
+  // `role={x}` is one expression tag; `role="{x}"` is a one-chunk array holding the same expression tag. A quoted
+  // attribute mixing text and expressions (`role="a{b}"`) is unknown, so it counts.
+  const only = Array.isArray(attr.value) ? (attr.value.length === 1 ? attr.value[0] : undefined) : attr.value !== true ? attr.value : undefined;
+  const expression = only && only.type === 'ExpressionTag' ? (only as { expression?: Expr }).expression : undefined;
+  return only && !expression ? null : canBeStatus(expression) ? null : 'other';
+}
+
+/**
+ * How many status regions are mounted by an `{#if}`/`{:else}` branch itself: a `role="status"`, or a
+ * `role={expression}` (an alert/status hybrid, whose status half is inserted already populated), that is a
+ * child of the branch, alone or among others, directly or through a `{#key}`. An element that is always
+ * rendered with the `{#if}` INSIDE it is not a child of the branch, so it is never counted.
+ */
+export function conditionalStatusRegions(src: string): number {
+  return conditionalStatusSites(src).length;
+}
+
+/** The 1-based line of each region counted by `conditionalStatusRegions`. */
+export function conditionalStatusSites(src: string): number[] {
   const ast = parse(src, { modern: true }) as unknown as { fragment: Fragment };
-  let count = 0;
+  const sites: number[] = [];
+  const direct = (nodes: Node[]): Node[] =>
+    nodes.flatMap((n) => (n.type === 'KeyBlock' ? direct((n.fragment?.nodes ?? [])) : [n]));
   const branch = (f: Fragment | null | undefined) => {
     if (!f) return;
-    const kids = f.nodes.filter((n) => !(n.type === 'Text' && !n.data?.trim()) && n.type !== 'Comment');
-    if (kids.length === 1 && hasStatusRole(kids[0])) count++;
+    for (const n of direct(f.nodes)) {
+      if (n.type !== 'RegularElement' && n.type !== 'SvelteElement') continue;
+      const role = roleOf(n);
+      if (role === 'status' || role === null) sites.push(src.slice(0, n.start ?? 0).split('\n').length);
+    }
   };
   const walk = (n: unknown) => {
     if (!n || typeof n !== 'object') return;
@@ -68,35 +119,88 @@ export function soleChildStatusRegions(src: string): number {
     for (const v of Object.values(node)) if (v && typeof v === 'object') walk(v);
   };
   walk(ast.fragment);
-  return count;
+  return sites;
 }
 
 /** Sole-child sites reviewed and left alone on purpose. They stay counted here. */
 const reviewedNotDefects: Record<string, string> = {
   'src/lib/components/SelectMemory.svelte': 'the guard is the static `keepOpen` mode flag; the region it renders is already persistent inside that mode',
-  'src/lib/components/tickers/ApplyAgentTickers.svelte': 'the result container is an aria-live region mounted before any result, so the child is announced by it'
+  'src/lib/components/tickers/ApplyAgentTickers.svelte': 'the result container is an aria-live region mounted before any result, so the child is announced by it',
+  // portal#2379: seen by the wider scan, reviewed, left alone. Each is a region that is already mounted
+  // (the {#if} sits inside it, and the outer branch mounts the region with the view), so the content comes and
+  // goes in an existing region. (A probe that mounts the page and changes it, not a read of the markup, is the
+  // test of "present at load": the signing drifted/too-many notes and the customisation empty-list note looked
+  // present at load and are not, so they are converted.)
+  'src/lib/components/AgentChat.svelte': 'counted only because both notices are children of the active-chat branch of `{#if !activeChatId && !loadingChat}`; the region element mounts with the chat view and its own {#if} is INSIDE it, so a notice that arrives while the chat is open comes in an existing region. Residual: switching to a chat that already has a notice inserts the region with it, as opening that chat does',
+  'src/lib/components/NodeList.svelte': 'counted only because node-columns-status is a child of the rows branch (`{#if nodes.length === 0}` ... `{:else}`); its own {#if} is INSIDE it, so loading and failed text that arrives while rows are shown comes in an existing region. Residual: rows returning after an empty result insert the region with its loading text; moving it out would reserve its min-h in the empty state',
+  'src/routes/app/apps/[appId]/tasks/+page.svelte': 'counted only because both regions are children of the loaded-board branch; open-by-handle has its {#if} INSIDE it, and the Tasks-shown region is one live region per loaded board (portal#1403) whose count changes inside it'
 };
 
-describe('portal#2344: status regions are persistent, not the only child of an {#if}', () => {
+describe('portal#2344: status regions are persistent, not mounted by an {#if} branch', () => {
   const counts = new Map<string, number>();
   for (const file of svelteFiles(SRC)) {
-    const n = soleChildStatusRegions(readFileSync(file, 'utf8'));
+    const n = conditionalStatusRegions(readFileSync(file, 'utf8'));
     if (n) counts.set(relative(process.cwd(), file), n);
   }
   const base = baseline as Record<string, number>;
+  // Regenerate the checked-in inventory from the scan. `UPDATE_LIVE_REGION_BASELINE=1` only LOWERS it (a
+  // converted site comes off) and REPORTS every addition without accepting it, so rerunning cannot quietly
+  // accept a regression: the "no file gains" test keeps failing until a person accepts the additions with
+  // `UPDATE_LIVE_REGION_BASELINE=accept-additions` (and the reason goes in `reviewedNotDefects`).
+  if (process.env.UPDATE_LIVE_REGION_BASELINE) {
+    const accept = process.env.UPDATE_LIVE_REGION_BASELINE === 'accept-additions';
+    const files = new Set([...counts.keys(), ...Object.keys(base)]);
+    const next: Record<string, number> = {};
+    const additions: string[] = [];
+    for (const f of [...files].sort()) {
+      const now = counts.get(f) ?? 0;
+      const was = base[f] ?? 0;
+      if (now > was) additions.push(`${f}: ${was} -> ${now}`);
+      const keep = accept ? now : Math.min(now, was);
+      if (keep > 0) next[f] = keep;
+    }
+    writeFileSync(join(process.cwd(), 'src/lib/live-region-sites.baseline.json'), `${JSON.stringify(next, null, 2)}\n`);
+    if (additions.length) console.warn(`live-region baseline: ${accept ? 'ACCEPTED' : 'NOT accepted'} ${additions.length} addition(s):\n  ${additions.join('\n  ')}`);
+  }
 
   it('recognises the wrong shape and the right one', () => {
-    expect(soleChildStatusRegions('{#if saved}<p role="status" class="x">{saved}</p>{/if}')).toBe(1);
-    expect(soleChildStatusRegions('{#if a}\n  <div role="status">\n  <b>x</b></div>\n{:else}\n  y\n{/if}')).toBe(1);
-    expect(soleChildStatusRegions('{#if a}x{:else}<p role="status">y</p>{/if}')).toBe(1);
-    expect(soleChildStatusRegions('<LiveRegion>{#if saved}<p class="x">{saved}</p>{/if}</LiveRegion>')).toBe(0);
-    expect(soleChildStatusRegions('<p role="status">{message}</p>')).toBe(0);
-    expect(soleChildStatusRegions("{#if saved}<p role='status'>{saved}</p>{/if}")).toBe(1);
-    expect(soleChildStatusRegions('{#if a}<p title=\'role="status"\'>x</p>{/if}')).toBe(0);
-    expect(soleChildStatusRegions('<!-- {#if a}<p role="status">x</p>{/if} -->')).toBe(0);
+    expect(conditionalStatusRegions('{#if saved}<p role="status" class="x">{saved}</p>{/if}')).toBe(1);
+    expect(conditionalStatusRegions('{#if a}\n  <div role="status">\n  <b>x</b></div>\n{:else}\n  y\n{/if}')).toBe(1);
+    expect(conditionalStatusRegions('{#if a}x{:else}<p role="status">y</p>{/if}')).toBe(1);
+    expect(conditionalStatusRegions('<LiveRegion>{#if saved}<p class="x">{saved}</p>{/if}</LiveRegion>')).toBe(0);
+    expect(conditionalStatusRegions('<p role="status">{message}</p>')).toBe(0);
+    expect(conditionalStatusRegions("{#if saved}<p role='status'>{saved}</p>{/if}")).toBe(1);
+    expect(conditionalStatusRegions('{#if a}<p title=\'role="status"\'>x</p>{/if}')).toBe(0);
+    expect(conditionalStatusRegions('<!-- {#if a}<p role="status">x</p>{/if} -->')).toBe(0);
+    // portal#2379: one among several, through a {#key}, and the dynamic-role hybrids.
+    expect(conditionalStatusRegions('{#if a}<h3>t</h3><p role="status">{a}</p><button>b</button>{/if}')).toBe(1);
+    expect(conditionalStatusRegions('{#if a}{#key a.role}<div role={a.role}>{a.text}</div>{/key}{/if}')).toBe(1);
+    expect(conditionalStatusRegions("{#if m}<p role={m.type === 'error' ? 'alert' : 'status'}>{m.text}</p>{/if}")).toBe(1);
+    expect(conditionalStatusRegions("{#if ok}<p role={ok ? 'status' : 'alert'}>x</p>{/if}")).toBe(1);
+    expect(conditionalStatusRegions("{#if a}<div role={full ? 'dialog' : undefined}>x</div>{/if}")).toBe(0);
+    // The branches decide, not the words: an opaque branch may be 'status'; a name containing the word may not.
+    expect(conditionalStatusRegions("{#if a}<p role={failed ? 'alert' : successRole}>x</p>{/if}")).toBe(1);
+    expect(conditionalStatusRegions("{#if a}<p role={statusReady ? 'dialog' : undefined}>x</p>{/if}")).toBe(0);
+    expect(conditionalStatusRegions("{#if a}<p role={a ? 'alert' : b ? 'status' : 'alert'}>x</p>{/if}")).toBe(1);
+    expect(conditionalStatusRegions("{#if a}<p role={a ? 'alert' : b ? 'dialog' : 'alert'}>x</p>{/if}")).toBe(0);
+    expect(conditionalStatusRegions("{#if a}<p role={a && 'alert'}>x</p>{/if}")).toBe(0);
+    // A quoted expression is the same expression: judged by its branches, in either spelling.
+    expect(conditionalStatusRegions("{#if a}<div role=\"{full ? 'dialog' : undefined}\">x</div>{/if}")).toBe(0);
+    expect(conditionalStatusRegions("{#if a}<p role=\"{failed ? 'alert' : 'status'}\">x</p>{/if}")).toBe(1);
+    expect(conditionalStatusRegions('{#if a}<p role="{notice.role}">x</p>{/if}')).toBe(1);
+    expect(conditionalStatusRegions('{#if a}<p role="x{kind}">x</p>{/if}')).toBe(1);
+    // Templates: static ones are judged by their text, interpolated ones are unknown.
+    expect(conditionalStatusRegions('{#if a}<p role={`status`}>x</p>{/if}')).toBe(1);
+    expect(conditionalStatusRegions('{#if a}<p role={`dialog`}>x</p>{/if}')).toBe(0);
+    expect(conditionalStatusRegions("{#if a}<p role={a ? `alert` : `status`}>x</p>{/if}")).toBe(1);
+    expect(conditionalStatusRegions("{#if a}<p role={a ? `alert` : `dialog`}>x</p>{/if}")).toBe(0);
+    expect(conditionalStatusRegions('{#if a}<p role={`${kind}`}>x</p>{/if}')).toBe(1);
+    expect(conditionalStatusRegions('{#if a}<p role="alert">x</p>{/if}')).toBe(0);
+    expect(conditionalStatusRegions('<LiveOutcome failed={f}>{#if m}<p>{m}</p>{/if}</LiveOutcome>')).toBe(0);
+    expect(conditionalStatusRegions('<p role="status">{#if a}x{/if}</p>')).toBe(0);
   });
 
-  it('no file gains a sole-child status region', () => {
+  it('no file gains a status region mounted by an {#if} branch', () => {
     const grew = [...counts].filter(([f, n]) => n > (base[f] ?? 0)).map(([f, n]) => `${f}: ${n} (baseline ${base[f] ?? 0})`);
     expect(grew, 'wrap the {#if} in <LiveRegion> instead of putting role="status" on the conditional element').toEqual([]);
   });

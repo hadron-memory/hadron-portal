@@ -9,6 +9,7 @@
   composed into B's URNs (Gene on #994).
 -->
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
   import { approveAllFeedbackWarning, approveAllSummary, approveAllUnconfirmedText, type ApproveMemoryNodesResult } from '$lib/memory-approval';
@@ -95,9 +96,11 @@
     <button type="button" class="absolute inset-0 cursor-default bg-black/20" aria-label={t('memory-actions.approve-all.close', 'Close approve all dialog')} onclick={() => (open = false)}></button>
     <div role="dialog" aria-labelledby="approve-all-heading" data-testid="approve-all-dialog" class="absolute right-4 top-24 w-[36rem] max-w-[calc(100vw-2rem)] rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
       <h3 id="approve-all-heading" class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{t('memory-actions.approve-all.heading', 'Approve all nodes')}</h3>
+      <LiveRegion>
+        {#if done}<p data-testid="approve-all-result" class="text-sm text-zinc-700 dark:text-zinc-300">{approveAllSummary(done.result)}</p>{/if}
+      </LiveRegion>
       {#if done}
         {@const r = done}
-        <p role="status" data-testid="approve-all-result" class="text-sm text-zinc-700 dark:text-zinc-300">{approveAllSummary(r.result)}</p>
         {@const feedbackWarning = approveAllFeedbackWarning(r.result)}
         {#if feedbackWarning}
           <OpenFeedbackWarning testid="approve-all-open-feedback" listKey="memories:approve-all:open-feedback" items={r.result.openFeedback} text={feedbackWarning} />

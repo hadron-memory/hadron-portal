@@ -1,5 +1,5 @@
 <script lang="ts">
-  import LiveRegion from '$lib/components/LiveRegion.svelte';
+  import LiveOutcome from '$lib/components/LiveOutcome.svelte';
   import WorkerLeaveAlone from './WorkerLeaveAlone.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
@@ -279,16 +279,17 @@
       {/if}
     </div>
 
-    {#if retireNotice}
-      <div
-        role={retireNotice.ok ? 'status' : 'alert'}
-        class="mt-3 rounded-lg border px-4 py-3 text-sm {retireNotice.ok
-          ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
-          : 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200'}"
-      >
-        {retireNotice.message}
-      </div>
-    {/if}
+    <LiveOutcome failed={retireNotice ? !retireNotice.ok : false}>
+      {#if retireNotice}
+        <div
+          class="mt-3 rounded-lg border px-4 py-3 text-sm {retireNotice.ok
+            ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
+            : 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200'}"
+        >
+          {retireNotice.message}
+        </div>
+      {/if}
+    </LiveOutcome>
 
     <!-- The URN below the name, per hrn:node:hadronmemory.com:hadron-portal:review:render-urn. Nullable by contract
          (#991) — an App whose URN predates the flat grammar has no worker URN,
@@ -694,22 +695,18 @@
         </p>
       </div>
 
-      <LiveRegion>
-        {#if data.workerSessions === null}
-          <!-- Unavailable is NOT empty (#737). A refused or failed read must not
-               render as "this worker has never worked". -->
-          <p
-            class="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900"
-          >
-            {t(
-              'worker.sessions.unavailable',
-              'The worker sessions couldn’t be loaded — that is a read failure, not an empty history.',
-            )}
-          </p>
-        {/if}
-      </LiveRegion>
       {#if data.workerSessions === null}
-        <!-- the note is in the region above -->
+        <!-- Unavailable is NOT empty (#737). A refused or failed read must not
+             render as "this worker has never worked". -->
+        <p
+          role="status"
+          class="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900"
+        >
+          {t(
+            'worker.sessions.unavailable',
+            'The worker sessions couldn’t be loaded — that is a read failure, not an empty history.',
+          )}
+        </p>
       {:else if data.workerSessions.length === 0}
         <!-- Says what was actually read. The old copy — "this worker has not been
              bound to a worker session yet" — was an absolute claim about the
@@ -760,19 +757,17 @@
         </p>
       </div>
 
-      <LiveRegion>
-        {#if data.worklog === null}
-          <p
-            class="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900"
-          >
-            {t(
-              'worker.worklog.unavailable',
-              'The worklog couldn’t be loaded — that is a read failure, not an empty worklog.',
-            )}
-          </p>
-        {/if}
-      </LiveRegion>
-      {#if data.worklog !== null}
+      {#if data.worklog === null}
+        <p
+          role="status"
+          class="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900"
+        >
+          {t(
+            'worker.worklog.unavailable',
+            'The worklog couldn’t be loaded — that is a read failure, not an empty worklog.',
+          )}
+        </p>
+      {:else}
         <!-- Filters are off: on this page the WORKER is the filter, and the
              control's hidden `tab` field belongs to the App page's tab strip. -->
         <!-- A DISTINCT listKey from the App page's worklog: same component, but a
