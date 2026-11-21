@@ -1114,7 +1114,11 @@
 </script>
 
 <section>
-  <div data-testid="ai-config-manager-feedback" role="status" aria-live="polite" aria-atomic="true">
+  <!-- min-h-8 reserves the transient line (text-sm 20px + mb-3 12px) so the
+       identity check starting or ending cannot move the controls below it:
+       a tap on Delete's Cancel that lands mid-shift hits the container, not
+       the button (#2059). -->
+  <div data-testid="ai-config-manager-feedback" class="min-h-8" role="status" aria-live="polite" aria-atomic="true">
     {#if identityChecking}<p class="mb-3 text-sm text-zinc-500 dark:text-zinc-400">{s.principalChecking()}</p>{/if}
     {#if recoveryChecking && !mutationLocked}
       <p data-testid="ai-config-recovery-pending" class="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
