@@ -4,6 +4,9 @@
 // Setup: pnpm exec playwright install chromium
 // Run: pnpm test:task-history-links-layout
 // TH_SHOTS=<dir> also saves each state, captioned with its measured heights, for the PR.
+// TH_EXTRA_ANCHOR=<path> adds one same-origin anchor to the history after mount (portal#1925):
+// an in-app link of a kind the probe does not know. The run must FAIL; a pass means an
+// unclassified anchor slips past the 44px gate.
 import assert from 'node:assert/strict';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -120,6 +123,14 @@ try {
       await page.route('**/__blank', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>layout</title>' }));
       await mountHistory(page, origin, css, scheme === 'dark');
       assert.equal(await page.evaluate(() => matchMedia('(pointer: coarse)').matches), coarse, `${label}: pointer emulation`);
+      if (process.env.TH_EXTRA_ANCHOR) {
+        await page.evaluate((path) => {
+          const a = document.createElement('a');
+          a.href = path;
+          a.textContent = 'extra';
+          document.querySelector('[data-testid="task-history"]').append(a);
+        }, process.env.TH_EXTRA_ANCHOR);
+      }
 
       const o = await overflow(page);
       assert.ok(o.history <= 0.5 && o.page <= 0.5, `${label}: overflows ${JSON.stringify(o)}`);
