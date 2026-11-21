@@ -16,7 +16,7 @@ import List from './+page.svelte';
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
 const secret = { id: 's1', ownerType: 'app', ownerId: 'app-1', name: 'stripe-key', kind: 'generic', protected: true, currentVersion: 2, metadata: null, createdAt: '2026-11-01T00:00:00Z', createdBy: 'u1', updatedAt: '2026-11-02T00:00:00Z', updatedBy: 'u1' };
 const LINK = 'https://hadron.example/secret-changes/r1';
-const pending = { requestId: 'r1', ceremonyUrl: LINK, state: 'open', operation: 'STORE', expiresAt: '2026-11-21T01:00:00Z' };
+const pending = { requestId: 'r1', secretId: 's1', ceremonyUrl: LINK, state: 'open', operation: 'STORE', expiresAt: '2026-11-21T01:00:00Z' };
 
 const detail = (data: Record<string, unknown>, form: unknown = null) =>
   render(Detail as never, { props: { data: { app, secret, signing: 'on', pending: [], impersonating: null, ...data }, form } } as never).body;

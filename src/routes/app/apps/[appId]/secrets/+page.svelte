@@ -70,7 +70,7 @@
   {/if}
 
   {#each data.pending as p (p.requestId)}
-    <PendingChange {...p} impersonating={!!data.impersonating} />
+    <PendingChange {...p} secretName={p.secretId ? (list.find((s) => s.id === p.secretId)?.name ?? null) : null} impersonating={!!data.impersonating} />
   {/each}
   {#if form && 'staged' in form && form.staged}
     <p class="text-sm text-amber-800 dark:text-amber-300" data-testid="create-staged">{t('secrets.create.staged', '{name} was not created yet. It waits for your passkey signature.', { name: form.name ?? '' })}</p>

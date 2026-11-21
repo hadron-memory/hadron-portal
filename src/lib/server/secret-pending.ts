@@ -8,6 +8,7 @@ import { isOpenState } from '$lib/secrets/staged';
 /** portal#2380 — the viewer's own change requests, re-read on every visit (no polling loop). */
 export interface PendingRow {
   requestId: string;
+  secretId: string | null;
   ceremonyUrl: string;
   state: string;
   operation: string;
@@ -41,7 +42,7 @@ export async function loadPending(
     const r = await loadChangeRequest(client, tr.requestId);
     if (r === 'failed') continue;
     if (r === null) { kept = removeTracked(kept, tr.requestId); continue; }
-    rows.push({ requestId: r.id, ceremonyUrl: tr.ceremonyUrl, state: r.state, operation: r.operation, expiresAt: r.expiresAt });
+    rows.push({ requestId: r.id, secretId: tr.secretId ?? null, ceremonyUrl: tr.ceremonyUrl, state: r.state, operation: r.operation, expiresAt: r.expiresAt });
     if (!isOpenState(r.state)) kept = removeTracked(kept, tr.requestId);
   }
   if (kept.length !== all.length) writeTracked(cookies, kept);

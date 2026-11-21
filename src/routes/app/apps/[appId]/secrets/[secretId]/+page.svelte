@@ -21,7 +21,7 @@
   const msg = (action: string) => (form && 'message' in form && form.message && form.action === action ? form.message : null);
   const staged = (action: string) => !!(form && 'staged' in form && form.staged && form.action === action);
   const saved = (action: string) => !!(form && 'ok' in form && form.ok && form.action === action);
-  const stagedText = () => t('secrets.staged', 'Not saved yet. This change waits for your passkey signature.');
+  const stagedText = () => t('secrets.staged', 'Not saved yet.');
 </script>
 
 <svelte:head><title>{secret?.name ?? t('secrets.head', 'Secrets')} · {data.app.name} · Hadron</title></svelte:head>

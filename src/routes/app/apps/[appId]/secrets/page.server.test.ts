@@ -97,7 +97,7 @@ describe('the secret page load', () => {
     const c = jar(JSON.stringify([{ secretId: 's1', requestId: 'r1', ceremonyUrl: URL_ }]));
     const d = (await load(ev(c))) as { signing: string; pending: Array<{ state: string; ceremonyUrl: string }> };
     expect(d.signing).toBe('on');
-    expect(d.pending).toEqual([{ requestId: 'r1', ceremonyUrl: URL_, state: 'open', operation: 'STORE', expiresAt: open.expiresAt }]);
+    expect(d.pending).toEqual([{ requestId: 'r1', secretId: 's1', ceremonyUrl: URL_, state: 'open', operation: 'STORE', expiresAt: open.expiresAt }]);
     expect(c.store.has(TRACKED_COOKIE)).toBe(true);
   });
   it('an ended request shows once; one the server does not show the viewer is dropped', async () => {
