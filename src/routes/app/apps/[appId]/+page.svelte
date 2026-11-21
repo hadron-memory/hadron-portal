@@ -4680,7 +4680,7 @@
              answer turns to withheld, and a region that arrives with its text is not announced. -->
         <LiveRegion>
           {#if keyControls === 'withheld'}
-            <p data-testid="setup-withheld" class="mb-4 rounded-xl border border-zinc-200 bg-white p-5 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">{setupWithheldReason}</p>
+            <p data-testid="setup-withheld" class="mb-4 text-sm text-zinc-500">{setupWithheldReason}</p>
           {/if}
         </LiveRegion>
         {#if !activeKeys.length || newKeySectionOpen || keyControls === 'withheld'}

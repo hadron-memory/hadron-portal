@@ -13,6 +13,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import SelectNode from './SelectNode.svelte';
 import { clearDictionary, rowSelectButtons, usePickerLocale } from '$lib/test/i18n-dictionary';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 
 // #1605: a test locale on the t() boundary; empty, t() is unchanged.
 vi.mock('$lib/i18n/t', async (importOriginal) =>
@@ -298,19 +299,10 @@ describe('SelectNode: pick flow (#1576)', () => {
     const { target } = mount();
     await tick();
     await chooseMemory(target, 'Beta KB');
-    const note = 'Showing the first results only';
-    const speaking = () => [...target.querySelectorAll<HTMLElement>('[role="status"]')].find((r) => r.textContent?.includes(note)) ?? null;
-    expect(speaking()).toBeNull();
-    const idle = [...target.querySelectorAll<HTMLElement>('[role="status"]')].filter((r) => !r.textContent?.trim());
-    expect(idle.length, 'a status region exists, empty, before the cap').toBeGreaterThan(0);
-    await search(target, 'node');
-    const region = speaking();
-    expect(region, 'the note is inside a status region').not.toBeNull();
-    expect(idle, 'that region existed, empty, before the note').toContain(region);
-    expect(region!.getAttribute('aria-live')).toBe('polite');
-    await search(target, 'few');
-    expect(region!.isConnected).toBe(true);
-    expect(region!.textContent!.trim()).toBe('');
+    await expectLiveRegionLifecycle({
+      root: target, text: 'Showing the first results only',
+      appear: () => search(target, 'node'), disappear: () => search(target, 'few'),
+    });
   });
 
   it('closing the picker dismisses it; reopening the SAME instance starts over at the memory stage', async () => {
