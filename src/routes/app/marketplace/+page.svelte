@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { t } from '$lib/i18n/t';
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
@@ -224,9 +225,11 @@
                 {#if submittedMemoryId === memory.id && addToAgentError}
                   <p id="adopt-error-{memory.id}" role="alert" class="text-xs text-red-600 dark:text-red-400">{addToAgentError}</p>
                 {/if}
-                {#if submittedMemoryId === memory.id && addToAgentSuccess}
-                  <p role="status" class="text-xs text-green-700 dark:text-green-400">{addToAgentSuccess}</p>
-                {/if}
+                <LiveRegion>
+                  {#if submittedMemoryId === memory.id && addToAgentSuccess}
+                    <p class="text-xs text-green-700 dark:text-green-400">{addToAgentSuccess}</p>
+                  {/if}
+                </LiveRegion>
               </form>
             {/if}
           </div>

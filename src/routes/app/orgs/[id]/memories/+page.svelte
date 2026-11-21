@@ -10,6 +10,7 @@
   toggleable via the column menu).
 -->
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import { tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -422,11 +423,13 @@
       {deleteActionError ?? syncAllActionError ?? unsubscribeActionError}
     </div>
   {/if}
-  {#if deleteActionSuccess || syncAllActionSuccess || unsubscribeActionSuccess || subscribeActionSuccess}
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
-      {deleteActionSuccess ?? syncAllActionSuccess ?? unsubscribeActionSuccess ?? subscribeActionSuccess}
-    </div>
-  {/if}
+  <LiveRegion>
+    {#if deleteActionSuccess || syncAllActionSuccess || unsubscribeActionSuccess || subscribeActionSuccess}
+      <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
+        {deleteActionSuccess ?? syncAllActionSuccess ?? unsubscribeActionSuccess ?? subscribeActionSuccess}
+      </div>
+    {/if}
+  </LiveRegion>
 
   <!-- #555: shared cell renderer — reused by the Personal and Org grids. The
        Delete action stays org-only (owner-only memories are managed from their

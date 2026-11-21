@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // portal#2194 (hadron-server#4242): the user wants to keep the host sweep away
   // from this worker, and to see who did so and why. `marker` null means the
   // caller may see only the worker's profile: nothing is shown, which is not the
@@ -104,9 +105,11 @@
             {t('worker.leave-alone.mark', 'Leave alone…')}
           </button>
         {/if}
-        {#if recovery?.uncertain && recovery.phase !== 'stale'}
-        <p role="status" class="text-sm text-zinc-500">{t('worker.leave-alone.unconfirmed', 'Couldn’t confirm the save; checking…')}</p>
-    {/if}
+        <LiveRegion>
+          {#if recovery?.uncertain && recovery.phase !== 'stale'}
+            <p class="text-sm text-zinc-500">{t('worker.leave-alone.unconfirmed', 'Couldn’t confirm the save; checking…')}</p>
+          {/if}
+        </LiveRegion>
         {#if recovery?.phase === 'stale'}
           <div role="alert" class="space-y-2 text-sm text-red-600 dark:text-red-400">
             <p>{recovery.uncertain
@@ -117,9 +120,12 @@
         {/if}
         {#if feedback?.kind === 'error'}
           <p role="alert" class="text-sm text-red-600 dark:text-red-400">{feedback.text}</p>
-        {:else if feedback?.kind === 'ok'}
-          <p role="status" class="text-sm text-emerald-600 dark:text-emerald-400">{feedback.text}</p>
         {/if}
+        <LiveRegion>
+          {#if feedback?.kind === 'ok'}
+            <p class="text-sm text-emerald-600 dark:text-emerald-400">{feedback.text}</p>
+          {/if}
+        </LiveRegion>
       </form>
     {/if}
   </section>

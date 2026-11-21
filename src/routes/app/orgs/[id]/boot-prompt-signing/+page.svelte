@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // portal#1921 (R1, R3, R4): what switching on org boot-prompt signing would
   // change, and the switch-on itself. The preview IS the confirmation: Switch on
   // sits under the table and is offered only once every row is loaded.
@@ -141,9 +142,12 @@
         </DataTable>
       {/if}
 
-      {#if outcome === 'stale'}
-        <p role="status" class="text-sm text-amber-800 dark:text-amber-200">{t('org.signing.stale', 'What would change has changed, or this review is more than 10 minutes old. Look again before switching on.')}</p>
-      {:else if outcome === 'failed'}
+      <LiveRegion>
+        {#if outcome === 'stale'}
+          <p class="text-sm text-amber-800 dark:text-amber-200">{t('org.signing.stale', 'What would change has changed, or this review is more than 10 minutes old. Look again before switching on.')}</p>
+        {/if}
+      </LiveRegion>
+      {#if outcome === 'failed'}
         <p role="alert" class="text-sm text-red-700 dark:text-red-300">{t('org.signing.on-failed', 'Couldn’t switch signing on. Try again.')}</p>
       {:else if outcome === 'no_review'}
         <p role="alert" class="text-sm text-red-700 dark:text-red-300">{t('org.signing.no-review', 'Review what would change first.')}</p>

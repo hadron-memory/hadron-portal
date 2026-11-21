@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { onDestroy, tick, untrack } from 'svelte';
   import { enhance } from '$app/forms';
   import { t } from '$lib/i18n/t';
@@ -389,8 +390,10 @@
         <div class="flex flex-wrap items-center gap-2">
           <button type="submit" disabled={saving} class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400">{t('app.tasks.disposition.save', 'Save')}</button>
           <button type="button" disabled={saving} class={btn} onclick={closeForm}>{t('app.tasks.disposition.cancel', 'Cancel')}</button>
-          {#if saving}<span role="status" class="text-sm text-zinc-600 dark:text-zinc-300">{t('app.tasks.disposition.saving', 'Saving…')}</span>{/if}
         </div>
+        <LiveRegion>
+          {#if saving}<p class="text-sm text-zinc-600 dark:text-zinc-300">{t('app.tasks.disposition.saving', 'Saving…')}</p>{/if}
+        </LiveRegion>
         {#if refusal && refusal.kind !== 'invalid'}<WriteRefusalAlert {refusal} />{/if}
       </form>
     {/key}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -259,9 +260,11 @@
   {#if actionError}
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{actionError}</div>
   {/if}
-  {#if actionSuccess}
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{actionSuccess}</div>
-  {/if}
+  <LiveRegion>
+    {#if actionSuccess}
+      <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{actionSuccess}</div>
+    {/if}
+  </LiveRegion>
 
   <!-- Edit form -->
   <fieldset disabled={data.canWriteMemory === false}>

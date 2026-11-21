@@ -19,6 +19,7 @@ import {
   createAppMemorySchema, addAgentSchema, castWorkerSchema, removeAppAgentSchema,
   revokeAppKeySchema, grantAppKeyScopeSchema, addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema,
 } from './schema';
+import { firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
@@ -773,7 +774,7 @@ describe('Worker agents tab (#1009)', () => {
       } else {
         expect(m.target.querySelector('dialog')).toBe(dialog);
         expect(dialog.querySelector('[role=alert]')?.textContent).toBe('Retire it instead.');
-        expect(dialog.querySelector('[role=status]')).toBeNull();
+        expect(firstPopulatedStatusText(dialog)).toBeNull();
         expect(new FormData(form).get('workerRef')).toBe('w1');
       }
       expect(m.target.querySelector('a[href="/app/workers/w1"]')).not.toBeNull();

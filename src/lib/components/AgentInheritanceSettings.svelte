@@ -97,13 +97,15 @@
         {:else}
           <p class="text-sm text-zinc-500">{t('agent.inheritance.none', 'None')}</p>
         {/if}
-        {#if draftUnsaved}
-          {#if currentBase?.agent}
-            <p role="status" class="text-sm text-amber-600 dark:text-amber-400">{t('agent.parent.unsaved-replace', 'Not saved yet — Save will replace {name} as the parent agent.', { name: currentBase.agent.name })}</p>
-          {:else}
-            <p role="status" class="text-sm text-amber-600 dark:text-amber-400">{t('agent.parent.unsaved-set', 'Not saved yet — Save will set {name} as the parent agent.', { name: displayAgent?.name ?? draftRef })}</p>
+        <LiveRegion>
+          {#if draftUnsaved}
+            {#if currentBase?.agent}
+              <p class="text-sm text-amber-600 dark:text-amber-400">{t('agent.parent.unsaved-replace', 'Not saved yet — Save will replace {name} as the parent agent.', { name: currentBase.agent.name })}</p>
+            {:else}
+              <p class="text-sm text-amber-600 dark:text-amber-400">{t('agent.parent.unsaved-set', 'Not saved yet — Save will set {name} as the parent agent.', { name: displayAgent?.name ?? draftRef })}</p>
+            {/if}
           {/if}
-        {/if}
+        </LiveRegion>
       </div>
       <input type="hidden" name="baseRef" value={draftRef} />
       <div class="flex flex-wrap items-center gap-3">

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import TurnstileWidget from '$lib/components/TurnstileWidget.svelte';
   import { emailSubmitFailure, submitFailure as submitFailureState } from '$lib/forms/email-submit-failure.svelte';
   import { inviteStrings } from '$lib/i18n/invite-strings';
@@ -155,9 +156,11 @@
               <button type="submit" disabled={$emailSubmitting} class="w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
                 {$emailSubmitting ? 'Sending...' : 'Continue with email'}
               </button>
-              {#if emailSentMessage}
-                <p role="status" class="text-sm text-green-400">{emailSentMessage}</p>
-              {/if}
+              <LiveRegion>
+                {#if emailSentMessage}
+                  <p class="text-sm text-green-400">{emailSentMessage}</p>
+                {/if}
+              </LiveRegion>
             </form>
 
             <div class="flex items-center gap-3">

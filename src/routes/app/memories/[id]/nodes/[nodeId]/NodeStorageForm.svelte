@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // #1031 — the Properties tab's storage form: object type, typed properties and
   // the skill export. It was the `/nodes/[nodeId]/edit` page (#588, #864, #878)
   // until #1031 put it on the tab, so most of what follows is that page's logic
@@ -529,9 +530,11 @@
       >
         {$submitting ? t('node-storage.saving', 'Saving…') : actionError ? t('node.save.retry', 'Retry') : t('node-storage.save', 'Save')}
       </button>
-      {#if actionSuccess}
-        <span role="status" class="text-sm text-green-600 dark:text-green-400">{actionSuccess}</span>
-      {/if}
+      <LiveRegion>
+        {#if actionSuccess}
+          <span class="text-sm text-green-600 dark:text-green-400">{actionSuccess}</span>
+        {/if}
+      </LiveRegion>
     </div>
   </form>
 </div>

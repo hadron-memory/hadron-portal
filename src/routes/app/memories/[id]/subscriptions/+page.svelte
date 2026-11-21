@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // #266: Subscriptions tab — org subscriptions, split out of the Settings page.
   import { t } from '$lib/i18n/t';
   import { untrack } from 'svelte';
@@ -71,9 +72,11 @@
   {#if unsubscribeActionError}
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{unsubscribeActionError}</div>
   {/if}
-  {#if actionSuccess || unsubscribeActionSuccess}
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{actionSuccess ?? unsubscribeActionSuccess}</div>
-  {/if}
+  <LiveRegion>
+    {#if actionSuccess || unsubscribeActionSuccess}
+      <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{actionSuccess ?? unsubscribeActionSuccess}</div>
+    {/if}
+  </LiveRegion>
 
   {#if isAgentSystem}
     <p class="text-sm text-zinc-500">{t('subscriptions.not-applicable', "Agent system memories don't support org subscriptions.")}</p>

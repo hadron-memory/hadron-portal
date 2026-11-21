@@ -6,6 +6,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import Page from './+page.svelte';
 import { memorySubscriptionSchema, memoryUnsubscribeSchema } from './schema';
+import { firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 
 let mounted: Mounted<Record<string, unknown>> | null = null;
 afterEach(() => { mounted?.unmount(); mounted = null; });
@@ -81,7 +82,7 @@ describe('#2220 subscribe form', () => {
   it('with no administered organization there is no Add form, only an explanation', async () => {
     const root = await open({ targets: [] });
     expect(root.querySelector('form[action="?/subscribe"]')).toBeNull();
-    expect(root.querySelector('[role=status]')?.textContent).toMatch(/administer/i);
+    expect(firstPopulatedStatusText(root)).toMatch(/administer/i);
   });
 
   it('a refused add still shows the server refusal beside the form', async () => {
