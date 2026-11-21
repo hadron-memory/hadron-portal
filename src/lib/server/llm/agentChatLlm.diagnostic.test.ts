@@ -20,7 +20,7 @@ const TYPE = 'SENTINEL-TYPE-1979';
 const RID = 'SENTINEL-REQID-1979';
 const ALL_SENTINELS = [KEY, PROMPT, MODEL, BODY, TYPE, RID, 'SENTINEL', 'customer says hello', 'customer', 'says', 'hello'];
 
-const LINE = new RegExp(String.raw`^\[agent-chat\] llm turn failed class=(config|provider-status|request-failed|unexpected-tool-output) stage=(config|request|tool-output) branch=(plain|respond) turn=(welcome|turn) provider=(` + [...LOGGABLE_PROVIDERS, 'unknown'].join('|') + String.raw`) status=(\d{3}|none) type=(invalid_request_error|authentication_error|permission_error|not_found_error|rate_limit_error|api_error|overloaded_error|none) tools=(\d+)$`);
+const LINE = new RegExp(String.raw`^\[agent-chat\] llm turn failed class=(config|provider-status|request-failed|unexpected-tool-output|auto-no-respond) stage=(config|request|tool-output) branch=(plain|respond) choice=(auto|forced|none) turn=(welcome|turn) provider=(` + [...LOGGABLE_PROVIDERS, 'unknown'].join('|') + String.raw`) status=(\d{3}|none) type=(invalid_request_error|authentication_error|permission_error|not_found_error|rate_limit_error|api_error|overloaded_error|none) tools=(\d+)$`);
 
 const RESPOND = { name: 'respond', description: PROMPT, parameters: { type: 'object', properties: { message: { type: 'string', description: BODY } }, required: ['message'] } };
 
@@ -82,7 +82,7 @@ describe('#1979 one closed diagnostic line per failed turn', () => {
     expectPublicUnchanged(e);
     const m = LINE.exec(lines()[0]);
     expect(m, lines()[0]).not.toBeNull();
-    expect(m!.slice(1)).toEqual(['provider-status', 'request', 'respond', 'turn', 'anthropic', String(status), 'invalid_request_error', '1']);
+    expect(m!.slice(1)).toEqual(['provider-status', 'request', 'respond', 'forced', 'turn', 'anthropic', String(status), 'invalid_request_error', '1']);
     expectNoSentinel(lines()[0]);
   });
 
@@ -90,13 +90,13 @@ describe('#1979 one closed diagnostic line per failed turn', () => {
     stubFetch(providerError(401, 'authentication_error'));
     const e = await fail({ tools: null, messages: [] });
     expectPublicUnchanged(e);
-    expect(LINE.exec(lines()[0])!.slice(1)).toEqual(['provider-status', 'request', 'plain', 'welcome', 'anthropic', '401', 'authentication_error', '0']);
+    expect(LINE.exec(lines()[0])!.slice(1)).toEqual(['provider-status', 'request', 'plain', 'none', 'welcome', 'anthropic', '401', 'authentication_error', '0']);
   });
 
   it('an arbitrary provider error type is omitted, never echoed', async () => {
     stubFetch(providerError(400, TYPE));
     expectPublicUnchanged(await fail());
-    expect(LINE.exec(lines()[0])![7]).toBe('none');
+    expect(LINE.exec(lines()[0])![8]).toBe('none');
     expectNoSentinel(lines()[0]);
   });
 
@@ -104,7 +104,7 @@ describe('#1979 one closed diagnostic line per failed turn', () => {
     stubFetch(() => { throw new TypeError(`fetch failed ${KEY} ${BODY} ${RID}`, { cause: new Error(PROMPT) }); });
     const e = await fail();
     expectPublicUnchanged(e);
-    expect(LINE.exec(lines()[0])!.slice(1, 8)).toEqual(['request-failed', 'request', 'respond', 'turn', 'anthropic', 'none', 'none']);
+    expect(LINE.exec(lines()[0])!.slice(1, 9)).toEqual(['request-failed', 'request', 'respond', 'forced', 'turn', 'anthropic', 'none', 'none']);
     expectNoSentinel(captured);
   });
 
@@ -115,7 +115,7 @@ describe('#1979 one closed diagnostic line per failed turn', () => {
     }));
     const e = await fail();
     expectPublicUnchanged(e);
-    expect(LINE.exec(lines()[0])!.slice(1)).toEqual(['unexpected-tool-output', 'tool-output', 'respond', 'turn', 'anthropic', 'none', 'none', '1']);
+    expect(LINE.exec(lines()[0])!.slice(1)).toEqual(['unexpected-tool-output', 'tool-output', 'respond', 'forced', 'turn', 'anthropic', 'none', 'none', '1']);
     expectNoSentinel(captured);
   });
 
@@ -129,8 +129,8 @@ describe('#1979 one closed diagnostic line per failed turn', () => {
       expect((e as Error).message).toBe(CHAT_ERROR.llmFailed);
       expect(publicChatError(e)).toEqual({ code: 'llmFailed', message: CHAT_ERROR.llmFailed, status: 500 });
     }
-    expect(LINE.exec(lines()[0])!.slice(1)).toEqual(['config', 'config', 'respond', 'turn', 'unknown', 'none', 'none', '1']);
-    expect(LINE.exec(lines()[1])!.slice(1)).toEqual(['config', 'config', 'respond', 'turn', 'bedrock', 'none', 'none', '1']);
+    expect(LINE.exec(lines()[0])!.slice(1)).toEqual(['config', 'config', 'respond', 'forced', 'turn', 'unknown', 'none', 'none', '1']);
+    expect(LINE.exec(lines()[1])!.slice(1)).toEqual(['config', 'config', 'respond', 'forced', 'turn', 'bedrock', 'none', 'none', '1']);
     expectNoSentinel(captured);
   });
 
@@ -138,7 +138,7 @@ describe('#1979 one closed diagnostic line per failed turn', () => {
     stubFetch(providerError(401, 'invalid_request_error'));
     const e = await fail({ provider, model: 'm' });
     expectPublicUnchanged(e);
-    expect(LINE.exec(lines()[0])!.slice(1)).toEqual(['provider-status', 'request', 'respond', 'turn', provider, '401', 'none', '1']);
+    expect(LINE.exec(lines()[0])!.slice(1)).toEqual(['provider-status', 'request', 'respond', 'forced', 'turn', provider, '401', 'none', '1']);
     expectNoSentinel(captured);
   });
 
@@ -170,7 +170,7 @@ describe('#1979 one closed diagnostic line per failed turn', () => {
 });
 
 describe('#1979 describeLlmFailure never walks an arbitrary error', () => {
-  const ctx = { stage: 'request', branch: 'respond', turn: 'turn', provider: 'anthropic', tools: 1 } as const;
+  const ctx = { stage: 'request', branch: 'respond', turn: 'turn', provider: 'anthropic', tools: 1, choice: 'forced' } as const;
   const hostile: Array<[string, unknown]> = [
     ['string', `${KEY} ${BODY}`],
     ['null', null],
@@ -188,7 +188,7 @@ describe('#1979 describeLlmFailure never walks an arbitrary error', () => {
     expect(line).toContain('type=none');
     expectNoSentinel(line);
   });
-  it.each(['stage', 'branch', 'turn', 'provider'] as const)('a garbage %s never reaches the line', (field) => {
+  it.each(['stage', 'branch', 'turn', 'provider', 'choice'] as const)('a garbage %s never reaches the line', (field) => {
     for (const bad of [KEY, `${PROMPT}\n[agent-chat] forged`, 'config extra', '', null, undefined, 7, { toString: () => KEY }]) {
       const line = describeLlmFailure(new Error('x'), { ...ctx, [field]: bad } as never);
       expect(line, String(field)).toMatch(LINE);

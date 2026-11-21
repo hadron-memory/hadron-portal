@@ -21,7 +21,7 @@ export type Tracked = { requestId: string; ceremonyUrl: string } & (
 
 const ok = (s: unknown): s is string => typeof s === 'string' && s.length > 0 && s.length <= 128;
 
-export function parseTracked(raw: string | undefined): Tracked[] {
+export function parseTracked(raw: string | undefined, origin: string | null): Tracked[] {
   if (!raw) return [];
   try {
     const v: unknown = JSON.parse(raw);
@@ -30,7 +30,7 @@ export function parseTracked(raw: string | undefined): Tracked[] {
     for (const x of v) {
       if (!x || typeof x !== 'object') continue;
       const { requestId, ceremonyUrl, secretId, create } = x as Record<string, unknown>;
-      if (!ok(requestId) || safeCeremonyUrl(ceremonyUrl) === null) continue;
+      if (!ok(requestId) || safeCeremonyUrl(ceremonyUrl, origin) === null) continue;
       const base = { requestId, ceremonyUrl: ceremonyUrl as string };
       if (create !== undefined) {
         const c = create as Record<string, unknown> | null;

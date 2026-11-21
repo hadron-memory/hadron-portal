@@ -23,6 +23,7 @@ import {
   type Grant,
 } from "$lib/grants/types";
 import { t } from "$lib/i18n/t";
+import { ceremonyOrigin, pinCeremonyUrl } from "$lib/ceremony-origin";
 import type { Actions, PageServerLoad } from "./$types";
 export const load: PageServerLoad = async ({ params, locals, url }) => {
   const offset = grantOffset(url);
@@ -113,12 +114,14 @@ export const actions: Actions = {
       const result = await client.request<{
         requestGrantSignature: { ceremonyUrl: string };
       }>(REQUEST_GRANT_SIGNATURE, { grantRef: ref });
-      if (
-        typeof result.requestGrantSignature?.ceremonyUrl !== "string" ||
-        !result.requestGrantSignature.ceremonyUrl
-      )
-        return approvalRefused(503, grantError(null));
-      redirect(303, result.requestGrantSignature.ceremonyUrl);
+      // portal#2417: follow the link only on the server's public origin. An unconfigured
+      // origin or any other host is refused exactly like a missing link: never a redirect.
+      const ceremonyUrl = pinCeremonyUrl(
+        result.requestGrantSignature?.ceremonyUrl,
+        ceremonyOrigin(),
+      );
+      if (!ceremonyUrl) return approvalRefused(503, grantError(null));
+      redirect(303, ceremonyUrl);
     } catch (e) {
       // Kit redirects are control flow, not failures to redact.
       if (isRedirect(e)) throw e;

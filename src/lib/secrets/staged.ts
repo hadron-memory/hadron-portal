@@ -1,5 +1,6 @@
 import { extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/gql-error';
 import { t } from '$lib/i18n/t';
+import { pinCeremonyUrl } from '$lib/ceremony-origin';
 
 /**
  * portal#2380 — a protected App secret's change is STAGED, not applied
@@ -16,23 +17,19 @@ export type StagedRefusal =
   | { kind: 'staged'; requestId: string; ceremonyUrl: string }
   | { kind: 'plain-protected' };
 
-/** The server's page lives under /secret-changes/; anything else is never made a link. */
-export function safeCeremonyUrl(v: unknown): string | null {
-  if (typeof v !== 'string' || v.length > 2048) return null;
-  try {
-    const u = new URL(v);
-    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
-    return u.pathname.startsWith('/secret-changes/') ? v : null;
-  } catch {
-    return null;
-  }
+/**
+ * The server's page: on the server's public origin (portal#2417) and under /secret-changes/.
+ * `origin` is required so a caller cannot forget it; null (unconfigured) never makes a link.
+ */
+export function safeCeremonyUrl(v: unknown, origin: string | null): string | null {
+  return pinCeremonyUrl(v, origin, '/secret-changes/');
 }
 
-export function readStagedChange(e: unknown): StagedRefusal | null {
+export function readStagedChange(e: unknown, origin: string | null): StagedRefusal | null {
   if (extractGqlErrorCode(e) !== NEEDS_PASSKEY) return null;
   const ext = extractGqlErrorExtensions(e);
   const id = ext?.requestId;
-  const url = safeCeremonyUrl(ext?.ceremonyUrl);
+  const url = safeCeremonyUrl(ext?.ceremonyUrl, origin);
   if (typeof id === 'string' && id.length > 0 && id.length <= 128 && url) {
     return { kind: 'staged', requestId: id, ceremonyUrl: url };
   }
