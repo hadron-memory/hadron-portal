@@ -94,6 +94,18 @@ export const grantAppKeyScopeSchema = z.object({
   }
 });
 
+// portal#2319 — taking ONE scope away from a live key. The picker lists only
+// the scopes the key holds, so the closed list is the same one the grant
+// uses; the server's revokeAppKeyScope is the gate and takes the scope string
+// alone (a host:operate grant is one row, so no host travels).
+export const revokeAppKeyScopeSchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
+  _kind: z.literal('revokeKeyScope').default('revokeKeyScope'),
+  keyId: z.string().trim().min(1, 'Key is required').prefault(''),
+  scope: z.enum(['attention:deliver', 'host:operate']).prefault('attention:deliver'),
+});
+
 export const deleteAppSchema = z.object({
   // Defaulted _kind accepts omitted hidden inputs while still rejecting a
   // defined discriminator from the wrong action.

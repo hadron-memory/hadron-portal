@@ -17,6 +17,12 @@
     disabled?: boolean;
     /** Tooltip, e.g. why the action is disabled. */
     title?: string;
+    /**
+     * portal#2319: visible helper text under a DISABLED item's label saying
+     * why it is disabled, wired to the item with aria-describedby. A tooltip
+     * alone is invisible to touch and keyboard users.
+     */
+    hint?: string;
     /** Accessible name when the visible label alone is ambiguous (e.g. names the row). */
     ariaLabel?: string;
   }
@@ -56,6 +62,7 @@
     compact?: boolean;
   } = $props();
 
+  const menuUid = $props.id();
   let open = $state(false);
   let rootEl = $state<HTMLDivElement | null>(null);
   let menuEl = $state<HTMLDivElement | null>(null);
@@ -201,9 +208,13 @@
             aria-disabled="true"
             title={action.title}
             aria-label={action.ariaLabel}
+            aria-describedby={action.hint ? `${menuUid}-${action.id}-hint` : undefined}
             class="block w-full cursor-not-allowed px-3 py-1.5 text-left text-sm text-zinc-400 dark:text-zinc-500"
           >
             {action.label}
+            {#if action.hint}
+              <span id="{menuUid}-{action.id}-hint" class="mt-0.5 block text-xs font-normal text-zinc-500 dark:text-zinc-400">{action.hint}</span>
+            {/if}
           </button>
         {:else if action.href}
           <a href={action.href} role="menuitem" onclick={closeMenu} title={action.title} aria-label={action.ariaLabel} class={itemClass}>{action.label}</a>

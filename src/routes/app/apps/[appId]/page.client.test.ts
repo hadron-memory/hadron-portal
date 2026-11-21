@@ -19,7 +19,7 @@ import { resetAiConfigRecoveryForTests } from '$lib/components/ai-config-recover
 import { message, pageData, runsPanel } from './app-page.fixture';
 import {
   createAppMemorySchema, addAgentSchema, castWorkerSchema, removeAppAgentSchema,
-  retireWorkerSchema, revokeAppKeySchema, grantAppKeyScopeSchema, addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema, releaseWorkerSchema,
+  retireWorkerSchema, revokeAppKeySchema, grantAppKeyScopeSchema, revokeAppKeyScopeSchema, addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema, releaseWorkerSchema,
 } from './schema';
 import { firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 
@@ -1756,6 +1756,223 @@ describe('App key scope grant dialog (portal#1487)', () => {
       expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
       expect(document.querySelector('dialog[open]')).toBeNull();
     });
+  });
+});
+
+// portal#2319 — taking one scope off a live key, from a dialog the row's ⋯
+// menu opens right after Grant scope. The picker lists only held scopes; the
+// server is the gate and every refusal is its own sentence in one alert region.
+describe('App key scope revoke dialog (portal#2319)', () => {
+  const key = {
+    id: 'k1', label: 'router', keyPreview: 'hk_ab…yz',
+    createdAt: '2026-10-01T12:00:00.000Z', lastUsedAt: null, revokedAt: null,
+  };
+  const HELD = { kind: 'ok', byKey: { k1: [
+    { scope: 'attention:deliver', hostId: null, grantedAt: 'x' },
+    { scope: 'host:operate', hostId: 'h-1', grantedAt: 'x' },
+  ] } };
+  let oldShow: PropertyDescriptor | undefined, oldClose: PropertyDescriptor | undefined;
+  beforeAll(() => {
+    oldShow = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'showModal');
+    oldClose = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'close');
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.open = true; } });
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value() { this.open = false; } });
+  });
+  afterAll(() => {
+    for (const [k, old] of [['showModal', oldShow], ['close', oldClose]] as const) {
+      if (old) Object.defineProperty(HTMLDialogElement.prototype, k, old);
+      else Reflect.deleteProperty(HTMLDialogElement.prototype, k);
+    }
+  });
+  async function mountKeys(keyScopes: unknown = HELD) {
+    setStubPage('https://example.test/app/apps/a1?tab=keys', { appId: 'a1' });
+    const data = await pageData();
+    const props = reactiveProps({ data: { ...data, initialTab: 'keys', appKeys: { kind: 'ok', keys: [key] }, keyScopes }, form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return { target: m.target, props };
+  }
+  const trigger = (panel: Element) => panel.querySelector('button[aria-label^="Actions for key"]') as HTMLButtonElement;
+  async function openRevoke(panel: Element) {
+    trigger(panel).click();
+    await tick(2);
+    const item = [...document.querySelectorAll('[role="menuitem"]')].find((b) => b.textContent?.includes('Revoke scope')) as HTMLButtonElement | undefined;
+    if (!item) throw new Error('no Revoke scope menu item');
+    item.click();
+    await tick(2);
+    const dialog = document.querySelector('dialog[open]');
+    if (!dialog) throw new Error('the revoke dialog did not open');
+    return dialog;
+  }
+  const picker = (dialog: Element) => dialog.querySelector<HTMLSelectElement>('select[name="scope"]')!;
+  const revokeForm = (dialog: Element) => dialog.querySelector('form')!;
+  const result = async (scope: 'attention:deliver' | 'host:operate', text?: string) => {
+    const f = await superValidate({ _kind: 'revokeKeyScope', keyId: 'k1', scope }, zod4(revokeAppKeyScopeSchema));
+    if (text !== undefined) f.message = { type: text.startsWith('Scope') ? 'success' : 'error', text };
+    return f;
+  };
+
+  it('opens from the row menu with the key once and a picker of the held scopes only', async () => {
+    const { target } = await mountKeys({ kind: 'ok', byKey: { k1: [
+      { scope: 'host:operate', hostId: 'h-1', grantedAt: 'x' },
+    ] } });
+    const dialog = await openRevoke(target);
+    expect(dialog.getAttribute('aria-labelledby')).toBe('revoke-scope-title');
+    expect(dialog.textContent).toContain('Revoke a scope');
+    expect(dialog.textContent.match(/hk_ab…yz/g)).toHaveLength(1);
+    // Only what the key holds: attention:deliver is NOT offered.
+    expect([...picker(dialog).options].map((o) => o.value)).toEqual(['host:operate']);
+    expect(dialog.querySelector('input[type="text"]')).toBeNull();
+    expect(revokeForm(dialog).getAttribute('action')).toBe('?/revokeKeyScope');
+    const fd = new FormData(revokeForm(dialog));
+    expect(fd.get('keyId')).toBe('k1');
+    expect(fd.get('scope')).toBe('host:operate');
+  });
+
+  it('plain verbs, and the consequence is helper text the picker points at', async () => {
+    const { target } = await mountKeys();
+    const dialog = await openRevoke(target);
+    expect([...dialog.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Cancel', 'Revoke']);
+    const help = document.getElementById('revoke-scope-help')!;
+    expect(help.textContent).toContain('stops being able to do this from the next request');
+    expect(picker(dialog).getAttribute('aria-describedby')).toBe('revoke-scope-help');
+    expect(dialog.querySelector('label[for="revoke-scope"]')!.textContent?.trim()).toBe('Scope');
+    // Two held scopes, both offered, once each.
+    expect([...picker(dialog).options].map((o) => o.value)).toEqual(['attention:deliver', 'host:operate']);
+  });
+
+  it('refuses nothing locally: a refusal is the server’s sentence in the one alert region the picker names', async () => {
+    const { target } = await mountKeys();
+    const dialog = await openRevoke(target);
+    const text = 'Only people who manage this App can mint, revoke and scope its keys.';
+    await submitEnhancedWithResult(revokeForm(dialog), { type: 'failure', status: 403, data: { form: await result('attention:deliver', text) } });
+    flushSync(); await tick(2);
+    expect(document.querySelector('dialog[open]')).toBeTruthy();
+    const alerts = dialog.querySelectorAll('[role="alert"]');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].textContent).toBe(text);
+    expect(picker(dialog).getAttribute('aria-describedby')).toBe('revoke-scope-help revoke-scope-error');
+    expect(document.getElementById('revoke-scope-error')).toBe(alerts[0]);
+    // Not a toast, and not a shared line above the tabs.
+    expect(target.querySelectorAll('[data-testid="revoke-scope-error"]')).toHaveLength(1);
+  });
+
+  it('stays open and locked while the server has not answered', async () => {
+    const { target } = await mountKeys();
+    const dialog = await openRevoke(target);
+    const delayed = await submitEnhancedDeferred(revokeForm(dialog));
+    flushSync(); await tick(2);
+    const buttons = [...dialog.querySelectorAll('button')];
+    expect(buttons.find((b) => b.type === 'submit')!.textContent).toContain('Revoking');
+    expect(buttons.find((b) => b.type === 'submit')!.disabled).toBe(true);
+    expect(buttons.find((b) => b.type === 'button')!.disabled).toBe(true);
+    // Escape is refused mid-flight.
+    const esc = new Event('cancel', { cancelable: true });
+    dialog.dispatchEvent(esc);
+    expect(esc.defaultPrevented).toBe(true);
+    expect(document.querySelector('dialog[open]')).toBeTruthy();
+    await delayed.finish({ type: 'success', status: 200, data: { form: await result('attention:deliver', 'Scope revoked.') } });
+    flushSync(); await tick(2);
+    expect(document.querySelector('dialog[open]')).toBeNull();
+  });
+
+  it('a success closes the dialog and announces the revoke', async () => {
+    const { target } = await mountKeys();
+    const dialog = await openRevoke(target);
+    await submitEnhancedWithResult(revokeForm(dialog), { type: 'success', status: 200, data: { form: await result('attention:deliver', 'Scope revoked.') } });
+    flushSync(); await tick(2);
+    expect(document.querySelector('dialog[open]')).toBeNull();
+    expect(target.textContent).toContain('Scope revoked.');
+  });
+
+  it('Escape closes it and focus returns to the row’s ⋯ trigger', async () => {
+    const { target } = await mountKeys();
+    const trig = trigger(target);
+    const focus = vi.spyOn(trig, 'focus');
+    const dialog = await openRevoke(target);
+    dialog.dispatchEvent(new Event('cancel', { cancelable: true }));
+    flushSync(); await tick(2);
+    expect(document.querySelector('dialog[open]')).toBeNull();
+    expect(focus).toHaveBeenCalled();
+  });
+
+  it('a transport failure frees the dialog and says the revoke is unconfirmed', async () => {
+    const { target } = await mountKeys();
+    const dialog = await openRevoke(target);
+    await submitEnhancedWithRawResult(revokeForm(dialog), { type: 'error', status: 500, error: new Error('boom') });
+    flushSync(); await tick(2);
+    expect(document.querySelector('dialog[open]')).toBeTruthy();
+    expect(dialog.querySelector('[data-testid="revoke-scope-error"]')?.textContent).toContain('could not be confirmed');
+    expect([...dialog.querySelectorAll('button')].every((b) => !b.disabled)).toBe(true);
+  });
+
+  it('a refusal from an earlier open never reads as the next one’s answer', async () => {
+    const { target } = await mountKeys();
+    const dialog = await openRevoke(target);
+    await submitEnhancedWithResult(revokeForm(dialog), { type: 'failure', status: 500, data: { form: await result('attention:deliver', 'Failed.') } });
+    flushSync(); await tick(2);
+    expect(dialog.querySelector('[data-testid="revoke-scope-error"]')).toBeTruthy();
+    (dialog.querySelector('button[type="button"]') as HTMLButtonElement).click();
+    flushSync(); await tick(2);
+    const reopened = await openRevoke(target);
+    expect(reopened.querySelector('[data-testid="revoke-scope-error"]')).toBeNull();
+  });
+
+  // BLIND P2-1: the held list can change under an open dialog (a refresh).
+  it('a refresh that drops the chosen scope moves the picker and the sent value to one still held', async () => {
+    const { target, props } = await mountKeys();
+    const dialog = await openRevoke(target);
+    expect(picker(dialog).value).toBe('attention:deliver');
+    props.data = { ...props.data, keyScopes: { kind: 'ok', byKey: { k1: [{ scope: 'host:operate', hostId: 'h-1', grantedAt: 'x' }] } } };
+    flushSync(); await tick(3);
+    expect([...picker(dialog).options].map((o) => o.value)).toEqual(['host:operate']);
+    expect(picker(dialog).value).toBe('host:operate');
+    expect(new FormData(revokeForm(dialog)).get('scope')).toBe('host:operate');
+  });
+
+  it('a refresh that leaves nothing held disables Revoke rather than sending a scope the key lost', async () => {
+    const { target, props } = await mountKeys();
+    const dialog = await openRevoke(target);
+    props.data = { ...props.data, keyScopes: { kind: 'ok', byKey: { k1: [] } } };
+    flushSync(); await tick(3);
+    expect(picker(dialog).options.length).toBe(0);
+    expect([...dialog.querySelectorAll('button')].find((b) => b.type === 'submit')!.disabled).toBe(true);
+  });
+
+  // BLIND P2-2: one line above the tabs answers the LATEST scope action.
+  it('a revoke success is not shadowed by an earlier grant success', async () => {
+    const { target } = await mountKeys();
+    trigger(target).click();
+    await tick(2);
+    ([...document.querySelectorAll('[role="menuitem"]')].find((b) => b.textContent?.includes('Grant scope')) as HTMLButtonElement).click();
+    await tick(2);
+    const grant = document.querySelector('dialog[open]')!;
+    const g = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'attention:deliver', hostId: '' }, zod4(grantAppKeyScopeSchema));
+    g.message = { type: 'success', text: 'Scope granted.' };
+    await submitEnhancedWithResult(grant.querySelector('form')!, { type: 'success', status: 200, data: { form: g } });
+    flushSync(); await tick(2);
+    expect(target.textContent).toContain('Scope granted.');
+    const dialog = await openRevoke(target);
+    await submitEnhancedWithResult(revokeForm(dialog), { type: 'success', status: 200, data: { form: await result('attention:deliver', 'Scope revoked.') } });
+    flushSync(); await tick(2);
+    expect(target.textContent).toContain('Scope revoked.');
+    expect(target.textContent).not.toContain('Scope granted.');
+  });
+
+  it('is fenced to one App: a late answer from the departed App says nothing here', async () => {
+    const { target, props } = await mountKeys();
+    const dialog = await openRevoke(target);
+    const delayed = await submitEnhancedDeferred(revokeForm(dialog));
+    const data = await pageData();
+    setStubPage('https://example.test/app/apps/a2?tab=keys', { appId: 'a2' });
+    props.data = { ...data, initialTab: 'keys', app: { ...data.app, id: 'a2' }, appKeys: { kind: 'ok', keys: [] }, keyScopes: { kind: 'ok', byKey: {} } };
+    await tick(3);
+    expect(document.querySelector('dialog[open]')).toBeNull();
+    await delayed.finish({ type: 'success', status: 200, data: { form: await result('attention:deliver', 'Scope revoked.') } });
+    flushSync(); await tick(4);
+    expect(target.textContent).not.toContain('Scope revoked.');
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
   });
 });
 

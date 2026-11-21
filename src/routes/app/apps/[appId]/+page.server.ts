@@ -47,6 +47,7 @@ import {
   CREATE_APP_KEY_MUTATION,
   REVOKE_APP_KEY_MUTATION,
   GRANT_APP_KEY_SCOPE_MUTATION,
+  REVOKE_APP_KEY_SCOPE_MUTATION,
   DELETE_APP_MUTATION,
   APP_NODES_QUERY,
   APP_NODES_PAGE_QUERY,
@@ -111,6 +112,7 @@ import {
   createAppKeySchema,
   deleteAppSchema,
   grantAppKeyScopeSchema,
+  revokeAppKeyScopeSchema,
   removeAppAgentSchema,
   postTeamChatMessageSchema,
   retireWorkerSchema,
@@ -136,6 +138,7 @@ type CastWorkerForm = Infer<typeof castWorkerSchema, 'zod4'>;
 type CreateAppKeyForm = Infer<typeof createAppKeySchema, 'zod4'>;
 type DeleteAppForm = Infer<typeof deleteAppSchema, 'zod4'>;
 type GrantAppKeyScopeForm = Infer<typeof grantAppKeyScopeSchema, 'zod4'>;
+type RevokeAppKeyScopeForm = Infer<typeof revokeAppKeyScopeSchema, 'zod4'>;
 type PostTeamChatMessageForm = Infer<typeof postTeamChatMessageSchema, 'zod4'>;
 type RemoveAppAgentForm = Infer<typeof removeAppAgentSchema, 'zod4'>;
 type RetireWorkerForm = Infer<typeof retireWorkerSchema, 'zod4'>;
@@ -187,6 +190,7 @@ const castWorkerFormAdapter = zod4(castWorkerSchema);
 const createAppKeyFormAdapter = zod4(createAppKeySchema);
 const deleteAppFormAdapter = zod4(deleteAppSchema);
 const grantAppKeyScopeFormAdapter = zod4(grantAppKeyScopeSchema);
+const revokeAppKeyScopeFormAdapter = zod4(revokeAppKeyScopeSchema);
 
 const postTeamChatMessageFormAdapter = zod4(postTeamChatMessageSchema);
 const removeAppAgentFormAdapter = zod4(removeAppAgentSchema);
@@ -957,7 +961,7 @@ export async function _loadAppPage(
     // (never throws): a stop read that fails must not take the App page with it.
     liveStopsP,
   ]);
-  const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, grantKeyScopeForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
+  const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, grantKeyScopeForm, revokeKeyScopeForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
     superValidate<AppSettingsForm>(
       {
         name: appData.app.name,
@@ -1005,6 +1009,13 @@ export async function _loadAppPage(
     superValidate<GrantAppKeyScopeForm>(
       { keyId: '', scope: 'attention:deliver', hostId: '' },
       grantAppKeyScopeFormAdapter,
+      { errors: false },
+    ),
+    // portal#2319 — seeded like the grant form; the dialog replaces the key
+    // and scope when it opens.
+    superValidate<RevokeAppKeyScopeForm>(
+      { keyId: '', scope: 'attention:deliver' },
+      revokeAppKeyScopeFormAdapter,
       { errors: false },
     ),
     superValidate<DeleteAppForm>(
@@ -1237,6 +1248,7 @@ export async function _loadAppPage(
     updateAgentToolsForm,
     revokeKeyForm,
     grantKeyScopeForm,
+    revokeKeyScopeForm,
     deleteAppForm,
     castWorkerForm,
     retireWorkerForm,
@@ -1786,6 +1798,30 @@ export const actions: Actions = {
       if (form.data.scope === 'host:operate' && (code === 'APP_KEY_SCOPE_HOST_CONFLICT' || code === 'BAD_USER_INPUT')) {
         return setError(form, 'hostId', text, { status });
       }
+      return message(form, { type: 'error', text }, { status });
+    }
+  },
+
+  // portal#2319 — take ONE scope off a live key. Same posture as the grant:
+  // the server is the gate (hrn:node:hadronmemory.com:specs:cor:aut:010:03),
+  // and a crafted POST from someone it refuses meets its own refusal through
+  // appKeyRefusal. No inline shortcut: a HOST_CONFLICT-style refusal is shown
+  // as the server's sentence and nothing is revoked on the reader's behalf.
+  revokeKeyScope: async ({ request, locals }) => {
+    const form = await superValidate<RevokeAppKeyScopeForm>(
+      await request.formData(),
+      revokeAppKeyScopeFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
+    try {
+      await gqlClient(locals.token).request(REVOKE_APP_KEY_SCOPE_MUTATION, {
+        id: form.data.keyId,
+        scope: form.data.scope,
+      });
+      return message(form, { type: 'success', text: t('app.key.scope.revoked', 'Scope revoked.') });
+    } catch (e: unknown) {
+      const { status, text } = appKeyRefusal(e, 'Failed to revoke the scope');
       return message(form, { type: 'error', text }, { status });
     }
   },

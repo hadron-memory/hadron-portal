@@ -530,6 +530,84 @@ try {
     } finally { await page.close(); }
   }
 
+  // portal#2319: the Revoke scope dialog on the same real page. The row that
+  // holds two scopes opens a dialog with a picker of exactly those; focus lands
+  // on the picker, Escape and Cancel return it to the row's ⋯ trigger, and a
+  // row with no scope shows the reason as visible text in a disabled item.
+  for (const width of WIDTHS) for (const dark of [false, true]) {
+    const leg = `revoke/${width}/${dark ? 'dark' : 'light'}`;
+    const { page, errors } = await open(browser, origin, css, { width, dark, state: 'default' });
+    try {
+      const check = (ok, msg) => { if (!ok) failures.push(`${leg}: ${msg}`); };
+      const shot = (state) => process.env.KEYS_SHOTS
+        ? page.screenshot({ path: `${process.env.KEYS_SHOTS}/revoke-${width}-${dark ? 'dark' : 'light'}-${state}.png` })
+        : Promise.resolve();
+      const heldRow = page.locator('#panel-keys tbody tr', { hasText: 'production-backend-router' });
+      const emptyRow = page.locator('#panel-keys tbody tr', { hasText: 'key-1' });
+      const trigger = heldRow.locator('button[aria-label^="Actions for key"]');
+
+      // The empty key: disabled, with the reason as text the item points at.
+      await emptyRow.locator('button[aria-label^="Actions for key"]').click();
+      const disabled = await page.evaluate(() => {
+        const item = [...document.querySelectorAll('[role="menuitem"]')].find((b) => b.textContent.includes('Revoke scope'));
+        const hint = document.getElementById(item.getAttribute('aria-describedby') ?? '');
+        const r = item.getBoundingClientRect();
+        return { disabled: item.getAttribute('aria-disabled'), hint: hint?.textContent ?? null, right: r.right, vw: window.innerWidth };
+      });
+      check(disabled.disabled === 'true', 'Revoke scope is not disabled for a key with no scope');
+      check(disabled.hint === 'This key holds no scope to revoke.', `disabled hint "${disabled.hint}"`);
+      check(disabled.right <= disabled.vw + 0.5, 'the disabled item is clipped by the viewport');
+      await shot('menu-disabled');
+      await page.keyboard.press('Escape');
+
+      await trigger.click();
+      await page.getByRole('menuitem', { name: /Revoke scope/ }).click();
+      await page.locator('dialog[open][data-testid="revoke-scope-dialog"]').waitFor();
+      const d = await page.evaluate(() => {
+        const dlg = document.querySelector('dialog[open]');
+        const b = dlg.getBoundingClientRect();
+        const sel = dlg.querySelector('select[name="scope"]');
+        const help = dlg.querySelector('#revoke-scope-help').getBoundingClientRect();
+        const buttons = [...dlg.querySelectorAll('button')].map((x) => x.textContent.trim());
+        return {
+          title: dlg.querySelector('#revoke-scope-title')?.textContent ?? '',
+          options: [...sel.options].map((o) => o.value),
+          focused: document.activeElement === sel,
+          fits: b.left >= -0.5 && b.right <= window.innerWidth + 0.5 && b.top >= -0.5 && b.bottom <= window.innerHeight + 0.5,
+          helpBelow: help.top >= sel.getBoundingClientRect().bottom - 0.5,
+          buttons,
+          overflow: document.scrollingElement.scrollWidth - document.scrollingElement.clientWidth,
+        };
+      });
+      check(d.title === 'Revoke a scope', `dialog title "${d.title}"`);
+      check(d.options.join(',') === 'attention:deliver,host:operate', `picker offers ${d.options.join(',')}`);
+      check(d.focused, 'focus did not land on the picker');
+      check(d.fits, 'the dialog does not fit the viewport');
+      check(d.helpBelow, 'the consequence text is not under the picker');
+      check(d.buttons.join('|') === 'Cancel|Revoke', `buttons ${d.buttons.join('|')}`);
+      check(d.overflow <= 0, `page overflows horizontally by ${d.overflow}px`);
+      await shot('dialog');
+
+      const focusAfterClose = async () => {
+        await page.locator('dialog[data-testid="revoke-scope-dialog"]').waitFor({ state: 'detached' });
+        return page.evaluate(() => ({
+          label: document.activeElement?.getAttribute('aria-label') ?? '',
+          onBody: document.activeElement === document.body || document.activeElement === null,
+        }));
+      };
+      await page.keyboard.press('Escape');
+      const afterEscape = await focusAfterClose();
+      check(!afterEscape.onBody && afterEscape.label.startsWith('Actions for key'), `focus after Escape is ${afterEscape.onBody ? '<body>' : `"${afterEscape.label}"`}`);
+      await trigger.click();
+      await page.getByRole('menuitem', { name: /Revoke scope/ }).click();
+      await page.locator('dialog[open][data-testid="revoke-scope-dialog"]').waitFor();
+      await page.locator('dialog[open] button', { hasText: 'Cancel' }).click();
+      const afterCancel = await focusAfterClose();
+      check(!afterCancel.onBody && afterCancel.label.startsWith('Actions for key'), `focus after Cancel is ${afterCancel.onBody ? '<body>' : `"${afterCancel.label}"`}`);
+      check(errors.length === 0, `page errors: ${errors.join(' | ')}`);
+    } finally { await page.close(); }
+  }
+
   // List chrome still works on the widened table (once, at desktop).
   if (WIDTHS.includes(1440)) {
     const { page, errors } = await open(browser, origin, css, { width: 1440, dark: false, state: 'default' });
@@ -596,5 +674,5 @@ if (failures.length) {
   console.error(`FAIL (${failures.length})${mutantName ? ` with mutant ${mutantName}` : ''}:\n  ${failures.join('\n  ')}`);
   process.exit(1);
 }
-console.log(`PASS: app keys layout${mutantName ? ` (mutant ${mutantName} survived!)` : ''} — ${WIDTHS.length} widths × 2 themes × (${STATES.length} states + ${SCOPES_LEGS.length} scopes answers) + grant dialog (${WIDTHS.length} widths × 2 themes × deliver/operate/refusal)`);
+console.log(`PASS: app keys layout${mutantName ? ` (mutant ${mutantName} survived!)` : ''} — ${WIDTHS.length} widths × 2 themes × (${STATES.length} states + ${SCOPES_LEGS.length} scopes answers) + grant dialog (${WIDTHS.length} widths × 2 themes × deliver/operate/refusal) + revoke dialog (${WIDTHS.length} widths × 2 themes)`);
 if (mutantName) process.exit(2);
