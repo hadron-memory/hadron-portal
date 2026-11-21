@@ -13,6 +13,8 @@ import {
   provenanceById,
   taskLink,
   validationText,
+  authorCheckText,
+  validationHistoryDetail,
   validationView,
   type NodeAuthorship,
   type NodeContentValidationStatus,
@@ -123,6 +125,29 @@ describe('validationView / validationText', () => {
     const v = ok({ state: 'PASS', latestReport: report({ validationTaskRef: null, validationTaskRevision: null }) });
     expect(v.task).toBeNull();
     expect(v.report).not.toBeNull();
+  });
+
+  it('the author check is worded neutrally and never claims independence (server#1332)', () => {
+    const checked = ok({ state: 'PASS', latestReport: report({ authorCheck: 'CHECKED' }) });
+    const unknown = ok({ state: 'PASS', latestReport: report({ authorCheck: 'AUTHOR_UNKNOWN' }) });
+    const legacy = ok({ state: 'PASS', latestReport: report({ authorCheck: null }) });
+    const future = ok({ state: 'PASS', latestReport: report({ authorCheck: 'INDEPENDENT' as never }) });
+    expect(authorCheckText(checked)).toBe('Author compared and differs');
+    expect(authorCheckText(unknown)).toBe('Author not compared');
+    expect(authorCheckText(legacy)).toBe('');
+    expect(authorCheckText(future)).toBe('');
+    expect(authorCheckText(checked)).not.toMatch(/independent/i);
+  });
+
+  it('a History row says when, which task revision and the author check; no report says nothing', () => {
+    const v = ok({ state: 'PASS', latestReport: report({ authorCheck: 'CHECKED' }) });
+    const detail = validationHistoryDetail(v);
+    expect(detail).toContain('task revision 2');
+    expect(detail).toContain('Author compared and differs');
+    expect(detail).toContain(new Date(AT).toLocaleString());
+    expect(validationHistoryDetail(ok({ state: 'UNVALIDATED', latestReport: null }))).toBe('');
+    // A late report for an older revision is that revision's own state, not the current one.
+    expect(validationHistoryDetail(ok({ state: 'STALE', latestReport: report({ nodeRevision: 3 }) }))).not.toBe('');
   });
 
   it('a failed read, a missing value or an unknown state is "Couldn\'t load", never a verdict', () => {

@@ -1886,6 +1886,7 @@ const PROVENANCE_FIELDS = /* GraphQL */ `
   fragment NodeContentValidationFields on NodeContentValidationStatus {
     state
     latestReport {
+      authorCheck
       nodeRevision
       validationTaskRef
       validationTaskRevision

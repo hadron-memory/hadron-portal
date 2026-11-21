@@ -37,8 +37,17 @@ export interface NodeAuthorship {
 export type NodeContentValidationOutcome = 'PASS' | 'FAIL' | 'ERROR';
 export type NodeContentValidationState = 'UNVALIDATED' | 'STALE' | NodeContentValidationOutcome;
 
+/**
+ * What the server compared when it recorded a report (hadron-server#1332).
+ * CHECKED: the recorded author was compared with the reporter and differs, never
+ * a claim of independence. AUTHOR_UNKNOWN: nothing was recorded to compare.
+ * Null on a report recorded before #1332.
+ */
+export type NodeContentValidationAuthorCheck = 'CHECKED' | 'AUTHOR_UNKNOWN';
+
 export interface NodeContentValidationReport {
   nodeRevision: number;
+  authorCheck?: NodeContentValidationAuthorCheck | null;
   validationTaskRef: string | null;
   validationTaskRevision: number | null;
   outcome: NodeContentValidationOutcome;
@@ -120,6 +129,8 @@ export interface ValidationView {
   /** The revision the report checked, when it isn't the revision on screen. */
   checkedRevision: number | null;
   task: TaskLink | null;
+  /** The author check behind the report; null when there is none to show or this build doesn't know the value. */
+  authorCheck: NodeContentValidationAuthorCheck | null;
 }
 
 const KNOWN_STATES: readonly NodeContentValidationState[] = ['UNVALIDATED', 'STALE', 'PASS', 'FAIL', 'ERROR'];
@@ -128,10 +139,10 @@ export function validationView(
   result: ProvenanceResult<NodeContentValidationStatus | null | undefined>,
 ): ValidationView {
   if (!result.ok) {
-    return { state: result.changed ? 'CHANGED' : 'UNAVAILABLE', tone: 'neutral', report: null, checkedRevision: null, task: null };
+    return { state: result.changed ? 'CHANGED' : 'UNAVAILABLE', tone: 'neutral', report: null, checkedRevision: null, task: null, authorCheck: null };
   }
   if (!result.value || !KNOWN_STATES.includes(result.value.state)) {
-    return { state: 'UNAVAILABLE', tone: 'neutral', report: null, checkedRevision: null, task: null };
+    return { state: 'UNAVAILABLE', tone: 'neutral', report: null, checkedRevision: null, task: null, authorCheck: null };
   }
   const { state, latestReport } = result.value;
   const report = state === 'UNVALIDATED' ? null : latestReport;
@@ -142,6 +153,7 @@ export function validationView(
     report,
     checkedRevision: state === 'STALE' && report ? report.nodeRevision : null,
     task: report ? taskLink(report.validationTaskRef, report.validationTaskRevision) : null,
+    authorCheck: report?.authorCheck === 'CHECKED' || report?.authorCheck === 'AUTHOR_UNKNOWN' ? report.authorCheck : null,
   };
 }
 
@@ -212,4 +224,34 @@ export function validationText(v: ValidationView): string {
         ? t('node.validation.stale-rev', 'Out of date (last checked at revision {rev})', { rev: v.checkedRevision })
         : t('node.validation.stale', 'Out of date');
   }
+}
+
+/**
+ * The author check in words. Neutral on purpose: CHECKED says what was compared,
+ * never that the check was independent; AUTHOR_UNKNOWN says only that no
+ * comparison was possible.
+ */
+export function authorCheckText(v: ValidationView): string {
+  switch (v.authorCheck) {
+    case 'CHECKED':
+      return t('node.validation.author-checked', 'Author compared and differs');
+    case 'AUTHOR_UNKNOWN':
+      return t('node.validation.author-unknown', 'Author not compared');
+    default:
+      return '';
+  }
+}
+
+/**
+ * What a History row's validation cell says about its report beyond the badge:
+ * when it was reported, against which task revision, and the author check.
+ * Empty when the revision has no report.
+ */
+export function validationHistoryDetail(v: ValidationView): string {
+  if (!v.report) return '';
+  const parts = [new Date(v.report.reportedAt).toLocaleString()];
+  if (v.task?.revision != null) parts.push(t('node.validation.history-task-rev', 'task revision {rev}', { rev: v.task.revision }));
+  const author = authorCheckText(v);
+  if (author) parts.push(author);
+  return parts.join(' · ');
 }

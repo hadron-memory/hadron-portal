@@ -5,7 +5,7 @@
 -->
 <script lang="ts">
   import { t } from '$lib/i18n/t';
-  import { validationText, type ValidationView } from '$lib/node-provenance';
+  import { authorCheckText, validationText, type ValidationView } from '$lib/node-provenance';
   import Urn from './Urn.svelte';
 
   let { view, compact = false }: { view: ValidationView; compact?: boolean } = $props();
@@ -39,6 +39,9 @@
         · {t('node.validation.task-unavailable', "with a task that isn't available to you")}
       {/if}
     </span>
+  {/if}
+  {#if !compact && view.authorCheck}
+    <span data-testid="validation-author-check" class="text-xs text-zinc-500 dark:text-zinc-400">{authorCheckText(view)}</span>
   {/if}
   {#if !compact && (view.state === 'FAIL' || view.state === 'ERROR' || view.state === 'STALE')}
     <span data-testid="validation-advisory" class="text-xs text-zinc-500 dark:text-zinc-400">

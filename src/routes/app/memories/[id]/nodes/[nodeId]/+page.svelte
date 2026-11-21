@@ -60,6 +60,7 @@
     authorshipView,
     provenanceById,
     validationText,
+    validationHistoryDetail,
     validationView,
     type NodeProvenance,
     type ProvenanceResult,
@@ -2283,7 +2284,7 @@
   }
   function historyValidationText(r: HistoryRow): string {
     const v = historyValidation(r);
-    return v ? validationText(v) : '';
+    return v ? `${validationText(v)} ${validationHistoryDetail(v)}`.trim() : '';
   }
 
   // Editor display (#620 contract): resolved handle, else identity string.
@@ -2315,7 +2316,7 @@
     { accessorFn: (r) => editorLabel(r), id: 'editedBy', header: t('node.history.col.edited-by', 'Edited by'), size: 220 },
     // #914: the snapshot's own recorded authorship and validation, never today's.
     { accessorFn: (r) => historyAuthorshipText(r), id: 'authorship', header: t('node.history.col.authorship', 'Authorship'), enableSorting: false, size: 240 },
-    { accessorFn: (r) => historyValidationText(r), id: 'validation', header: t('node.history.col.validation', 'Validation'), enableSorting: false, size: 140 },
+    { accessorFn: (r) => historyValidationText(r), id: 'validation', header: t('node.history.col.validation', 'Validation'), enableSorting: false, size: 260 },
     { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 56 },
   ];
   const revisionTable = createSvelteTable<HistoryRow>({
@@ -4439,7 +4440,12 @@
               {/if}
             {:else if cell.column.id === 'validation'}
               {@const v = historyValidation(r)}
-              {#if v}<NodeValidationBadge view={v} compact />{/if}
+              {#if v}
+                <NodeValidationBadge view={v} compact />
+                {#if v.report}
+                  <div data-testid="history-validation-detail" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{validationHistoryDetail(v)}</div>
+                {/if}
+              {/if}
             {:else if cell.column.id === 'actions'}
               <button type="button" data-revision-id={r.id} onclick={(e) => openHistoryMenu(e, r)} aria-haspopup="menu"
                 aria-label={t('node.history.row-actions', 'Revision actions')}
