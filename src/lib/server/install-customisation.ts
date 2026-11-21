@@ -133,7 +133,10 @@ export async function writeCustomisation(
         code: 'unavailable',
         detail: t(
           'customisation.unavailable',
-          'This customisation is no longer available. It may have changed since you opened it. Your draft is kept; reload to see the current state.',
+          // #1507: name the control and its effect — a generic 'reload' reads as
+          // the browser button, and this control replaces the draft the previous
+          // sentence says is kept.
+          'This customisation is no longer available. It may have changed since you opened it. Your draft is kept. To see the current state, use Reload and discard draft; that replaces your draft.',
         ),
       },
     });
