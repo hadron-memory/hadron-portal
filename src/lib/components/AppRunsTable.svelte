@@ -8,7 +8,7 @@
   import type { SavedView } from '$lib/table/savedView';
   import { t } from '$lib/i18n/t';
   import { RUN_STATUSES, describeTrigger, fmtRunTime, runDuration, failureCode, runStatusLabel, statusChipClass, type AppRun, type AppRunStatus } from '$lib/flow/runs';
-  import { runsHref, isRunsSection, RUNS_PAGE_SIZE, RUN_SORTS, type RunsSection, type RunsQuery } from '$lib/flow/app-runs-page';
+  import { runsHref, isRunsSection, runsAnnouncement, RUNS_PAGE_SIZE, RUN_SORTS, type RunsSection, type RunsQuery } from '$lib/flow/app-runs-page';
   let { appRef, initial }: { appRef: string; initial: RunsSection } = $props();
   const mountedApp = untrack(() => appRef), mountedSection = untrack(() => initial);
   let snapshot = untrack(() => initial), resource = untrack(() => appRef);
@@ -18,7 +18,23 @@
   const controls = $derived(intent ?? section);
   let heading: HTMLHeadingElement;
   let alive = true, epoch = 0;
-  $effect(() => { if (initial !== snapshot || appRef !== resource) { epoch++; snapshot = initial; resource = appRef; section = initial; intent = null; announcement = ''; pending = false; } });
+  // portal#2291: set by a navigate of this view, so the section it brings is announced. Kit applies the new
+  // page data (this effect) BEFORE `goto` resolves, and the effect bumps `epoch`, so navigate's own guard
+  // never sees its success: the served section is announced here, where it lands. Plain, not $state: the
+  // effect must not re-run on it.
+  // A token, not a boolean: navigate clears only its own wait if goto settles with no new data (same URL).
+  let awaitingServe = 0, serveToken = 0;
+  $effect(() => {
+    if (initial !== snapshot || appRef !== resource) {
+      // Only a navigate of this same App view earns an announcement; an App change or data nobody here
+      // asked for (a refresh, Back) clears the region instead.
+      const served = awaitingServe !== 0 && appRef === resource;
+      awaitingServe = 0;
+      epoch++; snapshot = initial; resource = appRef; section = initial; intent = null; pending = false;
+      // A served section that failed to load is the failure, not "0 runs": the alert above says so and so does this (as retry() does).
+      announcement = served ? (initial.failed ? t('runs.read-failed', 'Could not load runs. Try again.') : runsAnnouncement(initial)) : '';
+    }
+  });
   onDestroy(() => { alive = false; epoch++; });
   afterNavigate(nav => {
     if (nav.type === 'enter') return;
@@ -60,9 +76,14 @@
   async function navigate(next: RunsQuery, replaceState = false) {
     const id = ++epoch, ref = appRef;
     intent = next; announcement = ''; pending = true;
+    const mine = ++serveToken;
+    awaitingServe = mine;
     try { await goto(runsHref(ref, next), { replaceState, keepFocus: true, noScroll: true }); }
-    catch { if (alive && id === epoch && ref === appRef) announcement = t('runs.navigation-failed', 'Could not open this runs page. Try again.'); }
-    finally { if (alive && id === epoch && ref === appRef) { intent = null; pending = false; } }
+    catch { if (alive && id === epoch && ref === appRef) { awaitingServe = 0; announcement = t('runs.navigation-failed', 'Could not open this runs page. Try again.'); } }
+    finally {
+      if (awaitingServe === mine) awaitingServe = 0;
+      if (alive && id === epoch && ref === appRef) { intent = null; pending = false; }
+    }
   }
   const table = createSvelteTable<AppRun>({
     get data() { return section.runs; }, columns, defaultColumn: { minSize: 40 }, getRowId: r => r.id,
@@ -89,7 +110,7 @@
   async function retry() {
     const id = ++epoch, ref = appRef, basedOn = initial;
     const current = () => alive && id === epoch && ref === appRef && basedOn === initial;
-    pending = true; announcement = '';
+    pending = true; announcement = ''; awaitingServe = 0;
     try {
       const url = new URL(runsHref(ref, section), window.location.origin);
       const res = await fetch(`/app/apps/${encodeURIComponent(ref)}/runs-data${url.search}`, { cache: 'no-store' });
