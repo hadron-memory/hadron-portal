@@ -1549,7 +1549,6 @@ describe('App key scope grant dialog (portal#1487)', () => {
     for (const id of describedBy) expect(document.getElementById(id), `id ${id} does not resolve`).toBeTruthy();
   });
 
-
   it('refuses an empty host in the dialog and sends nothing', async () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);
@@ -1575,20 +1574,37 @@ describe('App key scope grant dialog (portal#1487)', () => {
     await chooseScope(dialog, 'host:operate');
     typeHost(dialog, 'h-2');
     const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
-    f.message = { type: 'error', text: serverText };
+    f.errors = { hostId: [serverText] };
     await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 409, data: { form: f } });
     flushSync(); await tick(2);
     // The refusal sits beside the form that ran; the dialog stays; the held
     // grant (host h-1) is untouched on the tab.
     expect(document.querySelector('dialog[open]')).toBeTruthy();
     expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe(serverText);
-    // It arrived as a form message, not as errors.hostId — the host input is
-    // still marked invalid and still names help AND alert (it is the
-    // dialog's one free-text field).
+    // The server routes a host-specific refusal to errors.hostId (#2356), so
+    // the host input is marked invalid and names help AND alert.
     const host = hostInput(dialog)!;
     expect(host.getAttribute('aria-invalid')).toBe('true');
     expect(host.getAttribute('aria-describedby')).toBe('grant-host-help grant-scope-error');
     expect(panel.querySelector('[data-testid="key-scopes"]')?.textContent).toContain('host:operate · h-1');
+  });
+
+  it('a refusal that is not about the host leaves the host input valid (#2356)', async () => {
+    const serverText = 'Only the App’s managers can do this.';
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    typeHost(dialog, 'h-2');
+    const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
+    f.message = { type: 'error', text: serverText };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 403, data: { form: f } });
+    flushSync(); await tick(2);
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe(serverText);
+    const host = hostInput(dialog)!;
+    // A screen-reader user is not told the host they typed is wrong.
+    expect(host.getAttribute('aria-invalid')).not.toBe('true');
+    // The alert is still named, so the refusal is still reachable from the field.
+    expect(host.getAttribute('aria-describedby')).toBe('grant-host-help grant-scope-error');
   });
 
   it('a success closes the dialog and announces the granted scope', async () => {
@@ -1634,7 +1650,8 @@ describe('App key scope grant dialog (portal#1487)', () => {
     // activeElement after the flush; the real-browser detached-trigger leg
     // is in the layout script.)
     expect(trigFocus).not.toHaveBeenCalled();
-    expect(panelFocus).toHaveBeenCalled();
+    // preventScroll: the fallback must not jump the page (#2356).
+    expect(panelFocus).toHaveBeenCalledWith({ preventScroll: true });
   });
 
   it('a refusal from an earlier key never reads as this one’s answer', async () => {
@@ -1708,7 +1725,11 @@ describe('App key scope grant dialog (portal#1487)', () => {
       const { m, props } = await mountAppKeys();
       await openGrant(m.target);
       expect(document.querySelector('dialog[open]')).toBeTruthy();
+      const panelFocus = vi.spyOn(document.getElementById('panel-keys')!, 'focus');
       await moveTo(props, 'a2', KEY_B);
+      // The fence-driven teardown stays out of the navigation's focus reset
+      // (#2356): no Keys-panel fallback.
+      expect(panelFocus).not.toHaveBeenCalled();
       // The dialog for A's key is GONE — not open, not in the DOM at all —
       // and A's key never reads on B's tab.
       expect(document.querySelector('dialog[open]')).toBeNull();
