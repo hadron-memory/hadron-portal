@@ -48,6 +48,6 @@ export type QuestionCardData = {
   askedBy: QuestionActor | null;
   withdrawn: { at: string; reason: string | null; by?: QuestionPerson | null } | null;
   /** Added by the loader, not the server: who is looking, and whether as someone else. */
-  viewerId?: string | null;
-  impersonating?: boolean;
+  viewerId: string | null;
+  impersonating: boolean;
 };

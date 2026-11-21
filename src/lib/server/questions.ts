@@ -13,7 +13,7 @@ import { t } from '$lib/i18n/t';
 export async function loadQuestion(
   client: GraphQLClient,
   nodeId: string,
-  viewer: { id: string | null; impersonating: boolean } = { id: null, impersonating: false },
+  viewer: { id: string | null; impersonating: boolean },
 ): Promise<TaskRead<QuestionCardData>> {
   try {
     const r = await client.request<{ question: QuestionCardData | null }>(QUESTION_BY_REF_QUERY, { ref: nodeId });

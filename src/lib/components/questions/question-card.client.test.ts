@@ -16,7 +16,7 @@ const base: QuestionCardData = {
   neededBy: null, defaultAction: null, askedAt: '2026-11-18T10:00:00Z', answeredAt: null, options: OPTIONS,
   recommendation: { key: 'B', reason: 'B is cheapest', by: { user: null, worker: person('marco'), app: null } }, noRecommendationReason: null,
   answer: null, answers: [], blocks: [], sources: [], specsTouched: [], specsMustChange: [],
-  deciders: [person('holger')], assignee: null, effectiveAssignee: null, askedBy: { user: null, worker: person('marco'), app: null }, withdrawn: null,
+  viewerId: null, impersonating: false, deciders: [person('holger')], assignee: null, effectiveAssignee: null, askedBy: { user: null, worker: person('marco'), app: null }, withdrawn: null,
 };
 function mountCard(q: Partial<QuestionCardData>, canAct = true, result: unknown = null) {
   const m = mountComponent(QuestionCard as never, { question: { ...base, ...q }, canAct, result } as never) as Mounted<Record<string, unknown>>;

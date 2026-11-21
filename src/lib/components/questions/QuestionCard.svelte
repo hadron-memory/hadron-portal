@@ -12,6 +12,7 @@
    * markdown (hrn:node:hadronmemory.com:specs:cor:dmo:140:09). Never pre-selects the recommendation.
    */
   type ActionResult = { kind?: string; ok?: boolean; error?: string; message?: string } | null | undefined;
+  /* canAct is the answer capability; Undo and Withdraw follow the decider or asker, not canAct. */
   let { question, canAct, result = null }: { question: QuestionCardData; canAct: boolean; result?: ActionResult } = $props();
 
   const STATE_LABEL = $derived<Record<string, string>>({
@@ -75,14 +76,14 @@
 <section data-testid="question-card" aria-labelledby="question-card-title" class="mb-4 min-w-0 rounded-lg border border-zinc-200 p-3 sm:p-4 dark:border-zinc-800">
   <header class="flex flex-wrap items-center gap-2">
     <h2 id="question-card-title" class="min-w-0 break-words text-base font-semibold">
-      {t('question.card.heading', 'Question')} <span class="font-mono text-sm text-zinc-500">{question.code}</span>
+      <span class="font-mono text-sm text-zinc-500">{t('question.card.heading', 'Question {code}', { code: question.code })}</span>
     </h2>
     <span data-testid="question-state" class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{STATE_LABEL[question.state] ?? question.state}</span>
     {#if question.priority}<span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">{question.priority}</span>{/if}
     {#if question.tier && question.tier !== 'ANSWERED'}
       <span data-testid="question-tier" class="rounded-full bg-sky-100 px-2 py-0.5 text-xs text-sky-800 dark:bg-sky-950 dark:text-sky-300">{question.tier === 'SIGNED' ? t('question.card.tier.signature', 'needs signature') : t('question.card.tier.approval', 'needs approval')}</span>
     {/if}
-    {#if question.authorizes === true}<span class="rounded-full bg-violet-100 px-2 py-0.5 text-xs text-violet-800 dark:bg-violet-950 dark:text-violet-300">{t('question.card.authorizes', 'Authorizes work')}</span>{/if}
+    {#if question.authorizes === true}<span class="rounded-full bg-violet-100 px-2 py-0.5 text-xs text-violet-800 dark:bg-violet-950 dark:text-violet-300">{t('question.card.authorizes-work', 'Authorizes work')}</span>{/if}
   </header>
 
   <p class="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
@@ -143,7 +144,7 @@
       <label class="text-xs font-medium" for="question-text">{t('question.card.text-label', 'Answer in your own words')}</label>
       <textarea id="question-text" name="text" rows="3" class={field}></textarea>
       {#if question.options.length > 0}
-        <label class="text-xs font-medium" for="question-text-option">{t('question.card.text-option', 'Attach to an option')}</label>
+        <label class="text-xs font-medium" for="question-text-option">{t('question.card.attach-option', 'Attach to an option')}</label>
         <select id="question-text-option" name="optionKey" class={field}>
           <option value="">{t('question.card.no-option', 'No option')}</option>
           {#each question.options as o (o.key)}<option value={o.key}>{o.key}: {o.label}</option>{/each}
