@@ -654,7 +654,7 @@
       {:else if addConversationError}
         <span role="alert" class="text-xs text-red-600 dark:text-red-400">{addConversationError}</span>
       {/if}
-      <LiveRegion class="empty:absolute">
+      <LiveRegion class="idle:absolute">
         {#if !$addConversationErrors.name?.[0] && !addConversationError && addConversationSaved}
           <span class="text-xs text-green-600 dark:text-green-400">{addConversationSaved}</span>
         {/if}
