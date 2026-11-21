@@ -79,6 +79,11 @@
   {#each data.pending as p (p.requestId)}
     <PendingChange {...p} secretName={pendingName(p.secretId)} impersonating={!!data.impersonating} />
   {/each}
+  <div aria-live="polite">
+    {#if form && 'message' in form && form.message && form.action === 'withdraw'}
+      <p role="alert" class="text-sm text-red-700 dark:text-red-400" data-testid="withdraw-error">{form.message}</p>
+    {/if}
+  </div>
   {#if form && 'staged' in form && form.staged}
     <p class="text-sm text-amber-800 dark:text-amber-300" data-testid="create-staged">{t('secrets.create.staged', '{name} was not created yet. It waits for your passkey signature.', { name: form.name ?? '' })}</p>
   {/if}

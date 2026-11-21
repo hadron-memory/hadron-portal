@@ -40,8 +40,10 @@ export async function loadPending(
   const mine = all.filter(match);
   const rows: PendingRow[] = [];
   let kept = all;
-  for (const tr of mine) {
-    const r = await loadChangeRequest(client, tr.requestId);
+  // One round trip per tracked request, made together; rows keep the cookie's order.
+  const reads = await Promise.all(mine.map((tr) => loadChangeRequest(client, tr.requestId)));
+  for (const [i, tr] of mine.entries()) {
+    const r = reads[i];
     if (r === 'failed') continue;
     if (r === null) { if (!readOnly) kept = removeTracked(kept, tr.requestId); continue; }
     // The server stages a protected create as a STORE; the create: tracking prefix says which it was.

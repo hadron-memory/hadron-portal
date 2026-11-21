@@ -37,5 +37,6 @@ describe('inputs', () => {
     expect(parseSecretValue('9007199254740993')).toBe('9007199254740993');
     expect(parseSecretValue('{"id":12345678901234567890}')).toBe('{"id":12345678901234567890}');
     expect(parseSecretValue('1e999')).toBe('1e999');
+    expect(parseSecretValue('null')).toBe('null');
   });
 });

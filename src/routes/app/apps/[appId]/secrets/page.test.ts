@@ -44,6 +44,14 @@ describe('a staged edit (acceptance 1)', () => {
   });
 });
 
+describe('a refused withdraw on the list page', () => {
+  it('says so instead of leaving the pending row silent', () => {
+    const html = render(List as never, { props: { data: { app, secrets: { kind: 'ok', secrets: [secret], total: 1 }, signing: 'on', pending: [pending], impersonating: null }, form: { action: 'withdraw', message: 'Too late to withdraw.' } } } as never).body;
+    expect(html).toContain('data-testid="withdraw-error"');
+    expect(html).toContain('Too late to withdraw.');
+  });
+});
+
 describe('signing off (acceptance 3)', () => {
   it('hides the protect control on the secret page and the protected option on create', () => {
     for (const signing of ['off', 'unknown']) {

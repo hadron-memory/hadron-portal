@@ -59,7 +59,8 @@ export function parseSecretValue(raw: string): unknown {
   if (s === '') return undefined;
   try {
     const v = JSON.parse(s);
-    return losesNumbers(s) ? raw : v;
+    // null cannot be stored as a value, and a number JSON would round is not the number typed.
+    return v === null || losesNumbers(s) ? raw : v;
   } catch {
     return raw;
   }
