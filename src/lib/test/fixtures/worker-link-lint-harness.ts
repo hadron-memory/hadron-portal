@@ -2,7 +2,10 @@
 import { mount } from 'svelte';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 let replaceWorker: (() => void) | undefined;
-export function replaceSameWorkerFromLoader() { replaceWorker?.(); }
+export function replaceSameWorkerFromLoader() {
+  if (!replaceWorker) throw new Error('replaceSameWorkerFromLoader() called before a mount: mountWorkerLinkLint() must run first');
+  replaceWorker();
+}
 import Section from '../../../routes/app/workers/[id]/WorkerSignatureSection.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 let calls = 0;
