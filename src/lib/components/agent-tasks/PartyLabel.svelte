@@ -30,7 +30,10 @@
       <WorkerBadge size="xs" />
     </span>
     {#if showUrn && party.urn}
-      <span class="block max-w-full min-w-0 overflow-hidden"><Urn value={party.urn} type="worker" size={10} compact /></span>
+      <!-- portal#2413: this wrapper clips a long URN, and overflow clips a focus
+           ring too. The padding gives the copy buttons' ring room inside the
+           clip; the equal negative margin keeps the layout where it was. -->
+      <span class="-m-1 block max-w-full min-w-0 overflow-hidden p-1"><Urn value={party.urn} type="worker" size={10} compact /></span>
     {/if}
   </span>
 {:else}
