@@ -84,7 +84,8 @@ describe('#2220 subscribe form', () => {
     expect(root.querySelector('form[action="?/subscribe"]')).toBeNull();
     // portal#2378: present at load, so plain text rather than a live region.
     expect(root.textContent).toMatch(/administer another organization/i);
-    expect(root.querySelector('[role=status]')).toBeNull();
+    // the page's own status region stays mounted but empty, so "not announced" is "nothing populated"
+    expect(firstPopulatedStatusText(root)).toBeNull();
   });
 
   it('a refused add still shows the server refusal beside the form', async () => {
