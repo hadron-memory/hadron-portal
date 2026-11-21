@@ -195,9 +195,10 @@
   {:else}
     <p class="text-sm text-zinc-700 dark:text-zinc-300">{t('app.tasks.priority', 'Priority')}: {task.priority ?? '—'} <span class="text-xs">{t('app.tasks.priority.highest', '(1 is highest)')}</span></p>
   {/if}
-  {#if relationView.kind !== 'ok'}
-    <p role="status" class="text-sm">{t('app.tasks.dependencies.unknown', 'Blocker relations are unavailable. Reload to try again.')}</p>
-  {:else}
+  <LiveRegion>
+    {#if relationView.kind !== 'ok'}<p class="text-sm">{t('app.tasks.dependencies.unknown', 'Blocker relations are unavailable. Reload to try again.')}</p>{/if}
+  </LiveRegion>
+  {#if relationView.kind === 'ok'}
     <div bind:this={relationTable} class="min-w-0">
       <DataTable {table} bind:headerOpen={relationHeaderOpen} bind:globalFilter={relationFilter} listKey="task-dependencies" searchPlaceholder={t('app.tasks.dependencies.search', 'Filter loaded relations…')} searchAriaLabel={t('app.tasks.dependencies.search', 'Filter loaded relations…')} bounded>
         {#snippet cell(cell, row)}
@@ -243,9 +244,9 @@
     {#if pending}<p>{t('app.tasks.saving', 'Saving…')}</p>{/if}
   </LiveRegion>
   <LiveRegion>
-    {#if saved}<p>{refreshFailed ? t('app.tasks.saved-refresh-failed', 'Saved. Reload to refresh facts.') : t('app.tasks.saved', 'Saved. Facts refreshed.')}</p>{/if}
+    {#if saved}<p>{refreshFailed ? t('app.tasks.saved-refresh-failed', 'Saved. Reload to refresh facts.') : t('app.tasks.saved', 'Saved. Facts refreshed.')}</p>
+    {:else if refreshFailed}<p>{t('app.tasks.refresh-failed', 'Couldn’t refresh facts. Reload to check the current state.')}</p>{/if}
   </LiveRegion>
-  {#if refreshFailed && !saved}<p role="status">{t('app.tasks.refresh-failed', 'Couldn’t refresh facts. Reload to check the current state.')}</p>{/if}
   {#if refusal}<WriteRefusalAlert {refusal} />{/if}
   <TaskWarnings {warnings} {more} />
 </section>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { formatPortalDate } from '$lib/format-portal-date';
   // #668 — the PRINCIPAL side of memory sharing (spec 023 US3). The grantee
   // side already existed: "Memories shared with me" (#778) and self-removal
@@ -226,21 +227,23 @@
     </p>
   </div>
 
-  {#if !canSeeShares}
-    <!-- The server declined to return the list. Say that, rather than
-         rendering an empty table — "nobody has access" is a claim about the
-         memory, and this is a fact about the request.
-         hrn:node:hadronmemory.com:hadron-portal:review:a-fallback-asserts-what-it-was-written-for -->
-    <div role="status" class="rounded-xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-      {t('memory-share.not-visible', 'Only the owner of this memory can see who it is shared with.')}
-    </div>
-  {:else}
-    {#if !memory.shareable}
+  <!-- portal#2376: "not visible" and "not shareable" are exclusive notes in the same slot, so
+       they share one region that is mounted whatever the viewer can see. -->
+  <LiveRegion>
+    {#if !canSeeShares}
+      <!-- The server declined to return the list. Say that, rather than
+           rendering an empty table — "nobody has access" is a claim about the
+           memory, and this is a fact about the request.
+           hrn:node:hadronmemory.com:hadron-portal:review:a-fallback-asserts-what-it-was-written-for -->
+      <div class="rounded-xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+        {t('memory-share.not-visible', 'Only the owner of this memory can see who it is shared with.')}
+      </div>
+    {:else if !memory.shareable}
       <!-- Shown rather than hiding the tab, so the reason has somewhere to
            live. `shareable` is the server's derived signal (#766) — the portal
            does not re-derive it from `class`, which would go stale the moment
            the server widened the rule. `class` only picks the wording. -->
-      <div role="status" class="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+      <div class="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
         {#if memory.class === 'private'}
           {t('memory-share.not-shareable-private', 'Private memories cannot be shared.')}
         {:else}
@@ -251,7 +254,9 @@
         {/if}
       </div>
     {/if}
+  </LiveRegion>
 
+  {#if canSeeShares}
     {#if roleError}
       <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{roleError}</div>
     {/if}

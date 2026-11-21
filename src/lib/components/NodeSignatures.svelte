@@ -14,6 +14,7 @@
   import { t } from '$lib/i18n/t';
   import { integrityProblemsText, signatureStateHint, type SignaturesView, type SignatureTone } from '$lib/node-signatures';
   import Urn from './Urn.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
 
   let { view }: { view: SignaturesView } = $props();
 
@@ -58,10 +59,12 @@
         {/each}
       </ul>
     {/if}
-    {#if view.integrityProblems > 0}
-      <p data-testid="signatures-integrity" role="status" class="mt-1 text-red-700 dark:text-red-300">
-        {integrityProblemsText(view.integrityProblems)}
-      </p>
-    {/if}
+    <LiveRegion>
+      {#if view.integrityProblems > 0}
+        <p data-testid="signatures-integrity" class="mt-1 text-red-700 dark:text-red-300">
+          {integrityProblemsText(view.integrityProblems)}
+        </p>
+      {/if}
+    </LiveRegion>
   </div>
 {/if}

@@ -13,6 +13,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import SelectNode from './SelectNode.svelte';
 import { clearDictionary, rowSelectButtons, usePickerLocale } from '$lib/test/i18n-dictionary';
+import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 
 // #1605: a test locale on the t() boundary; empty, t() is unchanged.
 vi.mock('$lib/i18n/t', async (importOriginal) =>
@@ -305,6 +306,18 @@ describe('SelectNode: pick flow (#1576)', () => {
       const offset = Number(/[?&]offset=(\d+)/.exec(String(call[0]))?.[1] ?? 0);
       expect(offset).toBeLessThanOrEqual(100_000);
     }
+  });
+
+  it('the capped note speaks from a status region that existed, empty, before the cap, and is emptied by a fresh search (portal#2376)', async () => {
+    const cappedPage = async () => ({ ok: true, json: async () => ({ kind: 'ok', value: { items: [node(1)], hasMore: false, capped: true, nextOffset: 100_010 } }) });
+    serve({ [url('m2', 'node', 0)]: [cappedPage], [url('m2', 'few', 0)]: [okPage([node(2)], false, 1)] });
+    const { target } = mount();
+    await tick();
+    await chooseMemory(target, 'Beta KB');
+    await expectLiveRegionLifecycle({
+      root: target, text: 'Showing the first results only',
+      appear: () => search(target, 'node'), disappear: () => search(target, 'few'),
+    });
   });
 
   it('closing the picker dismisses it; reopening the SAME instance starts over at the memory stage', async () => {
