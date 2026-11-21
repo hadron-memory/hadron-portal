@@ -713,7 +713,9 @@
   // the saved flow, rows and write-to and mode together, because an empty editor over a saved flow,
   // with Save enabled, would wipe it in one click.
   let refusedFlowDraft = untrack(() => submittedForm<NodeUpdateFlowForm>(form, 'updateFlow')?.data ?? null);
-  const seededFromRefusal = refusedFlowDraft !== null;
+  // Only a draft the editor really seeded from needs the hidden-input re-sync; an unreadable one seeds
+  // nothing, and rewriting the form then would drop the server's refusal text from beside the editor.
+  const seededFromRefusal = refusedFlowDraft !== null && rowsFromDraftJson(refusedFlowDraft.extractionRows) !== null;
   $effect(() => {
     const stored = node.data;
     const draft = refusedFlowDraft;
@@ -807,6 +809,8 @@
       // A seeded draft is re-synced once, so the hidden inputs hold the rows the reader is shown
       // (normalized), not the raw refused text. Unseeded, the first run still writes nothing.
       if (!seededFromRefusal) return;
+      const current = get(flowFormData);
+      if (current.extractionRows === rowsJson && current.outputWriteTo === writeToTrim && current.outputMode === mode) return;
     }
     flowFormData.update((current) => ({
       ...current,

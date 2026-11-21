@@ -403,6 +403,16 @@ describe('updateFlow: the visible editor shows the refused draft (portal#2467)',
     expect(saveButton(m).disabled, 'nothing differs from the saved flow, so nothing to resubmit').toBe(true);
   });
 
+  it('an unreadable draft keeps the server’s refusal reason visible beside the saved flow', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    withSavedFlow();
+    serve();
+    const { m } = await mountHydrated(await refusal('not json'));
+    await openFlow(m);
+    expect(m.target.textContent, 'the schema refusal for the unreadable rows').toContain('Invalid extraction rows');
+    expect(field(m.target, '#flow-field-0')!.value, 'beside the saved row').toBe('saved');
+  });
+
   it('a real node change resets the editor to the next node’s saved flow', async () => {
     setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
     serve();
