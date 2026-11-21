@@ -248,8 +248,9 @@
             )}
           </p>
         {/if}
-        <!-- Each count line below and the grid it names further down share ONE length condition and one {#if report}
-             block, so a grid is never labelled by a line that is not rendered (portal#2381). -->
+        <!-- These count lines and the grids they name are in two separate blocks (the grids follow the live region, under
+             {#if report && (version || leftOut || unrecognized)}). They stay in step only because both read the same
+             `report` and test the same `.length > 0`: change one condition and you must change the other (portal#2381). -->
         {#if report.leftOut.length > 0}
           <p id={leftOutSummaryId} data-testid="bundle-left-out-summary" class="text-xs text-amber-700 dark:text-amber-400">
             {t('tasks.bundle.skipped', 'Left out of the download ({count}):', { count: report.leftOut.length })}
