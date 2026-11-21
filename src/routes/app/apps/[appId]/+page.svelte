@@ -1883,6 +1883,9 @@
   // #2356: set by the cross-App fence below. A fence-driven teardown is part
   // of a navigation, whose own focus/scroll reset owns where focus goes, so
   // the Keys-panel fallback stays out of its way. Cleared on the next open.
+  // The skip ASSUMES the navigation's own focus/scroll reset runs after this
+  // teardown and so decides where focus lands. If a data swap on the same route
+  // ever reset nothing, a fence-driven close would leave focus on <body>.
   let grantScopeFenceFired = false;
   function openGrantScope(key: AppKey, trigger?: HTMLButtonElement) {
     if ($grantKeyScopeSubmitting) return;
