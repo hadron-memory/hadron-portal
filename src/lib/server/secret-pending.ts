@@ -3,6 +3,7 @@ import type { GraphQLClient } from 'graphql-request';
 import { loadChangeRequest, WITHDRAW_CHANGE_REQUEST_MUTATION } from '$lib/server/secrets';
 import { secretWrite } from '$lib/server/secret-writes';
 import { addTracked, parseTracked, removeTracked, serializeTracked, TRACKED_COOKIE, type Tracked } from '$lib/secrets/tracked';
+import { t } from '$lib/i18n/t';
 import { isOpenState } from '$lib/secrets/staged';
 
 /** portal#2380 — the viewer's own change requests, re-read on every visit (no polling loop). */
@@ -58,6 +59,11 @@ export async function loadPending(
 /** The withdraw action both pages share: sends once, and forgets the request only when it is gone. */
 export async function withdrawRequest(client: Pick<GraphQLClient, 'request'>, cookies: Cookies, requestId: string) {
   const r = await secretWrite<{ withdrawSecretChangeRequest: boolean }>(client, WITHDRAW_CHANGE_REQUEST_MUTATION, { id: requestId });
-  if (r.kind === 'ok') writeTracked(cookies, removeTracked(readTracked(cookies), requestId));
+  if (r.kind !== 'ok') return r;
+  // The server answers false when nothing was withdrawn (the request had already ended): not a success.
+  if (r.data.withdrawSecretChangeRequest !== true) {
+    return { kind: 'refused' as const, message: t('secrets.withdraw.nothing', 'Nothing was withdrawn: this request has already ended.') };
+  }
+  writeTracked(cookies, removeTracked(readTracked(cookies), requestId));
   return r;
 }

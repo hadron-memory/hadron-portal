@@ -75,14 +75,18 @@ function numberLoses(tok: string): boolean {
   return backMant.replace('-', '').replace('.', '').replace(/0+$/, '') !== digits || Number(backExp) !== typedExp;
 }
 
-/** Plain text is stored as text; text that parses as JSON, without losing a number, is stored as JSON. */
+/**
+ * What is stored for a typed value. An object or array of JSON is stored as JSON (unless it holds a
+ * number JSON would round); everything else, including a bare true, 42, 1.50 or "quoted", is stored
+ * exactly as typed, so a secret never turns into a different value than the one in the field.
+ */
 export function parseSecretValue(raw: string): unknown {
   const s = raw.trim();
   if (s === '') return undefined;
+  if (s[0] !== '{' && s[0] !== '[') return raw;
   try {
     const v = JSON.parse(s);
-    // null cannot be stored as a value, and a number JSON would round is not the number typed.
-    return v === null || losesNumbers(s) ? raw : v;
+    return losesNumbers(s) ? raw : v;
   } catch {
     return raw;
   }

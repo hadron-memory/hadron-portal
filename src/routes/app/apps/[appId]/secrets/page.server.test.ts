@@ -60,6 +60,38 @@ describe('a staged edit (acceptance 1)', () => {
   });
 });
 
+describe('a false Boolean payload is not a success', () => {
+  it('withdraw answering false says nothing was withdrawn and keeps the request tracked', async () => {
+    const { actions } = await import('./[secretId]/+page.server');
+    request.mockImplementation(async () => ({ withdrawSecretChangeRequest: false }));
+    const c = jar(JSON.stringify([{ secretId: 's1', requestId: 'r1', ceremonyUrl: URL_ }]));
+    const r = (await actions.withdraw(ev(c, { request: form({ requestId: 'r1' }) }))) as { status: number; data: { message: string } };
+    expect(r.status).toBe(400);
+    expect(r.data.message).toContain('Nothing was withdrawn');
+    expect(c.store.has(TRACKED_COOKIE)).toBe(true);
+  });
+  it('delete answering false says nothing was deleted instead of redirecting as if it were gone', async () => {
+    const { actions } = await import('./[secretId]/+page.server');
+    request.mockImplementation(async () => ({ deleteSecret: false }));
+    const r = (await actions.delete(ev(jar()))) as { status: number; data: { message: string } };
+    expect(r.status).toBe(400);
+    expect(r.data.message).toContain('Nothing was deleted');
+  });
+  it('delete answering true redirects to the list', async () => {
+    const { actions } = await import('./[secretId]/+page.server');
+    request.mockImplementation(async () => ({ deleteSecret: true }));
+    await expect(actions.delete(ev(jar()))).rejects.toMatchObject({ status: 303 });
+  });
+  it('an unprotected create leaves the protected argument out; a protected one sends true', async () => {
+    const { actions } = await import('./+page.server');
+    request.mockImplementation(async () => ({ createSecret: secret }));
+    await actions.create(ev(jar(), { request: form({ name: 'a-key', value: 'v' }) }));
+    expect(request.mock.calls.at(-1)![1]).not.toHaveProperty('protected');
+    await actions.create(ev(jar(), { request: form({ name: 'a-key', value: 'v', protected: 'on' }) }));
+    expect(request.mock.calls.at(-1)![1]).toMatchObject({ protected: true });
+  });
+});
+
 describe('withdraw (acceptance 2)', () => {
   it('sends once, then the request is forgotten', async () => {
     const { actions } = await import('./[secretId]/+page.server');

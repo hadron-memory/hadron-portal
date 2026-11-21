@@ -26,20 +26,18 @@ describe('inputs', () => {
     expect(validSecretName('stripe-key')).toBe(true);
     for (const n of ['', 'Stripe', 'a_b', '-foo', 'x'.repeat(65)]) expect(validSecretName(n)).toBe(false);
   });
-  it('text stays text, JSON stays JSON, blank is absent', () => {
-    expect(parseSecretValue('sk_live_abc')).toBe('sk_live_abc');
+  it('an object or array is stored as JSON; everything else is stored exactly as typed; blank is absent', () => {
     expect(parseSecretValue('{"a":1}')).toEqual({ a: 1 });
+    expect(parseSecretValue('[1, "x", true]')).toEqual([1, 'x', true]);
     expect(parseSecretValue('  ')).toBeUndefined();
-    expect(parseSecretValue('42')).toBe(42);
-    expect(parseSecretValue('{"s":"12345678901234567890"}')).toEqual({ s: '12345678901234567890' });
+    // A bare scalar is the person's text, not a different value: no true, no 1000 from 1e3, no 1.5 from 1.50, no unquoting.
+    for (const typed of ['sk_live_abc', '42', 'true', 'null', '1e3', '1.50', '"quoted"', '007', '9007199254740993']) expect(parseSecretValue(typed)).toBe(typed);
+    expect(parseSecretValue('{not json')).toBe('{not json');
   });
-  it('a number JSON would round is stored as the text typed, never as a different number', () => {
-    expect(parseSecretValue('9007199254740993')).toBe('9007199254740993');
-    expect(parseSecretValue('{"id":12345678901234567890}')).toBe('{"id":12345678901234567890}');
-    expect(parseSecretValue('1e999')).toBe('1e999');
-    expect(parseSecretValue('null')).toBe('null');
-    for (const lossy of ['0.100000000000000005', '1.0000000000000000001', '2e-400', '1.23456789012345e-310', '12345678901234567890', '9007199254740993', '{"p":0.100000000000000005}']) expect(parseSecretValue(lossy)).toBe(lossy);
-    for (const [ok, v] of [['1.5', 1.5], ['1.50', 1.5], ['0.1', 0.1], ['1e3', 1000], ['3.14159', 3.14159], ['0.0', 0], ['5e-324', 5e-324], ['9007199254740991', 9007199254740991], ['-0.25', -0.25], ['100', 100], ['1e22', 1e22]] as const) expect(parseSecretValue(ok)).toBe(v);
+  it('a number JSON would round, inside an object or array, stores the text typed, never a different number', () => {
+    for (const lossy of ['{"id":12345678901234567890}', '[0.100000000000000005]', '{"p":1.0000000000000000001}', '[2e-400]', '{"s":1.23456789012345e-310}', '[9007199254740993]', '[1e999]']) expect(parseSecretValue(lossy)).toBe(lossy);
+    expect(parseSecretValue('{"s":"12345678901234567890"}')).toEqual({ s: '12345678901234567890' });
+    for (const [ok, v] of [['[1.5]', [1.5]], ['[1.50]', [1.5]], ['[0.1]', [0.1]], ['[1e3]', [1000]], ['[3.14159]', [3.14159]], ['[0.0]', [0]], ['[5e-324]', [5e-324]], ['[9007199254740991]', [9007199254740991]], ['[-0.25]', [-0.25]], ['[100]', [100]], ['[1e22]', [1e22]]] as const) expect(parseSecretValue(ok)).toEqual(v);
   });
 });
 

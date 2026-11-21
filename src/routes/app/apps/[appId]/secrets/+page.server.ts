@@ -42,7 +42,7 @@ export const actions: Actions = {
     if (!validSecretName(name)) return fail(400, { action: 'create' as const, name, message: t('secrets.name.invalid', 'Use lowercase letters, digits and hyphens, up to 64 characters.') });
     if (value === undefined) return fail(400, { action: 'create' as const, name, message: t('secrets.value.required', 'Enter a value.') });
     const r = await secretWrite<{ createSecret: AppSecret }>(gqlClient(locals.token), CREATE_SECRET_MUTATION, {
-      ownerRef: params.appId, name, kind: 'generic', value, protected: protect,
+      ownerRef: params.appId, name, kind: 'generic', value, ...(protect ? { protected: true } : {}),
     });
     if (r.kind === 'ok') return { action: 'create' as const, ok: true as const, name };
     if (r.kind === 'staged') {

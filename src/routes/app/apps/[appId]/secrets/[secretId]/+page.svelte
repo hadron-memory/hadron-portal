@@ -66,7 +66,7 @@
         <div>
           <label for="secret-value" class="block text-sm text-zinc-700 dark:text-zinc-300">{t('secrets.field.value', 'Value')}</label>
           <textarea id="secret-value" name="value" required rows="3" autocomplete="off" spellcheck="false" aria-describedby="secret-value-help" class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"></textarea>
-          <p id="secret-value-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('secrets.field.value.help', 'Plain text is stored as text; JSON is stored as JSON.')}</p>
+          <p id="secret-value-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('secrets.field.value.help', 'Stored exactly as typed. A JSON object or array is stored as JSON.')}</p>
         </div>
         <button type="submit" disabled={ro} class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{t('secrets.replace.submit', 'Save')}</button>
         <div aria-live="polite">
