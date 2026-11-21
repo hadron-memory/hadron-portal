@@ -259,9 +259,11 @@ describe('load', () => {
     mockRequest.mockClear();
     const onTab = (await loadAt(new URL('http://localhost/app/apps/app-1?tab=runs'))) as { runsPanel: unknown };
     expect(runsReads(), 'the Runs tab reads runs exactly once').toBe(1);
+    // not.toBeNull() alone passes when the key is missing (undefined).
+    expect(onTab, 'the Runs tab carries a runs panel').toHaveProperty('runsPanel');
     expect(onTab.runsPanel).not.toBeNull();
+    expect(onTab.runsPanel).toBeDefined();
   });
-
 
   // #974: "couldn't load the staff" and "this App has no staff" are different
   // statements, and the empty state must not tell the second lie. The loader

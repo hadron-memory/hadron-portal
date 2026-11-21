@@ -169,8 +169,11 @@ describe('App Runs manual server table', () => {
     // Every field renders; only `sort` violates isRunsSection, so a deleted
     // guard applies this body instead of crashing the render.
     const malformed = section({ page: 1, sort: 'garbage' as never, runs: [run('ghost')] });
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply(malformed)));
+    const fetcher = vi.fn().mockResolvedValue(reply(malformed));
+    vi.stubGlobal('fetch', fetcher);
     const m = mount(section({ failed: true, page: 1 })); find(m.target, 'Retry').click(); await tick(16);
+    // The alert is already up before Retry, so prove the click really re-read.
+    expect(fetcher).toHaveBeenCalledTimes(1);
     const alert = m.target.querySelector('[role=alert]');
     expect(alert, 'the failure alert stays up').toBeTruthy();
     expect(alert?.textContent).toContain('Could not load runs');
@@ -178,9 +181,13 @@ describe('App Runs manual server table', () => {
     expect(liveRegion(m.target).textContent).not.toBe('Runs loaded.');
   });
   it('refuses a non-ok response even when its body is a valid section (row 2: delete the res.ok guard)', async () => {
-    const notOk = { ok: false, status: 500, json: async () => section({ page: 1, runs: [run('ghost')] }) } as Response;
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(notOk));
+    // A full Response, not a partial: only `ok`/`status` differ from a good
+    // reply, so deleting the res.ok guard applies this valid body.
+    const notOk = new Response(JSON.stringify(section({ page: 1, runs: [run('ghost')] })), { status: 500, headers: { 'content-type': 'application/json' } });
+    const fetcher = vi.fn().mockResolvedValue(notOk);
+    vi.stubGlobal('fetch', fetcher);
     const m = mount(section({ failed: true, page: 1 })); find(m.target, 'Retry').click(); await tick(16);
+    expect(fetcher).toHaveBeenCalledTimes(1);
     const alert = m.target.querySelector('[role=alert]');
     expect(alert, 'the failure alert stays up').toBeTruthy();
     expect(alert?.textContent).toContain('Could not load runs');
