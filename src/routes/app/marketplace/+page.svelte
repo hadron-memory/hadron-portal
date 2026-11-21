@@ -1,5 +1,4 @@
 <script lang="ts">
-  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { t } from '$lib/i18n/t';
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
@@ -203,8 +202,6 @@
             {@render card(memory)}
 
             {#if canAdopt}
-              <!-- One plain wrapper: the card is a flex gap-4 column, so a region beside the form would add an idle gap item. -->
-              <div>
               <form method="POST" action="?/addToAgent" class="space-y-2">
                 <input type="hidden" name="_kind" value="addToAgent" />
                 <!-- Static. Never written during the click that submits it. -->
@@ -227,13 +224,10 @@
                 {#if submittedMemoryId === memory.id && addToAgentError}
                   <p id="adopt-error-{memory.id}" role="alert" class="text-xs text-red-600 dark:text-red-400">{addToAgentError}</p>
                 {/if}
-              </form>
-              <LiveRegion>
                 {#if submittedMemoryId === memory.id && addToAgentSuccess}
-                  <p class="mt-2 text-xs text-green-700 dark:text-green-400">{addToAgentSuccess}</p>
+                  <p role="status" class="text-xs text-green-700 dark:text-green-400">{addToAgentSuccess}</p>
                 {/if}
-              </LiveRegion>
-              </div>
+              </form>
             {/if}
           </div>
         {/each}

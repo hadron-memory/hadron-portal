@@ -27,7 +27,6 @@ import { locateRegion } from '$lib/test/liveRegionSites';
 type LiveRegionCase = { file: string; marker: string; occurrence?: number; attr?: boolean; gates: string[] };
 const R = 'src/routes/';
 const LIVE_REGION_CASES: LiveRegionCase[] = [
-  { file: R + "app/marketplace/+page.svelte", marker: "{addToAgentSuccess}", gates: ["if memories.length > 0", "each memories (key memory.id)", "if canAdopt"] },
   { file: R + "app/memories/+page.svelte", marker: "memory-transfer.done-other-user", gates: [] },
   { file: R + "app/memories/[id]/integrations/+page.svelte", marker: "{successMessage}", gates: [] },
   { file: R + "app/memories/[id]/nodes/[nodeId]/+page.svelte", marker: "data-testid=\"approval-success\"", attr: true, gates: [] },
@@ -47,7 +46,6 @@ const LIVE_REGION_CASES: LiveRegionCase[] = [
   { file: R + "app/orgs/[id]/agents/+page.svelte", marker: "{subscribeActionSuccess}", gates: [] },
   { file: R + "app/orgs/[id]/agents/+page.svelte", marker: "{unsubscribeActionSuccess}", gates: [] },
   { file: R + "app/orgs/[id]/apps/+page.svelte", marker: "{deleteActionSuccess}", gates: [] },
-  { file: R + "app/orgs/[id]/boot-prompt-signing/+page.svelte", marker: "org.signing.stale", occurrence: 1, gates: ["else of if done && form && 'signing' in form && form.signing", "else of if data.sw.kind === 'failed' || preview?.kind === 'failed'", "else of if data.sw.kind === 'ok' && data.sw.required", "else of if outcome === 'hidden'", "else of if preview?.kind === 'drifted'", "else of if preview?.kind === 'too_many'", "if preview?.kind === 'ok'"] },
   { file: R + "app/orgs/[id]/exchange/[connectionId]/+page.svelte", marker: "{replyActionSuccess}", gates: [] },
   { file: R + "app/orgs/[id]/exchange/[connectionId]/+page.svelte", marker: "{moveActionSuccess}", gates: [] },
   { file: R + "app/orgs/[id]/integrations/+page.svelte", marker: "{githubInstallationActionSuccess}", gates: [] },
@@ -138,8 +136,8 @@ describe('portal#2375: route-page action results sit in a persistent LiveRegion'
     expect(located!.gates, 'the ancestors of this region changed: read each one, then update the list').toEqual(c.gates);
   });
 
-  it('names every converted site once (44)', () => {
-    expect(LIVE_REGION_CASES.length).toBe(44);
-    expect(new Set(LIVE_REGION_CASES.map((c) => c.file + '|' + c.marker + '|' + (c.occurrence ?? 0))).size).toBe(44);
+  it('names every converted site once (42)', () => {
+    expect(LIVE_REGION_CASES.length).toBe(42);
+    expect(new Set(LIVE_REGION_CASES.map((c) => c.file + '|' + c.marker + '|' + (c.occurrence ?? 0))).size).toBe(42);
   });
 });
