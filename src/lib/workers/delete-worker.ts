@@ -120,7 +120,9 @@ export function deleteWorkerFailureRefusal(e: unknown, workerRef: string, senten
   // the class that most often means "the server saw it". That is the closed
   // three-field record of ruling 0247 as it stands; widening it is a ruling,
   // not a portal patch (see the PR dispositions).
-  if (!isDefiniteRefusal(e, ['FORBIDDEN', 'WORKER_NOT_FOUND', 'WORKER_IN_USE', 'WORKER_EXTERNAL_ATTRIBUTION_UNCONFIRMED'])) {
+  // portal#2196: isDefiniteRefusal no longer vouches for a `*_NOT_FOUND` suffix, so the App write gate's
+  // APP_NOT_FOUND (a refusal before any commit, pinned in delete-worker.test.ts) is named here.
+  if (!isDefiniteRefusal(e, ['FORBIDDEN', 'WORKER_NOT_FOUND', 'APP_NOT_FOUND', 'WORKER_IN_USE', 'WORKER_EXTERNAL_ATTRIBUTION_UNCONFIRMED'])) {
     return {
       status: 502,
       result: {
