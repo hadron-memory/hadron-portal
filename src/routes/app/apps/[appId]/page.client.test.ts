@@ -1641,6 +1641,13 @@ describe('App key scope grant dialog (portal#1487)', () => {
     expect(scopeSelect(second).querySelector<HTMLOptionElement>('option[value="host:operate"]')!.disabled).toBe(false);
   });
 
+  it('host:operate is not selectable while the hosts are still loading', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})));
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    expect(scopeSelect(dialog).querySelector<HTMLOptionElement>('option[value="host:operate"]')!.disabled).toBe(true);
+  });
+
   it('every open re-reads the hosts: nothing is kept between opens', async () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);

@@ -4356,7 +4356,7 @@
                 <label for="grant-scope" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.keys.grant.scope', 'Scope')}</label>
                 <select id="grant-scope" name="scope" bind:value={$grantKeyScopeForm.scope} aria-describedby={hostsBlocked ? 'grant-scope-help' : undefined} class={inputClass}>
                   <option value="attention:deliver">attention:deliver</option>
-                  <option value="host:operate" disabled={hostsBlocked}>host:operate</option>
+                  <option value="host:operate" disabled={hostsBlocked || hostsState.kind === 'loading'}>host:operate</option>
                 </select>
                 {#if hostsBlocked}
                   <p id="grant-scope-help" data-testid="grant-host-blocked" class="mt-1 text-xs text-zinc-500">
