@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // #327 follow-up: the invite form moved off the Account tab into its own
   // "Invite" tab (shown directly — no collapse). Posts to the local ?/invite.
   import { onDestroy, untrack } from 'svelte';
@@ -87,8 +88,9 @@
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">{actionError}</div>
   {/if}
 
+  <LiveRegion>
   {#if form && 'invited' in form && form.invited}
-    <div role="status" aria-live="polite" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+    <div class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
       <p class="mb-1">{t('account.invite.created', "Invitation created! Share this link:")}</p>
       <div class="flex items-center gap-2">
         <textarea readonly rows="2" value={form.inviteUrl} aria-label={t('account.invite.link', 'Invitation link')} class="min-w-0 flex-1 resize-none overflow-y-auto [field-sizing:content] rounded bg-zinc-100 px-3 py-1.5 font-mono text-xs text-green-800 dark:bg-zinc-800 dark:text-green-200 select-all break-all focus:outline-2 focus:outline-offset-2 focus:outline-indigo-500"></textarea>
@@ -108,6 +110,7 @@
       <p class="mt-2 text-xs text-green-700 dark:text-green-400">{describeInviteLimits(form)}</p>
     </div>
   {/if}
+  </LiveRegion>
 
   <form method="POST" action="?/invite" use:inviteEnhance class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
     <div>

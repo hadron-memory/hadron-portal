@@ -398,3 +398,97 @@ describe('App Runs manual server table', () => {
   });
 
 });
+// portal#2291 (Uma's row 3 on #2289): focus stays on the control after a
+// navigate, so the polite live region must say what the served page now holds.
+describe('App Runs announces the served result after a successful navigate (portal#2291)', () => {
+  const live = (root: HTMLElement) => root.querySelector<HTMLElement>('[role="status"][aria-live="polite"]')!;
+  /** Kit applies the new page data before `goto` resolves: serve, then settle. */
+  async function navigateAndServe(m: ReturnType<typeof mount>, act: () => void, served: RunsSection) {
+    const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
+    act(); await tick(4);
+    m.props.initial = served; flushSync(); await tick(4);
+    held.resolve(); await tick(8);
+    navigationHooks.onGoto = undefined;
+  }
+  it.each([
+    [45, 'page 1 of 3', '45 runs'],
+    [7, 'page 1 of 1', '7 runs'],
+    [0, 'page 1 of 1', '0 runs'],
+    [1, 'page 1 of 1', '1 run'],
+  ])('a filter change with %i served runs reads "%s"', async (total, pages, count) => {
+    const m = mount(); await tick(8);
+    await navigateAndServe(m, () => find(m.target, 'Active').click(), section({ page: 1, total, statuses: ['PENDING', 'RUNNING'], runs: total ? [run('n')] : [] }));
+    expect(live(m.target).textContent).toBe(`${count}, sorted by Created, ${pages}`);
+  });
+  it('a sort change reads the new sort label', async () => {
+    const m = mount(); await tick(8);
+    await navigateAndServe(m, () => changeSelect(selectControl(m.target, 'Sort runs by'), 'status'), section({ page: 1, total: 100, sort: 'status' }));
+    expect(live(m.target).textContent).toBe('100 runs, sorted by Status, page 1 of 5');
+  });
+  it('a pager click reads the served page, not the requested one', async () => {
+    const m = mount(section({ page: 3, total: 100 })); await tick(8);
+    // The server clamps: the request asked for page 4, the served page is 2.
+    await navigateAndServe(m, () => find(m.target, 'Next').click(), section({ page: 2, total: 30, sort: 'finishedAt' }));
+    expect(live(m.target).textContent).toBe('30 runs, sorted by Finished, page 2 of 2');
+  });
+  it('a failed navigation reads the failure text only', async () => {
+    navigationHooks.onGoto = async () => { throw new Error('navigation rejected'); };
+    const m = mount(); await tick(8);
+    find(m.target, 'Active').click(); await tick(8);
+    expect(live(m.target).textContent).toBe('Could not open this runs page. Try again.');
+  });
+  it('a navigate that serves a FAILED section reads the failure, never "0 runs" (blind P2 on #2306)', async () => {
+    const m = mount(); await tick(8);
+    await navigateAndServe(m, () => find(m.target, 'Active').click(), section({ page: 1, total: 0, failed: true, statuses: ['PENDING', 'RUNNING'], runs: [] }));
+    expect(live(m.target).textContent).toBe('Could not load runs. Try again.');
+    expect(live(m.target).textContent).not.toMatch(/\bruns?,/);
+  });
+  it('a successful retry still reads exactly "Runs loaded."', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply(section({ page: 1, total: 3 }))));
+    const m = mount(section({ failed: true })); find(m.target, 'Retry').click(); await tick(16);
+    expect(live(m.target).textContent).toBe('Runs loaded.');
+  });
+  it('a superseded navigation never announces; the newer served result does', async () => {
+    const a = deferred<void>(), b = deferred<void>();
+    let call = 0; navigationHooks.onGoto = () => ++call === 1 ? a.promise : b.promise;
+    const m = mount(); await tick(8);
+    find(m.target, 'Active').click(); await tick(4);
+    find(m.target, 'All').click(); await tick(4);
+    m.props.initial = section({ page: 1, total: 12 }); flushSync(); await tick(4);
+    b.resolve(); await tick(8);
+    a.resolve(); await tick(8);
+    expect(live(m.target).textContent).toBe('12 runs, sorted by Created, page 1 of 1');
+  });
+  it('served data that no navigate of this view asked for announces nothing (App change, refresh)', async () => {
+    const m = mount(); await tick(8);
+    m.props.initial = section({ page: 1, total: 9 }); flushSync(); await tick(8);
+    expect(live(m.target).textContent).toBe('');
+    const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
+    find(m.target, 'Active').click(); await tick(4);
+    m.props.appRef = 'b'; m.props.initial = section({ page: 1, total: 4 }); flushSync(); await tick(4);
+    held.resolve(); await tick(8);
+    expect(live(m.target).textContent).toBe('');
+  });
+  it('a failed navigate does not let later, unrequested data announce itself', async () => {
+    navigationHooks.onGoto = async () => { throw new Error('navigation rejected'); };
+    const m = mount(); await tick(8);
+    find(m.target, 'Active').click(); await tick(8);
+    navigationHooks.onGoto = undefined;
+    m.props.initial = section({ page: 1, total: 5 }); flushSync(); await tick(8);
+    expect(live(m.target).textContent).toBe('');
+  });
+  it('a navigate that serves no new data does not let a later refresh announce itself', async () => {
+    // goto resolves (e.g. the same URL again) but no new page data arrives: nothing asked for the later data.
+    navigationHooks.onGoto = async () => {};
+    const m = mount(); await tick(8);
+    find(m.target, 'Active').click(); await tick(8);
+    m.props.initial = section({ page: 1, total: 5 }); flushSync(); await tick(8);
+    expect(live(m.target).textContent).toBe('');
+  });
+  it('keeps one polite live region', async () => {
+    const m = mount(); await tick(8);
+    await navigateAndServe(m, () => find(m.target, 'Active').click(), section({ page: 1, total: 2 }));
+    expect(m.target.querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(m.target.querySelectorAll('[aria-live="assertive"]')).toHaveLength(0);
+  });
+});

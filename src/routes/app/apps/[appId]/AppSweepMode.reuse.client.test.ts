@@ -3,6 +3,7 @@
  * App, and when the reload after a committed write fails or hangs. Red before the owner
  * identity and the read-back guard exist.
  */
+import { announcedStatusRegion, firstPopulatedStatusText, idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
@@ -82,7 +83,7 @@ describe('sweep-mode control reused for another App (F1)', () => {
     flushSync();
     await deliver(ok);
     flushSync();
-    expect(root.querySelector('[role="status"]')).toBeNull();
+    expect(firstPopulatedStatusText(root)).toBeNull();
     expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
   });
 });
@@ -162,7 +163,7 @@ describe('sweep-mode choices are fixed while a write is in flight or unconfirmed
     flushSync();
     expect(fieldset(root).disabled).toBe(true);
     expect(radio(root, 'OBSERVE').checked).toBe(true);
-    expect(root.querySelector('[role="status"]')!.textContent).toContain('Saved');
+    expect(firstPopulatedStatusText(root)).toContain('Saved');
   });
 
   it('offers the choices again once the reload lands', async () => {
@@ -206,7 +207,7 @@ describe('recovery outlives the control visit (Diego delta P2)', () => {
     flushSync();
     await deliver(ok);
     flushSync();
-    expect(root.querySelector('[role="status"]')).toBeNull();
+    expect(firstPopulatedStatusText(root)).toBeNull();
     expect(root.querySelector('[role="alert"]')).toBeNull();
     expect(fieldset(root).disabled).toBe(false);
     props.ownerId = 'app-a';
@@ -330,3 +331,36 @@ describe('the checking status ends when the readback confirms (Diego P3 on #2198
   });
 });
 
+
+describe('sweep-mode results are announced in persistent live regions (portal#2375)', () => {
+  it('a saved mode lands in the status region that was already mounted and empty', async () => {
+    const { root } = mountIt('OFF', 'app-a');
+    const idle = idleStatusRegions(root);
+    expect(idle.length).toBeGreaterThan(0);
+    radio(root, 'OBSERVE').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(root));
+    await deliver(ok);
+    flushSync();
+    const region = announcedStatusRegion(root);
+    expect(region?.textContent).toContain('Saved');
+    expect(idle).toContain(region);
+  });
+
+  it('"Couldn’t confirm the save" lands in the status region that was already mounted and empty', async () => {
+    const { root } = mountIt('OFF', 'app-a');
+    const idle = idleStatusRegions(root);
+    expect(idle.length).toBeGreaterThan(0);
+    radio(root, 'OBSERVE').click();
+    flushSync();
+    const deliver = await beginEnhanced(form(root));
+    const release = holdInvalidateAll();
+    const done = deliver({ type: 'error' as const, status: 500, error: new Error('fetch failed') } as never);
+    await tick(3);
+    const region = announcedStatusRegion(root);
+    expect(region?.textContent).toMatch(/couldn.t confirm/i);
+    expect(idle).toContain(region);
+    release();
+    await done;
+  });
+});

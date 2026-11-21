@@ -2,9 +2,9 @@
  * #1173: the Bundled agents tab can add an agent. Mounted, not rendered: the
  * tab is chosen by a click and the result lands through the `form` prop.
  */
+import { firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
-import { firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 import Page from './+page.svelte';
 import { pageData } from './page-fixture';
 
