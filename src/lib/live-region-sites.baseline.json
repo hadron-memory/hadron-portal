@@ -3,7 +3,5 @@
   "src/lib/components/NodeList.svelte": 1,
   "src/lib/components/SelectMemory.svelte": 1,
   "src/lib/components/tickers/ApplyAgentTickers.svelte": 2,
-  "src/routes/app/apps/[appId]/tasks/+page.svelte": 2,
-  "src/routes/app/marketplace/+page.svelte": 1,
-  "src/routes/app/orgs/[id]/boot-prompt-signing/+page.svelte": 1
+  "src/routes/app/apps/[appId]/tasks/+page.svelte": 2
 }

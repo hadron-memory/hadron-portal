@@ -42,6 +42,8 @@ const LIVE_REGION_CASES: LiveRegionCase[] = [
   { file: R + "app/memories/[id]/settings/+page.svelte", marker: "'memory-transfer.done'", gates: ["if canTransfer"] },
   { file: R + "app/memories/[id]/settings/MarketplaceListingCard.svelte", marker: "{marketplaceActionSuccess}", gates: [] },
   { file: R + "app/memories/[id]/subscriptions/+page.svelte", marker: "{actionSuccess ?? unsubscribeActionSuccess}", gates: [] },
+  { file: R + "app/marketplace/+page.svelte", marker: "{addToAgentSuccess}", gates: ["if memories.length > 0", "each memories (key memory.id)", "if canAdopt"] },
+  { file: R + "app/orgs/[id]/boot-prompt-signing/+page.svelte", marker: "org.signing.stale", gates: [] },
   { file: R + "app/orgs/[id]/+page.svelte", marker: "org.signing.switched-off", gates: ["if signingOutcome !== 'hidden' && signing.kind !== 'hidden'", "if signing.kind !== 'failed'"] },
   { file: R + "app/orgs/[id]/agents/+page.svelte", marker: "{subscribeActionSuccess}", gates: [] },
   { file: R + "app/orgs/[id]/agents/+page.svelte", marker: "{unsubscribeActionSuccess}", gates: [] },
@@ -153,8 +155,8 @@ describe('portal#2375: route-page action results sit in a persistent LiveRegion'
     expect(located!.gates, 'the ancestors of this region changed: read each one, then update the list').toEqual(c.gates);
   });
 
-  it('names every converted site once (42)', () => {
-    expect(LIVE_REGION_CASES.length).toBe(42);
-    expect(new Set(LIVE_REGION_CASES.map((c) => c.file + '|' + c.marker + '|' + (c.occurrence ?? 0))).size).toBe(42);
+  it('names every converted site once (44)', () => {
+    expect(LIVE_REGION_CASES.length).toBe(44);
+    expect(new Set(LIVE_REGION_CASES.map((c) => c.file + '|' + c.marker + '|' + (c.occurrence ?? 0))).size).toBe(44);
   });
 });

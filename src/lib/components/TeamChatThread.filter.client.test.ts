@@ -446,8 +446,12 @@ describe('TeamChatThread team filter — pending toggles, cap, focus, chip ident
     chipFor(m, 'head-bo')!.click(); // middle chip out
     await tick(4);
     expect(document.activeElement).toBe(chipFor(m, 'head-cy'));
-    chipFor(m, 'head-cy')!.click(); // now the last-but-one… focus its neighbour chain
+    chipFor(m, 'head-cy')!.click(); // heads left: ada, cy; removing cy leaves ada alone
     await tick(4);
+    // The intermediate stop: cy has no next chip, so its PREVIOUS neighbour
+    // takes focus. Without this the chain could skip straight to All and the
+    // final assertion would still pass.
+    expect(document.activeElement).toBe(chipFor(m, 'head-ada'));
     chipFor(m, 'head-ada')!.click(); // the last head: nothing remains
     await tick(4);
     const all = [...q(m, 'team-chat-filter')!.querySelectorAll('button')].find((b) => b.textContent?.includes('All messages'))!;
@@ -673,7 +677,7 @@ describe('TeamChatThread team filter — pending labels, revert focus, cap re-an
     // same re-announcement, with no invisible characters in any consumer's
     // string.
     expect(calls[calls.lastIndexOf(caps[1]) - 1]).toBe('');
-    expect(calls.join('')).not.toMatch(/[​‌‍﻿]/);
+    expect(calls.join('')).not.toMatch(/[\u200B\u200C\u200D\uFEFF]/);
   });
 
   it('a pending All choice reads as pressed even while the applied view is invalid (F4)', async () => {
@@ -729,7 +733,9 @@ describe('TeamChatThread team filter — abandoned vs failed, clean re-announce,
     // a chip from a base that no longer applies.
     props.filter = { kind: 'untagged' };
     (props.filterFocusRequest as { navigation?: string }).navigation = 'complete';
-    await tick(4);
+    // announceFilter sets its text after an inner tick: waiting only 4 let a
+    // guard-removed mutant (which announces the false revert sentence) pass.
+    await tick(12);
     expect(document.body.textContent).not.toContain('did not change');
     expect(onFilterAnnouncement.mock.calls.map((c) => c[0])).not.toContain('The team filter did not change.');
     expect(document.activeElement).toBe(document.body); // focus never taken
@@ -750,7 +756,7 @@ describe('TeamChatThread team filter — abandoned vs failed, clean re-announce,
     blocked.click(); await tick(4);
     const calls = onFilterAnnouncement.mock.calls.map((c) => c[0] as string);
     // Every string a consumer receives is clean: no zero-width marks, ever.
-    expect(codes(calls)).not.toContain('​');
+    expect(codes(calls)).not.toContain('\u200B');
     expect(calls.filter((c) => c.includes('At most 20 teams'))).toHaveLength(2);
     // The repeat was forced as a CHANGE: the region was cleared ('') before
     // the identical text was set again, so the live region re-announces it.
@@ -808,6 +814,46 @@ describe('TeamChatThread team filter — abandoned vs failed, clean re-announce,
     expect(document.activeElement).toBe(allButton(m));
   });
 
+  it('a bulk clear from ONE head names no removed neighbour: a failed clear restores the All button the reader clicked, not the cleared head\'s chip', async () => {
+    const props = reactiveProps<Record<string, unknown>>({
+      messages: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [BO] })],
+      total: 2, filter: { kind: 'teams', headRefs: ['head-ada'] },
+      onSelectTeam: (_next: TeamChatFilter) => { /* the read never lands */ },
+      refusal: null,
+    });
+    const m = await mountThread(props);
+    document.body.append(m.target);
+    allButton(m).focus(); // a real click focuses its control (jsdom's click() does not), so it is the opener
+    allButton(m).click(); await tick(2); // optimistic clear: head-ada's chip is gone
+    expect(chipOf(m, 'head-ada')).toBeNull();
+    // The restore only fires from <body> (a reader who moved keeps focus), and
+    // jsdom's click() does not focus its control: blur first, or the restore
+    // never runs and this pin passes vacuously.
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(document.activeElement).toBe(document.body);
+    props.refusal = REFUSAL; await tick(8);
+    // With a single head the old `length === base - 1` test read this clear
+    // as a REMOVAL of head-ada and refocused its restored chip.
+    expect(chipOf(m, 'head-ada')).not.toBeNull();
+    expect(document.activeElement).toBe(allButton(m));
+  });
+
+  it('a duplicated head in the route prop counts once: one chip, and the cap is judged on the distinct set', async () => {
+    // 19 distinct heads plus a repeat of the first: 20 entries, 19 heads.
+    const distinct = Array.from({ length: 19 }, (_, i) => `head-dup${i}`);
+    const m = await mountThread({
+      messages: [message(1, { teamTags: [{ headId: distinct[0], label: 'team.zero' }, ADA] })],
+      total: 1,
+      filter: { kind: 'teams', headRefs: [...distinct, distinct[0]] },
+      onSelectTeam: vi.fn(),
+    });
+    expect(qa(m, 'team-chat-filter-active')).toHaveLength(19);
+    // 19 < 20: an unselected head can still join. Counting the raw prop (20)
+    // would disable it as if the cap had been reached.
+    const ada = qa(m, 'team-chat-tag').find((el) => el.getAttribute('data-head') === 'head-ada')!;
+    expect(ada.getAttribute('aria-disabled')).not.toBe('true');
+  });
+
   it('N6a/Georgia-P3a: the clicked tag\'s label seeds the chip when no supplied row labels the added head mid-pending', async () => {
     const props = reactiveProps<Record<string, unknown>>({
       messages: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [BO] })],
@@ -842,6 +888,43 @@ describe('TeamChatThread team filter — abandoned vs failed, clean re-announce,
     await tick(3);
     expect(chipOf(m, 'head-bo')!.textContent).toContain('team.row-bo');
     expect(chipOf(m, 'head-bo')!.textContent).not.toContain('team.bo');
+  });
+
+  it('the announcement names an added head by the clicked tag when no supplied row labels it', async () => {
+    // Pins what the removed `?? requested.label` fallback used to cover: the
+    // label seed (activeTeamLabels) must reach the announcement, not just the chip.
+    const onFilterAnnouncement = vi.fn();
+    const props = reactiveProps<Record<string, unknown>>({
+      messages: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [BO] })],
+      total: 2, filter: { kind: 'teams', headRefs: ['head-ada'] },
+      onFilterAnnouncement,
+      onSelectTeam: (_next: TeamChatFilter) => { /* the route applies the filter below */ },
+      filterFocusRequest: null,
+    });
+    const m = await mountThread(props);
+    document.body.append(m.target);
+    (tagOf(m, 'head-bo') as HTMLButtonElement).click(); await tick(2); // adds head-bo, seed 'team.bo'
+    // The applied read's rows come back WITHOUT head-bo's row, then the route
+    // applies the requested filter: the seed is the only source of its name.
+    props.messages = [message(1, { teamTags: [ADA] })];
+    props.filter = { kind: 'teams', headRefs: ['head-ada', 'head-bo'] };
+    (props.filterFocusRequest as { navigation?: string }).navigation = 'complete';
+    await tick(12);
+    const said = onFilterAnnouncement.mock.calls.map((c) => c[0] as string).filter((c) => c.includes('Team filter selected'));
+    expect(said).toEqual(['Team filter selected: team.ada, team.bo.']);
+  });
+
+  it('a toggle against a duplicated route prop computes on the distinct set, so no duplicate reaches the route', async () => {
+    // The pending path of the dedupe: a click on an unselected tag builds its next
+    // filter from toggleBase. On the raw prop it leaked the repeat to the route.
+    const onSelectTeam = vi.fn();
+    const m = await mountThread({
+      messages: [message(1, { teamTags: [ADA, BO] })], total: 1,
+      filter: { kind: 'teams', headRefs: ['head-ada', 'head-ada'] },
+      onSelectTeam,
+    });
+    (tagOf(m, 'head-bo') as HTMLButtonElement).click();
+    expect(onSelectTeam).toHaveBeenLastCalledWith({ kind: 'teams', headRefs: ['head-ada', 'head-bo'] });
   });
 
   it('N10: focus is never yanked from a reader who moved off <body> before a failed read reverts', async () => {
@@ -903,7 +986,7 @@ describe('TeamChatThread team filter — abandoned vs failed, clean re-announce,
 });
 
 function codes(strings: string[]): string[] {
-  return strings.flatMap((s) => (s.match(/[​‌‍﻿]/g) ?? []));
+  return strings.flatMap((s) => (s.match(/[\u200B\u200C\u200D\uFEFF]/g) ?? []));
 }
 // Under Vitest a Node-side unhandled rejection surfaces on `process`, not as a DOM
 // event, so collect there; the listener is removed by the disposer, and
