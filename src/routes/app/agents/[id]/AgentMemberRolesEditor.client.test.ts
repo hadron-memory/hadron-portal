@@ -7,6 +7,8 @@ import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
+import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import AgentMemberRolesEditor from './AgentMemberRolesEditor.svelte';
 import { updateAgentMemberRolesSchema } from './schema';
 
@@ -126,6 +128,43 @@ describe('Agent member-roles editor (portal#1405)', () => {
     await tick(2);
     expect((t.querySelector('input[type="text"]') as HTMLInputElement).value).toBe('owner');
     expect(t.textContent).toContain('“owner” is already in the list.');
+  });
+
+  // portal#2375: each note lands in a status region that was mounted, empty, before it appeared.
+  // The editor also has an always-present sr-only status for add/remove, so pick the region by its text.
+  describe('hints and results are announced in persistent live regions (#2375)', () => {
+    const regionWith = (t: HTMLElement, text: string) =>
+      [...t.querySelectorAll<HTMLElement>('[role="status"]')].find((r) => r.textContent?.includes(text)) ?? null;
+
+    it('duplicate hint', async () => {
+      const t = await mountEditor({ canManage: true });
+      const idle = idleStatusRegions(t);
+      expect(regionWith(t, 'is already in the list')).toBeNull();
+      await type(t, 'owner');
+      addButton(t)!.click();
+      await tick(2);
+      expect(idle).toContain(regionWith(t, '“owner” is already in the list.'));
+    });
+
+    it('empty list hint', async () => {
+      const t = await mountEditor({ canManage: true, roles: ['owner'] });
+      const idle = idleStatusRegions(t);
+      expect(regionWith(t, 'An Agent needs at least one role.')).toBeNull();
+      removeButton(t, 'owner')!.click();
+      await tick(2);
+      expect(idle).toContain(regionWith(t, 'An Agent needs at least one role.'));
+    });
+
+    it('saved', async () => {
+      const t = await mountEditor({ canManage: true });
+      const idle = idleStatusRegions(t);
+      expect(regionWith(t, 'Roles saved.')).toBeNull();
+      const result = await superValidate({ roles: ['owner', 'member'] }, zod4(updateAgentMemberRolesSchema), { errors: false, id: 'updateMemberRoles' });
+      result.message = { type: 'success', text: 'Roles saved.' };
+      await submitEnhancedWithResult(form(t)!, { type: 'success', status: 200, data: { form: result } });
+      await tick(2);
+      expect(idle).toContain(regionWith(t, 'Roles saved.'));
+    });
   });
 
   it('shows the role format and what removal does to existing members', async () => {
