@@ -36,7 +36,7 @@ describe.each([
   ['ok', ok('tok-fresh', [row(1), row(2)])],
   ['drifted', { kind: 'drifted' }],
   ['too_many', { kind: 'too_many', total: 900 }],
-])('a stale switch-on that reloads a %s preview', (_name, reloaded) => {
+])('a stale switch-on that reloads a %s preview', (name, reloaded) => {
   it('speaks once, from the region that existed empty before, the same element after', async () => {
     setStubPage('http://localhost/app/orgs/org-1/boot-prompt-signing');
     const p = reactiveProps<Record<string, unknown>>({ data: { org, sw, preview: ok('tok-loaded', [row(1)]) }, form: null });
@@ -48,17 +48,19 @@ describe.each([
     expect(firstPopulatedStatusText(root)).toBeNull();
 
     const form = root.querySelector('form[action="?/switchOn"]') as HTMLFormElement;
-    await submitEnhancedWithResult(form, { type: 'failure', status: 409, data: { outcome: 'stale', preview: reloaded } });
+    const submitted = await submitEnhancedWithResult(form, { type: 'failure', status: 409, data: { outcome: 'stale', preview: reloaded } });
+    expect(submitted.cancelled, 'the submit really went out').toBe(false);
     p.form = { outcome: 'stale', preview: reloaded };
     flushSync(); await tick();
 
     // the too_many branch has its own, unrelated status line: pick the region that carries the stale text
-    const during = [...root.querySelectorAll<HTMLElement>('[role="status"]')].find((r) => r.textContent?.includes(STALE))!;
-    expect(during, 'a status region carries the stale message').toBeDefined();
+    const found = [...root.querySelectorAll<HTMLElement>('[role="status"]')].find((r) => r.textContent?.includes(STALE));
+    expect(found, 'a status region carries the stale message').toBeDefined();
+    const during = found as HTMLElement;
     expect(during.textContent).toContain(STALE);
     expect(idle, 'the announcing region is one that already existed').toContain(during);
     // portal#2421 LOCAL P2: the stale note ADDS to a too_many preview's own words, it never replaces them.
-    if (_name === 'too_many') {
+    if (name === 'too_many') {
       expect(during.textContent, 'the count survives a stale switch-on').toContain('900 boot prompts');
       expect(during.textContent, 'and so does the use-the-CLI instruction').toContain('hadron org signing on');
     }
@@ -69,7 +71,30 @@ describe.each([
     expect([...root.querySelectorAll('[role="status"]')]).toContain(during);
     // The note outlives the form result only where the reloaded preview is itself the note (drifted,
     // too_many); for ok the region empties. Either way it is the same element, never remounted.
-    if (_name === 'ok') expect(during.textContent?.trim()).toBe('');
+    if (name === 'ok') expect(during.textContent?.trim()).toBe('');
     else expect(during.textContent?.trim()).not.toBe('');
+  });
+});
+
+describe('a stale switch-on whose reload FAILED', () => {
+  // portal#2421 BLIND P2: the section-level region's gates (noteEligible) drop the stale sentence when the
+  // reloaded preview is `failed`. Pin what the user gets instead, so the loss stays exactly the stale sentence:
+  // the page's own failure line, in a status element, and no stale text anywhere (never a silent page).
+  it('shows the failure line, not the stale sentence, and is never silent', async () => {
+    setStubPage('http://localhost/app/orgs/org-1/boot-prompt-signing');
+    const failed = { kind: 'failed' };
+    const p = reactiveProps<Record<string, unknown>>({ data: { org, sw, preview: ok('tok-loaded', [row(1)]) }, form: null });
+    mounted = mountComponent(Page as never, p as never) as Mounted<Record<string, unknown>>;
+    await tick(2);
+    const root = mounted.target;
+    const form = root.querySelector('form[action="?/switchOn"]') as HTMLFormElement;
+    const submitted = await submitEnhancedWithResult(form, { type: 'failure', status: 409, data: { outcome: 'stale', preview: failed } });
+    expect(submitted.cancelled, 'the submit really went out').toBe(false);
+    p.form = { outcome: 'stale', preview: failed };
+    flushSync(); await tick();
+
+    const statuses = [...root.querySelectorAll<HTMLElement>('[role="status"]')].map((r) => r.textContent?.trim() ?? '');
+    expect(statuses.some((t) => t.includes('Couldn’t load boot prompt signing.')), 'the failure line is announced').toBe(true);
+    expect(occurrences(root.textContent ?? '', STALE), 'the stale sentence is the one thing lost').toBe(0);
   });
 });

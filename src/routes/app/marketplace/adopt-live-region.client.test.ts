@@ -45,11 +45,17 @@ describe('marketplace adopt result is announced from a persistent region', () =>
     expect(idle.length, 'a status region exists, empty, at mount').toBeGreaterThan(0);
     expect(firstPopulatedStatusText(root)).toBeNull();
 
+    // Sets the page's form prop directly, as an enhanced result does: this asserts the region, not the enhance
+    // pipeline (that every adopt form is enhanced is the next test; keepForm's double arrow, kit calls it with the
+    // submit event and then calls the RETURNED function with { update }, is exercised only in a real browser).
     p.form = success('m2');
     flushSync(); await tick();
     const during = announcedStatusRegion(root)!;
     expect(during.textContent).toContain('Added to your agent.');
     expect(idle, 'the announcing region is one that already existed').toContain(during);
+    // exactly one region announces: a regression that populated another card's region would still pass the line above
+    const populated = [...root.querySelectorAll('[role="status"]')].filter((r) => r.textContent?.trim());
+    expect(populated, 'one populated status region').toHaveLength(1);
     // an enhanced result must not steal focus: only the no-JavaScript landing page is a focus target
     expect((during.firstElementChild as HTMLElement).hasAttribute('autofocus')).toBe(false);
 
