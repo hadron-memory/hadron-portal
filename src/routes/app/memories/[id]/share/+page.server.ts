@@ -89,6 +89,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 //
 // Resolving through the same query the page already ran gives the canonical id
 // and costs no extra round trip.
+//
+// Now optional (#4137: `memoryRef` takes the URN itself); kept so a non-reader gets the portal's 404 first.
 async function resolveMemoryId(token: string | null | undefined, ref: string): Promise<string> {
   const data = await gqlClient(token).request<{ memory: { id: string } | null }>(
     MEMORY_SHARES_QUERY,
