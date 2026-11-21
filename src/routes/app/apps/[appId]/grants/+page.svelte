@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount, untrack } from "svelte";
   import { enhance } from "$app/forms";
+  import LiveRegion from "$lib/components/LiveRegion.svelte";
   import { beforeNavigate } from "$app/navigation";
   import type { SubmitFunction } from "@sveltejs/kit";
   import { page } from "$app/state";
@@ -391,7 +392,8 @@
     <div class="text-sm">{data.app.name}</div>
     <div class="mt-1"><Urn value={data.app.urn} linked /></div>
   </div>
-  {#if !current}<p role="status">{t("grants.loading", "Loading…")}</p>{:else}
+  <LiveRegion>{#if !current}<p>{t("grants.loading", "Loading…")}</p>{/if}</LiveRegion>
+  {#if current}
     {#if feedback && !(form && "operation" in form && form.operation === "create")}<p
         role="alert"
         class="rounded-lg bg-red-50 p-3 text-red-800 dark:bg-red-950 dark:text-red-200"
@@ -707,9 +709,9 @@
                 >
                   {localFailure}
                 </p>{/if}
-              {#if reading}<p role="status">
+              <LiveRegion>{#if reading}<p>
                   {t("grants.refreshing", "Refreshing grants…")}
-                </p>{/if}
+                </p>{/if}</LiveRegion>
               {#if rowWrites}<p role="status">
                   {t("grants.wait-revoke", "Finishing the revoke request…")}
                 </p>{/if}

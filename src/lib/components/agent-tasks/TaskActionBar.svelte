@@ -273,14 +273,16 @@
   const currentAssignee = $derived(task.assignee ? `${task.assignee.kind === 'WORKER' ? 'worker' : 'user'}:${task.assignee.id}` : null);
 </script>
 
+{#snippet pickersLoading()}
+  <LiveRegion>{#if pickers.kind === 'idle' || pickers.kind === 'loading'}<p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.tasks.write.pickers-loading', 'Loading…')}</p>{/if}</LiveRegion>
+{/snippet}
+
 {#snippet pickersWait()}
   {#if pickers.kind === 'failed'}
     <div role="alert" class="flex flex-wrap items-center gap-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
       <span>{t('app.tasks.write.pickers-failed', 'Couldn’t load the people and workers to choose from.')}</span>
       <button type="button" onclick={() => void ensurePickers()} class="underline">{t('app.tasks.write.pickers-retry', 'Try again')}</button>
     </div>
-  {:else}
-    <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.tasks.write.pickers-loading', 'Loading…')}</p>
   {/if}
 {/snippet}
 
@@ -362,6 +364,7 @@
         <h3 id="task-panel-{open}-title" bind:this={panelHeading} tabindex="-1" class="text-sm font-semibold text-zinc-900 dark:text-white">
           {reassigning ? t('app.tasks.write.reassign.title', 'Reassign this task') : t('app.tasks.write.assign.title', 'Assign this task')}
         </h3>
+        {@render pickersLoading()}
         {#if pickers.kind !== 'ok'}{@render pickersWait()}{:else}
         <PartyPicker
           name="assignee"
@@ -465,6 +468,7 @@
         <h3 id="task-panel-edit-title" bind:this={panelHeading} tabindex="-1" class="text-sm font-semibold text-zinc-900 dark:text-white">
           {t('app.tasks.write.edit.title', 'Edit details')}
         </h3>
+        {@render pickersLoading()}
         {#if pickers.kind !== 'ok'}{@render pickersWait()}{:else}
         <TaskEditFields {task} workers={candidates.workers} {roles} {families} invalid={editInvalid} {appUrn} {loadMemories} />
         {/if}

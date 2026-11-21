@@ -77,7 +77,9 @@ async function show(target: HTMLElement, tab: string) {
 }
 const readsOf = (tab: string) => tabReads.filter((r) => r.tab === tab);
 const panel = (t: HTMLElement, tab: string) => t.querySelector<HTMLElement>(`#panel-${tab}`);
-const loading = (t: HTMLElement, tab: string) => panel(t, tab)?.querySelector('[role="status"]')?.textContent?.includes('Loading') ?? false;
+// The visible line is plain text in the panel; the announcement is the persistent region beside it (portal#2344).
+const loading = (t: HTMLElement, tab: string) => panel(t, tab)?.textContent?.includes('Loading') ?? false;
+const announcer = (t: HTMLElement) => t.querySelector<HTMLElement>('[data-testid="tab-loading-region"]');
 const keyShown = (t: HTMLElement, preview: string) => panel(t, 'keys')?.textContent?.includes(preview) ?? false;
 
 describe('portal#2240: a tab the first screen did not read', () => {
@@ -89,12 +91,19 @@ describe('portal#2240: a tab the first screen did not read', () => {
 
   it('is read once on its first show, renders when the answer lands, and is not read again on switching back', async () => {
     const { target } = await mountPage();
+    const regionBefore = announcer(target);
+    expect(regionBefore, 'the region exists before the tab is shown').not.toBeNull();
+    expect(regionBefore?.textContent?.trim()).toBe('');
     await show(target, 'keys');
     expect(readsOf('keys')).toHaveLength(1);
     expect(loading(target, 'keys')).toBe(true);
+    // portal#2344: the announcing region is the same element before, during and after the read.
+    expect(announcer(target)?.textContent?.trim()).toBe('Loading…');
 
     readsOf('keys')[0].resolve(json(keysPayload('abc123')));
     await wait(0); await tick(3);
+    expect(announcer(target)).toBe(regionBefore);
+    expect(announcer(target)?.textContent?.trim()).toBe('');
     expect(loading(target, 'keys')).toBe(false);
     expect(keyShown(target, 'abc123')).toBe(true);
 
