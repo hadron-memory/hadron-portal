@@ -22,13 +22,23 @@
   let open = $state(false);
   let detailsEl = $state<HTMLDetailsElement>();
   let summaryEl = $state<HTMLElement>();
-  // Recomputed on every open from the summary's position and the menu's width
-  // (COLUMN_MENU_WIDTH_PX is also applied as the menu's inline width, so there
-  // is one source). Not re-run on resize while open: the menu is transient.
+  // Recomputed on every open and on every viewport resize while open, from the
+  // summary's position and the menu's width (COLUMN_MENU_WIDTH_PX is also
+  // applied as the menu's inline width, so there is one source). Only `align`
+  // changes: the menu stays open and the column choices are untouched (#2186).
   let align = $state<ColumnMenuAlign>('right');
+  function measure() {
+    if (!summaryEl) return;
+    align = columnMenuAlign(summaryEl.getBoundingClientRect(), COLUMN_MENU_WIDTH_PX);
+  }
   $effect.pre(() => {
     if (!open || !summaryEl) return;
-    align = columnMenuAlign(summaryEl.getBoundingClientRect(), COLUMN_MENU_WIDTH_PX);
+    measure();
+  });
+  $effect(() => {
+    if (!open) return;
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
   });
 
   // A plain stable object (never spread) so the close closure stays live
