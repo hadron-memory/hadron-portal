@@ -27,7 +27,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
   import { t } from '$lib/i18n/t';
-  import { alarmRuleName } from '$lib/agent-tasks/events';
+  import { START_FAILING_ALARM_TYPE, alarmRuleName } from '$lib/agent-tasks/events';
   import { partyName, partySearchText } from '$lib/agent-tasks/status';
   import {
     ALARM_FILTERS,
@@ -288,7 +288,7 @@
           <span class="text-zinc-400">—</span>
         {/if}
       {:else if cell.column.id === 'concerns'}
-        <PartyLabel party={a.subjectWorker} showUrn={a.type === 'alarm.start-failing'} />
+        <PartyLabel party={a.subjectWorker} showUrn={a.type === START_FAILING_ALARM_TYPE} />
       {:else if cell.column.id === 'status'}
         {#if a.acknowledgedAt}
           <span class="text-zinc-700 dark:text-zinc-300">{row.status}</span>

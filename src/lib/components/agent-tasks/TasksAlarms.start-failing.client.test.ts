@@ -32,8 +32,19 @@ describe('task-less start-failing alarm', () => {
       await tick(2);
       expect(target.textContent).toContain('Worker starts failing');
       expect(target.textContent).toContain('Wren');
+      expect(target.textContent).toMatch(/Worker starts failing\s+Wren/);
       expect(target.querySelector(`[title="${worker.urn}"]`)).not.toBeNull();
       expect(target.querySelector('a[href*="/tasks/"]')).toBeNull();
+    } finally { unmount(); }
+  });
+
+  it('renders a worker-less history alarm without a placeholder or crash', async () => {
+    const event = { ...alarm, subjectWorker: null, actor: null, actorRunId: null, payload: {} };
+    const { target, unmount } = mountComponent(TaskHistory, { events: [event], basePath: '/app/apps/a' });
+    try {
+      await tick(2);
+      expect(target.textContent).toContain('Worker starts failing');
+      expect(target.textContent).not.toContain('—');
     } finally { unmount(); }
   });
 });
