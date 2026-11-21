@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveOutcome from '$lib/components/LiveOutcome.svelte';
   import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -40,5 +41,7 @@
       </div>
     </form>
   {/if}
-  {#if $message}<p role={$message.type === 'error' ? 'alert' : 'status'} class="mt-3 text-sm {$message.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$message.text}</p>{/if}
+  <LiveOutcome failed={$message?.type === 'error'}>
+    {#if $message}<p class="mt-3 text-sm {$message.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$message.text}</p>{/if}
+  </LiveOutcome>
 </section>

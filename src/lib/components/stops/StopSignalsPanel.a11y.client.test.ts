@@ -80,7 +80,7 @@ describe('B2 where a refused lift lands', () => {
     await deliver(refusedLift);
     await tick(3);
     const line = root.querySelector<HTMLElement>('[data-testid="stop-lift-status"]');
-    expect(line?.getAttribute('role')).toBe('alert');
+    expect(line?.closest('[role]')?.getAttribute('role')).toBe('alert');
     expect(line?.className).toMatch(/border-red-300/);
     expect(line?.textContent).toContain('Only whoever manages this App');
     expect(setForm(root).contains(line)).toBe(false);
@@ -95,10 +95,47 @@ describe('B2 where a refused lift lands', () => {
     await deliver({ type: 'success', status: 200, data: { action: 'lift', ok: true, id: 's1', changed: true } });
     await tick(3);
     const line = root.querySelector<HTMLElement>('[data-testid="stop-lift-status"]');
-    expect(line?.getAttribute('role')).toBe('status');
+    expect(line?.closest('[role]')?.getAttribute('role')).toBe('status');
     expect(line?.className).not.toMatch(/border-red/);
     expect(line?.textContent).toContain('Stop lifted');
     expect(setForm(root).contains(line)).toBe(false);
+  });
+});
+
+// portal#2379 / portal#2344: the pin is the lifecycle. The region the lift note lands in EXISTS and is
+// EMPTY before, holds the text during, and is the SAME element after: a region inserted already
+// populated may not be announced.
+describe('lift note live region', () => {
+  const regions = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>('[role="status"], [role="alert"]')];
+  const emptyBefore = (root: HTMLElement) => regions(root).filter((el) => el.textContent?.trim() === '');
+
+  it('a refused lift lands in an alert region that was already mounted and empty', async () => {
+    const { root } = await mountPanel({ lifting });
+    await tick(3);
+    const empties = emptyBefore(root);
+    expect(empties.map((el) => el.getAttribute('role'))).toEqual(expect.arrayContaining(['status', 'alert']));
+    const deliver = await beginEnhanced(liftForm(root));
+    await deliver(refusedLift);
+    await tick(3);
+    const line = root.querySelector<HTMLElement>('[data-testid="stop-lift-status"]')!;
+    const region = line.closest<HTMLElement>('[role]')!;
+    expect(empties).toContain(region);
+    expect(region.getAttribute('role')).toBe('alert');
+    expect(region.textContent).toContain('Only whoever manages this App');
+    expect(regions(root).filter((el) => el.textContent?.trim() === '').map((el) => el.getAttribute('role'))).toContain('status');
+  });
+
+  it('a lift that worked lands in a status region that was already mounted and empty', async () => {
+    const { root } = await mountPanel({ lifting });
+    await tick(3);
+    const empties = emptyBefore(root);
+    const deliver = await beginEnhanced(liftForm(root));
+    await deliver({ type: 'success', status: 200, data: { action: 'lift', ok: true, id: 's1', changed: true } });
+    await tick(3);
+    const region = root.querySelector<HTMLElement>('[data-testid="stop-lift-status"]')!.closest<HTMLElement>('[role]')!;
+    expect(empties).toContain(region);
+    expect(region.getAttribute('role')).toBe('status');
+    expect(region.getAttribute('aria-live')).toBe('polite');
   });
 });
 

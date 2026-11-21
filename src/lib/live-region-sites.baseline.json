@@ -1,5 +1,7 @@
 {
+  "src/lib/components/AgentChat.svelte": 2,
   "src/lib/components/AgentInheritanceSettings.svelte": 2,
+  "src/lib/components/NodeList.svelte": 1,
   "src/lib/components/NodeSignatures.svelte": 1,
   "src/lib/components/PropertyFilter.svelte": 1,
   "src/lib/components/SelectMemory.svelte": 1,
@@ -20,6 +22,7 @@
   "src/routes/app/apps/[appId]/channels/+page.svelte": 1,
   "src/routes/app/apps/[appId]/runs/AppRunsPanel.svelte": 1,
   "src/routes/app/apps/[appId]/stops/+page.svelte": 1,
+  "src/routes/app/apps/[appId]/tasks/+page.svelte": 2,
   "src/routes/app/apps/[appId]/tasks/[taskId]/+page.svelte": 2,
   "src/routes/app/marketplace/+page.svelte": 1,
   "src/routes/app/memories/+page.svelte": 1,

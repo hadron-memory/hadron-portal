@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveOutcome from '$lib/components/LiveOutcome.svelte';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -121,7 +122,9 @@
         <button type="button" onclick={() => pickerOpen = true} aria-haspopup="dialog" aria-expanded={pickerOpen} class="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-300">{selectedApp ? t('install.existing.change', 'Change App') : t('install.existing.choose', 'Choose an App')}</button>
       {/if}
       {#if $existingErrors.appId?.length}<p role="alert" class="text-sm text-red-600 dark:text-red-400">{$existingErrors.appId[0]}</p>{/if}
-      {#if $existingMessage}<p role={$existingMessage.type === 'error' ? 'alert' : 'status'} class="text-sm {$existingMessage.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$existingMessage.text}</p>{/if}
+      <LiveOutcome failed={$existingMessage?.type === 'error'}>
+        {#if $existingMessage}<p class="text-sm {$existingMessage.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$existingMessage.text}</p>{/if}
+      </LiveOutcome>
       <button type="submit" disabled={!selectedApp || data.existingAppsFailed || $existingSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{$existingSubmitting ? t('install.submitting', 'Installing...') : t('install.submit', 'Install')}</button>
     </form>
     <SelectApp {apps} scopeKey={org.id} bind:open={pickerOpen} onselect={(app) => { $existingForm.appId = app.id; }} />
