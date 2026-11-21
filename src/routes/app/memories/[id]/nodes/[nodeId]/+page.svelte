@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import RefreshNodeLoc from './RefreshNodeLoc.svelte';
   import { locOfSameMemoryTarget } from '$lib/urn/move-destination';
@@ -2830,9 +2831,12 @@
       {/if}
       {#if approveActionError || verifyActionError}
         <p role="alert" data-testid="approval-error" class="mt-1 text-xs text-red-700 dark:text-red-300">{approveActionError ?? verifyActionError}</p>
-      {:else if approveActionSuccess || verifyActionSuccess}
-        <p role="status" data-testid="approval-success" class="mt-1 text-xs text-emerald-700 dark:text-emerald-300">{approveActionSuccess ?? verifyActionSuccess}</p>
       {/if}
+      <LiveRegion>
+        {#if !(approveActionError || verifyActionError) && (approveActionSuccess || verifyActionSuccess)}
+          <p data-testid="approval-success" class="mt-1 text-xs text-emerald-700 dark:text-emerald-300">{approveActionSuccess ?? verifyActionSuccess}</p>
+        {/if}
+      </LiveRegion>
       {#if verifyHashes && (verifyHashes.expectedHash || verifyHashes.actualHash)}
         <dl data-testid="verify-hashes" class="mt-1 grid grid-cols-[auto_1fr] gap-x-2 text-xs text-zinc-500 dark:text-zinc-400">
           {#if verifyHashes.expectedHash}
@@ -3873,11 +3877,13 @@
         {#if flowActionError}
           <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{flowActionError}</div>
         {/if}
-        {#if flowActionSuccess}
-          <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
-            {flowActionSuccess}
-          </div>
-        {/if}
+        <LiveRegion>
+          {#if flowActionSuccess}
+            <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
+              {flowActionSuccess}
+            </div>
+          {/if}
+        </LiveRegion>
 
         <fieldset disabled={writeLocked}>
         <form method="POST" action="?/updateFlow" use:flowEnhance novalidate class="space-y-6">
@@ -4145,9 +4151,11 @@
       {#if edgesActionError}
         <div role="alert" class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{edgesActionError}</div>
       {/if}
-      {#if edgesActionSuccess && !editingEdges}
-        <div role="status" class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{edgesActionSuccess}</div>
-      {/if}
+      <LiveRegion>
+        {#if edgesActionSuccess && !editingEdges}
+          <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{edgesActionSuccess}</div>
+        {/if}
+      </LiveRegion>
 
       {#if !editingEdges}
         {#if edgeRows.length > 0}
@@ -4483,9 +4491,11 @@
               </div>
             {/if}
           </div>
-          {#if updateMetaActionSuccess && !isEditing}
-            <div role="status" class="mb-4 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{updateMetaActionSuccess}</div>
-          {/if}
+          <LiveRegion>
+            {#if updateMetaActionSuccess && !isEditing}
+              <div class="mb-4 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{updateMetaActionSuccess}</div>
+            {/if}
+          </LiveRegion>
 
           {#if isEditing && !readOnly}
             <form method="POST" action="?/updateMeta" use:updateMetaEnhance novalidate

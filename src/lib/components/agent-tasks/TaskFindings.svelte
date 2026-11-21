@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { onDestroy, tick, untrack } from 'svelte';
   import { enhance } from '$app/forms';
   import { t } from '$lib/i18n/t';
@@ -386,10 +387,15 @@
         </fieldset>
         <TaskReferencesEditor app={{ id: appId, urn: appUrn }} {loadMemories} initial={editing.refs} idPrefix="dispose" single invalid={refusal?.kind === 'invalid' && refusal.field === 'references' ? refusal.message : null} />
         <p id="dispose-authority" class="text-xs text-zinc-600 dark:text-zinc-300">{t('app.tasks.disposition.authority', 'Saving replaces any earlier disposition of this finding. The server checks whether you may record it.')}</p>
+        <!-- A plain wrapper: an idle region last in a space-y form would give the button row a trailing margin. -->
+        <div>
         <div class="flex flex-wrap items-center gap-2">
           <button type="submit" disabled={saving} class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400">{t('app.tasks.disposition.save', 'Save')}</button>
           <button type="button" disabled={saving} class={btn} onclick={closeForm}>{t('app.tasks.disposition.cancel', 'Cancel')}</button>
-          {#if saving}<span role="status" class="text-sm text-zinc-600 dark:text-zinc-300">{t('app.tasks.disposition.saving', 'Saving…')}</span>{/if}
+        </div>
+        <LiveRegion>
+          {#if saving}<p class="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{t('app.tasks.disposition.saving', 'Saving…')}</p>{/if}
+        </LiveRegion>
         </div>
         {#if refusal && refusal.kind !== 'invalid'}<WriteRefusalAlert {refusal} />{/if}
       </form>

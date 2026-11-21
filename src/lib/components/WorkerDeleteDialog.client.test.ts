@@ -5,6 +5,7 @@ import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { submitEnhanced, submitEnhancedDeferred, submitEnhancedWithResult, submitEnhancedWithRawResult } from '$lib/test/stubs/app-forms';
 import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import Dialog from './WorkerDeleteDialog.svelte';
+import { announcedStatusRegion, firstPopulatedStatusText, idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
 const worker = (id = 'one') => ({ id, name: id, urn: `hrn:worker:acme.com:app:${id}` });
 let mounted: ReturnType<typeof mountComponent> | undefined;
 let oldShow: PropertyDescriptor | undefined, oldClose: PropertyDescriptor | undefined;
@@ -46,8 +47,13 @@ it('keeps refusal text escaped, target intact and roster unrefreshed', async () 
 it('rejects a mismatched worker response as an unknown outcome: latched, best-effort refreshed, target unchanged', async () => {
   const { props, onclose } = open(); await tick(); await check();
   const selected = props.worker;
+  // portal#2375: the progress region exists and is empty BEFORE the submit, holds the text during,
+  // and it is that same element, so a screen reader announces the change.
+  const idle = idleStatusRegions(document);
+  expect(idle.length).toBeGreaterThan(0);
   const pending = await submitEnhancedDeferred(form()); flushSync(); await tick();
   expect(document.querySelector('[role=status]')?.textContent).toContain('Deleting the selected worker');
+  expect(idle).toContain(announcedStatusRegion(document)!);
   await pending.finish(result(true, 'other-worker')); flushSync(); await tick();
   // portal#2260 round 1, Gil F1 — an answer about a DIFFERENT worker is no
   // answer about this one: the selected worker's outcome is unknown, so the
@@ -56,7 +62,7 @@ it('rejects a mismatched worker response as an unknown outcome: latched, best-ef
   // page best-effort refreshes (F3) so an authoritative re-read can resolve
   // it. The target is still not changed by the mismatch.
   expect(document.querySelector('[role=alert]')?.textContent).toContain('may have succeeded');
-  expect(document.querySelector('[role=status]')).toBeNull();
+  expect(firstPopulatedStatusText(document)).toBeNull();
   expect(document.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled).toBe(true);
   expect(document.querySelector<HTMLDialogElement>('dialog')!.open).toBe(true);
   expect(onclose).not.toHaveBeenCalled();
@@ -138,7 +144,7 @@ it('portal#2205: if following the delete redirect fails, Submit stays latched an
   const { onclose } = open(); await tick(); await check();
   navigationHooks.onGoto = async () => { throw new Error('navigation unavailable'); };
   await submitEnhancedWithRawResult(form(), { type: 'redirect', status: 303, location: '/app/apps/app-one?tab=staff' }); flushSync(); await tick();
-  expect(document.querySelector('[role=status]')).toBeNull();
+  expect(firstPopulatedStatusText(document)).toBeNull();
   // The redirect answer means the delete SUCCEEDED — the worker is gone. A
   // retry would re-post the delete for a worker that no longer exists and
   // read WORKER_NOT_FOUND as a refusal, so the latch must hold (Gino F1):
