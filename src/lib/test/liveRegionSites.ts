@@ -44,12 +44,16 @@ function markerSpans(root: { fragment: { nodes: Ast[] } }, attr: boolean): Span[
     if (!n || typeof n !== 'object') return;
     if (Array.isArray(n)) return n.forEach(walk);
     const node = n as Ast;
-    if (node.type === 'Attribute' || node.type === 'SpreadAttribute' || node.type === 'BindDirective' || node.type === 'ClassDirective') {
-      if (attr && node.type === 'Attribute') out.push({ start: node.start, end: node.end });
-      return; // never descend: an expression inside an attribute is not rendered text
+    // Attributes and every directive (style:, class:, bind:, use:, on:, transition:, ...) live in an
+    // element's `attributes` list, never in its rendered children. Handle that list explicitly and
+    // never walk into it, so a marker inside `style:color={'MARK'}` cannot count as rendered text
+    // (Beckett, #2382 F2). Only plain `Attribute` nodes are candidates, and only in attribute mode.
+    if (Array.isArray(node.attributes)) {
+      if (attr) for (const a of node.attributes) if (a.type === 'Attribute') out.push({ start: a.start, end: a.end });
     }
+    if (typeof node.type === 'string' && node.type.endsWith('Directive') || node.type === 'Attribute' || node.type === 'SpreadAttribute') return;
     if (node.type === 'Text' || node.type === 'ExpressionTag' || node.type === 'HtmlTag') { if (!attr) out.push({ start: node.start, end: node.end }); return; }
-    for (const v of Object.values(node)) if (v && typeof v === 'object') walk(v);
+    for (const [k, v] of Object.entries(node)) if (k !== 'attributes' && v && typeof v === 'object') walk(v);
   };
   walk(root.fragment);
   return out.sort((x, y) => x.start - y.start);

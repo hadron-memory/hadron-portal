@@ -100,6 +100,23 @@ describe('portal#2375: route-page action results sit in a persistent LiveRegion'
     expect(gatesOf('{#each rows as r (n)}<LiveRegion>{#if a}<p>MARK</p>{/if}</LiveRegion>{/each}')).not.toEqual(['each rows (key r.id)']);
   });
 
+  it('records each / await branches so moving a region between them changes the list (Beckett, #2382 F3)', () => {
+    const region = '<LiveRegion>{#if a}<p>MARK</p>{/if}</LiveRegion>';
+    expect(gatesOf(`{#each rows as r}${region}{:else}<b>x</b>{/each}`)).toEqual(['each rows']);
+    expect(gatesOf(`{#each rows as r}<b>x</b>{:else}${region}{/each}`)).toEqual(['each rows: else']);
+    expect(gatesOf(`{#await p}${region}{:then v}<b>x</b>{:catch e}<b>y</b>{/await}`)).toEqual(['await p: pending']);
+    expect(gatesOf(`{#await p}<b>x</b>{:then v}${region}{:catch e}<b>y</b>{/await}`)).toEqual(['await p: then']);
+    expect(gatesOf(`{#await p}<b>x</b>{:then v}<b>y</b>{:catch e}${region}{/await}`)).toEqual(['await p: catch']);
+  });
+
+  it('a marker inside any directive is not rendered text (Beckett, #2382 F2)', () => {
+    for (const d of ["style:color={'MARK'}", "class:on={'MARK'}", "use:act={'MARK'}", "transition:fade={'MARK'}", "bind:value={'MARK'}", "{...{ a: 'MARK' }}"]) {
+      expect(gatesOf(`<LiveRegion>{#if a}<p ${d}>Other</p>{/if}</LiveRegion>`), d).toBeNull();
+    }
+    // the visible text still matches when a directive on the same element carries the marker too
+    expect(gatesOf("<LiveRegion>{#if a}<p style:color={'MARK'}>MARK</p>{/if}</LiveRegion>")).toEqual([]);
+  });
+
   it('matches the marker in rendered text, not in an attribute, a nested condition or a script', () => {
     expect(gatesOf('<LiveRegion>{#if a}<p title="MARK">Other</p>{/if}</LiveRegion>')).toBeNull();
     expect(gatesOf("<LiveRegion>{#if a}{#if v === 'MARK'}<p>Other</p>{/if}{/if}</LiveRegion>")).toBeNull();
