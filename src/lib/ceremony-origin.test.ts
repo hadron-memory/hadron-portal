@@ -3,7 +3,7 @@ import { env } from '$env/dynamic/public';
 import { ceremonyOrigin, parseCeremonyOrigin, pinCeremonyUrl } from './ceremony-origin';
 
 describe('ceremony origin (portal#2417)', () => {
-  beforeEach(() => { env.PUBLIC_SERVER_URL = undefined; });
+  beforeEach(() => { delete env.PUBLIC_SERVER_URL; });
   it('is read from PUBLIC_SERVER_URL with no default: unset is no origin, never localhost', () => {
     expect(ceremonyOrigin()).toBeNull();
     env.PUBLIC_SERVER_URL = 'https://hadron.example/some/path';

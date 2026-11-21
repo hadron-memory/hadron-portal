@@ -90,7 +90,8 @@ describe("the approval redirect is pinned to the server public origin (portal#24
   it("redirects nowhere when the origin is not configured, never to a guess", async () => {
     serve(ceremony);
     for (const unset of [undefined, "", "not a url", "javascript:alert(1)"]) {
-      env.PUBLIC_SERVER_URL = unset;
+      if (unset === undefined) delete env.PUBLIC_SERVER_URL;
+      else env.PUBLIC_SERVER_URL = unset;
       const r = (await run()) as { status: number };
       expect(r.status).toBe(503);
     }

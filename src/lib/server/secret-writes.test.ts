@@ -30,7 +30,7 @@ describe('a staged link is pinned to the server public origin (portal#2417)', ()
     expect(await stage('https://evil.example/secret-changes/r1')).toEqual({ kind: 'plain-protected' });
   });
   it('with no configured origin no link is ever staged', async () => {
-    env.PUBLIC_SERVER_URL = undefined;
+    delete env.PUBLIC_SERVER_URL;
     expect(await stage('https://h.example/secret-changes/r1')).toEqual({ kind: 'plain-protected' });
   });
 });
