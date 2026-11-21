@@ -416,7 +416,7 @@
         />
       </section>
     {/if}
-    {#if data.impersonating}<p role="status" class="text-sm">
+    {#if data.impersonating}<p class="text-sm">
         {t(
           "grants.impersonating",
           "You are viewing as another person. Grants can be read here but not changed. End impersonation to revoke or create grants.",

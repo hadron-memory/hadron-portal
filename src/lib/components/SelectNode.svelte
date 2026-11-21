@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { untrack } from 'svelte';
   import { pickerStrings } from '$lib/i18n/picker-strings';
   import { focusTrap } from '$lib/a11y/focus-trap';
@@ -282,9 +283,9 @@
                the 400 — this note is the honest replacement for it. -->
           <p role="status">{t('app.nodes.picker.capped', 'Showing the first results only. Search to narrow the list.')}</p>
         {/if}
-        {#if !pending && !failed && searched && items.length === 0}
-          <p role="status">{t('app.nodes.picker.empty', 'No nodes found.')}</p>
-        {/if}
+        <LiveRegion data-testid="node-picker-empty">
+          {#if !pending && !failed && searched && items.length === 0}<p>{t('app.nodes.picker.empty', 'No nodes found.')}</p>{/if}
+        </LiveRegion>
       {:else if memoriesFailed}
         <p role="alert">{t('app.nodes.picker.memories-failed', 'Your memories couldn’t be loaded, so you can’t pick a node right now. Reload the page to try again.')}</p>
       {:else}

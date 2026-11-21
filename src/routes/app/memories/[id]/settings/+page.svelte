@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { formatPortalDate, formatPortalDateTime } from '$lib/format-portal-date';
   import { untrack } from 'svelte';
   import { page } from '$app/stores';
@@ -1216,15 +1217,18 @@
             <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
               {t('memory-settings.vector-health.skipped', 'The embedding check did not run: {reason}', { reason: vectorHealth.skipped })}
             </div>
-          {:else if vectorHealth.failed.length === 0}
-            <p data-testid="vector-health-empty" role="status" class="text-sm text-zinc-600 dark:text-zinc-300">
-              {t('memory-settings.vector-health.none', 'No failed embeddings among the findings returned.')}
-            </p>
           {/if}
           {#if vectorHealth.failed.length > 0}
             <VectorHealthTable rows={vectorHealth.failed} memoryId={g.id} />
           {/if}
         {/if}
+        <LiveRegion data-testid="vector-health-region">
+          {#if !vectorHealthError && vectorHealth && !vectorHealth.skipped && vectorHealth.failed.length === 0}
+            <p data-testid="vector-health-empty" class="text-sm text-zinc-600 dark:text-zinc-300">
+              {t('memory-settings.vector-health.none', 'No failed embeddings among the findings returned.')}
+            </p>
+          {/if}
+        </LiveRegion>
       </div>
     {/if}
   </section>

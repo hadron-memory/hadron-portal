@@ -320,7 +320,7 @@
       <!-- portal#1434: ONE Overdue note. When Overdue was dropped for the bucket, the
            dropped notice IS the guidance (same id, still a status), not a second line. -->
       {#if data.overdueDropped}
-        <p id="task-overdue-guidance" role="status" class="w-full text-xs text-amber-700 dark:text-amber-300" data-testid="overdue-dropped">{t('app.tasks.narrow.overdue.dropped', 'Overdue was turned off: it does not apply to {bucket} tasks.', { bucket: boardFilterLabel(data.filter) })}</p>
+        <p id="task-overdue-guidance" class="w-full text-xs text-amber-700 dark:text-amber-300" data-testid="overdue-dropped">{t('app.tasks.narrow.overdue.dropped', 'Overdue was turned off: it does not apply to {bucket} tasks.', { bucket: boardFilterLabel(data.filter) })}</p>
       {:else}
         <p id="task-overdue-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">
           {overdueOffered
@@ -329,7 +329,7 @@
         </p>
       {/if}
       {#if data.unresolvedDropped}
-        <p id="task-unresolved-guidance" role="status" class="w-full text-xs text-amber-700 dark:text-amber-300" data-testid="unresolved-dropped">{t('app.tasks.narrow.unresolved.dropped', 'Unresolved findings was turned off: it does not apply to {bucket} tasks.', { bucket: boardFilterLabel(data.filter) })}</p>
+        <p id="task-unresolved-guidance" class="w-full text-xs text-amber-700 dark:text-amber-300" data-testid="unresolved-dropped">{t('app.tasks.narrow.unresolved.dropped', 'Unresolved findings was turned off: it does not apply to {bucket} tasks.', { bucket: boardFilterLabel(data.filter) })}</p>
       {:else}
         <p id="task-unresolved-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">
           {unresolvedOffered

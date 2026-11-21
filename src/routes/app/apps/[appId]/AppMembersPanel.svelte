@@ -274,7 +274,7 @@
           <input type="hidden" name="_kind" value="addAppMember" />
           <input type="hidden" name="userId" bind:value={$addForm.userId} />
           {#if memberRoles.length === 0}
-            <p role="status" class="basis-full text-sm text-amber-700 dark:text-amber-400">
+            <p class="basis-full text-sm text-amber-700 dark:text-amber-400">
               {t('app-members.add.no-roles', 'This App offers no member roles yet.')}
               {t('app-members.add.no-roles-next', 'An owner or admin of the Agent can add roles on')}
               <a href="/app/agents/{app.agent.id}" class="underline">{app.agent.name}</a>.

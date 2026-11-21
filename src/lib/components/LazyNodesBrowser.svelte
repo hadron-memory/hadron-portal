@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // portal#1700: the Nodes tab, restored on BOUNDED reads. The layout still
   // drains nothing; this component reads one page per user action through the
   // two same-origin doors (nodes/children, nodes/page). MemoryBrowser is not
@@ -253,9 +254,10 @@
       {/if}
       {#if tableRows.length > 0}{t('nodes-tab.loaded-count', '{n} loaded', { n: tableRows.length })}{/if}
     </p>
-    {#if tableStatus === 'done' && tableRows.length === 0}
-      <p class="text-sm text-zinc-500" role="status">{t('nodes-tab.none', 'No matching or visible nodes.')}</p>
-    {:else if tableRows.length > 0}
+    <LiveRegion data-testid="nodes-tab-none">
+      {#if tableStatus === 'done' && tableRows.length === 0}<p class="text-sm text-zinc-500">{t('nodes-tab.none', 'No matching or visible nodes.')}</p>{/if}
+    </LiveRegion>
+    {#if tableRows.length > 0}
       <NodeList nodes={tableView} hideSearch viewMemoryId={memoryId} />
     {/if}
     {#if tableStatus === 'loading'}

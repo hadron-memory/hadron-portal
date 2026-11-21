@@ -70,7 +70,7 @@
   </div>
 
   {#if outdated}
-    <p data-boot-outdated role="status" class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">{t('agent.boot.outdated', 'The source has changed since this prompt was compiled. Compile again to pick up the newer revision.')}</p>
+    <p data-boot-outdated class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">{t('agent.boot.outdated', 'The source has changed since this prompt was compiled. Compile again to pick up the newer revision.')}</p>
   {/if}
 
   <ol data-boot-steps class="space-y-3">
