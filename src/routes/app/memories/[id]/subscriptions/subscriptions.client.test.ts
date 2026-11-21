@@ -84,8 +84,10 @@ describe('#2220 subscribe form', () => {
     expect(root.querySelector('form[action="?/subscribe"]')).toBeNull();
     // portal#2378: present at load, so plain text rather than a live region.
     expect(root.textContent).toMatch(/administer another organization/i);
-    // the page's own status region stays mounted but empty, so "not announced" is "nothing populated"
-    expect(firstPopulatedStatusText(root)).toBeNull();
+    // "Not announced" is about THIS explanation: it must not sit inside a live region, whatever else the page announces.
+    const explanation = [...root.querySelectorAll('p')].find((p) => /administer another organization/i.test(p.textContent ?? ''))!;
+    expect(explanation).toBeTruthy();
+    expect(explanation.closest('[role=status], [aria-live]')).toBeNull();
   });
 
   it('the page status region exists empty at load (portal#2378)', async () => {

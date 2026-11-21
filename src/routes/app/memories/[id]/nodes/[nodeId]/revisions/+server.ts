@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { includeRefusalOf, includeRefusalText } from '$lib/server/include-refusal';
 import {
   RESTORE_NODE_REVISION_MUTATION,
@@ -22,8 +22,10 @@ import type { RequestHandler } from './$types';
 //
 // Restore is always truncating here (the History-tab contract: restore the node
 // to this revision and drop the newer snapshots).
-// The server's cap on NodeRevision.revLabel.
-const MAX_REV_LABEL = 500;
+// The label's length cap is the server's (hrn:node:hadronmemory.com:specs:cor:dmo:060:04 lists it as Tunable):
+// nothing here carries the number. updateNodeRevision refuses an over-long
+// label BAD_USER_INPUT with its own sentence, and that sentence is what the
+// reader sees, as a 400.
 
 export const POST: RequestHandler = async ({ params, request, locals }) => {
   if (!locals.token) {
@@ -50,9 +52,6 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
       if (!revisionId) return json({ error: 'revisionId is required.' }, { status: 400 });
       if (typeof body?.revLabel !== 'string') return json({ error: 'revLabel must be a string.' }, { status: 400 });
       const revLabel = body.revLabel.trim();
-      if (revLabel.length > MAX_REV_LABEL) {
-        return json({ error: `Label must be at most ${MAX_REV_LABEL} characters.` }, { status: 400 });
-      }
       // A blank label clears it: null, never an empty string the server would store.
       await client.request(UPDATE_NODE_REVISION_MUTATION, { revisionId, revLabel: revLabel || null });
       return json({ ok: true });
@@ -70,6 +69,10 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     // History dialog stays open and shows it.
     const include = action === 'restore' ? includeRefusalOf(e) : null;
     if (include) return json({ error: includeRefusalText(include, 'restore'), code: include.code }, { status: 409 });
+    // A refused label is the reader's input, not a fault: the server's own sentence, as a 400.
+    if (action === 'label' && extractGqlErrorCode(e) === 'BAD_USER_INPUT') {
+      return json({ error: extractGqlError(e, 'The label was refused.') }, { status: 400 });
+    }
     console.error('[node-revisions] action failed:', e);
     return json({ error: extractGqlError(e, 'Revision action failed') }, { status: 500 });
   }

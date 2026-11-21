@@ -18,7 +18,7 @@
   {#if actorsOnly}
     <!-- the caller shows the user -->
   {:else if view.user}
-    {#if view.user.handle}<div class="truncate"><RevisionEditor handle={view.user.handle} urn={view.user.urn} info={null} /></div>{/if}
+    {#if view.user.handle}<div class="truncate"><RevisionEditor handle={view.user.handle} urn={view.user.urn} /></div>{/if}
     {#if view.user.urn}<Urn value={view.user.urn} type="user" size={9} />{/if}
   {:else}
     <span class="whitespace-nowrap text-zinc-500 dark:text-zinc-400">{view.info ?? '—'}</span>
