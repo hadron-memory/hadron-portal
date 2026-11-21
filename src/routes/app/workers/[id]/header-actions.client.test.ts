@@ -223,9 +223,9 @@ it('shows the retire banner only for a result keyed to this worker', () => {
 // portal#2379 (slice of portal#2344): the retire result lands in a region that was already mounted and
 // empty, a status when it worked and an alert when it was refused.
 it.each([
-  [true, 'Worker retired. Its name stays reserved.', 'status'],
-  [false, 'You don’t have permission to staff this App.', 'alert'],
-] as const)('a retire result (ok=%s) lands in the %s region that was already mounted and empty', (ok, message, role) => {
+  [true, 'status', 'Worker retired. Its name stays reserved.'],
+  [false, 'alert', 'You don’t have permission to staff this App.'],
+] as const)('a retire result (ok=%s) lands in the %s region that was already mounted and empty', (ok, role, message) => {
   const props = reactiveProps<Record<string, unknown>>({ data: dataFor(worker()), form: null });
   const mounted = mountComponent(Page, props as never);
   try {

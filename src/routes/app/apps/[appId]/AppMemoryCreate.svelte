@@ -39,16 +39,16 @@
     </div>
     <button type="submit" disabled={$submitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-amber-600 disabled:opacity-50">{$submitting ? t('app.memory.creating', 'Creating...') : t('app.memory.create', 'Create memory')}</button>
     </fieldset>
-    <LiveOutcome failed={$message?.type === 'error'}>
-      {#if $message}
-        <div class="text-sm {$message.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">
-          <p>{$message.text}</p>
-          {#if $message.type === 'success' && $message.created}
-            <a href="/app/memories/{encodeURIComponent($message.created.id)}" class="mt-1 inline-block font-medium text-indigo-600 hover:underline dark:text-indigo-300">{$message.created.name}</a>
-            <div class="mt-1"><Urn value={$message.created.urn} type="memory" size={10} /></div>
-          {/if}
-        </div>
-      {/if}
-    </LiveOutcome>
   </form>
+  <LiveOutcome failed={$message?.type === 'error'}>
+    {#if $message}
+      <div class="mt-3 text-sm {$message.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">
+        <p>{$message.text}</p>
+        {#if $message.type === 'success' && $message.created}
+          <a href="/app/memories/{encodeURIComponent($message.created.id)}" class="mt-1 inline-block font-medium text-indigo-600 hover:underline dark:text-indigo-300">{$message.created.name}</a>
+          <div class="mt-1"><Urn value={$message.created.urn} type="memory" size={10} /></div>
+        {/if}
+      </div>
+    {/if}
+  </LiveOutcome>
 </details>

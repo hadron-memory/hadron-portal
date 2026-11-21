@@ -1,7 +1,7 @@
 {
   "src/lib/components/AgentChat.svelte": 2,
   "src/lib/components/AgentInheritanceSettings.svelte": 2,
-  "src/lib/components/InstallCustomisation.svelte": 4,
+  "src/lib/components/InstallCustomisation.svelte": 3,
   "src/lib/components/LazyNodesBrowser.svelte": 3,
   "src/lib/components/NavigationFeedback.svelte": 1,
   "src/lib/components/NodeList.svelte": 1,
@@ -75,7 +75,7 @@
   "src/routes/app/orgs/[id]/+page.svelte": 2,
   "src/routes/app/orgs/[id]/agents/+page.svelte": 2,
   "src/routes/app/orgs/[id]/apps/+page.svelte": 1,
-  "src/routes/app/orgs/[id]/boot-prompt-signing/+page.svelte": 5,
+  "src/routes/app/orgs/[id]/boot-prompt-signing/+page.svelte": 3,
   "src/routes/app/orgs/[id]/channels/+page.svelte": 3,
   "src/routes/app/orgs/[id]/exchange/[connectionId]/+page.svelte": 2,
   "src/routes/app/orgs/[id]/integrations/+page.svelte": 7,

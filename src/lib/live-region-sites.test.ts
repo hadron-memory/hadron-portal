@@ -28,7 +28,9 @@ import baseline from './live-region-sites.baseline.json';
  *
  * The baseline is derived from the scan, never merged by hand: run
  * `UPDATE_LIVE_REGION_BASELINE=1 pnpm vitest run --project node live-region-sites`
- * after merging main, then run the suite again.
+ * after merging main (it only lowers, and lists any addition it did not accept), then run
+ * the suite again. Counts are per file: a new site cannot hide behind a fixed one in a
+ * file whose count differs, but a swap within one file keeps its count; review the diff.
  */
 const SRC = join(process.cwd(), 'src');
 
@@ -42,23 +44,39 @@ function svelteFiles(dir: string, out: string[] = []): string[] {
 }
 
 type Node = { type: string; start?: number; data?: string; attributes?: Attr[]; fragment?: Fragment; consequent?: Fragment; alternate?: Fragment | null; body?: Fragment; fallback?: Fragment; pending?: Fragment; then?: Fragment; catch?: Fragment; children?: Node[]; nodes?: Node[] };
-type Attr = { type: string; name?: string; value?: true | { type: string; data?: string }[] | { type: string; expression?: { type: string; start: number; end: number } } };
+type Expr = { type: string; value?: unknown; name?: string; consequent?: Expr; alternate?: Expr; left?: Expr; right?: Expr; operator?: string; expressions?: Expr[]; start: number; end: number };
+type Attr = { type: string; name?: string; value?: true | { type: string; data?: string }[] | { type: string; expression?: Expr } };
 type Fragment = { nodes: Node[] };
 
 /**
- * The role attribute of an element: a literal string; null for a `role={expression}` that can yield `status`
- * (a conditional naming it, or an opaque expression such as `notice.role`); 'other' for an expression that
- * cannot (`chatFullView ? 'dialog' : undefined`); undefined when absent.
+ * Whether a `role={expression}` can resolve to `status`, judged on the branches the expression can take,
+ * not on the words in its source. A conditional is checked branch by branch; a string literal is `status` or
+ * it is not; `undefined`, `null` and other literals are known not to be; anything opaque (an identifier, a
+ * member such as `notice.role`, a call) is UNKNOWN and counts, since it may be `status`.
  */
-function roleOf(node: Node, src: string): string | null | undefined {
+function canBeStatus(e: Expr | undefined): boolean {
+  if (!e) return true;
+  switch (e.type) {
+    case 'ConditionalExpression': return canBeStatus(e.consequent) || canBeStatus(e.alternate);
+    // `a && b` is a falsy `a` or `b`; `a || b` and `a ?? b` can be either side.
+    case 'LogicalExpression': return e.operator === '&&' ? canBeStatus(e.right) : canBeStatus(e.left) || canBeStatus(e.right);
+    case 'Literal': return e.value === 'status';
+    case 'TemplateLiteral': return !e.expressions?.length ? false : true;
+    case 'Identifier': return e.name !== 'undefined';
+    default: return true;
+  }
+}
+
+/**
+ * The role attribute of an element: a literal string; null for a `role={expression}` that can yield `status`
+ * (see `canBeStatus`); 'other' for an expression that cannot (`full ? 'dialog' : undefined`); undefined when absent.
+ */
+function roleOf(node: Node): string | null | undefined {
   const attr = (node.attributes ?? []).find((a) => a.type === 'Attribute' && a.name === 'role');
   if (!attr) return undefined;
   if (Array.isArray(attr.value) && attr.value.length === 1 && attr.value[0].type === 'Text') return attr.value[0].data?.trim();
   const expression = attr.value && !Array.isArray(attr.value) && attr.value !== true ? attr.value.expression : undefined;
-  if (expression && (expression.type === 'ConditionalExpression' || expression.type === 'Literal')) {
-    return src.slice(expression.start, expression.end).includes('status') ? null : 'other';
-  }
-  return null;
+  return canBeStatus(expression) ? null : 'other';
 }
 
 /**
@@ -81,7 +99,7 @@ export function conditionalStatusSites(src: string): number[] {
     if (!f) return;
     for (const n of direct(f.nodes)) {
       if (n.type !== 'RegularElement' && n.type !== 'SvelteElement') continue;
-      const role = roleOf(n, src);
+      const role = roleOf(n);
       if (role === 'status' || role === null) sites.push(src.slice(0, n.start ?? 0).split('\n').length);
     }
   };
@@ -104,26 +122,40 @@ const reviewedNotDefects: Record<string, string> = {
   'src/lib/components/SelectMemory.svelte': 'the guard is the static `keepOpen` mode flag; the region it renders is already persistent inside that mode',
   'src/lib/components/tickers/ApplyAgentTickers.svelte': 'the result container is an aria-live region mounted before any result, so the child is announced by it',
   // portal#2379: seen by the wider scan, reviewed, left alone. Each is a region that is already mounted
-  // (the {#if} sits inside it) or text that arrives with the page, so nothing is inserted already populated
-  // after the region exists.
-  'src/lib/components/AgentChat.svelte': 'the chat-progress and partial-turn notices are always-rendered role=status containers with the {#if} INSIDE them, mounted empty with the chat',
-  'src/lib/components/InstallCustomisation.svelte': 'customisation-list-unavailable is a note rendered with the loaded read result (present at load); it is not an announcement of a change',
-  'src/lib/components/NodeList.svelte': 'node-columns-status is always mounted with the {#if} inside it, so the loading and failed text is announced by an existing region',
-  'src/routes/app/apps/[appId]/tasks/+page.svelte': 'open-by-handle is always mounted with the {#if} inside it; the Tasks-shown region is one live region per loaded board (portal#1403) and its count changes inside it',
-  'src/routes/app/orgs/[id]/boot-prompt-signing/+page.svelte': 'the drifted and too-many notes are states of the loaded preview (present at load); the switched-on result has its own persistent region'
+  // (the {#if} sits inside it, and the outer branch mounts the region with the view), so the content comes and
+  // goes in an existing region. (A probe that mounts the page and changes it, not a read of the markup, is the
+  // test of "present at load": the signing drifted/too-many notes and the customisation empty-list note looked
+  // present at load and are not, so they are converted.)
+  'src/lib/components/AgentChat.svelte': 'counted only because both notices are children of the active-chat branch of `{#if !activeChatId && !loadingChat}`; the region element mounts with the chat view and its own {#if} is INSIDE it, so a notice that arrives while the chat is open comes in an existing region. Residual: switching to a chat that already has a notice inserts the region with it, as opening that chat does',
+  'src/lib/components/NodeList.svelte': 'counted only because node-columns-status is a child of the rows branch (`{#if nodes.length === 0}` ... `{:else}`); its own {#if} is INSIDE it, so loading and failed text that arrives while rows are shown comes in an existing region. Residual: rows returning after an empty result insert the region with its loading text; moving it out would reserve its min-h in the empty state',
+  'src/routes/app/apps/[appId]/tasks/+page.svelte': 'counted only because both regions are children of the loaded-board branch; open-by-handle has its {#if} INSIDE it, and the Tasks-shown region is one live region per loaded board (portal#1403) whose count changes inside it'
 };
 
-describe('portal#2344: status regions are persistent, not the only child of an {#if}', () => {
+describe('portal#2344: status regions are persistent, not mounted by an {#if} branch', () => {
   const counts = new Map<string, number>();
   for (const file of svelteFiles(SRC)) {
     const n = conditionalStatusRegions(readFileSync(file, 'utf8'));
     if (n) counts.set(relative(process.cwd(), file), n);
   }
   const base = baseline as Record<string, number>;
-  // Regenerate the checked-in inventory from the scan: `UPDATE_LIVE_REGION_BASELINE=1`, then run again.
+  // Regenerate the checked-in inventory from the scan. `UPDATE_LIVE_REGION_BASELINE=1` only LOWERS it (a
+  // converted site comes off) and REPORTS every addition without accepting it, so rerunning cannot quietly
+  // accept a regression: the "no file gains" test keeps failing until a person accepts the additions with
+  // `UPDATE_LIVE_REGION_BASELINE=accept-additions` (and the reason goes in `reviewedNotDefects`).
   if (process.env.UPDATE_LIVE_REGION_BASELINE) {
-    const sorted = Object.fromEntries([...counts].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
-    writeFileSync(join(process.cwd(), 'src/lib/live-region-sites.baseline.json'), `${JSON.stringify(sorted, null, 2)}\n`);
+    const accept = process.env.UPDATE_LIVE_REGION_BASELINE === 'accept-additions';
+    const files = new Set([...counts.keys(), ...Object.keys(base)]);
+    const next: Record<string, number> = {};
+    const additions: string[] = [];
+    for (const f of [...files].sort()) {
+      const now = counts.get(f) ?? 0;
+      const was = base[f] ?? 0;
+      if (now > was) additions.push(`${f}: ${was} -> ${now}`);
+      const keep = accept ? now : Math.min(now, was);
+      if (keep > 0) next[f] = keep;
+    }
+    writeFileSync(join(process.cwd(), 'src/lib/live-region-sites.baseline.json'), `${JSON.stringify(next, null, 2)}\n`);
+    if (additions.length) console.warn(`live-region baseline: ${accept ? 'ACCEPTED' : 'NOT accepted'} ${additions.length} addition(s):\n  ${additions.join('\n  ')}`);
   }
 
   it('recognises the wrong shape and the right one', () => {
@@ -141,12 +173,18 @@ describe('portal#2344: status regions are persistent, not the only child of an {
     expect(conditionalStatusRegions("{#if m}<p role={m.type === 'error' ? 'alert' : 'status'}>{m.text}</p>{/if}")).toBe(1);
     expect(conditionalStatusRegions("{#if ok}<p role={ok ? 'status' : 'alert'}>x</p>{/if}")).toBe(1);
     expect(conditionalStatusRegions("{#if a}<div role={full ? 'dialog' : undefined}>x</div>{/if}")).toBe(0);
+    // The branches decide, not the words: an opaque branch may be 'status'; a name containing the word may not.
+    expect(conditionalStatusRegions("{#if a}<p role={failed ? 'alert' : successRole}>x</p>{/if}")).toBe(1);
+    expect(conditionalStatusRegions("{#if a}<p role={statusReady ? 'dialog' : undefined}>x</p>{/if}")).toBe(0);
+    expect(conditionalStatusRegions("{#if a}<p role={a ? 'alert' : b ? 'status' : 'alert'}>x</p>{/if}")).toBe(1);
+    expect(conditionalStatusRegions("{#if a}<p role={a ? 'alert' : b ? 'dialog' : 'alert'}>x</p>{/if}")).toBe(0);
+    expect(conditionalStatusRegions("{#if a}<p role={a && 'alert'}>x</p>{/if}")).toBe(0);
     expect(conditionalStatusRegions('{#if a}<p role="alert">x</p>{/if}')).toBe(0);
     expect(conditionalStatusRegions('<LiveOutcome failed={f}>{#if m}<p>{m}</p>{/if}</LiveOutcome>')).toBe(0);
     expect(conditionalStatusRegions('<p role="status">{#if a}x{/if}</p>')).toBe(0);
   });
 
-  it('no file gains a sole-child status region', () => {
+  it('no file gains a status region mounted by an {#if} branch', () => {
     const grew = [...counts].filter(([f, n]) => n > (base[f] ?? 0)).map(([f, n]) => `${f}: ${n} (baseline ${base[f] ?? 0})`);
     expect(grew, 'wrap the {#if} in <LiveRegion> instead of putting role="status" on the conditional element').toEqual([]);
   });

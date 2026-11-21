@@ -29,11 +29,11 @@ const form = (root: HTMLElement, action: string) => root.querySelector<HTMLFormE
 
 describe('BootPromptSource compile and approve messages', () => {
   it.each([
-    ['compileBootPrompt', 'compile', 'success', 'Built revision 3.', 'status'],
-    ['compileBootPrompt', 'compile', 'error', 'Compile refused.', 'alert'],
-    ['approveBootPrompt', 'approve', 'success', 'Revision approved.', 'status'],
-    ['approveBootPrompt', 'approve', 'error', 'Approve refused.', 'alert'],
-  ] as const)('%s (%s, %s) lands in the region that was already mounted and empty', async (action, which, type, text, role) => {
+    ['compileBootPrompt', 'compile', 'success', 'status', 'Built revision 3.'],
+    ['compileBootPrompt', 'compile', 'error', 'alert', 'Compile refused.'],
+    ['approveBootPrompt', 'approve', 'success', 'status', 'Revision approved.'],
+    ['approveBootPrompt', 'approve', 'error', 'alert', 'Approve refused.'],
+  ] as const)('%s (%s, %s) lands in the %s region that was already mounted and empty', async (action, which, type, role, text) => {
     const { root, compileInitial, approveInitial } = await mountSource();
     const before = emptyRegions(root);
     expect(before.map((r) => r.getAttribute('role'))).toEqual(expect.arrayContaining(['status', 'alert']));
@@ -51,9 +51,9 @@ describe('BootPromptSource compile and approve messages', () => {
 
 describe('StartBootSource message', () => {
   it.each([
-    ['success', 'Source started.', 'status'],
-    ['error', 'Could not start the source.', 'alert'],
-  ] as const)('a %s result lands in the region that was already mounted and empty', async (type, text, role) => {
+    ['success', 'status', 'Source started.'],
+    ['error', 'alert', 'Could not start the source.'],
+  ] as const)('a %s result lands in the %s region that was already mounted and empty', async (type, role, text) => {
     const initial = await superValidate({}, zod4(bootStartSchema), { id: 'bootStart:a', errors: false });
     mounted = mountComponent(StartBootSource as never, { seeded: true, canManage: true, initial } as never) as Mounted<Record<string, unknown>>;
     await tick(3);

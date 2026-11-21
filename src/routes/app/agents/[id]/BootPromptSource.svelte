@@ -164,10 +164,10 @@
           {/if}
           <div><a data-boot-compiled-link href={nodeHref(compiled.memoryId, compiled.id)} target="_blank" rel="noopener noreferrer" class={linkButton}>{t('agent.boot.open-compiled', 'Open the compiled prompt')}</a></div>
         {/if}
-        <LiveOutcome failed={$approveMessage?.type === 'error'}>
-          {#if $approveMessage}<p class="text-sm {$approveMessage.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$approveMessage.text}</p>{/if}
-        </LiveOutcome>
       </div>
+      <LiveOutcome failed={$approveMessage?.type === 'error'}>
+        {#if $approveMessage}<p class="mt-3 text-sm {$approveMessage.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$approveMessage.text}</p>{/if}
+      </LiveOutcome>
     </li>
   </ol>
   {#if compiled && showProvenance}{#key `${compiled.id}:${compiled.revision}`}<BootProvenance nodeId={compiled.id} revision={compiled.revision} />{/key}{/if}

@@ -818,9 +818,9 @@ describe('Worker agents tab (#1009)', () => {
     const regions = (target: HTMLElement) => ({ before: emptyRegions(target) });
 
     it.each([
-      [true, 'Ada is unpaused.', 'status'],
-      [false, 'Could not unpause Ada.', 'alert'],
-    ] as const)('a pause outcome (ok=%s) lands in the %s region that was already mounted and empty', async (ok, message, role) => {
+      [true, 'status', 'Ada is unpaused.'],
+      [false, 'alert', 'Could not unpause Ada.'],
+    ] as const)('a pause outcome (ok=%s) lands in the %s region that was already mounted and empty', async (ok, role, message) => {
       vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
       const target = await mountStaff([worker({})], paused());
       const { before } = regions(target);
@@ -836,10 +836,10 @@ describe('Worker agents tab (#1009)', () => {
     });
 
     it.each([
-      ['released', 'Released.', 'status'],
-      ['announcement-failed', 'Released, but the team chat notice failed.', 'alert'],
-      ['not-held', 'Nothing was held.', 'status'],
-    ] as const)('a release notice (%s) lands in the %s region that was already mounted and empty', async (outcome, text, role) => {
+      ['released', 'status', 'Released.'],
+      ['announcement-failed', 'alert', 'Released, but the team chat notice failed.'],
+      ['not-held', 'status', 'Nothing was held.'],
+    ] as const)('a release notice (%s) lands in the %s region that was already mounted and empty', async (outcome, role, text) => {
       vi.spyOn(window, 'confirm').mockReturnValue(true);
       const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
       const target = await mountStaff([worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo', heldByUserId: 'u9' })]);

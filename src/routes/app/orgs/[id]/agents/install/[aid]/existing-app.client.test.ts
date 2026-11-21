@@ -68,9 +68,9 @@ describe('#1003 existing App selection', () => {
 // mounted and empty, a status on success and an alert on refusal.
 describe('install message live region', () => {
   it.each([
-    ['success', 'Installed.', 'status'],
-    ['error', 'Could not install into that App.', 'alert'],
-  ] as const)('a %s result lands in the %s region that was already mounted and empty', async (type, text, role) => {
+    ['success', 'status', 'Installed.'],
+    ['error', 'alert', 'Could not install into that App.'],
+  ] as const)('a %s result lands in the %s region that was already mounted and empty', async (type, role, text) => {
     const root = await open();
     find(root, 'Existing app').click(); await tick();
     const form = root.querySelector<HTMLFormElement>('form[action="?/installExisting"]')!;

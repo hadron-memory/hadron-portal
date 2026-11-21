@@ -233,9 +233,9 @@ describe('the whole worker page (#1367)', () => {
 // a status for a save and an alert for a refusal.
 describe('the result line is a live region that exists before the result', () => {
   it.each([
-    ['success', 'Saved.', 'status'],
-    ['error', 'Could not save the signature.', 'alert'],
-  ] as const)('a %s result lands in the %s region that was already mounted and empty', async (type, text, role) => {
+    ['success', 'status', 'Saved.'],
+    ['error', 'alert', 'Could not save the signature.'],
+  ] as const)('a %s result lands in the %s region that was already mounted and empty', async (type, role, text) => {
     const { target } = await mountSection();
     const form = target.querySelector<HTMLFormElement>('form')!;
     const before = emptyRegions(target);

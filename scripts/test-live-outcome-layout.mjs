@@ -20,34 +20,49 @@ try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await page.route('**/__live_outcome_layout_fixture*', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>test-live-outcome-layout</title>' }));
   assert.equal((await page.goto(new URL('/__live_outcome_layout_fixture', origin).href))?.status(), 200);
-  const heightOf = (props) => page.evaluate(async ({ css, props }) => {
+  // One MOUNTED fixture per shape, driven idle -> status -> alert -> idle like a real outcome (not remounted
+  // per case), measuring the column height AND where the message box and the control after it sit.
+  const STEPS = [['idle', null], ['status', { text: 'Saved.', failed: false }], ['alert', { text: 'Refused.', failed: true }], ['idle again', null]];
+  const sequence = (props) => page.evaluate(async ({ css, props, steps }) => {
     document.head.innerHTML = '';
     document.body.innerHTML = `<style>${css}</style><main id="app"></main>`;
     const { mountColumn } = await import('/src/lib/test/fixtures/live-outcome-layout-harness.ts');
-    mountColumn(document.getElementById('app'), props);
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    return document.querySelector('[data-testid="column"]').getBoundingClientRect().height;
-  }, { css, props });
+    const column = mountColumn(document.getElementById('app'), props);
+    const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const out = [];
+    for (const [label, note] of steps) {
+      column.say(note);
+      await frame();
+      const box = (id) => { const el = document.querySelector(`[data-testid="${id}"]`); return el ? Math.round(el.getBoundingClientRect().top * 10) / 10 : null; };
+      out.push({ label, height: document.querySelector('[data-testid="column"]').getBoundingClientRect().height, msgTop: box('msg'), afterTop: box('after') });
+    }
+    return out;
+  }, { css, props, steps: STEPS });
   // What "layout unchanged" means here. A region is a sibling, so in a `space-y` column that is its LAST child
   // the previous sibling keeps the spacing it only needed when something followed it: an IDLE region at the end
   // of a column leaves one trailing gap (the convention says to accept that, LiveRegion has it too). So:
   //   - LiveRegion matches the old conditional box whenever a message shows or a control follows it;
-  //   - LiveOutcome matches LiveRegion exactly for none/status (it adds no gap of its own: that is the
-  //     `:has` rule), and matches the old conditional box exactly when an alert shows.
-  const notes = [['none', null], ['status', { text: 'Saved.', failed: false }], ['alert', { text: 'Refused.', failed: true }]];
-  const near = (a, b, why) => assert.ok(Math.abs(a - b) <= 0.5, `${why}: ${a}px vs ${b}px`);
+  //   - LiveOutcome matches LiveRegion exactly for idle/status (it adds no gap of its own: the `:has` rule),
+  //     and matches the old conditional box exactly when an alert shows or a control follows it;
+  //   - the message box and the control after it sit where the old box put them, at every step.
+  const near = (a, b, why) => assert.ok((a === null && b === null) || Math.abs(a - b) <= 0.5, `${why}: ${a} vs ${b}`);
   const rows = [];
   for (const trailing of [false, true]) {
-    for (const [label, note] of notes) {
-      const plain = await heightOf({ mode: 'plain', note, trailing });
-      const region = note?.failed ? null : await heightOf({ mode: 'region', note, trailing });
-      const outcome = await heightOf({ mode: 'outcome', note, trailing });
-      rows.push({ note: label, trailing, plain, region, outcome });
-      if (region !== null && (label === 'status' || trailing)) near(region, plain, `LiveRegion / ${label} / trailing=${trailing} vs the old conditional box`);
-      if (region !== null) near(outcome, region, `LiveOutcome / ${label} / trailing=${trailing} vs LiveRegion`);
-      if (note?.failed) near(outcome, plain, `LiveOutcome / alert / trailing=${trailing} vs the old conditional box`);
-      if (trailing) near(outcome, plain, `LiveOutcome / ${label} / trailing=true vs the old conditional box`);
-    }
+    const plain = await sequence({ mode: 'plain', trailing });
+    const region = await sequence({ mode: 'region', trailing });
+    const outcome = await sequence({ mode: 'outcome', trailing });
+    STEPS.forEach(([label, note], i) => {
+      const at = `${label} / trailing=${trailing}`;
+      rows.push({ at, plain: plain[i].height, region: region[i].height, outcome: outcome[i].height });
+      // Positions: where the message and the control sit, against the old box, in every shape.
+      for (const key of ['msgTop', 'afterTop']) {
+        near(outcome[i][key], plain[i][key], `LiveOutcome ${key} (${at}) vs the old conditional box`);
+        if (!note?.failed) near(region[i][key], plain[i][key], `LiveRegion ${key} (${at}) vs the old conditional box`);
+      }
+      if (!note?.failed && (note || trailing)) near(region[i].height, plain[i].height, `LiveRegion height (${at}) vs the old conditional box`);
+      if (!note?.failed) near(outcome[i].height, region[i].height, `LiveOutcome height (${at}) vs LiveRegion`);
+      if (note?.failed || trailing) near(outcome[i].height, plain[i].height, `LiveOutcome height (${at}) vs the old conditional box`);
+    });
   }
   // Control: without the :has rule the status-last case grows; proves this check can see the trap.
   const control = await page.evaluate(async ({ css }) => {
@@ -56,7 +71,7 @@ try {
     await new Promise((r) => requestAnimationFrame(r));
     return document.querySelector('[data-testid="column"]').getBoundingClientRect().height;
   }, { css });
-  const reference = rows.find((r) => r.note === 'status' && !r.trailing).plain;
+  const reference = rows.find((r) => r.at === 'status / trailing=false').plain;
   assert.ok(control > reference + 4, `control: two plain sibling regions leave a trailing gap (${control}px vs ${reference}px)`);
   console.log(JSON.stringify({ ok: true, checked: rows.length, control, reference }));
 } finally {

@@ -139,3 +139,24 @@ describe('the switched-on message', () => {
     expect(region.getAttribute('role')).toBe('status');
   });
 });
+
+// portal#2379: the drifted and too-many notes arrive when a stale switch-on hands back a different preview,
+// so they land in a status region that was already mounted and empty (a read of the markup says "present at
+// load"; a mounted probe says otherwise).
+describe('the drifted and too-many notes', () => {
+  it.each([
+    ['drifted', { kind: 'drifted' }, 'What would change has changed'],
+    ['too_many', { kind: 'too_many', total: 12 }, 'Too many to review here'],
+  ] as const)('a stale switch-on that returns a %s preview lands the note in the region that existed before', async (_kind, preview, text) => {
+    const t = mountPage(ok('tok-loaded', [row(1)]));
+    await tick();
+    const before = emptyRegions(t);
+    expect(before.map((r) => r.getAttribute('role'))).toContain('status');
+    await submitEnhancedWithResult(form(t), { type: 'failure', status: 409, data: { outcome: 'stale', preview } });
+    flushSync();
+    await tick();
+    const region = regionHolding(t, text);
+    expect(before).toContain(region);
+    expect(region.getAttribute('role')).toBe('status');
+  });
+});

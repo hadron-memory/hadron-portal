@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick } from '$lib/test/mountComponent';
 import Panel from './InstallCustomisation.svelte';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { emptyRegions, regionHolding } from '$lib/test/liveRegionPin';
 const mounted: ReturnType<typeof mountComponent>[] = [];
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
@@ -731,5 +732,26 @@ describe('stale save target (#1370)', () => {
     await settle();
     expect(reads).toBe(readsBeforeSave + 1);
     expect(root.querySelector('textarea')?.value).toBe('original draft');
+  });
+});
+
+// portal#2379 (slice of portal#2344): the empty-page note arrives after a page change, so it lands in a
+// status region that was already mounted and empty, not inserted populated with its branch.
+describe('empty-list note live region', () => {
+  it('a Next that returns an empty page puts the note in the region that existed before', async () => {
+    const empty = { ...payload(), list: { state: 'ok', value: { memoryId: 'mem', urn: 'hrn:mem:acme.com:install', nodes: [], total: 25, offset: 1 } } };
+    const answers = [payload(), empty];
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(answers.shift() ?? empty), { headers: { 'Content-Type': 'application/json' } })));
+    const root = await panel();
+    const before = emptyRegions(root);
+    expect(before.length).toBeGreaterThan(0);
+    expect(root.querySelector('[data-testid="customisation-list-unavailable"]')).toBeNull();
+    button(root, 'Next').click();
+    await settle();
+    const note = root.querySelector('[data-testid="customisation-list-unavailable"]');
+    expect(note?.textContent).toContain('may not be the full set');
+    const region = regionHolding(root, 'may not be the full set');
+    expect(before).toContain(region);
+    expect(region.getAttribute('role')).toBe('status');
   });
 });

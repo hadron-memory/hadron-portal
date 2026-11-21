@@ -17,6 +17,11 @@
   region follows it), so it would gain a trailing gap the old last-child box never had; the
   `:has` class drops that margin when only the empty alert region follows.
 
+  Placement (hadron-portal#2386 ruling): never an idle region as the LAST child of a `space-y-*` parent
+  or last item of a flex/grid `gap` row, because the element before it stops being the last child and
+  gains its spacing. Put it right AFTER the container, or in a plain wrapper `<div>`, with the old top
+  margin (`mt-3`) on the box.
+
   Convention: hrn:node:hadronmemory.com:hadron-portal:components:live-region
   Check: hrn:node:hadronmemory.com:hadron-portal:review:live-region-persistent-not-conditionally-mounted
 -->
