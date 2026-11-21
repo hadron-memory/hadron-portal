@@ -187,6 +187,18 @@ jobs:
 
       - name: Check opt-in table cell paint and interactive minima
         run: pnpm test:table-cell-overflow-layout
+        env:
+          CELL_SHOTS: test-results/table-cell-overflow
+
+      # The legs that passed, plus a FAILED-<leg>.png of the leg that threw (a leg that only queues findings has none).
+      - name: Upload table cell containment screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: table-cell-overflow-layout
+          path: test-results/table-cell-overflow
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Check compact terminal containment
         run: pnpm test:terminal-status-layout
