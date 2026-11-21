@@ -2848,9 +2848,11 @@
         <button type="button" onclick={() => retryTab(activeTab as AppTabId)} class="mt-2 font-medium underline">{t('app.tab.retry', 'Try again')}</button>
       </div>
     {:else}
-      <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.tab.loading', 'Loading…')}</p>
+      <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.tab.loading', 'Loading…')}</p>
     {/if}
   {/snippet}
+  <!-- The visible line sits in a panel that unmounts when the tab arrives, so a persistent region beside it does the announcing. -->
+  <LiveRegion class="sr-only" data-testid="tab-loading-region">{#if !tabShown(activeTab as AppTabId) && activeTab !== 'ai-configs' && !tabFailed}{t('app.tab.loading', 'Loading…')}{/if}</LiveRegion>
   <!-- The AI Service Configs panel is always mounted (below) and says this itself. -->
   {#if !tabShown(activeTab as AppTabId) && activeTab !== 'ai-configs'}
     <div id="panel-{activeTab}" role="tabpanel" aria-labelledby="tab-{activeTab}" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
@@ -3224,13 +3226,15 @@
        Append-only: no delete, no edit, no rename. -->
   {#if activeTab === 'runs'}
     <div role="tabpanel" id="panel-runs" aria-labelledby="tab-runs" tabindex="0" class="min-w-0 focus-visible:outline-2 focus-visible:outline-indigo-500">
-      {#if currentRunsPanel}<AppRunsPanel data={currentRunsPanel} {form} />{:else}<p role="status">{t('runs.loading', 'Loading runs…')}</p>{/if}
+      <LiveRegion>{#if !currentRunsPanel}<p>{t('runs.loading', 'Loading runs…')}</p>{/if}</LiveRegion>
+      {#if currentRunsPanel}<AppRunsPanel data={currentRunsPanel} {form} />{/if}
     </div>
   {/if}
 
   {#if activeTab === 'node-role-templates'}
     <div id="panel-node-role-templates" role="tabpanel" aria-labelledby="tab-node-role-templates" tabindex="0" class="min-w-0 focus-visible:outline-2 focus-visible:outline-indigo-500">
-      {#if tabData.templatesPanel}<AppNodeRoleTemplates data={tabData.templatesPanel} bind:leaveMessage={templatesLeaveMessage} />{:else}<p role="status">{t('config.templates-loading', 'Loading templates…')}</p>{/if}
+      <LiveRegion>{#if !tabData.templatesPanel}<p>{t('config.templates-loading', 'Loading templates…')}</p>{/if}</LiveRegion>
+      {#if tabData.templatesPanel}<AppNodeRoleTemplates data={tabData.templatesPanel} bind:leaveMessage={templatesLeaveMessage} />{/if}
     </div>
   {/if}
 
@@ -4341,6 +4345,7 @@
     <div class="space-y-8">
       <!-- AI providers (registry; consumers resolve a config by name) -->
       <!-- portal#2240: mounted once its rows have arrived, then kept mounted while hidden. -->
+      <LiveRegion class="sr-only" data-testid="ai-configs-loading-region">{#if activeTab === 'ai-configs' && !tabShown('ai-configs') && !tabFailed}{t('app.tab.loading', 'Loading…')}{/if}</LiveRegion>
       {#if tabShown('ai-configs')}
       <section class="max-w-2xl">
         <AiServiceConfigSection

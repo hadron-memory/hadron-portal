@@ -81,14 +81,16 @@
     </div>
 
     <LiveRegion>
-      {#if register.index && !stale && (register.index.kind === 'agent-not-found' || register.index.kind === 'app-not-found')}
+      {#if register.index !== null && stale}
+        <p class="text-sm text-zinc-500">{t('action-register.loading', 'Loading…')}</p>
+      {:else if register.index && (register.index.kind === 'agent-not-found' || register.index.kind === 'app-not-found')}
         <p class="text-sm text-zinc-600 dark:text-zinc-400" data-testid="register-not-available">{t('action-register.section.not-available', 'Not available for this App.')}</p>
       {/if}
     </LiveRegion>
     {#if register.index === null}
       <!-- No App chosen: nothing was asked, so nothing is empty. -->
     {:else if stale}
-      <p role="status" class="text-sm text-zinc-500">{t('action-register.loading', 'Loading…')}</p>
+      <!-- announced by the LiveRegion above -->
     {:else if register.index.kind === 'agent-not-found' || register.index.kind === 'app-not-found'}
       <!-- announced by the status region above -->
     {:else if register.index.kind === 'failed'}

@@ -336,6 +336,26 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
     expect(panel.textContent).not.toContain('Task and pause state could not be loaded');
   });
 
+  it('portal#2282: retrying a roster the LOADER failed shows the fresh read (needs supersedeData)', async () => {
+    // Every other retry test starts from `teamRoster: null`, where the fetch's
+    // read wins by default. Here `data.teamRoster` is the failed read the loader
+    // brought (?tab=staff), and it outranks a fetched answer unless the retry
+    // marks that answer as superseding the loader snapshot.
+    const calls = stubRosterResponses(() => json(200, rosterOk));
+    const target = await mountPage({ teamRoster: { kind: 'failed' } });
+
+    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await settled(3);
+    const panel = target.querySelector('#panel-staff')!;
+    expect(panel.textContent).toContain('Task and pause state could not be loaded');
+    expect(rosterCalls(calls)).toHaveLength(0);
+    retryButton(panel)!.click();
+    await settled(3);
+    expect(rosterCalls(calls)).toHaveLength(1);
+    expect(panel.textContent).toContain('Fix the login handoff');
+    expect(panel.textContent).not.toContain('Task and pause state could not be loaded');
+  });
+
   it('item 2: a hung roster connection resolves to the failed notice within 10 s', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
