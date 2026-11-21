@@ -21,7 +21,7 @@ import {
 const schema = buildSchema(readFileSync('schema/schema.graphql', 'utf8'));
 const errors = (doc: string) => validate(schema, parse(doc)).map((e) => e.message);
 
-/** The fields an operation selects DIRECTLY under `field` (nested selections do not count). */
+/** The response keys an operation selects DIRECTLY under `field` (nested selections do not count; an alias renames the key). */
 function directSelections(query: string, field: string): string[] {
   const out: string[] = [];
   const walk = (set: { selections: readonly import('graphql').SelectionNode[] } | undefined): void => {
@@ -34,7 +34,9 @@ function directSelections(query: string, field: string): string[] {
       const node: FieldNode = sel;
       if (node.name.value === field) {
         for (const child of node.selectionSet?.selections ?? []) {
-          if (child.kind === Kind.FIELD) out.push(child.name.value);
+          // The RESPONSE key is what the helper reads: `appId: id` serves the
+          // key `appId` from the wrong field, and `id: appId` drops the key.
+          if (child.kind === Kind.FIELD) out.push(child.alias?.value ?? child.name.value);
         }
       }
       walk(node.selectionSet);
@@ -90,5 +92,7 @@ describe('#1075 Task Nodes operations match the server snapshot', () => {
     expect(directSelections('query Q { memories { items { id app { appId } } } }', 'items')).not.toContain('appId');
     expect(directSelections('query Q { memories { items { id foo { bar } appId } } }', 'items')).toContain('appId');
     expect(directSelections('query Q { memories { items { id } } }', 'items')).not.toContain('appId');
+    // An alias removes the `appId` response key the org-memory filter reads (Beckett, #2409).
+    expect(directSelections('query Q { memories { items { id other: appId } } }', 'items')).not.toContain('appId');
   });
 });
