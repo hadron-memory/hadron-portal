@@ -58,6 +58,18 @@ it('both legacy paths redirect once with the query intact and Runs selected', as
   await expect(canonical.load(event as never)).rejects.toMatchObject({ status: 308, location: '/app/apps/a?status=FAILED&page=3&sort=status&dir=asc&extra=keep&tab=runs' });
   await expect(nested.load(event as never)).rejects.toMatchObject({ status: 308, location: '/app/apps/a?status=FAILED&page=3&sort=status&dir=asc&extra=keep&tab=runs' });
 });
+// portal#1767 rows 8-9 (`enc_l`, `enc_n`): both legacy 308s encode the appId
+// into the redirect path. Mutant: interpolate params.appId raw — the reserved
+// `?` then folds the rest of the id into the query and the location stops
+// being the encoded form, so the pin dies on the assertion below.
+it('encodes a reserved-character appId in both legacy redirects and stays under /app/apps/ (rows 8-9: raw appId)', async () => {
+  const canonical = await import('./+page.server');
+  const nested = await import('../../../orgs/[id]/apps/[appId]/runs/+page.server');
+  const event = { params: { id: 'org-1', appId: 'a/b?x' }, url: new URL('https://test/app/apps/a%2Fb%3Fx/runs?page=3'), parent: async () => ({}) };
+  for (const route of [canonical.load, nested.load]) {
+    await expect(route(event as never)).rejects.toMatchObject({ status: 308, location: '/app/apps/a%2Fb%3Fx?page=3&tab=runs' });
+  }
+});
 it('does not turn a legacy failed POST render into a method-preserving redirect/replay', async () => {
   const { load } = await import('./+page.server');
   const data = await load({ params: { appId: 'a' }, locals: { token: 't' }, request: new Request('https://test/app/apps/a/runs?/run', { method: 'POST' }), url: new URL('https://test/app/apps/a/runs?/run') } as never);

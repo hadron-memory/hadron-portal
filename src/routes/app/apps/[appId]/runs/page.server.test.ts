@@ -10,8 +10,11 @@ import {
 } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
+// portal#1767 row 7: record every token gqlClient receives, so a pin can hold
+// the caller-credential contract (the run action must pass locals.token).
+const gqlTokens: (string | undefined)[] = [];
 vi.mock('$lib/server/api', () => ({
-  gqlClient: () => ({ request: mockRequest }),
+  gqlClient: (token?: string) => { gqlTokens.push(token); return { request: mockRequest }; },
 }));
 
 vi.mock('$lib/server/guards', () => ({
@@ -45,6 +48,7 @@ vi.mock('$app/stores', async () => {
 
 beforeEach(() => {
   mockRequest.mockReset();
+  gqlTokens.length = 0;
 });
 
 const app = { id: 'app-1', name: 'Digest', organizationId: 'org-1' };
@@ -260,6 +264,21 @@ describe('app runs run action', () => {
     expect((result as { status: number }).status).toBe(400);
     expect(superFormFrom(result)?.errors?.entryUrn?.[0]).toBe('Flow entry node is required.');
     expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  // portal#1767 row 7 (`run_token`): the mutation runs on the caller's own
+  // credential. Mutant: gqlClient() with no argument — the recording mock then
+  // holds undefined and this pin fails on the assertion, not on a crash.
+  it('starts the flow as the signed-in caller, an impersonation token included (row 7: gqlClient())', async () => {
+    mockRequest.mockResolvedValueOnce({ runTask: 'run-1' });
+    const { actions } = await importServer();
+    await expect(actions.run(actionEvent({ entryUrn: 'hrn:node:acme.com::flows::entry' }) as never)).rejects.toMatchObject({ status: 303 });
+    expect(gqlTokens.at(-1)).toBe('tok');
+
+    mockRequest.mockResolvedValueOnce({ runTask: 'run-2' });
+    const impersonated = { ...actionEvent({ entryUrn: 'hrn:node:acme.com::flows::entry' }), locals: { token: 'imp-personation-tok' } };
+    await expect(actions.run(impersonated as never)).rejects.toMatchObject({ status: 303 });
+    expect(gqlTokens.at(-1)).toBe('imp-personation-tok');
   });
 
   it('rejects run POSTs with the wrong form discriminator', async () => {
