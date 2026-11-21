@@ -46,7 +46,7 @@ function svelteFiles(dir: string, out: string[] = []): string[] {
 
 type Node = { type: string; start?: number; data?: string; attributes?: Attr[]; fragment?: Fragment; consequent?: Fragment; alternate?: Fragment | null; body?: Fragment; fallback?: Fragment; pending?: Fragment; then?: Fragment; catch?: Fragment; children?: Node[]; nodes?: Node[] };
 type Expr = { type: string; value?: unknown; name?: string; quasis?: Array<{ value: { cooked?: string | null } }>; consequent?: Expr; alternate?: Expr; left?: Expr; right?: Expr; operator?: string; expressions?: Expr[]; start: number; end: number };
-type Attr = { type: string; name?: string; value?: true | { type: string; data?: string }[] | { type: string; expression?: Expr } };
+type Attr = { type: string; name?: string; value?: true | Array<{ type: string; data?: string; expression?: Expr }> | { type: string; expression?: Expr } };
 type Fragment = { nodes: Node[] };
 
 /**
@@ -77,8 +77,11 @@ function roleOf(node: Node): string | null | undefined {
   const attr = (node.attributes ?? []).find((a) => a.type === 'Attribute' && a.name === 'role');
   if (!attr) return undefined;
   if (Array.isArray(attr.value) && attr.value.length === 1 && attr.value[0].type === 'Text') return attr.value[0].data?.trim();
-  const expression = attr.value && !Array.isArray(attr.value) && attr.value !== true ? attr.value.expression : undefined;
-  return canBeStatus(expression) ? null : 'other';
+  // `role={x}` is one expression tag; `role="{x}"` is a one-chunk array holding the same expression tag. A quoted
+  // attribute mixing text and expressions (`role="a{b}"`) is unknown, so it counts.
+  const only = Array.isArray(attr.value) ? (attr.value.length === 1 ? attr.value[0] : undefined) : attr.value !== true ? attr.value : undefined;
+  const expression = only && only.type === 'ExpressionTag' ? (only as { expression?: Expr }).expression : undefined;
+  return only && !expression ? null : canBeStatus(expression) ? null : 'other';
 }
 
 /**
@@ -181,6 +184,11 @@ describe('portal#2344: status regions are persistent, not mounted by an {#if} br
     expect(conditionalStatusRegions("{#if a}<p role={a ? 'alert' : b ? 'status' : 'alert'}>x</p>{/if}")).toBe(1);
     expect(conditionalStatusRegions("{#if a}<p role={a ? 'alert' : b ? 'dialog' : 'alert'}>x</p>{/if}")).toBe(0);
     expect(conditionalStatusRegions("{#if a}<p role={a && 'alert'}>x</p>{/if}")).toBe(0);
+    // A quoted expression is the same expression: judged by its branches, in either spelling.
+    expect(conditionalStatusRegions("{#if a}<div role=\"{full ? 'dialog' : undefined}\">x</div>{/if}")).toBe(0);
+    expect(conditionalStatusRegions("{#if a}<p role=\"{failed ? 'alert' : 'status'}\">x</p>{/if}")).toBe(1);
+    expect(conditionalStatusRegions('{#if a}<p role="{notice.role}">x</p>{/if}')).toBe(1);
+    expect(conditionalStatusRegions('{#if a}<p role="x{kind}">x</p>{/if}')).toBe(1);
     // Templates: static ones are judged by their text, interpolated ones are unknown.
     expect(conditionalStatusRegions('{#if a}<p role={`status`}>x</p>{/if}')).toBe(1);
     expect(conditionalStatusRegions('{#if a}<p role={`dialog`}>x</p>{/if}')).toBe(0);

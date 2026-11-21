@@ -50,15 +50,15 @@ try {
   const near = (a, b, why) => assert.ok(a === null || b === null ? a === b : Math.abs(a - b) <= 0.5, `${why}: ${a} vs ${b}`);
   const present = (step, key, expected, why) => assert.equal(step[key] !== null, expected, `${why}: ${key} ${expected ? 'missing' : 'unexpectedly present'}`);
   const rows = [];
-  for (const trailing of [false, true]) {
-    const plain = await sequence({ mode: 'plain', trailing });
-    const region = await sequence({ mode: 'region', trailing });
-    const outcome = await sequence({ mode: 'outcome', trailing });
+  for (const hasFollowingControl of [false, true]) {
+    const plain = await sequence({ mode: 'plain', hasFollowingControl });
+    const region = await sequence({ mode: 'region', hasFollowingControl });
+    const outcome = await sequence({ mode: 'outcome', hasFollowingControl });
     STEPS.forEach(([label, note], i) => {
-      const at = `${label} / trailing=${trailing}`;
+      const at = `${label} / hasFollowingControl=${hasFollowingControl}`;
       for (const [shape, seq] of [['plain', plain], ['region', region], ['outcome', outcome]]) {
         present(seq[i], 'msgTop', !!note, `${shape} / ${at}`);
-        present(seq[i], 'afterTop', trailing, `${shape} / ${at}`);
+        present(seq[i], 'afterTop', hasFollowingControl, `${shape} / ${at}`);
       }
       rows.push({ at, plain: plain[i].height, region: region[i].height, outcome: outcome[i].height });
       // Positions: where the message and the control sit, against the old box, in every shape.
@@ -66,9 +66,9 @@ try {
         near(outcome[i][key], plain[i][key], `LiveOutcome ${key} (${at}) vs the old conditional box`);
         if (!note?.failed) near(region[i][key], plain[i][key], `LiveRegion ${key} (${at}) vs the old conditional box`);
       }
-      if (!note?.failed && (note || trailing)) near(region[i].height, plain[i].height, `LiveRegion height (${at}) vs the old conditional box`);
+      if (!note?.failed && (note || hasFollowingControl)) near(region[i].height, plain[i].height, `LiveRegion height (${at}) vs the old conditional box`);
       if (!note?.failed) near(outcome[i].height, region[i].height, `LiveOutcome height (${at}) vs LiveRegion`);
-      if (note?.failed || trailing) near(outcome[i].height, plain[i].height, `LiveOutcome height (${at}) vs the old conditional box`);
+      if (note?.failed || hasFollowingControl) near(outcome[i].height, plain[i].height, `LiveOutcome height (${at}) vs the old conditional box`);
     });
   }
   // Control: without the :has rule the status-last case grows; proves this check can see the trap.
@@ -78,9 +78,10 @@ try {
     await new Promise((r) => requestAnimationFrame(r));
     return document.querySelector('[data-testid="column"]').getBoundingClientRect().height;
   }, { css });
-  const reference = rows.find((r) => r.at === 'status / trailing=false').plain;
+  const reference = rows.find((r) => r.at === 'status / hasFollowingControl=false').plain;
   assert.ok(control > reference + 4, `control: two plain sibling regions leave a trailing gap (${control}px vs ${reference}px)`);
   console.log(JSON.stringify({ ok: true, checked: rows.length, control, reference }));
 } finally {
-  await browser?.close(); await server.close();
+  // Nested, so Vite still shuts down when closing the browser rejects.
+  try { await browser?.close(); } finally { await server.close(); }
 }
