@@ -791,7 +791,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       // Only a recognised refusal came before any commit. No response, an internal error or an unknown code
       // may come after one: say so and let the page check (never "Not saved").
-      if (!isDefiniteRefusal(e)) return fail(502, { lifecycleError: t('agent.lifecycle.error.unconfirmed', 'Couldn’t confirm the save; checking…'), uncertain: true });
+      if (!isDefiniteRefusal(e, ['AGENT_NOT_FOUND'])) return fail(502, { lifecycleError: t('agent.lifecycle.error.unconfirmed', 'Couldn’t confirm the save; checking…'), uncertain: true });
       switch (extractGqlErrorCode(e)) {
         case 'FORBIDDEN':
           return fail(403, { lifecycleError: t('agent.lifecycle.error.forbidden', 'Only the agent’s owner or an organization admin can change this.') });
