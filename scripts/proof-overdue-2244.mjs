@@ -14,7 +14,7 @@
  */
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 // fileURLToPath, not .pathname: paths with spaces or a Windows host break on
@@ -90,9 +90,15 @@ const initial = {
 const browser = await chromium.launch({ headless: true });
 const results = [];
 
-// Mirrors the class pair at src/routes/+layout.svelte:38 (`dark ? … : …`).
-const SHELL_DARK = 'min-h-screen bg-zinc-950 text-zinc-100';
-const SHELL_LIGHT = 'min-h-screen bg-zinc-50 text-zinc-900';
+// The color pairs the root layout wraps every route in. Read from the layout
+// source and asserted below, so a change there fails this script instead of
+// leaving the proof painting a stale pair (portal#2255 blind review).
+const SHELL_DARK = 'bg-zinc-950 text-zinc-100';
+const SHELL_LIGHT = 'bg-zinc-50 text-zinc-900';
+const layoutSource = readFileSync(new URL('../src/routes/+layout.svelte', import.meta.url), 'utf8');
+for (const pair of [SHELL_DARK, SHELL_LIGHT]) {
+  if (!layoutSource.includes(`'${pair}'`)) throw new Error(`src/routes/+layout.svelte no longer wraps routes in '${pair}'; update the proof's shell pair`);
+}
 
 async function shoot(name, { dark, savedArrangement = null }) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -104,20 +110,14 @@ async function shoot(name, { dark, savedArrangement = null }) {
   await page.goto(new URL('/__board_fixture', origin).href);
   await page.addStyleTag({ content: css });
   // portal#2255: this document has no app shell, so the proof must reproduce
-  // the shell's own color pair. Painting only `bg-*` here left every element
+  // the shell's own color pair. Painting only a background left every element
   // without its own color class at UA-initial black on zinc-950, which
   // manufactured the (closed) #2251 contrast finding in the dark shot.
-  // These are the classes src/routes/+layout.svelte:38 wraps every route in.
-  const shell = dark ? SHELL_DARK : SHELL_LIGHT;
+  const shell = `min-h-screen ${dark ? SHELL_DARK : SHELL_LIGHT}`;
   await page.evaluate(({ dark, shell }) => {
     document.documentElement.classList.toggle('dark', dark);
     document.body.className = shell;
   }, { dark, shell });
-  // The shell-assertion arm: fail if the inherited text color is not set, so
-  // a future edit cannot silently drop it again.
-  const shellText = shell.split(' ').find((c) => c.startsWith('text-'));
-  const hasText = await page.evaluate((cls) => document.body.classList.contains(cls), shellText);
-  if (!hasText) throw new Error(`${name}: proof body lacks the shell text class ${shellText}`);
   // portal#2253 item 4: optionally seed a saved board arrangement (pre-PR
   // vintage, saved before the Finish by column existed) BEFORE the board
   // mounts, the way a real browser carries it in localStorage across a
@@ -134,6 +134,21 @@ async function shoot(name, { dark, savedArrangement = null }) {
   }, initial);
   // Not a fixed sleep loop (portal#2248 review P3): wait for the table.
   await page.waitForSelector('tbody tr');
+  // Shell assertion, on rendered colors rather than on the class we just set:
+  // the Clear anchor sets no color of its own, so its computed color is the
+  // inherited one. It must be light on the dark shell and dark on the light
+  // one (the UA-initial black on zinc-950 is the defect this guards).
+  const lum = await page.evaluate(() => {
+    const clear = [...document.querySelectorAll('a,button')].find((e) => (e.textContent || '').trim() === 'Clear');
+    if (!clear) return null;
+    const c = document.createElement('canvas').getContext('2d');
+    c.fillStyle = getComputedStyle(clear).color;
+    c.fillRect(0, 0, 1, 1);
+    const [r, g, b] = c.getImageData(0, 0, 1, 1).data;
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  });
+  if (lum === null) throw new Error(`${name}: no Clear control to measure the inherited color on`);
+  if (dark ? lum < 0.6 : lum > 0.4) throw new Error(`${name}: Clear inherits luminance ${lum.toFixed(2)}, not the ${dark ? 'light' : 'dark'} shell text color`);
 
   // Scoped to the one header row (portal#2253 item 3): header indexes map onto
   // td indexes, and a second header row or a th in tbody would skew the mapping.
