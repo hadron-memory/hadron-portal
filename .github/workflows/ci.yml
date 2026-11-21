@@ -178,6 +178,12 @@ jobs:
       - name: Check Findings dispositions layout
         run: pnpm test:task-findings-dispositions-layout
 
+      # portal#2440: the question card (#2234) in real Chromium — the states, the
+      # impersonation/stranger gates, the typed refusal regions, and the keyboard
+      # and screen-reader pass the manual pass left undone.
+      - name: Check Question card layout and live regions
+        run: pnpm test:question-card-layout
+
       # portal#1700: the Nodes tab reads one bounded page per action and keeps its DOM windowed (real Chromium).
       - name: Check Nodes tab lazy reads
         run: pnpm test:nodes-tab-lazy
