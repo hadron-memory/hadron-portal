@@ -5,8 +5,8 @@
  * The message used to sit inside the `preview.kind === 'ok'` branch of the page's preview chain.
  * A stale switch-on replaces the preview with the freshly loaded one, which may be `drifted` or
  * `too_many`, so the enclosing branch was replaced by the result itself: the region was unmounted
- * while a populated one appeared in the new branch. Now one section-level region sits outside
- * the chain, and the `drifted` branch does not repeat the text.
+ * while a populated one appeared in the new branch. Now main's section-level region (#2379) also
+ * carries the stale outcome, and the `drifted` branch does not repeat the text.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';
@@ -62,6 +62,9 @@ describe.each([
     p.form = null;
     flushSync(); await tick();
     expect([...root.querySelectorAll('[role="status"]')]).toContain(during);
-    expect(during.textContent?.trim()).toBe('');
+    // The note outlives the form result only where the reloaded preview is itself the note (drifted,
+    // too_many); for ok the region empties. Either way it is the same element, never remounted.
+    if (_name === 'ok') expect(during.textContent?.trim()).toBe('');
+    else expect(during.textContent?.trim()).not.toBe('');
   });
 });
