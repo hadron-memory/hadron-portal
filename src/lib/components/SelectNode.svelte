@@ -1,5 +1,4 @@
 <script lang="ts">
-  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { untrack } from 'svelte';
   import { pickerStrings } from '$lib/i18n/picker-strings';
   import { focusTrap } from '$lib/a11y/focus-trap';
@@ -9,6 +8,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import SelectMemory from './SelectMemory.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import Urn from './Urn.svelte';
   import type { NodeChoice, NodeChoicesPage } from '$lib/node-choices';
 
@@ -260,7 +260,7 @@
                search and throw away the rows already loaded (#1582 BLIND P3). -->
           <button type="button" disabled={pending} class="rounded border px-3 py-1 disabled:opacity-50" onclick={() => read()}>{t('app.nodes.picker.retry', 'Try again')}</button>
         {/if}
-        {#if pending}<p role="status">{t('app.nodes.picker.loading', 'Loading nodes…')}</p>{/if}
+        <LiveRegion>{#if pending}<p>{t('app.nodes.picker.loading', 'Loading nodes…')}</p>{/if}</LiveRegion>
 
         <DataTable {table} listKey="node-picker:open" showSearch={false} searchPlaceholder="" searchAriaLabel="" bounded>
           {#snippet cell(cell, row)}

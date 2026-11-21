@@ -11,6 +11,7 @@
    */
   import { onMount, untrack, type Snippet } from 'svelte';
   import { t } from '$lib/i18n/t';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { readSection, type TaskSection } from '$lib/agent-tasks/sections';
 
   let { appId, taskId, section, version, children, placeholder, label = t('app.tasks.section.loading', 'Loading…') }: {
@@ -98,11 +99,10 @@
 </script>
 
 <div bind:this={host}>
+  <LiveRegion>{#if read === null && !placeholder}<p class="text-sm text-zinc-500 dark:text-zinc-400">{label}</p>{/if}</LiveRegion>
   {#if read !== null}
     {@render children(read as T)}
   {:else if placeholder}
     {@render placeholder()}
-  {:else}
-    <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{label}</p>
   {/if}
 </div>

@@ -499,8 +499,9 @@
               </span>
             {/if}
           </label>
+          <LiveRegion>{#if effectiveState === 'loading'}<p class="mt-2 text-xs text-zinc-500">{t('app.channels.effective.loading', 'Loading…')}</p>{/if}</LiveRegion>
           {#if effectiveState === 'loading'}
-            <p class="mt-2 text-xs text-zinc-500" role="status">{t('app.channels.effective.loading', 'Loading…')}</p>
+            <!-- announced by the LiveRegion above -->
           {:else if effectiveState === 'failed'}
             <p class="mt-2 text-sm text-amber-700 dark:text-amber-300" role="alert">{t('app.channels.effective.failed', 'Couldn’t load that just now. This is an error, not an empty list. Try again.')}</p>
           {:else if effective}

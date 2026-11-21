@@ -56,7 +56,7 @@ function stubFetch() {
 async function chatsFirst(appId = 'a1') {
   const data = { ...await pageData(), bootPointerAppKey: appId } as Record<string, unknown>;
   data.app = { ...(data.app as object), id: appId };
-  for (const tab of ['keys', 'worklog'] as const) for (const g of TAB_READS[tab]) for (const k of READ_GROUP_KEYS[g]) delete data[k];
+  for (const tab of ['keys', 'worklog', 'ai-configs'] as const) for (const g of TAB_READS[tab]) for (const k of READ_GROUP_KEYS[g]) delete data[k];
   return data;
 }
 
@@ -77,7 +77,9 @@ async function show(target: HTMLElement, tab: string) {
 }
 const readsOf = (tab: string) => tabReads.filter((r) => r.tab === tab);
 const panel = (t: HTMLElement, tab: string) => t.querySelector<HTMLElement>(`#panel-${tab}`);
-const loading = (t: HTMLElement, tab: string) => panel(t, tab)?.querySelector('[role="status"]')?.textContent?.includes('Loading') ?? false;
+// The visible line is plain text in the panel; the announcement is the persistent region beside it (portal#2344).
+const loading = (t: HTMLElement, tab: string) => panel(t, tab)?.textContent?.includes('Loading') ?? false;
+const announcer = (t: HTMLElement) => t.querySelector<HTMLElement>('[data-testid="tab-loading-region"]');
 const keyShown = (t: HTMLElement, preview: string) => panel(t, 'keys')?.textContent?.includes(preview) ?? false;
 
 describe('portal#2240: a tab the first screen did not read', () => {
@@ -89,12 +91,20 @@ describe('portal#2240: a tab the first screen did not read', () => {
 
   it('is read once on its first show, renders when the answer lands, and is not read again on switching back', async () => {
     const { target } = await mountPage();
+    const regionBefore = announcer(target);
+    expect(regionBefore, 'the region exists before the tab is shown').not.toBeNull();
+    expect(regionBefore?.textContent?.trim()).toBe('');
     await show(target, 'keys');
     expect(readsOf('keys')).toHaveLength(1);
     expect(loading(target, 'keys')).toBe(true);
+    // portal#2344: the announcing region is the same element before, during and after the read.
+    expect(announcer(target)).toBe(regionBefore);
+    expect(announcer(target)?.textContent?.trim()).toBe('Loading…');
 
     readsOf('keys')[0].resolve(json(keysPayload('abc123')));
     await wait(0); await tick(3);
+    expect(announcer(target)).toBe(regionBefore);
+    expect(announcer(target)?.textContent?.trim()).toBe('');
     expect(loading(target, 'keys')).toBe(false);
     expect(keyShown(target, 'abc123')).toBe(true);
 
@@ -244,6 +254,18 @@ describe('portal#2240: a tab the first screen did not read', () => {
     // Unfixed, Client's stale copy sat later in insertion order and masked this read.
     expect(keyShown(target, 'newkey')).toBe(true);
     expect(keyShown(target, 'oldkey')).toBe(false);
+  });
+});
+
+describe('portal#2344: the AI Configs tab has one announcer', () => {
+  it('first activation puts Loading… in exactly one populated status region, then empties it', async () => {
+    const { target } = await mountPage();
+    await show(target, 'ai-configs');
+    const populated = () => [...target.querySelectorAll<HTMLElement>('[role="status"]')].filter((r) => r.textContent?.includes('Loading'));
+    expect(readsOf('ai-configs')).toHaveLength(1);
+    expect(populated(), 'one owner for the pending AI Configs read').toHaveLength(1);
+    expect(populated()[0].getAttribute('data-testid')).toBe('ai-configs-loading-region');
+    expect(announcer(target)?.textContent?.trim() ?? '').toBe('');
   });
 });
 
