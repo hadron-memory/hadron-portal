@@ -13,7 +13,7 @@
   const ownerAttribution = $derived(data.ownerAttribution);
 
   const isAgentSystem = $derived(g.class === 'system');
-  // portal#1848: a personal memory can be shared (cor:acl:010:02), so "Only you"
+  // portal#1848: a personal memory can be shared (hrn:node:hadronmemory.com:specs:cor:acl:010:02), so "Only you"
   // needs the viewer's relationship; private never is shared.
   const personalAccess = $derived(g.class === 'personal' ? (data.personalAccess ?? 'unknown') : null);
   const isOwnerOnly = $derived(g.class === 'private' || personalAccess === 'owner-only');

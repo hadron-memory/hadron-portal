@@ -10,7 +10,7 @@ export type MemoryOwnerAttribution =
   | { urn: string; source: 'memory-urn' };
 
 /**
- * portal#1848: who the viewer is to a personal memory (cor:acl:010:02: it is
+ * portal#1848: who the viewer is to a personal memory (hrn:node:hadronmemory.com:specs:cor:acl:010:02: it is
  * reachable through a MemoryShare, so "Only you" is true only when unshared).
  * `owner-*` is judged by the strict user principal; the server hides it from a
  * share recipient, so any other viewer is `other` (never called the owner).
