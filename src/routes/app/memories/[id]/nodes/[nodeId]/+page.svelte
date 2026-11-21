@@ -768,10 +768,28 @@
     clearOnSubmit: 'none',
   });
 
+  // portal#2446: the first run must not rewrite flowFormData, which a
+  // full-page updateFlow refusal hydrated with the reader's refused draft.
+  // The dependencies are read BEFORE the early return so the effect still
+  // tracks them and later edits sync as before.
+  //
+  // The visible editor above (flowRows, outputWriteTo, outputMode) is seeded
+  // from node.data, not from the refused form. Until the reader edits, the
+  // hidden inputs therefore hold the draft while the editor shows the saved
+  // flow. That draft cannot be resubmitted unseen: the Save button of form
+  // ?/updateFlow is
+  //   disabled={$flowSubmitting || !flowDirty || flowRowsError !== null || !outputWriteToValid}
+  // and flowDirty is false until the editor differs from node.data. Seeding the
+  // editor from the draft is portal#2467.
+  let flowSyncMounted = false;
   $effect(() => {
     const rowsJson = flowRowsJson;
     const writeToTrim = outputWriteTo.trim();
     const mode = outputMode;
+    if (!flowSyncMounted) {
+      flowSyncMounted = true;
+      return;
+    }
     flowFormData.update((current) => ({
       ...current,
       extractionRows: rowsJson,
@@ -2684,15 +2702,38 @@
       printError = null;
       skillExportOpen = false;
       testFlowOpen = false;
-      $testFlowFormData.appId = '';
-      $testFlowFormData.agentRef = '';
-      $testFlowFormData.orgId = data.org?.id ?? '';
-      $testFlowFormData.payload = '';
       moveOpen = false;
       moveFullUrn = false;
-      $moveFormData.target = '';
       closeDeleteConfirm();
-      $deleteFormData.hard = false;
+      // portal#2446: the inverse half of #2057. A full-page (no-JS) refusal
+      // hydrates each sibling superForm's DATA store from the refused action
+      // form (its message store survives, so the alert shows), and this reset
+      // runs on the FIRST mount too, erasing the draft the alert is about.
+      // Same rule as the clearMetaRefusal() guard above: reset these only on
+      // a real node change.
+      // Inside this block `nodeChanged` is false on the first run (lastNodeId
+      // starts undefined) and true on every later run, because the block is
+      // entered only when the node id differs from the previous run's. A
+      // same-node re-run (invalidateAll, a revision bump) does not enter it at
+      // all, so it leaves every form store and every open dialog alone: a kept
+      // draft across a same-node re-run is intended. The test pins the draft and
+      // the open Run dialog (testFlowOpen); the move and delete dialogs follow
+      // from the same entry condition and are not separately pinned. $deleteFormData.hard needs no first-mount
+      // reset: its checkbox only renders inside the delete dialog, and both
+      // ways in (the 'delete' menu case and the Settings danger-zone button)
+      // set hard = false before opening it. The same goes for the move
+      // target ('move' menu case) and the testFlow org default (below).
+      if (nodeChanged) {
+        $testFlowFormData.appId = '';
+        $testFlowFormData.agentRef = '';
+        $testFlowFormData.orgId = data.org?.id ?? '';
+        $testFlowFormData.payload = '';
+        $moveFormData.target = '';
+        $deleteFormData.hard = false;
+      } else if (!$testFlowFormData.orgId) {
+        // First mount: keep a hydrated draft, but the org default still applies.
+        $testFlowFormData.orgId = data.org?.id ?? '';
+      }
       // portal#696: the attach-file dialog is transient too — SvelteKit reuses
       // this component across nodes, so leaving it open would carry it (and its
       // parentLoc, now stale) onto the next node.
