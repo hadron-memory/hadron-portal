@@ -783,7 +783,7 @@ async function saveNodeText(
     // the page words each fixed code itself (localized).
     const code = extractGqlErrorCode(e);
     if (code === 'BOOT_PROMPT_COMPILED_WRITE') return fail(400, { [failed]: { code: 'compiled-prompt', detail: null } });
-    if (code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED') return fail(400, { [failed]: { code: 'boot-prompt-governed', detail: null } });
+    if (code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED') return fail(400, { [failed]: { code: 'boot-prompt-worker-session-refused', detail: null } });
     if (code === 'BAD_USER_INPUT') return fail(400, { [failed]: { code: 'rejected', detail } });
     // The unclassified path keeps a bounded log: operation, stage and error code only, never the wire text, variables or content.
     console.error('[node-detail] save failed:', { op: `update-${field}`, stage: 'write', code: boundedLogCode(code) });
