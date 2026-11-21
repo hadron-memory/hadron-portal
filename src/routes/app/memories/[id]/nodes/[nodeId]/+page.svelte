@@ -34,6 +34,7 @@
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { isOwnershipChainUrn, moveHintGrammar } from '$lib/urn/move-hint-grammar';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
+  import RevisionLabelDialog from '$lib/components/RevisionLabelDialog.svelte';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import NodeSkillExport from '$lib/components/NodeSkillExport.svelte';
   import NodeRoleValue from '$lib/components/NodeRoleValue.svelte';
@@ -2339,9 +2340,36 @@
   // is a SINGLE fixed-positioned popover (anchored to the clicked ⋯ button), so
   // it isn't clipped by the DataTable's overflow-auto scroll container.
   let historyMenuFor = $state<NodeRevision | null>(null);
+  let historyMenuTrigger: HTMLElement | null = null;
   let historyMenuX = $state(0);
   let historyMenuY = $state(0);
   let restoreTarget = $state<NodeRevision | null>(null);
+  // #534: the revision whose label the "Edit label" popup is changing.
+  let labelTarget = $state<NodeRevision | null>(null);
+  // Which opening of the popup a save belongs to: a save that outlives its popup
+  // (cancelled, or the page moved to another node) must not close or clear a
+  // later one, nor lose its draft.
+  let labelDialogGeneration = 0;
+  // The label popup's own busy and refusal: a restore or delete in flight keeps
+  // reporting through historyBusy/historyError, and closing this popup never
+  // touches theirs.
+  let labelBusy = $state(false);
+  let labelError = $state<string | null>(null);
+  // Revisions with a label write still in flight. A second save for the same
+  // revision waits for the first to settle, so an earlier request cannot commit
+  // after a later one and put the old label back.
+  let labelWritesPending = $state<string[]>([]);
+  // The History row button that opened the popup; focus returns there on close.
+  let labelTrigger: HTMLElement | null = null;
+  function closeLabel() {
+    labelDialogGeneration++;
+    labelTarget = null;
+    labelBusy = false;
+    labelError = null;
+    const trigger = labelTrigger;
+    labelTrigger = null;
+    if (trigger) void tick().then(() => { if (trigger.isConnected) trigger.focus(); });
+  }
   let clearConfirm = $state(false);
   let historyBusy = $state(false);
   let historyError = $state<string | null>(null);
@@ -2353,10 +2381,14 @@
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     historyMenuX = rect.right;
     historyMenuY = rect.bottom + 4;
+    historyMenuTrigger = e.currentTarget as HTMLElement;
     historyMenuFor = r;
   }
 
-  async function postRevisionAction(payload: Record<string, unknown>): Promise<boolean> {
+  // `current` lets a caller whose result can be outlived (the label popup)
+  // fence its own busy/error reporting: a stale request still returns false/true
+  // but touches no page state.
+  async function postRevisionAction(payload: Record<string, unknown>, current: () => boolean = () => true): Promise<boolean> {
     historyBusy = true;
     historyError = null;
     try {
@@ -2367,16 +2399,16 @@
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) {
-        historyError = d.error ?? 'Revision action failed';
+        if (current()) historyError = d.error ?? 'Revision action failed';
         return false;
       }
       await invalidateAll(); // refresh the node + the streamed revision list
       return true;
     } catch (e) {
-      historyError = e instanceof Error ? e.message : 'Revision action failed';
+      if (current()) historyError = e instanceof Error ? e.message : 'Revision action failed';
       return false;
     } finally {
-      historyBusy = false;
+      if (current()) historyBusy = false;
     }
   }
 
@@ -2385,12 +2417,65 @@
     historyMenuFor = null;
     if (!r) return;
     if (id === 'display') window.open(revisionHref(r), '_blank', 'noopener');
-    else if (id === 'restore') restoreTarget = r; // opens the warning dialog
+    else if (id === 'label') {
+      labelDialogGeneration++;
+      labelBusy = false;
+      labelError = null;
+      labelTrigger = historyMenuTrigger;
+      labelTarget = r; // opens the Edit label popup
+    } else if (id === 'restore') restoreTarget = r; // opens the warning dialog
     else if (id === 'delete') void postRevisionAction({ action: 'delete', revisionId: r.id });
   }
   async function confirmRestore() {
     if (!restoreTarget) return;
     if (await postRevisionAction({ action: 'restore', revisionId: restoreTarget.id })) restoreTarget = null;
+  }
+  async function confirmLabel(text: string) {
+    const target = labelTarget;
+    if (!target || labelWritesPending.includes(target.id)) return;
+    const generation = labelDialogGeneration;
+    const current = () => generation === labelDialogGeneration;
+    labelWritesPending = [...labelWritesPending, target.id];
+    labelBusy = true;
+    labelError = null;
+    let written = false;
+    try {
+      const res = await fetch(`${basePath}/nodes/${node.id}/revisions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'label', revisionId: target.id, revLabel: text }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (current()) labelError = d.error ?? 'Revision action failed';
+        return;
+      }
+      written = true;
+    } catch (e) {
+      if (current()) labelError = e instanceof Error ? e.message : 'Revision action failed';
+      return;
+    } finally {
+      labelWritesPending = labelWritesPending.filter((id) => id !== target.id);
+      if (current()) labelBusy = false;
+    }
+    // The label is stored. Close the popup now, before the refresh: left open
+    // through it, the reader could edit and submit again, and this save's
+    // completion would then close (or answer for) their second one. A failed
+    // refresh is a stale list, never a failed write (retrying would only repeat
+    // a write that already happened), so it reports on the History view.
+    if (written) {
+      if (current()) closeLabel();
+      try {
+        await invalidateAll();
+      } catch {
+        historyError = 'Label saved, but the list could not refresh. Reload to see it.';
+      }
+      // The refresh re-renders the rows, so the button focus went back to is
+      // gone (#2402): put it on the edited row's action button again.
+      await tick();
+      const row = document.querySelector<HTMLElement>(`button[data-revision-id="${CSS.escape(target.id)}"]`);
+      if (row && (document.activeElement === document.body || !document.activeElement?.isConnected)) row.focus();
+    }
   }
   async function confirmClear() {
     if (await postRevisionAction({ action: 'clear' })) clearConfirm = false;
@@ -2569,6 +2654,10 @@
       // this component across nodes, so leaving it open would carry it (and its
       // parentLoc, now stale) onto the next node.
       attachOpen = false;
+      // #534: the Edit label popup belongs to the node it was opened on; left
+      // open, Save would post A's revisionId through B's endpoint. A save still
+      // in flight for A no longer owns it either.
+      closeLabel();
       return;
     }
     // Same node: keep the active tab valid if its availability changes (e.g.
@@ -4243,7 +4332,7 @@
               {@const v = historyValidation(r)}
               {#if v}<NodeValidationBadge view={v} compact />{/if}
             {:else if cell.column.id === 'actions'}
-              <button type="button" onclick={(e) => openHistoryMenu(e, r)} aria-haspopup="menu"
+              <button type="button" data-revision-id={r.id} onclick={(e) => openHistoryMenu(e, r)} aria-haspopup="menu"
                 aria-label={t('node.history.row-actions', 'Revision actions')}
                 class="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
@@ -4332,10 +4421,21 @@
       <button type="button" class="fixed inset-0 z-40 cursor-default" aria-label={t('node.history.close-menu', 'Close menu')} onclick={() => (historyMenuFor = null)}></button>
       <div role="menu" class="fixed z-50 w-44 -translate-x-full rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900" style="left: {historyMenuX}px; top: {historyMenuY}px;">
         <button type="button" role="menuitem" onclick={() => onHistoryMenuSelect('display')} class="block w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('node.history.action.display', 'Display')}</button>
+        <button type="button" role="menuitem" disabled={writeLocked} onclick={() => onHistoryMenuSelect('label')} class="block w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('node.history.action.label', 'Edit label')}</button>
         <button type="button" role="menuitem" disabled={writeLocked} onclick={() => onHistoryMenuSelect('restore')} class="block w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('node.history.action.restore', 'Restore')}</button>
         <div class="my-1 border-t border-zinc-200 dark:border-zinc-800"></div>
         <button type="button" role="menuitem" disabled={readOnly} onclick={() => onHistoryMenuSelect('delete')} class="block w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-800">{t('node.history.action.delete', 'Delete')}</button>
       </div>
+    {/if}
+
+    {#if labelTarget}
+      <RevisionLabelDialog
+        label={labelTarget.revLabel ?? null}
+        busy={labelBusy || labelWritesPending.includes(labelTarget.id)}
+        error={labelError}
+        onsave={confirmLabel}
+        oncancel={closeLabel}
+      />
     {/if}
 
     {#if restoreTarget}

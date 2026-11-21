@@ -10,7 +10,7 @@ describe('columnMenuAlign (#2149)', () => {
     // QA measured clip x=-17..159: summary right edge 159
     expect(columnMenuAlign({ right: 159 }, W)).toBe('left');
   });
-  it('falls back to left when neither fits', () => {
+  it('hangs from the left when the right edge is under the menu width', () => {
     expect(columnMenuAlign({ right: 150 }, W)).toBe('left');
   });
 });

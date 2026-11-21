@@ -51,7 +51,8 @@ export function classifyGqlError(e: unknown): GqlFailure {
 const refusalCodes: readonly string[] = ['FORBIDDEN', 'UNAUTHENTICATED', 'BAD_USER_INPUT', 'NOT_FOUND'];
 /**
  * Whether a failed write is a REFUSAL that provably came before any commit: a framework/access
- * code, a `*_NOT_FOUND`, or one of the action's own known refusal codes. Anything else (an
+ * code or one of the action's own known refusal codes (portal#2196: no `*_NOT_FOUND` suffix, so an
+ * unrelated not-found is not proof that nothing was written). Anything else (an
  * INTERNAL_SERVER_ERROR, an unrecognised code, no response at all) can come after the server
  * committed, so the outcome is unknown and the page must lock and check (same rule as the worker
  * page's changeAgentRefusal).
@@ -59,7 +60,7 @@ const refusalCodes: readonly string[] = ['FORBIDDEN', 'UNAUTHENTICATED', 'BAD_US
 export function isDefiniteRefusal(e: unknown, known: readonly string[] = []): boolean {
   const failure = classifyGqlError(e);
   if (failure.kind !== 'graphql' || !failure.code) return false;
-  return refusalCodes.includes(failure.code) || failure.code.endsWith('_NOT_FOUND') || known.includes(failure.code);
+  return refusalCodes.includes(failure.code) || known.includes(failure.code);
 }
 export const internalErrorText = () => t('error.internal', 'Something went wrong on our side.');
 export function extractGqlError(e: unknown, fallback: string, knownRefusals: readonly string[] = [], options: { transport?: 'fallback' } = {}): string {

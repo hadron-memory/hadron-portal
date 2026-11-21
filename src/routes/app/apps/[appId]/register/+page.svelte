@@ -70,7 +70,7 @@
         {t('action-register.options-failed', 'Couldn’t load this App’s Agents.')}
       </div>
     {:else if data.options.agents.length === 0 && !data.chosen}
-      <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400">{t('action-register.no-agents', 'This App has no Agents to choose from.')}</p>
+      <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('action-register.no-agents', 'This App has no Agents to choose from.')}</p>
     {:else}
       {#if data.chosen}
         <div>

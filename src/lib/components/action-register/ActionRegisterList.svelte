@@ -54,7 +54,7 @@
 </script>
 
 {#if page.entries.length === 0}
-  <div role="status" class="space-y-2 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-testid="register-empty">
+  <div class="space-y-2 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-testid="register-empty">
     <p>{t('action-register.empty', 'No codes shown')}</p>
     {#if nextStep && claims.prevOffset === null}<p>{nextStep}</p>{/if}
     {#if claims.prevOffset !== null}
