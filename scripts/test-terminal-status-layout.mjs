@@ -1,5 +1,6 @@
 // #2029 author geometry pin: real component and generated CSS, synthetic data.
 import assert from 'node:assert/strict';
+// mkdir and writeFile are both imported here: the artifact write in the finally block uses both.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
@@ -14,6 +15,9 @@ const server = await createServer({server:{host:'127.0.0.1',port:0},plugins:[{
   }
  }
 }]});
+// The legal report the fixture renders: one place for the text the assertions compare against.
+const TITLE='Dark: Agent not running (plain shell)';
+const FULL_TEXT='Dark\nAgent not running (plain shell)\nLast turn: not known\nchecked 16 min. ago';
 let browser;
 const results=[];
 // True until the test body has run to the end: a teardown or artifact failure may fail the run only
@@ -39,6 +43,9 @@ try {
    window.stopFull=mount(document.getElementById('full'),'reported',false);
   });
   const pill=page.locator('#terminal span[title]');await pill.waitFor({state:'attached'});
+  // The full form, asserted once as mounted and again after every compact resize below.
+  await page.waitForFunction(()=>document.getElementById('full').innerText.length>0);
+  assert.equal(await page.locator('#full').innerText(),FULL_TEXT,'full form as mounted');
   for(const width of [220,140,320,220]) {
    await page.locator('col').first().evaluate((el,width)=>{el.style.width=`${width}px`;el.closest('table').style.width=`${width+220}px`},width);
    const geometry=await pill.evaluate(el=>{
@@ -48,7 +55,7 @@ try {
     const style=getComputedStyle(el);return {cell:rect(td),outer:rect(outer),pill:rect(el),title:el.title,text:el.textContent,overflow:getComputedStyle(el).textOverflow,scroll:el.scrollWidth,client:el.clientWidth,age:outer.textContent,ageBounds:rect(ageRange),lineHeight:parseFloat(style.lineHeight),display:style.display,visibility:style.visibility,opacity:style.opacity};
    });results.push({dark,width,...geometry});
    if(process.env.TERMINAL_SHOTS)await page.screenshot({path:`${process.env.TERMINAL_SHOTS}/${dark?'dark':'light'}-${width}.png`});
-   assert.equal(geometry.title,'Dark: Agent not running (plain shell)');
+   assert.equal(geometry.title,TITLE);
    assert.equal(geometry.text,geometry.title);assert.match(geometry.age,/16/);
    assert.ok(geometry.outer.right<=geometry.cell.right+0.5,`compact wrapper bleeds at ${width}px: ${JSON.stringify(geometry)}`);
    assert.ok(geometry.pill.right<=geometry.cell.right+0.5,'pill bounded');
@@ -70,22 +77,22 @@ try {
    await page.locator('#terminal').evaluate(el=>el.style.visibility='');
    assert.ok(visible.equals(hidden),'terminal paints no pixels into neighboring Task');
    await pill.hover(); // existing full-value title remains on the un-clipped pill.
-   assert.equal(await pill.getAttribute('title'),'Dark: Agent not running (plain shell)','hover leaves the full-value title');
+   assert.equal(await pill.getAttribute('title'),TITLE,'hover leaves the full-value title');
    await page.getByRole('button',{name:'Task action'}).click();
    // Without this reset, iterations after the first pass trivially: the hash is already #task.
    await page.evaluate(()=>{location.hash=''});
    await page.getByRole('link',{name:'Synthetic assigned task'}).click();
    assert.equal(new URL(page.url()).hash,'#task');
   }
-  assert.equal(await page.locator('#full').innerText(),'Dark\nAgent not running (plain shell)\nLast turn: not known\nchecked 16 min. ago');
+  assert.equal(await page.locator('#full').innerText(),FULL_TEXT,'full form after compact resizing');
   for(const mode of ['hidden','not-reported']) {
    await page.evaluate(async mode=>{const {mountTerminalFixture}=await import('/src/lib/test/fixtures/terminal-status-harness.ts');window.stopEmpty=mountTerminalFixture(document.getElementById('empty'),mode)},mode);
    assert.equal(await page.locator('#empty').innerText(),mode==='hidden'?'':'Not reported');
    await page.evaluate(async()=>await window.stopEmpty());
   }
   // Each fixture unmounts even if the other's unmount fails; a failure of either still fails the run.
-  const unmounts=await page.evaluate(async()=>(await Promise.allSettled([window.stopTerminal(),window.stopFull()])).map(r=>r.status));
-  assert.deepEqual(unmounts,['fulfilled','fulfilled'],'both fixtures unmount cleanly');
+  const unmounts=await page.evaluate(async()=>(await Promise.allSettled([window.stopTerminal(),window.stopFull()])).map(r=>r.status==='fulfilled'?'fulfilled':`rejected: ${String(r.reason)}`));
+  assert.deepEqual(unmounts,['fulfilled','fulfilled'],`both fixtures unmount cleanly: ${JSON.stringify(unmounts)}`);
   await page.close();
  }
   bodyFailed=false;
@@ -103,6 +110,8 @@ try {
  // A green body with a broken teardown or a missing artifact must not exit 0 (CI uploads that artifact).
  if(!bodyFailed && (artifactFailed || cleanup.some(r=>r.status==='rejected'))) process.exitCode=1;
 }
+// Teardown or artifact failures set exitCode in the finally block above: never print PASS over one.
+if(process.exitCode) throw new Error('terminal containment body passed but teardown or the artifact write failed');
 console.log('Terminal compact geometry, full-value title, Task controls, null/not-reported and full form PASS');
 
 // The normal command (including CI) must prove the production constraint is
