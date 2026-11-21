@@ -4,6 +4,10 @@
 // Setup: pnpm exec playwright install chromium
 // Run: pnpm test:task-history-links-layout
 // TH_SHOTS=<dir> also saves each state, captioned with its measured heights, for the PR.
+// TH_EXTRA_ANCHOR=<path> adds one same-origin anchor to the history after mount (portal#1925):
+// an in-app link of a kind the probe does not know. The run must FAIL with the diagnostic
+// 'unclassified in-app anchor': exit 1 = killed for that reason (the wanted result), 3 = it failed
+// for another reason (no verdict), 2 = it SURVIVED (an unclassified anchor slips past the 44px gate).
 import assert from 'node:assert/strict';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -53,9 +57,15 @@ const anchors = (page) => page.evaluate(() => {
   // contain `/tasks/` or `/runs/` must not be misread as an in-app link.
   const kind = (a) => {
     if (a.origin !== location.origin) return 'url'; // the external https anchors (pull request, receipt)
-    if (a.pathname.includes('/runs/')) return 'run';
-    if (a.pathname.includes('/tasks/')) return 'task';
-    return 'chip'; // the shared Urn resolver chip (/app/u/hrn:…)
+    // The shared Urn resolver chip first, matched as the whole resolver route `/app/u/<urn>` (one non-empty
+    // segment, portal#1925). Then the two in-app links
+    // TaskHistory renders, each anchored to its whole shape (`${basePath}/runs/<id>`, `${basePath}/tasks/<ref>`),
+    // not a substring: an unrelated path that merely contains `/runs/` must not count as a run. Any other
+    // same-origin anchor is 'other', never silently exempted from the coarse 44px check as a chip.
+    if (/^\/app\/u\/hrn:[^/]+$/.test(a.pathname)) return 'chip';
+    if (/^\/app\/apps\/[^/]+\/runs\/[^/]+$/.test(a.pathname)) return 'run';
+    if (/^\/app\/apps\/[^/]+\/tasks\/[^/]+$/.test(a.pathname)) return 'task';
+    return 'other';
   };
   return [...history.querySelectorAll('a')].map((a) => {
     const range = document.createRange();
@@ -65,9 +75,7 @@ const anchors = (page) => page.evaluate(() => {
       kind: kind(a),
       href: a.getAttribute('href'),
       height: r.height,
-      top: r.top,
       width: r.width,
-      left: r.left,
       // One rect per rendered line for an inline anchor: >1 means the value wrapped
       // inside its anchor. (Meaningless for the inline-flex chip, excluded below.)
       lines: [...range.getClientRects()].length,
@@ -120,11 +128,24 @@ try {
       await page.route('**/__blank', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>layout</title>' }));
       await mountHistory(page, origin, css, scheme === 'dark');
       assert.equal(await page.evaluate(() => matchMedia('(pointer: coarse)').matches), coarse, `${label}: pointer emulation`);
+      if (process.env.TH_EXTRA_ANCHOR) {
+        await page.evaluate((path) => {
+          const a = document.createElement('a');
+          a.href = path;
+          a.textContent = 'extra';
+          document.querySelector('[data-testid="task-history"]').append(a);
+        }, process.env.TH_EXTRA_ANCHOR);
+      }
+
+      const measured = await anchors(page);
+      // portal#1925: every in-app anchor is a known kind. An unclassified one would skip the
+      // 44px check below, so it fails here, before the overflow gate or any count or presence pin
+      // (an injected anchor that overflowed would otherwise end the run for another reason).
+      const other = measured.filter((a) => a.kind === 'other');
+      assert.equal(other.length, 0, `${label}: unclassified in-app anchor(s) ${JSON.stringify(other)}`);
 
       const o = await overflow(page);
       assert.ok(o.history <= 0.5 && o.page <= 0.5, `${label}: overflows ${JSON.stringify(o)}`);
-
-      const measured = await anchors(page);
       // The fixture puts every anchor kind on the page; a missing kind means the
       // fixture and the component drifted apart.
       for (const kind of ['run', 'url', 'task', 'chip']) {
@@ -249,6 +270,18 @@ try {
       console.log(`ok ${label}`);
     }
   }
+  if (process.env.TH_EXTRA_ANCHOR) {
+    console.error(`SURVIVED: the extra anchor ${process.env.TH_EXTRA_ANCHOR} passed every leg`);
+    process.exitCode = 2;
+  }
+} catch (e) {
+  if (!process.env.TH_EXTRA_ANCHOR) throw e;
+  // The diagnostic must name THE INJECTED link: a fixture anchor that was already unclassified would
+  // produce the same text, and that is not this mutant being killed (portal#1925).
+  const message = String(e?.message);
+  const wanted = /unclassified in-app anchor/.test(message) && message.includes(`"href":${JSON.stringify(process.env.TH_EXTRA_ANCHOR)}`);
+  console.error(wanted ? `killed as expected: ${String(e.message).split('\n')[0]}` : `failed for another reason, no verdict: ${e?.stack ?? e}`);
+  process.exitCode = wanted ? 1 : 3;
 } finally {
   await browser?.close();
   await server.close();

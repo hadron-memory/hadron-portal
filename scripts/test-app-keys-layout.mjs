@@ -473,11 +473,8 @@ try {
       // button AND Escape, by mouse AND by keyboard — restores focus to the
       // row's ⋯ trigger, never to <body>. The {#if} unmounts the node before
       // the action's destroy() runs, so the browser's own close() restore
-      // fails on a detached dialog; the action captures
-      // document.activeElement at showModal() and refocuses it. (Keyboard
-      // opens ride the menu's own close order — it refocuses the trigger
-      // BEFORE calling onselect — so the captured element is the trigger
-      // there too.)
+      // fails on a detached dialog; the menu hands its own trigger to
+      // onselect and the action refocuses that element on teardown.
       const trigger = '#panel-keys tbody tr:last-child button[aria-label^="Actions for key"]';
       const focusAfterClose = async () => {
         await page.locator('dialog[data-testid="grant-scope-dialog"]').waitFor({ state: 'detached' });
@@ -496,22 +493,28 @@ try {
       const afterEscape = await focusAfterClose();
       check(afterEscape.onTrigger && !afterEscape.onBody, `focus after Escape is ${afterEscape.onTrigger ? 'the ⋯ trigger' : afterEscape.onBody ? '<body>' : 'elsewhere'}`);
       // The same chain by KEYBOARD ONLY: Enter on the trigger opens the menu
-      // (it focuses its first item — Copy ID), ArrowDown reaches Grant
-      // scope, Enter chooses it, Escape closes. If the menu's
-      // refocus-before-onselect order ever breaks, the captured element
-      // stops being the trigger and this leg goes red.
+      // (it focuses its first item), ArrowDown reaches Grant scope, Enter
+      // chooses it, Escape closes. This guards keyboard open + Escape close
+      // end to end: focus must be back on the trigger, not <body>. Each press
+      // waits for the focus it depends on, so a timing or menu-order change
+      // cannot make the second Enter toggle the menu shut.
       await page.locator(trigger).focus();
       await page.keyboard.press('Enter');
+      await page.locator('[role="menuitem"]:focus').first().waitFor();
       await page.keyboard.press('ArrowDown');
+      await page.locator('[role="menuitem"]:focus', { hasText: /Grant scope/ }).waitFor();
       await page.keyboard.press('Enter');
       await page.locator('dialog[open][data-testid="grant-scope-dialog"]').waitFor();
       await page.keyboard.press('Escape');
       const afterKeyEscape = await focusAfterClose();
       check(afterKeyEscape.onTrigger && !afterKeyEscape.onBody, `focus after keyboard Escape is ${afterKeyEscape.onTrigger ? 'the ⋯ trigger' : afterKeyEscape.onBody ? '<body>' : 'elsewhere'}`);
-      // The success path re-renders the table rows, so the captured trigger
-      // can be gone when the dialog unmounts. Removing the row outright
-      // stands in for that: the teardown owes a landing spot — the Keys tab
+      // A keyed row normally survives the success path's invalidation, so a
+      // detached trigger is the defensive case. Removing the row outright
+      // stands in for it: the teardown owes a landing spot — the Keys tab
       // panel (#panel-keys, a focusable region boundary) — never <body>.
+      // This leg MUST stay the last one on the page: tr.remove() mutates
+      // Svelte-owned DOM behind the keyed {#each}, and nothing after it may
+      // rely on that table.
       await page.locator(trigger).click();
       await page.getByRole('menuitem', { name: /Grant scope/ }).click();
       await page.locator('dialog[open][data-testid="grant-scope-dialog"]').waitFor();

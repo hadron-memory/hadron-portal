@@ -8,7 +8,7 @@
  * so this file cannot go green on a validator that accepts everything.
  */
 import { readFileSync } from 'node:fs';
-import { buildSchema, parse, validate } from 'graphql';
+import { buildSchema, Kind, parse, validate, type FieldNode } from 'graphql';
 import { describe, expect, it } from 'vitest';
 import {
   CREATE_SCOPE_MUTATION,
@@ -20,6 +20,33 @@ import {
 
 const schema = buildSchema(readFileSync('schema/schema.graphql', 'utf8'));
 const errors = (doc: string) => validate(schema, parse(doc)).map((e) => e.message);
+
+/** The response keys an operation selects DIRECTLY under `field` (nested selections do not count; an alias renames the key). */
+function directSelections(query: string, field: string): string[] {
+  const out: string[] = [];
+  const walk = (set: { selections: readonly import('graphql').SelectionNode[] } | undefined): void => {
+    for (const sel of set?.selections ?? []) {
+      if (sel.kind !== Kind.FIELD) {
+        // fragments/inline fragments: look inside inline fragments, same level
+        if (sel.kind === Kind.INLINE_FRAGMENT) walk(sel.selectionSet);
+        continue;
+      }
+      const node: FieldNode = sel;
+      if (node.name.value === field) {
+        for (const child of node.selectionSet?.selections ?? []) {
+          // The RESPONSE key is what the helper reads: `appId: id` serves the
+          // key `appId` from the wrong field, and `id: appId` drops the key.
+          if (child.kind === Kind.FIELD) out.push(child.alias?.value ?? child.name.value);
+        }
+      }
+      walk(node.selectionSet);
+    }
+  };
+  for (const def of parse(query).definitions) {
+    if (def.kind === Kind.OPERATION_DEFINITION) walk(def.selectionSet);
+  }
+  return out;
+}
 
 describe('#1075 Task Nodes operations match the server snapshot', () => {
   it('findNodes takes memoryIds inside `filter`, never as a top-level argument', () => {
@@ -50,12 +77,22 @@ describe('#1075 Task Nodes operations match the server snapshot', () => {
   // #1706 — the helper's install-memory filter reads `appId`, so the field must
   // be on the snapshot's Memory type AND inside this selection; a dropped
   // `appId` (snapshot refresh against an older server) must fail HERE, not as
-  // undefined-bytes on a live stack. Braces-bounded and order-free: the field
-  // must sit inside the items selection, however it is formatted.
+  // undefined-bytes on a live stack. Parser-based and order-free: the field
+  // must be a DIRECT selection of items, however it is formatted.
   it('#1706: the system-memory ids query selects Memory.appId from the snapshot', () => {
     expect(errors(ORG_SYSTEM_MEMORY_IDS_QUERY)).toEqual([]);
-    expect(ORG_SYSTEM_MEMORY_IDS_QUERY).toMatch(/items\s*\{[^}]*\bappId\b[^}]*\}/);
+    expect(directSelections(ORG_SYSTEM_MEMORY_IDS_QUERY, 'items')).toContain('appId');
     // A selection the snapshot refuses cannot hold this file green.
     expect(errors('query Q { memories { items { noSuchField } } }').join('\n')).toContain('Cannot query field "noSuchField"');
+  });
+
+  // The pin must separate a DIRECT selection from a nested one, which the old
+  // brace-bounded regex could not (#1708).
+  it('#1708: the items pin counts direct selections only', () => {
+    expect(directSelections('query Q { memories { items { id app { appId } } } }', 'items')).not.toContain('appId');
+    expect(directSelections('query Q { memories { items { id foo { bar } appId } } }', 'items')).toContain('appId');
+    expect(directSelections('query Q { memories { items { id } } }', 'items')).not.toContain('appId');
+    // An alias removes the `appId` response key the org-memory filter reads (Beckett, #2409).
+    expect(directSelections('query Q { memories { items { id other: appId } } }', 'items')).not.toContain('appId');
   });
 });

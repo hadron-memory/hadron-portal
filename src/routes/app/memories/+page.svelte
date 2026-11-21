@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   // "My memories" — the caller's own (org-less, user-owned) memories — plus a
   // "Memories shared with me" tab listing memories other users shared with the
@@ -128,9 +129,11 @@
 <svelte:head><title>{t('my-memories.title', 'My memories — Hadron')}</title></svelte:head>
 
 <div class="mx-auto max-w-4xl space-y-4 py-6">
-  {#if $page.url.searchParams.get('transferred') === '1'}
-    <p role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{t('memory-transfer.done-other-user', 'Ownership transferred. The receiving user now has access to the memory.')}</p>
-  {/if}
+  <LiveRegion>
+    {#if $page.url.searchParams.get('transferred') === '1'}
+      <p class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{t('memory-transfer.done-other-user', 'Ownership transferred. The receiving user now has access to the memory.')}</p>
+    {/if}
+  </LiveRegion>
   <div class="flex items-center justify-between gap-3">
     <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{t('my-memories.heading', 'My memories')}</h1>
     <!-- #871: a support session is read-only server-side, so creating would

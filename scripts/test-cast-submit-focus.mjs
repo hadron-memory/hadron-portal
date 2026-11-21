@@ -133,7 +133,7 @@ async function run({ width, dark }) {
     if (!(await page.$(castForm))) await page.getByRole('button', { name: 'Cast a worker' }).click();
     await page.selectOption('select[name="agentId"]', 'agent-a');
     await page.fill('input[name="name"]', 'Probe');
-    await page.check('input[name="reporting"][value="none"]');
+    // Reports to stays unchecked: that is the No team arm (#1893), so the cast is valid as filled.
   };
   const cast = page.getByRole('button', { name: 'Cast', exact: true });
   const nameInput = page.locator('input[name="name"]');
