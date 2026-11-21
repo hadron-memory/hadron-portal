@@ -99,7 +99,7 @@
     </div>
   {:else if templates.kind === 'ok'}
     {#if rows.length === 0}
-      <div role="status" class="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-testid="agent-ticker-templates-empty">
+      <div class="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-testid="agent-ticker-templates-empty">
         <span class="font-medium text-zinc-900 dark:text-white">{t('agent.tickers.empty', 'No ticker templates yet.')}</span>
       </div>
     {:else}

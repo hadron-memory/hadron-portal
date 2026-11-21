@@ -1,4 +1,5 @@
 /** Mounted App-page coverage for team chat roster reactivity (#979). */
+import { emptyRegions, regionHolding } from '$lib/test/liveRegionPin';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
@@ -18,7 +19,7 @@ import { resetAiConfigRecoveryForTests } from '$lib/components/ai-config-recover
 import { message, pageData, runsPanel } from './app-page.fixture';
 import {
   createAppMemorySchema, addAgentSchema, castWorkerSchema, removeAppAgentSchema,
-  retireWorkerSchema, revokeAppKeySchema, grantAppKeyScopeSchema, addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema,
+  retireWorkerSchema, revokeAppKeySchema, grantAppKeyScopeSchema, addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema, releaseWorkerSchema,
 } from './schema';
 import { firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 
@@ -812,6 +813,51 @@ describe('Worker agents tab (#1009)', () => {
     expect(form.querySelector<HTMLInputElement>('input[name="workerId"]')!.value).toBe('w2');
     expect(form.querySelector<HTMLInputElement>('input[name="expectedHolderUserId"]')!.value).toBe('u9');
     expect((await submitEnhanced(form)).cancelled).toBe(false);
+  });
+
+  // portal#2379 (slice of portal#2344): the staff outcomes land in regions that were already mounted and empty.
+  describe('staff outcome live regions', () => {
+    const regions = (target: HTMLElement) => ({ before: emptyRegions(target) });
+
+    it.each([
+      [true, 'status', 'Ada is unpaused.'],
+      [false, 'alert', 'Could not unpause Ada.'],
+    ] as const)('a pause outcome (ok=%s) lands in the %s region that was already mounted and empty', async (ok, role, message) => {
+      vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+      const target = await mountStaff([worker({})], paused());
+      const { before } = regions(target);
+      expect(before.map((r) => r.getAttribute('role'))).toEqual(expect.arrayContaining(['status', 'alert']));
+      pick(target, 'Ada', 'Unpause');
+      await tick(2);
+      const form = target.querySelector<HTMLFormElement>('form[action="?/setWorkerPause"]')!;
+      await submitEnhancedWithResult(form, { type: ok ? 'success' : 'failure', status: ok ? 200 : 400, data: { pauseResult: { ok, workerId: 'w1', message } } });
+      await tick(3);
+      const region = regionHolding(target, message);
+      expect(before).toContain(region);
+      expect(region.getAttribute('role')).toBe(role);
+    });
+
+    it.each([
+      ['released', 'status', 'Released.'],
+      ['announcement-failed', 'alert', 'Released, but the team chat notice failed.'],
+      ['not-held', 'status', 'Nothing was held.'],
+    ] as const)('a release notice (%s) lands in the %s region that was already mounted and empty', async (outcome, role, text) => {
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+      const target = await mountStaff([worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo', heldByUserId: 'u9' })]);
+      const { before } = regions(target);
+      expect(before.map((r) => r.getAttribute('role'))).toEqual(expect.arrayContaining(['status', 'alert']));
+      pick(target, 'Bo', 'Force-release');
+      await tick(2);
+      const form = requestSubmit.mock.contexts[0] as HTMLFormElement;
+      const base = await superValidate({ _kind: 'releaseWorker', workerId: 'w2', expectedHolderUserId: 'u9' }, zod4(releaseWorkerSchema), { errors: false });
+      const posted = { ...base, id: form.getAttribute('data-superform-id') ?? base.id, message: { type: 'success' as const, text, outcome } };
+      await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { form: posted } });
+      await tick(3);
+      const region = regionHolding(target, text);
+      expect(before).toContain(region);
+      expect(region.getAttribute('role')).toBe(role);
+    });
   });
 
   it('a declined Retire confirm submits nothing', async () => {
@@ -3769,7 +3815,7 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
       const delayed = await submitEnhancedDeferred(form());
       await delayed.finish(FAILED as never);
       await tick(4);
-      expect([...m.target.querySelectorAll('[role="alert"]')].map((x) => x.textContent?.trim())).toEqual([UNCONFIRMED]);
+      expect([...m.target.querySelectorAll('[role="alert"]')].filter((x) => x.textContent?.trim()).map((x) => x.textContent?.trim())).toEqual([UNCONFIRMED]);
       expect(m.target.textContent).not.toContain('Worker cast.');
       expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('Iris');
       expect(submitButton(m.target).disabled).toBe(false);

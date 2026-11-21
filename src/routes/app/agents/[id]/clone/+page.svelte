@@ -106,7 +106,7 @@
     {/if}
 
     {#if targets.length === 0}
-      <p role="status" class="mt-4 text-sm text-zinc-500">
+      <p class="mt-4 text-sm text-zinc-500">
         {t('agent.clone.no-targets', 'You do not administer an organization to clone into.')}
       </p>
     {:else}

@@ -109,7 +109,7 @@
       {/if}
 
       {#if data.targets.length === 0}
-        <p role="status" class="text-sm text-zinc-500">
+        <p class="text-sm text-zinc-500">
           {t('subscriptions.no-targets', 'You do not administer another organization that could subscribe to this memory.')}
         </p>
       {:else}

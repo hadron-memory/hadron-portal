@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { emptyRegions, regionHolding } from '$lib/test/liveRegionPin';
 import MintDialog from './MintDialog.svelte';
 
 const A = { id: 'mem-a', urn: 'hrn:mem:acme.com:specs-a' };
@@ -194,5 +195,23 @@ describe('MintDialog (#992 slice C)', () => {
     await settle();
     expect(q(target, 'mint-error')!.textContent).toBe("Couldn't check this memory. Try again.");
     expect(q(target, 'mint-recheck')).not.toBeNull();
+  });
+});
+
+// portal#2379 (slice of portal#2344): the summary lands in a status region that was already mounted and
+// empty when the dialog opened, for the dry run and again for the real mint.
+describe('summary live region', () => {
+  it('the dry-run summary and then the minted summary land in the same, already-mounted status region', async () => {
+    fetchMock.mockResolvedValueOnce(reply(200, { report: report() }));
+    const { target } = mountDialog();
+    const before = emptyRegions(target);
+    expect(before.map((r) => r.getAttribute('role'))).toEqual(['status']);
+    await settle();
+    const region = regionHolding(target, '3 nodes are ready to mint.');
+    expect(before).toContain(region);
+    fetchMock.mockResolvedValueOnce(reply(200, { report: report({ dryRun: false, minted: true, mintedCount: 3 }) }));
+    (q(target, 'mint-submit') as HTMLButtonElement).click();
+    await settle();
+    expect(regionHolding(target, 'Minted 3 nodes.')).toBe(region);
   });
 });

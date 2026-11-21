@@ -266,7 +266,6 @@
          note, never an empty table or a count of 0, and this holds whether or
          not the flag is on. -->
     {#if read.list.value.urn}<div class="mt-2"><Urn value={read.list.value.urn} compact /></div>{/if}
-    <p role="status" data-testid="customisation-list-unavailable" class="mt-2 text-sm text-zinc-500">{t('customisation.list-unavailable','Nothing is listed here. The node list is temporarily limited, so this may not be the full set.')}</p>
   {:else}
     {#if read.list.value.urn}<div class="mt-2"><Urn value={read.list.value.urn} compact /></div>{/if}
     <DataTable {table} showFooter={false} bind:globalFilter={customisationFilter} searchPlaceholder={t('customisation.search-page','Search this page…')} searchAriaLabel={t('customisation.search-page-label','Search the customisations on this page')} listKey={`install-customisation:${appRef}:${agent.id}`}>
@@ -279,6 +278,8 @@
     </DataTable>
     <div class="mt-2 flex flex-wrap gap-3"><button type="button" class={secondaryButton} disabled={busy||offset===0} title={offset===0?t('customisation.first-page','Already on the first page'):undefined} onclick={()=>openPage(Math.max(0,offset-20),null)}>{t('customisation.previous','Previous')}</button><button type="button" class={secondaryButton} disabled={busy||offset+20>=read.list.value.total} title={offset+20>=read.list.value.total?t('customisation.last-page','No more customisations'):undefined} onclick={()=>openPage(offset+20,null)}>{t('customisation.next','Next')}</button><span>{countText}</span></div>
   {/if}
+  <!-- portal#2379: the empty-list note arrives after a page change, so it goes in a region that is already mounted. -->
+  <LiveRegion>{#if read.list.state==='ok'&&read.list.value.nodes.length===0}<p data-testid="customisation-list-unavailable" class="mt-2 text-sm text-zinc-500">{t('customisation.list-unavailable','Nothing is listed here. The node list is temporarily limited, so this may not be the full set.')}</p>{/if}</LiveRegion>
   {#if canManage!==false}<button type="button" class={`mt-3 ${secondaryButton}`} disabled={busy} onclick={start}>{t('customisation.start','Start customising')}</button>{/if}
   {#if loc||creating}
     <div class="mt-4 grid gap-4 md:grid-cols-2">

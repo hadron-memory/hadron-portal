@@ -7,6 +7,7 @@
 <script lang="ts">
   import { t } from '$lib/i18n/t';
   import type { RevisionEditorView } from '$lib/revision-editor';
+  import RevisionEditor from './RevisionEditor.svelte';
   import Urn from './Urn.svelte';
 
   /** actorsOnly: the page already shows the user; add only the worker and agent. */
@@ -17,7 +18,7 @@
   {#if actorsOnly}
     <!-- the caller shows the user -->
   {:else if view.user}
-    {#if view.user.handle}<div class="truncate text-zinc-700 dark:text-zinc-300">@{view.user.handle}</div>{/if}
+    {#if view.user.handle}<div class="truncate"><RevisionEditor handle={view.user.handle} urn={view.user.urn} info={null} /></div>{/if}
     {#if view.user.urn}<Urn value={view.user.urn} type="user" size={9} />{/if}
   {:else}
     <span class="whitespace-nowrap text-zinc-500 dark:text-zinc-400">{view.info ?? '—'}</span>

@@ -114,6 +114,21 @@ describe('Table (default)', () => {
     expect(text(m)).not.toMatch(/memory is empty|no nodes/i);
   });
 
+  it('portal#2378: the empty-page note is announced by a region that exists, empty, while the page loads', async () => {
+    let finish!: (v: unknown) => void;
+    replies['page?offset=0'] = [new Promise((resolve) => { finish = resolve; }) as never];
+    const m = await mount();
+    const region = () => m.target.querySelector<HTMLElement>('[data-testid="nodes-tab-none"]');
+    const before = region();
+    expect(before, 'mounted while the first page is in flight').not.toBeNull();
+    expect(before!.getAttribute('role')).toBe('status');
+    expect(before!.textContent?.trim()).toBe('');
+    finish(new Response(JSON.stringify({ rows: [], hasMore: false }), { status: 200 }));
+    await wait(5); flushSync();
+    expect(region()).toBe(before);
+    expect(before!.textContent).toContain('No matching or visible nodes');
+  });
+
   it('states the listing scope (system nodes and comments are not listed) and the offset caveat', async () => {
     replies['page?offset=0'] = [{ rows: range(0, 1), hasMore: false }];
     const m = await mount();

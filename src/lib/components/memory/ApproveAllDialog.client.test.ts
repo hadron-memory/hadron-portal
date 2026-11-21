@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { emptyRegions, regionHolding } from '$lib/test/liveRegionPin';
 import ApproveAllDialog from './ApproveAllDialog.svelte';
 
 const A = { id: 'mem-a', urn: 'hrn:mem:acme.com:specs-a' };
@@ -126,5 +127,21 @@ describe('ApproveAllDialog (#992)', () => {
     (q(target, 'approve-all-submit') as HTMLButtonElement).click();
     await settle();
     expect(q(target, 'approve-all-error')!.textContent).toBe('fixed refusal copy');
+  });
+});
+
+// portal#2379 (slice of portal#2344): the result summary lands in a status region that was already mounted
+// and empty when the dialog opened; a region inserted already populated may not be announced.
+describe('result live region', () => {
+  it('the summary lands in the status region that existed, empty, before the approval ran', async () => {
+    fetchMock.mockResolvedValue(ok({ result: RESULT }));
+    const { target } = mountDialog();
+    const before = emptyRegions(target);
+    expect(before.map((r) => r.getAttribute('role'))).toEqual(['status']);
+    (q(target, 'approve-all-submit') as HTMLButtonElement).click();
+    await settle();
+    const region = regionHolding(target, 'Approved 2 nodes.');
+    expect(before).toContain(region);
+    expect(region.getAttribute('aria-live')).toBe('polite');
   });
 });
