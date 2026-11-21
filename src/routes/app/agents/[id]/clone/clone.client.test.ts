@@ -43,7 +43,9 @@ describe('#1262 clone page', () => {
   it('with no eligible target there is no form, only an explanation', async () => {
     const root = await open({ targets: [] });
     expect(root.querySelector('form')).toBeNull();
-    expect(root.querySelector('[role=status]')).not.toBeNull();
+    // portal#2378: the explanation is present at load, so it is plain text, not a live region.
+    expect(root.textContent).toContain('You do not administer an organization to clone into.');
+    expect(root.querySelector('[role=status]')).toBeNull();
   });
   it('renders blockers with count, position and a name only when present, no raw payload', async () => {
     const sv = await superValidate({ target: 'org-2', name: '', slug: '' }, zod4(cloneAgentSchema), { errors: false });
