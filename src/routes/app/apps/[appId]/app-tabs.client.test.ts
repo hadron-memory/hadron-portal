@@ -532,14 +532,14 @@ describe('App tab navigation failure feedback (#2288)', () => {
     expect(alerts(fresh)).toHaveLength(1);
   });
 
+  // No timers in the portal#2302 pins: every continuation under test is a promise hop, so `drain` runs the
+  // microtask queue far past the deepest chain (goto, the focusTab tail, svelte's tick) instead of sleeping.
+  const drain = () => tick(30);
   // portal#2302 item 1: a superseded choice's RESULT is not applied, whichever await it was parked on.
   describe('portal#2302: a superseded choice changes nothing when it finally resolves', () => {
     const gotos = () => navigationCalls.filter((c) => c.fn === 'goto').map((c) => String(c.args[0]));
     // The REJECTING half of a superseded goto is pinned by 'a superseded choice whose goto rejects shows no
-    // alert' above (#2288). The "nothing further happens" checks below use this file's own flush, wait(20)
-    // then tick(4), like every neighbour; each is paired with a call-count or selection assertion, and the
-    // guards under test are synchronous epoch comparisons, not timers, so the wait only lets a wrong
-    // implementation show itself.
+    // alert' above (#2288).
     it('a held goto that resolves after a newer choice leaves the newer tab shown', async () => {
       const target = await mountTab('chats');
       const first = deferred();
@@ -549,8 +549,7 @@ describe('App tab navigation failure feedback (#2288)', () => {
       await pick(target, 'node-role-templates');
       expect(target.querySelector('#tab-node-role-templates')?.getAttribute('aria-selected')).toBe('true');
       first.resolve();
-      await wait(20);
-      await tick(4);
+      await drain();
       expect(target.querySelector('#tab-node-role-templates')?.getAttribute('aria-selected')).toBe('true');
       expect(target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('false');
       expect(alerts(target)).toHaveLength(0);
@@ -564,8 +563,7 @@ describe('App tab navigation failure feedback (#2288)', () => {
       navigationHooks.onPreloadData = undefined;
       await pick(target, 'node-role-templates');
       held.resolve();
-      await wait(20);
-      await tick(4);
+      await drain();
       expect(gotos()).toEqual(['/app/apps/a1?tab=node-role-templates']);
       expect(target.querySelector('#tab-node-role-templates')?.getAttribute('aria-selected')).toBe('true');
     });
@@ -581,8 +579,7 @@ describe('App tab navigation failure feedback (#2288)', () => {
       const rejections = await captureUnhandledRejections(async () => {
         first.unmount();
         held.resolve();
-        await wait(20);
-        await tick(4);
+        await drain();
       });
       expect(rejections).toEqual([]);
       expect(gotos()).toEqual([]);
@@ -598,8 +595,7 @@ describe('App tab navigation failure feedback (#2288)', () => {
       const rejections = await captureUnhandledRejections(async () => {
         first.unmount();
         held.resolve();
-        await wait(20);
-        await tick(4);
+        await drain();
       });
       expect(rejections).toEqual([]);
       expect(gotos()).toEqual(['/app/apps/a1?tab=runs']); // nothing further after the resolve
@@ -627,8 +623,7 @@ describe('App tab navigation failure feedback (#2288)', () => {
     await pick(target, 'settings');
     expect(navigationCalls.filter((c) => c.fn === 'goto').map((c) => String(c.args[0]))).toEqual(['/app/apps/a1?tab=runs', '/app/apps/a1?tab=settings']);
     first.resolve();
-    await wait(20);
-    await tick(4);
+    await drain();
     expect(target.querySelector('#tab-settings')?.getAttribute('aria-selected')).toBe('true');
     // The held first goto resolving adds no third navigation.
     expect(navigationCalls.filter((c) => c.fn === 'goto')).toHaveLength(2);
