@@ -1990,8 +1990,10 @@
   ]);
 
   // #2316: the typed-object field list on the shared grid, in declared order
-  // (the grid starts unsorted). Search and the footer are off: it is a short
-  // field list, like the revision history grid below.
+  // (the grid starts unsorted). Search is off, and so is the footer while the
+  // list fits one page; past TYPED_PROPERTY_PAGE rows the footer returns, so
+  // no field is ever hidden without a pager to reach it.
+  const TYPED_PROPERTY_PAGE = 100;
   const typedPropertyColumns: PortalColumnDef<TypedPropertyRow>[] = [
     { accessorKey: 'name', id: 'field', header: t('node.properties.col-field', 'Field'), enableHiding: false, size: 200 },
     { accessorKey: 'type', header: t('node.properties.col-type', 'Type'), size: 140 },
@@ -2005,7 +2007,7 @@
     enableMultiSort: false,
     enableColumnResizing: true,
     columnResizeMode: 'onChange',
-    initialState: { pagination: { pageIndex: 0, pageSize: 1000 } },
+    initialState: { pagination: { pageIndex: 0, pageSize: TYPED_PROPERTY_PAGE } },
   });
 
   let edgeFilter = $state('');
@@ -3800,7 +3802,7 @@
               table={typedPropertyTable}
               listKey="node:typed-properties"
               bounded
-              showFooter={false}
+              showFooter={typedPropertyRows.length > TYPED_PROPERTY_PAGE}
               showSearch={false}
               searchPlaceholder={t('node.properties.search', 'Search fields…')}
               searchAriaLabel={t('node.properties.search', 'Search fields…')}

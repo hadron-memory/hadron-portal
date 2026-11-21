@@ -302,3 +302,33 @@ it('portal#2316: the typed-object field list renders through the shared DataTabl
   expect(rows[1]!.textContent).toContain('—');
 });
 
+it('portal#2316 (Baloo P2): a typed node with more fields than one page keeps a pager, so no field is unreachable', async () => {
+  const fields = Object.fromEntries(Array.from({ length: 150 }, (_, i) => [`f${String(i).padStart(3, '0')}`, { type: 'text' }]));
+  const schema = { objectTypes: { wide: { fields } } };
+  mockRequest.mockImplementation(async (doc: string) => {
+    if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: { ...NODE, objectType: 'wide', properties: {} } };
+    if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
+    return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
+  });
+  const parent = { ...PARENT, graph: { ...PARENT.graph, schema } };
+  const data = (await load({
+    params: { id: 'mem-A', nodeId: 'leaf-pk' },
+    locals: { token: 'tok' },
+    url: new URL('http://localhost/app/memories/mem-A/nodes/leaf-pk?tab=properties'),
+    parent: vi.fn().mockResolvedValue(parent),
+  } as never)) as Record<string, unknown>;
+  const props = reactiveProps<Record<string, unknown>>({ data: { ...parent, ...data }, form: null });
+  const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+  mounted.push(m);
+  await tick();
+  flushSync();
+  const rows = () => m.target.querySelectorAll('[data-testid="typed-property-row"]');
+  expect(rows()).toHaveLength(100);
+  const next = Array.from(m.target.querySelectorAll('button')).find((b) => /next/i.test(b.getAttribute('aria-label') ?? b.textContent ?? ''));
+  expect(next).toBeDefined();
+  next!.click();
+  flushSync();
+  expect(rows()).toHaveLength(50);
+  expect(rows()[49]!.getAttribute('data-field')).toBe('f149');
+});
+
