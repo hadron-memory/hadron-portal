@@ -11,7 +11,7 @@
 <script lang="ts">
   import { t } from '$lib/i18n/t';
   import { fmtRunTime } from '$lib/flow/runs';
-  import { alarmRuleName, eventActor, eventSentence, isAlarm, type KnownPeople } from '$lib/agent-tasks/events';
+  import { START_FAILING_ALARM_TYPE, alarmRuleName, eventActor, eventSentence, isAlarm, type KnownPeople } from '$lib/agent-tasks/events';
   import { taskHref } from '$lib/agent-tasks/handle';
   import { partyName } from '$lib/agent-tasks/status';
   import type { AgentTeamEvent } from '$lib/agent-tasks/types';
@@ -42,6 +42,7 @@
         <div class="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-sm text-zinc-800 dark:text-zinc-200">
           {#if alarm}
             <span class="font-medium">{alarmRuleName(e.type)}</span>
+            {#if e.type === START_FAILING_ALARM_TYPE && e.subjectWorker}<PartyLabel party={e.subjectWorker} />{/if}
           {:else}
             {#if actor.kind === 'party'}
               <PartyLabel party={actor.party} showUrn={false} />

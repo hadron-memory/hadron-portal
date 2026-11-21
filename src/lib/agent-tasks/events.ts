@@ -317,6 +317,12 @@ export function isAlarm(e: Pick<AgentTeamEvent, 'severity'>): boolean {
  * ALARM_EVENT_TYPES (design §11.4). Its payload carries only `windowMinutes`,
  * so no reason is shown.
  */
+// hadron-server names this event in its start-failure emitter:
+// https://github.com/hadron-memory/hadron-server/blob/5fd87a80/src/lib/desiredState/desiredStart.ts#L44
+// It is task-less and concerns a subject worker; see
+// hrn:node:hadronmemory.com:specs:cor:agt:050:11 and hrn:node:hadronmemory.com:specs:cor:agt:070:08.
+export const START_FAILING_ALARM_TYPE = 'alarm.start-failing';
+
 export function alarmRuleName(type: string): string {
   switch (type) {
     case 'stall.not-started':
@@ -327,10 +333,12 @@ export function alarmRuleName(type: string): string {
       return t('app.tasks.alarm.owner-unreactive', 'Owner didn’t react');
     case 'assignment.unassignable':
       return t('app.tasks.alarm.unassignable', 'Couldn’t be assigned');
+    case START_FAILING_ALARM_TYPE:
+      return t('app.tasks.alarm.start-failing', 'Worker starts failing');
     default:
       return type;
   }
 }
 
 /** Every alarm type the portal names; anything else renders its raw type. */
-export const KNOWN_ALARM_TYPES = ['stall.not-started', 'stall.no-progress', 'stall.owner-unreactive', 'assignment.unassignable'] as const;
+export const KNOWN_ALARM_TYPES = ['stall.not-started', 'stall.no-progress', 'stall.owner-unreactive', 'assignment.unassignable', START_FAILING_ALARM_TYPE] as const;
