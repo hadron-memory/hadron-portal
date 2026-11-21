@@ -90,6 +90,10 @@ const initial = {
 const browser = await chromium.launch({ headless: true });
 const results = [];
 
+// Mirrors the class pair at src/routes/+layout.svelte:38 (`dark ? … : …`).
+const SHELL_DARK = 'min-h-screen bg-zinc-950 text-zinc-100';
+const SHELL_LIGHT = 'min-h-screen bg-zinc-50 text-zinc-900';
+
 async function shoot(name, { dark, savedArrangement = null }) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
@@ -99,10 +103,21 @@ async function shoot(name, { dark, savedArrangement = null }) {
   }));
   await page.goto(new URL('/__board_fixture', origin).href);
   await page.addStyleTag({ content: css });
-  await page.evaluate((dark) => {
+  // portal#2255: this document has no app shell, so the proof must reproduce
+  // the shell's own color pair. Painting only `bg-*` here left every element
+  // without its own color class at UA-initial black on zinc-950, which
+  // manufactured the (closed) #2251 contrast finding in the dark shot.
+  // These are the classes src/routes/+layout.svelte:38 wraps every route in.
+  const shell = dark ? SHELL_DARK : SHELL_LIGHT;
+  await page.evaluate(({ dark, shell }) => {
     document.documentElement.classList.toggle('dark', dark);
-    document.body.className = 'bg-white dark:bg-zinc-950';
-  }, dark);
+    document.body.className = shell;
+  }, { dark, shell });
+  // The shell-assertion arm: fail if the inherited text color is not set, so
+  // a future edit cannot silently drop it again.
+  const shellText = shell.split(' ').find((c) => c.startsWith('text-'));
+  const hasText = await page.evaluate((cls) => document.body.classList.contains(cls), shellText);
+  if (!hasText) throw new Error(`${name}: proof body lacks the shell text class ${shellText}`);
   // portal#2253 item 4: optionally seed a saved board arrangement (pre-PR
   // vintage, saved before the Finish by column existed) BEFORE the board
   // mounts, the way a real browser carries it in localStorage across a
