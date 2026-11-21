@@ -254,9 +254,14 @@ describe('#1998 the SDK contract providerCallError relies on', () => {
     expect(wrapped.lastError).toBe(last);
     expect(APICallError.isInstance(wrapped.lastError)).toBe(true);
   });
-  it('a retried 503 is logged with its status, not as none', async () => {
-    stubFetch(providerError(503));
+  it('a retried failure is logged with its LAST attempt’s status: first a 429, last a 503', async () => {
+    // The SDK retries; the first attempt is a 429 and every later one a 503, so reading the first
+    // attempt (errors[0]) instead of the last would log 429 and fail here.
+    let attempt = 0;
+    const f = stubFetch(() => providerError(attempt++ === 0 ? 429 : 503)());
     await fail();
+    expect(f.mock.calls.length, 'the SDK retried, so there was more than one attempt').toBeGreaterThan(1);
     expect(lines().join('\n')).toMatch(/status=503/);
+    expect(lines().join('\n')).not.toMatch(/status=429/);
   });
 });
