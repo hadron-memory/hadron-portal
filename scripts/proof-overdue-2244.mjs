@@ -87,16 +87,17 @@ const initial = {
   board: { kind: 'ok', value: { capped: false, tasks } },
 };
 
-const browser = await chromium.launch({ headless: true });
-const results = [];
-
 // The shell is read from the root layout, not copied: the wrapper div's static
 // classes plus the dark/light ternary on its class attribute, so a change to the
 // layout changes the proof and an unreadable layout fails the script.
 const layoutSource = readFileSync(new URL('../src/routes/+layout.svelte', import.meta.url), 'utf8');
-const wrapper = layoutSource.match(/<div class="([^"{]*)\{dark \? '([^']+)' : '([^']+)'\}"/);
+// Anchored to the first <div> after the script block, which is the shell wrapper.
+const wrapper = layoutSource.match(/<\/script>[\s\S]*?<div class="([^"{]*)\{dark \? '([^']+)' : '([^']+)'\}"/);
 if (!wrapper) throw new Error('src/routes/+layout.svelte: could not find the shell wrapper (class="… {dark ? \'…\' : \'…\'}"); update the proof');
 const [, SHELL_STATIC, SHELL_DARK, SHELL_LIGHT] = wrapper;
+
+const browser = await chromium.launch({ headless: true });
+const results = [];
 
 async function shoot(name, { dark, savedArrangement = null }) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -135,8 +136,12 @@ async function shoot(name, { dark, savedArrangement = null }) {
   // inherit exactly the shell's text color (a reference element given the pair's
   // text class). UA-initial black differs from both zinc-100 and zinc-900, so
   // this fails in either theme when the inherited color is missing.
-  const textClass = (dark ? SHELL_DARK : SHELL_LIGHT).split(/\s+/).find((c) => c.startsWith('text-'));
-  if (!textClass) throw new Error(`${name}: the layout's ${dark ? 'dark' : 'light'} pair has no text-* class`);
+  // The text color utility, from the whole shell string: size and alignment
+  // utilities (text-sm, text-center, ...) are not colors.
+  const NOT_A_COLOR = /^text-(?:xs|sm|base|lg|\d*xl|left|right|center|justify|start|end|wrap|nowrap|balance|pretty|ellipsis|clip)$/;
+  const textClasses = shell.split(/\s+/).filter((c) => c.startsWith('text-') && !NOT_A_COLOR.test(c));
+  if (textClasses.length !== 1) throw new Error(`${name}: expected one text color class in the shell, found ${JSON.stringify(textClasses)}`);
+  const [textClass] = textClasses;
   const colors = await page.evaluate((cls) => {
     const probe = document.createElement('span');
     const ref = document.createElement('span');
