@@ -30,10 +30,10 @@
       <WorkerBadge size="xs" />
     </span>
     {#if showUrn && party.urn}
-      <!-- portal#2413: this wrapper clips a long URN, and overflow clips a focus
-           ring too. The padding gives the copy buttons' ring room inside the
-           clip; the equal negative margin keeps the layout where it was. -->
-      <span class="-m-1 block max-w-full min-w-0 overflow-hidden p-1"><Urn value={party.urn} type="worker" size={10} compact /></span>
+      <!-- portal#2413: no overflow clip here. A clipping ancestor cuts the copy
+           buttons' focus ring at its edge, and the Urn chip already truncates
+           itself (min-w-0 + truncate), so this wrapper need not clip. -->
+      <span class="block max-w-full min-w-0"><Urn value={party.urn} type="worker" size={10} compact /></span>
     {/if}
   </span>
 {:else}
