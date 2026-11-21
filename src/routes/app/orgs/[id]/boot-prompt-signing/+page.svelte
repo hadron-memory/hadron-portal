@@ -8,6 +8,7 @@
   import { enhance } from '$app/forms';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import SigningStatus from '$lib/components/org/SigningStatus.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
@@ -79,7 +80,8 @@
     <h1 class="mt-2 text-xl font-bold text-zinc-900 dark:text-white">{t('org.signing.heading', 'Boot prompt signing')}</h1>
   </div>
 
-  <section class="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" data-testid="signing-preview">
+  <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" data-testid="signing-preview">
+    <div class="space-y-4">
     {#if done && form && 'signing' in form && form.signing}
       <SigningStatus required={form.signing.required} enforced={form.signing.enforced} />
       <p role="status" class="text-sm text-green-700 dark:text-green-300">{t('org.signing.switched-on', 'Signing is switched on.')}</p>
@@ -91,7 +93,10 @@
       <!-- The caller lost the audience between read and write: say nothing about the org. -->
       <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('org.signing.unavailable', 'This isn’t available.')}</p>
     {:else if preview?.kind === 'drifted'}
-      <p role="status" class="text-sm text-amber-800 dark:text-amber-200">{t('org.signing.stale', 'What would change has changed, or this review is more than 10 minutes old. Look again before switching on.')}</p>
+      <!-- A stale switch-on already said this in the region below; repeating it here would speak twice. -->
+      {#if outcome !== 'stale'}
+        <p class="text-sm text-amber-800 dark:text-amber-200">{t('org.signing.stale', 'What would change has changed, or this review is more than 10 minutes old. Look again before switching on.')}</p>
+      {/if}
       <a href="/app/orgs/{org.id}/boot-prompt-signing" data-sveltekit-reload class="inline-block rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('org.signing.look-again', 'Look again')}</a>
     {:else if preview?.kind === 'too_many'}
       <p class="text-sm text-zinc-700 dark:text-zinc-300">{countWords(preview.total)}</p>
@@ -141,9 +146,7 @@
         </DataTable>
       {/if}
 
-      {#if outcome === 'stale'}
-        <p role="status" class="text-sm text-amber-800 dark:text-amber-200">{t('org.signing.stale', 'What would change has changed, or this review is more than 10 minutes old. Look again before switching on.')}</p>
-      {:else if outcome === 'failed'}
+      {#if outcome === 'failed'}
         <p role="alert" class="text-sm text-red-700 dark:text-red-300">{t('org.signing.on-failed', 'Couldn’t switch signing on. Try again.')}</p>
       {:else if outcome === 'no_review'}
         <p role="alert" class="text-sm text-red-700 dark:text-red-300">{t('org.signing.no-review', 'Review what would change first.')}</p>
@@ -177,5 +180,14 @@
         <button type="submit" disabled={submitting} class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">{t('org.signing.switch-on-confirm', 'Switch on')}</button>
       </form>
     {/if}
+    </div>
+    <!-- The switch-on outcome that must be heard whichever preview the reload brings back (ok,
+         drifted or too_many), so it lives outside the preview chain. It follows the container with
+         the old gap as the box's own margin, so an idle region adds nothing (portal#2375). -->
+    <LiveRegion>
+      {#if outcome === 'stale'}
+        <p class="mt-4 text-sm text-amber-800 dark:text-amber-200">{t('org.signing.stale', 'What would change has changed, or this review is more than 10 minutes old. Look again before switching on.')}</p>
+      {/if}
+    </LiveRegion>
   </section>
 </div>
