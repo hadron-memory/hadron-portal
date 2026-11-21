@@ -121,12 +121,14 @@
         {#if feedback?.kind === 'error'}
           <p role="alert" class="text-sm text-red-600 dark:text-red-400">{feedback.text}</p>
         {/if}
-        <LiveRegion>
-          {#if feedback?.kind === 'ok'}
-            <p class="text-sm text-emerald-600 dark:text-emerald-400">{feedback.text}</p>
-          {/if}
-        </LiveRegion>
       </form>
+      <!-- Outside the space-y form: an empty region as the form's LAST child would give the
+           element before it a trailing margin (portal#2375 QA F1). -->
+      <LiveRegion>
+        {#if feedback?.kind === 'ok'}
+          <p class="mt-3 text-sm text-emerald-600 dark:text-emerald-400">{feedback.text}</p>
+        {/if}
+      </LiveRegion>
     {/if}
   </section>
 {/if}

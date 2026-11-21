@@ -156,12 +156,12 @@
               <button type="submit" disabled={$emailSubmitting} class="w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
                 {$emailSubmitting ? 'Sending...' : 'Continue with email'}
               </button>
-              <LiveRegion>
-                {#if emailSentMessage}
-                  <p class="text-sm text-green-400">{emailSentMessage}</p>
-                {/if}
-              </LiveRegion>
             </form>
+            <LiveRegion>
+              {#if emailSentMessage}
+                <p class="mt-3 text-sm text-green-400">{emailSentMessage}</p>
+              {/if}
+            </LiveRegion>
 
             <div class="flex items-center gap-3">
               <hr class="flex-1 border-zinc-700" />

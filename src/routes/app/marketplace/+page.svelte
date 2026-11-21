@@ -225,12 +225,12 @@
                 {#if submittedMemoryId === memory.id && addToAgentError}
                   <p id="adopt-error-{memory.id}" role="alert" class="text-xs text-red-600 dark:text-red-400">{addToAgentError}</p>
                 {/if}
-                <LiveRegion>
-                  {#if submittedMemoryId === memory.id && addToAgentSuccess}
-                    <p class="text-xs text-green-700 dark:text-green-400">{addToAgentSuccess}</p>
-                  {/if}
-                </LiveRegion>
               </form>
+              <LiveRegion>
+                {#if submittedMemoryId === memory.id && addToAgentSuccess}
+                  <p class="mt-2 text-xs text-green-700 dark:text-green-400">{addToAgentSuccess}</p>
+                {/if}
+              </LiveRegion>
             {/if}
           </div>
         {/each}
