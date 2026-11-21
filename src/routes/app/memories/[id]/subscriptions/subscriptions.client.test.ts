@@ -6,7 +6,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import Page from './+page.svelte';
 import { memorySubscriptionSchema, memoryUnsubscribeSchema } from './schema';
-import { firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
+import { announcedStatusRegion, firstPopulatedStatusText, idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
 
 let mounted: Mounted<Record<string, unknown>> | null = null;
 afterEach(() => { mounted?.unmount(); mounted = null; });
@@ -86,6 +86,23 @@ describe('#2220 subscribe form', () => {
     expect(root.textContent).toMatch(/administer another organization/i);
     // the page's own status region stays mounted but empty, so "not announced" is "nothing populated"
     expect(firstPopulatedStatusText(root)).toBeNull();
+  });
+
+  it('the page status region exists empty at load (portal#2378)', async () => {
+    const root = await open();
+    expect(idleStatusRegions(root).length).toBeGreaterThan(0);
+    expect(firstPopulatedStatusText(root)).toBeNull();
+  });
+
+  it('an action result is rendered inside the page status region, not beside it (portal#2378)', async () => {
+    // The page seeds its superForm message store from the action data at mount, so the result cannot be
+    // pushed in after mount from a test; mount with it present and pin WHERE it renders.
+    const sv = await superValidate({ orgId: 'org-2', role: 'READER', _kind: 'subscribeMemory' } as never, zod4(memorySubscriptionSchema), { errors: false });
+    (sv as any).message = { type: 'success', text: 'Subscribed Beta.' };
+    const root = await open({ form: { form: sv } });
+    const announced = announcedStatusRegion(root);
+    expect(announced?.textContent).toMatch(/Subscribed Beta/);
+    expect(root.textContent?.match(/Subscribed Beta/g)).toHaveLength(1);
   });
 
   it('a refused add still shows the server refusal beside the form', async () => {
