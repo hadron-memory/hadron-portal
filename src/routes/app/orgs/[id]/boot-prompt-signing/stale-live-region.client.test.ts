@@ -57,6 +57,11 @@ describe.each([
     expect(during, 'a status region carries the stale message').toBeDefined();
     expect(during.textContent).toContain(STALE);
     expect(idle, 'the announcing region is one that already existed').toContain(during);
+    // portal#2421 LOCAL P2: the stale note ADDS to a too_many preview's own words, it never replaces them.
+    if (_name === 'too_many') {
+      expect(during.textContent, 'the count survives a stale switch-on').toContain('900 boot prompts');
+      expect(during.textContent, 'and so does the use-the-CLI instruction').toContain('hadron org signing on');
+    }
     expect(occurrences(root.textContent ?? '', STALE), 'the text is not repeated by the reloaded branch').toBe(1);
 
     p.form = null;
