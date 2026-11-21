@@ -122,7 +122,8 @@ describe('PartyPicker: members not listed', () => {
   it('one region carries both notes: failed turning into withheld swaps text, not region', async () => {
     const { root, props: p } = await mount(PartyPicker, props);
     p.peopleFailed = true; await tick(2);
-    const region = speaking(root, 'Couldn’t load this App’s members')!;
+    const region = speaking(root, 'Couldn’t load this App’s members');
+    expect(region, 'the failed note is inside a status region').not.toBeNull();
     p.peopleFailed = false; p.peopleWithheld = true; await tick(2);
     expect(speaking(root, 'members aren’t visible to you')).toBe(region);
   });

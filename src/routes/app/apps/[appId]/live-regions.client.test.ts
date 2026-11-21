@@ -89,6 +89,18 @@ describe('chats tab notes', () => {
   });
 });
 
+describe('switching into a failed legacy chat', () => {
+  it('speaks from the region that existed before the switch, the way a chat switch delivers the panel and the error together', async () => {
+    const appChats = [{ key: 'legacy-root', label: 'Old chat' }, { key: 'other-root', label: 'Other' }];
+    const { root, set, settle } = await open('chats', { selectedChatKey: null, selectedChatError: false, appChats });
+    await expectLiveRegionLifecycle({
+      root, text: 'Couldn’t load this chat — that is a read failure', settle,
+      appear: () => set({ selectedChatKey: 'legacy-root', selectedChatError: true }),
+      disappear: () => set({ selectedChatKey: null, selectedChatError: false }),
+    });
+  });
+});
+
 describe('AI Team tab notes', () => {
   const roster = { kind: 'unavailable' };
   it('installed agents withheld: who can be cast is not known', async () => {

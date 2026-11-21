@@ -1422,6 +1422,11 @@
   // THIS, not on the flag alone.
   const teamChatShown = $derived(activeTab === 'chats' && tabData.selectedChatKey === TEAM_CHAT_LOC);
   const chatFullView = $derived(chatMaximized && teamChatShown);
+  // The old, unregistered chat root: the branch of the chat panel that has no Channel identity.
+  const legacyChatShown = $derived(
+    !!tabData.selectedChatKey && tabData.selectedChatKey !== AGENT_CHAT_KEY && tabData.selectedChatKey !== TEAM_CHAT_LOC
+      && !(tabData.selectedChannelId && tabData.postChannelMessageForm),
+  );
   function setChatMaximized(full: boolean) {
     chatMaximized = full;
     replaceState(withChatView(new URL(window.location.href), full), {});
@@ -2922,6 +2927,13 @@
         )}
       </p>
     {/if}
+    <!-- Above every chat branch, so a switch INTO a failed legacy chat changes a region that already
+         existed instead of mounting one that arrives holding its text. -->
+    {#if legacyChatShown && tabData.selectedChatError}
+      <p class="mb-3 rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
+        {t('app.chats.messages-error', 'Couldn’t load this chat — that is a read failure, not an empty chat.')}
+      </p>
+    {/if}
     </LiveRegion>
 
     {#if tabData.selectedChatKey === AGENT_CHAT_KEY}
@@ -3165,15 +3177,8 @@
       <!-- An old, unregistered chat root has no Channel identity. Keep its
            existing readable transcript without inventing a post target. -->
       <div class="flex flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
-        <LiveRegion>
-          {#if tabData.selectedChatError}
-            <p class="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
-              {t('app.chats.messages-error', 'Couldn’t load this chat — that is a read failure, not an empty chat.')}
-            </p>
-          {/if}
-        </LiveRegion>
         {#if tabData.selectedChatError}
-          <!-- announced by the region above -->
+          <!-- announced by the region above the chat branches -->
         {:else if (tabData.selectedChatMessages ?? []).length === 0}
           <p class="text-sm text-zinc-500">
             {t('app.chats.empty', 'No messages in this chat yet.')}
