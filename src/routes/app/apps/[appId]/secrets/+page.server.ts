@@ -11,7 +11,6 @@ import type { Actions, PageServerLoad } from './$types';
  * portal#2380 — an App's secrets. Protection exists on App secrets only (hrn:node:hadronmemory.com:specs:cor:sec:070), and a
  * value is write-only: no read here returns one.
  */
-const CREATE_PREFIX = 'create:';
 
 export const load: PageServerLoad = async ({ params, locals, cookies }) => {
   const client = gqlClient(locals.token);
@@ -20,8 +19,8 @@ export const load: PageServerLoad = async ({ params, locals, cookies }) => {
   const [secrets, signing, pending] = await Promise.all([
     loadAppSecrets(client, app.id),
     probeSigning(client),
-    // A create was tracked under the URL's app ref (an id or a handle), so match either.
-    loadPending(client, cookies, (tr) => tr.secretId.startsWith(`${CREATE_PREFIX}${app.id}:`) || tr.secretId.startsWith(`${CREATE_PREFIX}${params.appId}:`), !!locals.impersonation),
+    // A staged create is tracked under the App's id (the create action resolves the URL's ref first), so one match.
+    loadPending(client, cookies, (tr) => tr.create?.appId === app.id, !!locals.impersonation),
   ]);
   return {
     app,
@@ -41,12 +40,16 @@ export const actions: Actions = {
     const protect = fd.get('protected') === 'on';
     if (!validSecretName(name)) return fail(400, { action: 'create' as const, name, message: t('secrets.name.invalid', 'Use lowercase letters, digits and hyphens, up to 64 characters.') });
     if (value === undefined) return fail(400, { action: 'create' as const, name, message: t('secrets.value.required', 'Enter a value.') });
-    const r = await secretWrite<{ createSecret: AppSecret }>(gqlClient(locals.token), CREATE_SECRET_MUTATION, {
-      ownerRef: params.appId, name, kind: 'generic', value, ...(protect ? { protected: true } : {}),
+    const client = gqlClient(locals.token);
+    // The URL's app ref is an id or a handle; a staged create is remembered under the id.
+    const app = await loadTasksApp(client, params.appId);
+    if (!app) throw error(404, 'App not found');
+    const r = await secretWrite<{ createSecret: AppSecret }>(client, CREATE_SECRET_MUTATION, {
+      ownerRef: app.id, name, kind: 'generic', value, ...(protect ? { protected: true } : {}),
     });
     if (r.kind === 'ok') return { action: 'create' as const, ok: true as const, name };
     if (r.kind === 'staged') {
-      trackRequest(cookies, { secretId: `${CREATE_PREFIX}${params.appId}:${name}`, requestId: r.requestId, ceremonyUrl: r.ceremonyUrl });
+      trackRequest(cookies, { create: { appId: app.id, name }, requestId: r.requestId, ceremonyUrl: r.ceremonyUrl });
       return { action: 'create' as const, staged: true as const, name };
     }
     return fail(r.kind === 'plain-protected' ? 403 : 400, { action: 'create' as const, name, message: r.kind === 'plain-protected' ? PLAIN_PROTECTED_TEXT() : r.message });

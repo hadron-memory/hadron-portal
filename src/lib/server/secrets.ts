@@ -15,8 +15,8 @@ const SECRET_FIELDS = /* GraphQL */ `
 
 export const APP_SECRETS_QUERY = /* GraphQL */ `
   ${SECRET_FIELDS}
-  query AppSecrets($ownerRef: ID!, $limit: Int) {
-    secrets(ownerType: "app", ownerRef: $ownerRef, limit: $limit) { total items { ...SecretFields } }
+  query AppSecrets($ownerRef: ID!, $limit: Int, $offset: Int) {
+    secrets(ownerType: "app", ownerRef: $ownerRef, limit: $limit, offset: $offset) { total items { ...SecretFields } }
   }
 `;
 export const SECRET_QUERY = /* GraphQL */ `
@@ -53,6 +53,8 @@ export interface AppSecret {
   ownerId: string;
   name: string;
   kind: string;
+  /** The non-secret, inspectable half of the secret (never a value). */
+  metadata: unknown;
   protected: boolean;
   currentVersion: number | null;
   createdAt: string;
@@ -66,14 +68,37 @@ export type SecretsRead =
   | { kind: 'failed' };
 
 export const SECRETS_PAGE = 200;
+/** The most pages one list read walks: 2,000 secrets. Past that the page says how many it shows. */
+export const SECRETS_MAX_PAGES = 10;
 
+/**
+ * Why a read failed, for the log: the server's error code when it sent one and it is code-shaped,
+ * else a fixed marker. Never the message, the variables or anything the wire carried.
+ */
+function readFailureCode(e: unknown): string {
+  const code = extractGqlErrorCode(e);
+  return code && /^[A-Z][A-Z0-9_]{0,63}$/.test(code) ? code : code ? 'unrecognized' : 'no-code';
+}
+function logReadFailure(op: string, e: unknown) {
+  console.error('[secrets] read failed:', { op, code: readFailureCode(e) });
+}
+
+/** Every page up to SECRETS_MAX_PAGES: `total` is the server's count, so a capped list is shown as capped. */
 export async function loadAppSecrets(client: Pick<GraphQLClient, 'request'>, appId: string): Promise<SecretsRead> {
+  const secrets: AppSecret[] = [];
+  let total = 0;
   try {
-    const r = await client.request<{ secrets: { total: number; items: AppSecret[] } }>(APP_SECRETS_QUERY, { ownerRef: appId, limit: SECRETS_PAGE });
-    return { kind: 'ok', secrets: r.secrets.items, total: r.secrets.total };
-  } catch {
+    for (let page = 0; page < SECRETS_MAX_PAGES; page++) {
+      const r = await client.request<{ secrets: { total: number; items: AppSecret[] } }>(APP_SECRETS_QUERY, { ownerRef: appId, limit: SECRETS_PAGE, offset: page * SECRETS_PAGE });
+      secrets.push(...r.secrets.items);
+      total = r.secrets.total;
+      if (r.secrets.items.length === 0 || secrets.length >= total) break;
+    }
+  } catch (e) {
+    logReadFailure('app-secrets', e);
     return { kind: 'failed' };
   }
+  return { kind: 'ok', secrets, total };
 }
 
 export type SecretRead = { kind: 'ok'; secret: AppSecret } | { kind: 'missing' } | { kind: 'failed' };
@@ -84,7 +109,10 @@ export async function loadAppSecret(client: Pick<GraphQLClient, 'request'>, appI
     const r = await client.request<{ secret: AppSecret | null }>(SECRET_QUERY, { ref });
     const s = r.secret;
     return s && s.ownerType === 'app' && s.ownerId === appId ? { kind: 'ok', secret: s } : { kind: 'missing' };
-  } catch {
+  } catch (e) {
+    // The server may refuse the read outright for a secret the viewer may not see: that is "missing", not a fault.
+    if (extractGqlErrorCode(e) === 'NOT_FOUND' || extractGqlErrorCode(e) === 'FORBIDDEN') return { kind: 'missing' };
+    logReadFailure('app-secret', e);
     return { kind: 'failed' };
   }
 }
@@ -96,7 +124,8 @@ export async function loadChangeRequest(client: Pick<GraphQLClient, 'request'>, 
   try {
     const r = await client.request<{ secretChangeRequest: ChangeRequestState | null }>(SECRET_CHANGE_REQUEST_QUERY, { id });
     return r.secretChangeRequest;
-  } catch {
+  } catch (e) {
+    logReadFailure('change-request', e);
     return 'failed';
   }
 }

@@ -89,3 +89,32 @@ describe('the list', () => {
     expect(html).toContain('Protected');
   });
 });
+
+describe('portal#2436 item 4: Delete asks before it deletes, with and without JavaScript', () => {
+  it('the first Delete is a plain button; the confirmation, its Delete and its Cancel appear once the server asked', () => {
+    const before = detail({});
+    expect(before).not.toContain('data-testid="delete-confirm"');
+    expect(before).not.toContain('name="confirm"');
+    const asked = detail({}, { action: 'delete', confirm: true });
+    expect(asked).toContain('data-testid="delete-confirm"');
+    expect(asked).toContain('Delete stripe-key and every version of it?');
+    expect(asked).toContain('name="confirm" value="yes"');
+    expect(asked).toContain('href="/app/apps/app-1/secrets/s1"');
+    expect(asked).toContain('>Cancel<');
+  });
+  it('another action\'s form data never opens the delete confirmation', () => {
+    expect(detail({}, { action: 'update', ok: true })).not.toContain('data-testid="delete-confirm"');
+  });
+});
+
+describe('portal#2436 item 1/2: the list notice for a staged create and a declined request', () => {
+  const list = (p: Record<string, unknown>) => render(List as never, { props: { data: { app, secrets: { kind: 'ok', secrets: [secret], total: 1 }, signing: 'on', pending: [p], impersonating: null }, form: null } } as never).body;
+  it('names the secret a staged create asked for, from the tracked create, not from a parsed string', () => {
+    const html = list({ ...pending, secretId: null, createName: 'new:key', operation: 'CREATE' });
+    expect(html).toContain('new:key');
+    expect(html).toContain('creating this secret');
+  });
+  it('a declined request reads as Declined, not as its raw state', () => {
+    expect(list({ ...pending, state: 'declined' })).toContain('>Declined<');
+  });
+});

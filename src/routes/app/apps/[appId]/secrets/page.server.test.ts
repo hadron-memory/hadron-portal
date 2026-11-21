@@ -29,12 +29,16 @@ const ev = (cookies: ReturnType<typeof jar>, extra: object = {}) => ({
   params: { appId: 'app-1', secretId: 's1' }, locals: { token: 'tok', user: { id: 'u1' }, impersonation: null }, cookies, ...extra,
 }) as never;
 
+/** An action first reads the App and the secret (the same ownership read the load makes); `impl` answers the rest. */
+const owned = (impl: (q: string, v?: unknown) => unknown) => async (q: string, v?: unknown) => (q === AGENT_TASKS_APP_QUERY ? { app } : q === SECRET_QUERY ? { secret } : impl(q, v));
+const confirmed = form({ confirm: 'yes' });
+
 beforeEach(() => { request.mockReset(); });
 
 describe('a staged edit (acceptance 1)', () => {
   it('is staged, not saved and not a generic error; the request is remembered with its link', async () => {
     const { actions } = await import('./[secretId]/+page.server');
-    request.mockImplementation(async (q: string) => { if (q === UPDATE_SECRET_VALUE_MUTATION) throw staged(); });
+    request.mockImplementation(owned((q) => { if (q === UPDATE_SECRET_VALUE_MUTATION) throw staged(); }));
     const c = jar();
     const r = (await actions.update(ev(c, { request: form({ value: 'new' }) }))) as Record<string, unknown>;
     expect(r).toEqual({ action: 'update', staged: true });
@@ -44,7 +48,7 @@ describe('a staged edit (acceptance 1)', () => {
 
   it('a refused caller (no request) is a plain refusal and nothing is remembered', async () => {
     const { actions } = await import('./[secretId]/+page.server');
-    request.mockImplementation(async () => { throw err({ code: 'SECRET_PROTECTED_NEEDS_PASSKEY' }); });
+    request.mockImplementation(owned(() => { throw err({ code: 'SECRET_PROTECTED_NEEDS_PASSKEY' }); }));
     const c = jar();
     const r = (await actions.update(ev(c, { request: form({ value: 'new' }) }))) as { status: number; data: Record<string, unknown> };
     expect(r.status).toBe(403);
@@ -54,9 +58,9 @@ describe('a staged edit (acceptance 1)', () => {
 
   it('a staged protect toggle and a staged delete are staged too', async () => {
     const { actions } = await import('./[secretId]/+page.server');
-    request.mockImplementation(async () => { throw staged(); });
+    request.mockImplementation(owned(() => { throw staged(); }));
     expect(await actions.protect(ev(jar(), { request: form({ protected: 'false' }) }))).toEqual({ action: 'protect', staged: true });
-    expect(await actions.delete(ev(jar()))).toEqual({ action: 'delete', staged: true });
+    expect(await actions.delete(ev(jar(), { request: confirmed }))).toEqual({ action: 'delete', staged: true });
   });
 });
 
@@ -72,19 +76,19 @@ describe('a false Boolean payload is not a success', () => {
   });
   it('delete answering false says nothing was deleted instead of redirecting as if it were gone', async () => {
     const { actions } = await import('./[secretId]/+page.server');
-    request.mockImplementation(async () => ({ deleteSecret: false }));
-    const r = (await actions.delete(ev(jar()))) as { status: number; data: { message: string } };
+    request.mockImplementation(owned(() => ({ deleteSecret: false })));
+    const r = (await actions.delete(ev(jar(), { request: confirmed }))) as { status: number; data: { message: string } };
     expect(r.status).toBe(400);
     expect(r.data.message).toContain('Nothing was deleted');
   });
   it('delete answering true redirects to the list', async () => {
     const { actions } = await import('./[secretId]/+page.server');
-    request.mockImplementation(async () => ({ deleteSecret: true }));
-    await expect(actions.delete(ev(jar()))).rejects.toMatchObject({ status: 303 });
+    request.mockImplementation(owned(() => ({ deleteSecret: true })));
+    await expect(actions.delete(ev(jar(), { request: confirmed }))).rejects.toMatchObject({ status: 303 });
   });
   it('an unprotected create leaves the protected argument out; a protected one sends true', async () => {
     const { actions } = await import('./+page.server');
-    request.mockImplementation(async () => ({ createSecret: secret }));
+    request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { createSecret: secret }));
     await actions.create(ev(jar(), { request: form({ name: 'a-key', value: 'v' }) }));
     expect(request.mock.calls.at(-1)![1]).not.toHaveProperty('protected');
     await actions.create(ev(jar(), { request: form({ name: 'a-key', value: 'v', protected: 'on' }) }));
@@ -129,7 +133,7 @@ describe('the secret page load', () => {
     const c = jar(JSON.stringify([{ secretId: 's1', requestId: 'r1', ceremonyUrl: URL_ }]));
     const d = (await load(ev(c))) as { signing: string; pending: Array<{ state: string; ceremonyUrl: string }> };
     expect(d.signing).toBe('on');
-    expect(d.pending).toEqual([{ requestId: 'r1', secretId: 's1', ceremonyUrl: URL_, state: 'open', operation: 'STORE', expiresAt: open.expiresAt }]);
+    expect(d.pending).toEqual([{ requestId: 'r1', secretId: 's1', createName: null, ceremonyUrl: URL_, state: 'open', operation: 'STORE', expiresAt: open.expiresAt }]);
     expect(c.store.has(TRACKED_COOKIE)).toBe(true);
   });
   it('an ended request shows once; one the server does not show the viewer is dropped', async () => {
@@ -153,7 +157,7 @@ describe('the secret page load', () => {
   });
   it('a staged create reads as a create, not as a new value', async () => {
     const { load } = await import('./+page.server');
-    const c = jar(JSON.stringify([{ secretId: 'create:app-1:new-key', requestId: 'r1', ceremonyUrl: URL_ }]));
+    const c = jar(JSON.stringify([{ create: { appId: 'app-1', name: 'new-key' }, requestId: 'r1', ceremonyUrl: URL_ }]));
     request.mockImplementation(base('on', open));
     const d = (await load(ev(c))) as { pending: Array<{ operation: string }> };
     expect(d.pending[0].operation).toBe('CREATE');
@@ -171,13 +175,13 @@ describe('the secret page load', () => {
 });
 
 describe('list route', () => {
-  it('create: a protected create is staged (no row yet) and remembered under the App and name', async () => {
+  it('create: a protected create is staged (no row yet) and remembered under the App id and name', async () => {
     const { actions } = await import('./+page.server');
-    request.mockImplementation(async (q: string) => { if (q === CREATE_SECRET_MUTATION) throw staged(); });
+    request.mockImplementation(async (q: string) => { if (q === AGENT_TASKS_APP_QUERY) return { app }; if (q === CREATE_SECRET_MUTATION) throw staged(); });
     const c = jar();
     const r = await actions.create(ev(c, { request: form({ name: 'stripe-key', value: 'sk', protected: 'on' }) }));
     expect(r).toEqual({ action: 'create', staged: true, name: 'stripe-key' });
-    expect(JSON.parse(c.store.get(TRACKED_COOKIE)!)[0].secretId).toBe('create:app-1:stripe-key');
+    expect(JSON.parse(c.store.get(TRACKED_COOKIE)!)).toEqual([{ create: { appId: 'app-1', name: 'stripe-key' }, requestId: 'r1', ceremonyUrl: URL_ }]);
     expect(request).toHaveBeenCalledWith(CREATE_SECRET_MUTATION, expect.objectContaining({ ownerRef: 'app-1', kind: 'generic', protected: true }));
   });
   it('create rejects a bad name and an empty value before any call', async () => {
@@ -206,6 +210,81 @@ describe('list route', () => {
     const { actions } = await import('./[secretId]/+page.server');
     const r = (await actions.update({ ...(ev(jar()) as object), locals: { token: 't', impersonation: { id: 'x' } }, request: form({ value: 'v' }) } as never)) as { status: number };
     expect(r.status).toBe(403);
+    expect(request).not.toHaveBeenCalled();
+  });
+});
+
+describe('portal#2436 polish', () => {
+  const open = { id: 'r1', state: 'open', operation: 'STORE', createdAt: '2026-11-21T00:00:00Z', expiresAt: '2026-11-21T01:00:00Z' };
+  const reads = (cr: unknown) => async (q: string) => {
+    if (q === AGENT_TASKS_APP_QUERY) return { app };
+    if (q === APP_SECRETS_QUERY) return { secrets: { total: 0, items: [] } };
+    if (q === SECRET_QUERY) return { secret };
+    if (q === SECRET_CHANGE_REQUEST_QUERY) return { secretChangeRequest: cr };
+  };
+
+  it('item 1: a create made through the URL handle is remembered under the App id and shows once on the list', async () => {
+    const { actions, load } = await import('./+page.server');
+    request.mockImplementation(async (q: string) => { if (q === AGENT_TASKS_APP_QUERY) return { app }; if (q === CREATE_SECRET_MUTATION) throw staged(); });
+    const c = jar();
+    const handle = { params: { appId: 'team' } };
+    await actions.create(ev(c, { ...handle, request: form({ name: 'k', value: 'v', protected: 'on' }) }));
+    expect(request).toHaveBeenCalledWith(CREATE_SECRET_MUTATION, expect.objectContaining({ ownerRef: 'app-1' }));
+    expect(JSON.parse(c.store.get(TRACKED_COOKIE)!)[0].create).toEqual({ appId: 'app-1', name: 'k' });
+    request.mockImplementation(reads(open));
+    const d = (await load(ev(c, handle))) as { pending: Array<{ createName: string | null; secretId: string | null; operation: string }> };
+    expect(d.pending).toHaveLength(1);
+    expect(d.pending[0]).toMatchObject({ createName: 'k', secretId: null, operation: 'CREATE' });
+  });
+  it('item 1: a create of another App is not shown on this list', async () => {
+    const { load } = await import('./+page.server');
+    request.mockImplementation(reads(open));
+    const c = jar(JSON.stringify([{ create: { appId: 'app-2', name: 'k' }, requestId: 'r1', ceremonyUrl: URL_ }]));
+    expect(((await load(ev(c))) as { pending: unknown[] }).pending).toEqual([]);
+  });
+
+  it.each(['completed', 'declined', 'expired', 'withdrawn', 'stale'])('item 2: %s shows once, then is dropped', async (state) => {
+    const { load } = await import('./[secretId]/+page.server');
+    request.mockImplementation(reads({ ...open, state }));
+    const c = jar(JSON.stringify([{ secretId: 's1', requestId: 'r1', ceremonyUrl: URL_ }]));
+    expect(((await load(ev(c))) as { pending: unknown[] }).pending).toHaveLength(1);
+    expect(c.store.has(TRACKED_COOKIE)).toBe(false);
+  });
+  it('item 2: a state this code does not know is shown and kept, never dropped unseen', async () => {
+    const { load } = await import('./[secretId]/+page.server');
+    request.mockImplementation(reads({ ...open, state: 'quarantined' }));
+    const c = jar(JSON.stringify([{ secretId: 's1', requestId: 'r1', ceremonyUrl: URL_ }]));
+    const d = (await load(ev(c))) as { pending: Array<{ state: string }> };
+    expect(d.pending.map((p) => p.state)).toEqual(['quarantined']);
+    expect(c.store.has(TRACKED_COOKIE)).toBe(true);
+  });
+
+  it("item 3: an update, protect or delete posted at another App's secret is a 404 and writes nothing", async () => {
+    const { actions } = await import('./[secretId]/+page.server');
+    request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : q === SECRET_QUERY ? { secret: { ...secret, ownerId: 'app-2' } } : (() => { throw new Error(`unexpected write ${q}`); })()));
+    for (const [name, r] of [
+      ['update', await actions.update(ev(jar(), { request: form({ value: 'v' }) }))],
+      ['protect', await actions.protect(ev(jar(), { request: form({ protected: 'true' }) }))],
+      ['delete', await actions.delete(ev(jar(), { request: confirmed }))],
+    ] as const) expect(r, name).toMatchObject({ status: 404 });
+    expect(request.mock.calls.map((c) => c[0])).not.toContain(UPDATE_SECRET_VALUE_MUTATION);
+    expect(request.mock.calls.map((c) => c[0])).not.toContain(DELETE_SECRET_MUTATION);
+    expect(request.mock.calls.map((c) => c[0])).not.toContain(SET_SECRET_PROTECTED_MUTATION);
+  });
+  it('item 3: an ownership read that fails is not a license to write', async () => {
+    const { actions } = await import('./[secretId]/+page.server');
+    request.mockImplementation(async (q: string) => { if (q === AGENT_TASKS_APP_QUERY) return { app }; throw new Error('down'); });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const r = (await actions.update(ev(jar(), { request: form({ value: 'v' }) }))) as { status: number };
+    expect(r.status).toBe(400);
+    expect(request.mock.calls.map((c) => c[0])).not.toContain(UPDATE_SECRET_VALUE_MUTATION);
+  });
+
+  it('item 4: Delete without a confirmation only asks; nothing is read or written', async () => {
+    const { actions } = await import('./[secretId]/+page.server');
+    request.mockImplementation(async () => { throw new Error('no call expected'); });
+    expect(await actions.delete(ev(jar(), { request: form({}) }))).toEqual({ action: 'delete', confirm: true });
+    expect(await actions.delete(ev(jar(), { request: form({ confirm: 'no' }) }))).toEqual({ action: 'delete', confirm: true });
     expect(request).not.toHaveBeenCalled();
   });
 });
