@@ -94,7 +94,7 @@ describe('compile and approval outcomes', () => {
     ['AGENT_ORG_GRANT_REQUIRED', 'This App’s organization needs an active grant to customise this Agent.', 403],
     // On a start this code means the write changed while it waited, which names
     // no edit, so the lead must not either. It is a conflict, not a refusal.
-    ['NODE_WRITE_CONFLICT', 'The start could not be completed. Reload before trying again.', 409],
+    ['NODE_WRITE_CONFLICT', 'The start could not be completed. Reload the page before trying again.', 409],
   ])('portal#1755: an empty-source start refused with %s claims no kept draft and hints at no source', async (code, lead, status) => {
     // No draft exists to keep, and the server's answer teaches nothing about a
     // source, so the start refusal states the refusal and nothing more.

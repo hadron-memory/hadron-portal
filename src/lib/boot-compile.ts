@@ -42,7 +42,7 @@ export function compileRefusalText(code: string | null | undefined, position: un
   const c = code ?? '';
   if (c === 'CONFLICT') return t('boot.compile.conflict', 'The prompt couldn’t be built right now. Try again.');
   const typed = ['BOOT_PROMPT_COMPILE_NOT_PERMITTED', 'BOOT_PROMPT_NO_SOURCE', 'BOOT_PROMPT_SOURCE_INVALID', 'BOOT_PROMPT_NODE_TYPE', 'BOOT_PROMPT_TARGET_RETIRED', 'BOOT_PROMPT_GRANT_REQUIRED', 'BOOT_PROMPT_COMPILE_LIMIT_EXCEEDED'];
-  if (!typed.includes(c) && !['MALFORMED', 'UNAVAILABLE', 'RETIRED', 'REVISION_UNAVAILABLE', 'SOURCE_DISALLOWED', 'CYCLE', 'TOO_DEEP'].some(tail => c === `BOOT_PROMPT_INCLUDE_${tail}`)) return t('boot.compile.unknown-outcome', 'Couldn’t confirm whether the prompt was built. Reload to check before trying again.');
+  if (!typed.includes(c) && !['MALFORMED', 'UNAVAILABLE', 'RETIRED', 'REVISION_UNAVAILABLE', 'SOURCE_DISALLOWED', 'CYCLE', 'TOO_DEEP'].some(tail => c === `BOOT_PROMPT_INCLUDE_${tail}`)) return t('boot.compile.unknown-outcome', 'Couldn’t confirm whether the prompt was built. Reload the page to check before trying again.');
   let lead: string;
   switch (c) {
     case 'BOOT_PROMPT_COMPILE_NOT_PERMITTED':

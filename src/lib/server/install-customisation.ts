@@ -6,6 +6,7 @@ import { t } from '$lib/i18n/t';
 import {
   customisationRefusalLead,
   isQualifiedRef,
+  reloadDiscardLabel,
   type CustomisationRead,
   type InstallNode,
   type Read,
@@ -136,7 +137,8 @@ export async function writeCustomisation(
           // #1507: name the control and its effect — a generic 'reload' reads as
           // the browser button, and this control replaces the draft the previous
           // sentence says is kept.
-          'This customisation is no longer available. It may have changed since you opened it. Your draft is kept. To see the current state, use Reload and discard draft; that replaces your draft.',
+          'This customisation is no longer available. It may have changed since you opened it. Your draft is kept. To see the current state, use {control}; that replaces your draft.',
+          { control: reloadDiscardLabel() },
         ),
       },
     });

@@ -10,6 +10,7 @@
   import { postSourceSave } from '$lib/json-draft.svelte';
   import {
     customisationKey,
+    reloadDiscardLabel,
     type CustomisationRead,
     type InstallNode,
   } from '$lib/install-customisation';
@@ -335,7 +336,7 @@
         {:else if read.replacement.state==='loading'}<!-- announced by the LiveRegion above -->
         {:else if read.replacement.state==='failed'}<p role="alert">{t('customisation.node-failed','Couldn’t load this replacement.')}</p>
         {:else}<p>{t('customisation.not-shown','Not shown')}</p>{/if}
-        {#if canManage!==false}<button type="button" disabled={busy} onclick={()=>openPage(offset,loc)} class={`mt-2 ${secondaryButton}`}>{t('customisation.reload-discard','Reload and discard draft')}</button>{/if}
+        {#if canManage!==false}<button type="button" disabled={busy} onclick={()=>openPage(offset,loc)} class={`mt-2 ${secondaryButton}`}>{reloadDiscardLabel()}</button>{/if}
         <!-- Both regions are mounted empty before any save, so a result lands in a region already observed (#1369). -->
         <p role="status" data-feedback class="text-sm [&:not(:empty)]:mt-2">{failed?'':feedback}</p>
         <p role="alert" data-feedback class="text-sm [&:not(:empty)]:mt-2">{failed?feedback:''}</p>
