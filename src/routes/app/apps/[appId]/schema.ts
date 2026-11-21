@@ -118,10 +118,13 @@ export const castWorkerSchema = z.object({
   agentId: z.string().trim().min(1, 'Select an agent to cast.').prefault(''),
   name: z.string().trim().min(1, 'Give the worker a name — the platform no longer picks one.').prefault(''),
   // hadron-portal#1149 (hadron-server#2028, S12) — the cast takes a DELIBERATE
-  // reporting choice: a head, or an explicit No team. Nothing is preselected,
-  // and a missing choice is refused here rather than sent: omission is never
-  // No team, and the coordinator is never guessed. `reporting` has no default
-  // for that reason; a blank or unknown value fails the enum.
+  // reporting choice: a head, or an explicit No team. A missing choice
+  // is refused here rather than sent: omission is never No team, and the
+  // coordinator is never guessed. `reporting` has no default for that reason; a
+  // blank or unknown value fails the enum. The portal form (#1893) is the one
+  // place that seeds `none`, as the unchecked state of its Reports to checkbox,
+  // so it always sends `none` or `head`; this refusal guards a post that skips
+  // the form.
   //
   // The WIRE is presence-based (the action sends exactly one of `reportsTo` /
   // `noTeam: true` and omits the other), so this form carries the choice as a
