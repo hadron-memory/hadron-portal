@@ -23,7 +23,7 @@ export type QuestionCardData = {
   whyNow: string | null;
   priority: string | null;
   tier: string | null;
-  authorizes: string | null;
+  authorizes: boolean;
   state: QuestionState;
   answered: boolean;
   revSeq: number;
@@ -47,4 +47,7 @@ export type QuestionCardData = {
   effectiveAssignee: QuestionPerson | null;
   askedBy: QuestionActor | null;
   withdrawn: { at: string; reason: string | null; by?: QuestionPerson | null } | null;
+  /** Added by the loader, not the server: who is looking, and whether as someone else. */
+  viewerId?: string | null;
+  impersonating?: boolean;
 };

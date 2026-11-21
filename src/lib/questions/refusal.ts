@@ -27,6 +27,12 @@ export function questionRefusal(code: string | null | undefined): QuestionRefusa
       return { status: 400, text: t('question.refusal.invalid', 'The answer could not be recorded. Reload the question and check it.') };
     case 'QUESTION_NOT_FOUND':
       return { status: 404, text: t('question.refusal.not-found', 'This question no longer exists, or you can no longer read it.') };
+    case 'QUESTION_FORBIDDEN':
+      return { status: 403, text: t('question.refusal.forbidden', 'You cannot do that on this question.') };
+    case 'QUESTION_LOG_NOT_FOUND':
+      return { status: 404, text: t('question.refusal.log-not-found', "This question's log no longer exists, or you can no longer read it.") };
+    case 'FORBIDDEN':
+      return { status: 403, text: t('question.refusal.impersonation', 'Questions cannot be answered while impersonating.') };
     default:
       return null;
   }

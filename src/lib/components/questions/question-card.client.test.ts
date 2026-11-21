@@ -12,7 +12,7 @@ const person = (n: string) => ({ id: `id-${n}`, handle: n, name: n.toUpperCase()
 const OPTIONS = ['A', 'B', 'C'].map((key) => ({ key, label: `Option ${key}`, whyChoose: `choose ${key}`, whyNot: key === 'B' ? 'because B' : null, risks: null }));
 const base: QuestionCardData = {
   id: 'q-1', urn: 'hrn:node:acme.com:m:q', portalUrl: null, code: 'Q1', title: 'Which one?', background: null, whyNow: null,
-  priority: 'P1', tier: 'ANSWERED', authorizes: null, state: 'OPEN', answered: false, revSeq: 7, viewerIsDecider: true, viewerMayAnswer: true,
+  priority: 'P1', tier: 'ANSWERED', authorizes: false, state: 'OPEN', answered: false, revSeq: 7, viewerIsDecider: true, viewerMayAnswer: true,
   neededBy: null, defaultAction: null, askedAt: '2026-11-18T10:00:00Z', answeredAt: null, options: OPTIONS,
   recommendation: { key: 'B', reason: 'B is cheapest', by: { user: null, worker: person('marco'), app: null } }, noRecommendationReason: null,
   answer: null, answers: [], blocks: [], sources: [], specsTouched: [], specsMustChange: [],
@@ -119,5 +119,34 @@ describe('question card', () => {
   });
   it('no assignee reads "For: any decider"', () => {
     expect(mountCard({}).textContent).toContain('For: any decider');
+  });
+
+  const answeredBy = (id: string) => ({ kind: 'ANSWER', key: 'A', text: null, reason: null, at: '2026-11-18T11:00:00Z', via: 'PORTAL', by: { id, handle: 'x', name: 'X' } });
+  it('P2: "Your answer" marks only an answer the viewer gave; another decider\'s says Answered', () => {
+    const mine = answeredBy('me');
+    const el = mountCard({ viewerId: 'me', answered: true, state: 'DECIDED', answer: mine, answers: [mine] });
+    expect(el.querySelector('[data-testid=question-option][data-key=A]')!.textContent).toContain('Your answer');
+    const theirs = answeredBy('someone-else');
+    const el2 = mountCard({ viewerId: 'me', answered: true, state: 'DECIDED', answer: theirs, answers: [theirs] });
+    const a = el2.querySelectorAll('[data-testid=question-option][data-key=A]');
+    expect(a[a.length - 1]!.textContent).not.toContain('Your answer');
+  });
+  it('P2: an asker who is not a decider can withdraw; a stranger cannot; nobody can while impersonating', () => {
+    const asker = { user: person('ask'), worker: null, app: null };
+    const open = (q: Partial<QuestionCardData>) => mountCard({ viewerIsDecider: false, viewerMayAnswer: false, askedBy: asker, ...q }, false).querySelector('[data-testid=question-withdraw]');
+    expect(open({ viewerId: 'id-ask' })).not.toBeNull();
+    expect(open({ viewerId: 'id-stranger' })).toBeNull();
+    expect(open({ viewerId: 'id-ask', impersonating: true })).toBeNull();
+  });
+  it('P2: Undo follows the decider, not the answer capability, and is gone while impersonating', () => {
+    const a = answeredBy('me');
+    const full = { answered: true, state: 'DECIDED' as const, answer: a, answers: [a], viewerId: 'me', viewerMayAnswer: false };
+    expect(mountCard(full, false).querySelector('[data-testid=question-undo-form]')).not.toBeNull();
+    expect(mountCard({ ...full, impersonating: true }, false).querySelector('[data-testid=question-undo-form]')).toBeNull();
+  });
+  it('P2: authorizes renders as a plain badge, never the literal value', () => {
+    const el = mountCard({ authorizes: true });
+    expect(el.textContent).toContain('Authorizes work');
+    expect(el.textContent).not.toMatch(/authorizes: true/i);
   });
 });

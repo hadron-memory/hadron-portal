@@ -593,7 +593,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   const chatMessages = await chatMessagesPromise;
   // portal#2234: a question node's card is read from its structured fields; a
   // failed read is reported as such, never as an empty card.
-  const question = node.role === 'question' ? await loadQuestion(gqlClient(locals.token), node.id) : null;
+  const question = node.role === 'question' ? await loadQuestion(gqlClient(locals.token), node.id, { id: locals.user?.id ?? null, impersonating: locals.impersonation != null }) : null;
 
   return {
     node,

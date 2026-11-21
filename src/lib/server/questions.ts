@@ -10,13 +10,17 @@ import type { TaskRead } from '$lib/agent-tasks/types';
 import { t } from '$lib/i18n/t';
 
 /** portal#2234: the card's read, three-way so a failed read is never an empty card. */
-export async function loadQuestion(client: GraphQLClient, nodeId: string): Promise<TaskRead<QuestionCardData>> {
+export async function loadQuestion(
+  client: GraphQLClient,
+  nodeId: string,
+  viewer: { id: string | null; impersonating: boolean } = { id: null, impersonating: false },
+): Promise<TaskRead<QuestionCardData>> {
   try {
     const r = await client.request<{ question: QuestionCardData | null }>(QUESTION_BY_REF_QUERY, { ref: nodeId });
     // `null` is the server hiding an unreadable question; for a node the page
     // already loaded it cannot happen, so it is a failure, not an absence.
     if (!r.question) return { kind: 'failed' };
-    return { kind: 'ok', value: r.question };
+    return { kind: 'ok', value: { ...r.question, viewerId: viewer.id, impersonating: viewer.impersonating } };
   } catch (e) {
     console.warn('[question-card] read failed:', e);
     return { kind: 'failed' };

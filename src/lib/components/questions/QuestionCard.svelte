@@ -27,6 +27,9 @@
   const problem = $derived(question.state === 'TAMPERED' || question.state === 'UNVERIFIABLE');
   const withdrawn = $derived(question.state === 'WITHDRAWN');
   const controls = $derived(canAct && ANSWERABLE.includes(question.state));
+  const viewerIsAsker = $derived(!!question.viewerId && question.askedBy?.user?.id === question.viewerId);
+  const mayWithdraw = $derived((question.viewerIsDecider || viewerIsAsker) && !question.impersonating);
+  const standingByViewer = $derived(!!question.viewerId && question.answer?.by?.id === question.viewerId);
   const standingKey = $derived(question.answer && question.answer.kind === 'ANSWER' ? question.answer.key : null);
   const earlier = $derived(
     [...question.answers]
@@ -65,21 +68,21 @@
   const refText = (r: QuestionRef) => r.ref ?? r.spec ?? r.node ?? '';
   const entryLine = (e: QuestionEntry) => [personLabel(e.by), when(e.at), e.via].filter(Boolean).join(' · ');
 
-  const btn = 'rounded border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800';
-  const field = 'w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900';
+  const btn = 'pointer-coarse:min-h-11 focus-visible:ring-2 focus-visible:ring-sky-500 rounded border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800';
+  const field = 'pointer-coarse:min-h-11 focus-visible:ring-2 focus-visible:ring-sky-500 w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900';
 </script>
 
 <section data-testid="question-card" aria-labelledby="question-card-title" class="mb-4 min-w-0 rounded-lg border border-zinc-200 p-3 sm:p-4 dark:border-zinc-800">
   <header class="flex flex-wrap items-center gap-2">
     <h2 id="question-card-title" class="min-w-0 break-words text-base font-semibold">
-      <span class="font-mono text-sm text-zinc-500">{question.code}</span> {question.title}
+      {t('question.card.heading', 'Question')} <span class="font-mono text-sm text-zinc-500">{question.code}</span>
     </h2>
     <span data-testid="question-state" class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{STATE_LABEL[question.state] ?? question.state}</span>
     {#if question.priority}<span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">{question.priority}</span>{/if}
     {#if question.tier && question.tier !== 'ANSWERED'}
       <span data-testid="question-tier" class="rounded-full bg-sky-100 px-2 py-0.5 text-xs text-sky-800 dark:bg-sky-950 dark:text-sky-300">{question.tier === 'SIGNED' ? t('question.card.tier.signature', 'needs signature') : t('question.card.tier.approval', 'needs approval')}</span>
     {/if}
-    {#if question.authorizes}<span class="rounded-full bg-violet-100 px-2 py-0.5 text-xs text-violet-800 dark:bg-violet-950 dark:text-violet-300">{t('question.card.authorizes', 'authorizes')}: {question.authorizes}</span>{/if}
+    {#if question.authorizes === true}<span class="rounded-full bg-violet-100 px-2 py-0.5 text-xs text-violet-800 dark:bg-violet-950 dark:text-violet-300">{t('question.card.authorizes', 'Authorizes work')}</span>{/if}
   </header>
 
   <p class="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
@@ -113,7 +116,7 @@
           <div class="flex flex-wrap items-center gap-2">
             <span class="min-w-0 break-words text-sm font-medium"><span class="font-mono">{o.key}</span>: {o.label}</span>
             {#if question.recommendation?.key === o.key}<span class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">{t('question.card.recommended', 'Recommended')}</span>{/if}
-            {#if standing}<span class="rounded-full bg-sky-100 px-2 py-0.5 text-xs text-sky-800 dark:bg-sky-950 dark:text-sky-300">{canAct ? t('question.card.your-answer', 'Your answer') : t('question.card.answered-mark', 'Answered')}</span>{/if}
+            {#if standing}<span class="rounded-full bg-sky-100 px-2 py-0.5 text-xs text-sky-800 dark:bg-sky-950 dark:text-sky-300">{standingByViewer ? t('question.card.your-answer', 'Your answer') : t('question.card.answered-mark', 'Answered')}</span>{/if}
           </div>
           {#if question.recommendation?.key === o.key && question.recommendation.reason}<p class="mt-1 whitespace-pre-line break-words text-xs text-emerald-800 dark:text-emerald-300">{question.recommendation.reason}</p>{/if}
           {#each [[t('question.card.why-choose', 'Why choose'), o.whyChoose], [t('question.card.why-not', 'Why not'), o.whyNot], [t('question.card.risks', 'Risks'), o.risks]] as [label, text] (label)}
@@ -140,7 +143,7 @@
       <label class="text-xs font-medium" for="question-text">{t('question.card.text-label', 'Answer in your own words')}</label>
       <textarea id="question-text" name="text" rows="3" class={field}></textarea>
       {#if question.options.length > 0}
-        <label class="text-xs font-medium" for="question-text-option">{t('question.card.text-option', 'Beside an option')}</label>
+        <label class="text-xs font-medium" for="question-text-option">{t('question.card.text-option', 'Attach to an option')}</label>
         <select id="question-text-option" name="optionKey" class={field}>
           <option value="">{t('question.card.no-option', 'No option')}</option>
           {#each question.options as o (o.key)}<option value={o.key}>{o.key}: {o.label}</option>{/each}
@@ -167,7 +170,7 @@
     {/if}
     {#if earlier.length > 0}
       <details class="mt-2" data-testid="question-earlier">
-        <summary class="cursor-pointer text-xs">{t('question.card.earlier', 'Earlier entries ({n})', { n: earlier.length })}</summary>
+        <summary class="cursor-pointer text-xs pointer-coarse:min-h-11 pointer-coarse:flex pointer-coarse:items-center">{t('question.card.earlier', 'Earlier entries ({n})', { n: earlier.length })}</summary>
         <ul class="mt-1 flex flex-col gap-1 text-xs">
           {#each earlier as e, i (e.at + e.kind + (e.key ?? '') + i)}
             <li>
@@ -181,7 +184,7 @@
     {/if}
   </div>
 
-  {#if question.viewerIsDecider && ANSWERABLE.includes(question.state) && question.answered}
+  {#if question.viewerIsDecider && !question.impersonating && ANSWERABLE.includes(question.state) && question.answered}
     <form method="POST" action="?/retractQuestionAnswer" use:enhance={guarded} class="mt-3 flex flex-col gap-2" data-testid="question-undo-form">
       <input type="hidden" name="revision" value={question.revSeq} />
       <label class="text-xs font-medium" for="question-undo-reason">{t('question.card.undo-reason', 'Reason')}</label>
@@ -200,9 +203,9 @@
     </p>
   {/if}
 
-  {#if canAct && !withdrawn && !problem}
+  {#if mayWithdraw && !withdrawn && !problem}
     <details class="mt-3" data-testid="question-withdraw">
-      <summary class="cursor-pointer text-xs">{t('question.card.withdraw', 'Withdraw this question')}</summary>
+      <summary class="cursor-pointer text-xs pointer-coarse:min-h-11 pointer-coarse:flex pointer-coarse:items-center">{t('question.card.withdraw', 'Withdraw this question')}</summary>
       <form method="POST" action="?/withdrawQuestion" use:enhance={guarded} class="mt-2 flex flex-col gap-2">
         <input type="hidden" name="revision" value={question.revSeq} />
         <label class="text-xs font-medium" for="question-withdraw-reason">{t('question.card.withdraw-reason', 'Reason')}</label>
