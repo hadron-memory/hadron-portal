@@ -34,7 +34,10 @@ it('an enhanced submit that succeeds keeps the opened form open and shows the cr
  try{await tick();
  const details=m.target.querySelector('details')!;
  expect(details.open).toBe(false);
- expect(m.target.querySelector('[role=status]')).toBeNull();
+ // portal#2379: the live region EXISTS and is EMPTY before the result; the result lands in that same element.
+ const region=m.target.querySelector('[role=status]');
+ expect(region).not.toBeNull();
+ expect(region!.textContent!.trim()).toBe('');
  details.open=true;details.dispatchEvent(new Event('toggle'));await tick();
  expect(details.open).toBe(true);
  const name=m.target.querySelector<HTMLInputElement>('input[name=name]')!;
@@ -45,7 +48,7 @@ it('an enhanced submit that succeeds keeps the opened form open and shows the cr
  expect(cancelled).toBe(false);
  await tick(3);
  const result=m.target.querySelector('[role=status]');
- expect(result).not.toBeNull();
+ expect(result).toBe(region);
  expect(result!.textContent).toContain('New notes');
  expect(result!.querySelector('a')?.getAttribute('href')).toBe('/app/memories/new-id');
  expect(result!.querySelector('[title="hrn:mem:acme.com:new-notes"]')).not.toBeNull();
@@ -174,4 +177,22 @@ it('renders the storage-error family text when saving a view fails',async()=>{
  // not some unrelated red text the regex happened to graze
  expect(m.target.textContent).toContain(viewStorageErrorMessages.saveFailed);
  }finally{m?.unmount();prompt.mockRestore();setItem.mockRestore();}
+});
+
+// portal#2379: a failed create lands in the always-mounted alert region, not a status one.
+it('an enhanced submit that fails lands in the alert region that was already mounted and empty',async()=>{
+ const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
+ const m=mountComponent(AppMemoryCreate as never,{initial,result:null} as never);
+ try{await tick();
+ const alertRegion=m.target.querySelector('[role=alert]');
+ expect(alertRegion).not.toBeNull();
+ expect(alertRegion!.textContent!.trim()).toBe('');
+ const details=m.target.querySelector('details')!;details.open=true;details.dispatchEvent(new Event('toggle'));await tick();
+ const posted={...initial,valid:false,posted:true,message:{type:'error' as const,text:'Could not create the memory.'}};
+ await submitEnhancedWithResult(m.target.querySelector('form')!,{type:'failure',status:400,data:{form:posted}});
+ await tick(3);
+ expect(m.target.querySelector('[role=alert]')).toBe(alertRegion);
+ expect(alertRegion!.textContent).toContain('Could not create the memory.');
+ expect(m.target.querySelector('[role=status]')!.textContent!.trim()).toBe('');
+ }finally{m.unmount();resetKitAppliedResults();}
 });

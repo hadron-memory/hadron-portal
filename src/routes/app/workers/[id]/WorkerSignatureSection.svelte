@@ -12,6 +12,7 @@
   - No reset or default control, and no client cap (the server's is tunable).
 -->
 <script lang="ts">
+  import LiveOutcome from '$lib/components/LiveOutcome.svelte';
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { superForm, type SuperValidated } from 'sveltekit-superforms/client';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -260,76 +261,80 @@
       </p>
     {/if}
 
-    <form bind:this={formEl} method="POST" action="?tab=briefing&/updateSignature" use:enhance class="space-y-3" novalidate>
-      <input type="hidden" name="_kind" value="updateSignature" />
+    <!-- portal#2379: a plain wrapper, so the outcome is not the last child of a space-y parent and an idle region adds no gap (Marco's placement rule, hadron-portal#2386). -->
+    <div>
+      <form bind:this={formEl} method="POST" action="?tab=briefing&/updateSignature" use:enhance class="space-y-3" novalidate>
+        <input type="hidden" name="_kind" value="updateSignature" />
 
-      {#if readable.signature}
-        <input type="hidden" name="signatureBase" value={$data.signatureBase} />
-        <div class="space-y-1">
-          <label for="workerSignature" class="text-sm font-medium text-zinc-900 dark:text-white">
-            {t('worker.signature.signature-label', 'Signature template')}
-          </label>
-          <textarea id="workerSignature" name="signature" bind:value={$data.signature} disabled={retired} aria-describedby={[retired ? 'worker-signature-retired' : '', signatureAdvice.length ? 'worker-signature-advice' : ''].filter(Boolean).join(' ') || undefined} rows="2" spellcheck="false" class={fieldClass}></textarea>
-          <div id="worker-signature-advice" aria-busy={lintBusy} aria-live="polite" aria-atomic="true">{#each signatureAdvice as _}<p data-signature-lint-field="signature" class={adviceClass}>{workerLinkAdvice('signature')}</p>{/each}</div>
-        </div>
-      {:else}
-        <p class="text-sm text-zinc-500">{t('worker.signature.signature-not-shown', 'Signature template: not shown.')}</p>
-      {/if}
-
-      {#if readable.trailer}
-        <input type="hidden" name="trailerBase" value={$data.trailerBase} />
-        <div class="space-y-1">
-          <label for="workerTrailer" class="text-sm font-medium text-zinc-900 dark:text-white">
-            {t('worker.signature.trailer-label', 'Trailer template')}
-          </label>
-          <textarea id="workerTrailer" name="trailer" bind:value={$data.trailer} disabled={retired} aria-describedby={[retired ? 'worker-signature-retired' : '', trailerAdvice.length ? 'worker-trailer-advice' : ''].filter(Boolean).join(' ') || undefined} rows="2" spellcheck="false" class={fieldClass}></textarea>
-          <div id="worker-trailer-advice" aria-busy={lintBusy} aria-live="polite" aria-atomic="true">{#each trailerAdvice as _}<p data-signature-lint-field="trailer" class={adviceClass}>{workerLinkAdvice('trailer')}</p>{/each}</div>
-        </div>
-      {:else}
-        <p class="text-sm text-zinc-500">{t('worker.signature.trailer-not-shown', 'Trailer template: not shown.')}</p>
-      {/if}
-
-      {#if !retired}
-        <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('worker.signature.lint.refresh-help', 'Saved-value advice refreshes after a successful save.')}</p>
-      {/if}
-      <!-- Advisory saved-state read, independent of form validity and save availability. -->
-      <div bind:this={lintEl} data-signature-lint tabindex="-1" role="region" aria-label={t('worker.signature.lint.region', 'Saved worker link check')} aria-live="polite" aria-atomic="true" aria-busy={lintBusy} class="space-y-1 text-sm text-zinc-600 dark:text-zinc-300">
-        {#if lintState === 'loading'}
-          <p>{t('worker.signature.lint.loading', 'Checking the saved worker link…')}</p>
-        {:else if lintState === 'unavailable'}
-          <p>{failedLintRetries
-            ? t('worker.signature.lint.unavailable.retry-failed', 'Couldn’t check the worker link. Retry {attempt} failed.', { attempt: failedLintRetries })
-            : t('worker.signature.lint.unavailable', 'Couldn’t check the worker link.')}</p>
-          <button type="button" aria-disabled={lintBusy} class="rounded border border-zinc-300 px-3 py-1.5 pointer-coarse:min-h-11 pointer-coarse:min-w-11 aria-disabled:opacity-60 dark:border-zinc-600" onclick={() => readLinkLint(true)}>{t('worker.signature.lint.retry', 'Retry')}</button>
-        {:else if linkLint}
-          {#if !lintBusy && readable.signature && readable.trailer && linkLint.total === 0 && linkLint.items.length === 0 && linkLint.nextCursor === null}
-            <p>{t('worker.signature.lint.zero', 'No worker-link warnings on the saved values.')}</p>
-          {/if}
-          {#each otherAdvice as _}<p>{t('worker.signature.lint.unknown', 'The worker link check found something to review.')}</p>{/each}
-          {#if linkLint.total > linkLint.items.length || linkLint.nextCursor !== null}<p>{t('worker.signature.lint.partial', '{shown} of {total} saved-value checks shown. The rest isn’t shown.', { shown: linkLint.items.length, total: linkLint.total })}</p>{/if}
+        {#if readable.signature}
+          <input type="hidden" name="signatureBase" value={$data.signatureBase} />
+          <div class="space-y-1">
+            <label for="workerSignature" class="text-sm font-medium text-zinc-900 dark:text-white">
+              {t('worker.signature.signature-label', 'Signature template')}
+            </label>
+            <textarea id="workerSignature" name="signature" bind:value={$data.signature} disabled={retired} aria-describedby={[retired ? 'worker-signature-retired' : '', signatureAdvice.length ? 'worker-signature-advice' : ''].filter(Boolean).join(' ') || undefined} rows="2" spellcheck="false" class={fieldClass}></textarea>
+            <div id="worker-signature-advice" aria-busy={lintBusy} aria-live="polite" aria-atomic="true">{#each signatureAdvice as _}<p data-signature-lint-field="signature" class={adviceClass}>{workerLinkAdvice('signature')}</p>{/each}</div>
+          </div>
+        {:else}
+          <p class="text-sm text-zinc-500">{t('worker.signature.signature-not-shown', 'Signature template: not shown.')}</p>
         {/if}
-      </div>
 
-      {#if !retired}
-        <button
-          type="submit"
-          disabled={$submitting || !dirty}
-          class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {$submitting ? t('worker.signature.saving', 'Saving…') : t('worker.signature.save', 'Save')}
-        </button>
-      {/if}
+        {#if readable.trailer}
+          <input type="hidden" name="trailerBase" value={$data.trailerBase} />
+          <div class="space-y-1">
+            <label for="workerTrailer" class="text-sm font-medium text-zinc-900 dark:text-white">
+              {t('worker.signature.trailer-label', 'Trailer template')}
+            </label>
+            <textarea id="workerTrailer" name="trailer" bind:value={$data.trailer} disabled={retired} aria-describedby={[retired ? 'worker-signature-retired' : '', trailerAdvice.length ? 'worker-trailer-advice' : ''].filter(Boolean).join(' ') || undefined} rows="2" spellcheck="false" class={fieldClass}></textarea>
+            <div id="worker-trailer-advice" aria-busy={lintBusy} aria-live="polite" aria-atomic="true">{#each trailerAdvice as _}<p data-signature-lint-field="trailer" class={adviceClass}>{workerLinkAdvice('trailer')}</p>{/each}</div>
+          </div>
+        {:else}
+          <p class="text-sm text-zinc-500">{t('worker.signature.trailer-not-shown', 'Trailer template: not shown.')}</p>
+        {/if}
 
-      {#if $result}
-        <p
-          bind:this={resultEl}
-          tabindex="-1"
-          role={$result.type === 'error' ? 'alert' : 'status'}
-          class="rounded-lg border px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 {$result.type === 'error'
-            ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'
-            : 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300'}"
-        >{$result.text}</p>
-      {/if}
-    </form>
+        {#if !retired}
+          <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('worker.signature.lint.refresh-help', 'Saved-value advice refreshes after a successful save.')}</p>
+        {/if}
+        <!-- Advisory saved-state read, independent of form validity and save availability. -->
+        <div bind:this={lintEl} data-signature-lint tabindex="-1" role="region" aria-label={t('worker.signature.lint.region', 'Saved worker link check')} aria-live="polite" aria-atomic="true" aria-busy={lintBusy} class="space-y-1 text-sm text-zinc-600 dark:text-zinc-300">
+          {#if lintState === 'loading'}
+            <p>{t('worker.signature.lint.loading', 'Checking the saved worker link…')}</p>
+          {:else if lintState === 'unavailable'}
+            <p>{failedLintRetries
+              ? t('worker.signature.lint.unavailable.retry-failed', 'Couldn’t check the worker link. Retry {attempt} failed.', { attempt: failedLintRetries })
+              : t('worker.signature.lint.unavailable', 'Couldn’t check the worker link.')}</p>
+            <button type="button" aria-disabled={lintBusy} class="rounded border border-zinc-300 px-3 py-1.5 pointer-coarse:min-h-11 pointer-coarse:min-w-11 aria-disabled:opacity-60 dark:border-zinc-600" onclick={() => readLinkLint(true)}>{t('worker.signature.lint.retry', 'Retry')}</button>
+          {:else if linkLint}
+            {#if !lintBusy && readable.signature && readable.trailer && linkLint.total === 0 && linkLint.items.length === 0 && linkLint.nextCursor === null}
+              <p>{t('worker.signature.lint.zero', 'No worker-link warnings on the saved values.')}</p>
+            {/if}
+            {#each otherAdvice as _}<p>{t('worker.signature.lint.unknown', 'The worker link check found something to review.')}</p>{/each}
+            {#if linkLint.total > linkLint.items.length || linkLint.nextCursor !== null}<p>{t('worker.signature.lint.partial', '{shown} of {total} saved-value checks shown. The rest isn’t shown.', { shown: linkLint.items.length, total: linkLint.total })}</p>{/if}
+          {/if}
+        </div>
+
+        {#if !retired}
+          <button
+            type="submit"
+            disabled={$submitting || !dirty}
+            class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {$submitting ? t('worker.signature.saving', 'Saving…') : t('worker.signature.save', 'Save')}
+          </button>
+        {/if}
+
+      </form>
+      <LiveOutcome failed={$result?.type === 'error'}>
+        {#if $result}
+          <p
+            bind:this={resultEl}
+            tabindex="-1"
+            class="mt-3 rounded-lg border px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 {$result.type === 'error'
+              ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'
+              : 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300'}"
+          >{$result.text}</p>
+        {/if}
+      </LiveOutcome>
+    </div>
   {/if}
 </section>
