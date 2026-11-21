@@ -4136,6 +4136,11 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
       return name;
     }
 
+    // portal#2427: each row mounts the page 25 times (one per turn count), so the default 5 s budget
+    // only holds on an idle host (2-3 s idle, 5-8 s at load ~90). The budget is sized to the loop, not
+    // the assertions: none were loosened and the three rows still run every turn.
+    const SWEEP_TIMEOUT_MS = 60_000;
+
     it.each([
       ['success', success, 'Worker cast.'],
       ['refusal', refused, NAME_TAKEN],
@@ -4173,7 +4178,7 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
         mounted.pop();
       }
       expect([...regimes].sort()).toEqual(['not-yet-shown', 'shown-on-A']);
-    });
+    }, SWEEP_TIMEOUT_MS);
 
     it('a failed request says the cast is unconfirmed, claims neither outcome and frees the form', async () => {
       const { m, form } = await openCast();
