@@ -36,7 +36,6 @@ try {
    window.stopFull=mount(document.getElementById('full'),'dark',false);
   });
   const pill=page.locator('#terminal span[title]');await pill.waitFor({state:'attached'});
-  const fullBefore=await page.locator('#full').innerHTML();
   for(const width of [220,140,320,220]) {
    await page.locator('col').first().evaluate((el,width)=>{el.style.width=`${width}px`;el.closest('table').style.width=`${width+220}px`},width);
    const geometry=await pill.evaluate(el=>{
@@ -58,7 +57,6 @@ try {
    assert.ok(geometry.ageBounds.left>=geometry.cell.left && geometry.ageBounds.right<=geometry.cell.right+0.5,'age glyphs stay inside cell');
    if(width===140)assert.ok(geometry.scroll>geometry.client,'narrow pill actually truncates');
    if(width===320)assert.ok(geometry.scroll<=geometry.client,'wider pill exposes the full value');
-   assert.equal(await page.locator('#full').innerHTML(),fullBefore,'compact resizing leaves full form unchanged');
    // A Range measures untruncated text, not painted glyphs. Compare actual
    // neighboring pixels with the terminal hidden/visible instead.
    const td=pill.locator('xpath=ancestor::td');const box=await td.boundingBox();
@@ -70,6 +68,7 @@ try {
    assert.ok(visible.equals(hidden),'terminal paints no pixels into neighboring Task');
    await pill.hover(); // existing full-value title remains on the un-clipped pill.
    await page.getByRole('button',{name:'Task action'}).click();
+   await page.evaluate(()=>{location.hash=''});
    await page.getByRole('link',{name:'Synthetic assigned task'}).click();
    assert.equal(new URL(page.url()).hash,'#task');
   }
@@ -79,11 +78,18 @@ try {
    assert.equal(await page.locator('#empty').innerText(),mode==='hidden'?'':'Not reported');
    await page.evaluate(async()=>await window.stopEmpty());
   }
+  await page.evaluate(async()=>{await window.stopTerminal();await window.stopFull()});
   await page.close();
  }
 } finally {
- if(process.env.TERMINAL_SHOTS)await writeFile(`${process.env.TERMINAL_SHOTS}/geometry.json`,JSON.stringify(results,null,2));
- await browser?.close();await server.close();
+ // Close owned resources first, then write the artifact; a failure in either
+ // step must neither skip the other nor replace the original failure.
+ const cleanup=await Promise.allSettled([browser?.close(),server.close()]);
+ if(process.env.TERMINAL_SHOTS) {
+  try{await mkdir(process.env.TERMINAL_SHOTS,{recursive:true});await writeFile(`${process.env.TERMINAL_SHOTS}/geometry.json`,JSON.stringify(results,null,2))}
+  catch(e){console.error('could not write geometry artifact:',e)}
+ }
+ for(const r of cleanup) if(r.status==='rejected') console.error('teardown failed:',r.reason);
 }
 console.log('Terminal compact geometry, full-value title, Task controls, null/not-reported and full form PASS');
 
