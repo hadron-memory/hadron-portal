@@ -154,7 +154,7 @@ describe('validationView / validationText', () => {
   it('a late report for an older revision is that revision\'s own state and reads as a report', () => {
     const v = ok({ state: 'FAIL', latestReport: report({ nodeRevision: 3, outcome: 'FAIL' }) });
     expect(v).toMatchObject({ state: 'FAIL', checkedRevision: null });
-    expect(validationHistoryDetail(v)).not.toBe('');
+    expect(validationHistoryDetail(v)).toBe(`${formatPortalDateTime(AT)} · task revision 2`);
   });
 
   it('a failed read, a missing value or an unknown state is "Couldn\'t load", never a verdict', () => {
