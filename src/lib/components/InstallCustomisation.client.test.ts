@@ -175,6 +175,7 @@ describe('install customisation panel', () => {
   // node list is limited (the total is known), and must leave a way back.
   it('portal#1509: an empty page past the end shows no impossible range and offers the last valid page', async () => {
     const root = await panel();
+    const before = emptyRegions(root);
     const past = { ...payload(), list: { state: 'ok', value: { memoryId: 'mem', urn: 'hrn:mem:acme.com:install', nodes: [], total: 20, offset: 20 } } };
     const fetcher = vi.fn(async (_url: string) => new Response(JSON.stringify(past)));
     vi.stubGlobal('fetch', fetcher);
@@ -183,7 +184,11 @@ describe('install customisation panel', () => {
     expect(fetcher.mock.calls[0][0]).toContain('offset=20');
     expect(root.textContent).not.toMatch(/21\s*[–-]\s*20/);
     expect(root.querySelector('[data-testid="customisation-list-unavailable"]'), 'the known total is not a limited list').toBeNull();
-    expect(root.textContent).toMatch(/20 customisations/);
+    expect(root.textContent).toMatch(/past the last one\. There are 20 customisations/);
+    // The note lands in the status region that existed before (portal#2344, #2379), so it is announced.
+    const region = regionHolding(root, 'past the last one');
+    expect(before).toContain(region);
+    expect(region.getAttribute('role')).toBe('status');
     const back = button(root, 'Last page');
     expect(back, 'a way to the last page that exists').toBeTruthy();
     expect(back.disabled).toBe(false);
@@ -208,11 +213,14 @@ describe('install customisation panel', () => {
     const root = await panel();
     const input = root.querySelector<HTMLInputElement>('input[aria-label="Search the customisations on this page"]')!;
     const note = () => root.querySelector('[data-testid="customisation-no-match"]');
+    const before = emptyRegions(root);
     expect(note()).toBeNull();
     input.value = 'zzz-nothing'; input.dispatchEvent(new Event('input', { bubbles: true })); await tick(4);
     expect(root.querySelectorAll('tbody tr')).toHaveLength(0);
-    expect(note()?.textContent).toMatch(/No customisations on this page match/);
-    expect(note()?.textContent).toContain('zzz-nothing');
+    // A fixed sentence: the query is not echoed, so it does not re-announce on every keystroke.
+    expect(note()?.textContent).toBe('No customisations on this page match your search.');
+    const region = regionHolding(root, 'match your search');
+    expect(before).toContain(region);
     input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); await tick(4);
     expect(note()).toBeNull();
     expect(root.querySelectorAll('tbody tr')).toHaveLength(1);
