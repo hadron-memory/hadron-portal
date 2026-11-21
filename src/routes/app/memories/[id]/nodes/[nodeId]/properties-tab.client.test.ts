@@ -276,3 +276,29 @@ it('keeps reader Settings read-only and restores writer metadata and delete cont
   flushSync();
   expect(target.querySelector('#editName')).not.toBeNull();
 });
+
+it('portal#2316: the typed-object field list renders through the shared DataTable, not a hand-rolled table', async () => {
+  const schema = { objectTypes: { competitor: { fields: { name: { type: 'text', required: true }, stage: { type: 'text' } } } } };
+  mockRequest.mockImplementation(async (doc: string) => {
+    if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: { ...NODE, objectType: 'competitor', properties: { name: 'Acme' } } };
+    if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
+    return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
+  });
+  const parent = { ...PARENT, graph: { ...PARENT.graph, schema } };
+  const data = (await load({
+    params: { id: 'mem-A', nodeId: 'leaf-pk' },
+    locals: { token: 'tok' },
+    url: new URL('http://localhost/app/memories/mem-A/nodes/leaf-pk?tab=properties'),
+    parent: vi.fn().mockResolvedValue(parent),
+  } as never)) as Record<string, unknown>;
+  const props = reactiveProps<Record<string, unknown>>({ data: { ...parent, ...data }, form: null });
+  const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+  mounted.push(m);
+  await tick();
+  flushSync();
+  const rows = m.target.querySelectorAll('[data-testid="typed-property-row"]');
+  expect([...rows].map((r) => r.getAttribute('data-field'))).toEqual(['name', 'stage']);
+  expect(rows[0]!.textContent).toContain('Acme');
+  expect(rows[1]!.textContent).toContain('—');
+});
+
