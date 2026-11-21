@@ -19,7 +19,7 @@ import { parse } from 'svelte/compiler';
  *
  * `marker` is a text that occurs only inside that one result's box.
  */
-type Site = { file: string; marker: string; nth?: number };
+type Site = { file: string; marker: string; nth?: number; sharedGuard?: string };
 const R = 'src/routes/';
 const SITES: Site[] = [
   { file: R + 'app/marketplace/+page.svelte', marker: '{addToAgentSuccess}' },
@@ -38,11 +38,11 @@ const SITES: Site[] = [
   { file: R + 'app/memories/[id]/settings/+page.svelte', marker: "'memory-transfer.done'" },
   { file: R + 'app/memories/[id]/settings/MarketplaceListingCard.svelte', marker: '{marketplaceActionSuccess}' },
   { file: R + 'app/memories/[id]/subscriptions/+page.svelte', marker: '{actionSuccess ?? unsubscribeActionSuccess}' },
-  { file: R + 'app/orgs/[id]/+page.svelte', marker: 'org.signing.switched-off' },
+  { file: R + 'app/orgs/[id]/+page.svelte', marker: 'org.signing.switched-off', sharedGuard: "the outer guard is `signingOutcome !== 'hidden'`, true before any action (outcome is null), so the region is mounted at load" },
   { file: R + 'app/orgs/[id]/agents/+page.svelte', marker: '{subscribeActionSuccess}' },
   { file: R + 'app/orgs/[id]/agents/+page.svelte', marker: '{unsubscribeActionSuccess}' },
   { file: R + 'app/orgs/[id]/apps/+page.svelte', marker: '{deleteActionSuccess}' },
-  { file: R + 'app/orgs/[id]/boot-prompt-signing/+page.svelte', marker: 'org.signing.stale', nth: 1 },
+  { file: R + 'app/orgs/[id]/boot-prompt-signing/+page.svelte', marker: 'org.signing.stale', nth: 1, sharedGuard: "sits in the final else of the page's hidden/ok/failed chain, which holds before any action (outcome is null)" },
   { file: R + 'app/orgs/[id]/exchange/[connectionId]/+page.svelte', marker: '{replyActionSuccess}' },
   { file: R + 'app/orgs/[id]/exchange/[connectionId]/+page.svelte', marker: '{moveActionSuccess}' },
   { file: R + 'app/orgs/[id]/integrations/+page.svelte', marker: '{githubInstallationActionSuccess}' },
@@ -68,32 +68,48 @@ const SITES: Site[] = [
   { file: 'src/lib/components/agent-tasks/TaskPlanning.svelte', marker: "t('app.tasks.saving'" },
 ];
 
-type Ast = { type: string; name?: string; start: number; end: number; fragment?: { nodes: Ast[] }; consequent?: { nodes: Ast[] }; alternate?: { nodes: Ast[] } | null; [k: string]: unknown };
+type Ast = { type: string; name?: string; start: number; end: number; data?: string; test?: { start: number; end: number }; fragment?: { nodes: Ast[] }; [k: string]: unknown };
+const GATES = new Set(['IfBlock', 'AwaitBlock', 'KeyBlock']); // an {#each} is a list of rows, not a condition on the result
+const identifiers = (code: string) => new Set((code.match(/[A-Za-z_$][\w$]*/g) ?? []).filter((w) => !['page', 'url', 'searchParams', 'get', 'data', 'form', 'null', 'undefined', 'true', 'false'].includes(w)));
 
-/** Every LiveRegion element in the page, with its non-blank children. */
-function liveRegions(src: string): { start: number; end: number; kids: Ast[] }[] {
+/** Every LiveRegion element in the page: its non-blank children and the control-flow blocks around it. */
+function liveRegions(src: string): { start: number; end: number; kids: Ast[]; gates: Ast[] }[] {
   const root = parse(src, { modern: true }) as unknown as { fragment: { nodes: Ast[] } };
-  const out: { start: number; end: number; kids: Ast[] }[] = [];
-  const walk = (n: unknown) => {
+  const out: { start: number; end: number; kids: Ast[]; gates: Ast[] }[] = [];
+  const walk = (n: unknown, gates: Ast[]) => {
     if (!n || typeof n !== 'object') return;
-    if (Array.isArray(n)) return n.forEach(walk);
+    if (Array.isArray(n)) return n.forEach((x) => walk(x, gates));
     const node = n as Ast;
     if (node.type === 'Component' && node.name === 'LiveRegion') {
       const kids = (node.fragment?.nodes ?? []).filter((k) => !(k.type === 'Text' && !String(k.data ?? '').trim()) && k.type !== 'Comment');
-      out.push({ start: node.start, end: node.end, kids });
+      out.push({ start: node.start, end: node.end, kids, gates });
     }
-    for (const v of Object.values(node)) if (v && typeof v === 'object') walk(v);
+    const next = GATES.has(node.type) ? [...gates, node] : gates;
+    for (const v of Object.values(node)) if (v && typeof v === 'object') walk(v, next);
   };
-  walk(root.fragment);
+  walk(root.fragment, []);
   return out;
 }
 
-/** The enclosing LiveRegion of `marker` is the persistent wrapper and its only child is an {#if}. */
-export function markerIsInPersistentRegion(src: string, marker: string, nth = 0): boolean {
+/**
+ * The enclosing LiveRegion of `marker` is the persistent wrapper: its only child is an {#if}, AND it is not
+ * itself mounted by a condition that turns true with the result. An ancestor `{#if}` (or each/await/key) whose
+ * test shares an identifier with the region's own inner test is that defect: the region would be inserted
+ * already populated. A static ancestor guard (`{#if canTransfer}`) is fine.
+ */
+export function markerIsInPersistentRegion(src: string, marker: string, nth = 0, sharedGuardReason = ''): boolean {
   let at = -1;
   for (let i = 0; i <= nth; i++) at = src.indexOf(marker, at + 1);
   if (at < 0) return false;
-  return liveRegions(src).some((r) => at >= r.start && at < r.end && r.kids.length === 1 && r.kids[0].type === 'IfBlock');
+  const region = liveRegions(src).find((r) => at >= r.start && at < r.end && r.kids.length === 1 && r.kids[0].type === 'IfBlock');
+  if (!region) return false;
+  const inner = region.kids[0];
+  const own = identifiers(inner.test ? src.slice(inner.test.start, inner.test.end) : '');
+  for (const g of region.gates) {
+    const code = g.test ? src.slice(g.test.start, g.test.end) : src.slice(g.start, g.start + 200).split('}')[0];
+    for (const id of identifiers(code)) if (own.has(id) && sharedGuardReason.length < 20) return false;
+  }
+  return true;
 }
 
 describe('portal#2375: route-page action results sit in a persistent LiveRegion', () => {
@@ -104,12 +120,20 @@ describe('portal#2375: route-page action results sit in a persistent LiveRegion'
     expect(markerIsInPersistentRegion(`${imp}<LiveRegion>{#if a}<p>MARK</p>{/if}<b>x</b></LiveRegion>`, 'MARK')).toBe(false);
     expect(markerIsInPersistentRegion(`${imp}{#if a}<p role="status">MARK</p>{/if}`, 'MARK')).toBe(false);
     expect(markerIsInPersistentRegion(`${imp}<LiveRegion>{#if a}<p>x</p>{/if}</LiveRegion><p>MARK</p>`, 'MARK')).toBe(false);
+    // the whole region mounted by the result's own condition is the original defect (George, #2382)
+    expect(markerIsInPersistentRegion(`${imp}{#if a}<LiveRegion>{#if a}<p>MARK</p>{/if}</LiveRegion>{/if}`, 'MARK')).toBe(false);
+    expect(markerIsInPersistentRegion(`${imp}{#if a && !b}<LiveRegion>{#if a}<p>MARK</p>{/if}</LiveRegion>{/if}`, 'MARK')).toBe(false);
+    // a reviewed shared guard (with a reason) is allowed; one without is not
+    expect(markerIsInPersistentRegion(`${imp}{#if a !== 'x'}<LiveRegion>{#if a === 'y'}<p>MARK</p>{/if}</LiveRegion>{/if}`, 'MARK', 0, 'true before the action: a is null at load')).toBe(true);
+    expect(markerIsInPersistentRegion(`${imp}{#if a !== 'x'}<LiveRegion>{#if a === 'y'}<p>MARK</p>{/if}</LiveRegion>{/if}`, 'MARK', 0, 'short')).toBe(false);
+    // a guard on something else is not the result's condition
+    expect(markerIsInPersistentRegion(`${imp}{#if canEdit}<LiveRegion>{#if a}<p>MARK</p>{/if}</LiveRegion>{/if}`, 'MARK')).toBe(true);
   });
 
   it.each(SITES.map((s) => [s.file.replace(/^src\//, ''), s.marker, s] as const))('%s: %s', (_f, _m, s) => {
     const src = readFileSync(join(process.cwd(), s.file), 'utf8');
     expect(src.includes(s.marker), `marker not found in ${s.file}`).toBe(true);
-    expect(markerIsInPersistentRegion(src, s.marker, s.nth ?? 0)).toBe(true);
+    expect(markerIsInPersistentRegion(src, s.marker, s.nth ?? 0, s.sharedGuard)).toBe(true);
   });
 
   it('names every converted site once (44)', () => {
