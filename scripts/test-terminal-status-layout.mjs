@@ -45,7 +45,7 @@ try {
    window.stopFull=mount(document.getElementById('full'),'reported',false);
   });
   const pill=page.locator('#terminal span[title]');await pill.waitFor({state:'attached'});
-  // The full form, asserted once as mounted and again after every compact resize below.
+  // The full form, asserted as mounted, after every compact resize below, and once more after the loop.
   await page.waitForFunction(()=>document.getElementById('full').innerText.includes('checked')); // the form's last line, so the whole text has rendered
   assert.equal(await page.locator('#full').innerText(),FULL_TEXT,'full form as mounted');
   for(const width of [220,140,320,220]) {
@@ -85,6 +85,8 @@ try {
    await page.evaluate(()=>{location.hash=''});
    await page.getByRole('link',{name:'Synthetic assigned task'}).click();
    assert.equal(new URL(page.url()).hash,'#task');
+   // A resize that changed the full form and then recovered would pass a check made only at the ends.
+   assert.equal(await page.locator('#full').innerText(),FULL_TEXT,`full form unchanged after compact resize to ${width}px`);
   }
   assert.equal(await page.locator('#full').innerText(),FULL_TEXT,'full form after compact resizing');
   for(const mode of ['hidden','not-reported']) {
@@ -93,7 +95,7 @@ try {
    await page.evaluate(async()=>await window.stopEmpty());
   }
   // Each fixture unmounts even if the other's unmount fails; a failure of either still fails the run.
-  const unmounts=await page.evaluate(async()=>(await Promise.allSettled([window.stopTerminal(),window.stopFull()])).map(r=>r.status==='fulfilled'?'fulfilled':`rejected: ${String(r.reason)}`));
+  const unmounts=await page.evaluate(async()=>(await Promise.allSettled([(async()=>window.stopTerminal())(),(async()=>window.stopFull())()])).map(r=>r.status==='fulfilled'?'fulfilled':`rejected: ${String(r.reason)}`));
   assert.deepEqual(unmounts,['fulfilled','fulfilled'],`both fixtures unmount cleanly: ${JSON.stringify(unmounts)}`);
   await page.close();
  }
