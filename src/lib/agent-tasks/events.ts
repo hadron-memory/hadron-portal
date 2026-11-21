@@ -327,10 +327,12 @@ export function alarmRuleName(type: string): string {
       return t('app.tasks.alarm.owner-unreactive', 'Owner didn’t react');
     case 'assignment.unassignable':
       return t('app.tasks.alarm.unassignable', 'Couldn’t be assigned');
+    case 'alarm.start-failing':
+      return t('app.tasks.alarm.start-failing', 'Worker starts failing');
     default:
       return type;
   }
 }
 
 /** Every alarm type the portal names; anything else renders its raw type. */
-export const KNOWN_ALARM_TYPES = ['stall.not-started', 'stall.no-progress', 'stall.owner-unreactive', 'assignment.unassignable'] as const;
+export const KNOWN_ALARM_TYPES = ['stall.not-started', 'stall.no-progress', 'stall.owner-unreactive', 'assignment.unassignable', 'alarm.start-failing'] as const;

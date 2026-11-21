@@ -42,6 +42,7 @@
         <div class="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-sm text-zinc-800 dark:text-zinc-200">
           {#if alarm}
             <span class="font-medium">{alarmRuleName(e.type)}</span>
+            {#if e.type === 'alarm.start-failing'}<PartyLabel party={e.subjectWorker} />{/if}
           {:else}
             {#if actor.kind === 'party'}
               <PartyLabel party={actor.party} showUrn={false} />

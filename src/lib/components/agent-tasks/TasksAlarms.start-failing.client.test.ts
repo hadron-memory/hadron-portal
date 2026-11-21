@@ -19,7 +19,7 @@ describe('task-less start-failing alarm', () => {
       await tick(2);
       expect(target.textContent).toContain('Worker starts failing');
       expect(target.textContent).toContain('Wren');
-      expect(target.textContent).toContain(worker.urn);
+      expect(target.querySelector(`[title="${worker.urn}"]`)).not.toBeNull();
       expect(target.querySelector('a[href="/app/workers/worker-1"]')).not.toBeNull();
       expect(target.querySelector('a[href*="/tasks/"]')).toBeNull();
     } finally { unmount(); }
@@ -32,7 +32,7 @@ describe('task-less start-failing alarm', () => {
       await tick(2);
       expect(target.textContent).toContain('Worker starts failing');
       expect(target.textContent).toContain('Wren');
-      expect(target.textContent).toContain(worker.urn);
+      expect(target.querySelector(`[title="${worker.urn}"]`)).not.toBeNull();
       expect(target.querySelector('a[href*="/tasks/"]')).toBeNull();
     } finally { unmount(); }
   });

@@ -285,7 +285,7 @@
           <span class="text-zinc-400">—</span>
         {/if}
       {:else if cell.column.id === 'concerns'}
-        <PartyLabel party={a.subjectWorker} showUrn={false} />
+        <PartyLabel party={a.subjectWorker} showUrn={a.type === 'alarm.start-failing'} />
       {:else if cell.column.id === 'status'}
         {#if a.acknowledgedAt}
           <span class="text-zinc-700 dark:text-zinc-300">{row.status}</span>
