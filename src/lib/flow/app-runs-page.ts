@@ -1,4 +1,5 @@
 import { RUN_STATUSES, type AppRun, type AppRunStatus } from './runs';
+import { t } from '$lib/i18n/t';
 export const RUNS_PAGE_SIZE = 20;
 export const RUN_SORTS = ['createdAt', 'startedAt', 'finishedAt', 'status'] as const;
 export type RunSort = typeof RUN_SORTS[number];
@@ -49,4 +50,26 @@ export function isAppRunRow(r: unknown): r is AppRun {
   if (!r || typeof r !== 'object') return false;
   const x = r as AppRun;
   return typeof x.id === 'string' && isWellShapedEnumName(x.status) && typeof x.entryNodeUrn === 'string' && isWellShapedEnumName(x.triggerKind) && typeof x.createdAt === 'string' && (x.startedAt === null || typeof x.startedAt === 'string') && (x.finishedAt === null || typeof x.finishedAt === 'string') && (x.failure === null || typeof x.failure === 'object') && (x.eventData === null || typeof x.eventData === 'object');
+}
+
+/** The Sort select's label for a served sort (the same `runs.*` keys the select uses). */
+export function runSortLabel(sort: RunSort): string {
+  switch (sort) {
+    case 'startedAt': return t('runs.started', 'Started');
+    case 'finishedAt': return t('runs.finished', 'Finished');
+    case 'status': return t('runs.status', 'Status');
+    default: return t('runs.created', 'Created');
+  }
+}
+/**
+ * portal#2291: what the polite live region says after a successful navigate,
+ * read from the SERVED section (a clamped page reads true). Direction is not
+ * part of it (Uma's row 3 on #2289); Q is at least 1, so an empty list reads
+ * "page 1 of 1".
+ */
+export function runsAnnouncement(section: Pick<RunsSection, 'total' | 'sort' | 'page'>): string {
+  const vars = { n: section.total, sort: runSortLabel(section.sort), page: section.page, pages: Math.max(1, Math.ceil(section.total / RUNS_PAGE_SIZE)) };
+  return section.total === 1
+    ? t('runs.announce.one', '{n} run, sorted by {sort}, page {page} of {pages}', vars)
+    : t('runs.announce.many', '{n} runs, sorted by {sort}, page {page} of {pages}', vars);
 }
