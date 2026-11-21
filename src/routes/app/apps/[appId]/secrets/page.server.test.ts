@@ -10,6 +10,7 @@ import {
   SET_SECRET_PROTECTED_MUTATION, UPDATE_SECRET_VALUE_MUTATION, WITHDRAW_CHANGE_REQUEST_MUTATION,
 } from '$lib/server/secrets';
 import { TRACKED_COOKIE } from '$lib/secrets/tracked';
+import { env } from '$env/dynamic/public';
 
 const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
@@ -29,7 +30,7 @@ const ev = (cookies: ReturnType<typeof jar>, extra: object = {}) => ({
   params: { appId: 'app-1', secretId: 's1' }, locals: { token: 'tok', user: { id: 'u1' }, impersonation: null }, cookies, ...extra,
 }) as never;
 
-beforeEach(() => { request.mockReset(); });
+beforeEach(() => { request.mockReset(); env.PUBLIC_SERVER_URL = 'https://hadron.example'; });
 
 describe('a staged edit (acceptance 1)', () => {
   it('is staged, not saved and not a generic error; the request is remembered with its link', async () => {
@@ -131,6 +132,13 @@ describe('the secret page load', () => {
     expect(d.signing).toBe('on');
     expect(d.pending).toEqual([{ requestId: 'r1', secretId: 's1', ceremonyUrl: URL_, state: 'open', operation: 'STORE', expiresAt: open.expiresAt }]);
     expect(c.store.has(TRACKED_COOKIE)).toBe(true);
+  });
+  it('a cookie edited to another host shows no link and no row (portal#2417)', async () => {
+    const { load } = await import('./[secretId]/+page.server');
+    request.mockImplementation(base('on', open));
+    const c = jar(JSON.stringify([{ secretId: 's1', requestId: 'r1', ceremonyUrl: 'https://evil.example/secret-changes/r1' }]));
+    const d = (await load(ev(c))) as { pending: unknown[] };
+    expect(d.pending).toEqual([]);
   });
   it('an ended request shows once; one the server does not show the viewer is dropped', async () => {
     const { load } = await import('./[secretId]/+page.server');

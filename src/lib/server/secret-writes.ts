@@ -2,6 +2,7 @@ import type { GraphQLClient } from 'graphql-request';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
 import { readStagedChange } from '$lib/secrets/staged';
+import { ceremonyOrigin } from '$lib/ceremony-origin';
 
 /**
  * portal#2380 — one App-secret write, as a result the page can render.
@@ -24,7 +25,7 @@ export async function secretWrite<D>(
   try {
     return { kind: 'ok', data: await client.request<D>(doc, vars) };
   } catch (e) {
-    const staged = readStagedChange(e);
+    const staged = readStagedChange(e, ceremonyOrigin());
     if (staged?.kind === 'staged') return staged;
     if (staged) return { kind: 'plain-protected' };
     if (extractGqlErrorCode(e) === 'SECRET_KEY_UNAVAILABLE') {

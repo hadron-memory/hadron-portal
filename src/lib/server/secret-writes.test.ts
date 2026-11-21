@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { env } from '$env/dynamic/public';
 import { parseSecretValue, secretWrite, validSecretName } from './secret-writes';
 
 const err = (extensions: Record<string, unknown>, message = 'nope') =>
@@ -6,6 +7,7 @@ const err = (extensions: Record<string, unknown>, message = 'nope') =>
 const client = (f: () => unknown) => ({ request: async () => f() }) as never;
 
 describe('secretWrite (portal#2380)', () => {
+  beforeEach(() => { env.PUBLIC_SERVER_URL = 'https://h.example'; });
   it('a staged edit is staged: not ok, not a generic error, with the link', async () => {
     const url = 'https://h.example/secret-changes/r1';
     const r = await secretWrite(client(() => { throw err({ code: 'SECRET_PROTECTED_NEEDS_PASSKEY', requestId: 'r1', ceremonyUrl: url }); }), 'q', {});
@@ -18,6 +20,18 @@ describe('secretWrite (portal#2380)', () => {
   it('another refusal keeps its own sentence; success passes data', async () => {
     expect(await secretWrite(client(() => { throw err({ code: 'FORBIDDEN' }, 'Not yours.'); }), 'q', {})).toEqual({ kind: 'refused', message: 'Not yours.' });
     expect(await secretWrite(client(() => ({ a: 1 })), 'q', {})).toEqual({ kind: 'ok', data: { a: 1 } });
+  });
+});
+
+describe('a staged link is pinned to the server public origin (portal#2417)', () => {
+  const stage = (url: string) => secretWrite(client(() => { throw err({ code: 'SECRET_PROTECTED_NEEDS_PASSKEY', requestId: 'r1', ceremonyUrl: url }); }), 'q', {});
+  beforeEach(() => { env.PUBLIC_SERVER_URL = 'https://h.example'; });
+  it('a link on another host is a plain refusal, not a staged request with a link', async () => {
+    expect(await stage('https://evil.example/secret-changes/r1')).toEqual({ kind: 'plain-protected' });
+  });
+  it('with no configured origin no link is ever staged', async () => {
+    env.PUBLIC_SERVER_URL = undefined;
+    expect(await stage('https://h.example/secret-changes/r1')).toEqual({ kind: 'plain-protected' });
   });
 });
 
