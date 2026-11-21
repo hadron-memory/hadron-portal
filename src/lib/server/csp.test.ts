@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { appendConnectSrc, resolveAssetStorageOrigin } from './csp';
+import { appendConnectSrc, appendPublicServerFormAction, publicOrigin, resolveAssetStorageOrigin } from './csp';
 
 // Shaped like the header SvelteKit emits for svelte.config.js's directives.
 const HEADER =
@@ -61,5 +61,67 @@ describe('resolveAssetStorageOrigin', () => {
     expect(resolveAssetStorageOrigin('not a url')).toBeNull();
     expect(error).toHaveBeenCalledOnce();
     expect(error.mock.calls[0][0]).toContain('not a valid URL');
+  });
+});
+
+// #2430: the asset origin goes through the same host allowlist as #2425's form-action source.
+const DISALLOWED_HOSTS = [
+  'https://a;script-src.example',
+  'https://a,b.example',
+  "https://a'b.example",
+  'https://a%3Bscript-src.example',
+  'https://a%2Cb.example',
+  'https://a%27b.example',
+  'https://[::1;x]',
+  'https://fixture:fixture@store.example.test',
+  'javascript:alert(1)',
+  'ftp://store.example.test',
+];
+const ADMITTED = [
+  'https://store.example.test',
+  'https://store.example.test:9000',
+  'http://localhost:9000',
+  'https://[::1]:9000',
+  'https://nbg1.your-objectstorage.com',
+];
+
+describe('#2430 asset origin host allowlist', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each(DISALLOWED_HOSTS)('resolveAssetStorageOrigin leaves out %s and logs once, without the raw value', (raw) => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(resolveAssetStorageOrigin(raw)).toBeNull();
+    expect(error).toHaveBeenCalledOnce();
+    expect(String(error.mock.calls[0][0])).toContain('PUBLIC_ASSET_STORAGE_ORIGIN');
+    expect(String(error.mock.calls[0][0])).not.toContain('script-src');
+  });
+
+  it.each(DISALLOWED_HOSTS)('appendConnectSrc never splices %s, called directly', (raw) => {
+    expect(appendConnectSrc(HEADER, raw)).toBe(HEADER);
+    // The serialized origin keeps a hostile host (but drops credentials, which are then harmless).
+    let origin: string | null = null;
+    try {
+      const u = new URL(raw);
+      if (!u.username) origin = u.origin;
+    } catch { /* unparseable: the raw string was the whole test */ }
+    if (origin !== null) expect(appendConnectSrc(HEADER, origin)).toBe(HEADER);
+  });
+
+  it.each(ADMITTED)('a valid origin %s is unchanged by the allowlist and is spliced', (raw) => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const origin = resolveAssetStorageOrigin(`${raw}/bucket/`);
+    expect(origin).toBe(new URL(raw).origin);
+    expect(error).not.toHaveBeenCalled();
+    expect(appendConnectSrc(HEADER, origin!)).toContain(`connect-src 'self' https://srv.hadronmemory.com ${origin};`);
+  });
+
+  it('both splices use the one helper: connect-src and form-action admit and refuse the same origins', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    for (const raw of [...DISALLOWED_HOSTS, ...ADMITTED]) {
+      const viaHelper = publicOrigin(raw);
+      expect(resolveAssetStorageOrigin(raw), raw).toBe(viaHelper);
+      expect(appendPublicServerFormAction(HEADER, raw) !== HEADER, raw).toBe(viaHelper !== null);
+      expect(appendConnectSrc(HEADER, viaHelper ?? raw) !== HEADER, raw).toBe(viaHelper !== null);
+    }
   });
 });
