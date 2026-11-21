@@ -58,7 +58,10 @@ const anchors = (page) => page.evaluate(() => {
     if (a.origin !== location.origin) return 'url'; // the external https anchors (pull request, receipt)
     if (a.pathname.includes('/runs/')) return 'run';
     if (a.pathname.includes('/tasks/')) return 'task';
-    return 'chip'; // the shared Urn resolver chip (/app/u/hrn:…)
+    // The shared Urn resolver chip, matched exactly (portal#1925): a same-origin anchor of any
+    // other shape is 'other', never silently exempted from the coarse 44px check as a chip.
+    if (a.pathname.startsWith('/app/u/hrn:')) return 'chip';
+    return 'other';
   };
   return [...history.querySelectorAll('a')].map((a) => {
     const range = document.createRange();
@@ -68,9 +71,7 @@ const anchors = (page) => page.evaluate(() => {
       kind: kind(a),
       href: a.getAttribute('href'),
       height: r.height,
-      top: r.top,
       width: r.width,
-      left: r.left,
       // One rect per rendered line for an inline anchor: >1 means the value wrapped
       // inside its anchor. (Meaningless for the inline-flex chip, excluded below.)
       lines: [...range.getClientRects()].length,
@@ -136,6 +137,10 @@ try {
       assert.ok(o.history <= 0.5 && o.page <= 0.5, `${label}: overflows ${JSON.stringify(o)}`);
 
       const measured = await anchors(page);
+      // portal#1925: every in-app anchor is a known kind. An unclassified one would skip the
+      // 44px check below, so it fails here, before any count or presence pin can be bumped past it.
+      const other = measured.filter((a) => a.kind === 'other');
+      assert.equal(other.length, 0, `${label}: unclassified in-app anchor(s) ${JSON.stringify(other)}`);
       // The fixture puts every anchor kind on the page; a missing kind means the
       // fixture and the component drifted apart.
       for (const kind of ['run', 'url', 'task', 'chip']) {
