@@ -65,7 +65,7 @@ export function customisationRefusalLead(
       // names the page reload.
       return draft
         ? t(
-            'customisation.changed',
+            'customisation.draft.changed',
             'The installation changed. Your draft is kept. To see the current state, use {control}; that replaces your draft.',
             { control: reloadDiscardLabel() },
           )
@@ -76,7 +76,7 @@ export function customisationRefusalLead(
     case 'INSTALL_MEMORY_NOT_FOUND':
       return draft
         ? t(
-            'customisation.not-found',
+            'customisation.draft.not-found',
             'The customisation is not available. Your draft is kept. To see the current state, use {control}; that replaces your draft.',
             { control: reloadDiscardLabel() },
           )
@@ -102,7 +102,7 @@ export function customisationRefusalLead(
       // nothing more.
       return draft
         ? t(
-            'customisation.conflict',
+            'customisation.draft.conflict',
             'Another edit was saved. Your draft is kept. To start from the current version, use {control}; that replaces your draft.',
             { control: reloadDiscardLabel() },
           )

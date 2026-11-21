@@ -133,7 +133,7 @@ export async function writeCustomisation(
       customisationFailed: {
         code: 'unavailable',
         detail: t(
-          'customisation.unavailable',
+          'customisation.draft.unavailable',
           // #1507: name the control and its effect — a generic 'reload' reads as
           // the browser button, and this control replaces the draft the previous
           // sentence says is kept.
