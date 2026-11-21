@@ -90,15 +90,13 @@ const initial = {
 const browser = await chromium.launch({ headless: true });
 const results = [];
 
-// The color pairs the root layout wraps every route in. Read from the layout
-// source and asserted below, so a change there fails this script instead of
-// leaving the proof painting a stale pair (portal#2255 blind review).
-const SHELL_DARK = 'bg-zinc-950 text-zinc-100';
-const SHELL_LIGHT = 'bg-zinc-50 text-zinc-900';
+// The shell is read from the root layout, not copied: the wrapper div's static
+// classes plus the dark/light ternary on its class attribute, so a change to the
+// layout changes the proof and an unreadable layout fails the script.
 const layoutSource = readFileSync(new URL('../src/routes/+layout.svelte', import.meta.url), 'utf8');
-for (const pair of [SHELL_DARK, SHELL_LIGHT]) {
-  if (!layoutSource.includes(`'${pair}'`)) throw new Error(`src/routes/+layout.svelte no longer wraps routes in '${pair}'; update the proof's shell pair`);
-}
+const wrapper = layoutSource.match(/<div class="([^"{]*)\{dark \? '([^']+)' : '([^']+)'\}"/);
+if (!wrapper) throw new Error('src/routes/+layout.svelte: could not find the shell wrapper (class="… {dark ? \'…\' : \'…\'}"); update the proof');
+const [, SHELL_STATIC, SHELL_DARK, SHELL_LIGHT] = wrapper;
 
 async function shoot(name, { dark, savedArrangement = null }) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -109,11 +107,10 @@ async function shoot(name, { dark, savedArrangement = null }) {
   }));
   await page.goto(new URL('/__board_fixture', origin).href);
   await page.addStyleTag({ content: css });
-  // portal#2255: this document has no app shell, so the proof must reproduce
-  // the shell's own color pair. Painting only a background left every element
-  // without its own color class at UA-initial black on zinc-950, which
-  // manufactured the (closed) #2251 contrast finding in the dark shot.
-  const shell = `min-h-screen ${dark ? SHELL_DARK : SHELL_LIGHT}`;
+  // This document has no app shell, so the body carries the shell's own
+  // classes: an element with no color class of its own inherits the shell's
+  // text color instead of falling to UA-initial black.
+  const shell = `${SHELL_STATIC.trim()} ${dark ? SHELL_DARK : SHELL_LIGHT}`;
   await page.evaluate(({ dark, shell }) => {
     document.documentElement.classList.toggle('dark', dark);
     document.body.className = shell;
@@ -134,21 +131,26 @@ async function shoot(name, { dark, savedArrangement = null }) {
   }, initial);
   // Not a fixed sleep loop (portal#2248 review P3): wait for the table.
   await page.waitForSelector('tbody tr');
-  // Shell assertion, on rendered colors rather than on the class we just set:
-  // the Clear anchor sets no color of its own, so its computed color is the
-  // inherited one. It must be light on the dark shell and dark on the light
-  // one (the UA-initial black on zinc-950 is the defect this guards).
-  const lum = await page.evaluate(() => {
-    const clear = [...document.querySelectorAll('a,button')].find((e) => (e.textContent || '').trim() === 'Clear');
-    if (!clear) return null;
-    const c = document.createElement('canvas').getContext('2d');
-    c.fillStyle = getComputedStyle(clear).color;
-    c.fillRect(0, 0, 1, 1);
-    const [r, g, b] = c.getImageData(0, 0, 1, 1).data;
-    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-  });
-  if (lum === null) throw new Error(`${name}: no Clear control to measure the inherited color on`);
-  if (dark ? lum < 0.6 : lum > 0.4) throw new Error(`${name}: Clear inherits luminance ${lum.toFixed(2)}, not the ${dark ? 'light' : 'dark'} shell text color`);
+  // Shell assertion on rendered colors: a classless probe under the body must
+  // inherit exactly the shell's text color (a reference element given the pair's
+  // text class). UA-initial black differs from both zinc-100 and zinc-900, so
+  // this fails in either theme when the inherited color is missing.
+  const textClass = (dark ? SHELL_DARK : SHELL_LIGHT).split(/\s+/).find((c) => c.startsWith('text-'));
+  if (!textClass) throw new Error(`${name}: the layout's ${dark ? 'dark' : 'light'} pair has no text-* class`);
+  const colors = await page.evaluate((cls) => {
+    const probe = document.createElement('span');
+    const ref = document.createElement('span');
+    ref.className = cls;
+    document.body.append(probe, ref);
+    const out = { probe: getComputedStyle(probe).color, ref: getComputedStyle(ref).color };
+    probe.remove();
+    ref.remove();
+    return out;
+  }, textClass);
+  // A reference that is itself UA black means the text class was not emitted
+  // into the injected css, which would make the comparison vacuous.
+  if (colors.ref === 'rgb(0, 0, 0)') throw new Error(`${name}: ${textClass} resolved to UA black; the class is missing from the injected css`);
+  if (colors.probe !== colors.ref) throw new Error(`${name}: inherited text color ${colors.probe} is not the shell's ${textClass} (${colors.ref})`);
 
   // Scoped to the one header row (portal#2253 item 3): header indexes map onto
   // td indexes, and a second header row or a th in tbody would skew the mapping.
