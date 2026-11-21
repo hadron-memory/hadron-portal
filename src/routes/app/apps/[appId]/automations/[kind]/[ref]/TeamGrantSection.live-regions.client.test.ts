@@ -21,7 +21,7 @@ describe('team grant section spacing (portal#2376)', () => {
   it('the last outcome region cancels the space-y unit it would leave behind when empty', () => {
     const { root } = open(none());
     const region = root.querySelector('[data-testid="team-grant-outcome"]')!.querySelectorAll<HTMLElement>('[role="status"]');
-    expect(region[region.length - 1]!.className).toContain('last:empty:-mt-2');
+    expect(region[region.length - 1]!.className).toContain('last:idle:-mt-2');
   });
 });
 

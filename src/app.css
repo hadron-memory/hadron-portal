@@ -3,6 +3,8 @@
 
 /* Class-based dark mode — add `dark` class to <html> to activate */
 @custom-variant dark (&:where(.dark, .dark *));
+/* A LiveRegion with nothing to say: `:empty`, or the data-idle its component keeps when a text node breaks :empty (portal#2394). */
+@custom-variant idle (&:is(:empty, [data-idle]));
 
 /*
  * Hadron brand color palette
