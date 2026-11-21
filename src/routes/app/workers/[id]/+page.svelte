@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveOutcome from '$lib/components/LiveOutcome.svelte';
   import WorkerLeaveAlone from './WorkerLeaveAlone.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
@@ -278,16 +279,17 @@
       {/if}
     </div>
 
-    {#if retireNotice}
-      <div
-        role={retireNotice.ok ? 'status' : 'alert'}
-        class="mt-3 rounded-lg border px-4 py-3 text-sm {retireNotice.ok
-          ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
-          : 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200'}"
-      >
-        {retireNotice.message}
-      </div>
-    {/if}
+    <LiveOutcome failed={retireNotice ? !retireNotice.ok : false}>
+      {#if retireNotice}
+        <div
+          class="mt-3 rounded-lg border px-4 py-3 text-sm {retireNotice.ok
+            ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
+            : 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200'}"
+        >
+          {retireNotice.message}
+        </div>
+      {/if}
+    </LiveOutcome>
 
     <!-- The URN below the name, per hrn:node:hadronmemory.com:hadron-portal:review:render-urn. Nullable by contract
          (#991) — an App whose URN predates the flat grammar has no worker URN,

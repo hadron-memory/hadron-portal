@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveOutcome from '$lib/components/LiveOutcome.svelte';
   import BootProvenance from '$lib/components/BootProvenance.svelte';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -109,7 +110,9 @@
           <button type="submit" disabled={$compileSubmitting} class="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900">{$compileSubmitting ? t('boot.compile.running', 'Compiling...') : t('boot.compile.button', 'Compile')}</button>
         </form>
       {/if}
-      {#if $compileMessage}<p role={$compileMessage.type === 'error' ? 'alert' : 'status'} class="mt-3 text-sm {$compileMessage.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$compileMessage.text}</p>{/if}
+      <LiveOutcome failed={$compileMessage?.type === 'error'}>
+        {#if $compileMessage}<p class="mt-3 text-sm {$compileMessage.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$compileMessage.text}</p>{/if}
+      </LiveOutcome>
     </li>
 
     <li data-boot-step="approve" class={stepClass}>
@@ -161,7 +164,9 @@
           {/if}
           <div><a data-boot-compiled-link href={nodeHref(compiled.memoryId, compiled.id)} target="_blank" rel="noopener noreferrer" class={linkButton}>{t('agent.boot.open-compiled', 'Open the compiled prompt')}</a></div>
         {/if}
-        {#if $approveMessage}<p role={$approveMessage.type === 'error' ? 'alert' : 'status'} class="text-sm {$approveMessage.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$approveMessage.text}</p>{/if}
+        <LiveOutcome failed={$approveMessage?.type === 'error'}>
+          {#if $approveMessage}<p class="text-sm {$approveMessage.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$approveMessage.text}</p>{/if}
+        </LiveOutcome>
       </div>
     </li>
   </ol>

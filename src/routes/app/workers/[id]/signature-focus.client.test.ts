@@ -14,6 +14,7 @@ import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { captureUnhandledRejections, mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { emptyRegions, regionHolding } from '$lib/test/liveRegionPin';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { updateSignatureSchema } from './schema';
 import { resetStubPage, setStubPage } from '$lib/test/stubs/app-stores';
@@ -83,7 +84,9 @@ describe('focus through a successful save (#1367)', () => {
     expect(save.disabled).toBe(true);
     const status = target.querySelector<HTMLElement>('[role="status"]')!;
     expect(status.textContent).toContain('Saved.');
-    expect(document.activeElement).toBe(status);
+    // The result line is inside the always-mounted status region (portal#2379), and holds focus.
+    expect(status.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement?.textContent).toBe('Saved.');
   });
 
   it('does not take focus back from a control the reader moved to while the save ran', async () => {
@@ -220,6 +223,29 @@ describe('the whole worker page (#1367)', () => {
     props.data = { ...base, worker: worker('new') };
     await tick(4);
     expect(save.disabled).toBe(true);
-    expect(document.activeElement).toBe(m.target.querySelector('[data-testid="worker-signature"] [role="status"]'));
+    const status = m.target.querySelector<HTMLElement>('[data-testid="worker-signature"] [role="status"]')!;
+    expect(status.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement?.textContent).toBe('Saved.');
+  });
+});
+
+// portal#2379 (slice of portal#2344): the result lands in a region that was already mounted and empty,
+// a status for a save and an alert for a refusal.
+describe('the result line is a live region that exists before the result', () => {
+  it.each([
+    ['success', 'Saved.', 'status'],
+    ['error', 'Could not save the signature.', 'alert'],
+  ] as const)('a %s result lands in the %s region that was already mounted and empty', async (type, text, role) => {
+    const { target } = await mountSection();
+    const form = target.querySelector<HTMLFormElement>('form')!;
+    const before = emptyRegions(target);
+    expect(before.map((r) => r.getAttribute('role'))).toEqual(expect.arrayContaining(['status', 'alert']));
+    const saved = await savedResult('edited sig', form);
+    const result = type === 'success' ? saved : { type: 'failure' as const, status: 400, data: { form: { ...saved.data.form, valid: false, message: { type: 'error', text } } } };
+    await submitEnhancedWithResult(form, result);
+    await tick(4);
+    const region = regionHolding(target, text);
+    expect(before).toContain(region);
+    expect(region.getAttribute('role')).toBe(role);
   });
 });

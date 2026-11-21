@@ -13,6 +13,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { beginEnhanced, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { emptyRegions, regionHolding } from '$lib/test/liveRegionPin';
 import Page from './+page.svelte';
 
 const org = { id: 'org-1', name: 'Acme', urn: 'hrn:org:acme.com' };
@@ -116,5 +117,25 @@ describe('portal#2067: the chip carries the server string byte for byte', () => 
     (t.querySelector('button[title="Copy agent URN"]') as HTMLButtonElement).click();
     (t.querySelector('button[title="Copy worker URN"]') as HTMLButtonElement).click();
     expect(written).toEqual([agentUrn, workerUrn]);
+  });
+});
+
+// portal#2379 (slice of portal#2344): "Signing is switched on." lands in a status region that was already
+// mounted and empty, instead of being inserted already populated with the rest of the branch.
+describe('the switched-on message', () => {
+  it('lands in the status region that existed, empty, before the switch-on result', async () => {
+    setStubPage('http://localhost/app/orgs/org-1/boot-prompt-signing');
+    const props = reactiveProps<Record<string, unknown>>({ data: { org, sw, preview: ok('tok-loaded', [row(1)]) }, form: null });
+    mounted = mountComponent(Page as never, props as never);
+    const t = mounted.target;
+    await tick();
+    const before = emptyRegions(t);
+    expect(before.map((r) => r.getAttribute('role'))).toContain('status');
+    props.form = { outcome: 'done', signing: { required: true, enforced: true } };
+    flushSync();
+    await tick();
+    const region = regionHolding(t, 'Signing is switched on.');
+    expect(before).toContain(region);
+    expect(region.getAttribute('role')).toBe('status');
   });
 });

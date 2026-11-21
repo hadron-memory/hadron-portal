@@ -3,6 +3,8 @@ import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { emptyRegions, regionHolding } from '$lib/test/liveRegionPin';
+import { submitEnhancedWithResult, resetKitAppliedResults } from '$lib/test/stubs/app-forms';
 import Page from './+page.svelte';
 import { installAgentSchema, installExistingAppSchema } from './schema';
 let props: Record<string, unknown>;
@@ -60,4 +62,27 @@ describe('#1003 existing App selection', () => {
     expect(find(root, 'New app').getAttribute('aria-pressed')).toBe('true');
   });
 
+});
+
+// portal#2379 (slice of portal#2344): the existing-App install message lands in a region that was already
+// mounted and empty, a status on success and an alert on refusal.
+describe('install message live region', () => {
+  it.each([
+    ['success', 'Installed.', 'status'],
+    ['error', 'Could not install into that App.', 'alert'],
+  ] as const)('a %s result lands in the %s region that was already mounted and empty', async (type, text, role) => {
+    const root = await open();
+    find(root, 'Existing app').click(); await tick();
+    const form = root.querySelector<HTMLFormElement>('form[action="?/installExisting"]')!;
+    const before = emptyRegions(form);
+    expect(before.map((r) => r.getAttribute('role'))).toEqual(expect.arrayContaining(['status', 'alert']));
+    const posted = { ...(props.data as { existingAppForm: Record<string, unknown> }).existingAppForm, message: { type, text } };
+    try {
+      await submitEnhancedWithResult(form, { type: type === 'success' ? 'success' : 'failure', status: type === 'success' ? 200 : 400, data: { form: posted } });
+      await tick(3);
+      const region = regionHolding(form, text);
+      expect(before).toContain(region);
+      expect(region.getAttribute('role')).toBe(role);
+    } finally { resetKitAppliedResults(); }
+  });
 });

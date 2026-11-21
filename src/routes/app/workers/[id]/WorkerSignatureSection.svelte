@@ -12,6 +12,7 @@
   - No reset or default control, and no client cap (the server's is tunable).
 -->
 <script lang="ts">
+  import LiveOutcome from '$lib/components/LiveOutcome.svelte';
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { superForm, type SuperValidated } from 'sveltekit-superforms/client';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -320,16 +321,17 @@
         </button>
       {/if}
 
-      {#if $result}
-        <p
-          bind:this={resultEl}
-          tabindex="-1"
-          role={$result.type === 'error' ? 'alert' : 'status'}
-          class="rounded-lg border px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 {$result.type === 'error'
-            ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'
-            : 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300'}"
-        >{$result.text}</p>
-      {/if}
+      <LiveOutcome failed={$result?.type === 'error'}>
+        {#if $result}
+          <p
+            bind:this={resultEl}
+            tabindex="-1"
+            class="rounded-lg border px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 {$result.type === 'error'
+              ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'
+              : 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300'}"
+          >{$result.text}</p>
+        {/if}
+      </LiveOutcome>
     </form>
   {/if}
 </section>

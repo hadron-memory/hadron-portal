@@ -13,6 +13,7 @@
     unmounted.
 -->
 <script lang="ts">
+  import LiveOutcome from '$lib/components/LiveOutcome.svelte';
   import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { onDestroy, tick } from 'svelte';
   import { enhance } from '$app/forms';
@@ -361,18 +362,18 @@
     </form>
   {/if}
 
-  {#if liftNote}
-    <p
-      bind:this={liftLine}
-      tabindex="-1"
-      role={liftNote.failed ? 'alert' : 'status'}
-      aria-live={liftNote.failed ? 'assertive' : 'polite'}
-      data-testid="stop-lift-status"
-      class="rounded-lg border px-3 py-2 text-sm {liftNote.failed
-        ? 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200'
-        : 'border-zinc-300 bg-zinc-50 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white'}"
-    >{liftNote.text}</p>
-  {/if}
+  <LiveOutcome failed={liftNote?.failed ?? false}>
+    {#if liftNote}
+      <p
+        bind:this={liftLine}
+        tabindex="-1"
+        data-testid="stop-lift-status"
+        class="rounded-lg border px-3 py-2 text-sm {liftNote.failed
+          ? 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200'
+          : 'border-zinc-300 bg-zinc-50 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white'}"
+      >{liftNote.text}</p>
+    {/if}
+  </LiveOutcome>
 
   {#if lifting && controls}
     <dialog

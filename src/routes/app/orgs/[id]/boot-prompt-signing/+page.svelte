@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // portal#1921 (R1, R3, R4): what switching on org boot-prompt signing would
   // change, and the switch-on itself. The preview IS the confirmation: Switch on
   // sits under the table and is offered only once every row is loaded.
@@ -82,7 +83,6 @@
   <section class="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" data-testid="signing-preview">
     {#if done && form && 'signing' in form && form.signing}
       <SigningStatus required={form.signing.required} enforced={form.signing.enforced} />
-      <p role="status" class="text-sm text-green-700 dark:text-green-300">{t('org.signing.switched-on', 'Signing is switched on.')}</p>
     {:else if data.sw.kind === 'failed' || preview?.kind === 'failed'}
       <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('org.signing.failed', 'Couldn’t load boot prompt signing.')}</p>
     {:else if data.sw.kind === 'ok' && data.sw.required}
@@ -177,5 +177,8 @@
         <button type="submit" disabled={submitting} class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">{t('org.signing.switch-on-confirm', 'Switch on')}</button>
       </form>
     {/if}
+    <LiveRegion>
+      {#if done && form && 'signing' in form && form.signing}<p class="text-sm text-green-700 dark:text-green-300">{t('org.signing.switched-on', 'Signing is switched on.')}</p>{/if}
+    </LiveRegion>
   </section>
 </div>
