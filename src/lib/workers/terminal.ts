@@ -56,6 +56,8 @@ export function terminalReasonLabel(reason: string): string {
     case 'no_terminal': return t('worker.terminal.reason.no-terminal', 'No terminal found');
     case 'bare_shell': return t('worker.terminal.reason.bare-shell', 'Agent not running (plain shell)');
     case 'no_agent': return t('worker.terminal.reason.no-agent', 'No agent in the terminal');
+    case 'multiple_terminals': return t('worker.terminal.reason.multiple-terminals', 'More than one agent terminal');
+    case 'no_screen': return t('worker.terminal.reason.no-screen', 'No screen to read');
     default: return t('worker.terminal.reason.unknown', 'Other reason');
   }
 }
