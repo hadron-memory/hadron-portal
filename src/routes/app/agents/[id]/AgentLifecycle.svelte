@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // portal#2194 (hadron-server#4242): the user wants to choose whether this
   // agent's workers keep running or run only while they have a task. Only
   // lifecycle is sent (omitted means unchanged on the server). The server's
@@ -96,12 +97,17 @@
     </fieldset>
     {#if feedback?.kind === 'error'}
       <p role="alert" class="text-sm text-red-600 dark:text-red-400">{feedback.text}</p>
-    {:else if feedback?.kind === 'ok'}
-      <p role="status" class="text-sm text-emerald-600 dark:text-emerald-400">{feedback.text}</p>
     {/if}
-    {#if recovery?.uncertain && recovery.phase !== 'stale'}
-      <p role="status" class="text-sm text-zinc-500">{t('agent.lifecycle.unconfirmed', 'Couldn’t confirm the save; checking…')}</p>
-    {/if}
+    <LiveRegion>
+      {#if feedback?.kind === 'ok'}
+        <p class="text-sm text-emerald-600 dark:text-emerald-400">{feedback.text}</p>
+      {/if}
+    </LiveRegion>
+    <LiveRegion>
+      {#if recovery?.uncertain && recovery.phase !== 'stale'}
+        <p class="text-sm text-zinc-500">{t('agent.lifecycle.unconfirmed', 'Couldn’t confirm the save; checking…')}</p>
+      {/if}
+    </LiveRegion>
     {#if recovery?.phase === 'stale'}
       <div role="alert" class="space-y-2 text-sm text-red-600 dark:text-red-400">
         <p>{recovery.uncertain

@@ -8,6 +8,7 @@
   sees the setting read-only.
 -->
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { enhance } from '$app/forms';
   import type { SubmitFunction } from '@sveltejs/kit';
   import { t } from '$lib/i18n/t';
@@ -93,9 +94,11 @@
       {#if canEdit}
         <button type="submit" class={buttonClass} disabled={!dirty || saving}>{t('app.chatbot-ai-config.save', 'Save')}</button>
       {/if}
+      <LiveRegion class="empty:absolute">
       {#if saved}
-        <span role="status" class="text-xs text-green-700 dark:text-green-400">{t('app.chatbot-ai-config.saved', 'Saved.')}</span>
+        <span class="text-xs text-green-700 dark:text-green-400">{t('app.chatbot-ai-config.saved', 'Saved.')}</span>
       {/if}
+      </LiveRegion>
     </form>
     {#if manages === false}
       <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('app.chatbot-ai-config.read-only', 'Only whoever manages this App can change this.')}</p>

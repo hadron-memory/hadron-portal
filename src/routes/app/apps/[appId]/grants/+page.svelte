@@ -712,9 +712,11 @@
               <LiveRegion>{#if reading}<p>
                   {t("grants.refreshing", "Refreshing grants…")}
                 </p>{/if}</LiveRegion>
-              {#if rowWrites}<p role="status">
-                  {t("grants.wait-revoke", "Finishing the revoke request…")}
-                </p>{/if}
+              <LiveRegion>
+                {#if rowWrites}<p>
+                    {t("grants.wait-revoke", "Finishing the revoke request…")}
+                  </p>{/if}
+              </LiveRegion>
               {#if refreshFailed && refreshPurpose === "create"}<p role="alert">
                   {t(
                     "grants.refresh-failed",

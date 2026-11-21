@@ -11,6 +11,11 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { AGENT_TASKS_APP_QUERY, APP_QUERY, APP_RUN_ENVELOPE_QUERY, APP_RUN_HOPS_QUERY, APP_RUN_QUERY } from '$lib/server/queries';
+import { announcedStatusRegion, idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
+import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { superValidate } from 'sveltekit-superforms';
+import { zod4 } from 'sveltekit-superforms/adapters';
+import { cancelAppRunSchema } from './schema';
 import Page from './+page.svelte';
 import { load } from './+page.server';
 
@@ -307,5 +312,24 @@ describe('run step timeline (portal#482)', () => {
     // Unknown claims no state: not cancellable, so no stop button and no live pulse.
     expect(text(m)).not.toContain('Stop this run');
     expect(chip.querySelector('.animate-pulse')).toBeNull();
+  });
+});
+
+describe('the cancel result is announced in a persistent live region (portal#2375)', () => {
+  it('the success text lands in the status region that was already mounted and empty', async () => {
+    runOver = { status: 'RUNNING', finishedAt: null };
+    const m = await mountPage();
+    const idle = idleStatusRegions(m.target);
+    expect(idle.length).toBeGreaterThan(0);
+    [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Stop this run')!.click();
+    flushSync();
+    const done = await superValidate(zod4(cancelAppRunSchema), { errors: false });
+    done.message = { type: 'success', text: 'The run will stop at the next action.' };
+    await submitEnhancedWithResult(m.target.querySelector<HTMLFormElement>('form[action="?/cancel"]')!, { type: 'success', status: 200, data: { form: done } });
+    (m.props as Record<string, unknown>).form = { form: done };
+    await settle();
+    const region = announcedStatusRegion(m.target);
+    expect(region?.textContent).toContain('The run will stop at the next action.');
+    expect(idle).toContain(region);
   });
 });

@@ -8,6 +8,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { announcedStatusRegion, idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import AppMembersPanel from './AppMembersPanel.svelte';
 import { addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema } from './schema';
@@ -34,7 +36,8 @@ async function mountPanel(appOver: Record<string, unknown>, members: unknown[] =
   const m = mountComponent(AppMembersPanel as never, reactiveProps({
     app, members, membersError: false, membersWithheld: false,
     addMemberForm: await superValidate(zod4(addAppMemberSchema), { errors: false }),
-    ensureMemberForm: await superValidate(zod4(ensureAppMemberSchema), { errors: false }),
+    // A distinct id: add and ensure share a field shape, so the generated ids collide and a result lands on the wrong form.
+    ensureMemberForm: await superValidate(zod4(ensureAppMemberSchema), { errors: false, id: 'ensure-member' }),
     removeMemberForm: await superValidate(zod4(removeAppMemberSchema), { errors: false }),
     form: null,
   }) as never) as Mounted<Record<string, unknown>>;
@@ -82,5 +85,49 @@ describe('App members panel: roles come from App.availableMemberRoles (portal#14
       agent: { id: 'ag1', urn: 'hrn:agent:acme.com:one', name: 'One', installationPolicy: { memberRoles: ['legacy'], maxMembers: '3' } },
     });
     expect(target.textContent).toContain('/ 3)');
+  });
+});
+
+describe('App members panel: action result is announced in a persistent live region (portal#2375)', () => {
+  const resultFor = async (schema: typeof ensureAppMemberSchema | typeof removeAppMemberSchema, text: string, id?: string) => {
+    const f = await superValidate(zod4(schema as never), { errors: false, id });
+    f.message = { type: 'success', text };
+    return f;
+  };
+
+  it('ensure: the empty status region that was there before holds the success text', async () => {
+    const target = await mountPanel({ availableMemberRoles: ['owner', 'reviewer'] }, [member]);
+    const idle = idleStatusRegions(target);
+    expect(idle.length).toBeGreaterThan(0);
+    const ensure = target.querySelector<HTMLFormElement>('form[action="?/ensureMember"]')!;
+    ensure.addEventListener('submit', (e) => e.preventDefault());
+    const select = ensure.querySelector('select')!;
+    select.value = 'reviewer';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(2);
+    await submitEnhancedWithResult(ensure, {
+      type: 'success', status: 200, data: { form: await resultFor(ensureAppMemberSchema, 'Role changed.', 'ensure-member') },
+    });
+    await tick(3);
+    const region = announcedStatusRegion(target);
+    expect(region?.textContent).toContain('Role changed.');
+    expect(idle).toContain(region);
+  });
+
+  it('remove: the empty status region that was there before holds the success text', async () => {
+    const target = await mountPanel({ availableMemberRoles: ['owner'] }, [member]);
+    const idle = idleStatusRegions(target);
+    expect(idle.length).toBeGreaterThan(0);
+    const remove = target.querySelector<HTMLFormElement>('form[action="?/removeMember"]')!;
+    remove.addEventListener('submit', (e) => e.preventDefault());
+    remove.querySelector('button')!.click();
+    await tick(2);
+    await submitEnhancedWithResult(remove, {
+      type: 'success', status: 200, data: { form: await resultFor(removeAppMemberSchema, 'Member removed.') },
+    });
+    await tick(3);
+    const region = announcedStatusRegion(target);
+    expect(region?.textContent).toContain('Member removed.');
+    expect(idle).toContain(region);
   });
 });
