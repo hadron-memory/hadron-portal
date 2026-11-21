@@ -125,3 +125,18 @@ describe('vector health pending state (#1346)', () => {
     expect(applied).toEqual(['A2']);
   });
 });
+
+describe('vector health: the all-clear note (portal#2378)', () => {
+  it('is announced by a region that exists, empty, before the check has run, and is the same element after', async () => {
+    const { target, props } = await mountOn('mem-A');
+    const region = () => target.querySelector<HTMLElement>('[data-testid="vector-health-region"]');
+    const before = region();
+    expect(before, 'mounted before any check').not.toBeNull();
+    expect(before!.getAttribute('role')).toBe('status');
+    expect(before!.textContent?.trim()).toBe('');
+    props.form = { vectorHealth: { failed: [], truncation: null, skipped: null, nodesChecked: 12 } } as never;
+    await settle();
+    expect(region()).toBe(before);
+    expect(before!.textContent).toContain('No failed embeddings among the findings returned.');
+  });
+});

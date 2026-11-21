@@ -81,7 +81,9 @@ describe('#2220 subscribe form', () => {
   it('with no administered organization there is no Add form, only an explanation', async () => {
     const root = await open({ targets: [] });
     expect(root.querySelector('form[action="?/subscribe"]')).toBeNull();
-    expect(root.querySelector('[role=status]')?.textContent).toMatch(/administer/i);
+    // portal#2378: present at load, so plain text rather than a live region.
+    expect(root.textContent).toMatch(/administer another organization/i);
+    expect(root.querySelector('[role=status]')).toBeNull();
   });
 
   it('a refused add still shows the server refusal beside the form', async () => {

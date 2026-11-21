@@ -30,6 +30,34 @@ describe('SelectTask real mounted async picker', () => {
     expect(m.target.textContent).not.toContain('Title old');
     expect(m.target.textContent).toContain('Couldn’t load tasks');
   });
+  it('portal#2378: "No open tasks to choose from." is announced by a region that exists, empty, while loading', async () => {
+    let finish!: (v: unknown) => void;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => { finish = resolve; })));
+    const m = await mount();
+    const region = () => m.target.querySelector<HTMLElement>('[data-testid="task-picker-empty"]');
+    const before = region();
+    expect(before, 'mounted while the read is in flight').not.toBeNull();
+    expect(before!.getAttribute('role')).toBe('status');
+    expect(before!.textContent?.trim()).toBe('');
+    finish(answer([]));
+    await tick(5);
+    expect(region()).toBe(before);
+    expect(before!.textContent).toContain('No open tasks to choose from.');
+  });
+  it('portal#2378: "No available task found" after an exact lookup lands in a region that was already there', async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(answer([choice('old')])).mockResolvedValueOnce(answer([]));
+    vi.stubGlobal('fetch', fetch); const m = await mount();
+    const region = () => m.target.querySelector<HTMLElement>('[data-testid="task-picker-exact-empty"]');
+    const before = region();
+    expect(before, 'mounted before any lookup').not.toBeNull();
+    expect(before!.getAttribute('role')).toBe('status');
+    expect(before!.textContent?.trim()).toBe('');
+    const input = m.target.querySelector<HTMLInputElement>('input')!;
+    input.value = 'AT2.3'; input.dispatchEvent(new Event('input', { bubbles: true })); await tick();
+    button(m.target, 'Look up').click(); await tick(5);
+    expect(region()).toBe(before);
+    expect(before!.textContent).toContain('No available task found in this App.');
+  });
   it('drops a pending response after unmount', async () => {
     let finish!: (value: unknown) => void;
     vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => { finish = resolve; })));

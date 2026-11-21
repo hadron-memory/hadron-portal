@@ -6,6 +6,7 @@ import {
   RESTORE_NODE_REVISION_MUTATION,
   DELETE_NODE_REVISION_MUTATION,
   CLEAR_NODE_HISTORY_MUTATION,
+  UPDATE_NODE_REVISION_MUTATION,
 } from '$lib/server/queries';
 import type { RequestHandler } from './$types';
 
@@ -16,10 +17,14 @@ import type { RequestHandler } from './$types';
 //
 //   { action: 'restore', revisionId } → restoreNodeRevision(revisionId, truncate:true)
 //   { action: 'delete',  revisionId } → deleteNodeRevision(revisionId)
+//   { action: 'label',   revisionId, revLabel } → updateNodeRevision (#534; blank clears)
 //   { action: 'clear' }               → clearNodeHistory(nodeRef = params.nodeId)
 //
 // Restore is always truncating here (the History-tab contract: restore the node
 // to this revision and drop the newer snapshots).
+// The server's cap on NodeRevision.revLabel.
+const MAX_REV_LABEL = 500;
+
 export const POST: RequestHandler = async ({ params, request, locals }) => {
   if (!locals.token) {
     return json({ error: 'Unauthorized' }, { status: 401 });
@@ -39,6 +44,17 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     if (action === 'delete') {
       if (!revisionId) return json({ error: 'revisionId is required.' }, { status: 400 });
       await client.request(DELETE_NODE_REVISION_MUTATION, { revisionId });
+      return json({ ok: true });
+    }
+    if (action === 'label') {
+      if (!revisionId) return json({ error: 'revisionId is required.' }, { status: 400 });
+      if (typeof body?.revLabel !== 'string') return json({ error: 'revLabel must be a string.' }, { status: 400 });
+      const revLabel = body.revLabel.trim();
+      if (revLabel.length > MAX_REV_LABEL) {
+        return json({ error: `Label must be at most ${MAX_REV_LABEL} characters.` }, { status: 400 });
+      }
+      // A blank label clears it: null, never an empty string the server would store.
+      await client.request(UPDATE_NODE_REVISION_MUTATION, { revisionId, revLabel: revLabel || null });
       return json({ ok: true });
     }
     if (action === 'clear') {
