@@ -1,17 +1,20 @@
 /**
- * portal#2057 — after a full-page (no-JS) updateMeta refusal the page restores
- * the kept draft and the echoed baseline, but the conflict alert never shows:
- * the alert's text is read from the superForm message store, and nothing seeds
- * that store from the refused action form the page mounted with.
+ * portal#2057 — after a full-page (no-JS) updateMeta refusal the page must show
+ * the conflict alert beside the kept draft. The alert's text is read from the
+ * superForm message store, which is seeded from the refused action form the
+ * page mounted with; an unseeded store would leave the reader with a kept draft
+ * and no reason.
  *
  * Mounts the REAL page with the REAL loader's data and the REAL action's
  * refused answer as the `form` prop at INITIAL mount — what a native form POST
  * hands the component on hydration: no enhancer, no page-store sync, the
  * reader's own draft carried by the action's form. Then the reader opens the
- * editor and must be told WHY the save was refused.
+ * editor and must be told WHY the save was refused. The refusal is the real
+ * action's 409, asserted once in `refuseAndHydrate` against the status the
+ * action returns.
  *
- * The kept-draft and echoed-baseline halves are already pinned
- * (meta-draft-fence.client.test.ts); this file pins the VISIBLE refusal.
+ * The kept-draft and echoed-baseline halves are pinned in
+ * meta-draft-fence.client.test.ts; this file pins the VISIBLE refusal.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
@@ -145,109 +148,81 @@ async function settle() {
   flushSync();
 }
 
+const CONFLICT = 'changed since you opened the editor';
+
+/**
+ * The scenario every case starts from: open the editor on the stored node,
+ * type a draft, let an external rename stale the baseline, post the form
+ * natively so the REAL action refuses, then remount with the refused answer as
+ * the `form` prop (Kit's full-page response). Returns the hydrated page, its
+ * props (so a case can drive a later navigation) and the refused action data.
+ */
+async function refuseAndHydrate() {
+  setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+  serve();
+
+  const first = mountComponent(Page as never, reactiveProps<Record<string, unknown>>({
+    data: { ...PARENT, ...(await runLoad()) },
+    form: null,
+  }) as never) as Mounted<Record<string, unknown>>;
+  mounted.push(first);
+  if (!first.target.isConnected) document.body.appendChild(first.target);
+  await settle();
+  buttonNamed(first.target, 'Edit')!.click();
+  flushSync();
+  const nameInput = first.target.querySelector<HTMLInputElement>('#editName')!;
+  nameInput.value = 'My unsent draft';
+  nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+  flushSync();
+  const formEl = first.target.querySelector<HTMLFormElement>('form[action="?/updateMeta"]')!;
+
+  stored = RENAMED;
+  const refused = await actions.updateMeta({
+    request: { formData: async () => new FormData(formEl) },
+    params: { id: 'mem-A', nodeId: 'leaf-pk' },
+    locals: { token: 'tok' },
+  } as never) as unknown as { status: number; data: Record<string, unknown> };
+  // The refusal every case drives: the action's own 409 for a stale baseline
+  // (`refuse(409, ...)` in +page.server.ts), nothing written. Kit hands the
+  // page the Fail's DATA as the `form` prop (the ActionResult wrapper is the
+  // enhancer's shape, not the full-page one).
+  expect(refused.status, 'the action refuses a stale baseline with 409').toBe(409);
+  const actionData = refused.data;
+  expect((actionData as { form?: { message?: { text?: string } } }).form?.message?.text).toContain(CONFLICT);
+
+  // Kit re-runs the loader against the renamed node and renders the page with
+  // the refused action data: the hydration mount, fresh data, no enhancer.
+  mounted.pop()!.unmount();
+  const props = reactiveProps<Record<string, unknown>>({ data: { ...PARENT, ...(await runLoad()) }, form: actionData });
+  const hydrated = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+  mounted.push(hydrated);
+  if (!hydrated.target.isConnected) document.body.appendChild(hydrated.target);
+  await settle();
+
+  // The reader opens the editor as QA did (Settings ▸ Edit).
+  buttonNamed(hydrated.target, 'Edit')!.click();
+  flushSync();
+  await settle();
+  return { hydrated, props };
+}
+
+const metaError = (m: Mounted<Record<string, unknown>>) =>
+  m.target.querySelector<HTMLElement>('[data-testid="node-meta-error"]');
+
 describe('full-page updateMeta refusal (portal#2057)', () => {
   it('shows the conflict alert beside the kept draft after a no-JS refusal hydration', async () => {
-    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
-    serve();
-
-    // ── First mount: open the editor, type a draft against the stored node.
-    const first = mountComponent(Page as never, reactiveProps<Record<string, unknown>>({
-      data: { ...PARENT, ...(await runLoad()) },
-      form: null,
-    }) as never) as Mounted<Record<string, unknown>>;
-    mounted.push(first);
-    if (!first.target.isConnected) document.body.appendChild(first.target);
-    await settle();
-    buttonNamed(first.target, 'Edit')!.click();
-    flushSync();
-    const nameInput = first.target.querySelector<HTMLInputElement>('#editName')!;
-    nameInput.value = 'My unsent draft';
-    nameInput.dispatchEvent(new Event('input', { bubbles: true }));
-    flushSync();
-    const formEl = first.target.querySelector<HTMLFormElement>('form[action="?/updateMeta"]')!;
-
-    // ── The external rename stales the baseline, then the reader's browser
-    // posts the form natively (no JS): the REAL action refuses with 409.
-    stored = RENAMED;
-    const refused = await actions.updateMeta({
-      request: { formData: async () => new FormData(formEl) },
-      params: { id: 'mem-A', nodeId: 'leaf-pk' },
-      locals: { token: 'tok' },
-    } as never) as Record<string, unknown>;
-    // The refusal this test drives: a conflict, nothing written. Kit hands the
-    // page the Fail's DATA as the `form` prop (the ActionResult wrapper is the
-    // enhancer's shape, not the full-page one).
-    const actionData = (refused as unknown as { status: number; data: Record<string, unknown> }).data;
-    expect((actionData as { form?: { message?: { text?: string } } }).form?.message?.text)
-      .toContain('changed since you opened the editor');
-
-    // ── The full-page answer: Kit re-runs the loader against the renamed node
-    // and renders the page with the refused action data as the `form` prop.
-    // That is the hydration mount: fresh data, refused form, no enhancer.
-    mounted.pop()!.unmount();
-    const freshData = { ...PARENT, ...(await runLoad()) };
-    const hydrated = mountComponent(Page as never, reactiveProps<Record<string, unknown>>({
-      data: freshData,
-      form: actionData,
-    }) as never) as Mounted<Record<string, unknown>>;
-    mounted.push(hydrated);
-    if (!hydrated.target.isConnected) document.body.appendChild(hydrated.target);
-    await settle();
-
-    // The reader opens the editor as QA did (Settings ▸ Edit).
-    buttonNamed(hydrated.target, 'Edit')!.click();
-    flushSync();
-    await settle();
-
-    // The kept draft (already pinned elsewhere; re-asserted so the alert leg
-    // cannot pass against a fixture that lost the draft).
+    const { hydrated } = await refuseAndHydrate();
+    // The kept draft (pinned elsewhere; re-asserted so the alert leg cannot
+    // pass against a fixture that lost the draft).
     expect(hydrated.target.querySelector<HTMLInputElement>('#editName')!.value).toBe('My unsent draft');
-    // portal#2057: the alert carries the server's refusal text.
-    const alert = hydrated.target.querySelector<HTMLElement>('[data-testid="node-meta-error"]');
+    const alert = metaError(hydrated);
     expect(alert, 'the refusal alert must render beside the kept draft').not.toBeNull();
-    expect(alert!.textContent).toContain('changed since you opened the editor');
+    expect(alert!.textContent).toContain(CONFLICT);
   });
 
   it('control: Cancel then Edit does not show the refusal again', async () => {
-    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
-    serve();
-    const first = mountComponent(Page as never, reactiveProps<Record<string, unknown>>({
-      data: { ...PARENT, ...(await runLoad()) },
-      form: null,
-    }) as never) as Mounted<Record<string, unknown>>;
-    mounted.push(first);
-    if (!first.target.isConnected) document.body.appendChild(first.target);
-    await settle();
-    buttonNamed(first.target, 'Edit')!.click();
-    flushSync();
-    const nameInput = first.target.querySelector<HTMLInputElement>('#editName')!;
-    nameInput.value = 'My unsent draft';
-    nameInput.dispatchEvent(new Event('input', { bubbles: true }));
-    flushSync();
-    const formEl = first.target.querySelector<HTMLFormElement>('form[action="?/updateMeta"]')!;
-
-    stored = RENAMED;
-    const refused = await actions.updateMeta({
-      request: { formData: async () => new FormData(formEl) },
-      params: { id: 'mem-A', nodeId: 'leaf-pk' },
-      locals: { token: 'tok' },
-    } as never) as Record<string, unknown>;
-    const actionData = (refused as unknown as { status: number; data: Record<string, unknown> }).data;
-
-    mounted.pop()!.unmount();
-    const freshData = { ...PARENT, ...(await runLoad()) };
-    const hydrated = mountComponent(Page as never, reactiveProps<Record<string, unknown>>({
-      data: freshData,
-      form: actionData,
-    }) as never) as Mounted<Record<string, unknown>>;
-    mounted.push(hydrated);
-    if (!hydrated.target.isConnected) document.body.appendChild(hydrated.target);
-    await settle();
-    buttonNamed(hydrated.target, 'Edit')!.click();
-    flushSync();
-    await settle();
-    expect(hydrated.target.querySelector('[data-testid="node-meta-error"]')?.textContent)
-      .toContain('changed since you opened the editor');
+    const { hydrated } = await refuseAndHydrate();
+    expect(metaError(hydrated)?.textContent).toContain(CONFLICT);
 
     // Cancel drops every trace of the failed save (Clark's browser QA F1 on
     // #2002): reopening the editor must not show the old refusal again.
@@ -257,44 +232,12 @@ describe('full-page updateMeta refusal (portal#2057)', () => {
     buttonNamed(hydrated.target, 'Edit')!.click();
     flushSync();
     await settle();
-    expect(hydrated.target.querySelector('[data-testid="node-meta-error"]')).toBeNull();
+    expect(metaError(hydrated)).toBeNull();
   });
-  it('a refusal hydrated on one node does not follow the reader to the next node (the real node change still clears it)', async () => {
-    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
-    serve();
-    const first = mountComponent(Page as never, reactiveProps<Record<string, unknown>>({
-      data: { ...PARENT, ...(await runLoad()) },
-      form: null,
-    }) as never) as Mounted<Record<string, unknown>>;
-    mounted.push(first);
-    if (!first.target.isConnected) document.body.appendChild(first.target);
-    await settle();
-    buttonNamed(first.target, 'Edit')!.click();
-    flushSync();
-    const nameInput = first.target.querySelector<HTMLInputElement>('#editName')!;
-    nameInput.value = 'My unsent draft';
-    nameInput.dispatchEvent(new Event('input', { bubbles: true }));
-    flushSync();
-    const formEl = first.target.querySelector<HTMLFormElement>('form[action="?/updateMeta"]')!;
-    stored = RENAMED;
-    const refused = await actions.updateMeta({
-      request: { formData: async () => new FormData(formEl) },
-      params: { id: 'mem-A', nodeId: 'leaf-pk' },
-      locals: { token: 'tok' },
-    } as never) as Record<string, unknown>;
-    const actionData = (refused as unknown as { status: number; data: Record<string, unknown> }).data;
 
-    mounted.pop()!.unmount();
-    const props = reactiveProps<Record<string, unknown>>({ data: { ...PARENT, ...(await runLoad()) }, form: actionData });
-    const hydrated = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
-    mounted.push(hydrated);
-    if (!hydrated.target.isConnected) document.body.appendChild(hydrated.target);
-    await settle();
-    buttonNamed(hydrated.target, 'Edit')!.click();
-    flushSync();
-    await settle();
-    expect(hydrated.target.querySelector('[data-testid="node-meta-error"]')?.textContent, 'the refusal shows on the node it was for')
-      .toContain('changed since you opened the editor');
+  it('a refusal hydrated on one node does not follow the reader to the next node (the real node change still clears it)', async () => {
+    const { hydrated, props } = await refuseAndHydrate();
+    expect(metaError(hydrated)?.textContent, 'the refusal shows on the node it was for').toContain(CONFLICT);
 
     // The reader goes to another node and the page component stays mounted. `form` is deliberately NOT
     // cleared here: with it cleared, the page's own `scopedActionError` and superforms' form sync already
@@ -315,7 +258,7 @@ describe('full-page updateMeta refusal (portal#2057)', () => {
     // Open the editor on the new node, whichever state the previous one left it in.
     const edit = buttonNamed(hydrated.target, 'Edit');
     if (edit) { edit.click(); flushSync(); await settle(); }
-    expect(hydrated.target.querySelector('[data-testid="node-meta-error"]')?.textContent ?? '', 'node A\'s refusal must not follow the reader to node B')
-      .not.toContain('changed since you opened the editor');
+    expect(metaError(hydrated)?.textContent ?? '', 'node A\'s refusal must not follow the reader to node B')
+      .not.toContain(CONFLICT);
   });
 });

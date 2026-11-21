@@ -37,6 +37,14 @@ export const customisationKey = (
  */
 export const isQualifiedRef = (loc: string) => loc.trim().startsWith('hrn:');
 /**
+ * The label of the editor's reload control. The button and every sentence that
+ * points at it read this one key, so the copy cannot name a control that was
+ * renamed (portal#2444).
+ */
+export const RELOAD_DISCARD_KEY = 'customisation.reload-discard';
+export const reloadDiscardLabel = () => t(RELOAD_DISCARD_KEY, 'Reload and discard draft');
+
+/**
  * `draft` says whether the refused surface holds a kept draft (the editor's
  * save flow does; the empty-source start does not — #1755), and is required so
  * each caller states its surface's truth instead of inheriting one. A start
@@ -52,15 +60,30 @@ export function customisationRefusalLead(
     case 'AGENT_NOT_INSTALLED':
     case 'INSTALL_TARGET_CHANGED':
     case 'APP_UNINSTALLED':
-      return t(
-        'customisation.changed',
-        'The installation changed. Reload before trying again.',
-      );
+      // portal#2444: with a draft the sentence points at the editor's own
+      // control and says what it does; without one no control exists, so it
+      // names the page reload.
+      return draft
+        ? t(
+            'customisation.draft.changed',
+            'The installation changed. Your draft is kept. To see the current state, use {control}; that replaces your draft.',
+            { control: reloadDiscardLabel() },
+          )
+        : t(
+            'customisation.start.changed',
+            'The installation changed. Reload the page before trying again.',
+          );
     case 'INSTALL_MEMORY_NOT_FOUND':
-      return t(
-        'customisation.not-found',
-        'The customisation is not available. Reload before trying again.',
-      );
+      return draft
+        ? t(
+            'customisation.draft.not-found',
+            'The customisation is not available. Your draft is kept. To see the current state, use {control}; that replaces your draft.',
+            { control: reloadDiscardLabel() },
+          )
+        : t(
+            'customisation.start.not-found',
+            'The customisation is not available. Reload the page before trying again.',
+          );
     case 'AGENT_ORG_GRANT_REQUIRED':
       return draft
         ? t(
@@ -79,12 +102,13 @@ export function customisationRefusalLead(
       // nothing more.
       return draft
         ? t(
-            'customisation.conflict',
-            'Another edit was saved. Your draft is kept; reload to start from the current version.',
+            'customisation.draft.conflict',
+            'Another edit was saved. Your draft is kept. To start from the current version, use {control}; that replaces your draft.',
+            { control: reloadDiscardLabel() },
           )
         : t(
             'customisation.start.conflict',
-            'The start could not be completed. Reload before trying again.',
+            'The start could not be completed. Reload the page before trying again.',
           );
     case 'FORBIDDEN':
       return draft

@@ -69,7 +69,7 @@ export type InstallIntent = { intent: 'compile' | 'approve' | 'start'; nodeId?: 
 export async function writeInstallPrompt(client: Client, owner: CompileOwner, input: InstallIntent, impersonating: boolean) {
   const refused = (text: string, status = 403) => ({ ok: false, text, status, key: compileOwnerKey(owner) });
   if (impersonating) return refused(t('boot.install.56e8d83035', 'This prompt can’t be updated while impersonating. Sign in as yourself.'));
-  try { await installIdentity(client, owner); } catch { return refused(t('boot.install.0ecdfc6a12', 'This worker’s Agent or App changed, or the installation is unavailable. Reload before trying again.'), 409); }
+  try { await installIdentity(client, owner); } catch { return refused(t('boot.install.0ecdfc6a12', 'This worker’s Agent or App changed, or the installation is unavailable. Reload the page before trying again.'), 409); }
   if (input.intent === 'start') {
     if (owner.level !== 'worker') return refused(t('boot.install.worker-required', 'A worker is required.'), 400);
     try {
@@ -78,25 +78,25 @@ export async function writeInstallPrompt(client: Client, owner: CompileOwner, in
     } catch (e) {
       const code = extractGqlErrorCode(e);
       // #1755: an empty-source start has no draft, so its lead must not claim one.
-      const lead = code === 'NodeLocConflictError' ? t('boot.install.227d62de11', 'This worker already has a source. Reload to open it.') : customisationRefusalLead(code, { draft: false });
+      const lead = code === 'NodeLocConflictError' ? t('boot.install.227d62de11', 'This worker already has a source. Reload the page to open it.') : customisationRefusalLead(code, { draft: false });
       // A lost race is a conflict (409); a refusal the server named is 403; anything else is an unknown outcome (502).
       const conflict = code === 'NodeLocConflictError' || code === 'NODE_WRITE_CONFLICT';
-      return refused(lead ?? t('boot.install.a06a518a01', 'Could not confirm the source was started. Reload to check before trying again.'), conflict ? 409 : lead ? 403 : 502);
+      return refused(lead ?? t('boot.install.a06a518a01', 'Could not confirm the source was started. Reload the page to check before trying again.'), conflict ? 409 : lead ? 403 : 502);
     }
   }
   if (input.intent === 'approve') {
     // A forged node/revision must belong to this owner, not merely be approvable elsewhere.
-    const notSent = () => refused(t('boot.install.approve-read-failed', 'Couldn’t read this prompt for approval. No approval request was sent. Reload before trying again.'), 502);
+    const notSent = () => refused(t('boot.install.approve-read-failed', 'Couldn’t read this prompt for approval. No approval request was sent. Reload the page before trying again.'), 502);
     let view: InstallCompileView;
     try { view = await readInstallPrompt(client, owner); } catch { return notSent(); }
     if (view.compiledReadFailed) return notSent();
-    if (!view.compiled || view.compiled.id !== input.nodeId || view.compiled.revision !== input.revision) return refused(t('boot.install.2fc00c74cf', 'This prompt changed. Reload and review the current revision before approving it.'), 409);
+    if (!view.compiled || view.compiled.id !== input.nodeId || view.compiled.revision !== input.revision) return refused(t('boot.install.2fc00c74cf', 'This prompt changed. Reload the page and review the current revision before approving it.'), 409);
     try {
       await client.request(APPROVE_NODE_MUTATION, { nodeRef: input.nodeId, revision: input.revision });
     } catch (e) {
       const code = extractGqlErrorCode(e);
       const status = approvalRefusalStatus(code);
-      return refused(status === 500 ? t('boot.install.58bfd955cf', 'Couldn’t confirm the approval. Reload to check before trying again.') : code === 'BOOT_PROMPT_APPROVAL_FORBIDDEN' ? t('boot.install.e0d5c4e475', 'Only whoever manages this App, signed in as themselves, can approve this boot prompt.') : approveRefusalText(code), status);
+      return refused(status === 500 ? t('boot.install.58bfd955cf', 'Couldn’t confirm the approval. Reload the page to check before trying again.') : code === 'BOOT_PROMPT_APPROVAL_FORBIDDEN' ? t('boot.install.e0d5c4e475', 'Only whoever manages this App, signed in as themselves, can approve this boot prompt.') : approveRefusalText(code), status);
     }
     return { ok: true, key: compileOwnerKey(owner), text: `${t('boot.install.approved', 'Revision {n} approved. Sessions already open keep the revision they were bound with.', { n: input.revision! })} ${servedNowText(await serve(client, owner), owner, input.nodeId!)}${owner.level === 'worker' ? ` ${t('boot.install.pointer-unchanged', 'The worker’s pointer wasn’t changed.')}` + (view.pointerMatches === false ? ` ${t('boot.install.not-pointed', 'This worker isn’t pointed at it yet.')}` : '') : ''}` };
   }
@@ -125,7 +125,7 @@ export async function writeInstallPrompt(client: Client, owner: CompileOwner, in
     ? t('boot.install.retained-approval', 'Its existing approval still applies.')
     : approvalState === 'NOT_APPROVED' || approvalState === 'SUPERSEDED'
       ? t('boot.install.not-approved', 'It isn’t approved yet.')
-      : t('boot.install.approval-state-unknown', 'Couldn’t confirm its approval state. Reload to check.');
+      : t('boot.install.approval-state-unknown', 'Couldn’t confirm its approval state. Reload the page to check.');
   return { ok: true, key: compileOwnerKey(owner), text: `${t('boot.install.built-revision', 'Built revision {n}.', { n: result.revNo })} ${approvalText} ${servedNowText(state, owner, result.node.id)}${pointer}` };
 }
 export const PROVENANCE = /* GraphQL */ `query CompileProvenance($nodeRef: ID!, $revNo: Int!, $offset: Int!) { compiledPromptProvenance(nodeRef: $nodeRef, revNo: $revNo, offset: $offset, limit: 20) { items { nodeId kind order depth revNo selection { rev approved signed } pruned } total hasMore pruned } }`;

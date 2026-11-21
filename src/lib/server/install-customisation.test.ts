@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { readCustomisation, writeCustomisation } from './install-customisation';
+import { customisationRefusalLead, reloadDiscardLabel, RELOAD_DISCARD_KEY } from '$lib/install-customisation';
 const context = { appRef: 'app-a', agentRef: 'agent-a' };
 const app = {
   app: { id: 'app-a', agents: [{ id: 'agent-a', systemMemoryId: 'original' }] },
@@ -302,18 +303,38 @@ describe('bare-loc boundary on the write (#1368)', () => {
   });
 });
 
+describe('portal#2444: a refusal sentence names the control that exists', () => {
+  // The editor's reload control is labelled by one shared key, so the sentence
+  // and the button cannot drift: the label below is read from that key.
+  it('the shared label is the button key and the draft arms name it', () => {
+    expect(RELOAD_DISCARD_KEY).toBe('customisation.reload-discard');
+    const label = reloadDiscardLabel();
+    for (const code of ['AGENT_NOT_INSTALLED', 'INSTALL_MEMORY_NOT_FOUND', 'NODE_WRITE_CONFLICT']) {
+      expect(customisationRefusalLead(code, { draft: true }), code).toContain(`use ${label};`);
+    }
+  });
+  it('a start has no draft and no editor control: it says Reload the page and names no button', () => {
+    for (const code of ['AGENT_NOT_INSTALLED', 'APP_UNINSTALLED', 'INSTALL_MEMORY_NOT_FOUND', 'NODE_WRITE_CONFLICT']) {
+      const lead = customisationRefusalLead(code, { draft: false })!;
+      expect(lead, code).toContain('Reload the page before trying again.');
+      expect(lead, code).not.toMatch(/draft|discard/i);
+    }
+  });
+});
+
 describe('fixed refusal lead per mapped code (#1368)', () => {
-  const changed = 'The installation changed. Reload before trying again.';
+  const control = 'Reload and discard draft';
+  const changed = `The installation changed. Your draft is kept. To see the current state, use ${control}; that replaces your draft.`;
   const leads: Record<string, string> = {
     AGENT_NOT_INSTALLED: changed,
     INSTALL_TARGET_CHANGED: changed,
     APP_UNINSTALLED: changed,
     INSTALL_MEMORY_NOT_FOUND:
-      'The customisation is not available. Reload before trying again.',
+      `The customisation is not available. Your draft is kept. To see the current state, use ${control}; that replaces your draft.`,
     NODE_WRITE_CONFLICT:
-      'Another edit was saved. Your draft is kept; reload to start from the current version.',
+      `Another edit was saved. Your draft is kept. To start from the current version, use ${control}; that replaces your draft.`,
     NodeLocConflictError:
-      'Another edit was saved. Your draft is kept; reload to start from the current version.',
+      `Another edit was saved. Your draft is kept. To start from the current version, use ${control}; that replaces your draft.`,
     FORBIDDEN: 'This change was refused. Your draft is kept.',
     URN_NOT_QUALIFIED: 'Use a bare loc for this customisation.',
     AGENT_ORG_GRANT_REQUIRED:
@@ -488,6 +509,7 @@ describe('stale save target is not malformed input (#1370)', () => {
     // what it does — the button replaces the draft the sentence just kept.
     expect(detail).toMatch(/use Reload and discard draft/);
     expect(detail).toMatch(/replaces your draft/);
+    expect(detail).toContain(`use ${reloadDiscardLabel()};`);
     expect(detail).not.toMatch(/bare loc|revision you opened/i);
   });
 

@@ -259,6 +259,11 @@ describe('install customisation panel', () => {
     expect(root.querySelector('h4')?.textContent).toBe('Original');
     const reload = [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Reload and discard draft');
     expect(Boolean(reload)).toBe(shown);
+    // portal#2444: the refusal sentences that say "use Reload and discard draft"
+    // are only produced by the save form, so the form and the button share one
+    // gate: whoever can be told to use the button has the form that gets the
+    // sentence, and a viewer without the form never receives it.
+    expect(Boolean(root.querySelector('form[action$="saveCustomisation"]')), 'the save form shares the button gate').toBe(shown);
   });
   // portal#1509 item 5: a search that matches nothing says so, in a region that
   // is already mounted before the filter runs (portal#2379).
