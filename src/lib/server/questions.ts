@@ -5,7 +5,7 @@ import { signinRedirectFor } from '$lib/server/session-action-guard';
 import { parseExpectedRevision } from '$lib/node-revision';
 import { questionRefusal, refusalNeedsReload } from '$lib/questions/refusal';
 import { ANSWER_QUESTION_MUTATION, QUESTION_BY_REF_QUERY, RETRACT_QUESTION_ANSWER_MUTATION, WITHDRAW_QUESTION_MUTATION } from '$lib/server/queries';
-import type { QuestionCardData } from '$lib/questions/types';
+import type { QuestionCardData, QuestionCardView } from '$lib/questions/types';
 import type { TaskRead } from '$lib/agent-tasks/types';
 import { t } from '$lib/i18n/t';
 
@@ -14,7 +14,7 @@ export async function loadQuestion(
   client: GraphQLClient,
   nodeId: string,
   viewer: { id: string | null; impersonating: boolean },
-): Promise<TaskRead<QuestionCardData>> {
+): Promise<TaskRead<QuestionCardView>> {
   try {
     const r = await client.request<{ question: QuestionCardData | null }>(QUESTION_BY_REF_QUERY, { ref: nodeId });
     // `null` is the server hiding an unreadable question; for a node the page

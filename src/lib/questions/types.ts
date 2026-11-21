@@ -47,7 +47,7 @@ export type QuestionCardData = {
   effectiveAssignee: QuestionPerson | null;
   askedBy: QuestionActor | null;
   withdrawn: { at: string; reason: string | null; by?: QuestionPerson | null } | null;
-  /** Added by the loader, not the server: who is looking, and whether as someone else. */
-  viewerId: string | null;
-  impersonating: boolean;
 };
+
+/** The card's prop: the server's read plus what only the loader knows, who is looking and whether as someone else. */
+export type QuestionCardView = QuestionCardData & { viewerId: string | null; impersonating: boolean };

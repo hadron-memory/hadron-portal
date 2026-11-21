@@ -3,14 +3,14 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, type Mounted } from '$lib/test/mountComponent';
 import QuestionCard from './QuestionCard.svelte';
-import type { QuestionCardData } from '$lib/questions/types';
+import type { QuestionCardView } from '$lib/questions/types';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); });
 
 const person = (n: string) => ({ id: `id-${n}`, handle: n, name: n.toUpperCase() });
 const OPTIONS = ['A', 'B', 'C'].map((key) => ({ key, label: `Option ${key}`, whyChoose: `choose ${key}`, whyNot: key === 'B' ? 'because B' : null, risks: null }));
-const base: QuestionCardData = {
+const base: QuestionCardView = {
   id: 'q-1', urn: 'hrn:node:acme.com:m:q', portalUrl: null, code: 'Q1', title: 'Which one?', background: null, whyNow: null,
   priority: 'P1', tier: 'ANSWERED', authorizes: false, state: 'OPEN', answered: false, revSeq: 7, viewerIsDecider: true, viewerMayAnswer: true,
   neededBy: null, defaultAction: null, askedAt: '2026-11-18T10:00:00Z', answeredAt: null, options: OPTIONS,
@@ -18,7 +18,7 @@ const base: QuestionCardData = {
   answer: null, answers: [], blocks: [], sources: [], specsTouched: [], specsMustChange: [],
   viewerId: null, impersonating: false, deciders: [person('holger')], assignee: null, effectiveAssignee: null, askedBy: { user: null, worker: person('marco'), app: null }, withdrawn: null,
 };
-function mountCard(q: Partial<QuestionCardData>, canAct = true, result: unknown = null) {
+function mountCard(q: Partial<QuestionCardView>, canAct = true, result: unknown = null) {
   const m = mountComponent(QuestionCard as never, { question: { ...base, ...q }, canAct, result } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   flushSync();
@@ -133,7 +133,7 @@ describe('question card', () => {
   });
   it('P2: an asker who is not a decider can withdraw; a stranger cannot; nobody can while impersonating', () => {
     const asker = { user: person('ask'), worker: null, app: null };
-    const open = (q: Partial<QuestionCardData>) => mountCard({ viewerIsDecider: false, viewerMayAnswer: false, askedBy: asker, ...q }, false).querySelector('[data-testid=question-withdraw]');
+    const open = (q: Partial<QuestionCardView>) => mountCard({ viewerIsDecider: false, viewerMayAnswer: false, askedBy: asker, ...q }, false).querySelector('[data-testid=question-withdraw]');
     expect(open({ viewerId: 'id-ask' })).not.toBeNull();
     expect(open({ viewerId: 'id-stranger' })).toBeNull();
     expect(open({ viewerId: 'id-ask', impersonating: true })).toBeNull();
@@ -148,5 +148,11 @@ describe('question card', () => {
     const el = mountCard({ authorizes: true });
     expect(el.textContent).toContain('Authorizes work');
     expect(el.textContent).not.toMatch(/authorizes: true/i);
+  });
+  it('the heading is "Question <code>" in the card, and names the section', () => {
+    const el = mountCard({ code: 'Q7' });
+    const h = el.querySelector('#question-card-title')!;
+    expect(h.textContent!.trim()).toBe('Question Q7');
+    expect(el.querySelector('section')!.getAttribute('aria-labelledby')).toBe('question-card-title');
   });
 });

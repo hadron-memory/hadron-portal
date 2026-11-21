@@ -3,7 +3,7 @@
   import { invalidateAll } from '$app/navigation';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
-  import type { QuestionActor, QuestionCardData, QuestionEntry, QuestionPerson, QuestionRef } from '$lib/questions/types';
+  import type { QuestionActor, QuestionCardView, QuestionEntry, QuestionPerson, QuestionRef } from '$lib/questions/types';
 
   /**
    * portal#2234 (Questions P1): the question card. One click on an option
@@ -13,7 +13,7 @@
    */
   type ActionResult = { kind?: string; ok?: boolean; error?: string; message?: string } | null | undefined;
   /* canAct is the answer capability; Undo and Withdraw follow the decider or asker, not canAct. */
-  let { question, canAct, result = null }: { question: QuestionCardData; canAct: boolean; result?: ActionResult } = $props();
+  let { question, canAct, result = null }: { question: QuestionCardView; canAct: boolean; result?: ActionResult } = $props();
 
   const STATE_LABEL = $derived<Record<string, string>>({
     OPEN: t('question.card.state.open', 'Pending'),
@@ -76,7 +76,7 @@
 <section data-testid="question-card" aria-labelledby="question-card-title" class="mb-4 min-w-0 rounded-lg border border-zinc-200 p-3 sm:p-4 dark:border-zinc-800">
   <header class="flex flex-wrap items-center gap-2">
     <h2 id="question-card-title" class="min-w-0 break-words text-base font-semibold">
-      {t('question.card.heading', 'Question {code}', { code: question.code })}
+      {t('question.card.heading-code', 'Question {code}', { code: question.code })}
     </h2>
     <span data-testid="question-state" class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{STATE_LABEL[question.state] ?? question.state}</span>
     {#if question.priority}<span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">{question.priority}</span>{/if}
