@@ -80,3 +80,20 @@ describe('NodeAdvice proximity (#1371, Uma P3-2)', () => {
     expect(scroll).not.toHaveBeenCalled();
   });
 });
+
+describe('NodeAdvice re-delivery (#1447, Uma/Greta from #1441)', () => {
+  it('scrolls again for a second advice-bearing save, once per delivery', () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+    const { set } = mountAdvice([]);
+
+    set([INCLUDE_PIN_UNKEPT_TEXT]);
+    expect(scroll).toHaveBeenCalledTimes(1);
+
+    scroll.mockClear();
+    // A second enhanced save re-delivers the SAME advice as a new array (each
+    // layout load yields a new one); identity, not content, drives the scroll.
+    set([INCLUDE_PIN_UNKEPT_TEXT]);
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(scroll).toHaveBeenCalledWith({ block: 'nearest' });
+  });
+});
