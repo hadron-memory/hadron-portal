@@ -193,4 +193,32 @@ describe('portal#1912 Refresh when the reload rejects', () => {
     refreshButton(root).click(); await tick(5);
     expect(tab(root).querySelector('[data-boot-refresh-error]')?.textContent).toBe('');
   });
+  // portal#1998 F11: the request boundary. One click is exactly one reload, whatever the outcome.
+  it('one click asks for exactly one reload, failed or not', async () => {
+    const { root } = await open(source());
+    const reloads = () => navigationCalls.filter((c) => c.fn === 'invalidateAll').length;
+    navigationHooks.onInvalidateAll = () => Promise.reject(new Error('reload failed'));
+    await captureUnhandledRejections(async () => { refreshButton(root).click(); await tick(5); });
+    expect(reloads()).toBe(1);
+    navigationHooks.onInvalidateAll = undefined;
+    refreshButton(root).click(); await tick(5);
+    expect(reloads()).toBe(2);
+  });
+  // portal#1998 F11: a repeat failure is announced again. The retry clears the old message while it
+  // is in flight, so the second failure writes into an empty alert region instead of sitting unchanged.
+  it('a retry clears the old error while it runs, and a second failure announces it again', async () => {
+    const { root } = await open(source());
+    const region = tab(root).querySelector('[data-boot-refresh-error]')!;
+    navigationHooks.onInvalidateAll = () => Promise.reject(new Error('reload failed'));
+    await captureUnhandledRejections(async () => { refreshButton(root).click(); await tick(5); });
+    expect(region.textContent).toMatch(/Couldn’t refresh/);
+    let fail!: (e: Error) => void;
+    navigationHooks.onInvalidateAll = () => new Promise<void>((_, reject) => { fail = reject; });
+    refreshButton(root).click(); await tick(5);
+    expect(region.textContent).toBe('');
+    expect(refreshButton(root).disabled).toBe(true);
+    await captureUnhandledRejections(async () => { fail(new Error('reload failed again')); await tick(5); });
+    expect(region.textContent).toMatch(/Couldn’t refresh/);
+    expect(refreshButton(root).disabled).toBe(false);
+  });
 });
