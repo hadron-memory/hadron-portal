@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ClientError } from "graphql-request";
 import { GraphQLError } from "graphql";
 import { fixtureGrant, grantsFixture } from "./grants.fixture";
+import { env } from "$env/dynamic/public";
 const request = vi.fn(),
   signing = vi.fn();
 vi.mock("$lib/server/api", () => ({ gqlClient: () => ({ request }) }));
@@ -45,6 +46,7 @@ const refusal = (code: string, message: string) =>
     },
   );
 beforeEach(() => {
+  env.PUBLIC_SERVER_URL = "https://signing.example.test";
   request.mockReset();
   signing.mockReset().mockResolvedValue(true);
   request.mockImplementation(async (q: string) => {
@@ -61,6 +63,38 @@ beforeEach(() => {
         },
       };
     throw Error("Unexpected operation");
+  });
+});
+describe("the approval redirect is pinned to the server public origin (portal#2417)", () => {
+  const serve = (ceremonyUrl: unknown) =>
+    request.mockImplementation(async (q: string) => {
+      if (q.includes("query AppGrantsApp")) return { app };
+      if (q.includes("query AppGrantsPage"))
+        return { appGrants: { items: [fixtureGrant], total: 21 } };
+      if (q.includes("mutation RequestAppGrantSignature"))
+        return { requestGrantSignature: { id: "r", grantId: fixtureGrant.id, ceremonyUrl } };
+      throw Error("Unexpected operation");
+    });
+  it("refuses a link on another host instead of redirecting to it", async () => {
+    for (const u of [
+      "https://evil.example/grant-signing/opaque",
+      "https://signing.example.test.evil.example/grant-signing/opaque",
+      "https://signing.example.test@evil.example/grant-signing/opaque",
+      "http://signing.example.test/grant-signing/opaque",
+    ]) {
+      serve(u);
+      const r = (await run()) as { status: number };
+      expect(r.status).toBe(503);
+    }
+  });
+  it("redirects nowhere when the origin is not configured, never to a guess", async () => {
+    serve(ceremony);
+    for (const unset of [undefined, "", "not a url", "javascript:alert(1)"]) {
+      if (unset === undefined) Reflect.deleteProperty(env, "PUBLIC_SERVER_URL");
+      else env.PUBLIC_SERVER_URL = unset;
+      const r = (await run()) as { status: number };
+      expect(r.status).toBe(503);
+    }
   });
 });
 describe("one-grant manager approval handoff", () => {

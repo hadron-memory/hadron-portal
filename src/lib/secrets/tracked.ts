@@ -12,13 +12,13 @@ export interface Tracked { secretId: string; requestId: string; ceremonyUrl: str
 
 const ok = (s: unknown): s is string => typeof s === 'string' && s.length > 0 && s.length <= 128;
 
-export function parseTracked(raw: string | undefined): Tracked[] {
+export function parseTracked(raw: string | undefined, origin: string | null): Tracked[] {
   if (!raw) return [];
   try {
     const v: unknown = JSON.parse(raw);
     if (!Array.isArray(v)) return [];
     return v
-      .filter((x): x is Tracked => !!x && typeof x === 'object' && ok((x as Tracked).secretId) && ok((x as Tracked).requestId) && safeCeremonyUrl((x as Tracked).ceremonyUrl) !== null)
+      .filter((x): x is Tracked => !!x && typeof x === 'object' && ok((x as Tracked).secretId) && ok((x as Tracked).requestId) && safeCeremonyUrl((x as Tracked).ceremonyUrl, origin) !== null)
       .map((x) => ({ secretId: x.secretId, requestId: x.requestId, ceremonyUrl: x.ceremonyUrl }))
       .slice(-TRACKED_MAX);
   } catch {
