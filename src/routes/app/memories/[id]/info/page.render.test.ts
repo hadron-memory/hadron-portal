@@ -85,7 +85,7 @@ describe('memory Info owner attribution (#1846 slice A)', () => {
     const malformed = render(Page as never, { props: { data: data({ organizationId: 'org-1' }) } as never }).body;
     expect(malformed).toMatch(/Owner<\/span>[\s\S]*?—/);
 
-    const personal = render(Page as never, { props: { data: data({ class: 'personal', organizationId: null, userId: 'owner' }, { user: { id: 'owner' } }) } as never }).body;
+    const personal = render(Page as never, { props: { data: data({ class: 'personal', organizationId: null, userId: 'owner' }, { user: { id: 'owner' }, personalAccess: 'owner-only' }) } as never }).body;
     expect(personal).toContain('Only you');
 
     const system = render(Page as never, { props: { data: data({
@@ -99,7 +99,7 @@ describe('memory Info owner attribution (#1846 slice A)', () => {
   it('shows a dash, not Only you, when company attribution is unavailable for an org-anchored personal memory', () => {
     const body = render(Page as never, { props: { data: data(
       { class: 'personal', organizationId: 'org-1', userId: 'owner' },
-      { user: { id: 'owner' }, ownerAttribution: null },
+      { user: { id: 'owner' }, personalAccess: 'owner-only', ownerAttribution: null },
     ) } as never }).body;
     const ownerRow = body.match(/Owner<\/span>[\s\S]*?(?=<div class="flex items-center justify-between)/)?.[0] ?? '';
     expect(ownerRow).toContain('—');
@@ -110,7 +110,7 @@ describe('memory Info owner attribution (#1846 slice A)', () => {
     const body = render(Page as never, { props: { data: data(
       { class: 'personal', organizationId: 'org-1', userId: 'owner' },
       {
-        user: { id: 'owner' },
+        user: { id: 'owner' }, personalAccess: 'owner-only',
         ownerAttribution: { id: 'org-1', name: 'Acme', urn: 'hrn:org:acme.com', source: 'member' },
       },
     ) } as never }).body;
@@ -137,5 +137,30 @@ describe('memory Info omits the duplicate integration summary (#1915)', () => {
     expect(body).not.toContain('Repository');
     expect(body).not.toContain('Sync status');
     expect(body).not.toContain('Not connected');
+  });
+});
+
+describe('memory Info Owner/Access for personal memories (#1848)', () => {
+  const rows = (cls: string, personalAccess?: string) => {
+    const body = render(Page as never, { props: { data: data({ class: cls, visibility: null, organizationId: null }, { personalAccess }) } as never }).body;
+    return body.replace(/<!--.*?-->/g, '');
+  };
+  it('shared personal: owner is not told Only you', () => {
+    const b = rows('personal', 'owner-shared');
+    expect(b).not.toContain('Only you');
+    expect(b).toContain('Shared');
+  });
+  it('shared personal: recipient is not called the owner', () => {
+    const b = rows('personal', 'other');
+    expect(b).not.toContain('Only you');
+    expect(b).toContain('Another user');
+    expect(b).toContain('Shared with you');
+  });
+  it('controls: unshared personal and private keep Only you', () => {
+    expect(rows('personal', 'owner-only')).toContain('Only you');
+    expect(rows('private')).toContain('Only you');
+  });
+  it('a failed share read makes no claim', () => {
+    expect(rows('personal', 'unknown')).not.toContain('Only you');
   });
 });
