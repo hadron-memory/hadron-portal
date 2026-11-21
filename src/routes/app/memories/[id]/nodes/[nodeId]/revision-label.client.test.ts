@@ -226,6 +226,20 @@ describe('#534 — Edit label popup on the real node page', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('after a save and refresh, focus is on the edited row\'s action button, not the body (#2402)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 })));
+    const { target } = await mountPage();
+    document.body.appendChild(target);
+    await openLabelDialog(target);
+    // The refresh replaced the rows: the trigger focus went back to is gone.
+    navigationHooks.onInvalidateAll = () => { (document.activeElement as HTMLElement | null)?.blur(); };
+    typeInto(input(target)!, 'renamed');
+    await click(target.querySelector('[data-testid="revision-label-save"]'));
+    await settle();
+    expect(input(target)).toBeNull();
+    expect(document.activeElement?.getAttribute('data-revision-id')).toBe('rev-A');
+  });
+
   it('a stored label is a success even when the refresh that follows fails', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);

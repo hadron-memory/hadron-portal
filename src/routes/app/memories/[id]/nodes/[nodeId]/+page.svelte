@@ -2470,6 +2470,11 @@
       } catch {
         historyError = 'Label saved, but the list could not refresh. Reload to see it.';
       }
+      // The refresh re-renders the rows, so the button focus went back to is
+      // gone (#2402): put it on the edited row's action button again.
+      await tick();
+      const row = document.querySelector<HTMLElement>(`button[data-revision-id="${CSS.escape(target.id)}"]`);
+      if (row && (document.activeElement === document.body || !document.activeElement?.isConnected)) row.focus();
     }
   }
   async function confirmClear() {
@@ -4327,7 +4332,7 @@
               {@const v = historyValidation(r)}
               {#if v}<NodeValidationBadge view={v} compact />{/if}
             {:else if cell.column.id === 'actions'}
-              <button type="button" onclick={(e) => openHistoryMenu(e, r)} aria-haspopup="menu"
+              <button type="button" data-revision-id={r.id} onclick={(e) => openHistoryMenu(e, r)} aria-haspopup="menu"
                 aria-label={t('node.history.row-actions', 'Revision actions')}
                 class="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
