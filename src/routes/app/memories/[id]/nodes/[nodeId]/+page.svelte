@@ -2617,6 +2617,7 @@
   let lastNodeId: string | undefined;
   $effect(() => {
     if (lastNodeId !== node.id) {
+      const nodeChanged = lastNodeId !== undefined;
       lastNodeId = node.id;
       activeTab = defaultTab();
       showSource = false;
@@ -2655,7 +2656,17 @@
       discussionOpened = activeTab === 'discussion';
       editingEdges = false;
       isEditing = false;
-      clearMetaRefusal();
+      // portal#2057: this reset also runs on the FIRST mount (lastNodeId
+      // starts undefined), and clearing here erased the refusal a full-page
+      // (no-JS) updateMeta refusal had just hydrated the page with: superforms
+      // seeds the message store from the refused action form at init, this
+      // effect ran after it, and the alert read the wiped store — draft kept,
+      // reason gone. Per
+      // hrn:node:hadronmemory.com:hadron-portal:findings:mount-reset-effect-clobbers-earlier-effect,
+      // the first-mount run is made harmless rather than skipped: clear only
+      // on a real node change, so one node's refusal cannot follow the reader
+      // to the next node either.
+      if (nodeChanged) clearMetaRefusal();
       reorderMode = false;
       downloadOpen = false;
       dlError = null;
