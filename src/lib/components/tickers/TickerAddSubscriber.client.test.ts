@@ -111,6 +111,14 @@ describe('TickerAddSubscriber: spacing (portal#2376)', () => {
     const regions = [...form.querySelectorAll<HTMLElement>('[role="status"]')];
     expect(regions.at(-1)!.className).toContain('last:empty:-mt-2');
   });
+
+  it('the collapsed opener is block-level so the trailing cancel can collapse its margin (QA F1)', async () => {
+    const { root } = await mountAdd();
+    const opener = root.querySelector<HTMLElement>('[data-testid="ticker-add-subscriber"] > button')!;
+    expect(opener.className).toContain('block');
+    expect(opener.className).not.toContain('inline-block');
+    expect(opener.nextElementSibling!.className).toContain('last:empty:-mt-2');
+  });
 });
 
 describe('TickerAddSubscriber: chooser → confirmation', () => {

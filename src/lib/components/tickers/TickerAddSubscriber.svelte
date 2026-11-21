@@ -245,7 +245,7 @@
         bind:this={opener}
         type="button"
         onclick={startAdding}
-        class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        class="block w-fit rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
       >{t('app.ticker.controls.add.start', 'Add subscriber…')}</button>
     {:else}
       <form method="POST" action="?/subscribe" use:enhance={submit()} class="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/60" data-testid="ticker-add-form">
