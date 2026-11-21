@@ -102,6 +102,17 @@ describe('TickerAddSubscriber: the roster’s states', () => {
   });
 });
 
+describe('TickerAddSubscriber: spacing (portal#2376)', () => {
+  it('the trailing regions cancel the space-y unit they would leave behind when empty and last', async () => {
+    const { root } = await mountAdd({ roster: ROSTER.failed });
+    expect(root.querySelector('[data-testid="ticker-roster-failed"]')!.closest('[role="status"]')!.className).toContain('last:empty:-mt-2');
+    const { root: ok } = await mountAdd();
+    const form = await openChooser(ok);
+    const regions = [...form.querySelectorAll<HTMLElement>('[role="status"]')];
+    expect(regions.at(-1)!.className).toContain('last:empty:-mt-2');
+  });
+});
+
 describe('TickerAddSubscriber: chooser → confirmation', () => {
   it('choosing a worker shows its Urn chip under the select (D5)', async () => {
     const { root } = await mountAdd();

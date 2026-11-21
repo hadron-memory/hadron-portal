@@ -95,7 +95,7 @@
   <!-- At section scope, after the chain (the list is never drawn while this note is, so it reads in the same place),
        not inside the ready branch: a switch from a failed or unavailable answer straight to
        a ready one with 'not available' would otherwise mount the region already holding its text. -->
-  <LiveRegion>
+  <LiveRegion class="last:empty:-mt-3">
     {#if register.kind !== 'unavailable' && register.kind !== 'options-failed' && register.index !== null && stale}
       <p class="text-sm text-zinc-500">{t('action-register.loading', 'Loading…')}</p>
     {:else if register.kind !== 'unavailable' && register.kind !== 'options-failed' && register.index && (register.index.kind === 'agent-not-found' || register.index.kind === 'app-not-found')}

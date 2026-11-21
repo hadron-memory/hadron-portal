@@ -160,6 +160,8 @@ describe('runs page: Agent picker (#1444)', () => {
     expect(alert?.closest('[role="status"]')).not.toBeNull();
     expect(alert?.textContent).toContain('Flows couldn’t load');
     expect(t.textContent).not.toContain('No flows on this page.');
+    // The section itself still mounts on a failed read with an empty list (it is the card the note belongs to).
+    expect([...t.querySelectorAll('h2')].some((h) => h.textContent?.trim() === 'Flows')).toBe(true);
   });
 
   it('shows no Flows failure when the read succeeded with no Flows (control)', async () => {

@@ -81,7 +81,7 @@
       >{t('flows.load-failed', 'Flows couldn’t load. Reload the page to try again.')}</p>
     {/if}
   </LiveRegion>
-  {#if data.flows.length > 0 || data.flowsPage.total > 0 || data.flowsPage.firstHref || data.flowsPage.previousHref}
+  {#if data.flowsError || data.flows.length > 0 || data.flowsPage.total > 0 || data.flowsPage.firstHref || data.flowsPage.previousHref}
     <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
       <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('flows.title', 'Flows')}</h2>
       <p class="mt-1 text-xs text-zinc-400">
