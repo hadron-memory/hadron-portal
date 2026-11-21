@@ -192,7 +192,7 @@
   let pendingDelete = $state<string | null>(null);
   let pendingLink = $state<string | null>(null);
   /** Last switch outcome, shown beside the row's actions. */
-  let linkNote = $state<{ id: string; text: string } | null>(null);
+  let linkNote = $state<{ id: string; text: string; warn: boolean } | null>(null);
 
   // `t()` resolves once, so a plain const is right here — a $derived would imply
   // runtime language switching the i18n boundary doesn't do, and rebuilding the
@@ -367,7 +367,9 @@
         ? t('assets.public-link.note.off', 'Public link turned off.')
         : updated.publicUrl
           ? t('assets.public-link.note.on', 'Public link turned on.')
-          : t('assets.public-link.note.on-no-url', 'Public link turned on, but the server has no link to show for it yet.'),
+          : t('assets.public-link.note.on-no-url', 'Public link turned on, but the server has no link to show for it yet. Reload this page to get it.'),
+      // On with no URL is not a clean success: it needs the reader's next step.
+      warn: updated.publicLinkEnabled && !updated.publicUrl,
     };
   }
 
@@ -532,7 +534,7 @@
             {#if copied === row.id}
               <span class="text-xs text-emerald-600 dark:text-emerald-400">{t('assets.copied', 'Copied')}</span>
             {:else if linkNote?.id === row.id}
-              <span class="text-xs text-emerald-600 dark:text-emerald-400">{linkNote.text}</span>
+              <span class="text-xs {linkNote.warn ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-600 dark:text-emerald-400'}">{linkNote.text}</span>
             {/if}
           </LiveRegion>
         </div>

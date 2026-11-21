@@ -249,6 +249,31 @@ describe('asset table: after the server answers', () => {
     expect(labels(menuItems(target))).not.toContain('Copy public link');
   });
 
+  // portal#1435 item 2: the no-URL note is not a success, so it is not success
+  // green, and it names what to do next.
+  it('the no-URL note is a warning with a next step, not success green', async () => {
+    stubFetch(() => ({ status: 200, body: asset({ publicLinkEnabled: true, publicUrl: null }) }));
+    const { target } = mountTable([asset()]);
+    pick(target, 'Turn on public link');
+    button(target, 'Turn on')!.click();
+    await settle();
+    const note = [...target.querySelectorAll('[role="status"] span')].find((e) => e.textContent?.includes('no link to show'));
+    expect(note, 'the note renders in a status region').toBeDefined();
+    expect(note!.className).not.toContain('emerald');
+    expect(note!.className).toContain('amber');
+    expect(note!.textContent).toContain('Reload this page');
+  });
+
+  it('a plain success note stays green', async () => {
+    stubFetch(() => ({ status: 200, body: switched(true) }));
+    const { target } = mountTable([asset()]);
+    pick(target, 'Turn on public link');
+    button(target, 'Turn on')!.click();
+    await settle();
+    const note = [...target.querySelectorAll('[role="status"] span')].find((e) => e.textContent === 'Public link turned on.');
+    expect(note?.className).toContain('emerald');
+  });
+
   it('a refusal shows fixed copy, never the server\'s prose, and keeps the prior state', async () => {
     stubFetch(() => ({ status: 403, body: { code: 'PERMISSION_DENIED', message: 'caller does not manage this asset\'s memory' } }));
     const { target } = mountTable([asset()]);
@@ -391,6 +416,20 @@ describe('node asset card', () => {
     expect(target.textContent).toContain('Public link turned on.');
     expect(target.querySelector('button[aria-label^="Copy public link"]')).not.toBeNull();
     expect(button(target, 'Turn off public link')).toBeDefined();
+  });
+
+  it('on with no URL to show the card note is a warning with a next step (#1435)', async () => {
+    stubFetch(() => ({ status: 200, body: asset({ publicLinkEnabled: true, publicUrl: null }) }));
+    const { target } = mountCard(asset());
+    button(target, 'Turn on public link')!.click();
+    flushSync();
+    button(target, 'Turn on')!.click();
+    await settle();
+    const note = [...target.querySelectorAll('[role="status"] p')].find((e) => e.textContent?.includes('no link to show'));
+    expect(note, 'the note renders in a status region').toBeDefined();
+    expect(note!.className).not.toContain('emerald');
+    expect(note!.className).toContain('amber');
+    expect(note!.textContent).toContain('Reload this page');
   });
 
   it('a refusal keeps the prior state and shows fixed copy', async () => {
