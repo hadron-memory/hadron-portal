@@ -57,11 +57,12 @@ const anchors = (page) => page.evaluate(() => {
   // contain `/tasks/` or `/runs/` must not be misread as an in-app link.
   const kind = (a) => {
     if (a.origin !== location.origin) return 'url'; // the external https anchors (pull request, receipt)
-    // The shared Urn resolver chip first, matched exactly (portal#1925). Then the two in-app links
+    // The shared Urn resolver chip first, matched as the whole resolver route `/app/u/<urn>` (one non-empty
+    // segment, portal#1925). Then the two in-app links
     // TaskHistory renders, each anchored to its whole shape (`${basePath}/runs/<id>`, `${basePath}/tasks/<ref>`),
     // not a substring: an unrelated path that merely contains `/runs/` must not count as a run. Any other
     // same-origin anchor is 'other', never silently exempted from the coarse 44px check as a chip.
-    if (a.pathname.startsWith('/app/u/hrn:')) return 'chip';
+    if (/^\/app\/u\/hrn:[^/]+$/.test(a.pathname)) return 'chip';
     if (/^\/app\/apps\/[^/]+\/runs\/[^/]+$/.test(a.pathname)) return 'run';
     if (/^\/app\/apps\/[^/]+\/tasks\/[^/]+$/.test(a.pathname)) return 'task';
     return 'other';
@@ -136,14 +137,15 @@ try {
         }, process.env.TH_EXTRA_ANCHOR);
       }
 
-      const o = await overflow(page);
-      assert.ok(o.history <= 0.5 && o.page <= 0.5, `${label}: overflows ${JSON.stringify(o)}`);
-
       const measured = await anchors(page);
       // portal#1925: every in-app anchor is a known kind. An unclassified one would skip the
-      // 44px check below, so it fails here, before any count or presence pin can be bumped past it.
+      // 44px check below, so it fails here, before the overflow gate or any count or presence pin
+      // (an injected anchor that overflowed would otherwise end the run for another reason).
       const other = measured.filter((a) => a.kind === 'other');
       assert.equal(other.length, 0, `${label}: unclassified in-app anchor(s) ${JSON.stringify(other)}`);
+
+      const o = await overflow(page);
+      assert.ok(o.history <= 0.5 && o.page <= 0.5, `${label}: overflows ${JSON.stringify(o)}`);
       // The fixture puts every anchor kind on the page; a missing kind means the
       // fixture and the component drifted apart.
       for (const kind of ['run', 'url', 'task', 'chip']) {
